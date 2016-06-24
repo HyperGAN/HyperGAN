@@ -1,4 +1,6 @@
 import tensorflow as tf
+import numpy as np
+from scipy.misc import imsave
 tensors = {}
 def set_tensor(name, tensor):
   tensors[name]=tensor

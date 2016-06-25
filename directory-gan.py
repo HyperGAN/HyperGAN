@@ -50,17 +50,20 @@ hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu, maxout, offse
 hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu, maxout, offset_maxout]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
-hc.set("e_last_layer", [tf.nn.tanh]);
+hc.set("e_last_layer", [lrelu]);
 
 hc.set('d_add_noise', [False,True])
 
-hc.set('g_batch_norm_last_layer', [False,True])
+hc.set('g_batch_norm_last_layer', [False])
 
-conv_g_layers = [[i*8, i*4, i*2] for i in [16,32]]
-conv_g_layers += [[i*16, i*8, i*4, i*2] for i in [8, 16]]
-conv_g_layers += [[i*16, i*8, i*4, i*2, i] for i in [4, 6, 8]]
+conv_g_layers = [[i*8, i*4, i*2] for i in list(np.arange(8,16))]
+conv_g_layers += [[i*16, i*8, i*4, i*2] for i in list(np.arange(4,8))]
+#conv_g_layers += [[i*16, i*8, i*4, i*2, i] for i in [4, 6, 8]]
 
-conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(2, 16))]
+conv_g_layers+=[[i*16,i*8] for i in list(np.arange(12, 16))]
+conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(8, 12))]
+conv_g_layers+=[[i*16,i*8, i*4, i*2] for i in list(np.arange(6, 10))]
+conv_g_layers+=[[i*16,i*8, i*4, i*2, i] for i in list(np.arange(4, 8))]
 
 
 #conv_g_layers = [[i*36, i*18, i*9, i*3] for i in list(np.arange(3, 5))]
@@ -73,7 +76,7 @@ conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(2, 16))]
 #
 #conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(2, 16))]
 #
-conv_d_layers = [[i, i*2, i*4, i*8, i*16] for i in list(np.arange(4, 32))] 
+conv_d_layers = [[i, i*2, i*4, i*8] for i in list(np.arange(16, 64))] 
 #conv_d_layers += [[i, i*2, i*4, i*8] for i in list(np.arange(16,32))] 
 #conv_d_layers += [[i, i*2, i*4, i*8, i*16] for i in [12, 16, 32, 64]] 
 #conv_d_layers = [[32, 32*2, 32*4],[32, 64, 64*2],[64,64*2], [16,16*2, 16*4], [16,16*2]]
@@ -119,7 +122,7 @@ hc.set("g_project", ['noise'])
 hc.set("d_project", ['zeros'])
 hc.set("e_project", ['zeros'])
 
-hc.set("v_train", ['both'])
+hc.set("v_train", ['both'])#,'generator','discriminator'])
 
 BATCH_SIZE=64
 hc.set("batch_size", BATCH_SIZE)

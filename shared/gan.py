@@ -217,7 +217,7 @@ def approximate_z(config, x, y):
     result = tf.reshape(result, [config["batch_size"], x_dims[0],x_dims[1],channels])
 
     if config['g_encode_layers']:
-        result = build_conv_tower(result, config['g_encode_layers'], config['e_conv_size'], config['batch_size'], config['d_batch_norm'], 'g_vae_', transfer_fct)
+        result = build_conv_tower(result, config['g_encode_layers'], config['e_conv_size'], config['batch_size'], config['d_batch_norm'], 'v_', transfer_fct)
 
     result = transfer_fct(result)
 
@@ -238,10 +238,10 @@ def approximate_z(config, x, y):
                            dtype=tf.float32)
 
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
-    z = batch_norm(config['batch_size'], name='v_e_z_bn')(z)
+    #z = batch_norm(config['batch_size'], name='v_e_z_bn')(z)
 
     #e_z = batch_norm(config['batch_size'], name='g_e_ez_bn')(e_z)
-    e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.square(sigma), dtype=tf.float32)
+    e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=tf.float32)
 
     if(config['e_last_layer']):
         z = config['e_last_layer'](z)
@@ -353,6 +353,8 @@ def create(config, x,y):
     v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
     if(config['v_train'] == 'generator'):
         g_vars += v_vars
+    elif(config['v_train'] == 'discriminator'):
+        d_vars += v_vars
     elif(config['v_train'] == 'both'):
         g_vars += v_vars
         d_vars += v_vars

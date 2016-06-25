@@ -50,7 +50,7 @@ hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu, maxout, offse
 hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu, maxout, offset_maxout]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
-hc.set("e_last_layer", [lrelu]);
+hc.set("e_last_layer", [tf.nn.tanh]);
 
 hc.set('d_add_noise', [False,True])
 

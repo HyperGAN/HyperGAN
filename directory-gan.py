@@ -321,7 +321,6 @@ for config in hc.configs(1):
         pass
     else:
         config['conv_g_layers'].append(channels)
-    config['d_linear_layer'] = True
     #config['conv_g_layers']=other_config['conv_g_layers']
     #config['conv_g_layers'].append(channels)
     config['examples_per_epoch']=examples_per_epoch

@@ -1,53 +1,32 @@
 
 from shared.ops import *
 from shared.util import *
+from shared.hc_tf import *
 import tensorflow as tf
 def generator(config, y,z, reuse=False):
     x_dims = config['x_dims']
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
-        z_proj_dims = int(config['conv_g_layers'][0])*2
-        z_dims = int(z.get_shape()[1])
-        print("z_proj_dims", z_proj_dims, z_dims, config['y_dims'])
-        noise_dims = z_proj_dims-z_dims-config['y_dims']
-        print(noise_dims)
-        if(noise_dims < 0):
-            result = tf.concat(1, [y, z])
-            result = linear(result, z_proj_dims, 'g_noise_proj')
-            if(config['g_batch_norm']):
-                result = batch_norm(config['batch_size'], name='g_noise_bn')(result)
-            result = config['g_activation'](result)
-        else:
-            noise = tf.random_uniform([config['batch_size'], noise_dims],-1, 1)
+        primes = find_smallest_prime(x_dims[0], x_dims[1])
+        z_proj_dims = int(config['conv_g_layers'][0])
 
-            if(config['g_project'] == 'noise'):
-                result = tf.concat(1, [y, z, noise])
-            elif(config['g_project'] == 'zeros'):
-                result = tf.concat(1, [y, z])
-                #result = z
-                result = tf.pad(result, [[0, 0],[noise_dims//2, noise_dims//2]])
-            else:
-                result = tf.concat(1, [y, z])
-                #result = z
-                result = linear(result, z_proj_dims, 'g_input_proj')
+        z_proj_dims = pad_input(primes, z_proj_dims, [y,z])
+        result = build_reshape(z_proj_dims, [y,z], config['g_project'], config['batch_size'])
+        result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims//(primes[0]*primes[1])])
 
         def build_layers(result, z_proj_dims, offset):
             if config['conv_g_layers']:
-                if(z_proj_dims % 16 == 0 and config['x_dims'][0]%4 == 0):
-                    result = tf.reshape(result, [config['batch_size'], 4,4,z_proj_dims//16])
-                elif(z_proj_dims % 36 == 0 and config['x_dims'][0]%6 == 0):
-                    result = tf.reshape(result, [config['batch_size'], 6,6,z_proj_dims//36])
-                else:
-                    print('z_proj dims not divisible by 4 or 8')
                 #result = tf.nn.dropout(result, 0.7)
                 for i, layer in enumerate(config['conv_g_layers']):
-                    j=int(result.get_shape()[1]*2)
-                    k=int(result.get_shape()[2]*2)
+                    j=int(result.get_shape()[1])*2
+                    k=int(result.get_shape()[2])*2
                     stride=2
-                    if(j > x_dims[0]):
+                    print(j, x_dims, k)
+                    if(j > x_dims[0] or k > x_dims[1]):
                         j = x_dims[0]
                         k = x_dims[1]
                         stride=1
+                    print("STRIDE< K<", stride, j,k)
                     output = [config['batch_size'], j,k,int(layer)]
                     result = deconv2d(result, output, name="g_conv_"+str(i+offset), k_w=config['conv_size'], k_h=config['conv_size'], d_h=stride, d_w=stride)
                     print("layers", config['conv_g_layers'], i, len(config['conv_g_layers']))
@@ -81,30 +60,12 @@ def discriminator(config, x, z,g,gz, reuse=False):
 
     channels = (config['channels']+1)
 
-    if(config['d_project'] == 'zeros'):
-        noise_dims = int(x.get_shape()[1])-int(z.get_shape()[1])
-        z = tf.pad(z, [[0, 0],[noise_dims//2, noise_dims//2]])
-        z = tf.reshape(z, [batch_size, int(x.get_shape()[1]), 1])
-        print("CONCAT", x.get_shape(), z.get_shape())
-        result = tf.concat(2, [x,z])
-    else:
-        x = tf.reshape(x, [batch_size, -1])
-        result = tf.concat(1, [z,x])
-        result = linear(result, x_dims[0]*x_dims[1]*channels, scope='d_z')
-        result = config['d_activation'](result)
+    result = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size)
+    result = tf.concat(1, [result, tf.reshape(x, [batch_size, -1])])
+    result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels])
 
     if config['conv_d_layers']:
-        result = tf.reshape(result, [batch_size, x_dims[0],x_dims[1],channels])
-        for i, layer in enumerate(config['conv_d_layers']):
-            filter = config['d_conv_size']
-            stride = 2
-            if(filter > result.get_shape()[1]):
-                filter = int(result.get_shape()[1])
-                stride = 1
-            result = conv2d(result, layer, name='d_conv'+str(i), k_w=filter, k_h=filter, d_h=stride, d_w=stride)
-            if(config['d_batch_norm']):
-                result = batch_norm(batch_size, name='d_conv_bn_'+str(i))(result)
-            result = config['d_activation'](result)
+        result = build_conv_tower(result, config['conv_d_layers'], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], 'd_', config['d_activation'])
         result = tf.reshape(x, [batch_size, -1])
 
     def get_minibatch_features(h):
@@ -181,6 +142,9 @@ def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, nam
         stride = 2
         if filter > result.get_shape()[2]:
             filter = int(result.get_shape()[2])
+            stride = 1
+        if filter > result.get_shape()[3]:
+            filter = int(result.get_shape()[3])
             stride = 1
         result = conv2d(result, layer, name=name+str(i), k_w=filter, k_h=filter, d_h=stride, d_w=stride)
         if(batch_norm_enabled):

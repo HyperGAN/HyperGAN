@@ -14,33 +14,8 @@ def generator(config, y,z, reuse=False):
         result = build_reshape(z_proj_dims, [y,z], config['g_project'], config['batch_size'])
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims//(primes[0]*primes[1])])
 
-        def build_layers(result, z_proj_dims, offset):
-            if config['conv_g_layers']:
-                #result = tf.nn.dropout(result, 0.7)
-                for i, layer in enumerate(config['conv_g_layers']):
-                    j=int(result.get_shape()[1])*2
-                    k=int(result.get_shape()[2])*2
-                    stride=2
-                    print(j, x_dims, k)
-                    if(j > x_dims[0] or k > x_dims[1]):
-                        j = x_dims[0]
-                        k = x_dims[1]
-                        stride=1
-                    print("STRIDE< K<", stride, j,k)
-                    output = [config['batch_size'], j,k,int(layer)]
-                    result = deconv2d(result, output, name="g_conv_"+str(i+offset), k_w=config['conv_size'], k_h=config['conv_size'], d_h=stride, d_w=stride)
-                    print("layers", config['conv_g_layers'], i, len(config['conv_g_layers']))
-                    if(len(config['conv_g_layers']) == i+1):
-                        print("Skipping last layer")
-                        if(config['g_batch_norm_last_layer']):
-                            result = batch_norm(config['batch_size'], name='g_conv_bn_'+str(i+offset))(result)
-                    else:
-                        print("Adding nonlinear")
-                        if(config['g_batch_norm']):
-                            result = batch_norm(config['batch_size'], name='g_conv_bn_'+str(i+offset))(result)
-                        result = config['g_activation'](result)
-                return result
-        result = build_layers(result, z_proj_dims, 0)
+        if config['conv_g_layers']:
+            result = build_deconv_tower(result, config['conv_g_layers'], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'])
 
         if(config['g_last_layer']):
             result = config['g_last_layer'](result)
@@ -135,48 +110,17 @@ def discriminator(config, x, z,g,gz, reuse=False):
                 last_layer]
 
 
-def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, name, activation):
-    for i, layer in enumerate(layers):
-        print('-!-', result, tf.reshape(result, [batch_size, -1]))
-        print(layer)
-        stride = 2
-        if filter > result.get_shape()[2]:
-            filter = int(result.get_shape()[2])
-            stride = 1
-        if filter > result.get_shape()[3]:
-            filter = int(result.get_shape()[3])
-            stride = 1
-        result = conv2d(result, layer, name=name+str(i), k_w=filter, k_h=filter, d_h=stride, d_w=stride)
-        if(batch_norm_enabled):
-            result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
-        if(len(layers) == i+1):
-            print("Skipping last layer")
-        else:
-            print("Adding nonlinear")
-            result = activation(result)
-        print(tf.reshape(result, [batch_size, -1]))
-    result = tf.reshape(result, [batch_size, -1])
-    return result
-
-
 def approximate_z(config, x, y):
     x_dims = config['x_dims']
+    batch_size = config["batch_size"]
     transfer_fct = config['transfer_fct']
     x = tf.reshape(x, [config["batch_size"], -1,config['channels']])
     noise_dims = int(x.get_shape()[1])-int(y.get_shape()[1])
-    n_hidden_recog_1 = int(config['n_hidden_recog_1'])
-    n_hidden_recog_2 = int(config['n_hidden_recog_2'])
     n_z = int(config['z_dim'])
     channels = (config['channels']+1)
-    if(config['e_project'] == 'zeros'):
-        noise_dims = int(x.get_shape()[1])-config['y_dims']
-        #y = tf.pad(y, [[0, 0],[noise_dims//2, noise_dims//2]])
-        noise = tf.zeros([config['batch_size'], noise_dims])
-        result = tf.concat(1, [tf.reshape(x, [config['batch_size'], -1]), y, noise])
-        #y = tf.reshape(y, [config['batch_size'], int(x.get_shape()[1]), 1])
-    #result = tf.concat(2, [x,y])
-    print(result)
-    print(x_dims)
+
+    result = build_reshape(int(x.get_shape()[1]), [y], config['d_project'], batch_size)
+    result = tf.concat(1, [result, tf.reshape(x, [batch_size, -1])])
 
     result = tf.reshape(result, [config["batch_size"], x_dims[0],x_dims[1],channels])
 
@@ -193,18 +137,11 @@ def approximate_z(config, x, y):
     b_out_log_sigma= tf.get_variable('v_b_out_log_sigma', initializer=tf.zeros([n_z], dtype=tf.float32))
     sigma = tf.add(tf.matmul(result, out_log_sigma),b_out_log_sigma)
 
-    #e_projected_z=tf.get_variable('g_encoded_z', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
-    #b_encoded_z= tf.get_variable('g_b_encoded_z', initializer=tf.zeros([n_z], dtype=tf.float32))
-    #e_z = tf.add(tf.matmul(result, e_projected_z),b_encoded_z)
-
-    n_z = int(config["z_dim"])
     eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
                            dtype=tf.float32)
 
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
-    #z = batch_norm(config['batch_size'], name='v_e_z_bn')(z)
 
-    #e_z = batch_norm(config['batch_size'], name='g_e_ez_bn')(e_z)
     e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=tf.float32)
 
     if(config['e_last_layer']):
@@ -225,7 +162,6 @@ def sigmoid_kl_with_logits(logits, targets):
 
 def create(config, x,y):
     batch_size = config["batch_size"]
-    print(y)
 
     #x = x/tf.reduce_max(tf.abs(x), 0)
     encoded_z, z, z_mu, z_sigma = approximate_z(config, x, y)

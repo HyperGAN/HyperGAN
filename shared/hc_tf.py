@@ -48,3 +48,47 @@ def find_smallest_prime(x, y):
             if(x % (i) == 0 and y % (j) == 0 and x // i == y // j):
                 return i,j
     return None,None
+
+def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, name, activation):
+    for i, layer in enumerate(layers):
+        print('-!-', result, tf.reshape(result, [batch_size, -1]))
+        print(layer)
+        stride = 2
+        if filter > result.get_shape()[2]:
+            filter = int(result.get_shape()[2])
+            stride = 1
+        if filter > result.get_shape()[3]:
+            filter = int(result.get_shape()[3])
+            stride = 1
+        result = conv2d(result, layer, name=name+str(i), k_w=filter, k_h=filter, d_h=stride, d_w=stride)
+        if(batch_norm_enabled):
+            result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
+        if(len(layers) == i+1):
+            print("Skipping last layer")
+        else:
+            print("Adding nonlinear")
+            result = activation(result)
+        print(tf.reshape(result, [batch_size, -1]))
+    result = tf.reshape(result, [batch_size, -1])
+    return result
+
+def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_norm_enabled, batch_norm_last_layer, batch_size):
+    for i, layer in enumerate(layers):
+        j=int(result.get_shape()[1])*2
+        k=int(result.get_shape()[2])*2
+        stride=2
+        if(j > dims[0] or k > dims[1]):
+            j = dims[0]
+            k = dims[1]
+            stride=1
+        output = [batch_size, j,k,int(layer)]
+        result = deconv2d(result, output, name=name+str(i), k_w=conv_size, k_h=conv_size, d_h=stride, d_w=stride)
+        if(len(layers) == i+1):
+            if(batch_norm_last_layer):
+                result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
+        else:
+            if(batch_norm_enabled):
+                result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
+            result = activation(result)
+    return result
+

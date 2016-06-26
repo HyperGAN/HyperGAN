@@ -40,7 +40,7 @@ def discriminator(config, x, z,g,gz, reuse=False):
     result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels])
 
     if config['conv_d_layers']:
-        result = build_conv_tower(result, config['conv_d_layers'], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], 'd_', config['d_activation'])
+        result = build_conv_tower(result, config['conv_d_layers'], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_', config['d_activation'])
         result = tf.reshape(x, [batch_size, -1])
 
     def get_minibatch_features(h):
@@ -125,7 +125,14 @@ def approximate_z(config, x, y):
     result = tf.reshape(result, [config["batch_size"], x_dims[0],x_dims[1],channels])
 
     if config['g_encode_layers']:
-        result = build_conv_tower(result, config['g_encode_layers'], config['e_conv_size'], config['batch_size'], config['d_batch_norm'], 'v_', transfer_fct)
+        result = build_conv_tower(result, 
+                    config['g_encode_layers'], 
+                    config['e_conv_size'], 
+                    config['batch_size'], 
+                    config['e_batch_norm'], 
+                    config['e_batch_norm_last_layer'], 
+                    'v_', 
+                    transfer_fct)
 
     result = transfer_fct(result)
 

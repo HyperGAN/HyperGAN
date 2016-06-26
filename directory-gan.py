@@ -87,16 +87,17 @@ hc.set("e_conv_size", [3])
 hc.set("conv_g_layers", conv_g_layers)
 hc.set("conv_d_layers", conv_d_layers)
 
-g_encode_layers = conv_d_layers#[[i, i*2, i*4, i*8] for i in list(np.arange(8, 32))] 
+g_encode_layers = [[i, i*2, i*4, i*8] for i in list(np.arange(8, 32))] 
 hc.set("g_encode_layers", g_encode_layers)
 
-hc.set("z_dim", list(np.arange(2,300)))
+hc.set("z_dim", list(np.arange(32,256)))
 
 hc.set("regularize", [False, True])
 hc.set("regularize_lambda", list(np.linspace(0.0001, 1, num=30)))
 
 hc.set("g_batch_norm", [True])
 hc.set("d_batch_norm", [True])
+hc.set("e_batch_norm", [True])
 
 hc.set("g_encoder", [True])
 
@@ -298,7 +299,6 @@ for config in hc.configs(1):
     #config['last_layer']=get_function(config['last_layer'])
     config['g_last_layer']=get_function(config['g_last_layer'])
     config['e_last_layer']=get_function(config['e_last_layer'])
-    config['g_project']='zeros'
     #config['g_encode_layers']=other_config['g_encode_layers']
     #config['e_conv_size']=other_config['e_conv_size']
     #config['conv_size']=other_config['conv_size']

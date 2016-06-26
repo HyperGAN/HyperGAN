@@ -15,7 +15,7 @@ def generator(config, y,z, reuse=False):
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims//(primes[0]*primes[1])])
 
         if config['conv_g_layers']:
-            result = build_deconv_tower(result, config['conv_g_layers'], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'])
+            result = build_deconv_tower(result, config['conv_g_layers'], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
 
         if(config['g_last_layer']):
             result = config['g_last_layer'](result)
@@ -140,8 +140,8 @@ def approximate_z(config, x, y):
     out_mean= tf.get_variable('v_out_mean', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
     mu = tf.add(tf.matmul(result, out_mean),b_out_mean)
 
-    out_log_sigma=tf.get_variable('v_out_log_sigma', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
-    b_out_log_sigma= tf.get_variable('v_b_out_log_sigma', initializer=tf.zeros([n_z], dtype=tf.float32))
+    out_log_sigma=tf.get_variable('v_out_logsigma', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
+    b_out_log_sigma= tf.get_variable('v_b_out_logsigma', initializer=tf.zeros([n_z], dtype=tf.float32))
     sigma = tf.add(tf.matmul(result, out_log_sigma),b_out_log_sigma)
 
     eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
@@ -271,6 +271,18 @@ def create(config, x,y):
     d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
 
     mse_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(mse_loss, var_list=tf.trainable_variables())
+
+    summary = tf.all_variables()
+    def summary_reduce(s):
+        if(len(s.get_shape())==0):
+            return s
+        while(len(s.get_shape())>1):
+            s=tf.reduce_mean(s,1)
+            s=tf.squeeze(s)
+        return tf.reduce_mean(s,0)
+
+    summary = [(s.get_shape(), s.name, s.dtype, summary_reduce(s)) for s in summary]
+    set_tensor("hc_summary",summary)
 
     set_tensor("x", x)
     set_tensor("y", y)

@@ -51,10 +51,12 @@ hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu, maxout, offse
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
+hc.set('d_add_noise', [True])
 
-hc.set('d_add_noise', [False,True])
-
+hc.set('g_last_layer_stddev', np.linspace(0.15,1,num=40))
 hc.set('g_batch_norm_last_layer', [False])
+hc.set('d_batch_norm_last_layer', [True])
+hc.set('e_batch_norm_last_layer', [False])
 
 conv_g_layers = [[i*8, i*4, i*2] for i in list(np.arange(8,16))]
 conv_g_layers += [[i*16, i*8, i*4, i*2] for i in list(np.arange(4,8))]
@@ -65,6 +67,8 @@ conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(8, 12))]
 conv_g_layers+=[[i*16,i*8, i*4, i*2] for i in list(np.arange(6, 10))]
 conv_g_layers+=[[i*16,i*8, i*4, i*2, i] for i in list(np.arange(4, 8))]
 
+conv_g_layers = build_deconv_config(layers=5, start=8, end=16)
+print(conv_g_layers)
 
 #conv_g_layers = [[i*36, i*18, i*9, i*3] for i in list(np.arange(3, 5))]
 #conv_g_layers += [[i*36, i*9, i*3] for i in list(np.arange(1, 8))]
@@ -223,6 +227,7 @@ def test_epoch(epoch, j, sess, config):
         j+=1
     print("Creating sample")
     measurements = collect_measurements(epoch, sess, config)
+    measurements.update(get_graph_vars(sess, tf.get_default_graph()))
     hc.io.sample(config, sample_list, measurements)
     return j
 

@@ -1,4 +1,5 @@
 from shared.ops import *
+from shared.util import *
 
 #hc_tf.config.optimizer(["adam"], lr=[1e-3,1e-5])
 #hc_tf.config.deconv
@@ -14,7 +15,7 @@ def build_reshape(output_size, nodes, method, batch_size):
     node_size = sum([int(x.get_shape()[1]) for x in nodes])
     dims = output_size-node_size
     if(method == 'noise'):
-        noise = tf.random_uniform([batch_size, noise_dims],-1, 1)
+        noise = tf.random_uniform([batch_size, dims],-1, 1)
         result = tf.concat(1, nodes+[noise])
     elif(method == 'zeros'):
         result = tf.concat(1, nodes)
@@ -38,21 +39,17 @@ def pad_input(primes, output_size, nodes):
         dims += prime
     if(dims % (prime) != 0):
         dims += (prime-(dims % (prime)))
-    print('dims', dims % (prime))
     return dims
 
 def find_smallest_prime(x, y):
     for i in range(3,x-1):
         for j in range(3, y-1):
-            print(i,j,x,y)
             if(x % (i) == 0 and y % (j) == 0 and x // i == y // j):
                 return i,j
     return None,None
 
 def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, batch_norm_last_layer, name, activation):
     for i, layer in enumerate(layers):
-        print('-!-', result, tf.reshape(result, [batch_size, -1]))
-        print(layer)
         stride = 2
         if filter > result.get_shape()[2]:
             filter = int(result.get_shape()[2])
@@ -98,3 +95,38 @@ def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_
             result = activation(result)
     return result
 
+
+def build_deconv_config(layers,start, end):
+    def get_layer(layer, i):
+        reverse = 2**(layers-layer+1)
+        noise = int(np.random.uniform(-1,1)*10)
+        print('--', 2**(layer), reverse, noise, reverse+noise)
+
+        result = reverse
+        if(result < 3): 
+            result = 3
+        if(reverse+noise > 3):
+            result = reverse+noise
+        return result
+    def get_option(i):
+        return [get_layer(layer, i) for layer in range(layers)]
+    return [get_option(i) for i in np.arange(start, end)]
+
+
+def get_graph_vars(sess, graph):
+
+    summary = get_tensor("hc_summary")
+    all_vars = sess.run([s[3] for s in summary])
+    i=0
+    retv = {'weights':{}}
+    for shape, name, dtype, _ in summary:
+        data=all_vars[i]
+        retv['weights'][name]={
+                'shape':[int(s) for s in shape],
+                'name':name,
+                'dtype':str(dtype),
+                'value':str(data)
+                }
+        i+=1
+        
+    return retv

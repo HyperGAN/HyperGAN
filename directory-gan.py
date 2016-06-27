@@ -3,9 +3,10 @@ from shared.ops import *
 from shared.util import *
 from shared.gan import *
 from shared.gan import *
-from shared.gan import *
+import shared.hc_tf as hc_tf
 import shared
 import json
+import uuid
 
 import shared.data_loader
 import os
@@ -34,12 +35,13 @@ parser.add_argument('--crop', type=bool, default=True)
 
 parser.add_argument('--width', type=int, default=64)
 parser.add_argument('--height', type=int, default=64)
+parser.add_argument('--batch', type=int, default=64)
 
 args = parser.parse_args()
-start=.0001
-end=.0009
+start=.000001
+end=.0005
 
-num=1000
+num=100
 hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
 hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
 
@@ -53,34 +55,36 @@ hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [True])
 
-hc.set('g_last_layer_stddev', np.linspace(0.15,1,num=40))
-hc.set('g_batch_norm_last_layer', [False])
+hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
+hc.set('g_batch_norm_last_layer', [True])
 hc.set('d_batch_norm_last_layer', [True])
 hc.set('e_batch_norm_last_layer', [False])
 
-conv_g_layers = [[i*8, i*4, i*2] for i in list(np.arange(8,16))]
-conv_g_layers += [[i*16, i*8, i*4, i*2] for i in list(np.arange(4,8))]
+#conv_g_layers = [[i*8, i*4, i*2] for i in list(np.arange(24,32))]
+#conv_g_layers += [[i*16, i*8, i*4, i*2] for i in list(np.arange(8,16))]
 #conv_g_layers += [[i*16, i*8, i*4, i*2, i] for i in [4, 6, 8]]
 
-conv_g_layers+=[[i*16,i*8] for i in list(np.arange(12, 16))]
-conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(8, 12))]
-conv_g_layers+=[[i*16,i*8, i*4, i*2] for i in list(np.arange(6, 10))]
-conv_g_layers+=[[i*16,i*8, i*4, i*2, i] for i in list(np.arange(4, 8))]
+#conv_g_layers+=[[i*16,i*8] for i in list(np.arange(12, 16))]
+#conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(8, 12))]
+#conv_g_layers+=[[i*16,i*8, i*4, i*2] for i in list(np.arange(6, 10))]
+#conv_g_layers+=[[i*16,i*8, i*4, i*2, i] for i in list(np.arange(4, 8))]
 
-conv_g_layers = build_deconv_config(layers=5, start=8, end=16)
-print(conv_g_layers)
+conv_g_layers = build_deconv_config(layers=4, start=3, end=6)
+print('conv_g_layers', conv_g_layers)
 
+#conv_g_layers = [[i*36, i*18, i*9, i*3, i] for i in list(np.arange(3, 5))]
 #conv_g_layers = [[i*36, i*18, i*9, i*3] for i in list(np.arange(3, 5))]
-#conv_g_layers += [[i*36, i*9, i*3] for i in list(np.arange(1, 8))]
-#conv_g_layers += [[i*36, i*18, i*9] for i in list(np.arange(1, 8))]
-#conv_g_layers += [[i*36, i*18] for i in list(np.arange(1, 8))]
-#conv_g_layers += [[i*36, i*3] for i in list(np.arange(1, 8))]
+#conv_g_layers += [[i*36, i*9, i*3] for i in list(np.arange(3, 8))]
+#conv_g_layers += [[i*36, i*18, i*9] for i in list(np.arange(3, 8))]
+#conv_g_layers += [[i*36, i*18] for i in list(np.arange(3, 8))]
+#conv_g_layers += [[i*36, i*3] for i in list(np.arange(3, 8))]
 #conv_g_layers += [[i*16, i*8, i*4, i*2] for i in [8, 16]]
 #conv_g_layers += [[i*16, i*8, i*4, i*2, i] for i in [4, 6, 8]]
 #
 #conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(2, 16))]
 #
-conv_d_layers = [[i, i*2, i*4, i*8] for i in list(np.arange(16, 64))] 
+conv_d_layers = build_conv_config(4, 1, 4)
+print('conv_d_layers', conv_d_layers)
 #conv_d_layers += [[i, i*2, i*4, i*8] for i in list(np.arange(16,32))] 
 #conv_d_layers += [[i, i*2, i*4, i*8, i*16] for i in [12, 16, 32, 64]] 
 #conv_d_layers = [[32, 32*2, 32*4],[32, 64, 64*2],[64,64*2], [16,16*2, 16*4], [16,16*2]]
@@ -91,15 +95,14 @@ hc.set("e_conv_size", [3])
 hc.set("conv_g_layers", conv_g_layers)
 hc.set("conv_d_layers", conv_d_layers)
 
-g_encode_layers = [[i, i*2, i*4, i*8] for i in list(np.arange(8, 32))] 
+g_encode_layers = build_conv_config(4, 1, 4)
 hc.set("g_encode_layers", g_encode_layers)
-
 hc.set("z_dim", list(np.arange(32,256)))
 
 hc.set("regularize", [False, True])
 hc.set("regularize_lambda", list(np.linspace(0.0001, 1, num=30)))
 
-hc.set("g_batch_norm", [True])
+hc.set("g_batch_norm", [False])
 hc.set("d_batch_norm", [True])
 hc.set("e_batch_norm", [True])
 
@@ -116,25 +119,23 @@ hc.set("d_kernel_dims", list(np.arange(200, 400)))
 
 hc.set("loss", ['custom'])
 
-hc.set("mse_loss", [False, True])
+hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(1, 20, num=30)))
 
-hc.set("latent_loss", [False, True])
+hc.set("latent_loss", [True])
 hc.set("latent_lambda", list(np.linspace(0.01, .5, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
-hc.set("g_project", ['noise'])
-hc.set("d_project", ['zeros'])
-hc.set("e_project", ['zeros'])
+hc.set("g_project", ['tiled'])
+hc.set("d_project", ['tiled'])
+hc.set("e_project", ['tiled'])
 
-hc.set("v_train", ['both'])#,'generator','discriminator'])
+hc.set("v_train", ['both'])
 
-BATCH_SIZE=64
-hc.set("batch_size", BATCH_SIZE)
-hc.set("model", "martyn/fonts:0.2")
+hc.set("batch_size", args.batch)
+hc.set("model", "martyn/dogs:0.2")
 hc.set("version", "0.0.1")
 hc.set("machine", "martyn")
-
 
 def sample_input(sess, config):
     x = get_tensor("x")

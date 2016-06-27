@@ -17,6 +17,19 @@ def build_reshape(output_size, nodes, method, batch_size):
     if(method == 'noise'):
         noise = tf.random_uniform([batch_size, dims],-1, 1)
         result = tf.concat(1, nodes+[noise])
+    elif(method == 'tiled'):
+        t_nodes = tf.concat(1, nodes)
+        dims =  int(t_nodes.get_shape()[1])
+        result= tf.tile(t_nodes,[1, output_size//dims])
+        print("TILED", t_nodes, result, output_size//dims, output_size, dims)
+        width = output_size - int(result.get_shape()[1])
+        if(width > 0):
+            print("WIDTH is ", width)
+            #zeros = tf.zeros([batch_size, width])
+            slice = tf.slice(result, [0,0],[batch_size,width])
+            result = tf.concat(1, [result, slice])
+
+
     elif(method == 'zeros'):
         result = tf.concat(1, nodes)
         result = tf.pad(result, [[0, 0],[dims//2, dims//2]])
@@ -67,19 +80,19 @@ def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, bat
             if(batch_norm_enabled):
                 result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
             result = activation(result)
-        print(tf.reshape(result, [batch_size, -1]))
     result = tf.reshape(result, [batch_size, -1])
     return result
 
-def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_norm_enabled, batch_norm_last_layer, batch_size):
+def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_norm_enabled, batch_norm_last_layer, batch_size,last_layer_stddev):
     for i, layer in enumerate(layers):
         j=int(result.get_shape()[1])*2
         k=int(result.get_shape()[2])*2
         stride=2
-        if(j > dims[0] or k > dims[1]):
+        if(j > dims[0] or k > dims[1] ):
             j = dims[0]
             k = dims[1]
             stride=1
+
         output = [batch_size, j,k,int(layer)]
         stddev = 0.002
         if(len(layers) == i+1):
@@ -96,10 +109,27 @@ def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_
     return result
 
 
+def build_conv_config(layers, start, end):
+    def get_layer(layer, i):
+        reverse = 2**(layer+1)*i
+        noise = int(np.random.uniform(-1,1)*10)*i
+        print('--', 2**(layer+1), reverse, noise, reverse+noise)
+
+        result = reverse
+        if(result < 3): 
+            result = 3
+        if(reverse+noise > 3):
+            result = reverse+noise
+        return result
+    def get_option(i):
+        return [get_layer(layer, i) for layer in range(layers)]
+    return [get_option(i) for i in np.arange(start, end)]
+
+
 def build_deconv_config(layers,start, end):
     def get_layer(layer, i):
-        reverse = 2**(layers-layer+1)
-        noise = int(np.random.uniform(-1,1)*10)
+        reverse = 2**(layers-layer+1)*i
+        noise = int(np.random.uniform(-1,1)*10)*i
         print('--', 2**(layer), reverse, noise, reverse+noise)
 
         result = reverse

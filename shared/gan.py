@@ -11,7 +11,12 @@ def generator(config, y,z, reuse=False):
         z_proj_dims = int(config['conv_g_layers'][0])
 
         z_proj_dims = pad_input(primes, z_proj_dims, [y,z])
-        result = build_reshape(z_proj_dims, [y,z], config['g_project'], config['batch_size'])
+        result = tf.concat(1, [y,z])
+        result = linear(result, result.get_shape()[1], scope="g_lin_proj")
+        result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
+        result = config['g_activation'](result)
+
+        result = build_reshape(z_proj_dims, [result], config['g_project'], config['batch_size'])
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims//(primes[0]*primes[1])])
 
         if config['conv_g_layers']:
@@ -36,7 +41,8 @@ def discriminator(config, x, z,g,gz, reuse=False):
     channels = (config['channels']+1)
 
     result = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size)
-    result = tf.concat(1, [result, tf.reshape(x, [batch_size, -1])])
+    result = tf.reshape(result, [batch_size, -1, 1])
+    result = tf.concat(2, [result, tf.reshape(x, [batch_size, -1, channels-1])])
     result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels])
 
     if config['conv_d_layers']:
@@ -120,7 +126,8 @@ def approximate_z(config, x, y):
     channels = (config['channels']+1)
 
     result = build_reshape(int(x.get_shape()[1]), [y], config['d_project'], batch_size)
-    result = tf.concat(1, [result, tf.reshape(x, [batch_size, -1])])
+    result = tf.reshape(result, [batch_size, -1, 1])
+    result = tf.concat(2, [result, x])
 
     result = tf.reshape(result, [config["batch_size"], x_dims[0],x_dims[1],channels])
 

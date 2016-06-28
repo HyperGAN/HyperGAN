@@ -24,7 +24,6 @@ def build_reshape(output_size, nodes, method, batch_size):
         print("TILED", t_nodes, result, output_size//dims, output_size, dims)
         width = output_size - int(result.get_shape()[1])
         if(width > 0):
-            print("WIDTH is ", width)
             #zeros = tf.zeros([batch_size, width])
             slice = tf.slice(result, [0,0],[batch_size,width])
             result = tf.concat(1, [result, slice])

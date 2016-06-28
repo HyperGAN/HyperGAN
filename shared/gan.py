@@ -186,12 +186,15 @@ def categories_loss(categories, layer, batch_size):
     size = int(category.get_shape()[1])
     #TOdO compute loss
     category_prior = tf.ones([batch_size, size])*np.float32(1./size)
-    logli_prior = tf.reduce_sum(tf.log(category_prior + TINY) * category, reduction_indices=1)
+    logli_prior = tf.reduce_sum(-tf.log(category_prior + TINY) * category, reduction_indices=1)
     layer_softmax = tf.nn.softmax(layer)
-    logli = tf.reduce_sum(tf.log(layer_softmax+TINY)*category, reduction_indices=1)
-    disc_ent = tf.log(logli_prior)
-    disc_cross_ent = tf.log(logli)
-    loss = -(tf.reduce_mean(-disc_ent) - tf.reduce_mean(-disc_cross_ent))
+    logli = tf.reduce_sum(-tf.log(layer_softmax+TINY)*category, reduction_indices=1)
+    disc_ent = tf.log(logli_prior+TINY)
+    disc_cross_ent = tf.log(logli+TINY)
+
+    disc_ent_loss=tf.reduce_mean(-disc_ent)
+    disc_cross_ent_loss= tf.reduce_mean(-disc_cross_ent)
+    loss = disc_ent_loss - disc_cross_ent_loss
     return loss
 
 def random_category(batch_size, size):
@@ -205,7 +208,7 @@ def create(config, x,y):
 
     #x = x/tf.reduce_max(tf.abs(x), 0)
     categories = [random_category(config['batch_size'], size) for size in config['categories']]
-    encoded_z, z, z_mu, z_sigma = approximate_z(config, x, [y]+categories)
+    encoded_z, z, z_mu, z_sigma, e_last_layer = approximate_z(config, x, [y]+categories)
 
 
     print("Build generator")
@@ -266,7 +269,8 @@ def create(config, x,y):
     else:
         g_loss = tf.reduce_mean(g_loss)+tf.reduce_mean(g_class_loss)+tf.reduce_mean(g_loss_fake)
     d_loss = tf.reduce_mean(d_fake_loss) + tf.reduce_mean(d_real_loss) + \
-            tf.reduce_mean(d_class_loss)+tf.reduce_mean(d_fake_class_loss)
+            tf.reduce_mean(d_class_loss)+tf.reduce_mean(d_fake_class_loss) + \
+            tf.reduce_mean(latent_loss)
     print('d_loss', d_loss.get_shape())
 
 
@@ -275,8 +279,8 @@ def create(config, x,y):
         category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories')
         category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
         category_layer = config['g_activation'](category_layer)
-        g_loss += config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
-        d_loss += config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
+        g_loss -= config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
+        d_loss -= config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
 
     if config['regularize']:
         ws = None

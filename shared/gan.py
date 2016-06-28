@@ -164,10 +164,12 @@ def approximate_z(config, x, y):
 
     e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=tf.float32)
 
+    last_layer = e_z
+
     if(config['e_last_layer']):
         z = config['e_last_layer'](z)
         e_z = config['e_last_layer'](e_z)
-    return e_z, z, mu, sigma
+    return e_z, z, mu, sigma, last_layer
 def sigmoid_kl_with_logits(logits, targets):
     print(targets)
     # broadcasts the same target value across the whole batch

@@ -37,6 +37,7 @@ parser.add_argument('--width', type=int, default=64)
 parser.add_argument('--height', type=int, default=64)
 parser.add_argument('--batch', type=int, default=64)
 parser.add_argument('--format', type=str, default='png')
+parser.add_argument('--test', type=bool, default=False)
 
 args = parser.parse_args()
 start=.000001
@@ -62,9 +63,13 @@ hc.set('d_batch_norm_last_layer', [True])
 hc.set('e_batch_norm_last_layer', [False])
 
 conv_g_layers = build_deconv_config(layers=5, start=1, end=4)
+if(args.test):
+    conv_g_layers = [[10, 3, 3]]
 print('conv_g_layers', conv_g_layers)
 
 conv_d_layers = build_conv_config(5, 2, 3)
+if(args.test):
+    conv_d_layers = [[10, 3, 3]]
 print('conv_d_layers', conv_d_layers)
 
 hc.set("conv_size", [5])
@@ -74,6 +79,8 @@ hc.set("conv_g_layers", conv_g_layers)
 hc.set("conv_d_layers", conv_d_layers)
 
 g_encode_layers = build_conv_config(4, 2, 3)
+if(args.test):
+    g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 

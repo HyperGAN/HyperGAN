@@ -41,12 +41,12 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   # Crop the central [height, width] of the image.
   if(crop):
       resized_image = shared.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
-                                                         width, height, dynamic_shape=True)
+                                                         height, width, dynamic_shape=True)
   else:
       resized_image = reshaped_image
 
   #resized_image = reshaped_image
-  tf.Tensor.set_shape(resized_image, [width,height,channels])
+  tf.Tensor.set_shape(resized_image, [height,width,channels])
   print(resized_image)
   #resized_image = tf.image.convert_image_dtype(resized_image, tf.float32)
   # Subtract off the mean and divide by the variance of the pixels.

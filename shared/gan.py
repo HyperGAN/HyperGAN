@@ -12,11 +12,10 @@ def generator(config, y,z, reuse=False):
 
         z_proj_dims = pad_input(primes, z_proj_dims, [y,z])
         result = tf.concat(1, [y,z])
-        result = linear(result, result.get_shape()[1], scope="g_lin_proj")
+        result = linear(result, z_proj_dims, scope="g_lin_proj")
         result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
         result = config['g_activation'](result)
 
-        result = build_reshape(z_proj_dims, [result], config['g_project'], config['batch_size'])
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims//(primes[0]*primes[1])])
 
         if config['conv_g_layers']:

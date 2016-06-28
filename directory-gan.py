@@ -36,6 +36,7 @@ parser.add_argument('--crop', type=bool, default=True)
 parser.add_argument('--width', type=int, default=64)
 parser.add_argument('--height', type=int, default=64)
 parser.add_argument('--batch', type=int, default=64)
+parser.add_argument('--format', type=str, default='png')
 
 args = parser.parse_args()
 start=.000001
@@ -56,38 +57,15 @@ hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [True])
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
-hc.set('g_batch_norm_last_layer', [True])
+hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [True])
 hc.set('e_batch_norm_last_layer', [False])
 
-#conv_g_layers = [[i*8, i*4, i*2] for i in list(np.arange(24,32))]
-#conv_g_layers += [[i*16, i*8, i*4, i*2] for i in list(np.arange(8,16))]
-#conv_g_layers += [[i*16, i*8, i*4, i*2, i] for i in [4, 6, 8]]
-
-#conv_g_layers+=[[i*16,i*8] for i in list(np.arange(12, 16))]
-#conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(8, 12))]
-#conv_g_layers+=[[i*16,i*8, i*4, i*2] for i in list(np.arange(6, 10))]
-#conv_g_layers+=[[i*16,i*8, i*4, i*2, i] for i in list(np.arange(4, 8))]
-
-conv_g_layers = build_deconv_config(layers=4, start=3, end=6)
+conv_g_layers = build_deconv_config(layers=5, start=1, end=4)
 print('conv_g_layers', conv_g_layers)
 
-#conv_g_layers = [[i*36, i*18, i*9, i*3, i] for i in list(np.arange(3, 5))]
-#conv_g_layers = [[i*36, i*18, i*9, i*3] for i in list(np.arange(3, 5))]
-#conv_g_layers += [[i*36, i*9, i*3] for i in list(np.arange(3, 8))]
-#conv_g_layers += [[i*36, i*18, i*9] for i in list(np.arange(3, 8))]
-#conv_g_layers += [[i*36, i*18] for i in list(np.arange(3, 8))]
-#conv_g_layers += [[i*36, i*3] for i in list(np.arange(3, 8))]
-#conv_g_layers += [[i*16, i*8, i*4, i*2] for i in [8, 16]]
-#conv_g_layers += [[i*16, i*8, i*4, i*2, i] for i in [4, 6, 8]]
-#
-#conv_g_layers+=[[i*16,i*8, i*4] for i in list(np.arange(2, 16))]
-#
-conv_d_layers = build_conv_config(4, 1, 4)
+conv_d_layers = build_conv_config(5, 2, 3)
 print('conv_d_layers', conv_d_layers)
-#conv_d_layers += [[i, i*2, i*4, i*8] for i in list(np.arange(16,32))] 
-#conv_d_layers += [[i, i*2, i*4, i*8, i*16] for i in [12, 16, 32, 64]] 
-#conv_d_layers = [[32, 32*2, 32*4],[32, 64, 64*2],[64,64*2], [16,16*2, 16*4], [16,16*2]]
 
 hc.set("conv_size", [5])
 hc.set("d_conv_size", [3])
@@ -95,14 +73,14 @@ hc.set("e_conv_size", [3])
 hc.set("conv_g_layers", conv_g_layers)
 hc.set("conv_d_layers", conv_d_layers)
 
-g_encode_layers = build_conv_config(4, 1, 4)
+g_encode_layers = build_conv_config(4, 2, 3)
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
 hc.set("regularize", [False, True])
 hc.set("regularize_lambda", list(np.linspace(0.0001, 1, num=30)))
 
-hc.set("g_batch_norm", [False])
+hc.set("g_batch_norm", [True])
 hc.set("d_batch_norm", [True])
 hc.set("e_batch_norm", [True])
 
@@ -314,14 +292,13 @@ for config in hc.configs(1):
     print("Testing configuration", config)
     print("TODO: TEST BROKEN")
     sess = tf.Session()
-    format = 'png'
     channels = args.channels
     crop = args.crop
     width = args.width
     height = args.height
-    train_x,train_y, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=format,crop=crop,width=width,height=height)
+    train_x,train_y, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
     config['y_dims']=num_labels
-    config['x_dims']=[width,height]
+    config['x_dims']=[height,width]
     config['channels']=channels
     if(args.load_config):
         pass

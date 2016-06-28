@@ -50,6 +50,10 @@ def discriminator(config, x, z,g,gz, reuse=False):
         result = build_conv_tower(result, config['conv_d_layers'], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_', config['d_activation'])
         result = tf.reshape(x, [batch_size, -1])
 
+    last_layer = result
+    last_layer = tf.reshape(last_layer, [batch_size, -1])
+    last_layer = tf.slice(last_layer, [0, 0], [single_batch_size, -1])
+
     def get_minibatch_features(h):
         n_kernels = int(config['d_kernels'])
         dim_per_kernel = int(config['d_kernel_dims'])
@@ -84,7 +88,6 @@ def discriminator(config, x, z,g,gz, reuse=False):
         #TODO batch norm?
         result = config['d_activation'](result)
 
-    last_layer = result
     result = linear(result, config['y_dims']+1, scope="d_proj")
 
 
@@ -268,7 +271,10 @@ def create(config, x,y):
 
 
     if config['category_loss']:
+
         category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories')
+        category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
+        category_layer = config['g_activation'](category_layer)
         g_loss += config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
         d_loss += config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
 

@@ -84,6 +84,10 @@ if(args.test):
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
+hc.set('categories', [[10]])
+hc.set('categories_lambda', list(np.linspace(0.001, 10)))
+hc.set('category_loss', [True])
+
 hc.set("regularize", [False, True])
 hc.set("regularize_lambda", list(np.linspace(0.0001, 1, num=30)))
 

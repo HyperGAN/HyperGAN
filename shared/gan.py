@@ -3,6 +3,8 @@ from shared.ops import *
 from shared.util import *
 from shared.hc_tf import *
 import tensorflow as tf
+TINY = 1e-12
+
 def generator(config, y,z, reuse=False):
     x_dims = config['x_dims']
     with(tf.variable_scope("generator", reuse=reuse)):
@@ -79,6 +81,7 @@ def discriminator(config, x, z,g,gz, reuse=False):
     #result = tf.nn.dropout(result, 0.7)
     if(config['d_linear_layer']):
         result = linear(result, config['d_linear_layers'], scope="d_linear_layer")
+        #TODO batch norm?
         result = config['d_activation'](result)
 
     last_layer = result
@@ -116,6 +119,7 @@ def discriminator(config, x, z,g,gz, reuse=False):
 
 
 def approximate_z(config, x, y):
+    y = tf.concat(1, y)
     x_dims = config['x_dims']
     batch_size = config["batch_size"]
     transfer_fct = config['transfer_fct']
@@ -173,11 +177,33 @@ def sigmoid_kl_with_logits(logits, targets):
     return tf.nn.sigmoid_cross_entropy_with_logits(logits, tf.ones_like(logits) * targets) - entropy
 
 
+
+def categories_loss(categories, layer, batch_size):
+    category = categories[0]
+    size = int(category.get_shape()[1])
+    #TOdO compute loss
+    category_prior = tf.ones([batch_size, size])*np.float32(1./size)
+    logli_prior = tf.reduce_sum(tf.log(category_prior + TINY) * category, reduction_indices=1)
+    layer_softmax = tf.nn.softmax(layer)
+    logli = tf.reduce_sum(tf.log(layer_softmax+TINY)*category, reduction_indices=1)
+    disc_ent = tf.log(logli_prior)
+    disc_cross_ent = tf.log(logli)
+    loss = -(tf.reduce_mean(-disc_ent) - tf.reduce_mean(-disc_cross_ent))
+    return loss
+
+def random_category(batch_size, size):
+    prior = tf.ones([batch_size, size])*1./size
+    dist = tf.log(prior + TINY)
+    sample=tf.multinomial(dist, num_samples=1)[:, 0]
+    return tf.one_hot(sample, size)
+
 def create(config, x,y):
     batch_size = config["batch_size"]
 
     #x = x/tf.reduce_max(tf.abs(x), 0)
-    encoded_z, z, z_mu, z_sigma = approximate_z(config, x, y)
+    categories = [random_category(config['batch_size'], size) for size in config['categories']]
+    encoded_z, z, z_mu, z_sigma = approximate_z(config, x, [y]+categories)
+
 
     print("Build generator")
     g = generator(config, y, z)
@@ -185,6 +211,8 @@ def create(config, x,y):
     print("shape of g,x", g.get_shape(), x.get_shape())
     print("shape of z,encoded_z", z.get_shape(), encoded_z.get_shape())
     d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, encoded_z, g, z, reuse=False)
+
+
 
     latent_loss = -config['latent_lambda'] * tf.reduce_mean(1 + z_sigma
                                        - tf.square(z_mu)
@@ -224,7 +252,6 @@ def create(config, x,y):
         g_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake, real_symbols)
 
         #g_loss_encoder = tf.nn.sigmoid_cross_entropy_with_logits(d_real, zeros)
-        #TINY = 1e-12
         #d_real = tf.nn.sigmoid(d_real)
         #d_fake = tf.nn.sigmoid(d_fake)
         #d_fake_loss = -tf.log(1-d_fake+TINY)
@@ -240,6 +267,10 @@ def create(config, x,y):
     print('d_loss', d_loss.get_shape())
 
 
+    if config['category_loss']:
+        category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories')
+        g_loss += config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
+        d_loss += config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
 
     if config['regularize']:
         ws = None

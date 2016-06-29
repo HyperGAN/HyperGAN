@@ -143,19 +143,19 @@ def build_deconv_config(layers,start, end):
 
 
 def get_graph_vars(sess, graph):
-
-    summary = get_tensor("hc_summary")
-    all_vars = sess.run([s[3] for s in summary])
-    i=0
-    retv = {'weights':{}}
-    for shape, name, dtype, _ in summary:
-        data=all_vars[i]
-        retv['weights'][name]={
-                'shape':[int(s) for s in shape],
-                'name':name,
-                'dtype':str(dtype),
-                'value':str(data)
-                }
-        i+=1
-        
-    return retv
+   return {}
+   # summary = get_tensor("hc_summary")
+   # all_vars = sess.run([s[3] for s in summary])
+   # i=0
+   # retv = {'weights':{}}
+   # for shape, name, dtype, _ in summary:
+   #     data=all_vars[i]
+   #     retv['weights'][name]={
+   #             'shape':[int(s) for s in shape],
+   #             'name':name,
+   #             'dtype':str(dtype),
+   #             'value':str(data)
+   #             }
+   #     i+=1
+   #     
+   # return retv

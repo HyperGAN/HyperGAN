@@ -344,7 +344,7 @@ for config in hc.configs(1):
         if(not epoch(sess, config)):
             print("Epoch failed")
             break
-        print("Checking save ", args.save_every, i, i % args.save_every)
+        print("Checking save "+ str(i))
         if(args.save_every != 0 and i % args.save_every == args.save_every-1):
             print(" |= Saving network")
             saver.save(sess, save_file)

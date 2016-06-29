@@ -1,6 +1,20 @@
 # hyperchamber-gan
 A DC-GAN(Convolutional Generative Adversarial Network) that you can run from the command line.  Integrates with hyperchamber to find the best GAN for your dataset.
 
+
+## Results
+
+TODO PICTURES 
+
+## Features
+
+* Efficient GAN implementation
+* Softmax semi-supervised and sigmoid unsupervised learning(works with and without labels)
+* Variational methods
+* InfoGAN-inspired self sorting categories
+* Minibatch normalization
+* Adversarial inference
+
 ## Arguments
 
 * --directory, required, specifies which parent directory to use.  Each subdirectory is a different classification.  For example if you have 'data/a' and 'data/b', files in 'data/a' will be represented internally as the one-hot vector [1,0].
@@ -39,7 +53,22 @@ To use on any data:
 * Run config sweep with hyperchamber
 * Run your favorite config for longer
 
-
 ## Join our community
 
 Interested in work like this?  Need help?  Come join us at hyperchamber's slack room.  Sign up and request an invite at hyperchamber.
+
+# References
+
+## Papers
+
+* GAN
+* DCGAN
+* InfoGAN
+* Improved GAN
+* Adversarial Inference
+
+## Sources
+
+* DCGAN
+* InfoGAN
+* Ian's GAN

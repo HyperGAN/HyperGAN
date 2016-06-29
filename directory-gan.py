@@ -84,8 +84,8 @@ if(args.test):
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
-hc.set('categories', [[3]])
-hc.set('categories_lambda', list(np.linspace(0.001, 1, num=10)))
+hc.set('categories', [[10, 11, 5, 13,5,3,4,12,15]])
+hc.set('categories_lambda', list(np.linspace(1, 5, num=100)))
 hc.set('category_loss', [True])
 
 hc.set("regularize", [False, True])
@@ -165,7 +165,7 @@ def epoch(sess, config):
         d_loss, g_loss = train(sess, config)
         if(i > 10 and not args.no_stop):
         
-            if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss < -10 or g_loss > 1000 or d_loss > 1000):
+            if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
                 return False
         
             g = get_tensor('g')
@@ -311,6 +311,8 @@ for config in hc.configs(1):
     config['y_dims']=num_labels
     config['x_dims']=[height,width]
     config['channels']=channels
+    config['g_batch_norm']=True
+
     if(args.load_config):
         pass
     else:

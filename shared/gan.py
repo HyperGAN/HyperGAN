@@ -3,7 +3,7 @@ from shared.ops import *
 from shared.util import *
 from shared.hc_tf import *
 import tensorflow as tf
-TINY = 1e-12
+TINY = 1e-7
 
 def generator(config, y,z, reuse=False):
     x_dims = config['x_dims']
@@ -184,19 +184,28 @@ def sigmoid_kl_with_logits(logits, targets):
 
 
 def categories_loss(categories, layer, batch_size):
-    category = categories[0]
-    size = int(category.get_shape()[1])
-    #TOdO compute loss
-    category_prior = tf.ones([batch_size, size])*np.float32(1./size)
-    logli_prior = tf.reduce_sum(-tf.log(category_prior + TINY) * category, reduction_indices=1)
-    layer_softmax = tf.nn.softmax(layer)
-    logli = tf.reduce_sum(-tf.log(layer_softmax+TINY)*category, reduction_indices=1)
-    disc_ent = tf.log(logli_prior+TINY)
-    disc_cross_ent = tf.log(logli+TINY)
+    loss = 0
+    def split(layer):
+        start = 0
+        ret = []
+        for category in categories:
+            count = int(category.get_shape()[1])
+            print("Spliting by", start, category, count)
+            ret.append(tf.slice(layer, [0, start], [batch_size, count]))
+            start += count
+        return ret
+            
+    for category,layer_s in zip(categories, split(layer)):
+        size = int(category.get_shape()[1])
+        #TOdO compute loss
+        category_prior = tf.ones([batch_size, size])*np.float32(1./size)
+        logli_prior = tf.reduce_sum(tf.log(category_prior + TINY) * category, reduction_indices=1)
+        layer_softmax = tf.nn.softmax(layer_s)
+        logli = tf.reduce_sum(tf.log(layer_softmax+TINY)*category, reduction_indices=1)
+        disc_ent = tf.reduce_mean(-logli_prior)
+        disc_cross_ent =  tf.reduce_mean(-logli)
 
-    disc_ent_loss=tf.reduce_mean(-disc_ent)
-    disc_cross_ent_loss= tf.reduce_mean(-disc_cross_ent)
-    loss = disc_ent_loss - disc_cross_ent_loss
+        loss += disc_ent - disc_cross_ent
     return loss
 
 def random_category(batch_size, size):
@@ -278,11 +287,14 @@ def create(config, x,y):
 
     if config['category_loss']:
 
-        category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories')
+        category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories',stddev=0.15)
         category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
         category_layer = config['g_activation'](category_layer)
-        g_loss -= config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
-        d_loss -= config['categories_lambda']*categories_loss(categories, category_layer, config['batch_size'])
+        print('c_layers', category_layer);
+        categories_l = categories_loss(categories, category_layer, config['batch_size'])
+        set_tensor('categories_loss', categories_l)
+        g_loss -= config['categories_lambda']*categories_l
+        d_loss -= config['categories_lambda']*categories_l
 
     if config['regularize']:
         ws = None
@@ -364,13 +376,15 @@ def train(sess, config):
     g_class_loss = get_tensor("g_class_loss")
     mse_optimizer = get_tensor("mse_optimizer")
     encoder_mse = get_tensor("encoder_mse")
-    _, d_cost = sess.run([d_optimizer, d_loss])
+    categories_l = get_tensor("categories_loss")
+    _, d_cost, categories_r = sess.run([d_optimizer, d_loss, categories_l])
     _, g_cost, x, g,e_loss,d_fake,d_real, d_class, g_class = sess.run([g_optimizer, g_loss, x, g, encoder_mse,d_fake_loss, d_real_loss, d_class_loss, g_class_loss])
     #_ = sess.run([mse_optimizer])
 
     print("g cost %.2f d cost %.2f encoder %.2f d_fake %.6f d_real %.2f d_class %.2f g_class %.2f" % (g_cost, d_cost,e_loss, d_fake, d_real, d_class, g_class))
     print("X mean %.2f max %.2f min %.2f" % (np.mean(x), np.max(x), np.min(x)))
     print("G mean %.2f max %.2f min %.2f" % (np.mean(g), np.max(g), np.min(g)))
+    print("Categories loss %.2f" % categories_r)
 
     return d_cost, g_cost
 

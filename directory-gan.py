@@ -63,6 +63,9 @@ hc.set('g_batch_norm_last_layer', [False, True])
 hc.set('d_batch_norm_last_layer', [True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
+hc.set('g_resnet_depth', [0])
+hc.set('g_resnet_filter', [3])
+
 conv_g_layers = build_deconv_config(layers=5, start=1, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]

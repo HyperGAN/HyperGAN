@@ -21,7 +21,12 @@ def generator(config, inputs, reuse=False):
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
         if config['conv_g_layers']:
-            result = build_deconv_tower(result, config['conv_g_layers'], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
+            result = build_deconv_tower(result, config['conv_g_layers'][0:2], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], True, config['batch_size'], config['g_last_layer_stddev'])
+            print("Result after deconv 1", result, config['conv_g_layers'])
+            result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
+            print("Result after res", result)
+            result = build_deconv_tower(result, config['conv_g_layers'][2:], x_dims, config['conv_size'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
+            print("Result after deconv 2", result)
 
         if(config['g_last_layer']):
             result = config['g_last_layer'](result)

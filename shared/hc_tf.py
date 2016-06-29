@@ -1,16 +1,6 @@
 from shared.ops import *
 from shared.util import *
 
-#hc_tf.config.optimizer(["adam"], lr=[1e-3,1e-5])
-#hc_tf.config.deconv
-#hc_tf.config.conv(filter=3, )
-#hc_tf.config.reshape(method)
-
-#hc_tf.build.optimizer()
-#hc_tf.build.deconv
-#hc_tf.build.conv
-#hc_tf.build.reshape()
-
 def build_reshape(output_size, nodes, method, batch_size):
     node_size = sum([int(x.get_shape()[1]) for x in nodes])
     dims = output_size-node_size
@@ -81,6 +71,20 @@ def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, bat
             result = activation(result)
     result = tf.reshape(result, [batch_size, -1])
     return result
+
+
+def build_resnet(result, depth, filter, name, activation, batch_size, batch_norm_enabled):
+    root=result
+    for i in range(depth):
+        result = deconv2d(result, result.get_shape(), name=name+str(i), k_w=filter, k_h=filter, d_h=1, d_w=1)
+        if(batch_norm_enabled):
+            result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
+        if i % 2 == 1:
+            result += root
+            root = result
+        result = activation(result)
+    return result
+
 
 def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_norm_enabled, batch_norm_last_layer, batch_size,last_layer_stddev):
     for i, layer in enumerate(layers):

@@ -3,7 +3,7 @@ from shared.ops import *
 from shared.util import *
 from shared.hc_tf import *
 import tensorflow as tf
-TINY = 1e-7
+TINY = 1e-12
 
 def generator(config, y,z, reuse=False):
     x_dims = config['x_dims']

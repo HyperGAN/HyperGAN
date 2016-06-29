@@ -38,6 +38,7 @@ parser.add_argument('--height', type=int, default=64)
 parser.add_argument('--batch', type=int, default=64)
 parser.add_argument('--format', type=str, default='png')
 parser.add_argument('--test', type=bool, default=False)
+parser.add_argument('--save_every', type=int, default=0)
 
 args = parser.parse_args()
 start=.000001
@@ -325,6 +326,10 @@ for config in hc.configs(1):
     y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
     graph = create(config,x,y)
     init = tf.initialize_all_variables()
+    saver = tf.train.Saver()
+    save_file = "saves/"+config["uuid"]+".ckpt"
+    if(os.path.isfile(save_file)):
+        print(" |= Loading network from "+ save_file)
     sess.run(init)
 
     tf.train.start_queue_runners(sess=sess)
@@ -339,6 +344,10 @@ for config in hc.configs(1):
         if(not epoch(sess, config)):
             print("Epoch failed")
             break
+        print("Checking save ", args.save_every, i, i % args.save_every)
+        if(args.save_every != 0 and i % args.save_every == args.save_every-1):
+            print(" |= Saving network")
+            saver.save(sess, save_file)
         j=test_epoch(i, j, sess, config)
         if(i == args.epochs-1):
             print("Recording run...")

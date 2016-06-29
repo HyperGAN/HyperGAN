@@ -5,20 +5,20 @@ from shared.hc_tf import *
 import tensorflow as tf
 TINY = 1e-12
 
-def generator(config, y,z, reuse=False):
+def generator(config, inputs, reuse=False):
     x_dims = config['x_dims']
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
         z_proj_dims = int(config['conv_g_layers'][0])
 
-        z_proj_dims = pad_input(primes, z_proj_dims, [y,z])
-        result = tf.concat(1, [y,z])
-        result = linear(result, z_proj_dims, scope="g_lin_proj")
+        result = tf.concat(1, inputs)
+        result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
         result = config['g_activation'](result)
+        #result = build_reshape(z_proj_dims*primes[0]*primes[1], [y,z], 'tiled', config['batch_size'])
 
-        result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims//(primes[0]*primes[1])])
+        result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
         if config['conv_g_layers']:
             result = build_deconv_tower(result, config['conv_g_layers'], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
@@ -49,10 +49,6 @@ def discriminator(config, x, z,g,gz, reuse=False):
     if config['conv_d_layers']:
         result = build_conv_tower(result, config['conv_d_layers'], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_', config['d_activation'])
         result = tf.reshape(x, [batch_size, -1])
-
-    last_layer = result
-    last_layer = tf.reshape(last_layer, [batch_size, -1])
-    last_layer = tf.slice(last_layer, [0, 0], [single_batch_size, -1])
 
     def get_minibatch_features(h):
         n_kernels = int(config['d_kernels'])
@@ -86,7 +82,13 @@ def discriminator(config, x, z,g,gz, reuse=False):
     if(config['d_linear_layer']):
         result = linear(result, config['d_linear_layers'], scope="d_linear_layer")
         #TODO batch norm?
+        if(config['d_batch_norm']):
+            result = batch_norm(config['batch_size'], name='d_bn_lin_proj')(result)
         result = config['d_activation'](result)
+
+    last_layer = result
+    last_layer = tf.reshape(last_layer, [batch_size, -1])
+    last_layer = tf.slice(last_layer, [0, 0], [single_batch_size, -1])
 
     result = linear(result, config['y_dims']+1, scope="d_proj")
 
@@ -223,8 +225,8 @@ def create(config, x,y):
 
 
     print("Build generator")
-    g = generator(config, y, z)
-    encoded = generator(config, y, encoded_z, reuse=True)
+    g = generator(config, [y, z]+categories)
+    encoded = generator(config, [y, encoded_z]+categories, reuse=True)
     print("shape of g,x", g.get_shape(), x.get_shape())
     print("shape of z,encoded_z", z.get_shape(), encoded_z.get_shape())
     d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, encoded_z, g, z, reuse=False)

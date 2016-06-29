@@ -108,6 +108,13 @@ def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_
     return result
 
 
+def build_categories_config(num):
+    def get_option(i):
+        return [np.random.randint(2,50) for i in range(np.random.randint(5,15))]
+    return [sorted(get_option(i)) for i in range(num)]
+
+
+
 def build_conv_config(layers, start, end):
     def get_layer(layer, i):
         reverse = 2**(layer+1)*i
@@ -122,7 +129,7 @@ def build_conv_config(layers, start, end):
         return result
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
-    return [get_option(i) for i in np.arange(start, end)]
+    return [sorted(get_option(i)) for i in np.arange(start, end)]
 
 
 def build_deconv_config(layers,start, end):
@@ -139,7 +146,7 @@ def build_deconv_config(layers,start, end):
         return result
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
-    return [get_option(i) for i in np.arange(start, end)]
+    return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
 
 
 def get_graph_vars(sess, graph):

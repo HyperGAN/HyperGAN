@@ -41,8 +41,8 @@ parser.add_argument('--test', type=bool, default=False)
 parser.add_argument('--save_every', type=int, default=0)
 
 args = parser.parse_args()
-start=.000001
-end=.0005
+start=1e-5
+end=2e-4
 
 num=100
 hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
@@ -59,16 +59,16 @@ hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [True])
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
-hc.set('g_batch_norm_last_layer', [False])
+hc.set('g_batch_norm_last_layer', [False, True])
 hc.set('d_batch_norm_last_layer', [True])
-hc.set('e_batch_norm_last_layer', [False])
+hc.set('e_batch_norm_last_layer', [False, True])
 
 conv_g_layers = build_deconv_config(layers=5, start=1, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]
 print('conv_g_layers', conv_g_layers)
 
-conv_d_layers = build_conv_config(5, 2, 3)
+conv_d_layers = build_conv_config(5, 3, 4)
 if(args.test):
     conv_d_layers = [[10, 3, 3]]
 print('conv_d_layers', conv_d_layers)
@@ -79,13 +79,13 @@ hc.set("e_conv_size", [3])
 hc.set("conv_g_layers", conv_g_layers)
 hc.set("conv_d_layers", conv_d_layers)
 
-g_encode_layers = build_conv_config(4, 2, 3)
+g_encode_layers = build_conv_config(5, 2, 3)
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
-hc.set('categories', [[10, 11, 5, 13,5,3,4,12,15]])
+hc.set('categories', build_categories_config(10))
 hc.set('categories_lambda', list(np.linspace(1, 5, num=100)))
 hc.set('category_loss', [True])
 
@@ -99,7 +99,7 @@ hc.set("e_batch_norm", [True])
 hc.set("g_encoder", [True])
 
 hc.set('d_linear_layer', [True])
-hc.set('d_linear_layers', list(np.arange(50, 600)))
+hc.set('d_linear_layers', list(np.arange(512, 1024)))
 
 hc.set("g_target_prob", list(np.linspace(.75 /2., .85 /2., num=10))+list(np.linspace(.65 /2., .75/2, num=10)))
 hc.set("d_label_smooth", list(np.linspace(0.25, 0.35, num=10)) + list(np.linspace(.15,.25,num=10)))
@@ -312,7 +312,6 @@ for config in hc.configs(1):
     config['y_dims']=num_labels
     config['x_dims']=[height,width]
     config['channels']=channels
-    config['g_batch_norm']=True
 
     if(args.load_config):
         pass

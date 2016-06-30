@@ -320,19 +320,27 @@ for config in hc.configs(1):
         pass
     else:
         config['conv_g_layers'].append(channels)
-    #config['conv_g_layers']=other_config['conv_g_layers']
+    #config['d_linear_layers']=other_config['d_linear_layers']
     #config['conv_g_layers'].append(channels)
     config['examples_per_epoch']=examples_per_epoch
     x = train_x
     y = train_y
     y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
     graph = create(config,x,y)
-    init = tf.initialize_all_variables()
     saver = tf.train.Saver()
-    save_file = "saves/"+config["uuid"]+".ckpt"
+    save_file = "saves/"+config["parent_uuid"]+".ckpt"
     if(os.path.isfile(save_file)):
         print(" |= Loading network from "+ save_file)
-    sess.run(init)
+        config['uuid']=config['parent_uuid']
+        ckpt = tf.train.get_checkpoint_state('saves')
+        if ckpt and ckpt.model_checkpoint_path:
+            saver.restore(sess, save_file)
+            print("Model loaded")
+        else:
+            print("No checkpoint file found")
+    else:
+        init = tf.initialize_all_variables()
+        sess.run(init)
 
     tf.train.start_queue_runners(sess=sess)
 

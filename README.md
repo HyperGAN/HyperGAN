@@ -4,7 +4,19 @@ A DC-GAN(Convolutional Generative Adversarial Network) that you can run from the
 
 ## Results
 
-TODO PICTURES 
+Note, these results are live from the latest samples of each running model.  They update over time, so check back often(or see more at hyperchamber):
+
+### MTG cards
+<img src="https://hyperchamber.255bits.com/api/v1/sample/martyn/magic:0.2/latest/0.jpg"/>
+
+### Comics
+<img src="https://hyperchamber.255bits.com/api/v1/sample/martyn/magic:0.2/latest/0.jpg"/>
+
+### MNIST
+<img src="https://hyperchamber.255bits.com/api/v1/sample/martyn/magic:0.2/latest/0.jpg"/>
+
+### CIFAR-10
+<img src="https://hyperchamber.255bits.com/api/v1/sample/martyn/magic:0.2/latest/0.jpg"/>
 
 ## Features
 

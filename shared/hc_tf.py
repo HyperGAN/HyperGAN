@@ -50,15 +50,26 @@ def find_smallest_prime(x, y):
                 return i,j
     return None,None
 
-def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, batch_norm_last_layer, name, activation):
+def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, batch_norm_last_layer, name, activation, expand_restraint):
+    last_layer_size = layers[0]
     for i, layer in enumerate(layers):
-        stride = 2
+        if i > 0 and expand_restraint:
+            stride = 1
+            if layer >= last_layer_size * expand_restraint:
+                last_layer_size = layer
+                stride = 2
+
+
+        else:
+            stride = 2
         if filter > result.get_shape()[2]:
             filter = int(result.get_shape()[2])
             stride = 1
         if filter > result.get_shape()[3]:
             filter = int(result.get_shape()[3])
             stride = 1
+
+        print("STRIDE IS", stride, i)
         result = conv2d(result, layer, name=name+str(i), k_w=filter, k_h=filter, d_h=stride, d_w=stride)
         if(len(layers) == i+1):
             if(batch_norm_last_layer):
@@ -114,16 +125,15 @@ def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_
 
 def build_categories_config(num):
     def get_option(i):
-        return [np.random.randint(2,50) for i in range(np.random.randint(5,15))]
+        return [np.random.randint(2,50) for i in range(np.random.randint(2,15))]
     return [sorted(get_option(i)) for i in range(num)]
 
 
 
 def build_conv_config(layers, start, end):
     def get_layer(layer, i):
-        reverse = 2**(layer+1)*i
+        reverse = 2**(layer+3)*i
         noise = int(np.random.uniform(-1,1)*10)*i
-        print('--', 2**(layer+1), reverse, noise, reverse+noise)
 
         result = reverse
         if(result < 3): 
@@ -138,7 +148,7 @@ def build_conv_config(layers, start, end):
 
 def build_deconv_config(layers,start, end):
     def get_layer(layer, i):
-        reverse = 2**(layers-layer+1)*i
+        reverse = 2**(layers-layer+3)*i
         noise = int(np.random.uniform(-1,1)*10)*i
         print('--', 2**(layer), reverse, noise, reverse+noise)
 

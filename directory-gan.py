@@ -41,7 +41,7 @@ parser.add_argument('--test', type=bool, default=False)
 parser.add_argument('--save_every', type=int, default=0)
 
 args = parser.parse_args()
-start=1e-5
+start=5e-5
 end=2e-4
 
 num=100
@@ -63,10 +63,10 @@ hc.set('g_batch_norm_last_layer', [False, True])
 hc.set('d_batch_norm_last_layer', [True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [0])
-hc.set('g_resnet_filter', [3])
+hc.set('g_resnet_depth', [10])
+hc.set('g_resnet_filter', [1])
 
-conv_g_layers = build_deconv_config(layers=5, start=1, end=4)
+conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]
 print('conv_g_layers', conv_g_layers)
@@ -76,24 +76,30 @@ if(args.test):
     conv_d_layers = [[10, 3, 3]]
 print('conv_d_layers', conv_d_layers)
 
-hc.set("conv_size", [5])
+hc.set("conv_size", [3])
 hc.set("d_conv_size", [3])
 hc.set("e_conv_size", [3])
 hc.set("conv_g_layers", conv_g_layers)
 hc.set("conv_d_layers", conv_d_layers)
 
-g_encode_layers = build_conv_config(5, 2, 3)
+hc.set('d_conv_expand_restraint', [2])
+hc.set('e_conv_expand_restraint', [2])
+
+g_encode_layers = build_conv_config(5, 1,2)
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
 hc.set('categories', build_categories_config(10))
-hc.set('categories_lambda', list(np.linspace(1, 5, num=100)))
+hc.set('categories_lambda', list(np.linspace(.001, .005, num=100)))
 hc.set('category_loss', [True])
 
-hc.set("regularize", [False, True])
-hc.set("regularize_lambda", list(np.linspace(0.0001, 1, num=30)))
+hc.set('g_class_loss', [False])
+hc.set('d_fake_class_loss', [False])
+
+hc.set("regularize", [False])
+hc.set("regularize_lambda", list(np.linspace(0.001, .01, num=30)))
 
 hc.set("g_batch_norm", [True])
 hc.set("d_batch_norm", [True])
@@ -112,11 +118,13 @@ hc.set("d_kernel_dims", list(np.arange(200, 400)))
 
 hc.set("loss", ['custom'])
 
+hc.set("adv_loss", [False])
+
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(1, 20, num=30)))
 
 hc.set("latent_loss", [True])
-hc.set("latent_lambda", list(np.linspace(0.01, .5, num=30)))
+hc.set("latent_lambda", list(np.linspace(1, 10, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
 hc.set("g_project", ['tiled'])
@@ -328,8 +336,11 @@ for config in hc.configs(1):
     y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
     graph = create(config,x,y)
     saver = tf.train.Saver()
-    save_file = "saves/"+config["parent_uuid"]+".ckpt"
-    if(os.path.isfile(save_file)):
+    if('parent_uuid' in config):
+        save_file = "saves/"+config["parent_uuid"]+".ckpt"
+    else:
+        save_file = None
+    if(save_file and os.path.isfile(save_file)):
         print(" |= Loading network from "+ save_file)
         config['uuid']=config['parent_uuid']
         ckpt = tf.train.get_checkpoint_state('saves')
@@ -339,6 +350,7 @@ for config in hc.configs(1):
         else:
             print("No checkpoint file found")
     else:
+        print("Starting new graph", config)
         init = tf.initialize_all_variables()
         sess.run(init)
 

@@ -2,7 +2,7 @@ import hyperchamber as hc
 from shared.ops import *
 from shared.util import *
 from shared.gan import *
-from shared.gan import *
+from shared.gan_server import *
 import shared.hc_tf as hc_tf
 import shared
 import json
@@ -38,6 +38,7 @@ parser.add_argument('--height', type=int, default=64)
 parser.add_argument('--batch', type=int, default=64)
 parser.add_argument('--format', type=str, default='png')
 parser.add_argument('--test', type=bool, default=False)
+parser.add_argument('--server', type=bool, default=False)
 parser.add_argument('--save_every', type=int, default=0)
 
 args = parser.parse_args()
@@ -355,45 +356,25 @@ for config in hc.configs(1):
         sess.run(init)
 
     tf.train.start_queue_runners(sess=sess)
+    if args.server:
+        gan_server(sess, config)
+    else:
+        sampled=False
+        print("Running for ", args.epochs, " epochs")
+        for i in range(args.epochs):
+            if(not epoch(sess, config)):
+                print("Epoch failed")
+                break
+            print("Checking save "+ str(i))
+            if(args.save_every != 0 and i % args.save_every == args.save_every-1):
+                print(" |= Saving network")
+                saver.save(sess, save_file)
+            j=test_epoch(i, j, sess, config)
+            if(i == args.epochs-1):
+                print("Recording run...")
+                record_run(config)
 
-
-
-    #tf.assign(x,train_x)
-    #tf.assign(y,tf.one_hot(tf.cast(train_y,tf.int64), Y_DIMS, 1.0, 0.0))
-    sampled=False
-    print("Running for ", args.epochs, " epochs")
-    for i in range(args.epochs):
-        if(not epoch(sess, config)):
-            print("Epoch failed")
-            break
-        print("Checking save "+ str(i))
-        if(args.save_every != 0 and i % args.save_every == args.save_every-1):
-            print(" |= Saving network")
-            saver.save(sess, save_file)
-        j=test_epoch(i, j, sess, config)
-        if(i == args.epochs-1):
-            print("Recording run...")
-            record_run(config)
-    #x.assign(test_x)
-    #y.assign(tf.one_hot(tf.cast(test_y,tf.int64), Y_DIMS, 1.0, 0.0))
-    #print("results: difficulty %.2f, ranking %.2f, g_loss %.2f, d_fake %.2f, d_real %.2f" % (difficulty, ranking, g_loss, d_fake, d_real))
-
-    #with g.as_default():
-    tf.reset_default_graph()
-    sess.close()
-
-
-def by_ranking(x):
-    config,result = x
-    return result['ranking']
-
-for config, result in hc.top(by_ranking):
-    print("RESULTS")
-    print(config, result)
-
-    #print("Done testing.  Final cost was:", hc.cost())
+        tf.reset_default_graph()
+        sess.close()
 
 print("Done")
-
-#for gold, silver, bronze in hc.top_configs(3):
-

@@ -22,11 +22,8 @@ def generator(config, inputs, reuse=False):
 
         if config['conv_g_layers']:
             result = build_deconv_tower(result, config['conv_g_layers'][0:2], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], True, config['batch_size'], config['g_last_layer_stddev'])
-            print("Result after deconv 1", result, config['conv_g_layers'])
             result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
-            print("Result after res", result)
             result = build_deconv_tower(result, config['conv_g_layers'][2:], x_dims, config['conv_size'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
-            print("Result after deconv 2", result)
 
         if(config['g_last_layer']):
             result = config['g_last_layer'](result)
@@ -120,7 +117,6 @@ def discriminator(config, x, z,g,gz, reuse=False):
         return class_logits, gan_logits
     num_classes = config['y_dims'] +1
     class_logits, gan_logits = build_logits(result, num_classes)
-    print("Class logits gan logits", class_logits, gan_logits)
     return [tf.slice(class_logits, [0, 0], [single_batch_size, num_classes]),
                 tf.slice(gan_logits, [0], [single_batch_size]),
                 tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, num_classes]),
@@ -179,7 +175,6 @@ def approximate_z(config, x, y):
         e_z = config['e_last_layer'](e_z)
     return e_z, z, mu, sigma, last_layer
 def sigmoid_kl_with_logits(logits, targets):
-    print(targets)
     # broadcasts the same target value across the whole batch
     # this is implemented so awkwardly because tensorflow lacks an x log x op
     assert isinstance(targets, float)
@@ -195,7 +190,6 @@ def split_categories(layer, batch_size, categories):
     ret = []
     for category in categories:
         count = int(category.get_shape()[1])
-        print("Spliting by", start, category, count)
         ret.append(tf.slice(layer, [0, start], [batch_size, count]))
         start += count
     return ret
@@ -208,7 +202,6 @@ def categories_loss(categories, layer, batch_size):
         ret = []
         for category in categories:
             count = int(category.get_shape()[1])
-            print("Spliting by", start, category, count)
             ret.append(tf.slice(layer, [0, start], [batch_size, count]))
             start += count
         return ret
@@ -235,21 +228,16 @@ def random_category(batch_size, size):
 def create(config, x,y):
     batch_size = config["batch_size"]
 
-    #x = x/tf.reduce_max(tf.abs(x), 0)
     categories = [random_category(config['batch_size'], size) for size in config['categories']]
+    categories_t = tf.concat(1, categories)
     encoded_z, z, z_mu, z_sigma, e_last_layer = approximate_z(config, x, [y])
 
-
-    #e_categories = linear(encoded_z, sum(config['categories']), 'v_encoded_c')
-    #e_categories = batch_norm(config['batch_size'], name='v_e_c_bn')(e_categories)
-    #e_categories = split_categories(e_categories, config['batch_size'], categories)
-    #e_categories = [tf.nn.softmax(c) for c in e_categories]
 
     e_categories = tf.concat(1, [random_category(1, size) for size in config['categories']])
     e_categories = tf.tile(e_categories, [config['batch_size'], 1])
 
     print("Build generator")
-    g = generator(config, [y, z]+categories)
+    g = generator(config, [y, z]+[categories_t])
     encoded = generator(config, [y, encoded_z]+[e_categories], reuse=True)
     print("shape of g,x", g.get_shape(), x.get_shape())
     print("shape of z,encoded_z", z.get_shape(), encoded_z.get_shape())
@@ -261,7 +249,6 @@ def create(config, x,y):
                                        - tf.square(z_mu)
                                        - tf.exp(z_sigma), 1)
     np_fake = np.array([0]*config['y_dims']+[1])
-    print('np_fake', np_fake)
     fake_symbol = tf.tile(tf.constant(np_fake, dtype=tf.float32), [config['batch_size']])
     fake_symbol = tf.reshape(fake_symbol, [config['batch_size'],config['y_dims']+1])
 
@@ -322,7 +309,6 @@ def create(config, x,y):
 
     if(config['d_fake_class_loss']):
         d_loss += tf.reduce_mean(d_fake_class_loss)
-    print('d_loss', d_loss.get_shape())
 
 
     if config['category_loss']:
@@ -330,9 +316,7 @@ def create(config, x,y):
         category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories',stddev=0.15)
         category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
         category_layer = config['g_activation'](category_layer)
-        print('c_layers', category_layer);
         categories_l = categories_loss(categories, category_layer, config['batch_size'])
-        set_tensor('categories_loss', config['categories_lambda']*categories_l)
         g_loss -= config['categories_lambda']*categories_l
         d_loss -= config['categories_lambda']*categories_l
 
@@ -356,8 +340,6 @@ def create(config, x,y):
     g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
     d_vars = [var for var in tf.trainable_variables() if 'd_' in var.name]
 
-    print(config);
-    print('vars', [v.name for v in tf.trainable_variables()])
     v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
     if(config['v_train'] == 'generator'):
         g_vars += v_vars
@@ -385,8 +367,11 @@ def create(config, x,y):
     summary = [(s.get_shape(), s.name, s.dtype, summary_reduce(s)) for s in summary]
     set_tensor("hc_summary",summary)
 
+    set_tensor('categories', categories_t)
+    set_tensor('categories_loss', config['categories_lambda']*categories_l)
     set_tensor("x", x)
     set_tensor("y", y)
+    set_tensor("z", z)
     set_tensor("g_loss", g_loss)
     set_tensor("d_loss", d_loss)
     set_tensor("g_optimizer", g_optimizer)

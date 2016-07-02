@@ -11,7 +11,6 @@ def build_reshape(output_size, nodes, method, batch_size):
         t_nodes = tf.concat(1, nodes)
         dims =  int(t_nodes.get_shape()[1])
         result= tf.tile(t_nodes,[1, output_size//dims])
-        print("TILED", t_nodes, result, output_size//dims, output_size, dims)
         width = output_size - int(result.get_shape()[1])
         if(width > 0):
             #zeros = tf.zeros([batch_size, width])
@@ -69,14 +68,11 @@ def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, bat
             filter = int(result.get_shape()[3])
             stride = 1
 
-        print("STRIDE IS", stride, i)
         result = conv2d(result, layer, name=name+str(i), k_w=filter, k_h=filter, d_h=stride, d_w=stride)
         if(len(layers) == i+1):
             if(batch_norm_last_layer):
                 result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
-            print("Skipping last layer")
         else:
-            print("Adding nonlinear")
             if(batch_norm_enabled):
                 result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
             result = activation(result)
@@ -150,7 +146,6 @@ def build_deconv_config(layers,start, end):
     def get_layer(layer, i):
         reverse = 2**(layers-layer+3)*i
         noise = int(np.random.uniform(-1,1)*10)*i
-        print('--', 2**(layer), reverse, noise, reverse+noise)
 
         result = reverse
         if(result < 3): 

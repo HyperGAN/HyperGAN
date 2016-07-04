@@ -12,7 +12,7 @@ def build_labels(dirs):
 def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=True):
   filenames = glob.glob(directory+"/**/*."+format)
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
-  num_examples_per_epoch = 10000
+  num_examples_per_epoch = 30000
 
   # Create a queue that produces the filenames to read.
   classes = [labels[f.split('/')[-2]] for f in filenames]

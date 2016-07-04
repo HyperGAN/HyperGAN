@@ -49,18 +49,10 @@ def find_smallest_prime(x, y):
                 return i,j
     return None,None
 
-def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, batch_norm_last_layer, name, activation, expand_restraint):
+def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, batch_norm_last_layer, name, activation):
     last_layer_size = layers[0]
     for i, layer in enumerate(layers):
-        if i > 0 and expand_restraint:
-            stride = 1
-            if layer >= last_layer_size * expand_restraint:
-                last_layer_size = layer
-                stride = 2
-
-
-        else:
-            stride = 2
+        stride = 2
         if filter > result.get_shape()[2]:
             filter = int(result.get_shape()[2])
             stride = 1
@@ -75,14 +67,15 @@ def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, bat
         else:
             if(batch_norm_enabled):
                 result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
+            result += conv2d(result, layer, name=name+'id'+str(i), k_w=1, k_h=1, d_h=1, d_w=1)
             result = activation(result)
-    result = tf.reshape(result, [batch_size, -1])
     return result
 
 
 def build_resnet(result, depth, filter, name, activation, batch_size, batch_norm_enabled):
     root=result
     for i in range(depth):
+        print("DECONV", result.get_shape())
         result = deconv2d(result, result.get_shape(), name=name+str(i), k_w=filter, k_h=filter, d_h=1, d_w=1)
         if(batch_norm_enabled):
             result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
@@ -139,7 +132,8 @@ def build_conv_config(layers, start, end):
         return result
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
-    return [sorted(get_option(i)) for i in np.arange(start, end)]
+    #return [sorted(get_option(i)) for i in np.arange(start, end)]
+    return [[64,128,256,512]]
 
 
 def build_deconv_config(layers,start, end):
@@ -155,7 +149,8 @@ def build_deconv_config(layers,start, end):
         return result
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
-    return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
+    #return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
+    return [[256,128,64]]
 
 
 def get_graph_vars(sess, graph):
@@ -175,3 +170,4 @@ def get_graph_vars(sess, graph):
    #     i+=1
    #     
    # return retv
+

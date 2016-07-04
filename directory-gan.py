@@ -3,6 +3,7 @@ from shared.ops import *
 from shared.util import *
 from shared.gan import *
 from shared.gan_server import *
+#import shared.jobs as jobs
 import shared.hc_tf as hc_tf
 import shared
 import json
@@ -43,17 +44,17 @@ parser.add_argument('--save_every', type=int, default=0)
 
 args = parser.parse_args()
 start=5e-5
-end=2e-4
+end=2e-3
 
 num=100
-hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
-hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
+hc.set("g_learning_rate", 2e-4)#list(np.linspace(start, end, num=num)))
+hc.set("d_learning_rate", 2e-4)#list(np.linspace(start, end, num=num)))
 
 hc.set("n_hidden_recog_1", list(np.linspace(100, 1000, num=100)))
 hc.set("n_hidden_recog_2", list(np.linspace(100, 1000, num=100)))
-hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu, maxout, offset_maxout]);
-hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu, maxout, offset_maxout]);
-hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu, maxout, offset_maxout]);
+hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
@@ -67,12 +68,14 @@ hc.set('e_batch_norm_last_layer', [False, True])
 hc.set('g_resnet_depth', [10])
 hc.set('g_resnet_filter', [1])
 
+hc.set('d_resnet_depth', [10])
+hc.set('d_resnet_filter', [1])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]
 print('conv_g_layers', conv_g_layers)
 
-conv_d_layers = build_conv_config(5, 3, 4)
+conv_d_layers = build_conv_config(4, 3, 4)
 if(args.test):
     conv_d_layers = [[10, 3, 3]]
 print('conv_d_layers', conv_d_layers)
@@ -86,14 +89,14 @@ hc.set("conv_d_layers", conv_d_layers)
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
 
-g_encode_layers = build_conv_config(5, 1,2)
+g_encode_layers = build_conv_config(4, 1,2)
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
 hc.set('categories', build_categories_config(10))
-hc.set('categories_lambda', list(np.linspace(.001, .005, num=100)))
+hc.set('categories_lambda', list(np.linspace(.1, .5, num=100)))
 hc.set('category_loss', [True])
 
 hc.set('g_class_loss', [False])
@@ -124,7 +127,7 @@ hc.set("adv_loss", [False])
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(1, 20, num=30)))
 
-hc.set("latent_loss", [True])
+hc.set("latent_loss", [False])
 hc.set("latent_lambda", list(np.linspace(1, 10, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
@@ -135,16 +138,15 @@ hc.set("e_project", ['tiled'])
 hc.set("v_train", ['both'])
 
 hc.set("batch_size", args.batch)
-hc.set("model", "martyn/dogs:0.2")
+hc.set("model", "martyn/magic:0.2")
 hc.set("version", "0.0.1")
 hc.set("machine", "martyn")
 
 def sample_input(sess, config):
     x = get_tensor("x")
     y = get_tensor("y")
-    encoded = get_tensor('encoded')
-    sample, encoded, label = sess.run([x, encoded, y])
-    return sample[0], encoded[0], label[0]
+    sample, label = sess.run([x, y])
+    return sample[0], label[0]
 
 
 def split_sample(n, d_fake_sig, sample, x_dims, channels):
@@ -196,6 +198,7 @@ def epoch(sess, config):
             if(np.min(rX) < -1000 or np.max(rX) > 1000):
                 return False
 
+        #jobs.process(sess)
 
     return True
 
@@ -214,11 +217,11 @@ def collect_measurements(epoch, sess, config):
             }
 
 def test_epoch(epoch, j, sess, config):
-    x, encoded, label = sample_input(sess, config)
+    x, label = sample_input(sess, config)
     sample_file = "samples/input-"+str(j)+".png"
     plot(config, x, sample_file)
-    encoded_sample = "samples/encoded-"+str(j)+".png"
-    plot(config, encoded, encoded_sample)
+    #encoded_sample = "samples/encoded-"+str(j)+".png"
+    #plot(config, encoded, encoded_sample)
 
     def to_int(one_hot):
         i = 0
@@ -229,9 +232,9 @@ def test_epoch(epoch, j, sess, config):
         return None
     
     sample_file = {'image':sample_file, 'label':json.dumps(to_int(label))}
-    encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
+    #encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
     sample = samples(sess, config)
-    sample_list = [sample_file, encoded_sample]
+    sample_list = [sample_file]
     for s in sample:
         sample_file = "samples/config-"+str(j)+".png"
         plot(config, s, sample_file)
@@ -316,13 +319,18 @@ for config in hc.configs(1):
     #config['last_layer']=get_function(config['last_layer'])
     config['g_last_layer']=get_function(config['g_last_layer'])
     config['e_last_layer']=get_function(config['e_last_layer'])
-    #config['g_encode_layers']=other_config['g_encode_layers']
+    config['conv_d_layers']=[int(x) for x in config['conv_d_layers']]
+    config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
+    config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
     #config['e_conv_size']=other_config['e_conv_size']
     #config['conv_size']=other_config['conv_size']
     #config['z_dim']=other_config['z_dim']
     #config['mse_loss']=True#other_config['mse_loss']
-    print(config)
-    print("Testing configuration", config)
+    #config['categories']=other_config['categories'][5:]+[2,3,5,7,9]
+    config['d_learning_rate']=other_config['d_learning_rate']
+    config['g_learning_rate']=other_config['g_learning_rate']
+    config['categories_lambda']=other_config['categories_lambda']
+    config['conv_d_layers']=other_config['conv_d_layers']
     print("TODO: TEST BROKEN")
     sess = tf.Session()
     channels = args.channels
@@ -365,6 +373,8 @@ for config in hc.configs(1):
         sess.run(init)
 
     tf.train.start_queue_runners(sess=sess)
+
+    #jobs.create_connection()
     if args.server:
         gan_server(sess, config)
     else:
@@ -386,4 +396,4 @@ for config in hc.configs(1):
         tf.reset_default_graph()
         sess.close()
 
-print("Done")
+

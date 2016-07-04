@@ -16,7 +16,7 @@ class GANWebServer:
         generator = get_tensor("g")
         y = get_tensor("y")
         x = get_tensor("x")
-        z = get_tensor('z')
+        z_t = get_tensor('z')
         categories = get_tensor('categories')
 
 

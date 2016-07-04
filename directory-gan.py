@@ -147,18 +147,27 @@ def sample_input(sess, config):
     return sample[0], encoded[0], label[0]
 
 
-def split_sample(n, sample, x_dims, channels):
-    return [np.reshape(sample[0+i:1+i], [x_dims[0],x_dims[1], channels]) for i in range(n)]
+def split_sample(n, d_fake_sig, sample, x_dims, channels):
+    samples = []
+
+    for s, d in zip(sample, d_fake_sig):
+        samples.append({'sample':s,'d':d})
+    samples = sorted(samples, key=lambda x: (1-x['d']))
+
+    [print("sample ", s['d']) for s in samples[0:n]]
+    return [np.reshape(s['sample'], [x_dims[0],x_dims[1], channels]) for s in samples[0:n]]
+    #return [np.reshape(sample[0+i:1+i], [x_dims[0],x_dims[1], channels]) for i in range(n)]
 def samples(sess, config):
     generator = get_tensor("g")
     y = get_tensor("y")
     x = get_tensor("x")
+    d_fake_sigmoid = get_tensor("d_fake_sigmoid")
     rand = np.random.randint(0,config['y_dims'], size=config['batch_size'])
     rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
-    sample = sess.run(generator, feed_dict={y:random_one_hot})
+    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
     #sample =  np.concatenate(sample, axis=0)
-    return split_sample(10, sample, config['x_dims'], config['channels'])
+    return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
 
 def plot_mnist_digit(config, image, file):
     """ Plot a single MNIST image."""

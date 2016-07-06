@@ -72,11 +72,13 @@ def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, bat
     return result
 
 
-def build_resnet(result, depth, filter, name, activation, batch_size, batch_norm_enabled):
+def build_resnet(result, depth, filter, name, activation, batch_size, batch_norm_enabled, conv=False):
     root=result
     for i in range(depth):
-        print("DECONV", result.get_shape())
-        result = deconv2d(result, result.get_shape(), name=name+str(i), k_w=filter, k_h=filter, d_h=1, d_w=1)
+        if(conv):
+            result = conv2d(result, int(result.get_shape()[-1]), name=name+str(i), k_w=filter, k_h=filter, d_h=1, d_w=1)
+        else:
+            result = deconv2d(result, result.get_shape(), name=name+str(i), k_w=filter, k_h=filter, d_h=1, d_w=1)
         if(batch_norm_enabled):
             result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
         if i % 2 == 1:
@@ -133,7 +135,7 @@ def build_conv_config(layers, start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [sorted(get_option(i)) for i in np.arange(start, end)]
-    return [[64,128,256,512]]
+    return [[64,128,256,512,1024]]
 
 
 def build_deconv_config(layers,start, end):
@@ -150,7 +152,7 @@ def build_deconv_config(layers,start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
-    return [[256,128,64]]
+    return [[256,128,64,32]]
 
 
 def get_graph_vars(sess, graph):

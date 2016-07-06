@@ -43,12 +43,12 @@ parser.add_argument('--server', type=bool, default=False)
 parser.add_argument('--save_every', type=int, default=0)
 
 args = parser.parse_args()
-start=5e-5
-end=2e-3
+start=1e-4
+end=4e-4
 
 num=100
-hc.set("g_learning_rate", 2e-4)#list(np.linspace(start, end, num=num)))
-hc.set("d_learning_rate", 2e-4)#list(np.linspace(start, end, num=num)))
+hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
+hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
 
 hc.set("n_hidden_recog_1", list(np.linspace(100, 1000, num=100)))
 hc.set("n_hidden_recog_2", list(np.linspace(100, 1000, num=100)))
@@ -61,8 +61,8 @@ hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [True])
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
-hc.set('g_batch_norm_last_layer', [False, True])
-hc.set('d_batch_norm_last_layer', [True])
+hc.set('g_batch_norm_last_layer', [False])
+hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
 hc.set('g_resnet_depth', [10])
@@ -89,17 +89,18 @@ hc.set("conv_d_layers", conv_d_layers)
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
 
-g_encode_layers = build_conv_config(4, 1,2)
+g_encode_layers = [[16, 32, 64, 128, 256]]
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
 hc.set('categories', build_categories_config(10))
-hc.set('categories_lambda', list(np.linspace(.1, .5, num=100)))
+hc.set('categories_lambda', list(np.linspace(.001, .1, num=100)))
 hc.set('category_loss', [True])
 
 hc.set('g_class_loss', [False])
+hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
 hc.set('d_fake_class_loss', [False])
 
 hc.set("regularize", [False])
@@ -127,8 +128,8 @@ hc.set("adv_loss", [False])
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(1, 20, num=30)))
 
-hc.set("latent_loss", [False])
-hc.set("latent_lambda", list(np.linspace(1, 10, num=30)))
+hc.set("latent_loss", [False, True])
+hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
 hc.set("g_project", ['tiled'])
@@ -163,11 +164,15 @@ def samples(sess, config):
     generator = get_tensor("g")
     y = get_tensor("y")
     x = get_tensor("x")
+    categories = get_tensor('categories')
     d_fake_sigmoid = get_tensor("d_fake_sigmoid")
     rand = np.random.randint(0,config['y_dims'], size=config['batch_size'])
     rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
-    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
+    random_categories = [random_category(config['batch_size'], size) for size in config['categories']]
+    random_categories = tf.concat(1, random_categories)
+    random_categories = sess.run(random_categories)
+    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot, categories: random_categories})
     #sample =  np.concatenate(sample, axis=0)
     return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
 

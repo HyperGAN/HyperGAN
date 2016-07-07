@@ -221,13 +221,15 @@ def collect_measurements(epoch, sess, config):
     d_loss_fake = get_tensor("d_fake")
     d_loss_real = get_tensor("d_real")
     g_loss = get_tensor("g_loss")
+    d_class_loss = get_tensor("d_class_loss")
 
-    gl, dl, dlr, dlf = sess.run([g_loss, d_loss, d_loss_real, d_loss_fake])
+    gl, dl, dlr, dlf, dcl = sess.run([g_loss, d_loss, d_loss_real, d_loss_fake, d_class_loss])
     return {
             "g_loss": gl,
             "d_loss": dl,
             "d_loss_real": dlr,
-            "d_loss_fake": dlf
+            "d_loss_fake": dlf,
+            "d_class_loss": dcl
             }
 
 def test_epoch(epoch, j, sess, config):

@@ -217,8 +217,17 @@ def test_config(sess, config):
     return results
 
 def collect_measurements(epoch, sess, config):
+    d_loss = get_tensor("d_loss")
+    d_loss_fake = get_tensor("d_fake")
+    d_loss_real = get_tensor("d_real")
+    g_loss = get_tensor("g_loss")
+
+    gl, dl, dlr, dlf = sess.run([g_loss, d_loss, d_loss_real, d_loss_fake])
     return {
-            'epoch': epoch
+            "g_loss": gl,
+            "d_loss": dl,
+            "d_loss_real": dlr,
+            "d_loss_fake": dlf
             }
 
 def test_epoch(epoch, j, sess, config):
@@ -247,8 +256,8 @@ def test_epoch(epoch, j, sess, config):
         j+=1
     print("Creating sample")
     measurements = collect_measurements(epoch, sess, config)
-    measurements.update(get_graph_vars(sess, tf.get_default_graph()))
-    hc.io.sample(config, sample_list, measurements)
+    hc.io.measure(config, measurements)
+    hc.io.sample(config, sample_list)
     return j
 
 def record_run(config):
@@ -279,7 +288,7 @@ def record_run(config):
         'e_loss':float(e_loss)
     }
     print("Recording ", results)
-    hc.io.record(config, results)
+    #hc.io.record(config, results)
 
 
 

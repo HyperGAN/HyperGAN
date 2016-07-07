@@ -412,7 +412,6 @@ def create(config, x,y):
     set_tensor("d_class_loss", tf.reduce_mean(d_class_loss))
     set_tensor("g_class_loss", tf.reduce_mean(g_class_loss))
     set_tensor("d_fake_sigmoid", tf.sigmoid(d_fake_sig))
-    set_tensor("d_loss", tf.reduce_mean(d_real_loss))
     if(config['latent_loss']):
         set_tensor('latent_loss', tf.reduce_mean(latent_loss))
 

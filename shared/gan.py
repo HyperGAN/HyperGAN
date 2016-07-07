@@ -407,6 +407,7 @@ def create(config, x,y):
     set_tensor("encoded", encoded)
     set_tensor("encoder_mse", mse_loss)
     set_tensor("d_real", tf.reduce_mean(d_real))
+    set_tensor("d_fake", tf.reduce_mean(d_fake))
     set_tensor("d_fake_loss", tf.reduce_mean(d_fake_loss))
     set_tensor("d_real_loss", tf.reduce_mean(d_real_loss))
     set_tensor("d_class_loss", tf.reduce_mean(d_class_loss))

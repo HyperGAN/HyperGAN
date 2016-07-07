@@ -8,6 +8,7 @@ import shared.hc_tf as hc_tf
 import shared
 import json
 import uuid
+import time
 
 import shared.data_loader
 import os
@@ -216,23 +217,27 @@ def test_config(sess, config):
         results.append(test(sess, config))
     return results
 
-def collect_measurements(epoch, sess, config):
+def collect_measurements(epoch, sess, config, time):
     d_loss = get_tensor("d_loss")
-    d_loss_fake = get_tensor("d_fake")
-    d_loss_real = get_tensor("d_real")
+    d_loss_fake = get_tensor("d_fake_sig")
+    d_loss_real = get_tensor("d_real_sig")
     g_loss = get_tensor("g_loss")
     d_class_loss = get_tensor("d_class_loss")
+    simple_g_loss = get_tensor("g_loss_sig")
 
-    gl, dl, dlr, dlf, dcl = sess.run([g_loss, d_loss, d_loss_real, d_loss_fake, d_class_loss])
+    gl, dl, dlr, dlf, dcl,sgl = sess.run([g_loss, d_loss, d_loss_real, d_loss_fake, d_class_loss, simple_g_loss])
     return {
             "g_loss": gl,
+            "g_loss_sig": sgl,
             "d_loss": dl,
             "d_loss_real": dlr,
             "d_loss_fake": dlf,
-            "d_class_loss": dcl
+            "d_class_loss": dcl,
+            "g_strength": (2-(dlr+dcl))*(1-sgl),
+            "seconds": time/1000.0
             }
 
-def test_epoch(epoch, j, sess, config):
+def test_epoch(epoch, j, sess, config, start_time, end_time):
     x, label = sample_input(sess, config)
     sample_file = "samples/input-"+str(j)+".png"
     plot(config, x, sample_file)
@@ -257,7 +262,7 @@ def test_epoch(epoch, j, sess, config):
         sample_list.append({'image':sample_file,'label':'sample-'+str(j)})
         j+=1
     print("Creating sample")
-    measurements = collect_measurements(epoch, sess, config)
+    measurements = collect_measurements(epoch, sess, config, end_time - start_time)
     hc.io.measure(config, measurements)
     hc.io.sample(config, sample_list)
     return j
@@ -397,6 +402,7 @@ for config in hc.configs(1):
         sampled=False
         print("Running for ", args.epochs, " epochs")
         for i in range(args.epochs):
+            start_time = time.time()
             if(not epoch(sess, config)):
                 print("Epoch failed")
                 break
@@ -404,7 +410,8 @@ for config in hc.configs(1):
             if(args.save_every != 0 and i % args.save_every == args.save_every-1):
                 print(" |= Saving network")
                 saver.save(sess, save_file)
-            j=test_epoch(i, j, sess, config)
+            end_time = time.time()
+            j=test_epoch(i, j, sess, config, start_time, end_time)
             if(i == args.epochs-1):
                 print("Recording run...")
                 record_run(config)

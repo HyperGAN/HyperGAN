@@ -298,6 +298,7 @@ def create(config, x,y):
         d_fake_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake,fake_symbol)
 
         g_loss= sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
+        simple_g_loss = g_loss
         if(config['adv_loss']):
             g_loss+= sigmoid_kl_with_logits(d_real_sig, d_label_smooth)
 
@@ -405,13 +406,15 @@ def create(config, x,y):
     set_tensor("g", g)
     set_tensor("encoded", encoded)
     set_tensor("encoder_mse", mse_loss)
-    set_tensor("d_fake", tf.reduce_mean(d_fake))
     set_tensor("d_real", tf.reduce_mean(d_real))
     set_tensor("d_fake_loss", tf.reduce_mean(d_fake_loss))
     set_tensor("d_real_loss", tf.reduce_mean(d_real_loss))
     set_tensor("d_class_loss", tf.reduce_mean(d_class_loss))
     set_tensor("g_class_loss", tf.reduce_mean(g_class_loss))
     set_tensor("d_fake_sigmoid", tf.sigmoid(d_fake_sig))
+    set_tensor("d_fake_sig", tf.reduce_mean(tf.sigmoid(d_fake_sig)))
+    set_tensor("d_real_sig", tf.reduce_mean(tf.sigmoid(d_real_sig)))
+    set_tensor("g_loss_sig", tf.reduce_mean(tf.sigmoid(simple_g_loss)))
     if(config['latent_loss']):
         set_tensor('latent_loss', tf.reduce_mean(latent_loss))
 

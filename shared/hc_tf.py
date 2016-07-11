@@ -28,6 +28,8 @@ def build_reshape(output_size, nodes, method, batch_size):
     elif(method == 'linear'):
         result = tf.concat(1, [y, z])
         result = linear(result, dims, 'g_input_proj')
+    elif(method == 'atrous'):
+        pass 
     else:
         assert 1 == 0
     return result
@@ -67,7 +69,7 @@ def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, bat
         else:
             if(batch_norm_enabled):
                 result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
-            result += conv2d(result, layer, name=name+'id'+str(i), k_w=1, k_h=1, d_h=1, d_w=1)
+            #result += conv2d(result, layer, name=name+'id'+str(i), k_w=1, k_h=1, d_h=1, d_w=1)
             result = activation(result)
     return result
 
@@ -135,7 +137,7 @@ def build_conv_config(layers, start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [sorted(get_option(i)) for i in np.arange(start, end)]
-    return [[64,128,256,512,1024]]
+    return [[256,512,1024, 2048, 4096, 8192]]
 
 
 def build_deconv_config(layers,start, end):
@@ -152,7 +154,17 @@ def build_deconv_config(layers,start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
-    return [[256,128,64,32]]
+    return [[1024, 512,256,128,64,32]]
+
+
+def build_atrous_layer(result, layer, filter, name='g_atrous'):
+    padding="SAME"
+    rate=2
+    filters = tf.get_variable(name+'_w', [filter, filter, result.get_shape()[-1], layer],
+                        initializer=tf.truncated_normal_initializer(stddev=0.02))
+    print('filters', tf.convert_to_tensor(filters), result)
+    result = tf.nn.atrous_conv2d(result, filters, rate, padding)
+    return result
 
 
 def get_graph_vars(sess, graph):

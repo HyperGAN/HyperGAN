@@ -11,19 +11,33 @@ def generator(config, inputs, reuse=False):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
         z_proj_dims = int(config['conv_g_layers'][0])
+        print("PRIMES ARE", primes, z_proj_dims*primes[0]*primes[1])
 
-        result = tf.concat(1, inputs)
-        result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
-        result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
-        result = config['g_activation'](result)
-        #result = build_reshape(z_proj_dims*primes[0]*primes[1], [y,z], 'tiled', config['batch_size'])
+        if(config['g_project'] == 'linear'):
+            result = tf.concat(1, inputs)
+            result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
+            result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
+            result = config['g_activation'](result)
+        elif(config['g_project']=='tiled'):
+            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'])
+        elif(config['g_project']=='noise'):
+            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'noise', config['batch_size'])
+        elif(config['g_project']=='atrous'):
+            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'atrous', config['batch_size'])
+
 
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
         if config['conv_g_layers']:
             result = build_deconv_tower(result, config['conv_g_layers'][1:2], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], True, config['batch_size'], config['g_last_layer_stddev'])
+            result = config['g_activation'](result)
             result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
-            result = build_deconv_tower(result, config['conv_g_layers'][2:], x_dims, config['conv_size'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
+            if(config['g_atrous']):
+                result = build_deconv_tower(result, config['conv_g_layers'][2:], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], True, True, config['batch_size'], config['g_last_layer_stddev'])
+                result = config['g_activation'](result)
+                result = build_atrous_layer(result, config['channels'], config['g_atrous_filter'], 'g_astrous1')
+            else:
+                result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[config['channels']], x_dims, config['conv_size'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
 
         if(config['g_last_layer']):
             result = config['g_last_layer'](result)
@@ -50,8 +64,8 @@ def discriminator(config, x, z,g,gz, reuse=False):
     result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels])
 
     if config['conv_d_layers']:
-        result = build_conv_tower(result, config['conv_d_layers'][:2], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'])
-        print("RESULT",result)
+        result = build_conv_tower(result, config['conv_d_layers'][:2], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'])
+        result = config['d_activation'](result)
         result = build_resnet(result, config['d_resnet_depth'], config['d_resnet_filter'], 'd_conv_res_', config['d_activation'], config['batch_size'], config['d_batch_norm'], conv=True)
         result = build_conv_tower(result, config['conv_d_layers'][2:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', config['d_activation'])
         result = tf.reshape(x, [batch_size, -1])
@@ -96,6 +110,7 @@ def discriminator(config, x, z,g,gz, reuse=False):
     last_layer = tf.reshape(last_layer, [batch_size, -1])
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
+    print('last layer size', result)
     result = linear(result, config['y_dims']+1, scope="d_proj")
 
 
@@ -119,11 +134,11 @@ def discriminator(config, x, z,g,gz, reuse=False):
         assert len(gan_logits.get_shape()) == 1
 
         return class_logits, gan_logits
-    num_classes = config['y_dims'] +1
+    num_classes = config['y_dims']+1
     class_logits, gan_logits = build_logits(result, num_classes)
-    return [tf.slice(class_logits, [0, 0], [single_batch_size, num_classes]),
+    return [tf.slice(class_logits, [0, 0], [single_batch_size, num_classes-1]),
                 tf.slice(gan_logits, [0], [single_batch_size]),
-                tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, num_classes]),
+                tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, num_classes-1]),
                 tf.slice(gan_logits, [single_batch_size], [single_batch_size]), 
                 last_layer]
 
@@ -249,7 +264,6 @@ def create(config, x,y):
     categories_t = tf.concat(1, categories)
     categories_t = tf.tile(categories_t, [config['batch_size'], 1])
 
-    print("Build generator")
     g = generator(config, [y, z]+[categories_t])
     encoded = None
     if(config['latent_loss']):
@@ -269,63 +283,60 @@ def create(config, x,y):
     fake_symbol = tf.tile(tf.constant(np_fake, dtype=tf.float32), [config['batch_size']])
     fake_symbol = tf.reshape(fake_symbol, [config['batch_size'],config['y_dims']+1])
 
-    real_symbols = tf.concat(1, [y, tf.zeros([config['batch_size'], 1])])
-    #real_symbols = y
+    #real_symbols = tf.concat(1, [y, tf.zeros([config['batch_size'], 1])])
+    real_symbols = y
 
 
-    if(config['loss'] == 'softmax'):
-        d_fake_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake, fake_symbol)
-        d_real_loss = tf.nn.softmax_cross_entropy_with_logits(d_real, real_symbols)
+    zeros = tf.zeros_like(d_fake_sig)
+    ones = tf.zeros_like(d_real_sig)
 
-        g_loss= tf.nn.softmax_cross_entropy_with_logits(d_fake, real_symbols)
+    #d_real_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_real, ones)
 
-    else:
-        zeros = tf.zeros_like(d_fake_sig)
-        ones = tf.zeros_like(d_real_sig)
+    generator_target_prob = config['g_target_prob']
+    d_label_smooth = config['d_label_smooth']
+    d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
+    #d_real_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_real_sig, ones)
+    d_real_loss = sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
+    if(config['adv_loss']):
+        d_real_loss +=  sigmoid_kl_with_logits(d_fake_sig, d_label_smooth)
 
-        #d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake, zeros)
-        #d_real_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_real, ones)
+    d_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_real,real_symbols)
 
-        generator_target_prob = config['g_target_prob']
-        d_label_smooth = config['d_label_smooth']
-        d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
-        #d_real_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_real_sig, ones)
-        d_real_loss = sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
-        if(config['adv_loss']):
-            d_real_loss +=  sigmoid_kl_with_logits(d_fake_sig, d_label_smooth)
+    g_loss= sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
+    simple_g_loss = g_loss
+    if(config['adv_loss']):
+        g_loss+= sigmoid_kl_with_logits(d_real_sig, d_label_smooth)
 
-        d_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_real,real_symbols)
-        d_fake_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake,fake_symbol)
+    g_loss_fake= tf.nn.sigmoid_cross_entropy_with_logits(d_real_sig, zeros)
+    g_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake, real_symbols)
 
-        g_loss= sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
-        simple_g_loss = g_loss
-        if(config['adv_loss']):
-            g_loss+= sigmoid_kl_with_logits(d_real_sig, d_label_smooth)
-
-        g_loss_fake= tf.nn.sigmoid_cross_entropy_with_logits(d_real_sig, zeros)
-        g_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake, real_symbols)
-
-        #g_loss_encoder = tf.nn.sigmoid_cross_entropy_with_logits(d_real, zeros)
-        #d_real = tf.nn.sigmoid(d_real)
-        #d_fake = tf.nn.sigmoid(d_fake)
-        #d_fake_loss = -tf.log(1-d_fake+TINY)
-        #d_real_loss = -tf.log(d_real+TINY)
-        #g_loss_softmax = -tf.log(1-d_real+TINY)
-        #g_loss_encoder = -tf.log(d_fake+TINY)
+    #g_loss_encoder = tf.nn.sigmoid_cross_entropy_with_logits(d_real, zeros)
+    #d_real = tf.nn.sigmoid(d_real)
+    #d_fake = tf.nn.sigmoid(d_fake)
+    #d_fake_loss = -tf.log(1-d_fake+TINY)
+    #d_real_loss = -tf.log(d_real+TINY)
+    #g_loss_softmax = -tf.log(1-d_real+TINY)
+    #g_loss_encoder = -tf.log(d_fake+TINY)
     g_loss = tf.reduce_mean(g_loss)
 
     if(config['g_class_loss']):
         g_loss+=config['g_class_lambda']*tf.reduce_mean(g_class_loss)
 
     d_loss = tf.reduce_mean(d_fake_loss) + \
-            tf.reduce_mean(d_real_loss) + \
-            tf.reduce_mean(d_class_loss)
+            tf.reduce_mean(d_real_loss)
+
+    if(int(y.get_shape()[1]) > 1):
+        print("ADDING D_CLASS_LOSS")
+        d_loss += tf.reduce_mean(d_class_loss)
+    else:
+        print("REMOVING D_CLASS_LOSS")
 
     if(config['latent_loss']):
         g_loss += tf.reduce_mean(latent_loss)
         d_loss += tf.reduce_mean(latent_loss)
 
     if(config['d_fake_class_loss']):
+        d_fake_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake,fake_symbol)
         d_loss += config['g_class_lambda']*tf.reduce_mean(d_fake_class_loss)
 
 
@@ -372,9 +383,25 @@ def create(config, x,y):
         d_vars += v_vars
     else:
         print("ERROR: No variables training z space")
-    g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
-    d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
 
+    if(config['optimizer'] == 'simple'):
+        d_lr = np.float32(config['simple_lr'])
+        g_mul = np.float32(config['simple_lr_g'])
+        g_lr = d_lr*g_mul
+        g_optimizer = tf.train.GradientDescentOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
+        d_optimizer = tf.train.GradientDescentOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
+    elif(config['optimizer'] == 'adam'):
+        g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
+    elif(config['optimizer'] == 'momentum'):
+        d_lr = np.float32(config['momentum_lr'])
+        g_mul = np.float32(config['momentum_lr_g'])
+        g_lr = d_lr*g_mul
+        moment = config['momentum']
+        g_optimizer = tf.train.MomentumOptimizer(g_lr, moment).minimize(g_loss, var_list=g_vars)
+        d_optimizer = tf.train.MomentumOptimizer(d_lr, moment).minimize(d_loss, var_list=d_vars)
+
+    if(config['d_optim_strategy'] == 'adam'):
+        d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
     if(config['mse_loss']):
         mse_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(mse_loss, var_list=tf.trainable_variables())
     else:

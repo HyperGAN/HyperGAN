@@ -44,12 +44,22 @@ parser.add_argument('--server', type=bool, default=False)
 parser.add_argument('--save_every', type=int, default=0)
 
 args = parser.parse_args()
-start=1e-4
-end=4e-4
+start=1e-2
+end=2e-2
 
 num=100
+hc.set('d_optim_strategy', [None])
 hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
 hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
+
+
+hc.set("optimizer", ["simple"])
+hc.set('simple_lr', list(np.linspace(0.01, 0.1, num=100)))
+hc.set('simple_lr_g', list(np.linspace(.5, 2, num=100)))
+
+hc.set('momentum_lr', list(np.linspace(0.001, 0.01, num=100)))
+hc.set('momentum', list(np.linspace(0.8, 0.95, num=100)))
+hc.set('momentum_lr_g', list(np.linspace(0.3, 2, num=100)))
 
 hc.set("n_hidden_recog_1", list(np.linspace(100, 1000, num=100)))
 hc.set("n_hidden_recog_2", list(np.linspace(100, 1000, num=100)))
@@ -59,18 +69,22 @@ hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
-hc.set('d_add_noise', [True])
+hc.set('d_add_noise', [False])
+
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
 hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [10])
-hc.set('g_resnet_filter', [1])
+hc.set('g_resnet_depth', [0])
+hc.set('g_resnet_filter', [3])
 
-hc.set('d_resnet_depth', [10])
-hc.set('d_resnet_filter', [1])
+hc.set('g_atrous', [False])
+hc.set('g_atrous_filter', [3])
+
+hc.set('d_resnet_depth', [0])
+hc.set('d_resnet_filter', [3])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]
@@ -90,13 +104,13 @@ hc.set("conv_d_layers", conv_d_layers)
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
 
-g_encode_layers = [[16, 32, 64, 128, 256]]
+g_encode_layers = [[64, 128, 256, 512, 1024]]
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
-hc.set('categories', build_categories_config(10))
+hc.set('categories', build_categories_config(5))
 hc.set('categories_lambda', list(np.linspace(.001, .1, num=100)))
 hc.set('category_loss', [True])
 
@@ -119,25 +133,29 @@ hc.set('d_linear_layers', list(np.arange(512, 1024)))
 hc.set("g_target_prob", list(np.linspace(.75 /2., .85 /2., num=10))+list(np.linspace(.65 /2., .75/2, num=10)))
 hc.set("d_label_smooth", list(np.linspace(0.25, 0.35, num=10)) + list(np.linspace(.15,.25,num=10)))
 
-hc.set("d_kernels", list(np.arange(25, 80)))
-hc.set("d_kernel_dims", list(np.arange(200, 400)))
+hc.set("d_kernels", list(np.arange(25, 50)))
+hc.set("d_kernel_dims", list(np.arange(200, 300)))
 
 hc.set("loss", ['custom'])
 
 hc.set("adv_loss", [False])
 
 hc.set("mse_loss", [False])
-hc.set("mse_lambda",list(np.linspace(1, 20, num=30)))
+hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))
 
-hc.set("latent_loss", [False, True])
+hc.set("latent_loss", [False])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
-hc.set("g_project", ['tiled'])
+hc.set("g_project", ['linear'])
 hc.set("d_project", ['tiled'])
 hc.set("e_project", ['tiled'])
 
-hc.set("v_train", ['both'])
+hc.set("v_train", ['generator'])
+
+hc.set("g_post_res_filter", [5,7])
+
+hc.set("d_pre_res_filter", [5,7])
 
 hc.set("batch_size", args.batch)
 hc.set("model", "martyn/magic:0.2")
@@ -168,7 +186,7 @@ def samples(sess, config):
     categories = get_tensor('categories')
     d_fake_sigmoid = get_tensor("d_fake_sigmoid")
     rand = np.random.randint(0,config['y_dims'], size=config['batch_size'])
-    rand = np.zeros_like(rand)
+    #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
     random_categories = [random_category(config['batch_size'], size) for size in config['categories']]
     random_categories = tf.concat(1, random_categories)
@@ -233,7 +251,7 @@ def collect_measurements(epoch, sess, config, time):
             "d_loss_real": dlr,
             "d_loss_fake": dlf,
             "d_class_loss": dcl,
-            "g_strength": (2-(dlr+dcl))*(1-sgl),
+            "g_strength": (1-(dlr))*(1-sgl),
             "seconds": time/1000.0
             }
 
@@ -348,10 +366,10 @@ for config in hc.configs(1):
     #config['z_dim']=other_config['z_dim']
     #config['mse_loss']=True#other_config['mse_loss']
     #config['categories']=other_config['categories'][5:]+[2,3,5,7,9]
-    config['d_learning_rate']=other_config['d_learning_rate']
-    config['g_learning_rate']=other_config['g_learning_rate']
-    config['categories_lambda']=other_config['categories_lambda']
-    config['conv_d_layers']=other_config['conv_d_layers']
+    #config['d_learning_rate']=config['g_learning_rate']*2
+    #config['g_learning_rate']=_config['g_learning_rate']
+    #config['categories_lambda']=other_config['categories_lambda']
+    #config['conv_d_layers']=other_config['conv_d_layers']
     print("TODO: TEST BROKEN")
     sess = tf.Session()
     channels = args.channels
@@ -365,8 +383,6 @@ for config in hc.configs(1):
 
     if(args.load_config):
         pass
-    else:
-        config['conv_g_layers'].append(channels)
     #config['d_linear_layers']=other_config['d_linear_layers']
     #config['conv_g_layers'].append(channels)
     config['examples_per_epoch']=examples_per_epoch
@@ -378,7 +394,7 @@ for config in hc.configs(1):
     if('parent_uuid' in config):
         save_file = "saves/"+config["parent_uuid"]+".ckpt"
     else:
-        save_file = None
+        save_file = "saves/"+config["uuid"]+".ckpt"
     if(save_file and os.path.isfile(save_file)):
         print(" |= Loading network from "+ save_file)
         config['uuid']=config['parent_uuid']
@@ -390,6 +406,16 @@ for config in hc.configs(1):
             print("No checkpoint file found")
     else:
         print("Starting new graph", config)
+        def mul(s):
+            x = 1
+            for y in s:
+                x*=y
+            return x
+        def get_size(v):
+            shape = [int(x) for x in v.get_shape()]
+            size = mul(shape)
+            return [v.name, size]
+        [print(get_size(i)) for i in tf.all_variables()]
         init = tf.initialize_all_variables()
         sess.run(init)
 

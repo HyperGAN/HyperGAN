@@ -37,7 +37,7 @@ def generator(config, inputs, reuse=False):
                 result = config['g_activation'](result)
                 result = build_atrous_layer(result, config['channels'], config['g_atrous_filter'], 'g_astrous1')
             else:
-                result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[config['channels']], x_dims, config['conv_size'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
+                result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[config['channels']], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
 
         if(config['g_last_layer']):
             result = config['g_last_layer'](result)

@@ -77,7 +77,7 @@ hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [0])
+hc.set('g_resnet_depth', [5])
 hc.set('g_resnet_filter', [3])
 
 hc.set('g_atrous', [False])

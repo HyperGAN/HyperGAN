@@ -128,13 +128,13 @@ hc.set("e_batch_norm", [True])
 hc.set("g_encoder", [True])
 
 hc.set('d_linear_layer', [True])
-hc.set('d_linear_layers', list(np.arange(512, 1024)))
+hc.set('d_linear_layers', list(np.arange(256, 512)))
 
 hc.set("g_target_prob", list(np.linspace(.75 /2., .85 /2., num=10))+list(np.linspace(.65 /2., .75/2, num=10)))
 hc.set("d_label_smooth", list(np.linspace(0.25, 0.35, num=10)) + list(np.linspace(.15,.25,num=10)))
 
-hc.set("d_kernels", list(np.arange(25, 50)))
-hc.set("d_kernel_dims", list(np.arange(200, 300)))
+hc.set("d_kernels", list(np.arange(15, 25)))
+hc.set("d_kernel_dims", list(np.arange(100, 200)))
 
 hc.set("loss", ['custom'])
 
@@ -414,7 +414,7 @@ for config in hc.configs(1):
         def get_size(v):
             shape = [int(x) for x in v.get_shape()]
             size = mul(shape)
-            return [v.name, size]
+            return [v.name, size/1024./1024.]
         [print(get_size(i)) for i in tf.all_variables()]
         init = tf.initialize_all_variables()
         sess.run(init)

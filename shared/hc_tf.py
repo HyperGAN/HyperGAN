@@ -55,12 +55,16 @@ def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, bat
     last_layer_size = layers[0]
     for i, layer in enumerate(layers):
         stride = 2
-        if filter > result.get_shape()[2]:
+        if filter > result.get_shape()[1]:
+            print("FILTER gt result", filter, result.get_shape())
             filter = int(result.get_shape()[2])
             stride = 1
-        if filter > result.get_shape()[3]:
+        if filter > result.get_shape()[2]:
+            print("FILTER gt result")
             filter = int(result.get_shape()[3])
             stride = 1
+
+        print("CONV", layer, filter, stride, result.get_shape())
 
         result = conv2d(result, layer, name=name+str(i), k_w=filter, k_h=filter, d_h=stride, d_w=stride)
         if(len(layers) == i+1):

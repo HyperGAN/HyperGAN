@@ -55,7 +55,7 @@ hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
 
 hc.set("optimizer", ["simple"])
 hc.set('simple_lr', list(np.linspace(0.01, 0.1, num=100)))
-hc.set('simple_lr_g', list(np.linspace(.5, 2, num=100)))
+hc.set('simple_lr_g', list(np.linspace(.8, 1.2, num=100)))
 
 hc.set('momentum_lr', list(np.linspace(0.001, 0.01, num=100)))
 hc.set('momentum', list(np.linspace(0.8, 0.95, num=100)))
@@ -77,7 +77,7 @@ hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [5])
+hc.set('g_resnet_depth', [0])
 hc.set('g_resnet_filter', [3])
 
 hc.set('g_atrous', [False])

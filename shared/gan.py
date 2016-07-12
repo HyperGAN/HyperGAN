@@ -68,7 +68,7 @@ def discriminator(config, x, z,g,gz, reuse=False):
         result = config['d_activation'](result)
         result = build_resnet(result, config['d_resnet_depth'], config['d_resnet_filter'], 'd_conv_res_', config['d_activation'], config['batch_size'], config['d_batch_norm'], conv=True)
         result = build_conv_tower(result, config['conv_d_layers'][2:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', config['d_activation'])
-        result = tf.reshape(x, [batch_size, -1])
+        result = tf.reshape(result, [batch_size, -1])
 
     def get_minibatch_features(h):
         n_kernels = int(config['d_kernels'])

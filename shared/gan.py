@@ -334,7 +334,7 @@ def create(config, x,y):
 
     if(config['latent_loss']):
         g_loss += tf.reduce_mean(latent_loss)
-        d_loss += tf.reduce_mean(latent_loss)
+        #d_loss += tf.reduce_mean(latent_loss)
 
     if(config['d_fake_class_loss']):
         d_fake_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake,fake_symbol)
@@ -451,7 +451,7 @@ def create(config, x,y):
 def train(sess, config):
     x = get_tensor('x')
     g = get_tensor('g')
-    g_loss = get_tensor("g_loss")
+    g_loss = get_tensor("g_loss_sig")
     d_loss = get_tensor("d_loss")
     d_fake_loss = get_tensor('d_fake_loss')
     d_real_loss = get_tensor('d_real_loss')
@@ -468,8 +468,8 @@ def train(sess, config):
     #_ = sess.run([mse_optimizer])
 
     print("g cost %.2f d cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (g_cost, d_cost,d_fake, d_real, d_class ))
-    print("X mean %.2f max %.2f min %.2f" % (np.mean(x), np.max(x), np.min(x)))
-    print("G mean %.2f max %.2f min %.2f" % (np.mean(g), np.max(g), np.min(g)))
+    #print("X mean %.2f max %.2f min %.2f" % (np.mean(x), np.max(x), np.min(x)))
+    #print("G mean %.2f max %.2f min %.2f" % (np.mean(g), np.max(g), np.min(g)))
     #print("Categories loss %.6f" % categories_r)
 
     return d_cost, g_cost

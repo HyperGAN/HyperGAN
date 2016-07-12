@@ -45,18 +45,18 @@ parser.add_argument('--save_every', type=int, default=0)
 parser.add_argument('--gpu', type=int, default=0)
 
 args = parser.parse_args()
-start=1e-2
-end=2e-2
+start=1e-3
+end=4e-3
 
 num=100
-hc.set('d_optim_strategy', ['adam'])
+hc.set('d_optim_strategy', ['adam', None])
 hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
 hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
 
 
-hc.set("optimizer", ['simple'])
-hc.set('simple_lr', list(np.linspace(0.01, 0.1, num=100)))
-hc.set('simple_lr_g', list(np.linspace(.8, 1.2, num=100)))
+hc.set("optimizer", ['simple', 'adam'])
+hc.set('simple_lr', list(np.linspace(0.01, 0.3, num=100)))
+hc.set('simple_lr_g', list(np.linspace(1, 3, num=100)))
 
 hc.set('momentum_lr', list(np.linspace(0.001, 0.01, num=100)))
 hc.set('momentum', list(np.linspace(0.8, 0.95, num=100)))
@@ -84,8 +84,8 @@ hc.set('g_resnet_filter', [3])
 hc.set('g_atrous', [False])
 hc.set('g_atrous_filter', [3])
 
-hc.set('d_resnet_depth', [5])
-hc.set('d_resnet_filter', [3, 1])
+hc.set('d_resnet_depth', [0])
+hc.set('d_resnet_filter', [1])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]
@@ -105,15 +105,16 @@ hc.set("conv_d_layers", conv_d_layers)
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
 
-g_encode_layers = [[64, 128, 256, 512, 1024]]
+g_encode_layers = [[32, 64,128,256,512, 1024], 
+        [64,128,256,512,1024, 2048]]
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
-hc.set('categories', build_categories_config(5))
+hc.set('categories', build_categories_config(10))
 hc.set('categories_lambda', list(np.linspace(.3, .9, num=100)))
-hc.set('category_loss', [False])
+hc.set('category_loss', [False, True])
 
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
@@ -134,8 +135,8 @@ hc.set('d_linear_layers', list(np.arange(256, 512)))
 hc.set("g_target_prob", list(np.linspace(.75 /2., .85 /2., num=10))+list(np.linspace(.65 /2., .75/2, num=10)))
 hc.set("d_label_smooth", list(np.linspace(0.25, 0.35, num=10)) + list(np.linspace(.15,.25,num=10)))
 
-hc.set("d_kernels", list(np.arange(10, 20)))
-hc.set("d_kernel_dims", list(np.arange(50, 100)))
+hc.set("d_kernels", list(np.arange(10, 30)))
+hc.set("d_kernel_dims", list(np.arange(100, 300)))
 
 hc.set("loss", ['custom'])
 
@@ -144,17 +145,17 @@ hc.set("adv_loss", [False])
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))
 
-hc.set("latent_loss", [False])
+hc.set("latent_loss", [False, True])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
-hc.set("g_project", ['linear'])
+hc.set("g_project", ['tiled'])
 hc.set("d_project", ['tiled'])
 hc.set("e_project", ['tiled'])
 
 hc.set("v_train", ['generator'])
 
-hc.set("g_post_res_filter", [3])
+hc.set("g_post_res_filter", [5, 7])
 
 hc.set("d_pre_res_filter", [7])
 hc.set("d_pre_res_stride", [7])

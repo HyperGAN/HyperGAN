@@ -42,6 +42,7 @@ parser.add_argument('--format', type=str, default='png')
 parser.add_argument('--test', type=bool, default=False)
 parser.add_argument('--server', type=bool, default=False)
 parser.add_argument('--save_every', type=int, default=0)
+parser.add_argument('--gpu', type=int, default=0)
 
 args = parser.parse_args()
 start=1e-2
@@ -372,12 +373,14 @@ for config in hc.configs(1):
     #config['categories_lambda']=other_config['categories_lambda']
     #config['conv_d_layers']=other_config['conv_d_layers']
     print("TODO: TEST BROKEN")
-    sess = tf.Session()
+    with tf.device('/gpu:' + str(args.gpu)):
+        sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
     channels = args.channels
     crop = args.crop
     width = args.width
     height = args.height
-    train_x,train_y, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+    with tf.device('/cpu:0'):
+        train_x,train_y, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
     config['y_dims']=num_labels
     config['x_dims']=[height,width]
     config['channels']=channels
@@ -389,8 +392,10 @@ for config in hc.configs(1):
     config['examples_per_epoch']=examples_per_epoch
     x = train_x
     y = train_y
-    y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
-    graph = create(config,x,y)
+    with tf.device('/gpu:' + str(args.gpu)):
+        y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
+
+        graph = create(config,x,y)
     saver = tf.train.Saver()
     if('parent_uuid' in config):
         save_file = "saves/"+config["parent_uuid"]+".ckpt"
@@ -417,8 +422,9 @@ for config in hc.configs(1):
             size = mul(shape)
             return [v.name, size/1024./1024.]
         [print(get_size(i)) for i in tf.all_variables()]
-        init = tf.initialize_all_variables()
-        sess.run(init)
+        with tf.device('/gpu:' + str(args.gpu)):
+            init = tf.initialize_all_variables()
+            sess.run(init)
 
     tf.train.start_queue_runners(sess=sess)
 
@@ -430,9 +436,10 @@ for config in hc.configs(1):
         print("Running for ", args.epochs, " epochs")
         for i in range(args.epochs):
             start_time = time.time()
-            if(not epoch(sess, config)):
-                print("Epoch failed")
-                break
+            with tf.device('/gpu:' + str(args.gpu)):
+                if(not epoch(sess, config)):
+                    print("Epoch failed")
+                    break
             print("Checking save "+ str(i))
             if(args.save_every != 0 and i % args.save_every == args.save_every-1):
                 print(" |= Saving network")

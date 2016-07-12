@@ -241,8 +241,9 @@ def categories_loss(categories, layer, batch_size):
 def random_category(batch_size, size):
     prior = tf.ones([batch_size, size])*1./size
     dist = tf.log(prior + TINY)
-    sample=tf.multinomial(dist, num_samples=1)[:, 0]
-    return tf.one_hot(sample, size)
+    with tf.device('/cpu:0'):
+        sample=tf.multinomial(dist, num_samples=1)[:, 0]
+        return tf.one_hot(sample, size)
 
 def create(config, x,y):
     batch_size = config["batch_size"]

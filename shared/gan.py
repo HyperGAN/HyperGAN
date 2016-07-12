@@ -64,7 +64,7 @@ def discriminator(config, x, z,g,gz, reuse=False):
     result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels])
 
     if config['conv_d_layers']:
-        result = build_conv_tower(result, config['conv_d_layers'][:2], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'])
+        result = build_conv_tower(result, config['conv_d_layers'][:2], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
         result = config['d_activation'](result)
         result = build_resnet(result, config['d_resnet_depth'], config['d_resnet_filter'], 'd_conv_res_', config['d_activation'], config['batch_size'], config['d_batch_norm'], conv=True)
         result = build_conv_tower(result, config['conv_d_layers'][2:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', config['d_activation'])
@@ -392,6 +392,7 @@ def create(config, x,y):
         d_optimizer = tf.train.GradientDescentOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
     elif(config['optimizer'] == 'adam'):
         g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
+        d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
     elif(config['optimizer'] == 'momentum'):
         d_lr = np.float32(config['momentum_lr'])
         g_mul = np.float32(config['momentum_lr_g'])

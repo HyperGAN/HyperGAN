@@ -51,22 +51,22 @@ def find_smallest_prime(x, y):
                 return i,j
     return None,None
 
-def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, batch_norm_last_layer, name, activation):
+def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, batch_norm_last_layer, name, activation, stride=2):
     last_layer_size = layers[0]
     for i, layer in enumerate(layers):
-        stride = 2
+        istride = stride
         if filter > result.get_shape()[1]:
             print("FILTER gt result", filter, result.get_shape())
-            filter = int(result.get_shape()[2])
-            stride = 1
+            filter = int(result.get_shape()[1])
+            istride = 1
         if filter > result.get_shape()[2]:
             print("FILTER gt result")
-            filter = int(result.get_shape()[3])
-            stride = 1
+            filter = int(result.get_shape()[2])
+            istride = 1
 
-        print("CONV", layer, filter, stride, result.get_shape())
+        print("CONV", layer, filter, istride, result.get_shape())
 
-        result = conv2d(result, layer, name=name+str(i), k_w=filter, k_h=filter, d_h=stride, d_w=stride)
+        result = conv2d(result, layer, name=name+str(i), k_w=filter, k_h=filter, d_h=istride, d_w=istride)
         if(len(layers) == i+1):
             if(batch_norm_last_layer):
                 result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)
@@ -141,7 +141,7 @@ def build_conv_config(layers, start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [sorted(get_option(i)) for i in np.arange(start, end)]
-    return [[256,512,1024, 2048, 4096, 8192]]
+    return [[32, 64, 128, 256, 512]]
 
 
 def build_deconv_config(layers,start, end):
@@ -158,7 +158,7 @@ def build_deconv_config(layers,start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
-    return [[1024, 512,256,128,64,32]]
+    return [[256,128,64,32, 16]]
 
 
 def build_atrous_layer(result, layer, filter, name='g_atrous'):

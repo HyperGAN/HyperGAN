@@ -48,12 +48,12 @@ start=1e-2
 end=2e-2
 
 num=100
-hc.set('d_optim_strategy', [None])
+hc.set('d_optim_strategy', ['adam'])
 hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
 hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
 
 
-hc.set("optimizer", ["simple"])
+hc.set("optimizer", ['simple'])
 hc.set('simple_lr', list(np.linspace(0.01, 0.1, num=100)))
 hc.set('simple_lr_g', list(np.linspace(.8, 1.2, num=100)))
 
@@ -77,14 +77,14 @@ hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [0])
+hc.set('g_resnet_depth', [5])
 hc.set('g_resnet_filter', [3])
 
 hc.set('g_atrous', [False])
 hc.set('g_atrous_filter', [3])
 
-hc.set('d_resnet_depth', [0])
-hc.set('d_resnet_filter', [3])
+hc.set('d_resnet_depth', [5])
+hc.set('d_resnet_filter', [3, 1])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]
@@ -111,8 +111,8 @@ hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", list(np.arange(32,256)))
 
 hc.set('categories', build_categories_config(5))
-hc.set('categories_lambda', list(np.linspace(.001, .1, num=100)))
-hc.set('category_loss', [True])
+hc.set('categories_lambda', list(np.linspace(.3, .9, num=100)))
+hc.set('category_loss', [False])
 
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
@@ -133,8 +133,8 @@ hc.set('d_linear_layers', list(np.arange(256, 512)))
 hc.set("g_target_prob", list(np.linspace(.75 /2., .85 /2., num=10))+list(np.linspace(.65 /2., .75/2, num=10)))
 hc.set("d_label_smooth", list(np.linspace(0.25, 0.35, num=10)) + list(np.linspace(.15,.25,num=10)))
 
-hc.set("d_kernels", list(np.arange(15, 25)))
-hc.set("d_kernel_dims", list(np.arange(100, 200)))
+hc.set("d_kernels", list(np.arange(10, 20)))
+hc.set("d_kernel_dims", list(np.arange(50, 100)))
 
 hc.set("loss", ['custom'])
 
@@ -153,9 +153,10 @@ hc.set("e_project", ['tiled'])
 
 hc.set("v_train", ['generator'])
 
-hc.set("g_post_res_filter", [5,7])
+hc.set("g_post_res_filter", [3])
 
-hc.set("d_pre_res_filter", [5,7])
+hc.set("d_pre_res_filter", [7])
+hc.set("d_pre_res_stride", [7])
 
 hc.set("batch_size", args.batch)
 hc.set("model", "martyn/magic:0.2")

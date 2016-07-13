@@ -45,8 +45,8 @@ parser.add_argument('--save_every', type=int, default=0)
 parser.add_argument('--gpu', type=int, default=0)
 
 args = parser.parse_args()
-start=1e-3
-end=4e-3
+start=1e-4
+end=2e-4
 
 num=100
 hc.set('pretrained_model', ['preprocess'])
@@ -60,8 +60,8 @@ hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
 
 
 hc.set("optimizer", ['simple'])
-hc.set('simple_lr', list(np.linspace(0.01, 0.2, num=100)))
-hc.set('simple_lr_g', list(np.linspace(1, 3, num=100)))
+hc.set('simple_lr', list(np.linspace(0.01, 0.04, num=100)))
+hc.set('simple_lr_g', list(np.linspace(0.8, 1.2, num=100)))
 
 hc.set('momentum_lr', list(np.linspace(0.001, 0.01, num=100)))
 hc.set('momentum', list(np.linspace(0.8, 0.95, num=100)))
@@ -70,12 +70,15 @@ hc.set('momentum_lr_g', list(np.linspace(0.3, 2, num=100)))
 hc.set("n_hidden_recog_1", list(np.linspace(100, 1000, num=100)))
 hc.set("n_hidden_recog_2", list(np.linspace(100, 1000, num=100)))
 hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+hc.set("d_activation", [lrelu]);
 hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [False])
+
+hc.set("g_last_layer_resnet_depth", [0])
+hc.set("g_last_layer_resnet_size", [1])
 
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
@@ -83,14 +86,14 @@ hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [5])
+hc.set('g_resnet_depth', [16])
 hc.set('g_resnet_filter', [3])
 
 hc.set('g_atrous', [False])
 hc.set('g_atrous_filter', [3])
 
-hc.set('d_resnet_depth', [0])
-hc.set('d_resnet_filter', [1])
+hc.set('d_resnet_depth', [4])
+hc.set('d_resnet_filter', [3])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]
@@ -115,11 +118,11 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", list(np.arange(32,256)))
+hc.set("z_dim", 2048)
 
-hc.set('categories', build_categories_config(10))
+hc.set('categories', [[]])#build_categories_config(10))
 hc.set('categories_lambda', list(np.linspace(.3, .9, num=100)))
-hc.set('category_loss', [False, True])
+hc.set('category_loss', [False])
 
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
@@ -137,15 +140,15 @@ hc.set("g_encoder", [True])
 hc.set('d_linear_layer', [True])
 hc.set('d_linear_layers', list(np.arange(256, 512)))
 
-hc.set("g_target_prob", list(np.linspace(.75 /2., .85 /2., num=10))+list(np.linspace(.65 /2., .75/2, num=10)))
-hc.set("d_label_smooth", list(np.linspace(0.25, 0.35, num=10)) + list(np.linspace(.15,.25,num=10)))
+hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
+hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
 hc.set("d_kernels", list(np.arange(10, 30)))
 hc.set("d_kernel_dims", list(np.arange(100, 300)))
 
 hc.set("loss", ['custom'])
 
-hc.set("adv_loss", [False])
+hc.set("adv_loss", [True])
 
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))
@@ -154,7 +157,7 @@ hc.set("latent_loss", [True])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
-hc.set("g_project", ['tiled'])
+hc.set("g_project", ['linear'])
 hc.set("d_project", ['tiled'])
 hc.set("e_project", ['tiled'])
 
@@ -171,8 +174,9 @@ hc.set("model", "dogs:0.5")
 def sample_input(sess, config):
     x = get_tensor("x")
     y = get_tensor("y")
-    sample, label = sess.run([x, y])
-    return sample[0], label[0]
+    encoded = get_tensor("encoded")
+    sample, encoded, label = sess.run([x, encoded, y])
+    return sample[0], encoded[0], label[0]
 
 
 def split_sample(n, d_fake_sig, sample, x_dims, channels):
@@ -195,9 +199,12 @@ def samples(sess, config):
     #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
     random_categories = [random_category(config['batch_size'], size) for size in config['categories']]
-    random_categories = tf.concat(1, random_categories)
-    random_categories = sess.run(random_categories)
-    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot, categories: random_categories})
+    if(len(random_categories) > 0):
+        random_categories = tf.concat(1, random_categories)
+        random_categories = sess.run(random_categories)
+        sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot, categories: random_categories})
+    else:
+        sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
     #sample =  np.concatenate(sample, axis=0)
     return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
 
@@ -262,11 +269,11 @@ def collect_measurements(epoch, sess, config, time):
             }
 
 def test_epoch(epoch, j, sess, config, start_time, end_time):
-    x, label = sample_input(sess, config)
+    x, encoded, label = sample_input(sess, config)
     sample_file = "samples/input-"+str(j)+".png"
     plot(config, x, sample_file)
-    #encoded_sample = "samples/encoded-"+str(j)+".png"
-    #plot(config, encoded, encoded_sample)
+    encoded_sample = "samples/encoded-"+str(j)+".png"
+    plot(config, encoded, encoded_sample)
 
     def to_int(one_hot):
         i = 0
@@ -277,9 +284,9 @@ def test_epoch(epoch, j, sess, config, start_time, end_time):
         return None
     
     sample_file = {'image':sample_file, 'label':json.dumps(to_int(label))}
-    #encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
+    encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
     sample = samples(sess, config)
-    sample_list = [sample_file]
+    sample_list = [sample_file, encoded_sample]
     for s in sample:
         sample_file = "samples/config-"+str(j)+".png"
         plot(config, s, sample_file)

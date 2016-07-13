@@ -141,7 +141,7 @@ def build_conv_config(layers, start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [sorted(get_option(i)) for i in np.arange(start, end)]
-    return [[32, 64, 128, 256, 512, 1024]]
+    return [[128, 256, 512, 1024, 2048]]
 
 
 def build_deconv_config(layers,start, end):

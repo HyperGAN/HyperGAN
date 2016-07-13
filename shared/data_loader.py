@@ -23,7 +23,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   classes = tf.convert_to_tensor(classes, dtype=tf.int32)
   print("[0]", filenames[0], classes[0])
 
-  input_queue = tf.train.slice_input_producer([filenames, classes], shuffle=True)
+  input_queue = tf.train.slice_input_producer([filenames, classes])
 
   # Read examples from files in the filename queue.
   value = tf.read_file(input_queue[0])

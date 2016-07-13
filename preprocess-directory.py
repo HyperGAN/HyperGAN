@@ -28,17 +28,20 @@ def save(filename, output):
 with tf.device('/cpu:0'):
     sess = tf.Session()
 
+with tf.device('/cpu:0'):
     channels = args.channels
     crop = args.crop
     width = args.width
     height = args.height
     batch_size = 1
     train_x,train_y, filename_t, num_labels,examples_per_epoch = shared.predata_loader.labelled_image_tensors_from_directory(args.directory,batch_size, channels=channels, format=args.format,crop=crop,width=width,height=height)
+with tf.device('/cpu:0'):
     output_layer_t = shared.inception_loader.create_graph(train_x, "pool_3:0")
     tf.train.start_queue_runners(sess=sess)
 
     for i in range(examples_per_epoch):
-        output, filename = sess.run([output_layer_t, filename_t])
+        with tf.device('/cpu:0'):
+            output, filename = sess.run([output_layer_t, filename_t])
         for f,o in zip(filename, output):
             #print("O IS", o.shape)
             save(f,o)

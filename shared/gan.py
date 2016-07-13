@@ -51,7 +51,9 @@ def discriminator(config, x, z,g,gz, reuse=False):
     batch_size = config['batch_size']*2
     single_batch_size = config['batch_size']
     x = tf.concat(0, [x,g])
-    z = tf.concat(0, [z,gz])
+
+    # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
+    z = tf.concat(0, [gz,z])
     x = tf.reshape(x, [batch_size, -1, config['channels']])
     if(config['d_add_noise']):
         x += tf.random_normal(x.get_shape(), mean=0, stddev=0.1)
@@ -291,7 +293,7 @@ def create(config, x,y,f):
     batch_size = config["batch_size"]
     z_dim = int(config['z_dim'])
 
-    if(config['pretrained_model']):
+    if(config['pretrained_model'] == 'preprocess'):
         #img = tf.reshape(x, [config['batch_size'], -1])
         #img = build_reshape(224*224*config['channels'], [img], 'zeros', config['batch_size'])
         #img = tf.reshape(img, [config['batch_size'],224,224,config['channels']])
@@ -310,13 +312,14 @@ def create(config, x,y,f):
 
 
     categories = [random_category(1, size) for size in config['categories']]
-    categories_t = tf.concat(1, categories)
-    categories_t = tf.tile(categories_t, [config['batch_size'], 1])
+    if(len(categories) > 0):
+        categories_t = tf.concat(1, categories)
+        categories_t = [tf.tile(categories_t, [config['batch_size'], 1])]
+    else:
+        categories_t = []
 
-    g = generator(config, [y, z]+[categories_t])
-    encoded = None
-    if(config['latent_loss']):
-        encoded = generator(config, [y, encoded_z]+[categories_t], reuse=True)
+    g = generator(config, [y, z]+categories_t)
+    encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
     print("shape of g,x", g.get_shape(), x.get_shape())
     #print("shape of z,encoded_z", z.get_shape(), encoded_z.get_shape())
     d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, encoded_z, g, z, reuse=False)
@@ -346,8 +349,8 @@ def create(config, x,y,f):
     d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
     #d_real_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_real_sig, ones)
     d_real_loss = sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
-    if(config['adv_loss']):
-        d_real_loss +=  sigmoid_kl_with_logits(d_fake_sig, d_label_smooth)
+    #if(config['adv_loss']):
+    #    d_real_loss +=  sigmoid_kl_with_logits(d_fake_sig, d_label_smooth)
 
     d_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_real,real_symbols)
 
@@ -492,10 +495,11 @@ def create(config, x,y,f):
     set_tensor("d_fake_sigmoid", tf.sigmoid(d_fake_sig))
     set_tensor("d_fake_sig", tf.reduce_mean(tf.sigmoid(d_fake_sig)))
     set_tensor("d_real_sig", tf.reduce_mean(tf.sigmoid(d_real_sig)))
-    set_tensor("g_loss_sig", tf.reduce_mean(tf.sigmoid(simple_g_loss)))
+    set_tensor("g_loss_sig", tf.reduce_mean(simple_g_loss))
     if(config['latent_loss']):
         set_tensor('latent_loss', tf.reduce_mean(latent_loss))
 
+iteration = 0
 def train(sess, config):
     x = get_tensor('x')
     g = get_tensor('g')

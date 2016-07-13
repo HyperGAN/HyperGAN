@@ -14,7 +14,7 @@ def build_labels(dirs):
 def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=True):
   filenames = glob.glob(directory+"/**/*."+format)
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
-  num_examples_per_epoch = 30000
+  num_examples_per_epoch = len(filenames)
 
   # Create a queue that produces the filenames to read.
   classes = [labels[f.split('/')[-2]] for f in filenames]
@@ -23,13 +23,11 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   classes = tf.convert_to_tensor(classes, dtype=tf.int32)
   print("[0]", filenames[0], classes[0])
 
-  input_queue = tf.train.slice_input_producer([filenames, classes], shuffle=True)
+  input_queue = tf.train.slice_input_producer([filenames, classes])
 
   # Read examples from files in the filename queue.
   value = tf.read_file(input_queue[0])
-  preprocess = tf.read_file(input_queue[0]+'.preprocess')
-  features = tf.decode_raw(preprocess, tf.float32)
-  tf.Tensor.set_shape(features, [2048])
+  fname = input_queue[0]
   if(format == 'jpg'):
       img = tf.image.decode_jpeg(value, channels=channels)
   elif(format == 'png'):
@@ -61,7 +59,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   #resized_image = tf.image.convert_image_dtype(resized_image, tf.float32)
   # Subtract off the mean and divide by the variance of the pixels.
   #float_image = tf.image.per_image_whitening(resized_image)
-  float_image = resized_image / 127.5 - 1.
+  #float_image = resized_image / 127.5 - 1.
 
   # Ensure that the random shuffling has good mixing properties.
   min_fraction_of_examples_in_queue = 0.4
@@ -69,23 +67,22 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
                            min_fraction_of_examples_in_queue)
 
   # Generate a batch of images and labels by building up a queue of examples.
-  x,y,f= _get_data(float_image, label, features, min_queue_examples, batch_size)
+  x,y,f= _get_data(resized_image, label, fname, min_queue_examples, batch_size)
 
-  return x, y,f, total_labels, num_examples_per_epoch
+  return x, y,f,total_labels, num_examples_per_epoch
 
 
 def _get_features(image):
     vggnet_loader.maybe_download_and_extract()
     return vggnet_loader.get_features(image)
 
-def _get_data(image, label, features, min_queue_examples, batch_size):
+def _get_data(image, label, fname, min_queue_examples, batch_size):
   num_preprocess_threads = 8
   print(image, label)
-  images, label_batch, f_b= tf.train.shuffle_batch(
-      [image, label, features],
+  images, label_batch, name_batch= tf.train.batch(
+      [image, label, fname],
       batch_size=batch_size,
       num_threads=num_preprocess_threads,
-      capacity= 1000,
-      min_after_dequeue=10)
-  return images, tf.reshape(label_batch, [batch_size]), f_b
+      capacity= 1000)
+  return images, tf.reshape(label_batch, [batch_size]), name_batch
 

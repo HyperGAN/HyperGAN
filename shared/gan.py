@@ -2,6 +2,7 @@
 from shared.ops import *
 from shared.util import *
 from shared.hc_tf import *
+import shared.vggnet_loader as vggnet_loader
 import tensorflow as tf
 TINY = 1e-12
 
@@ -143,6 +144,47 @@ def discriminator(config, x, z,g,gz, reuse=False):
                 last_layer]
 
 
+def z_from_f(config, f):
+    batch_size = config["batch_size"]
+    transfer_fct = config['transfer_fct']
+    n_z = int(config['z_dim'])
+
+    result = f
+    print("RESULT IS", result)
+    result = tf.reshape(result, [config['batch_size'], 2048])
+    result = linear(result, config['f_hidden_1'], scope="v_f_hidden")
+    result = batch_norm(config['batch_size'], name='v_f_hidden_bn')(result)
+    result = transfer_fct(result)
+    result = linear(result, config['f_hidden_2'], scope="v_f_hidden2")
+    result = batch_norm(config['batch_size'], name='v_f_hidden_bn2')(result)
+    result = transfer_fct(result)
+    result = linear(result, n_z, scope="v_f_hidden3")
+    result = batch_norm(config['batch_size'], name='v_f_hidden_bn3')(result)
+    result = transfer_fct(result)
+
+    last_layer = result
+    result = tf.reshape(result, [config['batch_size'], -1])
+
+    b_out_mean= tf.get_variable('v_b_out_mean', initializer=tf.zeros([n_z], dtype=tf.float32))
+    out_mean= tf.get_variable('v_out_mean', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
+    mu = tf.add(tf.matmul(result, out_mean),b_out_mean)
+
+    out_log_sigma=tf.get_variable('v_out_logsigma', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
+    b_out_log_sigma= tf.get_variable('v_b_out_logsigma', initializer=tf.zeros([n_z], dtype=tf.float32))
+    sigma = tf.add(tf.matmul(result, out_log_sigma),b_out_log_sigma)
+
+    eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
+                           dtype=tf.float32)
+
+    z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
+
+    e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=tf.float32)
+
+    if(config['e_last_layer']):
+        z = config['e_last_layer'](z)
+        e_z = config['e_last_layer'](e_z)
+    return e_z, z, mu, sigma
+
 def approximate_z(config, x, y):
     y = tf.concat(1, y)
     x_dims = config['x_dims']
@@ -192,7 +234,7 @@ def approximate_z(config, x, y):
     if(config['e_last_layer']):
         z = config['e_last_layer'](z)
         e_z = config['e_last_layer'](e_z)
-    return e_z, z, mu, sigma, last_layer
+    return e_z, z, mu, sigma
 def sigmoid_kl_with_logits(logits, targets):
     # broadcasts the same target value across the whole batch
     # this is implemented so awkwardly because tensorflow lacks an x log x op
@@ -245,19 +287,25 @@ def random_category(batch_size, size):
         sample=tf.multinomial(dist, num_samples=1)[:, 0]
         return tf.one_hot(sample, size)
 
-def create(config, x,y):
+def create(config, x,y,f):
     batch_size = config["batch_size"]
     z_dim = int(config['z_dim'])
 
-    #categories = [random_category(config['batch_size'], size) for size in config['categories']]
-    #categories_t = tf.concat(1, categories)
-    if(config['latent_loss']):
-        encoded_z, z, z_mu, z_sigma, e_last_layer = approximate_z(config, x, [y])
+    if(config['pretrained_model']):
+        #img = tf.reshape(x, [config['batch_size'], -1])
+        #img = build_reshape(224*224*config['channels'], [img], 'zeros', config['batch_size'])
+        #img = tf.reshape(img, [config['batch_size'],224,224,config['channels']])
+        #print("IMG:", img)
+
+        #f = vggnet_loader.create_graph(img, 'pool4:0')[0]
+        #f = tf.reshape(f, [config['batch_size'], -1])
+        encoded_z, z, z_mu, z_sigma = z_from_f(config, f)
+    elif(config['latent_loss']):
+        encoded_z, z, z_mu, z_sigma = approximate_z(config, x, [y])
     else:
         encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1)
         z_mu = None
         z_sigma = None
-        e_last_layer = None
         z = tf.random_uniform([config['batch_size'], z_dim],-1, 1)
 
 

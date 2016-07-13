@@ -49,13 +49,18 @@ start=1e-3
 end=4e-3
 
 num=100
-hc.set('d_optim_strategy', ['adam', None])
+hc.set('pretrained_model', ['preprocess'])
+
+hc.set('f_hidden_1', list(np.arange(128, 1024)))
+hc.set('f_hidden_2', list(np.arange(128, 1024)))
+
+hc.set('d_optim_strategy', [None])
 hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
 hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
 
 
-hc.set("optimizer", ['simple', 'adam'])
-hc.set('simple_lr', list(np.linspace(0.01, 0.3, num=100)))
+hc.set("optimizer", ['simple'])
+hc.set('simple_lr', list(np.linspace(0.01, 0.2, num=100)))
 hc.set('simple_lr_g', list(np.linspace(1, 3, num=100)))
 
 hc.set('momentum_lr', list(np.linspace(0.001, 0.01, num=100)))
@@ -145,7 +150,7 @@ hc.set("adv_loss", [False])
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))
 
-hc.set("latent_loss", [False, True])
+hc.set("latent_loss", [True])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
@@ -155,15 +160,13 @@ hc.set("e_project", ['tiled'])
 
 hc.set("v_train", ['generator'])
 
-hc.set("g_post_res_filter", [5, 7])
+hc.set("g_post_res_filter", [5])
 
 hc.set("d_pre_res_filter", [7])
 hc.set("d_pre_res_stride", [7])
 
 hc.set("batch_size", args.batch)
-hc.set("model", "martyn/magic:0.2")
-hc.set("version", "0.0.1")
-hc.set("machine", "martyn")
+hc.set("model", "dogs:0.5")
 
 def sample_input(sess, config):
     x = get_tensor("x")
@@ -375,13 +378,13 @@ for config in hc.configs(1):
     #config['conv_d_layers']=other_config['conv_d_layers']
     print("TODO: TEST BROKEN")
     with tf.device('/gpu:' + str(args.gpu)):
-        sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
+        sess = tf.Session(config=tf.ConfigProto())
     channels = args.channels
     crop = args.crop
     width = args.width
     height = args.height
     with tf.device('/cpu:0'):
-        train_x,train_y, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+        train_x,train_y, f, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
     config['y_dims']=num_labels
     config['x_dims']=[height,width]
     config['channels']=channels
@@ -396,7 +399,7 @@ for config in hc.configs(1):
     with tf.device('/gpu:' + str(args.gpu)):
         y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
 
-        graph = create(config,x,y)
+        graph = create(config,x,y,f)
     saver = tf.train.Saver()
     if('parent_uuid' in config):
         save_file = "saves/"+config["parent_uuid"]+".ckpt"

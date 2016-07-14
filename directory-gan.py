@@ -206,7 +206,7 @@ def samples(sess, config):
     else:
         sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
     #sample =  np.concatenate(sample, axis=0)
-    return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
+    return split_sample(1, d_fake_sig, sample, config['x_dims'], config['channels'])
 
 def plot_mnist_digit(config, image, file):
     """ Plot a single MNIST image."""
@@ -285,7 +285,10 @@ def test_epoch(epoch, j, sess, config, start_time, end_time):
     
     sample_file = {'image':sample_file, 'label':json.dumps(to_int(label))}
     encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
-    sample = samples(sess, config)
+    
+    sample = []
+    for i in range(10):
+        sample.append(samples(sess, config)[0])
     sample_list = [sample_file, encoded_sample]
     for s in sample:
         sample_file = "samples/config-"+str(j)+".png"

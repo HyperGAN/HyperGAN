@@ -45,32 +45,30 @@ parser.add_argument('--save_every', type=int, default=0)
 parser.add_argument('--gpu', type=int, default=0)
 
 args = parser.parse_args()
-start=1e-4
-end=2e-4
+start=1e-5
+end=1e-4
 
 num=100
 hc.set('pretrained_model', ['preprocess'])
 
-hc.set('f_hidden_1', list(np.arange(128, 1024)))
-hc.set('f_hidden_2', list(np.arange(128, 1024)))
+hc.set('f_hidden_1', list(np.arange(512, 2048)))
+hc.set('f_hidden_2', list(np.arange(512, 2048)))
 
-hc.set('d_optim_strategy', [None])
+hc.set('d_optim_strategy', ['g_adam'])
 hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
 hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
 
 
 hc.set("optimizer", ['simple'])
-hc.set('simple_lr', list(np.linspace(0.01, 0.04, num=100)))
-hc.set('simple_lr_g', list(np.linspace(0.8, 1.2, num=100)))
+hc.set('simple_lr', list(np.linspace(0.001, 0.005, num=100)))
+hc.set('simple_lr_g', list(np.linspace(1,1.3, num=100)))
 
-hc.set('momentum_lr', list(np.linspace(0.001, 0.01, num=100)))
-hc.set('momentum', list(np.linspace(0.8, 0.95, num=100)))
-hc.set('momentum_lr_g', list(np.linspace(0.3, 2, num=100)))
+hc.set('momentum_lr', list(np.linspace(0.0001, 0.001, num=100)))
+hc.set('momentum', list(np.linspace(0.8, 0.9999, num=1000)))
+hc.set('momentum_lr_g', list(np.linspace(1, 3, num=100)))
 
-hc.set("n_hidden_recog_1", list(np.linspace(100, 1000, num=100)))
-hc.set("n_hidden_recog_2", list(np.linspace(100, 1000, num=100)))
 hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("d_activation", [lrelu]);
+hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
@@ -82,17 +80,17 @@ hc.set("g_last_layer_resnet_size", [1])
 
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
-hc.set('g_batch_norm_last_layer', [False])
+hc.set('g_batch_norm_last_layer', [False, True])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [16])
+hc.set('g_resnet_depth', [8])
 hc.set('g_resnet_filter', [3])
 
 hc.set('g_atrous', [False])
 hc.set('g_atrous_filter', [3])
 
-hc.set('d_resnet_depth', [4])
+hc.set('d_resnet_depth', [0])
 hc.set('d_resnet_filter', [3])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
@@ -118,10 +116,10 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", 2048)
+hc.set("z_dim", 2048)#list(np.arange(128, 512)))
 
-hc.set('categories', [[]])#build_categories_config(10))
-hc.set('categories_lambda', list(np.linspace(.3, .9, num=100)))
+hc.set('categories', [[2],[2,3,5],[]])#[[2], [2,3,4,5,6,7,8,10], [2,3,5], [2,3,12,24,32], [2,3,5,12,16,32]])
+hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
 
 hc.set('g_class_loss', [False])
@@ -144,7 +142,7 @@ hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
 hc.set("d_kernels", list(np.arange(10, 30)))
-hc.set("d_kernel_dims", list(np.arange(100, 300)))
+hc.set("d_kernel_dims", list(np.arange(200, 400)))
 
 hc.set("loss", ['custom'])
 
@@ -157,19 +155,21 @@ hc.set("latent_loss", [True])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
-hc.set("g_project", ['linear'])
+hc.set("g_project", ['linear', 'tiled'])
 hc.set("d_project", ['tiled'])
 hc.set("e_project", ['tiled'])
 
 hc.set("v_train", ['generator'])
 
-hc.set("g_post_res_filter", [5])
+hc.set("g_post_res_filter", [3])
 
 hc.set("d_pre_res_filter", [7])
 hc.set("d_pre_res_stride", [7])
 
+hc.set("d_pool", [False])
+
 hc.set("batch_size", args.batch)
-hc.set("model", "dogs:0.5")
+hc.set("model", "celeb:1.0")
 
 def sample_input(sess, config):
     x = get_tensor("x")
@@ -199,12 +199,12 @@ def samples(sess, config):
     #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
     random_categories = [random_category(config['batch_size'], size) for size in config['categories']]
-    if(len(random_categories) > 0):
-        random_categories = tf.concat(1, random_categories)
-        random_categories = sess.run(random_categories)
-        sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot, categories: random_categories})
-    else:
-        sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
+    #if(len(random_categories) > 0):
+    #    random_categories = tf.concat(1, random_categories)
+    #    random_categories = sess.run(random_categories)
+    #    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot, categories: random_categories})
+    #else:
+    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
     #sample =  np.concatenate(sample, axis=0)
     return split_sample(1, d_fake_sig, sample, config['x_dims'], config['channels'])
 
@@ -386,7 +386,8 @@ for config in hc.configs(1):
     #config['g_learning_rate']=_config['g_learning_rate']
     #config['categories_lambda']=other_config['categories_lambda']
     #config['conv_d_layers']=other_config['conv_d_layers']
-    print("TODO: TEST BROKEN")
+    #config['adv_loss']=other_config['adv_loss']
+    print("TODO: ADVLOSS ")
     with tf.device('/gpu:' + str(args.gpu)):
         sess = tf.Session(config=tf.ConfigProto())
     channels = args.channels

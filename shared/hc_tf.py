@@ -90,6 +90,9 @@ def build_resnet(result, depth, filter, name, activation, batch_size, batch_norm
         if i % 2 == 1:
             result += root
             root = result
+        if i % 3 == 2:
+            filter=1
+            result += conv2d(result, int(result.get_shape()[-1]), name='1x1-'+str(i), k_w=filter, k_h=filter, d_h=1, d_w=1)
         result = activation(result)
     return result
 
@@ -141,7 +144,7 @@ def build_conv_config(layers, start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [sorted(get_option(i)) for i in np.arange(start, end)]
-    return [[128, 256, 512, 1024, 2048]]
+    return [[64, 128, 256, 512, 1024]]
 
 
 def build_deconv_config(layers,start, end):
@@ -158,7 +161,7 @@ def build_deconv_config(layers,start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
-    return [[256, 128, 64, 32, 16, 3]]
+    return [[512, 256, 128, 64, 32, 3]]
 
 
 def build_atrous_layer(result, layer, filter, name='g_atrous'):

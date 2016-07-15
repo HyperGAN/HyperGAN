@@ -38,39 +38,53 @@ def generator(config, inputs, reuse=False):
                 result = config['g_activation'](result)
                 result = build_atrous_layer(result, config['channels'], config['g_atrous_filter'], 'g_astrous1')
             else:
-                result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[config['channels']], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
+                result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[config['channels']+1], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
 
         if(config['g_last_layer']):
             result = config['g_last_layer'](result)
         return result
 
-def discriminator(config, x, z,g,gz, reuse=False):
+def discriminator(config, x, f,z,g,gz, reuse=False):
     x_dims = config['x_dims']
     if(reuse):
         tf.get_variable_scope().reuse_variables()
     batch_size = config['batch_size']*2
     single_batch_size = config['batch_size']
+    channels = (config['channels']+1)
+
+    x_tmp = tf.reshape(x, [single_batch_size, -1, channels-1])
+    f = build_reshape(int(x_tmp.get_shape()[1]), [f], config['d_project'], single_batch_size)
+    f = tf.reshape(f, [single_batch_size, -1, 1])
+    x = tf.concat(2, [x_tmp, f])
+
+    x = tf.reshape(x, g.get_shape())
     x = tf.concat(0, [x,g])
 
     # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
     z = tf.concat(0, [gz,z])
-    x = tf.reshape(x, [batch_size, -1, config['channels']])
+    x = tf.reshape(x, [batch_size, -1, config['channels']+1])
     if(config['d_add_noise']):
         x += tf.random_normal(x.get_shape(), mean=0, stddev=0.1)
 
-    channels = (config['channels']+1)
     #result = x
 
-    result = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size)
-    result = tf.reshape(result, [batch_size, -1, 1])
-    result = tf.concat(2, [result, tf.reshape(x, [batch_size, -1, channels-1])])
-    result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels])
+    print("ADDING Z TO", x)
+    if(config['latent_loss']):
+        result = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size)
+        result = tf.reshape(result, [batch_size, -1, 1])
+        result = tf.concat(2, [result, tf.reshape(x, [batch_size, -1, channels])])
+        result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels+1])
+    else:
+        result = x
+        result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels])
 
     if config['conv_d_layers']:
-        result = build_conv_tower(result, config['conv_d_layers'][:2], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
+        result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
+        if(config['d_pool']):
+            result = tf.nn.max_pool(result, [1, 3, 3, 1], [1, 2,2,1],padding='SAME')
         result = config['d_activation'](result)
         result = build_resnet(result, config['d_resnet_depth'], config['d_resnet_filter'], 'd_conv_res_', config['d_activation'], config['batch_size'], config['d_batch_norm'], conv=True)
-        result = build_conv_tower(result, config['conv_d_layers'][2:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', config['d_activation'])
+        result = build_conv_tower(result, config['conv_d_layers'][1:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', config['d_activation'])
         result = tf.reshape(result, [batch_size, -1])
 
     def get_minibatch_features(h):
@@ -146,10 +160,11 @@ def discriminator(config, x, z,g,gz, reuse=False):
                 last_layer]
 
 
-def z_from_f(config, f):
+def z_from_f(config, f, categories):
     batch_size = config["batch_size"]
     transfer_fct = config['transfer_fct']
     n_z = int(config['z_dim'])
+    n_c = sum(config['categories'])
 
     result = f
     print("RESULT IS", result)
@@ -160,11 +175,11 @@ def z_from_f(config, f):
     result = linear(result, config['f_hidden_2'], scope="v_f_hidden2")
     result = batch_norm(config['batch_size'], name='v_f_hidden_bn2')(result)
     result = transfer_fct(result)
+    last_layer = result
     result = linear(result, n_z, scope="v_f_hidden3")
     result = batch_norm(config['batch_size'], name='v_f_hidden_bn3')(result)
     result = transfer_fct(result)
 
-    last_layer = result
     result = tf.reshape(result, [config['batch_size'], -1])
 
     b_out_mean= tf.get_variable('v_b_out_mean', initializer=tf.zeros([n_z], dtype=tf.float32))
@@ -181,11 +196,16 @@ def z_from_f(config, f):
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
 
     e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=tf.float32)
+    e_c = linear(e_z,n_c, 'v_ez_lin')
+    #e_c = linear(e_z,n_c, 'v_ez_lin')
+    e_c = [tf.nn.softmax(x) for x in split_categories(e_c, config['batch_size'], categories)]
+
+
 
     if(config['e_last_layer']):
         z = config['e_last_layer'](z)
         e_z = config['e_last_layer'](e_z)
-    return e_z, z, mu, sigma
+    return e_z, e_c, z, mu, sigma
 
 def approximate_z(config, x, y):
     y = tf.concat(1, y)
@@ -293,6 +313,13 @@ def create(config, x,y,f):
     batch_size = config["batch_size"]
     z_dim = int(config['z_dim'])
 
+    categories = [random_category(1, size) for size in config['categories']]
+    if(len(categories) > 0):
+        categories_t = tf.concat(1, categories)
+        categories_t = [tf.tile(categories_t, [config['batch_size'], 1])]
+    else:
+        categories_t = []
+
     if(config['pretrained_model'] == 'preprocess'):
         #img = tf.reshape(x, [config['batch_size'], -1])
         #img = build_reshape(224*224*config['channels'], [img], 'zeros', config['batch_size'])
@@ -301,7 +328,7 @@ def create(config, x,y,f):
 
         #f = vggnet_loader.create_graph(img, 'pool4:0')[0]
         #f = tf.reshape(f, [config['batch_size'], -1])
-        encoded_z, z, z_mu, z_sigma = z_from_f(config, f)
+        encoded_z, encoded_c, z, z_mu, z_sigma = z_from_f(config, f, categories)
     elif(config['latent_loss']):
         encoded_z, z, z_mu, z_sigma = approximate_z(config, x, [y])
     else:
@@ -320,9 +347,17 @@ def create(config, x,y,f):
 
     g = generator(config, [y, z]+categories_t)
     encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
-    print("shape of g,x", g.get_shape(), x.get_shape())
+
+    def discard_layer(sample):
+        sample = tf.reshape(sample, [config['batch_size'],-1,config['channels']+1])
+        sample = tf.slice(sample, [0,0,0],[int(sample.get_shape()[0]),int(sample.get_shape()[1]),config['channels']])
+        sample = tf.reshape(sample, [config['batch_size'], int(x.get_shape()[1]), int(x.get_shape()[2]), config['channels']])
+        return sample
+    encoded = discard_layer(encoded)
+    g_sample = discard_layer(g)
+    print("shape of g,x, encoded", g, x, encoded)
     #print("shape of z,encoded_z", z.get_shape(), encoded_z.get_shape())
-    d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, encoded_z, g, z, reuse=False)
+    d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, f, encoded_z, g, z, reuse=False)
 
     if(config['latent_loss']):
         latent_loss = -config['latent_lambda'] * tf.reduce_mean(1 + z_sigma
@@ -455,6 +490,8 @@ def create(config, x,y,f):
 
     if(config['d_optim_strategy'] == 'adam'):
         d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
+    elif(config['d_optim_strategy'] == 'g_adam'):
+        g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
     if(config['mse_loss']):
         mse_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(mse_loss, var_list=tf.trainable_variables())
     else:
@@ -483,7 +520,7 @@ def create(config, x,y,f):
     set_tensor("g_optimizer", g_optimizer)
     set_tensor("d_optimizer", d_optimizer)
     set_tensor("mse_optimizer", mse_optimizer)
-    set_tensor("g", g)
+    set_tensor("g", g_sample)
     set_tensor("encoded", encoded)
     set_tensor("encoder_mse", mse_loss)
     set_tensor("d_real", tf.reduce_mean(d_real))
@@ -519,7 +556,9 @@ def train(sess, config):
     _, g_cost, x, g,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, x, g, d_fake_loss, d_real_loss, d_class_loss])
     #_ = sess.run([mse_optimizer])
 
-    print("g cost %.2f d cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (g_cost, d_cost,d_fake, d_real, d_class ))
+    global iteration
+    iteration+=1
+    print("%2d: g cost %.2f d cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, g_cost, d_cost,d_fake, d_real, d_class ))
     #print("X mean %.2f max %.2f min %.2f" % (np.mean(x), np.max(x), np.min(x)))
     #print("G mean %.2f max %.2f min %.2f" % (np.mean(g), np.max(g), np.min(g)))
     #print("Categories loss %.6f" % categories_r)

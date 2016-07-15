@@ -21,10 +21,11 @@ parser.add_argument('--gpu', type=int, default=0)
 args = parser.parse_args()
 
 
+import numpy as np
 def save(filename, output):
     fname = filename.decode('ascii') + ".preprocess"
-    print("Saving ", fname)
-    output.tofile(fname)
+    print("Saving ", fname, np.min(output), np.max(output), np.mean(output))
+    #output.tofile(fname)
 
 sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
 channels = args.channels

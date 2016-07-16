@@ -45,7 +45,15 @@ def generator(config, inputs, reuse=False):
             else:
                 result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[output_channels], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
 
-        if(config['g_last_layer']):
+        if(config['include_f_in_d']):
+            rs = [int(s) for s in result.get_shape()]
+            result1 = tf.slice(result,[0,0,0,0],[config['batch_size'], rs[1],rs[2],3])
+            result2 = tf.slice(result,[0,0,0,3],[config['batch_size'], rs[1],rs[2],1])
+            result1 = config['g_last_layer'](result1)
+            result2 = batch_norm(config['batch_size'], name='g_bn_relu_f')(result2)
+            result2 = tf.nn.relu(result2)
+            result = tf.concat(3, [result1, result2])
+        elif(config['g_last_layer']):
             result = config['g_last_layer'](result)
         return result
 

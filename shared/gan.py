@@ -8,6 +8,9 @@ TINY = 1e-12
 
 def generator(config, inputs, reuse=False):
     x_dims = config['x_dims']
+    output_channels = config['channels']
+    if(config['include_f_in_d'] == True):
+        output_channels += 1
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
@@ -33,12 +36,14 @@ def generator(config, inputs, reuse=False):
             result = build_deconv_tower(result, config['conv_g_layers'][1:2], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], True, config['batch_size'], config['g_last_layer_stddev'])
             result = config['g_activation'](result)
             result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
-            if(config['g_atrous']):
+            if(config['g_huge_stride_and_filter']):
+                result = build_deconv_tower(result, [output_channels], x_dims, config['g_huge_stride_and_filter']+1, 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'], stride=config['g_huge_stride_and_filter'])
+            elif(config['g_atrous']):
                 result = build_deconv_tower(result, config['conv_g_layers'][2:], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], True, True, config['batch_size'], config['g_last_layer_stddev'])
                 result = config['g_activation'](result)
                 result = build_atrous_layer(result, config['channels'], config['g_atrous_filter'], 'g_astrous1')
             else:
-                result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[config['channels']+1], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
+                result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[output_channels], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
 
         if(config['g_last_layer']):
             result = config['g_last_layer'](result)
@@ -50,19 +55,21 @@ def discriminator(config, x, f,z,g,gz, reuse=False):
         tf.get_variable_scope().reuse_variables()
     batch_size = config['batch_size']*2
     single_batch_size = config['batch_size']
-    channels = (config['channels']+1)
+    channels = (config['channels'])
 
-    x_tmp = tf.reshape(x, [single_batch_size, -1, channels-1])
-    f = build_reshape(int(x_tmp.get_shape()[1]), [f], config['d_project'], single_batch_size)
-    f = tf.reshape(f, [single_batch_size, -1, 1])
-    x = tf.concat(2, [x_tmp, f])
+    if(config['include_f_in_d']):
+        channels+=1
+        x_tmp = tf.reshape(x, [single_batch_size, -1, channels-1])
+        f = build_reshape(int(x_tmp.get_shape()[1]), [f], config['d_project'], single_batch_size)
+        f = tf.reshape(f, [single_batch_size, -1, 1])
+        x = tf.concat(2, [x_tmp, f])
+        x = tf.reshape(x, g.get_shape())
 
-    x = tf.reshape(x, g.get_shape())
     x = tf.concat(0, [x,g])
 
     # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
-    z = tf.concat(0, [gz,z])
-    x = tf.reshape(x, [batch_size, -1, config['channels']+1])
+    z = tf.concat(0, [z, gz])
+    x = tf.reshape(x, [batch_size, -1, channels])
     if(config['d_add_noise']):
         x += tf.random_normal(x.get_shape(), mean=0, stddev=0.1)
 
@@ -353,8 +360,11 @@ def create(config, x,y,f):
         sample = tf.slice(sample, [0,0,0],[int(sample.get_shape()[0]),int(sample.get_shape()[1]),config['channels']])
         sample = tf.reshape(sample, [config['batch_size'], int(x.get_shape()[1]), int(x.get_shape()[2]), config['channels']])
         return sample
-    encoded = discard_layer(encoded)
-    g_sample = discard_layer(g)
+    if(config['include_f_in_d']):
+        encoded = discard_layer(encoded)
+        g_sample = discard_layer(g)
+    else:
+        g_sample = g
     print("shape of g,x, encoded", g, x, encoded)
     #print("shape of z,encoded_z", z.get_shape(), encoded_z.get_shape())
     d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, f, encoded_z, g, z, reuse=False)

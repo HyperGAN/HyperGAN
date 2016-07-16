@@ -97,22 +97,19 @@ def build_resnet(result, depth, filter, name, activation, batch_size, batch_norm
     return result
 
 
-def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_norm_enabled, batch_norm_last_layer, batch_size,last_layer_stddev):
+def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_norm_enabled, batch_norm_last_layer, batch_size,last_layer_stddev,stride=2):
+    print("STRIDE", stride)
     for i, layer in enumerate(layers):
-        j=int(result.get_shape()[1])*2
-        k=int(result.get_shape()[2])*2
-        stride=2
-        if(j > dims[0] or k > dims[1] ):
-            j = dims[0]
-            k = dims[1]
-            stride=1
+        istride=stride
+        j=int(result.get_shape()[1])*istride
+        k=int(result.get_shape()[2])*istride
 
         output = [batch_size, j,k,int(layer)]
         stddev = 0.002
         if(len(layers) == i+1):
             if(batch_norm_last_layer):
                 stddev = 0.15
-        result = deconv2d(result, output, name=name+str(i), k_w=conv_size, k_h=conv_size, d_h=stride, d_w=stride, stddev=stddev)
+        result = deconv2d(result, output, name=name+str(i), k_w=conv_size, k_h=conv_size, d_h=istride, d_w=istride, stddev=stddev)
         if(len(layers) == i+1):
             if(batch_norm_last_layer):
                 result = batch_norm(batch_size, name=name+'_bn_'+str(i))(result)

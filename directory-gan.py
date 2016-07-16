@@ -87,6 +87,8 @@ hc.set('e_batch_norm_last_layer', [False, True])
 hc.set('g_resnet_depth', [8])
 hc.set('g_resnet_filter', [3])
 
+hc.set('g_huge_stride_and_filter', [16])
+
 hc.set('g_atrous', [False])
 hc.set('g_atrous_filter', [3])
 
@@ -110,6 +112,8 @@ hc.set("conv_d_layers", conv_d_layers)
 
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
+
+hc.set('include_f_in_d', False)
 
 g_encode_layers = [[32, 64,128,256,512, 1024], 
         [64,128,256,512,1024, 2048]]

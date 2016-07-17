@@ -209,11 +209,14 @@ def z_from_f(config, f, categories):
                            dtype=tf.float32)
 
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
-
     e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=tf.float32)
-    e_c = linear(e_z,n_c, 'v_ez_lin')
-    #e_c = linear(e_z,n_c, 'v_ez_lin')
-    e_c = [tf.nn.softmax(x) for x in split_categories(e_c, config['batch_size'], categories)]
+
+    if config['category_loss']:
+        e_c = linear(e_z,n_c, 'v_ez_lin')
+        e_c = [tf.nn.softmax(x) for x in split_categories(e_c, config['batch_size'], categories)]
+    else:
+        e_c = []
+
 
 
 

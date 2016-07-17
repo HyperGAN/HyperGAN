@@ -59,7 +59,7 @@ hc.set("g_learning_rate", 1e-3)
 hc.set("d_learning_rate", 1e-3)
 
 
-hc.set("optimizer", ['adam', 'normal'])
+hc.set("optimizer", ['adam', 'simple'])
 hc.set('simple_lr', list(np.linspace(0.005, 0.01, num=100)))
 hc.set('simple_lr_g', list(np.linspace(1,3, num=100)))
 

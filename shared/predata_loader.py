@@ -13,6 +13,10 @@ def build_labels(dirs):
   return labels,next_id
 def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=True):
   filenames = glob.glob(directory+"/**/*."+format)
+  print("files" , len(filenames))
+  filenames = [f for f in filenames if len(glob.glob(f+".preprocess"))== 0]
+  print("files now" , len(filenames))
+
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
   num_examples_per_epoch = len(filenames)
 

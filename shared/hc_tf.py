@@ -121,9 +121,7 @@ def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_
 
 
 def build_categories_config(num):
-    def get_option(i):
-        return [np.random.randint(2,50) for i in range(np.random.randint(2,15))]
-    return [sorted(get_option(i)) for i in range(num)]
+    return [np.random.randint(2,30) for i in range(np.random.randint(2,15))]
 
 
 
@@ -141,7 +139,7 @@ def build_conv_config(layers, start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [sorted(get_option(i)) for i in np.arange(start, end)]
-    return [[64, 128, 256, 512, 1024]]
+    return [[64, 128, 256,512, 1024]]
 
 
 def build_deconv_config(layers,start, end):
@@ -158,7 +156,7 @@ def build_deconv_config(layers,start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
-    return [[512, 256, 128, 64, 32, 3]]
+    return [[512,256,128,64,32,3]]
 
 
 def build_atrous_layer(result, layer, filter, name='g_atrous'):

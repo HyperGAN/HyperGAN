@@ -45,8 +45,8 @@ parser.add_argument('--save_every', type=int, default=0)
 parser.add_argument('--gpu', type=int, default=0)
 
 args = parser.parse_args()
-start=1e-5
-end=1e-4
+start=1e-3
+end=1e-3
 
 num=100
 hc.set('pretrained_model', ['preprocess'])
@@ -55,15 +55,15 @@ hc.set('f_hidden_1', list(np.arange(512, 2048)))
 hc.set('f_hidden_2', list(np.arange(512, 2048)))
 
 hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", list(np.linspace(start, end, num=num)))
-hc.set("d_learning_rate", list(np.linspace(start, end, num=num)))
+hc.set("g_learning_rate", 1e-3)
+hc.set("d_learning_rate", 1e-3)
 
 
-hc.set("optimizer", ['simple'])
-hc.set('simple_lr', list(np.linspace(0.001, 0.005, num=100)))
-hc.set('simple_lr_g', list(np.linspace(1,1.3, num=100)))
+hc.set("optimizer", ['adam', 'normal'])
+hc.set('simple_lr', list(np.linspace(0.005, 0.01, num=100)))
+hc.set('simple_lr_g', list(np.linspace(1,3, num=100)))
 
-hc.set('momentum_lr', list(np.linspace(0.0001, 0.001, num=100)))
+hc.set('momentum_lr', list(np.linspace(0.01, 0.03, num=100)))
 hc.set('momentum', list(np.linspace(0.8, 0.9999, num=1000)))
 hc.set('momentum_lr_g', list(np.linspace(1, 3, num=100)))
 
@@ -80,7 +80,7 @@ hc.set("g_last_layer_resnet_size", [1])
 
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
-hc.set('g_batch_norm_last_layer', [False, True])
+hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
@@ -113,18 +113,20 @@ hc.set("conv_d_layers", conv_d_layers)
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
 
-hc.set('include_f_in_d', False)
+hc.set('include_f_in_d', True)
 
 g_encode_layers = [[32, 64,128,256,512, 1024], 
         [64,128,256,512,1024, 2048]]
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", 2048)#list(np.arange(128, 512)))
+hc.set("z_dim", list(np.arange(256, 2048)))
 
-hc.set('categories', [[2],[2,3,5],[]])#[[2], [2,3,4,5,6,7,8,10], [2,3,5], [2,3,12,24,32], [2,3,5,12,16,32]])
+categories = [[2,3,5],build_categories_config(5), [2]+build_categories_config(10), [2]+build_categories_config(20), [2]+build_categories_config(40)]
+print(categories)
+hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
-hc.set('category_loss', [False])
+hc.set('category_loss', [True])
 
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
@@ -150,16 +152,16 @@ hc.set("d_kernel_dims", list(np.arange(200, 400)))
 
 hc.set("loss", ['custom'])
 
-hc.set("adv_loss", [True])
+hc.set("adv_loss", [False])
 
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))
 
-hc.set("latent_loss", [True])
+hc.set("latent_loss", [False])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
-hc.set("g_project", ['linear', 'tiled'])
+hc.set("g_project", ['tiled', 'linear'])
 hc.set("d_project", ['tiled'])
 hc.set("e_project", ['tiled'])
 

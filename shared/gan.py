@@ -343,7 +343,14 @@ def create(config, x,y,f):
 
         #f = vggnet_loader.create_graph(img, 'pool4:0')[0]
         #f = tf.reshape(f, [config['batch_size'], -1])
-        encoded_z, encoded_c, z, z_mu, z_sigma = z_from_f(config, f, categories)
+        if(config['latent_loss']):
+            encoded_z, encoded_c, z, z_mu, z_sigma = z_from_f(config, f, categories)
+        else:
+            encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1)
+            z_mu = None
+            z_sigma = None
+            z = tf.random_uniform([config['batch_size'], z_dim],-1, 1)
+
     elif(config['latent_loss']):
         encoded_z, z, z_mu, z_sigma = approximate_z(config, x, [y])
     else:
@@ -363,6 +370,7 @@ def create(config, x,y,f):
     g = generator(config, [y, z]+categories_t)
     encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
+    print("shape of g,x, encoded", g, x, encoded)
     def discard_layer(sample):
         sample = tf.reshape(sample, [config['batch_size'],-1,config['channels']+1])
         sample = tf.slice(sample, [0,0,0],[int(sample.get_shape()[0]),int(sample.get_shape()[1]),config['channels']])
@@ -373,7 +381,6 @@ def create(config, x,y,f):
         g_sample = discard_layer(g)
     else:
         g_sample = g
-    print("shape of g,x, encoded", g, x, encoded)
     #print("shape of z,encoded_z", z.get_shape(), encoded_z.get_shape())
     d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, f, encoded_z, g, z, reuse=False)
 
@@ -510,6 +517,13 @@ def create(config, x,y,f):
         d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
     elif(config['d_optim_strategy'] == 'g_adam'):
         g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
+    elif(config['d_optim_strategy'] == 'g_momentum'):
+        d_lr = np.float32(config['momentum_lr'])
+        g_mul = np.float32(config['momentum_lr_g'])
+        g_lr = d_lr*g_mul
+        moment = config['momentum']
+        g_optimizer = tf.train.MomentumOptimizer(g_lr, moment).minimize(g_loss, var_list=g_vars)
+
     if(config['mse_loss']):
         mse_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(mse_loss, var_list=tf.trainable_variables())
     else:

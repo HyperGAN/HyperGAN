@@ -54,16 +54,16 @@ hc.set('pretrained_model', ['preprocess'])
 hc.set('f_hidden_1', list(np.arange(512, 2048)))
 hc.set('f_hidden_2', list(np.arange(512, 2048)))
 
-hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", 1e-3)
-hc.set("d_learning_rate", 1e-3)
+hc.set('d_optim_strategy', ['simple'])
+hc.set("g_learning_rate", 1e-4)#list(np.linspace(1e-3,1.5e-3,num=100)))
+hc.set("d_learning_rate", list(np.linspace(1e-3,1e-3,num=100)))
 
 
-hc.set("optimizer", ['adam', 'simple'])
+hc.set("optimizer", ['simple'])
 hc.set('simple_lr', list(np.linspace(0.005, 0.01, num=100)))
-hc.set('simple_lr_g', list(np.linspace(1,3, num=100)))
+hc.set('simple_lr_g', list(np.linspace(1,2, num=10)))
 
-hc.set('momentum_lr', list(np.linspace(0.01, 0.03, num=100)))
+hc.set('momentum_lr', list(np.linspace(0.005, 0.01, num=100)))
 hc.set('momentum', list(np.linspace(0.8, 0.9999, num=1000)))
 hc.set('momentum_lr_g', list(np.linspace(1, 3, num=100)))
 
@@ -84,10 +84,11 @@ hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [8])
+hc.set('g_resnet_depth', [8,4])
 hc.set('g_resnet_filter', [3])
 
-hc.set('g_huge_stride_and_filter', [16])
+hc.set('g_huge_stride', False)#[4])#[])
+hc.set('g_huge_filter', [5])
 
 hc.set('g_atrous', [False])
 hc.set('g_atrous_filter', [3])
@@ -120,7 +121,7 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", list(np.arange(256, 2048)))
+hc.set("z_dim", list(np.arange(64, 256)))
 
 categories = [[2,3,5],build_categories_config(5), [2]+build_categories_config(10), [2]+build_categories_config(20), [2]+build_categories_config(40)]
 print(categories)
@@ -161,7 +162,7 @@ hc.set("latent_loss", [False])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
-hc.set("g_project", ['tiled', 'linear'])
+hc.set("g_project", ['linear'])
 hc.set("d_project", ['tiled'])
 hc.set("e_project", ['tiled'])
 

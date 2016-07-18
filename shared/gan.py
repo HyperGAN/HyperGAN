@@ -331,10 +331,10 @@ def create(config, x,y,f):
     batch_size = config["batch_size"]
     z_dim = int(config['z_dim'])
 
-    categories = [random_category(1, size) for size in config['categories']]
+    categories = [random_category(config['batch_size'], size) for size in config['categories']]
     if(len(categories) > 0):
         categories_t = tf.concat(1, categories)
-        categories_t = [tf.tile(categories_t, [config['batch_size'], 1])]
+        #categories_t = [tf.tile(categories_t, [config['batch_size'], 1])]
     else:
         categories_t = []
 

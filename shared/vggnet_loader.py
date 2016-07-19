@@ -30,6 +30,8 @@ import tarfile
 import numpy as np
 from six.moves import urllib
 import tensorflow as tf
+import shared.resize_image_patch
+from shared.ops import batch_norm
 
 MODEL_DIR='/tmp/imagenet'
 
@@ -48,13 +50,37 @@ def create_graph(image, output_layer):
     for node in graph_def.node:
         print(node.name)
         #if(node.name != "DecodeJpeg" and node.name != "ResizeBilinear" and node.name != "DecodeJpeg/contents"):
-        node.device = "/gpu:0"
-    return tf.import_graph_def(graph_def, name='vggnet', input_map={"images":image*127}, return_elements=[output_layer])
+        node.device = "/cpu:0"
+    result= tf.import_graph_def(graph_def, name='vggnet', input_map={"images":reshape_input(image)}, return_elements=[output_layer])
+    result = result[0]
+    return result
+
+
 
 
 def get_features(image):
     graph = create_graph(image, 'Relu_1:0')
     return tf.squeeze(graph[0])
+
+def reshape_input(img):
+  reshaped_image = tf.identity(tf.squeeze(img))
+  tf.Tensor.set_shape(reshaped_image, [None, None, None])
+
+  reshaped_image = shared.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
+                                                         224, 224, dynamic_shape=True)
+
+  r = tf.fill([224, 224], 103.939)
+  g = tf.fill([224, 224], 116.779)
+  b = tf.fill([224, 224], 123.68)
+  offset = tf.transpose(tf.pack([r,g,b]), [2, 1, 0])
+
+  reshaped_image -= offset
+
+  #reshaped_image = tf.transpose(reshaped_image, [0, 2, 1])
+  reshaped_image = tf.expand_dims(reshaped_image, 0)
+  print("RESHAPED", reshaped_image)
+
+  return reshaped_image
 
 def maybe_download_and_extract():
   """Download and extract model tar file."""

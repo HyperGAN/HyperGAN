@@ -187,14 +187,15 @@ def z_from_f(config, f, categories):
     n_c = sum(config['categories'])
 
     result = f
-    print("RESULT IS", result)
-    result = tf.reshape(result, [config['batch_size'], 2048])
-    result = linear(result, config['f_hidden_1'], scope="v_f_hidden")
-    result = batch_norm(config['batch_size'], name='v_f_hidden_bn')(result)
-    result = transfer_fct(result)
-    result = linear(result, config['f_hidden_2'], scope="v_f_hidden2")
-    result = batch_norm(config['batch_size'], name='v_f_hidden_bn2')(result)
-    result = transfer_fct(result)
+    if(config['f_use_hidden_layers']):
+        print("RESULT IS", result)
+        result = tf.reshape(result, [config['batch_size'], 2048])
+        result = linear(result, config['f_hidden_1'], scope="v_f_hidden")
+        result = batch_norm(config['batch_size'], name='v_f_hidden_bn')(result)
+        result = transfer_fct(result)
+        result = linear(result, config['f_hidden_2'], scope="v_f_hidden2")
+        result = batch_norm(config['batch_size'], name='v_f_hidden_bn2')(result)
+        result = transfer_fct(result)
     last_layer = result
     result = linear(result, n_z, scope="v_f_hidden3")
     result = batch_norm(config['batch_size'], name='v_f_hidden_bn3')(result)

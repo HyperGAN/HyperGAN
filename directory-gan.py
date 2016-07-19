@@ -51,6 +51,7 @@ end=1e-3
 num=100
 hc.set('pretrained_model', ['preprocess'])
 
+hc.set('f_use_hidden_layers', [True,False])
 hc.set('f_hidden_1', list(np.arange(512, 2048)))
 hc.set('f_hidden_2', list(np.arange(512, 2048)))
 
@@ -114,7 +115,7 @@ hc.set("conv_d_layers", conv_d_layers)
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
 
-hc.set('include_f_in_d', False)
+hc.set('include_f_in_d', [True, False])
 
 g_encode_layers = [[32, 64,128,256,512, 1024], 
         [64,128,256,512,1024, 2048]]

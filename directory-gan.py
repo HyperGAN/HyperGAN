@@ -60,7 +60,7 @@ hc.set("d_learning_rate", list(np.linspace(1e-3,1e-3,num=100)))
 
 
 hc.set("optimizer", ['simple'])
-hc.set('simple_lr', list(np.linspace(0.005, 0.01, num=100)))
+hc.set('simple_lr', list(np.linspace(0.008, 0.018, num=100)))
 hc.set('simple_lr_g', list(np.linspace(2,3, num=10)))
 
 hc.set('momentum_lr', list(np.linspace(0.005, 0.01, num=100)))
@@ -121,7 +121,9 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", list(np.arange(64, 256)))
+hc.set("z_dim", list(np.arange(256, 1024)))
+
+hc.set('z_dim_random_uniform', list(np.arange(64,128)))
 
 categories = [[2,3,5],build_categories_config(5), [2]+build_categories_config(10), [2]+build_categories_config(20), [2]+build_categories_config(40)]
 print(categories)

@@ -16,6 +16,8 @@ def generator(config, inputs, reuse=False):
         primes = find_smallest_prime(x_dims[0], x_dims[1])
         z_proj_dims = int(config['conv_g_layers'][0])
         print("PRIMES ARE", primes, z_proj_dims*primes[0]*primes[1])
+        if(config['z_dim_random_uniform']):
+            inputs.append(tf.random_uniform([config['batch_size'], config['z_dim_random_uniform']],-1, 1))
 
         if(config['g_project'] == 'linear'):
             result = tf.concat(1, inputs)

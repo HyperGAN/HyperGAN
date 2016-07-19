@@ -90,9 +90,9 @@ def build_resnet(result, depth, filter, name, activation, batch_size, batch_norm
         if i % 2 == 1:
             result += root
             root = result
-        if i % 3 == 2 and filter != 1:
-            filter2=1
-            result += conv2d(result, int(result.get_shape()[-1]), name='1x1-'+str(i), k_w=filter2, k_h=filter2, d_h=1, d_w=1)
+        #if i % 3 == 2 and filter != 1:
+        #    filter2=1
+        #    result += conv2d(result, int(result.get_shape()[-1]), name='1x1-'+str(i), k_w=filter2, k_h=filter2, d_h=1, d_w=1)
         result = activation(result)
     return result
 

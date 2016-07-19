@@ -61,7 +61,7 @@ hc.set("d_learning_rate", list(np.linspace(1e-3,1e-3,num=100)))
 
 hc.set("optimizer", ['simple'])
 hc.set('simple_lr', list(np.linspace(0.005, 0.01, num=100)))
-hc.set('simple_lr_g', list(np.linspace(1,2, num=10)))
+hc.set('simple_lr_g', list(np.linspace(2,3, num=10)))
 
 hc.set('momentum_lr', list(np.linspace(0.005, 0.01, num=100)))
 hc.set('momentum', list(np.linspace(0.8, 0.9999, num=1000)))
@@ -114,7 +114,7 @@ hc.set("conv_d_layers", conv_d_layers)
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
 
-hc.set('include_f_in_d', True)
+hc.set('include_f_in_d', False)
 
 g_encode_layers = [[32, 64,128,256,512, 1024], 
         [64,128,256,512,1024, 2048]]
@@ -127,7 +127,7 @@ categories = [[2,3,5],build_categories_config(5), [2]+build_categories_config(10
 print(categories)
 hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
-hc.set('category_loss', [True])
+hc.set('category_loss', [False])
 
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
@@ -153,12 +153,12 @@ hc.set("d_kernel_dims", list(np.arange(200, 400)))
 
 hc.set("loss", ['custom'])
 
-hc.set("adv_loss", [False])
+hc.set("adv_loss", [True])
 
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))
 
-hc.set("latent_loss", [False])
+hc.set("latent_loss", [True])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 

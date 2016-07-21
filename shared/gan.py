@@ -17,7 +17,10 @@ def generator(config, inputs, reuse=False):
         z_proj_dims = int(config['conv_g_layers'][0])
         print("PRIMES ARE", primes, z_proj_dims*primes[0]*primes[1])
         if(config['z_dim_random_uniform']):
-            inputs.append(tf.random_uniform([config['batch_size'], config['z_dim_random_uniform']],-1, 1))
+            z_dim_random_uniform = tf.random_uniform([config['batch_size'], int(config['z_dim_random_uniform'])],-1, 1)
+            #z_dim_random_uniform = tf.zeros_like(z_dim_random_uniform)
+            set_tensor('z_dim_random_uniform', z_dim_random_uniform)
+            inputs.append(z_dim_random_uniform)
 
         if(config['g_project'] == 'linear'):
             result = tf.concat(1, inputs)
@@ -365,17 +368,17 @@ def create(config, x,y,f):
         z = tf.random_uniform([config['batch_size'], z_dim],-1, 1)
 
 
-    categories = [random_category(1, size) for size in config['categories']]
+    print("Z IS ", z)
+    categories = [random_category(config['batch_size'], size) for size in config['categories']]
     if(len(categories) > 0):
-        categories_t = tf.concat(1, categories)
-        categories_t = [tf.tile(categories_t, [config['batch_size'], 1])]
+        categories_t = [tf.concat(1, categories)]
     else:
         categories_t = []
 
     g = generator(config, [y, z]+categories_t)
+    print_z = tf.Print(z, [tf.reduce_mean(z), y, get_tensor("z_dim_random_uniform")], message="z is")
     encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
-    print("shape of g,x, encoded", g, x, encoded)
     def discard_layer(sample):
         sample = tf.reshape(sample, [config['batch_size'],-1,config['channels']+1])
         sample = tf.slice(sample, [0,0,0],[int(sample.get_shape()[0]),int(sample.get_shape()[1]),config['channels']])
@@ -552,6 +555,7 @@ def create(config, x,y,f):
     set_tensor("x", x)
     set_tensor("y", y)
     set_tensor("z", z)
+    set_tensor("print_z", print_z)
     set_tensor("g_loss", g_loss)
     set_tensor("d_loss", d_loss)
     set_tensor("g_optimizer", g_optimizer)
@@ -559,6 +563,7 @@ def create(config, x,y,f):
     set_tensor("mse_optimizer", mse_optimizer)
     set_tensor("g", g_sample)
     set_tensor("encoded", encoded)
+    set_tensor('encoded_z', encoded_z)
     set_tensor("encoder_mse", mse_loss)
     set_tensor("d_real", tf.reduce_mean(d_real))
     set_tensor("d_fake", tf.reduce_mean(d_fake))

@@ -17,7 +17,7 @@ parser.add_argument('--height', type=int, default=64)
 parser.add_argument('--batch', type=int, default=64)
 parser.add_argument('--format', type=str, default='png')
 parser.add_argument('--save_every', type=int, default=0)
-parser.add_argument('--gpu', type=int, default=0)
+parser.add_argument('--device', type=str, default="/cpu:0")
 
 parser.add_argument('--dataset', type=str, default="inception")
 parser.add_argument('--layer', type=str, default="pool_3:0")

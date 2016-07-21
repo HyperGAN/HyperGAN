@@ -557,6 +557,7 @@ def create(config, x,y,f):
     set_tensor("x", x)
     set_tensor("y", y)
     set_tensor("z", z)
+    set_tensor("f", f)
     set_tensor("print_z", print_z)
     set_tensor("g_loss", g_loss)
     set_tensor("d_loss", d_loss)

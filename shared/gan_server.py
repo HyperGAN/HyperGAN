@@ -17,7 +17,7 @@ class GANWebServer:
         y = get_tensor("y")
         x = get_tensor("x")
         z_t = get_tensor('z')
-        zr_t = get_tensor("z_dim_random_uniform")
+        f_t = get_tensor('f')
         print_z_t = get_tensor("print_z")
         categories = get_tensor('categories')
 
@@ -43,16 +43,15 @@ class GANWebServer:
 
         sample_file = "samples/sample.png"
         if(type == 'batch'):
-            sample = self.sess.run(generator, feed_dict={y:random_one_hot, categories[0]: categories_feed})
+            sample = self.sess.run(generator, feed_dict={y:random_one_hot})
             print("Creating sample 3")
             stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
             plot(self.config, np.vstack(stacks), sample_file)
         elif(type == 'linear'):
             encoded_z_t = get_tensor("encoded_z")
-            zr = np.zeros(zr_t.get_shape())
-            start_z = self.sess.run(encoded_z_t, feed_dict={categories[0]: categories_feed})
+            start_z = self.sess.run(f_t, feed_dict={y:random_one_hot})
             start_z = start_z[0]
-            end_z = self.sess.run(encoded_z_t, feed_dict={categories[0]: categories_feed})
+            end_z = self.sess.run(f_t, feed_dict={y:random_one_hot})
             end_z = end_z[0]
 
             #start_z = np.random.uniform(-1, 1, start_z.shape)
@@ -70,9 +69,8 @@ class GANWebServer:
             #z1 = np.transpose(np.vstack(z1))
             #z1 = np.random.uniform(-1,1,z_t.get_shape())
             #z1 = np.zeros(z_t.get_shape())
-            print("Z_R_T", zr_t)
             
-            _,sample = self.sess.run([print_z_t, generator], feed_dict={z_t:z1, categories[0]: categories_feed})
+            _,sample = self.sess.run([print_z_t, generator], feed_dict={f_t:z1, y: random_one_hot})
             stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
             plot(self.config, np.vstack(stacks), sample_file)
 

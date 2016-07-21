@@ -55,19 +55,21 @@ class GANWebServer:
                 f_t = get_tensor("f")
                 d_fake_sigmoid_t = get_tensor("d_fake_sigmoid")
                 eps_t = get_tensor('eps')
-
-                [eps, d_fake_sigmoid, f] = self.sess.run([eps_t, d_fake_sigmoid_t, f_t], feed_dict={y:random_one_hot})
+                z_t = get_tensor('z')
                 fs = []
+                for i in range(1):
 
-                for f, d, e in zip(f, d_fake_sigmoid, eps):
-                    fs.append({'f':f,'d':d,'e':e})
-                fs = sorted(fs, key=lambda x: (1-x['d']))
+                    [eps, d_fake_sigmoid, f, z] = self.sess.run([eps_t, d_fake_sigmoid_t, f_t, z_t], feed_dict={y:random_one_hot})
+
+                    for f, d, e, z in zip(f, d_fake_sigmoid, eps, z):
+                        fs.append({'f':f,'d':d,'e':e, 'z':z})
+                    fs = sorted(fs, key=lambda x: (1-x['d']))
                 print(" d sigmoid ", fs[0]['d'])
-                return [fs[0]['f'], fs[0]['e']]
+                return [fs[0]['f'], fs[0]['e'], fs[0]['z']]
 
 
-            [start_f, start_eps] = pick_best_f()
-            [end_f, end_eps] = pick_best_f()
+            [start_f, start_eps, start_z] = pick_best_f()
+            [end_f, end_eps, end_z] = pick_best_f()
 
             def linspace(start, end):
                 c = np.linspace(0,1, 64)
@@ -78,11 +80,13 @@ class GANWebServer:
                 return f
             eps = linspace(start_eps, end_eps)
             f = linspace(start_f, end_f)
+            z = linspace(start_z, end_z)
+            #f = np.tile(start_f, [64, 1])
             #eps = np.zeros(eps_t.get_shape())
             #eps = np.random.normal(0,0.001, eps_t.get_shape())
 
 
-            _,sample = self.sess.run([print_z_t, generator], feed_dict={f_t:f, y: random_one_hot, eps_t: eps})
+            _,sample = self.sess.run([print_z_t, generator], feed_dict={f_t:f, eps_t: eps})
             stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
             plot(self.config, np.vstack(stacks), sample_file)
 

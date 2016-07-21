@@ -376,7 +376,8 @@ def create(config, x,y,f):
         categories_t = []
 
     g = generator(config, [y, z]+categories_t)
-    print_z = tf.Print(z, [tf.reduce_mean(z), y, get_tensor("z_dim_random_uniform")], message="z is")
+    with tf.device('/cpu:0'):
+        print_z = tf.Print(z, [tf.reduce_mean(z), y, get_tensor("z_dim_random_uniform")], message="z is")
     encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
     def discard_layer(sample):

@@ -50,20 +50,39 @@ class GANWebServer:
             plot(self.config, np.vstack(stacks), sample_file)
         elif(type == 'linear'):
             encoded_z_t = get_tensor("encoded_z")
-            start_z = self.sess.run(f_t, feed_dict={y:random_one_hot})
-            start_z = start_z[0]
-            end_z = self.sess.run(f_t, feed_dict={y:random_one_hot})
-            end_z = end_z[0]
 
-            print('start_z', np.shape(start_z))
-            c = np.linspace(0,1, 64)
-            a= np.array(start_z).reshape(-1,1)
-            b= np.array(end_z).reshape(-1,1)
-            z1 = a+ (b-a) * c
-            z1 = np.transpose(z1)
-            eps = np.zeros(eps_t.get_shape())
+            def pick_best_f():
+                f_t = get_tensor("f")
+                d_fake_sigmoid_t = get_tensor("d_fake_sigmoid")
+                eps_t = get_tensor('eps')
 
-            _,sample = self.sess.run([print_z_t, generator], feed_dict={f_t:z1, y: random_one_hot, eps_t: eps})
+                [eps, d_fake_sigmoid, f] = self.sess.run([eps_t, d_fake_sigmoid_t, f_t], feed_dict={y:random_one_hot})
+                fs = []
+
+                for f, d, e in zip(f, d_fake_sigmoid, eps):
+                    fs.append({'f':f,'d':d,'e':e})
+                fs = sorted(fs, key=lambda x: (1-x['d']))
+                print(" d sigmoid ", fs[0]['d'])
+                return [fs[0]['f'], fs[0]['e']]
+
+
+            [start_f, start_eps] = pick_best_f()
+            [end_f, end_eps] = pick_best_f()
+
+            def linspace(start, end):
+                c = np.linspace(0,1, 64)
+                a= np.array(start).reshape(-1,1)
+                b= np.array(end).reshape(-1,1)
+                f = a+ (b-a) * c
+                f = np.transpose(f)
+                return f
+            eps = linspace(start_eps, end_eps)
+            f = linspace(start_f, end_f)
+            #eps = np.zeros(eps_t.get_shape())
+            #eps = np.random.normal(0,0.001, eps_t.get_shape())
+
+
+            _,sample = self.sess.run([print_z_t, generator], feed_dict={f_t:f, y: random_one_hot, eps_t: eps})
             stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
             plot(self.config, np.vstack(stacks), sample_file)
 

@@ -42,7 +42,7 @@ parser.add_argument('--format', type=str, default='png')
 parser.add_argument('--test', type=bool, default=False)
 parser.add_argument('--server', type=bool, default=False)
 parser.add_argument('--save_every', type=int, default=0)
-parser.add_argument('--gpu', type=int, default=0)
+parser.add_argument('--device', type=str, default='/gpu:0')
 
 args = parser.parse_args()
 start=1e-3
@@ -397,7 +397,7 @@ for config in hc.configs(1):
     #config['conv_d_layers']=other_config['conv_d_layers']
     #config['adv_loss']=other_config['adv_loss']
     print("TODO: ADVLOSS ")
-    with tf.device('/gpu:' + str(args.gpu)):
+    with tf.device(args.device):
         sess = tf.Session(config=tf.ConfigProto())
     channels = args.channels
     crop = args.crop
@@ -416,7 +416,7 @@ for config in hc.configs(1):
     config['examples_per_epoch']=examples_per_epoch
     x = train_x
     y = train_y
-    with tf.device('/gpu:' + str(args.gpu)):
+    with tf.device(args.device):
         y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
 
         graph = create(config,x,y,f)
@@ -446,7 +446,7 @@ for config in hc.configs(1):
             size = mul(shape)
             return [v.name, size/1024./1024.]
         [print(get_size(i)) for i in tf.all_variables()]
-        with tf.device('/gpu:' + str(args.gpu)):
+        with tf.device(args.device):
             init = tf.initialize_all_variables()
             sess.run(init)
 
@@ -460,7 +460,7 @@ for config in hc.configs(1):
         print("Running for ", args.epochs, " epochs")
         for i in range(args.epochs):
             start_time = time.time()
-            with tf.device('/gpu:' + str(args.gpu)):
+            with tf.device(args.device):
                 if(not epoch(sess, config)):
                     print("Epoch failed")
                     break

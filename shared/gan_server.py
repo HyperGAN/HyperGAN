@@ -18,6 +18,7 @@ class GANWebServer:
         x = get_tensor("x")
         z_t = get_tensor('z')
         f_t = get_tensor('f')
+        eps_t = get_tensor('eps')
         print_z_t = get_tensor("print_z")
         categories = get_tensor('categories')
 
@@ -58,11 +59,23 @@ class GANWebServer:
             #end_z = np.random.uniform(-1, 1, end_z.shape)
             print('start_z', np.shape(start_z))
             c = np.linspace(0,1, 64)
+            #c = np.zeros_like(c)
             a= np.array(start_z).reshape(-1,1)
             b= np.array(end_z).reshape(-1,1)
-            z1 = a+ (b-a) * c
+            z1 = a-b*c#a+ (b-a) * c
             z1 = np.transpose(z1)
+            eps = np.zeros(eps_t.get_shape())
 
+
+            eps_start = np.random.normal(0, 1, [eps_t.get_shape()[1]])
+            eps_end = np.random.normal(0, 1, [eps_t.get_shape()[1]])
+            a= np.array(eps_start).reshape(-1,1)
+            b= np.array(eps_end).reshape(-1,1)
+            c = np.linspace(0,1, 64)
+            eps = a+ (b-a) * c
+            eps = np.transpose(eps)
+
+            eps = np.zeros(eps_t.get_shape())
             #z1 = [np.linspace(i, j, num=64) for i,j in zip(start_z, end_z)]
             #z1 = np.swapaxes(z1, 0,1)
             #z1 = np.transpose(np.vstack(z1))
@@ -70,7 +83,7 @@ class GANWebServer:
             #z1 = np.random.uniform(-1,1,z_t.get_shape())
             #z1 = np.zeros(z_t.get_shape())
             
-            _,sample = self.sess.run([print_z_t, generator], feed_dict={f_t:z1, y: random_one_hot})
+            _,sample = self.sess.run([print_z_t, generator], feed_dict={f_t:z1, y: random_one_hot, eps_t: eps})
             stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
             plot(self.config, np.vstack(stacks), sample_file)
 

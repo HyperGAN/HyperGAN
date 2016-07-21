@@ -214,6 +214,7 @@ def z_from_f(config, f, categories):
     eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
                            dtype=tf.float32)
 
+    set_tensor('eps', eps)
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
     e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=tf.float32)
 
@@ -272,6 +273,7 @@ def approximate_z(config, x, y):
 
     eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
                            dtype=tf.float32)
+    set_tensor('eps', eps)
 
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
 
@@ -378,7 +380,7 @@ def create(config, x,y,f):
 
     g = generator(config, [y, z]+categories_t)
     with tf.device('/cpu:0'):
-        print_z = tf.Print(z, [tf.reduce_mean(z), y, get_tensor("z_dim_random_uniform")], message="z is")
+        print_z = tf.Print(z, [tf.reduce_mean(z), y, get_tensor('eps')], message="z is")
     encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
     def discard_layer(sample):

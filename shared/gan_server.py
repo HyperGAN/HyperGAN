@@ -62,7 +62,7 @@ class GANWebServer:
             #c = np.zeros_like(c)
             a= np.array(start_z).reshape(-1,1)
             b= np.array(end_z).reshape(-1,1)
-            z1 = a-b*c#a+ (b-a) * c
+            z1 = a+ (b-a) * c
             z1 = np.transpose(z1)
             eps = np.zeros(eps_t.get_shape())
 

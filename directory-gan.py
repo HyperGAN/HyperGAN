@@ -51,17 +51,19 @@ end=1e-3
 num=100
 hc.set('pretrained_model', ['preprocess'])
 
-hc.set('f_use_hidden_layers', [True,False])
-hc.set('f_hidden_1', list(np.arange(512, 2048)))
-hc.set('f_hidden_2', list(np.arange(512, 2048)))
+hc.set('f_skip_fc', True)
+hc.set('f_hidden_1', list(np.arange(512, 1024)))
+hc.set('f_hidden_2', list(np.arange(512, 1024)))
 
-hc.set('d_optim_strategy', ['simple'])
-hc.set("g_learning_rate", 1e-4)#list(np.linspace(1e-3,1.5e-3,num=100)))
-hc.set("d_learning_rate", list(np.linspace(1e-3,1e-3,num=100)))
+hc.set('d_optim_strategy', ['g_adam'])
+hc.set("g_learning_rate", list(np.linspace(1e-4,1e-3,num=100)))
+hc.set("d_learning_rate", list(np.linspace(1e-4,1e-4,num=100)))
 
 
-hc.set("optimizer", ['simple'])
-hc.set('simple_lr', list(np.linspace(0.008, 0.018, num=100)))
+hc.set("optimizer", ['rmsprop'])
+
+hc.set('rmsprop_lr', list(np.linspace(1e-6, 1e-5)))
+hc.set('simple_lr', list(np.linspace(0.01, 0.012, num=100)))
 hc.set('simple_lr_g', list(np.linspace(2,3, num=10)))
 
 hc.set('momentum_lr', list(np.linspace(0.005, 0.01, num=100)))
@@ -74,7 +76,8 @@ hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
-hc.set('d_add_noise', [False])
+hc.set('d_add_noise', [True])
+hc.set('d_noise', [1e-2])
 
 hc.set("g_last_layer_resnet_depth", [0])
 hc.set("g_last_layer_resnet_size", [1])
@@ -85,11 +88,11 @@ hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [8,4])
+hc.set('g_resnet_depth', [8, 6, 4])
 hc.set('g_resnet_filter', [3])
 
-hc.set('g_huge_stride', False)#[4])#[])
-hc.set('g_huge_filter', [5])
+hc.set('g_huge_stride', [2])#[])
+hc.set('g_huge_filter', [3])
 
 hc.set('g_atrous', [False])
 hc.set('g_atrous_filter', [3])
@@ -115,20 +118,20 @@ hc.set("conv_d_layers", conv_d_layers)
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
 
-hc.set('include_f_in_d', [True, False])
+hc.set('include_f_in_d', [False])
 
 g_encode_layers = [[32, 64,128,256,512, 1024], 
         [64,128,256,512,1024, 2048]]
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", list(np.arange(256, 1024)))
+hc.set("z_dim", list(np.arange(128,164)))
 
-hc.set('z_dim_random_uniform', list(np.arange(64,128)))
+hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
 categories = [[2,3,5],build_categories_config(5), [2]+build_categories_config(10), [2]+build_categories_config(20), [2]+build_categories_config(40)]
 print(categories)
-hc.set('categories', categories)
+hc.set('categories', [[]])#categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
 
@@ -151,8 +154,8 @@ hc.set('d_linear_layers', list(np.arange(256, 512)))
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
-hc.set("d_kernels", list(np.arange(10, 30)))
-hc.set("d_kernel_dims", list(np.arange(200, 400)))
+hc.set("d_kernels", list(np.arange(20, 30)))
+hc.set("d_kernel_dims", list(np.arange(100, 300)))
 
 hc.set("loss", ['custom'])
 
@@ -176,10 +179,10 @@ hc.set("g_post_res_filter", [3])
 hc.set("d_pre_res_filter", [7])
 hc.set("d_pre_res_stride", [7])
 
-hc.set("d_pool", [False])
+hc.set("d_pool", [True])
 
 hc.set("batch_size", args.batch)
-hc.set("model", "celeb:1.0")
+hc.set("model", "10k_overfit:1.0")
 
 def sample_input(sess, config):
     x = get_tensor("x")
@@ -194,7 +197,7 @@ def split_sample(n, d_fake_sig, sample, x_dims, channels):
 
     for s, d in zip(sample, d_fake_sig):
         samples.append({'sample':s,'d':d})
-    samples = sorted(samples, key=lambda x: (1-x['d']))
+    #samples = sorted(samples, key=lambda x: (1-x['d']))
 
     [print("sample ", s['d']) for s in samples[0:n]]
     return [np.reshape(s['sample'], [x_dims[0],x_dims[1], channels]) for s in samples[0:n]]
@@ -216,7 +219,7 @@ def samples(sess, config):
     #else:
     sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
     #sample =  np.concatenate(sample, axis=0)
-    return split_sample(1, d_fake_sig, sample, config['x_dims'], config['channels'])
+    return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
 
 def plot_mnist_digit(config, image, file):
     """ Plot a single MNIST image."""
@@ -297,8 +300,7 @@ def test_epoch(epoch, j, sess, config, start_time, end_time):
     encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
     
     sample = []
-    for i in range(10):
-        sample.append(samples(sess, config)[0])
+    sample += samples(sess, config)
     sample_list = [sample_file, encoded_sample]
     for s in sample:
         sample_file = "samples/config-"+str(j)+".png"
@@ -387,6 +389,7 @@ for config in hc.configs(1):
     config['conv_d_layers']=[int(x) for x in config['conv_d_layers']]
     config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
     config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
+    #config['categories'] = other_config['categories']
     #config['e_conv_size']=other_config['e_conv_size']
     #config['conv_size']=other_config['conv_size']
     #config['z_dim']=other_config['z_dim']

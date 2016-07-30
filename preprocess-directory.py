@@ -28,7 +28,7 @@ args = parser.parse_args()
 import numpy as np
 def save(filename, output):
     fname = filename.decode('ascii') + ".preprocess"
-    print("Saving ", fname, np.min(output), np.max(output), np.mean(output), np.std(output), np.shape(output))
+    #print("Saving ", fname, np.min(output), np.max(output), np.mean(output), np.std(output), np.shape(output))
     output.tofile(fname)
 
 sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
@@ -47,7 +47,7 @@ if(dataset == 'inception'):
     output_layer_t = shared.inception_loader.create_graph(train_x, args.layer)
 elif(dataset == 'vgg'):
     shared.vggnet_loader.maybe_download_and_extract()
-    with tf.device("/cpu:0"):
+    with tf.device("/gpu:0"):
         output_layer_t = shared.vggnet_loader.create_graph(train_x, args.layer)
 else:
     raise "Unknown dataset "+dataset;

@@ -29,6 +29,8 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   value = tf.read_file(input_queue[0])
   preprocess = tf.read_file(input_queue[0]+'.preprocess')
   features = tf.decode_raw(preprocess, tf.float32)
+  #features = tf.identity(tf.zeros([2048]))
+
   tf.Tensor.set_shape(features, [2048])
   if(format == 'jpg'):
       img = tf.image.decode_jpeg(value, channels=channels)

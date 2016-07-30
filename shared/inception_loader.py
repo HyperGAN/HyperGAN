@@ -113,9 +113,9 @@ def create_graph(image, output_layer):
     jpeg_contents = tf.constant("1")
     for node in graph_def.node:
         print("Node", node.name)
-        #if(node.name != "DecodeJpeg" and node.name != "ResizeBilinear" and node.name != "DecodeJpeg/contents"):
-        #    node.device = "/gpu:0"
-        node.device = "/cpu:0"
+        if(node.name != "DecodeJpeg" and node.name != "ResizeBilinear" and node.name != "DecodeJpeg/contents"):
+            node.device = "/gpu:0"
+        #node.device = "/cpu:0"
     print("IMAGE IS", image)
     image = tf.squeeze(image)
     return tf.import_graph_def(graph_def, name='inception', input_map={"Cast:0":image}, return_elements=[output_layer])

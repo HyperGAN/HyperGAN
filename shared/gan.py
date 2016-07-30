@@ -9,6 +9,7 @@ TINY = 1e-12
 def generator(config, inputs, reuse=False):
     x_dims = config['x_dims']
     output_channels = config['channels']
+    print("CREATE", reuse)
     if(config['include_f_in_d'] == True):
         output_channels += 1
     with(tf.variable_scope("generator", reuse=reuse)):
@@ -16,11 +17,13 @@ def generator(config, inputs, reuse=False):
         primes = find_smallest_prime(x_dims[0], x_dims[1])
         z_proj_dims = int(config['conv_g_layers'][0])
         print("PRIMES ARE", primes, z_proj_dims*primes[0]*primes[1])
-        if(config['z_dim_random_uniform']):
+        if(int(config['z_dim_random_uniform']) > 0):
             z_dim_random_uniform = tf.random_uniform([config['batch_size'], int(config['z_dim_random_uniform'])],-1, 1)
             #z_dim_random_uniform = tf.zeros_like(z_dim_random_uniform)
-            set_tensor('z_dim_random_uniform', z_dim_random_uniform)
+            z_dim_random_uniform = tf.identity(z_dim_random_uniform)
             inputs.append(z_dim_random_uniform)
+        else:
+            z_dim_random_uniform = None
 
         if(config['g_project'] == 'linear'):
             result = tf.concat(1, inputs)
@@ -62,7 +65,9 @@ def generator(config, inputs, reuse=False):
             result = tf.concat(3, [result1, result2])
         elif(config['g_last_layer']):
             result = config['g_last_layer'](result)
-        return result
+
+        print("RETURN")
+        return result,z_dim_random_uniform
 
 def discriminator(config, x, f,z,g,gz, reuse=False):
     x_dims = config['x_dims']
@@ -86,7 +91,7 @@ def discriminator(config, x, f,z,g,gz, reuse=False):
     z = tf.concat(0, [z, gz])
     x = tf.reshape(x, [batch_size, -1, channels])
     if(config['d_add_noise']):
-        x += tf.random_normal(x.get_shape(), mean=0, stddev=0.1)
+        x += tf.random_normal(x.get_shape(), mean=0, stddev=config['d_noise'])
 
     #result = x
 
@@ -135,7 +140,7 @@ def discriminator(config, x, f,z,g,gz, reuse=False):
 
         return [f1, f2]
     minis = get_minibatch_features(result)
-    g_proj = tf.concat(1, [result]+minis)
+    result = tf.concat(1, [result]+minis)
 
     #result = tf.nn.dropout(result, 0.7)
     if(config['d_linear_layer']):
@@ -189,8 +194,10 @@ def z_from_f(config, f, categories):
     n_c = sum(config['categories'])
 
     result = f
-    if(config['f_use_hidden_layers']):
-        print("RESULT IS", result)
+    print("RESULT IS", result)
+    if(config['f_skip_fc']):
+        pass
+    else:
         result = tf.reshape(result, [config['batch_size'], 2048])
         result = linear(result, config['f_hidden_1'], scope="v_f_hidden")
         result = batch_norm(config['batch_size'], name='v_f_hidden_bn')(result)
@@ -380,10 +387,16 @@ def create(config, x,y,f):
     else:
         categories_t = []
 
-    g = generator(config, [y, z]+categories_t)
+    g,z_dim_random_uniform = generator(config, [y, z]+categories_t)
+    #g = generator(config, [y, z]+categories_t)
+    set_tensor('z_dim_random_uniform', z_dim_random_uniform)
     with tf.device('/cpu:0'):
-        print_z = tf.Print(z, [tf.reduce_mean(z), y, get_tensor('eps')], message="z is")
-    encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
+    #    print_z = tf.Print(z, [tf.reduce_mean(z), y, get_tensor("z_dim_random_uniform")], message="z is")
+        print_z = tf.Print(z, [tf.reduce_mean(z), y], message="z is")
+    print('-+',y,encoded_z,categories_t, [y, encoded_z]+categories_t)
+
+    encoded,_ = generator(config, [y, encoded_z]+categories_t, reuse=True)
+    #encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
     def discard_layer(sample):
         sample = tf.reshape(sample, [config['batch_size'],-1,config['channels']+1])
@@ -526,6 +539,9 @@ def create(config, x,y,f):
         moment = config['momentum']
         g_optimizer = tf.train.MomentumOptimizer(g_lr, moment).minimize(g_loss, var_list=g_vars)
         d_optimizer = tf.train.MomentumOptimizer(d_lr, moment).minimize(d_loss, var_list=d_vars)
+    elif(config['optimizer'] == 'rmsprop'):
+        d_lr = np.float32(config['rmsprop_lr'])
+        d_optimizer = tf.train.RMSPropOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
 
     if(config['d_optim_strategy'] == 'adam'):
         d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)

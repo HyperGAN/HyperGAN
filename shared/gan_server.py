@@ -11,7 +11,7 @@ class GANWebServer:
         self.sess = sess
         self.config = config
 
-    def sample(self, type='batch', z=None, c=None):
+    def sample(self, type='batch', z=None, c=None, off=None):
         print("Creating sample")
         generator = get_tensor("g")
         y = get_tensor("y")
@@ -25,17 +25,17 @@ class GANWebServer:
 
         categories_feed = []
         for i, category in enumerate(self.config['categories']):
-
             if(c and len(c) > i and c[i]):
                 uc =int(c[i])
             else:
                 uc = np.random.randint(0,category)
-                #uc = 0
+                uc = 0
             categories_feed.append(np.eye(category)[uc])
 
-        categories_feed = np.hstack(categories_feed)
-        categories_feed = np.tile(categories_feed, [self.config['batch_size'],1])
-        categories_feed = np.reshape(categories_feed, categories[0].get_shape())
+        if len(categories_feed) > 0:
+            categories_feed = np.hstack(categories_feed)
+            categories_feed = np.tile(categories_feed, [self.config['batch_size'],1])
+            categories_feed = np.reshape(categories_feed, categories[0].get_shape())
 
         rand = np.random.randint(0,self.config['y_dims'], size=self.config['batch_size'])
         rand = np.zeros_like(rand)

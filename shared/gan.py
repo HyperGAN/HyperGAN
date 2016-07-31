@@ -603,8 +603,8 @@ def create(config, x,y,f):
 
 iteration = 0
 def train(sess, config):
-    x = get_tensor('x')
-    g = get_tensor('g')
+    x_t = get_tensor('x')
+    g_t = get_tensor('g')
     g_loss = get_tensor("g_loss_sig")
     d_loss = get_tensor("d_loss")
     d_fake_loss = get_tensor('d_fake_loss')
@@ -618,12 +618,16 @@ def train(sess, config):
     #categories_l = get_tensor("categories_loss")
     #latent_l = get_tensor("latent_loss")
     _, d_cost = sess.run([d_optimizer, d_loss])
-    _, g_cost, x, g,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, x, g, d_fake_loss, d_real_loss, d_class_loss])
+    d_fake=0
+    while(d_fake < config['bounds_d_fake_min']):
+        if(d_fake != 0):
+            print("catching g up...")
+        _, g_cost, x, g,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, x_t, g_t, d_fake_loss, d_real_loss, d_class_loss])
+        print("%2d: g cost %.2f d cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, g_cost, d_cost,d_fake, d_real, d_class ))
     #_ = sess.run([mse_optimizer])
 
     global iteration
     iteration+=1
-    print("%2d: g cost %.2f d cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, g_cost, d_cost,d_fake, d_real, d_class ))
     #print("X mean %.2f max %.2f min %.2f" % (np.mean(x), np.max(x), np.min(x)))
     #print("G mean %.2f max %.2f min %.2f" % (np.mean(g), np.max(g), np.min(g)))
     #print("Categories loss %.6f" % categories_r)

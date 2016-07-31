@@ -182,7 +182,9 @@ hc.set("d_pre_res_stride", [7])
 hc.set("d_pool", [True])
 
 hc.set("batch_size", args.batch)
-hc.set("model", "10k_overfit:1.0")
+hc.set("model", "1k_overfit:1.1")
+
+hc.set('bounds_d_fake_min', [0.15, 0.1, 0.2, 0.5])
 
 def sample_input(sess, config):
     x = get_tensor("x")

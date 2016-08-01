@@ -41,18 +41,19 @@ def generator(config, inputs, reuse=False):
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
         if config['conv_g_layers']:
-            result = build_deconv_tower(result, config['conv_g_layers'][1:2], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], True, config['batch_size'], config['g_last_layer_stddev'])
-            result = config['g_activation'](result)
-            result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
             if(config['g_huge_stride']):
-                result = build_deconv_tower(result, config['conv_g_layers'][2:4], x_dims, config['conv_size']+2, 'g_conv_hs', config['g_activation'], config['g_batch_norm'], True, config['batch_size'], config['g_last_layer_stddev'], stride=4)
-                result = config['g_activation'](result)
-                result = build_deconv_tower(result, [output_channels], x_dims, config['g_huge_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'], stride=config['g_huge_stride'])
+                result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
+                print("RESULTp", result)
+                result = build_deconv_tower(result, config['conv_g_layers'][1:2]+[output_channels], x_dims, config['g_huge_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'], stride=config['g_huge_stride'])
+                print("RESULT", result)
             elif(config['g_atrous']):
                 result = build_deconv_tower(result, config['conv_g_layers'][2:], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], True, True, config['batch_size'], config['g_last_layer_stddev'])
                 result = config['g_activation'](result)
                 result = build_atrous_layer(result, config['channels'], config['g_atrous_filter'], 'g_astrous1')
             else:
+                result = build_deconv_tower(result, config['conv_g_layers'][1:2], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], True, config['batch_size'], config['g_last_layer_stddev'])
+                result = config['g_activation'](result)
+                result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
                 result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[output_channels], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
 
         if(config['include_f_in_d']):

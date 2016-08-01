@@ -56,13 +56,15 @@ hc.set('f_hidden_1', list(np.arange(512, 1024)))
 hc.set('f_hidden_2', list(np.arange(512, 1024)))
 
 hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", list(np.linspace(1e-4,1e-3,num=100)))
+hc.set("g_learning_rate", list(np.linspace(2e-4,1e-3,num=100)))
 hc.set("d_learning_rate", list(np.linspace(1e-4,1e-4,num=100)))
+
+hc.set("model", "40k_overfit:1.1")
 
 
 hc.set("optimizer", ['rmsprop'])
 
-hc.set('rmsprop_lr', list(np.linspace(1e-6, 1e-5)))
+hc.set('rmsprop_lr', list(np.linspace(1e-5, 2e-5)))
 hc.set('simple_lr', list(np.linspace(0.01, 0.012, num=100)))
 hc.set('simple_lr_g', list(np.linspace(2,3, num=10)))
 
@@ -88,11 +90,11 @@ hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [8, 6, 4])
+hc.set('g_resnet_depth', [16,8])
 hc.set('g_resnet_filter', [3])
 
-hc.set('g_huge_stride', [2])#[])
-hc.set('g_huge_filter', [3])
+hc.set('g_huge_stride', [8])#[])
+hc.set('g_huge_filter', [9])
 
 hc.set('g_atrous', [False])
 hc.set('g_atrous_filter', [3])
@@ -125,7 +127,7 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", list(np.arange(128,164)))
+hc.set("z_dim", list(np.arange(64,256)))
 
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
@@ -154,7 +156,7 @@ hc.set('d_linear_layers', list(np.arange(256, 512)))
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
-hc.set("d_kernels", list(np.arange(20, 30)))
+hc.set("d_kernels", list(np.arange(10, 20)))
 hc.set("d_kernel_dims", list(np.arange(100, 300)))
 
 hc.set("loss", ['custom'])
@@ -179,12 +181,10 @@ hc.set("g_post_res_filter", [3])
 hc.set("d_pre_res_filter", [7])
 hc.set("d_pre_res_stride", [7])
 
-hc.set("d_pool", [True])
+hc.set("d_pool", [False])
 
 hc.set("batch_size", args.batch)
-hc.set("model", "1k_overfit:1.1")
-
-hc.set('bounds_d_fake_min', [0.15, 0.1, 0.2, 0.5])
+hc.set('bounds_d_fake_min', [0.2])
 
 def sample_input(sess, config):
     x = get_tensor("x")
@@ -391,6 +391,7 @@ for config in hc.configs(1):
     config['conv_d_layers']=[int(x) for x in config['conv_d_layers']]
     config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
     config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
+    config['bounds_d_fake_min'] = other_config['bounds_d_fake_min']
     #config['categories'] = other_config['categories']
     #config['e_conv_size']=other_config['e_conv_size']
     #config['conv_size']=other_config['conv_size']

@@ -622,7 +622,7 @@ def train(sess, config):
     while(d_fake < config['bounds_d_fake_min']):
         if(d_fake != 0):
             print("catching g up...")
-        _, g_cost, x, g,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, x_t, g_t, d_fake_loss, d_real_loss, d_class_loss])
+        _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
         print("%2d: g cost %.2f d cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, g_cost, d_cost,d_fake, d_real, d_class ))
     #_ = sess.run([mse_optimizer])
 

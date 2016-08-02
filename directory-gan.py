@@ -56,7 +56,7 @@ hc.set('f_hidden_1', list(np.arange(512, 1024)))
 hc.set('f_hidden_2', list(np.arange(512, 1024)))
 
 hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", list(np.linspace(2e-4,1e-3,num=100)))
+hc.set("g_learning_rate", list(np.linspace(1e-4,1e-3,num=100)))
 hc.set("d_learning_rate", list(np.linspace(1e-4,1e-4,num=100)))
 
 hc.set("model", "40k_overfit:1.1")
@@ -185,6 +185,8 @@ hc.set("d_pool", [False])
 
 hc.set("batch_size", args.batch)
 hc.set('bounds_d_fake_min', [0.2])
+hc.set('bounds_d_fake_max', [0.4])
+hc.set('bounds_d_fake_slowdown', [200])
 
 def sample_input(sess, config):
     x = get_tensor("x")

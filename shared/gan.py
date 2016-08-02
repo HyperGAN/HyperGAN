@@ -541,8 +541,12 @@ def create(config, x,y,f):
         g_optimizer = tf.train.MomentumOptimizer(g_lr, moment).minimize(g_loss, var_list=g_vars)
         d_optimizer = tf.train.MomentumOptimizer(d_lr, moment).minimize(d_loss, var_list=d_vars)
     elif(config['optimizer'] == 'rmsprop'):
-        d_lr = np.float32(config['rmsprop_lr'])
-        d_optimizer = tf.train.RMSPropOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
+        lr = np.float32(config['rmsprop_lr'])
+        set_tensor("lr_value", lr)
+        lr = tf.placeholder(tf.float32, shape=[])
+        set_tensor('lr', lr)
+
+        d_optimizer = tf.train.RMSPropOptimizer(lr).minimize(d_loss, var_list=d_vars)
 
     if(config['d_optim_strategy'] == 'adam'):
         d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
@@ -615,17 +619,29 @@ def train(sess, config):
     d_class_loss = get_tensor("d_class_loss")
     g_class_loss = get_tensor("g_class_loss")
     mse_optimizer = get_tensor("mse_optimizer")
+    lr = get_tensor('lr')
+    lr_value = get_tensor('lr_value')#todo: not actually a tensor
     #encoder_mse = get_tensor("encoder_mse")
     #categories_l = get_tensor("categories_loss")
     #latent_l = get_tensor("latent_loss")
-    _, d_cost = sess.run([d_optimizer, d_loss])
-    d_fake=0
-    while(d_fake < config['bounds_d_fake_min']):
-        if(d_fake != 0):
-            print("catching g up...")
-        _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
-        print("%2d: g cost %.2f d cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, g_cost, d_cost,d_fake, d_real, d_class ))
-    #_ = sess.run([mse_optimizer])
+    _, d_cost = sess.run([d_optimizer, d_loss], feed_dict={lr:lr_value})
+    _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
+    print("%2d: d_lr %.1e g cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, lr_value, g_cost,d_fake, d_real, d_class ))
+
+    slowdown = 1
+    bounds_max = config['bounds_d_fake_max']
+    bounds_min = config['bounds_d_fake_min']
+    bounds_slow = config['bounds_d_fake_slowdown']
+    max_lr = config['rmsprop_lr']
+    if(d_fake < bounds_min):
+        slowdown = 1/bounds_slow
+    elif(d_fake > bounds_max):
+        slowdown = 1
+    else:
+        percent = 1 - (d_fake - bounds_min)/(bounds_max-bounds_min)
+        slowdown = 1/(percent * bounds_slow + TINY)
+    new_lr = max_lr*slowdown
+    set_tensor("lr_value", new_lr)
 
     global iteration
     iteration+=1

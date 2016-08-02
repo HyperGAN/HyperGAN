@@ -532,7 +532,12 @@ def create(config, x,y,f):
         d_optimizer = tf.train.GradientDescentOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
     elif(config['optimizer'] == 'adam'):
         g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
-        d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
+        lr = np.float32(config['d_learning_rate'])
+        set_tensor("lr_value", lr)
+        lr = tf.get_variable('lr', [1], trainable=False, initializer=tf.constant_initializer(lr))
+        set_tensor('lr', lr)
+        d_optimizer = tf.train.AdamOptimizer(lr).minimize(d_loss, var_list=d_vars)
+        
     elif(config['optimizer'] == 'momentum'):
         d_lr = np.float32(config['momentum_lr'])
         g_mul = np.float32(config['momentum_lr_g'])

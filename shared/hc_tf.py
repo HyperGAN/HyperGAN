@@ -186,4 +186,60 @@ def get_graph_vars(sess, graph):
    #     i+=1
    #     
    # return retv
+def get_minibatch_features(config, h,batch_size):
+    single_batch_size = batch_size//2
+    n_kernels = int(config['d_kernels'])
+    dim_per_kernel = int(config['d_kernel_dims'])
+    x = linear(h, n_kernels * dim_per_kernel, scope="d_h")
+    activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
 
+    big = np.zeros((batch_size, batch_size), dtype='float32')
+    big += np.eye(batch_size)
+    big = tf.expand_dims(big, 1)
+
+    abs_dif = tf.reduce_sum(tf.abs(tf.expand_dims(activation,3) - tf.expand_dims(tf.transpose(activation, [1, 2, 0]), 0)), 2)
+    mask = 1. - big
+    masked = tf.exp(-abs_dif) * mask
+    def half(tens, second):
+        m, n, _ = tens.get_shape()
+        m = int(m)
+        n = int(n)
+        return tf.slice(tens, [0, 0, second * single_batch_size], [m, n, single_batch_size])
+    # TODO: speedup by allocating the denominator directly instead of constructing it by sum
+    #       (current version makes it easier to play with the mask and not need to rederive
+    #        the denominator)
+    f1 = tf.reduce_sum(half(masked, 0), 2) / tf.reduce_sum(half(mask, 0))
+    f2 = tf.reduce_sum(half(masked, 1), 2) / tf.reduce_sum(half(mask, 1))
+
+    return [f1, f2]
+
+
+def residual_block(result, activation, batch_size,id,name):
+    size = int(result.get_shape()[-1])
+    if(id=='widen'):
+        left = conv2d(result, size*2, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
+        left = batch_norm(batch_size, name=name+'bn')(left)
+        left = activation(left)
+        left = conv2d(left, size*2, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
+        right = conv2d(result, size*2, name=name+'r', k_w=3, k_h=3, d_h=1, d_w=1)
+    elif(id=='identity'):
+        left = result
+        left = batch_norm(batch_size, name=name+'bn')(left)
+        left = activation(left)
+        left = conv2d(left, size, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
+        left = batch_norm(batch_size, name=name+'bn2')(left)
+        left = activation(left)
+        left = conv2d(left, size, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
+        right = result
+    elif(id=='conv'):
+        result = batch_norm(batch_size, name=name+'bn')(result)
+        result = activation(result)
+        left = result
+        right = result
+        left = conv2d(left, size*2, name=name+'l', k_w=3, k_h=3, d_h=2, d_w=2)
+        left = batch_norm(batch_size, name=name+'lbn')(left)
+        left = activation(left)
+        left = conv2d(left, size*2, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
+        right = conv2d(right, size*2, name=name+'r', k_w=3, k_h=3, d_h=2, d_w=2)
+    print("residual block", id)
+    return left+right

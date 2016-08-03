@@ -106,6 +106,8 @@ hc.set('g_atrous_filter', [3])
 
 hc.set('d_resnet_depth', [0])
 hc.set('d_resnet_filter', [3])
+
+hc.set('d_wide_resnet_depth', [[16, 32, 64, 128]])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]
@@ -156,7 +158,9 @@ hc.set("e_batch_norm", [True])
 hc.set("g_encoder", [True])
 
 hc.set('d_linear_layer', [True])
-hc.set('d_linear_layers', list(np.arange(256, 512)))
+hc.set('d_linear_layers', list(np.arange(1024, 2048)))
+
+hc.set('d_architecture', ['wide_resnet'])
 
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))

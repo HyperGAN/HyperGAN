@@ -70,13 +70,19 @@ def generator(config, inputs, reuse=False):
         print("RETURN")
         return result,z_dim_random_uniform
 
-def discriminator(config, x, f,z,g,gz, reuse=False):
+def discriminator(config, x, f,z,g,gz):
     x_dims = config['x_dims']
-    if(reuse):
-        tf.get_variable_scope().reuse_variables()
     batch_size = config['batch_size']*2
     single_batch_size = config['batch_size']
     channels = (config['channels'])
+    # combine to one batch, per Ian's "Improved GAN"
+    x = tf.concat(0, [x,g])
+
+    # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
+    z = tf.concat(0, [z, gz])
+    x = tf.reshape(x, [batch_size, -1, channels])
+    if(config['d_add_noise']):
+        x += tf.random_normal(x.get_shape(), mean=0, stddev=config['d_noise'])
 
     if(config['include_f_in_d']):
         channels+=1
@@ -86,61 +92,24 @@ def discriminator(config, x, f,z,g,gz, reuse=False):
         x = tf.concat(2, [x_tmp, f])
         x = tf.reshape(x, g.get_shape())
 
-    x = tf.concat(0, [x,g])
 
-    # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
-    z = tf.concat(0, [z, gz])
-    x = tf.reshape(x, [batch_size, -1, channels])
-    if(config['d_add_noise']):
-        x += tf.random_normal(x.get_shape(), mean=0, stddev=config['d_noise'])
-
-    #result = x
-
-    print("ADDING Z TO", x)
     if(config['latent_loss']):
-        result = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size)
-        result = tf.reshape(result, [batch_size, -1, 1])
-        result = tf.concat(2, [result, tf.reshape(x, [batch_size, -1, channels])])
-        result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels+1])
+        orig_x = x
+        x = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size)
+        x = tf.reshape(x, [batch_size, -1, 1])
+        x = tf.concat(2, [x, tf.reshape(orig_x, [batch_size, -1, channels])])
+        x = tf.reshape(x,[batch_size, x_dims[0], x_dims[1], channels+1])
     else:
-        result = x
-        result = tf.reshape(result,[batch_size, x_dims[0], x_dims[1], channels])
+        x = tf.reshape(x,[batch_size, x_dims[0], x_dims[1], channels])
 
-    if config['conv_d_layers']:
-        result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
-        if(config['d_pool']):
-            result = tf.nn.max_pool(result, [1, 3, 3, 1], [1, 2,2,1],padding='SAME')
-        result = config['d_activation'](result)
-        result = build_resnet(result, config['d_resnet_depth'], config['d_resnet_filter'], 'd_conv_res_', config['d_activation'], config['batch_size'], config['d_batch_norm'], conv=True)
-        result = build_conv_tower(result, config['conv_d_layers'][1:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', config['d_activation'])
-        result = tf.reshape(result, [batch_size, -1])
 
-    def get_minibatch_features(h):
-        n_kernels = int(config['d_kernels'])
-        dim_per_kernel = int(config['d_kernel_dims'])
-        x = linear(h, n_kernels * dim_per_kernel, scope="d_h")
-        activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
 
-        big = np.zeros((batch_size, batch_size), dtype='float32')
-        big += np.eye(batch_size)
-        big = tf.expand_dims(big, 1)
+    if(config['d_architecture']=='wide_resnet'):
+        result = discriminator_wide_resnet(config,x)
+    else:
+        result = discriminator_vanilla(config,x)
 
-        abs_dif = tf.reduce_sum(tf.abs(tf.expand_dims(activation,3) - tf.expand_dims(tf.transpose(activation, [1, 2, 0]), 0)), 2)
-        mask = 1. - big
-        masked = tf.exp(-abs_dif) * mask
-        def half(tens, second):
-            m, n, _ = tens.get_shape()
-            m = int(m)
-            n = int(n)
-            return tf.slice(tens, [0, 0, second * single_batch_size], [m, n, single_batch_size])
-        # TODO: speedup by allocating the denominator directly instead of constructing it by sum
-        #       (current version makes it easier to play with the mask and not need to rederive
-        #        the denominator)
-        f1 = tf.reduce_sum(half(masked, 0), 2) / tf.reduce_sum(half(mask, 0))
-        f2 = tf.reduce_sum(half(masked, 1), 2) / tf.reduce_sum(half(mask, 1))
-
-        return [f1, f2]
-    minis = get_minibatch_features(result)
+    minis = get_minibatch_features(config, result, batch_size)
     result = tf.concat(1, [result]+minis)
 
     #result = tf.nn.dropout(result, 0.7)
@@ -156,8 +125,8 @@ def discriminator(config, x, f,z,g,gz, reuse=False):
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
     print('last layer size', result)
+    print("RESULT___", result)
     result = linear(result, config['y_dims']+1, scope="d_proj")
-
 
     def build_logits(class_logits, num_classes):
 
@@ -187,6 +156,57 @@ def discriminator(config, x, f,z,g,gz, reuse=False):
                 tf.slice(gan_logits, [single_batch_size], [single_batch_size]), 
                 last_layer]
 
+
+def discriminator_wide_resnet(config, x):
+    activation = config['d_activation']
+    batch_size = int(x.get_shape()[0])
+    layers = config['d_wide_resnet_depth']
+    result = x
+    result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
+
+    result = activation(result)
+    result = conv2d(result, layers[0], name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
+    result = batch_norm(config['batch_size'], name='d_expand_bn')(result)
+    result = activation(result)
+    result = residual_block(result, activation, batch_size, 'widen', 'd_layers_0')
+    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_1')
+    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_2')
+    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_3')
+    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_4')
+    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_5')
+    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_6')
+    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_7')
+    #result = residual_block(result, stride=1, 'conv')
+    #result = residual_block(result, stride=1, 'identity')
+    #result = residual_block(result, stride=1,  'conv')
+    #result = residual_block(result, stride=1,  'identity')
+    filter_size = int(result.get_shape()[1])
+    filter = [1,filter_size,filter_size,1]
+    stride = [1,filter_size,filter_size,1]
+    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
+    print("RESULT SIZE IS", result)
+    result = tf.reshape(result, [batch_size, -1])
+
+    return result
+
+
+def discriminator_vanilla(config, x):
+    x_dims = config['x_dims']
+    batch_size = config['batch_size']*2
+    single_batch_size = config['batch_size']
+    channels = (config['channels'])
+
+    result = x
+    if config['conv_d_layers']:
+        result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
+        if(config['d_pool']):
+            result = tf.nn.max_pool(result, [1, 3, 3, 1], [1, 2,2,1],padding='SAME')
+        result = config['d_activation'](result)
+        result = build_resnet(result, config['d_resnet_depth'], config['d_resnet_filter'], 'd_conv_res_', config['d_activation'], config['batch_size'], config['d_batch_norm'], conv=True)
+        result = build_conv_tower(result, config['conv_d_layers'][1:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', config['d_activation'])
+        result = tf.reshape(result, [batch_size, -1])
+
+    return result
 
 def z_from_f(config, f, categories):
     batch_size = config["batch_size"]
@@ -410,7 +430,7 @@ def create(config, x,y,f):
     else:
         g_sample = g
     #print("shape of z,encoded_z", z.get_shape(), encoded_z.get_shape())
-    d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, f, encoded_z, g, z, reuse=False)
+    d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, f, encoded_z, g, z)
 
     if(config['latent_loss']):
         latent_loss = -config['latent_lambda'] * tf.reduce_mean(1 + z_sigma

@@ -9,6 +9,8 @@ TINY = 1e-12
 def generator(config, inputs, reuse=False):
     x_dims = config['x_dims']
     output_channels = config['channels']
+    activation = config['g_activation']
+    batch_size = config['batch_size']
     print("CREATE", reuse)
     if(config['include_f_in_d'] == True):
         output_channels += 1
@@ -28,8 +30,6 @@ def generator(config, inputs, reuse=False):
         if(config['g_project'] == 'linear'):
             result = tf.concat(1, inputs)
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
-            result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
-            result = config['g_activation'](result)
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'])
         elif(config['g_project']=='noise'):
@@ -41,16 +41,38 @@ def generator(config, inputs, reuse=False):
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
         if config['conv_g_layers']:
-            if(config['g_huge_stride']):
-                result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
-                print("RESULTp", result)
-                result = build_deconv_tower(result, config['conv_g_layers'][1:2]+[output_channels], x_dims, config['g_huge_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'], stride=config['g_huge_stride'])
-                print("RESULT", result)
-            elif(config['g_atrous']):
-                result = build_deconv_tower(result, config['conv_g_layers'][2:], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], True, True, config['batch_size'], config['g_last_layer_stddev'])
+
+            if(config['g_strategy'] == 'wide-resnet'):
+                #result = residual_block_deconv(result, activation, batch_size, 'widen', 'g_layers_p')
+                #result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i1')
+                widenings = 2
+                stride = 8
+                for i in range(widenings):
+                    #if(i==0):
+
+                    if(i==widenings-1):
+                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), output_channels=config['channels'], stride=stride)
+                        result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))
+                    else:
+                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), stride=stride)
+                        result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))
+                    print("SIZE IS" ,result)
+                #result = tf.reshape(result,[config['batch_size'],x_dims[0],x_dims[1],-1])
+                #result = batch_norm(batch_size, name='g_rescap_bn')(result)
+                #result = activation(result)
+                #result = conv2d(result, config['channels'], name='g_grow', k_w=3,k_h=3, d_h=1, d_w=1)
+                #result = tf.slice(result, [0,0,0,0],[config['batch_size'], x_dims[0],x_dims[1],config['channels']])
+                #print("END SIZE IS", result)
+                #stride = x_dims[0]//int(result.get_shape()[1])
+                #result = build_deconv_tower(result, [output_channels], x_dims, stride+1, 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'], stride=stride)
+            elif(config['g_strategy'] == 'huge_deconv'):
+                result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
                 result = config['g_activation'](result)
-                result = build_atrous_layer(result, config['channels'], config['g_atrous_filter'], 'g_astrous1')
-            else:
+                result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
+                result = build_deconv_tower(result, config['conv_g_layers'][1:2]+[output_channels], x_dims, config['g_huge_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'], stride=config['g_huge_stride'])
+            elif(config['g_strategy'] == 'deep_deconv'):
+                result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
+                result = config['g_activation'](result)
                 result = build_deconv_tower(result, config['conv_g_layers'][1:2], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], True, config['batch_size'], config['g_last_layer_stddev'])
                 result = config['g_activation'](result)
                 result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
@@ -162,8 +184,14 @@ def discriminator_wide_resnet(config, x):
     batch_size = int(x.get_shape()[0])
     layers = config['d_wide_resnet_depth']
     result = x
-    result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
+    #result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
 
+    #result = activation(result)
+    result = conv2d(result, layers[0], name='d_expand1', k_w=3, k_h=3, d_h=2, d_w=2)
+    result = batch_norm(config['batch_size'], name='d_expand_bn1')(result)
+    result = activation(result)
+    result = conv2d(result, layers[0], name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
+    result = batch_norm(config['batch_size'], name='d_expand_bn2')(result)
     result = activation(result)
     result = conv2d(result, layers[0], name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
     result = batch_norm(config['batch_size'], name='d_expand_bn')(result)
@@ -174,8 +202,8 @@ def discriminator_wide_resnet(config, x):
     result = residual_block(result, activation, batch_size, 'identity', 'd_layers_3')
     result = residual_block(result, activation, batch_size, 'conv', 'd_layers_4')
     result = residual_block(result, activation, batch_size, 'identity', 'd_layers_5')
-    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_6')
-    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_7')
+    #result = residual_block(result, activation, batch_size, 'conv', 'd_layers_6')
+    #result = residual_block(result, activation, batch_size, 'identity', 'd_layers_7')
     #result = residual_block(result, stride=1, 'conv')
     #result = residual_block(result, stride=1, 'identity')
     #result = residual_block(result, stride=1,  'conv')
@@ -577,6 +605,11 @@ def create(config, x,y,f):
         d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
     elif(config['d_optim_strategy'] == 'g_adam'):
         g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
+
+    elif(config['d_optim_strategy'] == 'g_rmsprop'):
+        lr = np.float32(config['rmsprop_lr']) * np.float32(config['rmsprop_lr_g'])
+        g_optimizer = tf.train.RMSPropOptimizer(lr).minimize(g_loss, var_list=g_vars)
+
     elif(config['d_optim_strategy'] == 'g_momentum'):
         d_lr = np.float32(config['momentum_lr'])
         g_mul = np.float32(config['momentum_lr_g'])
@@ -659,7 +692,7 @@ def train(sess, config):
     bounds_slow = config['bounds_d_fake_slowdown']
     max_lr = config['rmsprop_lr']
     if(d_fake < bounds_min):
-        slowdown = 1/bounds_slow
+        slowdown = 1/(bounds_slow+100)
     elif(d_fake > bounds_max):
         slowdown = 1
     else:

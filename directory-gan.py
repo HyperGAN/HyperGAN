@@ -95,9 +95,10 @@ hc.set('g_batch_norm_last_layer', [False])
 hc.set('d_batch_norm_last_layer', [False, True])
 hc.set('e_batch_norm_last_layer', [False, True])
 
-hc.set('g_resnet_depth', [16,8])
+hc.set('g_resnet_depth', [0])
 hc.set('g_resnet_filter', [3])
 
+hc.set('g_strategy', 'wide-resnet')
 hc.set('g_huge_stride', [8])#[])
 hc.set('g_huge_filter', [9])
 
@@ -165,7 +166,7 @@ hc.set('d_architecture', ['wide_resnet'])
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
-hc.set("d_kernels", list(np.arange(10, 20)))
+hc.set("d_kernels", list(np.arange(20, 30)))
 hc.set("d_kernel_dims", list(np.arange(100, 300)))
 
 hc.set("loss", ['custom'])
@@ -403,6 +404,7 @@ for config in hc.configs(1):
     config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
     config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
     config['bounds_d_fake_min'] = other_config['bounds_d_fake_min']
+    config['bounds_d_fake_slowdown'] = other_config['bounds_d_fake_slowdown']
     #config['categories'] = other_config['categories']
     #config['e_conv_size']=other_config['e_conv_size']
     #config['conv_size']=other_config['conv_size']

@@ -241,5 +241,44 @@ def residual_block(result, activation, batch_size,id,name):
         left = activation(left)
         left = conv2d(left, size*2, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
         right = conv2d(right, size*2, name=name+'r', k_w=3, k_h=3, d_h=2, d_w=2)
-    print("residual block", id)
+    print("residual block", id, left+right)
+    return left+right
+
+def residual_block_deconv(result, activation, batch_size,id,name, output_channels=None, stride=2):
+    size = int(result.get_shape()[-1])
+    s = result.get_shape()
+    if(id=='widen'):
+        output_shape = [s[0], s[1], s[2],s[3]*2]
+        output_shape = [int(o) for o in output_shape]
+        left = deconv2d(result, output_shape, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
+        left = batch_norm(batch_size, name=name+'bn')(left)
+        left = activation(left)
+        left = deconv2d(left, output_shape, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
+        right = deconv2d(result, output_shape, name=name+'r', k_w=3, k_h=3, d_h=1, d_w=1)
+    elif(id=='identity'):
+        output_shape = s
+        output_shape = [int(o) for o in output_shape]
+        left = result
+        left = batch_norm(batch_size, name=name+'bn')(left)
+        left = activation(left)
+        left = deconv2d(left, output_shape, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
+        left = batch_norm(batch_size, name=name+'bn2')(left)
+        left = activation(left)
+        left = deconv2d(left, output_shape, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
+        right = result
+    elif(id=='deconv'):
+        output_shape = [s[0], s[1]*stride, s[2]*stride,s[3]//stride]
+        if(output_channels):
+            output_shape[-1] = output_channels
+        output_shape = [int(o) for o in output_shape]
+        result = batch_norm(batch_size, name=name+'bn')(result)
+        result = activation(result)
+        left = result
+        right = result
+        left = deconv2d(left, output_shape, name=name+'l', k_w=stride+1, k_h=stride+1, d_h=stride, d_w=stride)
+        return left
+        left = batch_norm(batch_size, name=name+'lbn')(left)
+        left = activation(left)
+        left = deconv2d(left, output_shape, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
+        right = deconv2d(right, output_shape, name=name+'r', k_w=3, k_h=3, d_h=2, d_w=2)
     return left+right

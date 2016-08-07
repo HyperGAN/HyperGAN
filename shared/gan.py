@@ -698,6 +698,8 @@ def train(sess, config):
     else:
         percent = 1 - (d_fake - bounds_min)/(bounds_max-bounds_min)
         slowdown = 1/(percent * bounds_slow + TINY)
+        if(slowdown > 1):
+            slowdown=1
     new_lr = max_lr*slowdown
     set_tensor("lr_value", new_lr)
 

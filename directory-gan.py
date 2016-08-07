@@ -194,7 +194,7 @@ hc.set("d_pre_res_stride", [7])
 hc.set("d_pool", [False])
 
 hc.set("batch_size", args.batch)
-hc.set('bounds_d_fake_min', [0.25])
+hc.set('bounds_d_fake_min', [0.2])
 hc.set('bounds_d_fake_max', [0.5])
 hc.set('bounds_d_fake_slowdown', [10])
 

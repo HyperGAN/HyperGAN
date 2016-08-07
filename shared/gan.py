@@ -692,7 +692,7 @@ def train(sess, config):
     bounds_slow = config['bounds_d_fake_slowdown']
     max_lr = config['rmsprop_lr']
     if(d_fake < bounds_min):
-        slowdown = 1/(bounds_slow+1000)
+        slowdown = 1/(bounds_slow+100)
     elif(d_fake > bounds_max):
         slowdown = 1
     else:

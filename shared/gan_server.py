@@ -75,7 +75,7 @@ class GANWebServer:
             zs = linspace(start, end)
             #print("zs",zs)
             print("Creating sample 3")
-            sample = self.sess.run(generator, feed_dict={z_t:zs})
+            sample = self.sess.run(generator, feed_dict={z_t:zs,y:random_one_hot})
             print("Creating sample 3")
             stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
             plot(self.config, np.vstack(stacks), sample_file)

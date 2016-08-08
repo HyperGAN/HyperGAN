@@ -68,8 +68,8 @@ class GANWebServer:
 
             for i in c:
                 i = int(i)
-                end[i] = 2.0
-                start[i] = -2.0
+                end[i] = 1.0
+                start[i] = -1.0
             print("Start", start, "End", end)
 
             zs = linspace(start, end)

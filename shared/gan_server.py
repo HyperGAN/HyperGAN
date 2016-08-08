@@ -63,6 +63,7 @@ class GANWebServer:
             z = self.sess.run(z_t)
             size = np.shape(z)[1]
 
+            z = np.random.uniform(-1,1, np.shape(z))
             end = np.copy(z)[0]
             start = np.copy(z)[0]
 
@@ -72,10 +73,13 @@ class GANWebServer:
                 start[i] = -1.0
             print("Start", start, "End", end)
 
-            zs = linspace(start, end)
+            z = linspace(start, end)
+            #z[1] = linspace(start, end)[1]
+            #z[2] = start
+            #z[3] = end
             #print("zs",zs)
             print("Creating sample 3")
-            sample = self.sess.run(generator, feed_dict={z_t:zs,y:random_one_hot})
+            sample = self.sess.run(generator, feed_dict={z_t:z,y:random_one_hot})
             print("Creating sample 3")
             stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
             plot(self.config, np.vstack(stacks), sample_file)

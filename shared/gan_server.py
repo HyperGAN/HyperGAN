@@ -6,6 +6,14 @@ from logging.handlers import RotatingFileHandler
 
 app = Flask('gan')
 
+def linspace(start, end):
+    c = np.linspace(0,1, 64)
+    a= np.array(start).reshape(-1,1)
+    b= np.array(end).reshape(-1,1)
+    f = a+ (b-a) * c
+    f = np.transpose(f)
+    return f
+
 class GANWebServer:
     def __init__(self, sess, config):
         self.sess = sess
@@ -48,6 +56,30 @@ class GANWebServer:
             print("Creating sample 3")
             stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
             plot(self.config, np.vstack(stacks), sample_file)
+
+        elif(type == 'feature'):
+
+            z_t = get_tensor('z')
+            z = self.sess.run(z_t)
+            size = np.shape(z)[1]
+
+            end = np.copy(z)[0]
+            start = np.copy(z)[0]
+
+            for i in c:
+                i = int(i)
+                end[i] = 2.0
+                start[i] = -2.0
+            print("Start", start, "End", end)
+
+            zs = linspace(start, end)
+            #print("zs",zs)
+            print("Creating sample 3")
+            sample = self.sess.run(generator, feed_dict={z_t:zs})
+            print("Creating sample 3")
+            stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
+            plot(self.config, np.vstack(stacks), sample_file)
+
         elif(type == 'linear'):
             encoded_z_t = get_tensor("encoded_z")
 
@@ -71,13 +103,6 @@ class GANWebServer:
             [start_f, start_eps, start_z] = pick_best_f()
             [end_f, end_eps, end_z] = pick_best_f()
 
-            def linspace(start, end):
-                c = np.linspace(0,1, 64)
-                a= np.array(start).reshape(-1,1)
-                b= np.array(end).reshape(-1,1)
-                f = a+ (b-a) * c
-                f = np.transpose(f)
-                return f
             eps = linspace(start_eps, end_eps)
             f = linspace(start_f, end_f)
             z = linspace(start_z, end_z)

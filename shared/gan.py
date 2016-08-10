@@ -604,7 +604,11 @@ def create(config, x,y,f):
     if(config['d_optim_strategy'] == 'adam'):
         d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
     elif(config['d_optim_strategy'] == 'g_adam'):
-        g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
+        g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate']))
+
+        gvs = g_optimizer.compute_gradients(g_loss, var_list=g_vars)
+        capped_gvs = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs]
+        g_optimizer = g_optimizer.apply_gradients(capped_gvs)
 
     elif(config['d_optim_strategy'] == 'g_rmsprop'):
         lr = np.float32(config['rmsprop_lr']) * np.float32(config['rmsprop_lr_g'])

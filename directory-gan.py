@@ -68,7 +68,7 @@ hc.set("model", "40k_overfit:1.2")
 
 hc.set("optimizer", ['rmsprop'])
 
-hc.set('rmsprop_lr', list(np.linspace(1e-4, 1e-4)))
+hc.set('rmsprop_lr', list(np.linspace(8e-5, 8e-5)))
 hc.set('rmsprop_lr_g', list(np.linspace(1,2, num=10)))
 hc.set('simple_lr', list(np.linspace(0.01, 0.012, num=100)))
 hc.set('simple_lr_g', list(np.linspace(2,3, num=10)))
@@ -108,7 +108,7 @@ hc.set('g_atrous_filter', [3])
 hc.set('d_resnet_depth', [0])
 hc.set('d_resnet_filter', [3])
 
-hc.set('d_wide_resnet_depth', [[16, 32, 64, 128]])
+hc.set('d_wide_resnet_depth', [[8,16, 32, 64, 128]])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]
@@ -197,6 +197,7 @@ hc.set("batch_size", args.batch)
 hc.set('bounds_d_fake_min', [0.2])
 hc.set('bounds_d_fake_max', [0.5])
 hc.set('bounds_d_fake_slowdown', [10])
+hc.set('bounds_step', [10])
 
 def sample_input(sess, config):
     x = get_tensor("x")

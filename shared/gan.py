@@ -190,10 +190,13 @@ def discriminator_wide_resnet(config, x):
     result = conv2d(result, layers[0], name='d_expand1', k_w=3, k_h=3, d_h=2, d_w=2)
     result = batch_norm(config['batch_size'], name='d_expand_bn1')(result)
     result = activation(result)
-    result = conv2d(result, layers[0], name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
+    result = conv2d(result, layers[0], name='d_expand1a', k_w=3, k_h=3, d_h=1, d_w=1)
+    result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
+    result = activation(result)
+    result = conv2d(result, layers[0]*2, name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
     result = batch_norm(config['batch_size'], name='d_expand_bn2')(result)
     result = activation(result)
-    result = conv2d(result, layers[0], name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
+    result = conv2d(result, layers[0]*2, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
     result = batch_norm(config['batch_size'], name='d_expand_bn')(result)
     result = activation(result)
     result = residual_block(result, activation, batch_size, 'widen', 'd_layers_0')
@@ -696,7 +699,7 @@ def train(sess, config):
     bounds_slow = config['bounds_d_fake_slowdown']
     max_lr = config['rmsprop_lr']
     if(d_fake < bounds_min):
-        slowdown = 1/(bounds_slow+100)
+        slowdown = 1/(bounds_slow*config['bounds_step'])
     elif(d_fake > bounds_max):
         slowdown = 1
     else:

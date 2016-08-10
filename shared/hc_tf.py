@@ -276,8 +276,9 @@ def residual_block_deconv(result, activation, batch_size,id,name, output_channel
         left = result
         right = result
         left = deconv2d(left, output_shape, name=name+'l', k_w=stride+1, k_h=stride+1, d_h=stride, d_w=stride)
+        return left
         left = batch_norm(batch_size, name=name+'lbn')(left)
         left = activation(left)
         left = deconv2d(left, output_shape, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
-        right = deconv2d(right, output_shape, name=name+'r', k_w=stride+1, k_h=stride+1, d_h=stride, d_w=stride)
+        right = deconv2d(right, output_shape, name=name+'r', k_w=3, k_h=3, d_h=2, d_w=2)
     return left+right

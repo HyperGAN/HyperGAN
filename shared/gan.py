@@ -45,8 +45,8 @@ def generator(config, inputs, reuse=False):
             if(config['g_strategy'] == 'wide-resnet'):
                 #result = residual_block_deconv(result, activation, batch_size, 'widen', 'g_layers_p')
                 #result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i1')
-                widenings = 2
-                stride = 8
+                widenings = 3
+                stride = 4
                 for i in range(widenings):
                     #if(i==0):
 

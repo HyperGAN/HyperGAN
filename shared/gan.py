@@ -211,9 +211,10 @@ def discriminator_wide_resnet(config, x):
     #result = residual_block(result, stride=1, 'identity')
     #result = residual_block(result, stride=1,  'conv')
     #result = residual_block(result, stride=1,  'identity')
-    filter_size = int(result.get_shape()[1])
-    filter = [1,filter_size,filter_size,1]
-    stride = [1,filter_size,filter_size,1]
+    filter_size_w = int(result.get_shape()[1])
+    filter_size_h = int(result.get_shape()[2])
+    filter = [1,filter_size_w,filter_size_h,1]
+    stride = [1,filter_size_w,filter_size_h,1]
     result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
     print("RESULT SIZE IS", result)
     result = tf.reshape(result, [batch_size, -1])

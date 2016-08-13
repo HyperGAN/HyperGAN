@@ -54,6 +54,7 @@ hc.set('pretrained_model', ['preprocess'])
 hc.set('f_skip_fc', True)
 hc.set('f_hidden_1', list(np.arange(512, 1024)))
 hc.set('f_hidden_2', list(np.arange(512, 1024)))
+hc.set('dtype', tf.float32)
 
 hc.set('d_optim_strategy', ['g_adam'])
 hc.set("g_learning_rate", list(np.linspace(1e-4,1e-3,num=100)))

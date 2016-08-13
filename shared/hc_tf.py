@@ -1,11 +1,11 @@
 from shared.ops import *
 from shared.util import *
 
-def build_reshape(output_size, nodes, method, batch_size):
+def build_reshape(output_size, nodes, method, batch_size, dtype):
     node_size = sum([int(x.get_shape()[1]) for x in nodes])
     dims = output_size-node_size
     if(method == 'noise'):
-        noise = tf.random_uniform([batch_size, dims],-1, 1)
+        noise = tf.random_uniform([batch_size, dims],-1, 1, dtype=dtype)
         result = tf.concat(1, nodes+[noise])
     elif(method == 'tiled'):
         t_nodes = tf.concat(1, nodes)
@@ -23,7 +23,7 @@ def build_reshape(output_size, nodes, method, batch_size):
         result = tf.pad(result, [[0, 0],[dims//2, dims//2]])
         width = output_size - int(result.get_shape()[1])
         if(width > 0):
-            zeros = tf.zeros([batch_size, width])
+            zeros = tf.zeros([batch_size, width],dtype=dtype)
             result = tf.concat(1, [result, zeros])
     elif(method == 'linear'):
         result = tf.concat(1, [y, z])
@@ -162,6 +162,7 @@ def build_deconv_config(layers,start, end):
 def build_atrous_layer(result, layer, filter, name='g_atrous'):
     padding="SAME"
     rate=2
+    #Warning only float32
     filters = tf.get_variable(name+'_w', [filter, filter, result.get_shape()[-1], layer],
                         initializer=tf.truncated_normal_initializer(stddev=0.02))
     print('filters', tf.convert_to_tensor(filters), result)
@@ -186,16 +187,17 @@ def get_graph_vars(sess, graph):
    #     i+=1
    #     
    # return retv
-def get_minibatch_features(config, h,batch_size):
+def get_minibatch_features(config, h,batch_size,dtype):
     single_batch_size = batch_size//2
     n_kernels = int(config['d_kernels'])
     dim_per_kernel = int(config['d_kernel_dims'])
     x = linear(h, n_kernels * dim_per_kernel, scope="d_h")
     activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
 
-    big = np.zeros((batch_size, batch_size), dtype='float32')
+    big = np.zeros((batch_size, batch_size))
     big += np.eye(batch_size)
     big = tf.expand_dims(big, 1)
+    big = tf.cast(big,dtype=dtype)
 
     abs_dif = tf.reduce_sum(tf.abs(tf.expand_dims(activation,3) - tf.expand_dims(tf.transpose(activation, [1, 2, 0]), 0)), 2)
     mask = 1. - big

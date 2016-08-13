@@ -5,6 +5,12 @@ import tensorflow as tf
 
 from tensorflow.python.framework import ops
 
+config = {
+        }
+
+def set_ops_dtype(dtype):
+    config['dtype']=dtype
+
 rng = np.random.RandomState([2016, 6, 1])
 
 class batch_norm(object):
@@ -37,10 +43,10 @@ class batch_norm(object):
             shape = x.get_shape().as_list()
 
         with tf.variable_scope(self.name) as scope:
-            self.gamma = tf.get_variable("gamma", [shape[-1]],
-                                initializer=tf.random_normal_initializer(1., 0.02))
-            self.beta = tf.get_variable("beta", [shape[-1]],
-                                initializer=tf.constant_initializer(0.))
+            self.gamma = tf.get_variable("gamma", [shape[-1]],dtype=config['dtype'],
+                                initializer=tf.random_normal_initializer(1., 0.02,dtype=config['dtype']))
+            self.beta = tf.get_variable("beta", [shape[-1]],dtype=config['dtype'],
+                                initializer=tf.constant_initializer(0.,dtype=config['dtype']))
 
             self.mean, self.variance = tf.nn.moments(x, [0, 1, 2])
 
@@ -70,10 +76,10 @@ class conv_batch_norm(object):
         shape = x.get_shape()
         shp = self.in_dim or shape[-1]
         with tf.variable_scope(self.name) as scope:
-            self.gamma = tf.get_variable("gamma", [shp],
-                                         initializer=tf.random_normal_initializer(1., 0.02))
-            self.beta = tf.get_variable("beta", [shp],
-                                        initializer=tf.constant_initializer(0.))
+            self.gamma = tf.get_variable("gamma", [shp],dtype=config['dtype'],
+                                         initializer=tf.random_normal_initializer(1., 0.02,dtype=config['dtype']))
+            self.beta = tf.get_variable("beta", [shp],dtype=config['dtype'],
+                                        initializer=tf.constant_initializer(0.,dtype=config['dtype']))
 
             self.mean, self.variance = tf.nn.moments(x, [0, 1, 2])
             self.mean.set_shape((shp,))
@@ -113,11 +119,11 @@ def conv2d(input_, output_dim,
            k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02,
            name="conv2d"):
     with tf.variable_scope(name):
-        w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],
-                            initializer=tf.truncated_normal_initializer(stddev=stddev))
+        w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],dtype=config['dtype'],
+                            initializer=tf.truncated_normal_initializer(stddev=stddev, dtype=config['dtype']))
         conv = tf.nn.conv2d(input_, w, strides=[1, d_h, d_w, 1], padding='SAME')
 
-        biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0))
+        biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0, dtype=config['dtype']), dtype=config['dtype'])
         conv = tf.nn.bias_add(conv, biases)
 
         return conv
@@ -128,8 +134,8 @@ def deconv2d(input_, output_shape,
              init_bias=0.):
     with tf.variable_scope(name):
         # filter : [height, width, output_channels, in_channels]
-        w = tf.get_variable('w', [k_h, k_w, output_shape[-1], input_.get_shape()[-1]],
-                            initializer=tf.random_normal_initializer(stddev=stddev))
+        w = tf.get_variable('w', [k_h, k_w, output_shape[-1], input_.get_shape()[-1]], dtype=config['dtype'],
+                            initializer=tf.random_normal_initializer(stddev=stddev, dtype=config['dtype']))
 
         try:
             deconv = tf.nn.conv2d_transpose(input_, w, output_shape=output_shape,
@@ -140,7 +146,7 @@ def deconv2d(input_, output_shape,
             deconv = tf.nn.deconv2d(input_, w, output_shape=output_shape,
                                 strides=[1, d_h, d_w, 1])
 
-        biases = tf.get_variable('biases', [output_shape[-1]], initializer=tf.constant_initializer(init_bias))
+        biases = tf.get_variable('biases', [output_shape[-1]], dtype=config['dtype'],initializer=tf.constant_initializer(init_bias, dtype=config['dtype']))
         deconv = tf.reshape(tf.nn.bias_add(deconv, biases), deconv.get_shape())
 
         if with_w:
@@ -160,8 +166,8 @@ def special_deconv2d(input_, output_shape,
 
     with tf.variable_scope(name):
         # filter : [height, width, output_channels, in_channels]
-        w = tf.get_variable('w', [k_h, k_w, output_shape[-1], input_.get_shape()[-1]],
-                            initializer=tf.random_normal_initializer(stddev=stddev))
+        w = tf.get_variable('w', [k_h, k_w, output_shape[-1], input_.get_shape()[-1]],dtype=config['dtype'],
+                            initializer=tf.random_normal_initializer(stddev=stddev,dtype=config['dtype']))
 
         def check_shape(h_size, im_size, stride):
             if h_size != (im_size + stride - 1) // stride:
@@ -181,7 +187,7 @@ def special_deconv2d(input_, output_shape,
         deconv = tf.slice(deconv, [0, k_h // 2, k_w // 2, 0], output_shape)
 
 
-        biases = tf.get_variable('biases', [output_shape[-1]], initializer=tf.constant_initializer(init_bias))
+        biases = tf.get_variable('biases', [output_shape[-1]], initializer=tf.constant_initializer(init_bias,dtype=config['dtype']),dtype=config['dtype'])
         deconv = tf.reshape(tf.nn.bias_add(deconv, biases), deconv.get_shape())
 
         if with_w:
@@ -232,10 +238,10 @@ def linear(input_, output_size, scope=None, mean=0., stddev=0.02, bias_start=0.0
     shape = input_.get_shape().as_list()
 
     with tf.variable_scope(scope or "Linear"):
-        matrix = tf.get_variable("Matrix", [shape[1], output_size], tf.float32,
-                                 tf.random_normal_initializer(mean=mean, stddev=stddev))
-        bias = tf.get_variable("bias", [output_size],
-            initializer=tf.constant_initializer(bias_start))
+        matrix = tf.get_variable("Matrix", [shape[1], output_size], dtype=config['dtype'],
+                                 initializer=tf.random_normal_initializer(mean=mean, stddev=stddev, dtype=config['dtype']))
+        bias = tf.get_variable("bias", [output_size],dtype=config['dtype'],
+            initializer=tf.constant_initializer(bias_start,dtype=config['dtype']))
         if with_w:
             # import ipdb; ipdb.set_trace()
             return tf.matmul(input_, matrix) + bias, matrix, bias
@@ -325,10 +331,10 @@ class batch_norm_second_half(object):
             shape = x.get_shape().as_list()
 
         with tf.variable_scope(self.name) as scope:
-            self.gamma = tf.get_variable("gamma", [shape[-1]],
-                                initializer=tf.random_normal_initializer(1., 0.02))
-            self.beta = tf.get_variable("beta", [shape[-1]],
-                                initializer=tf.constant_initializer(0.))
+            self.gamma = tf.get_variable("gamma", [shape[-1]],dtype=config['dtype'],
+                                initializer=tf.random_normal_initializer(1., 0.02,dtype=config['dtype']))
+            self.beta = tf.get_variable("beta", [shape[-1]],dtype=config['dtype'],
+                                initializer=tf.constant_initializer(0.,dtype=config['dtype']))
 
             second_half = tf.slice(x, [shape[0] // 2, 0, 0, 0],
                                       [shape[0] // 2, shape[1], shape[2], shape[3]])
@@ -368,10 +374,10 @@ class batch_norm_first_half(object):
             shape = x.get_shape().as_list()
 
         with tf.variable_scope(self.name) as scope:
-            self.gamma = tf.get_variable("gamma", [shape[-1]],
-                                initializer=tf.random_normal_initializer(1., 0.02))
-            self.beta = tf.get_variable("beta", [shape[-1]],
-                                initializer=tf.constant_initializer(0.))
+            self.gamma = tf.get_variable("gamma", [shape[-1]],dtype=config['dtype'],
+                                initializer=tf.random_normal_initializer(1., 0.02,dtype=config['dtype']))
+            self.beta = tf.get_variable("beta", [shape[-1]],dtype=config['dtype'],
+                                initializer=tf.constant_initializer(0.,dtype=config['dtype']))
 
             first_half = tf.slice(x, [0, 0, 0, 0],
                                       [shape[0] // 2, shape[1], shape[2], shape[3]])
@@ -387,15 +393,15 @@ class batch_norm_first_half(object):
 
 def decayer(x, name="decayer"):
     with tf.variable_scope(name):
-        scale = tf.get_variable("scale", [1], initializer=tf.constant_initializer(1.))
-        decay_scale = tf.get_variable("decay_scale", [1], initializer=tf.constant_initializer(1.))
+        scale = tf.get_variable("scale", [1], initializer=tf.constant_initializer(1.,dtype=config['dtype']),dtype=config['dtype'])
+        decay_scale = tf.get_variable("decay_scale", [1], initializer=tf.constant_initializer(1.,dtype=config['dtype']),dtype=config['dtype'])
         relu = tf.nn.relu(x)
         return scale * relu / (1. + tf.abs(decay_scale) * tf.square(decay_scale))
 
 def decayer2(x, name="decayer"):
     with tf.variable_scope(name):
-        scale = tf.get_variable("scale", [int(x.get_shape()[-1])], initializer=tf.constant_initializer(1.))
-        decay_scale = tf.get_variable("decay_scale", [int(x.get_shape()[-1])], initializer=tf.constant_initializer(1.))
+        scale = tf.get_variable("scale", [int(x.get_shape()[-1])], initializer=tf.constant_initializer(1.,dtype=config['dtype']),dtype=config['dtype'])
+        decay_scale = tf.get_variable("decay_scale", [int(x.get_shape()[-1])], initializer=tf.constant_initializer(1.,dtype=config['dtype']), dtype=config['dtype'])
         relu = tf.nn.relu(x)
         return scale * relu / (1. + tf.abs(decay_scale) * tf.square(decay_scale))
 
@@ -421,14 +427,14 @@ class batch_norm_cross(object):
             shape = x.get_shape().as_list()
 
         with tf.variable_scope(self.name) as scope:
-            self.gamma0 = tf.get_variable("gamma0", [shape[-1] // 2],
-                                initializer=tf.random_normal_initializer(1., 0.02))
+            self.gamma0 = tf.get_variable("gamma0", [shape[-1] // 2],dtype=config['dtype'],
+                                initializer=tf.random_normal_initializer(1., 0.02, dtype=config['dtype']))
             self.beta0 = tf.get_variable("beta0", [shape[-1] // 2],
-                                initializer=tf.constant_initializer(0.))
-            self.gamma1 = tf.get_variable("gamma1", [shape[-1] // 2],
-                                initializer=tf.random_normal_initializer(1., 0.02))
-            self.beta1 = tf.get_variable("beta1", [shape[-1] // 2],
-                                initializer=tf.constant_initializer(0.))
+                                initializer=tf.constant_initializer(0., dtype=config['dtype']))
+            self.gamma1 = tf.get_variable("gamma1", [shape[-1] // 2],dtype=config['dtype'],
+                                initializer=tf.random_normal_initializer(1., 0.02,dtype=config['dtype']))
+            self.beta1 = tf.get_variable("beta1", [shape[-1] // 2],dtype=config['dtype'],
+                                initializer=tf.constant_initializer(0.,dtype=config['dtype']))
 
             ch0 = tf.slice(x, [0, 0, 0, 0],
                               [shape[0], shape[1], shape[2], shape[3] // 2])
@@ -468,8 +474,8 @@ def constrained_conv2d(input_, output_dim,
     # constrained to have stride be a factor of kernel width
     # this is intended to reduce convolution artifacts
     with tf.variable_scope(name):
-        w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],
-                            initializer=tf.truncated_normal_initializer(stddev=stddev))
+        w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],dtype=config['dtype'],
+                            initializer=tf.truncated_normal_initializer(stddev=stddev,dtype=config['dtype']))
 
         # This is meant to reduce boundary artifacts
         padded = tf.pad(input_, [[0, 0],
@@ -478,7 +484,7 @@ def constrained_conv2d(input_, output_dim,
             [0, 0]])
         conv = tf.nn.conv2d(input_, w, strides=[1, d_h, d_w, 1], padding='SAME')
 
-        biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0))
+        biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0,dtype=config['dtype']),dtype=config['dtype'])
         conv = tf.nn.bias_add(conv, biases)
 
         return conv

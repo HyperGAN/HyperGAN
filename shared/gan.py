@@ -53,7 +53,7 @@ def generator(config, inputs, reuse=False):
                     if(i==widenings-1):
                         result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), output_channels=config['channels']+13, stride=stride)
                         result = residual_block_deconv(result, activation, batch_size, 'bottleneck', 'g_layers_bottleneck_'+str(i), channels=config['channels'])
-                        result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))
+                        #result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))
                     else:
                         result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), stride=stride)
                         result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))

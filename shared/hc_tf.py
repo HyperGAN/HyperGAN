@@ -246,7 +246,7 @@ def residual_block(result, activation, batch_size,id,name):
     print("residual block", id, left+right)
     return left+right
 
-def residual_block_deconv(result, activation, batch_size,id,name, output_channels=None, stride=2):
+def residual_block_deconv(result, activation, batch_size,id,name, output_channels=None, stride=2, channels=None):
     size = int(result.get_shape()[-1])
     s = result.get_shape()
     if(id=='widen'):
@@ -258,7 +258,7 @@ def residual_block_deconv(result, activation, batch_size,id,name, output_channel
         left = deconv2d(left, output_shape, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
         right = deconv2d(result, output_shape, name=name+'r', k_w=3, k_h=3, d_h=1, d_w=1)
     elif(id=='bottleneck'):
-        output_shape = [s[0], s[1], s[2],s[3]//2]
+        output_shape = [s[0], s[1], s[2],channels]
         output_shape = [int(o) for o in output_shape]
         result = batch_norm(batch_size, name=name+'bn_pre')(result)
         result = activation(result)

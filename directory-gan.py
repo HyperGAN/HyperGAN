@@ -51,13 +51,13 @@ end=1e-3
 num=100
 hc.set('pretrained_model', ['preprocess'])
 
-hc.set('f_skip_fc', True)
+hc.set('f_skip_fc', False)
 hc.set('f_hidden_1', list(np.arange(512, 1024)))
 hc.set('f_hidden_2', list(np.arange(512, 1024)))
 hc.set('dtype', tf.float32)
 
 hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", list(np.linspace(5e-4,6e-4,num=100)))
+hc.set("g_learning_rate", list(np.linspace(3e-5,1e-3,num=100)))
 hc.set("d_learning_rate", list(np.linspace(1e-4,1e-4,num=100)))
 
 hc.set("g_adam_beta1", 0.9) 
@@ -69,7 +69,7 @@ hc.set("model", "40k_overfit:1.2")
 
 hc.set("optimizer", ['rmsprop'])
 
-hc.set('rmsprop_lr', list(np.linspace(8e-5, 8e-5)))
+hc.set('rmsprop_lr', list(np.linspace(9e-5, 9e-5)))
 hc.set('rmsprop_lr_g', list(np.linspace(1,2, num=10)))
 hc.set('simple_lr', list(np.linspace(0.01, 0.012, num=100)))
 hc.set('simple_lr_g', list(np.linspace(2,3, num=10)))
@@ -197,7 +197,7 @@ hc.set("d_pool", [False])
 hc.set("batch_size", args.batch)
 hc.set('bounds_d_fake_min', [0.2])
 hc.set('bounds_d_fake_max', [0.5])
-hc.set('bounds_d_fake_slowdown', [10])
+hc.set('bounds_d_fake_slowdown', [12])
 hc.set('bounds_step', [10])
 
 def sample_input(sess, config):

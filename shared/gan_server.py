@@ -19,17 +19,90 @@ class GANWebServer:
         self.sess = sess
         self.config = config
 
-    def sample(self, type='batch', z=None, c=None, off=None):
-        print("Creating sample")
-        generator = get_tensor("g")
-        y = get_tensor("y")
-        x = get_tensor("x")
-        z_t = get_tensor('z')
-        f_t = get_tensor('f')
-        eps_t = get_tensor('eps')
-        print_z_t = get_tensor("print_z")
-        categories = get_tensor('categories')
+    def random_one_hot(self):
+        rand = np.random.randint(0,self.config['y_dims'], size=self.config['batch_size'])
+        rand = np.zeros_like(rand)
 
+        return np.eye(self.config['y_dims'])[rand]
+
+    def sample_batch(self, sample_file):
+        generator = get_tensor("g")
+        y_t = get_tensor("y")
+        sample = self.sess.run(generator, feed_dict={y_t:self.random_one_hot()})
+        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
+        plot(self.config, np.vstack(stacks), sample_file)
+
+
+    def sample_iterate_z(self, sample_file, z_iterate):
+        generator = get_tensor("g")
+        z_t = get_tensor('z')
+        z = self.sess.run(z_t)
+        y_t = get_tensor("y")
+        size = np.shape(z)[1]
+
+        z = np.random.uniform(-1,1, np.shape(z))
+        end = np.copy(z)[0]
+        start = np.copy(z)[0]
+
+        if(z_iterate):
+            for i in z_iterate:
+                i = int(i)
+                end[i] = 1.0
+                start[i] = -1.0
+
+        z = linspace(start, end)
+        print("z is", z)
+
+        sample = self.sess.run(generator, feed_dict={z_t:z,y_t:self.random_one_hot()})
+        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
+        plot(self.config, np.vstack(stacks), sample_file)
+
+    def pick_best_f(self):
+        f_t = get_tensor("f")
+        d_fake_sigmoid_t = get_tensor("d_fake_sigmoid")
+        eps_t = get_tensor('eps')
+        z_t = get_tensor('z')
+        y_t = get_tensor("y")
+        fs = []
+        for i in range(1):
+
+            [eps, d_fake_sigmoid, f, z] = self.sess.run(
+                                [eps_t, d_fake_sigmoid_t, f_t, z_t], 
+                                feed_dict={y_t:self.random_one_hot()})
+
+            for f, d, e, z in zip(f, d_fake_sigmoid, eps, z):
+                fs.append({'f':f,'d':d,'e':e, 'z':z})
+            fs = sorted(fs, key=lambda x: (1-x['d']))
+        print(" d sigmoid ", fs[0]['d'])
+        return [fs[0]['f'], fs[0]['e'], fs[0]['z']]
+
+
+    def sample_feature(self, sample_file):
+        encoded_z_t = get_tensor("encoded_z")
+        print_z_t = get_tensor("print_z")
+        generator = get_tensor("g")
+        f_t = get_tensor("f")
+        eps_t = get_tensor("eps")
+
+
+        [start_f, start_eps, start_z] = self.pick_best_f()
+        [end_f, end_eps, end_z] = self.pick_best_f()
+
+        eps = linspace(start_eps, end_eps)
+        f = linspace(start_f, end_f)
+        z = linspace(start_z, end_z)
+        #f = np.tile(start_f, [64, 1])
+        #eps = np.zeros(eps_t.get_shape())
+        #eps = np.random.normal(0,0.001, eps_t.get_shape())
+
+
+        _,sample = self.sess.run([print_z_t, generator], feed_dict={f_t:f, eps_t: eps})
+        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
+        plot(self.config, np.vstack(stacks), sample_file)
+
+
+    def sample(self, type='batch', c=None, features=None, z_iterate=None):
+        print("Creating sample")
 
         categories_feed = []
         for i, category in enumerate(self.config['categories']):
@@ -45,80 +118,14 @@ class GANWebServer:
             categories_feed = np.tile(categories_feed, [self.config['batch_size'],1])
             categories_feed = np.reshape(categories_feed, categories[0].get_shape())
 
-        rand = np.random.randint(0,self.config['y_dims'], size=self.config['batch_size'])
-        rand = np.zeros_like(rand)
-        print("Creating sample 2")
-        random_one_hot = np.eye(self.config['y_dims'])[rand]
 
         sample_file = "samples/sample.png"
         if(type == 'batch'):
-            sample = self.sess.run(generator, feed_dict={y:random_one_hot})
-            print("Creating sample 3")
-            stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
-            plot(self.config, np.vstack(stacks), sample_file)
-
+            self.sample_batch(sample_file)
         elif(type == 'feature'):
-
-            z_t = get_tensor('z')
-            z = self.sess.run(z_t)
-            size = np.shape(z)[1]
-
-            z = np.random.uniform(-1,1, np.shape(z))
-            end = np.copy(z)[0]
-            start = np.copy(z)[0]
-
-            for i in c:
-                i = int(i)
-                end[i] = 1.0
-                start[i] = -1.0
-            print("Start", start, "End", end)
-
-            z = linspace(start, end)
-            #z[1] = linspace(start, end)[1]
-            #z[2] = start
-            #z[3] = end
-            #print("zs",zs)
-            print("Creating sample 3")
-            sample = self.sess.run(generator, feed_dict={z_t:z,y:random_one_hot})
-            print("Creating sample 3")
-            stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
-            plot(self.config, np.vstack(stacks), sample_file)
-
+            self.sample_iterate_z(sample_file, z_iterate)
         elif(type == 'linear'):
-            encoded_z_t = get_tensor("encoded_z")
-
-            def pick_best_f():
-                f_t = get_tensor("f")
-                d_fake_sigmoid_t = get_tensor("d_fake_sigmoid")
-                eps_t = get_tensor('eps')
-                z_t = get_tensor('z')
-                fs = []
-                for i in range(1):
-
-                    [eps, d_fake_sigmoid, f, z] = self.sess.run([eps_t, d_fake_sigmoid_t, f_t, z_t], feed_dict={y:random_one_hot})
-
-                    for f, d, e, z in zip(f, d_fake_sigmoid, eps, z):
-                        fs.append({'f':f,'d':d,'e':e, 'z':z})
-                    fs = sorted(fs, key=lambda x: (1-x['d']))
-                print(" d sigmoid ", fs[0]['d'])
-                return [fs[0]['f'], fs[0]['e'], fs[0]['z']]
-
-
-            [start_f, start_eps, start_z] = pick_best_f()
-            [end_f, end_eps, end_z] = pick_best_f()
-
-            eps = linspace(start_eps, end_eps)
-            f = linspace(start_f, end_f)
-            z = linspace(start_z, end_z)
-            #f = np.tile(start_f, [64, 1])
-            #eps = np.zeros(eps_t.get_shape())
-            #eps = np.random.normal(0,0.001, eps_t.get_shape())
-
-
-            _,sample = self.sess.run([print_z_t, generator], feed_dict={f_t:f, eps_t: eps})
-            stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
-            plot(self.config, np.vstack(stacks), sample_file)
-
+            self.sample_feature(sample_file)
         print("Sample ended", sample_file)
         return send_file(sample_file, mimetype='image/png')
 
@@ -130,11 +137,15 @@ def gan_server(sess, config):
     def sample():
         c =request.args.get('c')
         type = request.args.get('type')
+        z_iterate = request.args.get('z_iterate')
         print('c is', c)
         if(c):
             c = c.split(',')
+    
+        if(z_iterate):
+            z_iterate = z_iterate.split(',')
         print('c is now', c)
-        return gws.sample(c=c, type=type)
+        return gws.sample(c=c, type=type, z_iterate=z_iterate)
     handler = RotatingFileHandler('server.log', maxBytes=10000, backupCount=1)
     handler.setLevel(logging.INFO)
     app.logger.addHandler(handler)

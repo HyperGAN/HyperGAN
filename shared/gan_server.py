@@ -18,6 +18,7 @@ class GANWebServer:
     def __init__(self, sess, config):
         self.sess = sess
         self.config = config
+        self.seed_bank = {}
 
     def random_one_hot(self):
         rand = np.random.randint(0,self.config['y_dims'], size=self.config['batch_size'])
@@ -33,25 +34,31 @@ class GANWebServer:
         plot(self.config, np.vstack(stacks), sample_file)
 
 
-    def sample_iterate_z(self, sample_file, z_iterate):
+    def sample_iterate_z(self, sample_file, z_iterate, target_value=1, seed=None):
         generator = get_tensor("g")
         z_t = get_tensor('z')
-        z = self.sess.run(z_t)
+        if(seed in self.seed_bank):
+            print("Found z in bank")
+            z = self.seed_bank[seed]
+        else:
+            print("New z")
+            z = self.sess.run(z_t)
+            self.seed_bank[seed] = z
+            
         y_t = get_tensor("y")
         size = np.shape(z)[1]
 
-        z = np.random.uniform(-1,1, np.shape(z))
-        end = np.copy(z)[0]
-        start = np.copy(z)[0]
-
-        if(z_iterate):
-            for i in z_iterate:
-                i = int(i)
-                end[i] = 1.0
-                start[i] = -1.0
-
-        z = linspace(start, end)
-        print("z is", z)
+        #z = np.random.uniform(-1,1, np.shape(z))
+        z_iterate = [int(x) for x in z_iterate]
+        def val(elem):
+            vals = []
+            for i,x in enumerate(elem):
+                if(i in z_iterate):
+                    vals.append(np.float32(target_value))
+                else:
+                    vals.append(0)
+            return vals
+        z = z+np.array([val(elem) for elem in z])
 
         sample = self.sess.run(generator, feed_dict={z_t:z,y_t:self.random_one_hot()})
         stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
@@ -101,7 +108,7 @@ class GANWebServer:
         plot(self.config, np.vstack(stacks), sample_file)
 
 
-    def sample(self, type='batch', c=None, features=None, z_iterate=None):
+    def sample(self, type='batch', c=None, features=None, z_iterate=None, target_value=None, seed=None):
         print("Creating sample")
 
         categories_feed = []
@@ -123,7 +130,7 @@ class GANWebServer:
         if(type == 'batch'):
             self.sample_batch(sample_file)
         elif(type == 'feature'):
-            self.sample_iterate_z(sample_file, z_iterate)
+            self.sample_iterate_z(sample_file, z_iterate, target_value, seed)
         elif(type == 'linear'):
             self.sample_feature(sample_file)
         print("Sample ended", sample_file)
@@ -138,6 +145,8 @@ def gan_server(sess, config):
         c =request.args.get('c')
         type = request.args.get('type')
         z_iterate = request.args.get('z_iterate')
+        target = request.args.get('target')
+        seed = request.args.get('seed')
         print('c is', c)
         if(c):
             c = c.split(',')
@@ -145,7 +154,7 @@ def gan_server(sess, config):
         if(z_iterate):
             z_iterate = z_iterate.split(',')
         print('c is now', c)
-        return gws.sample(c=c, type=type, z_iterate=z_iterate)
+        return gws.sample(c=c, type=type, z_iterate=z_iterate, target_value=target, seed=seed)
     handler = RotatingFileHandler('server.log', maxBytes=10000, backupCount=1)
     handler.setLevel(logging.INFO)
     app.logger.addHandler(handler)

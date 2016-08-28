@@ -63,7 +63,7 @@ hc.set("d_learning_rate", list(np.linspace(1e-4,1e-4,num=100)))
 hc.set("g_adam_beta1", 0.9) 
 hc.set("g_adam_beta2", 0.999)
 hc.set('g_adam_epsilon', 1e-8)
-hc.set("model", "40k_overfit:1.2")
+hc.set("model", "40k_overfit_3:1.2")
 
 
 
@@ -407,6 +407,7 @@ for config in hc.configs(1):
     config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
     config['bounds_d_fake_min'] = other_config['bounds_d_fake_min']
     config['bounds_d_fake_slowdown'] = other_config['bounds_d_fake_slowdown']
+    config['dtype']=other_config['dtype']
     #config['categories'] = other_config['categories']
     #config['e_conv_size']=other_config['e_conv_size']
     #config['conv_size']=other_config['conv_size']

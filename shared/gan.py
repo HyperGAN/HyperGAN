@@ -20,7 +20,7 @@ def generator(config, inputs, reuse=False):
         z_proj_dims = int(config['conv_g_layers'][0])
         print("PRIMES ARE", primes, z_proj_dims*primes[0]*primes[1])
         if(int(config['z_dim_random_uniform']) > 0):
-            z_dim_random_uniform = tf.random_uniform([config['batch_size'], int(config['z_dim_random_uniform'])],-1, 1)
+            z_dim_random_uniform = tf.random_uniform([config['batch_size'], int(config['z_dim_random_uniform'])],-1, 1,dtype=config['dtype'])
             #z_dim_random_uniform = tf.zeros_like(z_dim_random_uniform)
             z_dim_random_uniform = tf.identity(z_dim_random_uniform)
             inputs.append(z_dim_random_uniform)
@@ -31,11 +31,11 @@ def generator(config, inputs, reuse=False):
             result = tf.concat(1, inputs)
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
-            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'])
+            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
         elif(config['g_project']=='noise'):
-            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'noise', config['batch_size'])
+            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'noise', config['batch_size'], config['dtype'])
         elif(config['g_project']=='atrous'):
-            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'atrous', config['batch_size'])
+            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'atrous', config['batch_size'], config['dtype'])
 
 
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
@@ -51,7 +51,8 @@ def generator(config, inputs, reuse=False):
                     #if(i==0):
 
                     if(i==widenings-1):
-                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), output_channels=config['channels'], stride=stride)
+                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), output_channels=config['channels']+13, stride=stride)
+                        result = residual_block_deconv(result, activation, batch_size, 'bottleneck', 'g_layers_bottleneck_'+str(i), channels=config['channels'])
                         result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))
                     else:
                         result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), stride=stride)
@@ -104,12 +105,12 @@ def discriminator(config, x, f,z,g,gz):
     z = tf.concat(0, [z, gz])
     x = tf.reshape(x, [batch_size, -1, channels])
     if(config['d_add_noise']):
-        x += tf.random_normal(x.get_shape(), mean=0, stddev=config['d_noise'])
+        x += tf.random_normal(x.get_shape(), mean=0, stddev=config['d_noise'], dtype=config['dtype'])
 
     if(config['include_f_in_d']):
         channels+=1
         x_tmp = tf.reshape(x, [single_batch_size, -1, channels-1])
-        f = build_reshape(int(x_tmp.get_shape()[1]), [f], config['d_project'], single_batch_size)
+        f = build_reshape(int(x_tmp.get_shape()[1]), [f], config['d_project'], single_batch_size, config['dtype'])
         f = tf.reshape(f, [single_batch_size, -1, 1])
         x = tf.concat(2, [x_tmp, f])
         x = tf.reshape(x, g.get_shape())
@@ -117,7 +118,7 @@ def discriminator(config, x, f,z,g,gz):
 
     if(config['latent_loss']):
         orig_x = x
-        x = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size)
+        x = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size, config['dtype'])
         x = tf.reshape(x, [batch_size, -1, 1])
         x = tf.concat(2, [x, tf.reshape(orig_x, [batch_size, -1, channels])])
         x = tf.reshape(x,[batch_size, x_dims[0], x_dims[1], channels+1])
@@ -131,7 +132,7 @@ def discriminator(config, x, f,z,g,gz):
     else:
         result = discriminator_vanilla(config,x)
 
-    minis = get_minibatch_features(config, result, batch_size)
+    minis = get_minibatch_features(config, result, batch_size,config['dtype'])
     result = tf.concat(1, [result]+minis)
 
     #result = tf.nn.dropout(result, 0.7)
@@ -265,20 +266,20 @@ def z_from_f(config, f, categories):
 
     result = tf.reshape(result, [config['batch_size'], -1])
 
-    b_out_mean= tf.get_variable('v_b_out_mean', initializer=tf.zeros([n_z], dtype=tf.float32))
-    out_mean= tf.get_variable('v_out_mean', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
+    b_out_mean= tf.get_variable('v_b_out_mean', initializer=tf.zeros([n_z], dtype=config['dtype']))
+    out_mean= tf.get_variable('v_out_mean', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer(dtype=config['dtype']), dtype=config['dtype'])
     mu = tf.add(tf.matmul(result, out_mean),b_out_mean)
 
-    out_log_sigma=tf.get_variable('v_out_logsigma', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
-    b_out_log_sigma= tf.get_variable('v_b_out_logsigma', initializer=tf.zeros([n_z], dtype=tf.float32))
+    out_log_sigma=tf.get_variable('v_out_logsigma', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer(dtype=config['dtype']), dtype=config['dtype'])
+    b_out_log_sigma= tf.get_variable('v_b_out_logsigma', initializer=tf.zeros([n_z], dtype=config['dtype']), dtype=config['dtype'])
     sigma = tf.add(tf.matmul(result, out_log_sigma),b_out_log_sigma)
 
     eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
-                           dtype=tf.float32)
+                           dtype=config['dtype'])
 
     set_tensor('eps', eps)
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
-    e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=tf.float32)
+    e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=config['dtype'])
 
     if config['category_loss']:
         e_c = linear(e_z,n_c, 'v_ez_lin')
@@ -304,7 +305,7 @@ def approximate_z(config, x, y):
     n_z = int(config['z_dim'])
     channels = (config['channels']+1)
 
-    result = build_reshape(int(x.get_shape()[1]), [y], config['d_project'], batch_size)
+    result = build_reshape(int(x.get_shape()[1]), [y], config['d_project'], batch_size, config['dtype'])
     result = tf.reshape(result, [batch_size, -1, 1])
     result = tf.concat(2, [result, x])
 
@@ -325,21 +326,21 @@ def approximate_z(config, x, y):
     last_layer = result
     result = tf.reshape(result, [config['batch_size'], -1])
 
-    b_out_mean= tf.get_variable('v_b_out_mean', initializer=tf.zeros([n_z], dtype=tf.float32))
-    out_mean= tf.get_variable('v_out_mean', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
+    b_out_mean= tf.get_variable('v_b_out_mean', initializer=tf.zeros([n_z], dtype=config['dtype']), dtype=config['dtype'])
+    out_mean= tf.get_variable('v_out_mean', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer(dtype=config['dtype']), dtype=config['dtype'])
     mu = tf.add(tf.matmul(result, out_mean),b_out_mean)
 
-    out_log_sigma=tf.get_variable('v_out_logsigma', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer())
-    b_out_log_sigma= tf.get_variable('v_b_out_logsigma', initializer=tf.zeros([n_z], dtype=tf.float32))
+    out_log_sigma=tf.get_variable('v_out_logsigma', [result.get_shape()[1], n_z], initializer=tf.contrib.layers.xavier_initializer(dtype=config['dtype']), dtype=config['dtype'])
+    b_out_log_sigma= tf.get_variable('v_b_out_logsigma', initializer=tf.zeros([n_z], dtype=config['dtype']), dtype=config['dtype'])
     sigma = tf.add(tf.matmul(result, out_log_sigma),b_out_log_sigma)
 
     eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
-                           dtype=tf.float32)
+                           dtype=config['dtype'])
     set_tensor('eps', eps)
 
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
 
-    e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=tf.float32)
+    e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=config['dtype'])
 
     if(config['e_last_layer']):
         z = config['e_last_layer'](z)
@@ -390,18 +391,19 @@ def categories_loss(categories, layer, batch_size):
         loss += disc_ent - disc_cross_ent
     return loss
 
-def random_category(batch_size, size):
+def random_category(batch_size, size, dtype):
     prior = tf.ones([batch_size, size])*1./size
     dist = tf.log(prior + TINY)
     with tf.device('/cpu:0'):
         sample=tf.multinomial(dist, num_samples=1)[:, 0]
-        return tf.one_hot(sample, size)
+        return tf.one_hot(sample, size, dtype=dtype)
 
 def create(config, x,y,f):
+    set_ops_dtype(config['dtype'])
     batch_size = config["batch_size"]
     z_dim = int(config['z_dim'])
 
-    categories = [random_category(config['batch_size'], size) for size in config['categories']]
+    categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
     if(len(categories) > 0):
         categories_t = tf.concat(1, categories)
         #categories_t = [tf.tile(categories_t, [config['batch_size'], 1])]
@@ -419,22 +421,22 @@ def create(config, x,y,f):
         if(config['latent_loss']):
             encoded_z, encoded_c, z, z_mu, z_sigma = z_from_f(config, f, categories)
         else:
-            encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1)
+            encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
             z_mu = None
             z_sigma = None
-            z = tf.random_uniform([config['batch_size'], z_dim],-1, 1)
+            z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
 
     elif(config['latent_loss']):
         encoded_z, z, z_mu, z_sigma = approximate_z(config, x, [y])
     else:
-        encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1)
+        encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
         z_mu = None
         z_sigma = None
-        z = tf.random_uniform([config['batch_size'], z_dim],-1, 1)
+        z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
 
 
     print("Z IS ", z)
-    categories = [random_category(config['batch_size'], size) for size in config['categories']]
+    categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
     if(len(categories) > 0):
         categories_t = [tf.concat(1, categories)]
     else:
@@ -472,15 +474,15 @@ def create(config, x,y,f):
     else:
         latent_loss = None
     np_fake = np.array([0]*config['y_dims']+[1])
-    fake_symbol = tf.tile(tf.constant(np_fake, dtype=tf.float32), [config['batch_size']])
+    fake_symbol = tf.tile(tf.constant(np_fake, dtype=config['dtype']), [config['batch_size']])
     fake_symbol = tf.reshape(fake_symbol, [config['batch_size'],config['y_dims']+1])
 
     #real_symbols = tf.concat(1, [y, tf.zeros([config['batch_size'], 1])])
     real_symbols = y
 
 
-    zeros = tf.zeros_like(d_fake_sig)
-    ones = tf.zeros_like(d_real_sig)
+    zeros = tf.zeros_like(d_fake_sig, dtype=config['dtype'])
+    ones = tf.zeros_like(d_real_sig, dtype=config['dtype'])
 
     #d_real_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_real, ones)
 
@@ -547,9 +549,9 @@ def create(config, x,y,f):
         with tf.variable_scope("generator"):
             with tf.variable_scope("g_conv_0"):
                 tf.get_variable_scope().reuse_variables()
-                ws = tf.get_variable('w')
+                ws = tf.get_variable('w',dtype=config['dtype'])
                 tf.get_variable_scope().reuse_variables()
-                b = tf.get_variable('biases')
+                b = tf.get_variable('biases',dtype=config['dtype'])
             lam = config['regularize_lambda']
             g_loss += lam*tf.nn.l2_loss(ws)+lam*tf.nn.l2_loss(b)
 
@@ -586,7 +588,7 @@ def create(config, x,y,f):
         g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
         lr = np.float32(config['d_learning_rate'])
         set_tensor("lr_value", lr)
-        lr = tf.get_variable('lr', [1], trainable=False, initializer=tf.constant_initializer(lr))
+        lr = tf.get_variable('lr', [1], trainable=False, initializer=tf.constant_initializer(lr,dtype=config['dtype']),dtype=config['dtype'])
         set_tensor('lr', lr)
         d_optimizer = tf.train.AdamOptimizer(lr).minimize(d_loss, var_list=d_vars)
         
@@ -600,7 +602,7 @@ def create(config, x,y,f):
     elif(config['optimizer'] == 'rmsprop'):
         lr = np.float32(config['rmsprop_lr'])
         set_tensor("lr_value", lr)
-        lr = tf.placeholder(tf.float32, shape=[])
+        lr = tf.placeholder(config['dtype'], shape=[])
         set_tensor('lr', lr)
 
         d_optimizer = tf.train.RMSPropOptimizer(lr).minimize(d_loss, var_list=d_vars)

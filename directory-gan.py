@@ -54,6 +54,7 @@ hc.set('pretrained_model', ['preprocess'])
 hc.set('f_skip_fc', True)
 hc.set('f_hidden_1', list(np.arange(512, 1024)))
 hc.set('f_hidden_2', list(np.arange(512, 1024)))
+hc.set('dtype', tf.float32)
 
 hc.set('d_optim_strategy', ['g_adam'])
 hc.set("g_learning_rate", list(np.linspace(1e-4,1e-3,num=100)))
@@ -108,7 +109,7 @@ hc.set('g_atrous_filter', [3])
 hc.set('d_resnet_depth', [0])
 hc.set('d_resnet_filter', [3])
 
-hc.set('d_wide_resnet_depth', [[8,16, 32, 64, 128]])
+hc.set('d_wide_resnet_depth', [[32, 64, 128]])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]

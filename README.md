@@ -3,11 +3,14 @@ A GAN(generative adversarial network) that you can run from the command line.  I
 
 ## Screenshots
 
-<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472598314113-ad31fc0a-b7aa-4447-8ec4-fafd8ae72df1'/>
-<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472598316062-fe406955-0527-4fe5-a2c8-cfdb96567f79'/>
-<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472598314858-464c1d85-e8ba-47f3-bd73-b112117d2f37'/>
-<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472595854675-96b0b0df-c727-45c5-a13d-b714916e188f'/>
-<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472595283436-3f54384a-382d-40af-bd78-65deb917120f'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-1.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-2.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-3.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-4.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-5.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-6.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-7.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-8.png'/>
 
 # References
 
@@ -73,3 +76,6 @@ To use on any data:
 * DCGAN
 * InfoGAN
 * Ian's GAN
+
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-1.png'/>

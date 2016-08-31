@@ -5,9 +5,9 @@ A DC-GAN(Convolutional Generative Adversarial Network) that you can run from the
 ## Features
 
 * Efficient GAN implementation
-* Softmax semi-supervised and sigmoid unsupervised learning(works with and without labels)
+* Semi-supervised or unsupervised learning(works with and without labels)
 * Variational methods
-* InfoGAN-inspired self sorting categories
+* InfoGAN-inspired categories
 * Minibatch normalization
 * Adversarial inference
 

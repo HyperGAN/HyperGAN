@@ -6,11 +6,11 @@ A GAN(generative adversarial network) that you can run from the command line.  I
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-1.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-2.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-3.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/creepy.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-4.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-5.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-6.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-7.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-8.png'/>
 
 # References
 

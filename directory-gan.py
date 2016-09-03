@@ -109,7 +109,7 @@ hc.set('g_atrous_filter', [3])
 hc.set('d_resnet_depth', [0])
 hc.set('d_resnet_filter', [3])
 
-hc.set('d_wide_resnet_depth', [[32, 64, 128]])
+hc.set('d_wide_resnet_depth', [[16, 32, 64, 128]])
 conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
 if(args.test):
     conv_g_layers = [[10, 3, 3]]

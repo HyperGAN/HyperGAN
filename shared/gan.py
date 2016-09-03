@@ -45,8 +45,8 @@ def generator(config, inputs, reuse=False):
             if(config['g_strategy'] == 'wide-resnet'):
                 #result = residual_block_deconv(result, activation, batch_size, 'widen', 'g_layers_p')
                 #result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i1')
-                widenings = 2
-                stride = 8
+                widenings = 5
+                stride = 2
                 for i in range(widenings):
                     #if(i==0):
 
@@ -188,26 +188,18 @@ def discriminator_wide_resnet(config, x):
     #result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
 
     #result = activation(result)
-    result = conv2d(result, layers[0], name='d_expand1', k_w=3, k_h=3, d_h=2, d_w=2)
-    result = batch_norm(config['batch_size'], name='d_expand_bn1')(result)
-    result = activation(result)
     result = conv2d(result, layers[0], name='d_expand1a', k_w=3, k_h=3, d_h=1, d_w=1)
     result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
     result = activation(result)
-    result = conv2d(result, layers[0]*2, name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
-    result = batch_norm(config['batch_size'], name='d_expand_bn2')(result)
-    result = activation(result)
-    result = conv2d(result, layers[0]*2, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
-    result = batch_norm(config['batch_size'], name='d_expand_bn')(result)
-    result = activation(result)
-    result = residual_block(result, activation, batch_size, 'widen', 'd_layers_0')
-    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_1')
+    result = conv2d(result, layers[0], name='d_expand1b', k_w=1, k_h=1, d_h=1, d_w=1)
+    #result = residual_block(result, activation, batch_size, 'widen', 'd_layers_0')
+    #result = residual_block(result, activation, batch_size, 'identity', 'd_layers_1')
     result = residual_block(result, activation, batch_size, 'conv', 'd_layers_2')
     result = residual_block(result, activation, batch_size, 'identity', 'd_layers_3')
     result = residual_block(result, activation, batch_size, 'conv', 'd_layers_4')
     result = residual_block(result, activation, batch_size, 'identity', 'd_layers_5')
-    #result = residual_block(result, activation, batch_size, 'conv', 'd_layers_6')
-    #result = residual_block(result, activation, batch_size, 'identity', 'd_layers_7')
+    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_6')
+    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_7')
     #result = residual_block(result, stride=1, 'conv')
     #result = residual_block(result, stride=1, 'identity')
     #result = residual_block(result, stride=1,  'conv')

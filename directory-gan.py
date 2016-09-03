@@ -29,6 +29,7 @@ import argparse
 parser = argparse.ArgumentParser(description='Runs the GAN.')
 parser.add_argument('--load_config', type=str)
 parser.add_argument('--epochs', type=int, default=10)
+parser.add_argument('--model', type=int)
 
 parser.add_argument('--channels', type=int, default=3)
 parser.add_argument('--directory', type=str)
@@ -63,7 +64,7 @@ hc.set("d_learning_rate", list(np.linspace(1e-4,1e-4,num=100)))
 hc.set("g_adam_beta1", 0.9) 
 hc.set("g_adam_beta2", 0.999)
 hc.set('g_adam_epsilon', 1e-8)
-hc.set("model", "40k_overfit_3:1.2")
+hc.set("model", args.model)
 
 
 

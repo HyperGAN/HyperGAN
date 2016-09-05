@@ -219,11 +219,11 @@ def get_minibatch_features(config, h,batch_size,dtype):
 def residual_block(result, activation, batch_size,id,name):
     size = int(result.get_shape()[-1])
     if(id=='widen'):
-        left = conv2d(result, size*2, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
+        left = conv2d(result, size, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
         left = batch_norm(batch_size, name=name+'bn')(left)
         left = activation(left)
-        left = conv2d(left, size*2, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
-        right = conv2d(result, size*2, name=name+'r', k_w=3, k_h=3, d_h=1, d_w=1)
+        left = conv2d(left, size, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
+        right = conv2d(result, size, name=name+'r', k_w=3, k_h=3, d_h=1, d_w=1)
     elif(id=='identity'):
         left = result
         left = batch_norm(batch_size, name=name+'bn')(left)
@@ -233,18 +233,20 @@ def residual_block(result, activation, batch_size,id,name):
         left = activation(left)
         left = conv2d(left, size, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
         right = result
+        return left+right
     elif(id=='conv'):
         result = batch_norm(batch_size, name=name+'bn')(result)
         result = activation(result)
         left = result
         right = result
-        left = conv2d(left, size*2, name=name+'l', k_w=3, k_h=3, d_h=2, d_w=2)
+        left = conv2d(left, size//2, name=name+'l', k_w=3, k_h=3, d_h=2, d_w=2)
         left = batch_norm(batch_size, name=name+'lbn')(left)
         left = activation(left)
-        left = conv2d(left, size*2, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
-        right = conv2d(right, size*2, name=name+'r', k_w=3, k_h=3, d_h=2, d_w=2)
-    print("residual block", id, left+right)
-    return left+right
+        left = conv2d(left, size//2, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
+        right = conv2d(right, size//2, name=name+'r', k_w=3, k_h=3, d_h=2, d_w=2)
+    #return left+right
+    #print("residual block", id, left+right)
+    return tf.concat(3, [left,right])
 
 def residual_block_deconv(result, activation, batch_size,id,name, output_channels=None, stride=2, channels=None):
     size = int(result.get_shape()[-1])
@@ -267,6 +269,7 @@ def residual_block_deconv(result, activation, batch_size,id,name, output_channel
         left = activation(left)
         left = deconv2d(left, output_shape, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
         right = deconv2d(result, output_shape, name=name+'r', k_w=3, k_h=3, d_h=1, d_w=1)
+        return left+right
     elif(id=='identity'):
         output_shape = s
         output_shape = [int(o) for o in output_shape]
@@ -279,10 +282,11 @@ def residual_block_deconv(result, activation, batch_size,id,name, output_channel
         left = deconv2d(left, output_shape, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
         right = result
     elif(id=='deconv'):
-        output_shape = [s[0], s[1]*stride, s[2]*stride,s[3]//stride]
+        output_shape = [s[0], s[1]*stride, s[2]*stride,s[3]//(stride**2)]
         if(output_channels):
             output_shape[-1] = output_channels
         output_shape = [int(o) for o in output_shape]
+        output_shape[3] = output_shape[3]//2
         result = batch_norm(batch_size, name=name+'bn')(result)
         result = activation(result)
         left = result
@@ -292,4 +296,5 @@ def residual_block_deconv(result, activation, batch_size,id,name, output_channel
         left = activation(left)
         left = deconv2d(left, output_shape, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
         right = deconv2d(right, output_shape, name=name+'r', k_w=stride+1, k_h=stride+1, d_h=stride, d_w=stride)
-    return left+right
+    #return left+right
+    return tf.concat(3, [left,right])

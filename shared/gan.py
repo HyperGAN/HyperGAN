@@ -28,8 +28,8 @@ def generator(config, inputs, reuse=False):
             z_dim_random_uniform = None
 
         if(config['g_project'] == 'linear'):
-            result = tf.concat(1, inputs)
-            result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
+            original_z = tf.concat(1, inputs)
+            result = linear(original_z, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
         elif(config['g_project']=='noise'):
@@ -45,11 +45,26 @@ def generator(config, inputs, reuse=False):
             if(config['g_strategy'] == 'wide-resnet'):
                 #result = residual_block_deconv(result, activation, batch_size, 'widen', 'g_layers_p')
                 #result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i1')
-                widenings = 6
+                widenings = 5
                 stride = 2
-                for i in range(widenings):
-                    #if(i==0):
+                zs = [None]
+                h = int(result.get_shape()[1])
+                w = int(result.get_shape()[2])
+                sc_layers = config['g_skip_connections_layers']
+                for i in range(widenings-1):
+                    w*=stride
+                    h*=stride
+                    size = w*h*int(sc_layers[i])
+                    print("original z", original_z, size)
+                    if(size != 0):
+                        new_z = linear(original_z, size, scope='g_skip_z_'+str(i))
+                        new_z = tf.reshape(new_z, [config['batch_size'], h,w, sc_layers[i]])
 
+                        zs.append(new_z)
+                for i in range(widenings):
+                    print("BEFORE SIZE IS" ,result)
+                    if(i!=0 and i < len(zs)):
+                        result = tf.concat(3, [result, zs[i]])
                     if(i==widenings-1):
                         result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), output_channels=config['channels']+13, stride=stride)
                         result = residual_block_deconv(result, activation, batch_size, 'bottleneck', 'g_layers_bottleneck_'+str(i), channels=config['channels'])

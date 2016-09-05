@@ -56,6 +56,10 @@ hc.set('f_hidden_1', list(np.arange(512, 1024)))
 hc.set('f_hidden_2', list(np.arange(512, 1024)))
 hc.set('dtype', tf.float32)
 
+hc.set('g_skip_connections', True)
+
+hc.set('g_skip_connections_layers', [[16,4,1,1,0]])
+
 hc.set('d_optim_strategy', ['g_adam'])
 hc.set("g_learning_rate", list(np.linspace(3e-5,1e-3,num=100)))
 hc.set("d_learning_rate", list(np.linspace(1e-4,1e-4,num=100)))

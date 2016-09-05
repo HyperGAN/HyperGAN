@@ -472,7 +472,13 @@ for config in hc.configs(1):
             shape = [int(x) for x in v.get_shape()]
             size = mul(shape)
             return [v.name, size/1024./1024.]
-        [print(get_size(i)) for i in tf.all_variables()]
+
+        sizes = [get_size(i) for i in tf.all_variables()]
+        sizes = sorted(sizes, key=lambda s: s[1])
+        print("Top 5 sizes", sizes[-5:])
+        size = sum([s[1] for s in sizes])
+        print("SIZE = ", size)
+
         with tf.device(args.device):
             init = tf.initialize_all_variables()
             sess.run(init)

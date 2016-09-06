@@ -427,8 +427,9 @@ for config in hc.configs(1):
     crop = args.crop
     width = args.width
     height = args.height
+    should_preprocess = config["pretrained_model"] == "preprocess"
     with tf.device('/cpu:0'):
-        train_x,train_y, f, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+        train_x,train_y, f, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height, preprocess=should_preprocess)
     config['y_dims']=num_labels
     config['x_dims']=[height,width]
     config['channels']=channels

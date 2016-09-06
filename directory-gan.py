@@ -53,12 +53,12 @@ hc.set('pretrained_model', ['preprocess'])
 
 hc.set('f_skip_fc', False)
 hc.set('f_hidden_1', list(np.arange(512, 1024)))
-hc.set('f_hidden_2', list(np.arange(512, 1024)))
+hc.set('f_hidden_2', list(np.arange(256, 512)))
 hc.set('dtype', tf.float32)
 
 hc.set('g_skip_connections', True)
 
-hc.set('g_skip_connections_layers', [[16,4,1,1,0]])
+hc.set('g_skip_connections_layers', [[16,4,2,1,1]])
 
 hc.set('d_optim_strategy', ['g_adam'])
 hc.set("g_learning_rate", list(np.linspace(3e-5,1e-3,num=100)))
@@ -67,13 +67,13 @@ hc.set("d_learning_rate", list(np.linspace(1e-4,1e-4,num=100)))
 hc.set("g_adam_beta1", 0.9) 
 hc.set("g_adam_beta2", 0.999)
 hc.set('g_adam_epsilon', 1e-8)
-hc.set("model", "40k_overfit_3:1.2")
+hc.set("model", "magic_experiment:1.2")
 
 
 
 hc.set("optimizer", ['rmsprop'])
 
-hc.set('rmsprop_lr', list(np.linspace(9e-5, 9e-5)))
+hc.set('rmsprop_lr', list(np.linspace(1e-4, 1e-4)))
 hc.set('rmsprop_lr_g', list(np.linspace(1,2, num=10)))
 hc.set('simple_lr', list(np.linspace(0.01, 0.012, num=100)))
 hc.set('simple_lr_g', list(np.linspace(2,3, num=10)))
@@ -88,7 +88,7 @@ hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
-hc.set('d_add_noise', [True])
+hc.set('d_add_noise', [False])
 hc.set('d_noise', [1e-2])
 
 hc.set("g_last_layer_resnet_depth", [0])
@@ -140,7 +140,7 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", list(np.arange(32,64)))
+hc.set("z_dim", list(np.arange(64,128)))
 
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
@@ -176,7 +176,7 @@ hc.set("d_kernel_dims", list(np.arange(100, 300)))
 
 hc.set("loss", ['custom'])
 
-hc.set("adv_loss", [True])
+hc.set("adv_loss", [False])
 
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))

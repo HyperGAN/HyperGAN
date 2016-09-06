@@ -239,11 +239,11 @@ def residual_block(result, activation, batch_size,id,name):
         result = activation(result)
         left = result
         right = result
-        left = conv2d(left, size//2, name=name+'l', k_w=3, k_h=3, d_h=2, d_w=2)
+        left = conv2d(left, size, name=name+'l', k_w=3, k_h=3, d_h=2, d_w=2)
         left = batch_norm(batch_size, name=name+'lbn')(left)
         left = activation(left)
-        left = conv2d(left, size//2, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
-        right = conv2d(right, size//2, name=name+'r', k_w=3, k_h=3, d_h=2, d_w=2)
+        left = conv2d(left, size, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
+        right = conv2d(right, size, name=name+'r', k_w=3, k_h=3, d_h=2, d_w=2)
     #return left+right
     #print("residual block", id, left+right)
     return tf.concat(3, [left,right])

@@ -29,7 +29,7 @@ import argparse
 parser = argparse.ArgumentParser(description='Runs the GAN.')
 parser.add_argument('--load_config', type=str)
 parser.add_argument('--epochs', type=int, default=10)
-parser.add_argument('--model', type=int)
+parser.add_argument('--model', type=str)
 
 parser.add_argument('--channels', type=int, default=3)
 parser.add_argument('--directory', type=str)

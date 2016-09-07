@@ -49,7 +49,7 @@ start=1e-3
 end=1e-3
 
 num=100
-hc.set('pretrained_model', ['preprocess'])
+hc.set('pretrained_model', [None])
 
 hc.set('f_skip_fc', False)
 hc.set('f_hidden_1', list(np.arange(512, 1024)))
@@ -58,7 +58,7 @@ hc.set('dtype', tf.float32)
 
 hc.set('g_skip_connections', True)
 
-hc.set('g_skip_connections_layers', [[16,4,2,1,1]])
+hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
 
 hc.set('d_optim_strategy', ['g_adam'])
 hc.set("g_learning_rate", list(np.linspace(3e-5,1e-3,num=100)))
@@ -181,7 +181,7 @@ hc.set("adv_loss", [False])
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))
 
-hc.set("latent_loss", [True])
+hc.set("latent_loss", [False])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 

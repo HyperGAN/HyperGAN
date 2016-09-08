@@ -448,10 +448,10 @@ for config in hc.configs(1):
     saver = tf.train.Saver()
     if('parent_uuid' in config):
         save_dir = "saves/"+config["parent_uuid"]
-        save_file = save_dir+"/checkpoint.ckpt"
+        save_file = save_dir+"/save.ckpt"
     else:
         save_dir = "saves/"+config["uuid"]
-        save_file = save_dir+"/checkpoint.ckpt"
+        save_file = save_dir+"/save.ckpt"
     if(save_file and os.path.isfile(save_file)):
         print(" |= Loading network from "+ save_file)
         config['uuid']=config['parent_uuid']
@@ -495,7 +495,7 @@ for config in hc.configs(1):
             if(args.save_every != 0 and i % args.save_every == args.save_every-1):
                 print(" |= Saving network")
                 if not os.path.exists(save_dir):
-                    os.makedirs(save_file)
+                    os.makedirs(save_dir)
 
                 saver.save(sess, save_file)
             end_time = time.time()

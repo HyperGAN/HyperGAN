@@ -58,7 +58,7 @@ hc.set('dtype', tf.float32)
 
 hc.set('g_skip_connections', True)
 
-hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
+hc.set('g_skip_connections_layers', [[128,64,32,16,8]])
 
 hc.set('d_optim_strategy', ['g_adam'])
 hc.set("g_learning_rate", list(np.linspace(3e-5,1e-3,num=100)))
@@ -82,10 +82,10 @@ hc.set('momentum_lr', list(np.linspace(0.005, 0.01, num=100)))
 hc.set('momentum', list(np.linspace(0.8, 0.9999, num=1000)))
 hc.set('momentum_lr_g', list(np.linspace(1, 3, num=100)))
 
-hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+hc.set("transfer_fct", [lrelu]);
+hc.set("d_activation", [lrelu]);
+hc.set("g_activation", [lrelu]);
+hc.set("e_activation", [lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [False])
@@ -164,7 +164,7 @@ hc.set("e_batch_norm", [True])
 hc.set("g_encoder", [True])
 
 hc.set('d_linear_layer', [True])
-hc.set('d_linear_layers', list(np.arange(1024, 2048)))
+hc.set('d_linear_layers', list(np.arange(256,512)))
 
 hc.set('d_architecture', ['wide_resnet'])
 

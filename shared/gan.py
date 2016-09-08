@@ -66,11 +66,11 @@ def generator(config, inputs, reuse=False):
                     if(i!=0 and i < len(zs)):
                         result = tf.concat(3, [result, zs[i]])
                     if(i==widenings-1):
-                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), output_channels=config['channels']+13, stride=stride)
+                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), output_channels=config['channels']+13, stride=stride)
                         result = residual_block_deconv(result, activation, batch_size, 'bottleneck', 'g_layers_bottleneck_'+str(i), channels=config['channels'])
                         #result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))
                     else:
-                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_d_'+str(i), stride=stride)
+                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), stride=stride)
                         result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))
                     print("SIZE IS" ,result)
                 #result = tf.reshape(result,[config['batch_size'],x_dims[0],x_dims[1],-1])
@@ -151,6 +151,7 @@ def discriminator(config, x, f,z,g,gz):
     result = tf.concat(1, [result]+minis)
 
     #result = tf.nn.dropout(result, 0.7)
+    print('before linear layer', result)
     if(config['d_linear_layer']):
         result = linear(result, config['d_linear_layers'], scope="d_linear_layer")
         #TODO batch norm?
@@ -163,7 +164,6 @@ def discriminator(config, x, f,z,g,gz):
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
     print('last layer size', result)
-    print("RESULT___", result)
     result = linear(result, config['y_dims']+1, scope="d_proj")
 
     def build_logits(class_logits, num_classes):

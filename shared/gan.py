@@ -57,7 +57,9 @@ def generator(config, inputs, reuse=False):
                     size = w*h*int(sc_layers[i])
                     print("original z", original_z, size)
                     if(size != 0):
-                        new_z = linear(original_z, size, scope='g_skip_z_'+str(i))
+                        new_z = tf.random_uniform([config['batch_size'], size],-1, 1,dtype=config['dtype'])
+                        print('new_z', new_z)
+                        #new_z = linear(new_z, size, scope='g_skip_z_'+str(i))
                         new_z = tf.reshape(new_z, [config['batch_size'], h,w, sc_layers[i]])
 
                         zs.append(new_z)

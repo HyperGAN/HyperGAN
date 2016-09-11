@@ -199,9 +199,9 @@ hc.set("d_pre_res_stride", [7])
 hc.set("d_pool", [False])
 
 hc.set("batch_size", args.batch)
-hc.set('bounds_d_fake_min', [0.2])
-hc.set('bounds_d_fake_max', [0.5])
-hc.set('bounds_d_fake_slowdown', [12])
+hc.set('bounds_d_fake_min', [0.05])
+hc.set('bounds_d_fake_max', [0.15])
+hc.set('bounds_d_fake_slowdown', [10])
 hc.set('bounds_step', [10])
 
 def sample_input(sess, config):
@@ -410,7 +410,9 @@ for config in hc.configs(1):
     config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
     config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
     config['bounds_d_fake_min'] = other_config['bounds_d_fake_min']
+    config['bounds_d_fake_max'] = other_config['bounds_d_fake_max']
     config['bounds_d_fake_slowdown'] = other_config['bounds_d_fake_slowdown']
+    config['bounds_step'] = other_config['bounds_step']
     config['dtype']=other_config['dtype']
     #config['categories'] = other_config['categories']
     #config['e_conv_size']=other_config['e_conv_size']

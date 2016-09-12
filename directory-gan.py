@@ -73,7 +73,7 @@ hc.set("model", "magic_experiment:1.2")
 
 hc.set("optimizer", ['rmsprop'])
 
-hc.set('rmsprop_lr', list(np.linspace(1e-4, 1e-4)))
+hc.set('rmsprop_lr', list(np.linspace(1e-5, 1e-5)))
 hc.set('rmsprop_lr_g', list(np.linspace(1,2, num=10)))
 hc.set('simple_lr', list(np.linspace(0.01, 0.012, num=100)))
 hc.set('simple_lr_g', list(np.linspace(2,3, num=10)))
@@ -140,7 +140,7 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", list(np.arange(256,512)))
+hc.set("z_dim", list(np.arange(64,128)))
 
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
@@ -200,9 +200,9 @@ hc.set("d_pool", [False])
 
 hc.set("batch_size", args.batch)
 hc.set('bounds_d_fake_min', [0.05])
-hc.set('bounds_d_fake_max', [0.15])
+hc.set('bounds_d_fake_max', [0.051])
 hc.set('bounds_d_fake_slowdown', [10])
-hc.set('bounds_step', [10])
+hc.set('bounds_step', [1])
 
 def sample_input(sess, config):
     x = get_tensor("x")
@@ -425,6 +425,7 @@ for config in hc.configs(1):
     #config['categories_lambda']=other_config['categories_lambda']
     #config['conv_d_layers']=other_config['conv_d_layers']
     #config['adv_loss']=other_config['adv_loss']
+    config['rmsprop_lr']=other_config['rmsprop_lr']
     print("TODO: ADVLOSS ")
     with tf.device(args.device):
         sess = tf.Session(config=tf.ConfigProto())

@@ -228,6 +228,7 @@ def residual_block(result, activation, batch_size,id,name):
         left = result
         left = batch_norm(batch_size, name=name+'bn')(left)
         left = activation(left)
+        print("IDENTITY FROM", result)
         left = conv2d(left, size, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
         left = batch_norm(batch_size, name=name+'bn2')(left)
         left = activation(left)

@@ -455,7 +455,7 @@ for config in hc.configs(1):
     if(save_file and os.path.isfile(save_file)):
         print(" |= Loading network from "+ save_file)
         config['uuid']=config['parent_uuid']
-        ckpt = tf.train.get_checkpoint_state('saves')
+        ckpt = tf.train.get_checkpoint_state('saves/'+config['uuid'])
         if ckpt and ckpt.model_checkpoint_path:
             saver.restore(sess, save_file)
             print("Model loaded")

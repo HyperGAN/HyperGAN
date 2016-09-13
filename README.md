@@ -39,6 +39,7 @@ Randomly chosen:
 * InfoGAN-inspired categories
 * Minibatch normalization
 * Adversarial inference
+* Flask server mode
 
 ## Arguments
 
@@ -50,6 +51,7 @@ Randomly chosen:
 * --epoch, optional(default 10), number of epochs to run before exiting
 * --load_config, optional(default None), the config uuid from hyperchamber to run
 * --save_every, optional(default 0), after this many epochs, the network weights/checkpoint are saved into the 'saves' directory.
+* --server, optional(default False), this will turn the app into server mode.  Currently undocumented.
 
 ## Running
 

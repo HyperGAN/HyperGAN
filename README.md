@@ -92,4 +92,5 @@ To use on any data:
 * DCGAN - https://github.com/carpedm20/DCGAN-tensorflow
 * InfoGAN - https://github.com/openai/InfoGAN
 * Improved GAN - https://github.com/openai/improved-gan
+* Hyperchamber - https://github.com/255bits/hyperchamber
 

@@ -256,6 +256,14 @@ def epoch(sess, config):
     n_samples =  config['examples_per_epoch']
     total_batch = int(n_samples / batch_size)
     for i in range(total_batch):
+        if(i>total_batch-300):
+            config['rmsprop_lr']= 3e-6
+            config['bounds_d_fake_min']= 0.2
+            config['bounds_d_fake_max']=0.20001
+        else:
+            config['rmsprop_lr']= 1e-5
+            config['bounds_d_fake_min']= 0.1
+            config['bounds_d_fake_max']=0.10001
         d_loss, g_loss = train(sess, config)
         if(i > 10 and not args.no_stop):
         
@@ -413,6 +421,8 @@ for config in hc.configs(1):
     config['bounds_d_fake_max'] = other_config['bounds_d_fake_max']
     config['bounds_d_fake_slowdown'] = other_config['bounds_d_fake_slowdown']
     config['bounds_step'] = other_config['bounds_step']
+    config['regularize']=other_config['regularize']
+    config['regularize_lambda']=other_config['regularize_lambda']
     config['dtype']=other_config['dtype']
     #config['categories'] = other_config['categories']
     #config['e_conv_size']=other_config['e_conv_size']

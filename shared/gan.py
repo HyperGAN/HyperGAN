@@ -570,13 +570,13 @@ def create(config, x,y,f):
     if config['regularize']:
         ws = None
         with tf.variable_scope("generator"):
-            with tf.variable_scope("g_conv_0"):
+            with tf.variable_scope("g_lin_proj"):
                 tf.get_variable_scope().reuse_variables()
-                ws = tf.get_variable('w',dtype=config['dtype'])
+                ws = tf.get_variable('Matrix',dtype=config['dtype'])
                 tf.get_variable_scope().reuse_variables()
-                b = tf.get_variable('biases',dtype=config['dtype'])
             lam = config['regularize_lambda']
-            g_loss += lam*tf.nn.l2_loss(ws)+lam*tf.nn.l2_loss(b)
+            print("ADDING REG", lam, ws)
+            g_loss += lam*tf.nn.l2_loss(ws)
 
 
     if(config['latent_loss']):

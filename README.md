@@ -73,6 +73,9 @@ Note: Requires a (free) account at hyperchamber to run.
 You can review the results on hyperchamber.
 
 ## How to use
+
+Fair warning, this is all still alpha.  Even so, email us if you have issues running this on your dataset.
+
 To use on any data:
 
 * Run config sweep with hyperchamber

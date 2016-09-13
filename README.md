@@ -1,5 +1,5 @@
 # hyperchamber-gan
-A GAN(generative adversarial network) that you can run from the command line.  Integrates with hyperchamber to find the best GAN for your dataset.
+A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
 ## Samples
 
@@ -92,5 +92,4 @@ To use on any data:
 * DCGAN - https://github.com/carpedm20/DCGAN-tensorflow
 * InfoGAN - https://github.com/openai/InfoGAN
 * Improved GAN - https://github.com/openai/improved-gan
-
 

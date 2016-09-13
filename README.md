@@ -3,7 +3,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## Samples
 
-The following are a small sample of the manifold that our generator learns.
+The following are a small sample of the manifolds that our generators have learned.
 
 Randomly chosen:
 

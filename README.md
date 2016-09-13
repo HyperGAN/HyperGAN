@@ -5,6 +5,8 @@ A GAN(generative adversarial network) that you can run from the command line.  I
 
 The following are a small sample of the manifold that our generator learns.
 
+Randomly chosen:
+
 * Card game
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-1.png'/>
@@ -18,9 +20,13 @@ The following are a small sample of the manifold that our generator learns.
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-1.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-2.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-3.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-4.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-5.png'/>
 
+
+* Fonts
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/font-1.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/font-2.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/font-3.png'/>
 
 # References
 

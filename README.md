@@ -1,4 +1,4 @@
-# hyperchamber-gan
+# HyperGAN
 A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
 ## Samples

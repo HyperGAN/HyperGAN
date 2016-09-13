@@ -22,7 +22,7 @@ Randomly chosen:
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-3.png'/>
 
 
-* Fonts
+* Fonts (the letter 'r')
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/font-1.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/font-2.png'/>

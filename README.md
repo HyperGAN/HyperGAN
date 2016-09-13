@@ -3,7 +3,7 @@ A GAN(generative adversarial network) that you can run from the command line.  I
 
 ## Samples
 
-The following are an near infinitely small sample of the manifold that our generator learns.
+The following are a small sample of the manifold that our generator learns.
 
 * Card game
 

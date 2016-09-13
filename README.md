@@ -1,4 +1,4 @@
-#<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-1.png'/> HyperGAN
+#<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/logo.png'/> HyperGAN
 A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
 ## Samples

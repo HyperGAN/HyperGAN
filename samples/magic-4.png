@@ -1,0 +1,12 @@
+--2016-09-12 19:22:13--  https://hyperchamber.s3.amazonaws.com/samples/images-1473728866759-86bf8701-aeb4-4d41-a852-ef5daef07390
+Resolving hyperchamber.s3.amazonaws.com... 52.216.64.184
+Connecting to hyperchamber.s3.amazonaws.com|52.216.64.184|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 89709 (88K) [application/octet-stream]
+Saving to: 'images-1473728866759-86bf8701-aeb4-4d41-a852-ef5daef07390.1'
+
+     0K .......... .......... .......... .......... .......... 57%  313K 0s
+    50K .......... .......... .......... .......              100%  428K=0.2s
+
+2016-09-12 19:22:14 (354 KB/s) - 'images-1473728866759-86bf8701-aeb4-4d41-a852-ef5daef07390.1' saved [89709/89709]
+

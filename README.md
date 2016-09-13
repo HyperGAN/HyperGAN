@@ -1,16 +1,26 @@
 # hyperchamber-gan
 A GAN(generative adversarial network) that you can run from the command line.  Integrates with hyperchamber to find the best GAN for your dataset.
 
-## Screenshots
+## Samples
+
+The following are an near infinitely small sample of the manifold that our generator learns.
+
+* Card game
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-1.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-2.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-3.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-4.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-5.png'/>
+
+* People
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-1.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-2.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-3.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/creepy.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-4.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-5.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-6.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-7.png'/>
+
 
 # References
 
@@ -65,17 +75,16 @@ To use on any data:
 
 ## Papers
 
-* GAN
-* DCGAN
-* InfoGAN
-* Improved GAN
-* Adversarial Inference
+* GAN - https://arxiv.org/abs/1406.2661
+* DCGAN - https://arxiv.org/abs/1511.06434
+* InfoGAN - https://arxiv.org/abs/1606.03657
+* Improved GAN - https://arxiv.org/abs/1606.03498
+* Adversarial Inference - https://arxiv.org/abs/1606.00704
 
 ## Sources
 
-* DCGAN
-* InfoGAN
-* Ian's GAN
+* DCGAN - https://github.com/carpedm20/DCGAN-tensorflow
+* InfoGAN - https://github.com/openai/InfoGAN
+* Improved GAN - https://github.com/openai/improved-gan
 
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-1.png'/>

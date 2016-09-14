@@ -52,17 +52,17 @@ num=100
 hc.set('pretrained_model', ['preprocess'])
 
 hc.set('f_skip_fc', False)
-hc.set('f_hidden_1', list(np.arange(512, 1024)))
-hc.set('f_hidden_2', list(np.arange(512, 1024)))
+hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))
+hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 hc.set('dtype', tf.float32)
 
 hc.set('g_skip_connections', True)
 
-hc.set('g_skip_connections_layers', [[128,64,32,16,8]])
+hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
 
 hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", list(np.linspace(3e-5,1e-3,num=100)))
-hc.set("d_learning_rate", list(np.linspace(1e-4,1e-4,num=100)))
+hc.set("g_learning_rate", list(np.linspace(5e-4,1e-3,num=100)))
+hc.set("d_learning_rate", list(np.linspace(1e-4,5e-4,num=100)))
 
 hc.set("g_adam_beta1", 0.9) 
 hc.set("g_adam_beta2", 0.999)
@@ -82,10 +82,10 @@ hc.set('momentum_lr', list(np.linspace(0.005, 0.01, num=100)))
 hc.set('momentum', list(np.linspace(0.8, 0.9999, num=1000)))
 hc.set('momentum_lr_g', list(np.linspace(1, 3, num=100)))
 
-hc.set("transfer_fct", [lrelu]);
-hc.set("d_activation", [lrelu]);
-hc.set("g_activation", [lrelu]);
-hc.set("e_activation", [lrelu]);
+hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [False])
@@ -201,7 +201,7 @@ hc.set("d_pool", [False])
 hc.set("batch_size", args.batch)
 hc.set('bounds_d_fake_min', [0.05])
 hc.set('bounds_d_fake_max', [0.051])
-hc.set('bounds_d_fake_slowdown', [10])
+hc.set('bounds_d_fake_slowdown', [20])
 hc.set('bounds_step', [1])
 
 def sample_input(sess, config):
@@ -257,13 +257,13 @@ def epoch(sess, config):
     total_batch = int(n_samples / batch_size)
     for i in range(total_batch):
         if(i>total_batch-300):
-            config['rmsprop_lr']= 3e-6
-            config['bounds_d_fake_min']= 0.2
-            config['bounds_d_fake_max']=0.20001
+            #config['rmsprop_lr']= 3e-6
+            config['bounds_d_fake_min']= 0.25
+            config['bounds_d_fake_max']=0.25001
         else:
-            config['rmsprop_lr']= 1e-5
-            config['bounds_d_fake_min']= 0.1
-            config['bounds_d_fake_max']=0.10001
+            config['rmsprop_lr']= 2e-5
+            config['bounds_d_fake_min']= 0.15
+            config['bounds_d_fake_max']=0.150001
         d_loss, g_loss = train(sess, config)
         if(i > 10 and not args.no_stop):
         

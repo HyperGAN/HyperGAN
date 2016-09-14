@@ -611,7 +611,7 @@ def create(config, x,y,f):
         g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
         lr = np.float32(config['d_learning_rate'])
         set_tensor("lr_value", lr)
-        lr = tf.get_variable('lr', [1], trainable=False, initializer=tf.constant_initializer(lr,dtype=config['dtype']),dtype=config['dtype'])
+        lr = tf.get_variable('lr', [], trainable=False, initializer=tf.constant_initializer(lr,dtype=config['dtype']),dtype=config['dtype'])
         set_tensor('lr', lr)
         d_optimizer = tf.train.AdamOptimizer(lr).minimize(d_loss, var_list=d_vars)
         

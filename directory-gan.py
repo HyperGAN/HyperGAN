@@ -56,9 +56,9 @@ hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))
 hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 hc.set('dtype', tf.float32)
 
-hc.set('g_skip_connections', False)
+hc.set('g_skip_connections', True)
 
-hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
+hc.set('g_skip_connections_layers', [[32,16,8,4,2]])
 
 hc.set('d_optim_strategy', ['g_adam'])
 hc.set("g_learning_rate", list(np.linspace(5e-4,1e-3,num=100)))
@@ -88,8 +88,8 @@ hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
-hc.set('d_add_noise', [False])
-hc.set('d_noise', [1e-2])
+hc.set('d_add_noise', [True])
+hc.set('d_noise', [1])
 
 hc.set("g_last_layer_resnet_depth", [0])
 hc.set("g_last_layer_resnet_size", [1])
@@ -205,7 +205,7 @@ hc.set("d_pool", [False])
 hc.set("batch_size", args.batch)
 hc.set('bounds_d_fake_min', [0.05])
 hc.set('bounds_d_fake_max', [0.051])
-hc.set('bounds_d_fake_slowdown', [20])
+hc.set('bounds_d_fake_slowdown', [5])
 hc.set('bounds_step', [1])
 
 def sample_input(sess, config):
@@ -265,9 +265,9 @@ def epoch(sess, config):
             config['bounds_d_fake_min']= 0.25
             config['bounds_d_fake_max']=0.25001
         else:
-            config['rmsprop_lr']= 2e-5
-            config['bounds_d_fake_min']= 0.15
-            config['bounds_d_fake_max']=0.150001
+            config['rmsprop_lr']= 1.4e-5
+            config['bounds_d_fake_min']= 0.08
+            config['bounds_d_fake_max']=0.080001
         d_loss, g_loss = train(sess, config)
         if(i > 10 and not args.no_stop):
         

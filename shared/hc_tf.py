@@ -156,7 +156,7 @@ def build_deconv_config(layers,start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
-    return [[512, 128, 3]]
+    return [[1024, 128, 3]]
 
 
 def build_atrous_layer(result, layer, filter, name='g_atrous'):
@@ -294,6 +294,20 @@ def residual_block_deconv(result, activation, batch_size,id,name, output_channel
         left = deconv2d(left, output_shape, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
         right = deconv2d(right, output_shape, name=name+'r', k_w=stride+1, k_h=stride+1, d_h=stride, d_w=stride)
     return left+right
+
+def block_deconv(result, activation, batch_size,id,name, output_channels=None, stride=2, channels=None):
+    size = int(result.get_shape()[-1])
+    s = result.get_shape()
+    if(id=='deconv'):
+        output_shape = [s[0], s[1]*stride, s[2]*stride,s[3]//stride]
+        if(output_channels):
+            output_shape[-1] = output_channels
+        output_shape = [int(o) for o in output_shape]
+        result = batch_norm(batch_size, name=name+'bn')(result)
+        result = activation(result)
+        result = deconv2d(result, output_shape, name=name+'l', k_w=stride+1, k_h=stride+1, d_h=stride, d_w=stride)
+    return result
+
 
 def dense_block(result, k, activation, batch_size, id, name):
     size = int(result.get_shape()[-1])

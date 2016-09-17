@@ -41,8 +41,36 @@ def generator(config, inputs, reuse=False):
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
         if config['conv_g_layers']:
+            if(config['g_strategy'] == 'small-skip'):
+                widenings = 6
+                stride = 2
+                zs = [None]
+                h = int(result.get_shape()[1])
+                w = int(result.get_shape()[2])
+                sc_layers = config['g_skip_connections_layers']
+                for i in range(widenings-1):
+                    w*=stride
+                    h*=stride
+                    size = w*h*int(sc_layers[i])
+                    print("original z", original_z, size)
+                    if(size != 0):
+                        new_z = tf.random_uniform([config['batch_size'], size],-1, 1,dtype=config['dtype'])
+                        print('new_z', new_z)
+                        #new_z = linear(new_z, size, scope='g_skip_z_'+str(i))
+                        new_z = tf.reshape(new_z, [config['batch_size'], h,w, sc_layers[i]])
 
-            if(config['g_strategy'] == 'wide-resnet'):
+                        zs.append(new_z)
+                for i in range(widenings):
+                    print("BEFORE SIZE IS" ,result)
+                    if(config['g_skip_connections'] and i!=0 and i < len(zs)):
+                        result = tf.concat(3, [result, zs[i]])
+                    if(i==widenings-1):
+                        result = block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), output_channels=config['channels'], stride=stride)
+                    else:
+                        result = block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), stride=stride)
+                    print("SIZE IS" ,result)
+  
+            elif(config['g_strategy'] == 'wide-resnet'):
                 #result = residual_block_deconv(result, activation, batch_size, 'widen', 'g_layers_p')
                 #result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i1')
                 widenings = 6

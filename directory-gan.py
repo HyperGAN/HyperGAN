@@ -58,7 +58,7 @@ hc.set('dtype', tf.float32)
 
 hc.set('g_skip_connections', True)
 
-hc.set('g_skip_connections_layers', [[32,16,8,4,2]])
+hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
 
 hc.set('d_optim_strategy', ['g_adam'])
 hc.set("g_learning_rate", list(np.linspace(5e-4,1e-3,num=100)))
@@ -103,7 +103,7 @@ hc.set('e_batch_norm_last_layer', [False, True])
 hc.set('g_resnet_depth', [0])
 hc.set('g_resnet_filter', [3])
 
-hc.set('g_strategy', 'wide-resnet')
+hc.set('g_strategy', 'small-skip')
 hc.set('g_huge_stride', [8])#[])
 hc.set('g_huge_filter', [9])
 

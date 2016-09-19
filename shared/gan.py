@@ -4,9 +4,12 @@ from shared.util import *
 from shared.hc_tf import *
 import shared.vggnet_loader as vggnet_loader
 import tensorflow as tf
+import shared.wavegan as wavegan
 TINY = 1e-12
 
 def generator(config, inputs, reuse=False):
+    if(config['format'] == 'mp3'):
+        return wavegan.generator(config, inputs, reuse)
     x_dims = config['x_dims']
     output_channels = config['channels']
     activation = config['g_activation']
@@ -161,18 +164,20 @@ def discriminator(config, x, f,z,g,gz):
         x = tf.reshape(x, g.get_shape())
 
 
-    if(config['latent_loss']):
-        orig_x = x
-        x = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size, config['dtype'])
-        x = tf.reshape(x, [batch_size, -1, 1])
-        x = tf.concat(2, [x, tf.reshape(orig_x, [batch_size, -1, channels])])
-        x = tf.reshape(x,[batch_size, x_dims[0], x_dims[1], channels+1])
-    else:
-        x = tf.reshape(x,[batch_size, x_dims[0], x_dims[1], channels])
+    if(config['format']!= 'mp3'):
+        if(config['latent_loss']):
+            orig_x = x
+            x = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size, config['dtype'])
+            x = tf.reshape(x, [batch_size, -1, 1])
+            x = tf.concat(2, [x, tf.reshape(orig_x, [batch_size, -1, channels])])
+            x = tf.reshape(x,[batch_size, x_dims[0], x_dims[1], channels+1])
+        else:
+            x = tf.reshape(x,[batch_size, x_dims[0], x_dims[1], channels])
 
 
-
-    if(config['d_architecture']=='wide_resnet'):
+    if(config['format']=='mp3'):
+        result = wavegan.discriminator(config,x)
+    elif(config['d_architecture']=='wide_resnet'):
         result = discriminator_wide_resnet(config,x)
     elif(config['d_architecture']=='densenet'):
         result = discriminator_densenet(config,x)
@@ -720,7 +725,7 @@ def create(config, x,y,f):
             return s
         while(len(s.get_shape())>1):
             s=tf.reduce_mean(s,1)
-            s=tf.squeeze(s)
+            #s=tf.squeeze(s)
         return tf.reduce_mean(s,0)
 
     summary = [(s.get_shape(), s.name, s.dtype, summary_reduce(s)) for s in summary]

@@ -3,6 +3,7 @@ from shared.ops import *
 from shared.util import *
 from shared.gan import *
 from shared.gan_server import *
+from tensorflow.contrib import ffmpeg
 #import shared.jobs as jobs
 import shared.hc_tf as hc_tf
 import shared
@@ -11,6 +12,7 @@ import uuid
 import time
 
 import shared.data_loader
+import shared.mp3_loader
 import os
 import sys
 import time
@@ -37,8 +39,10 @@ parser.add_argument('--crop', type=bool, default=True)
 
 parser.add_argument('--width', type=int, default=64)
 parser.add_argument('--height', type=int, default=64)
+parser.add_argument('--seconds', type=int, default=2)
 parser.add_argument('--batch', type=int, default=64)
 parser.add_argument('--format', type=str, default='png')
+parser.add_argument('--bitrate', type=int, default=16*1024)
 parser.add_argument('--test', type=bool, default=False)
 parser.add_argument('--server', type=bool, default=False)
 parser.add_argument('--save_every', type=int, default=0)
@@ -49,13 +53,18 @@ start=1e-3
 end=1e-3
 
 num=100
-hc.set('pretrained_model', ['preprocess'])
+hc.set('pretrained_model', [None])
 
 hc.set('f_skip_fc', False)
 hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))
 hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 hc.set('dtype', tf.float32)
 
+
+hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
+hc.set("g_mp3_filter",[3])
+hc.set("g_mp3_residual_channels", [4])
+hc.set("g_mp3_dilation_channels", [8])
 hc.set('g_skip_connections', True)
 
 hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
@@ -89,7 +98,7 @@ hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [True])
-hc.set('d_noise', [1])
+hc.set('d_noise', [1e-1])
 
 hc.set("g_last_layer_resnet_depth", [0])
 hc.set("g_last_layer_resnet_size", [1])
@@ -140,7 +149,7 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", list(np.arange(64,128)))
+hc.set("z_dim", 64)#list(np.arange(64,128)))
 
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
@@ -185,7 +194,7 @@ hc.set("adv_loss", [False])
 hc.set("mse_loss", [False])
 hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))
 
-hc.set("latent_loss", [True])
+hc.set("latent_loss", [False])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
@@ -203,6 +212,11 @@ hc.set("d_pre_res_stride", [7])
 hc.set("d_pool", [False])
 
 hc.set("batch_size", args.batch)
+hc.set("format", args.format)
+hc.set("mp3_seconds", args.seconds)
+hc.set("mp3_bitrate", args.bitrate)
+hc.set("mp3_size", args.seconds*args.bitrate)
+
 hc.set('bounds_d_fake_min', [0.05])
 hc.set('bounds_d_fake_max', [0.051])
 hc.set('bounds_d_fake_slowdown', [5])
@@ -241,8 +255,43 @@ def samples(sess, config):
     #    random_categories = sess.run(random_categories)
     #    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot, categories: random_categories})
     #else:
-    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
+    #sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
     #sample =  np.concatenate(sample, axis=0)
+
+    #x_one = tf.slice(x,[0,0,0],[1,config['mp3_size'], config['channels']])
+    g = sess.run(generator)
+    x_one = tf.slice(generator,[0,0,0],[1,config['mp3_size'], config['channels']])
+    x_one = tf.reshape(x_one, [config['mp3_size'],config['channels']])
+    audio = sess.run(ffmpeg.encode_audio(x_one, 'wav', config['mp3_bitrate']))
+    print("SAVING  WITH BITRATE", config['mp3_bitrate'], config['mp3_size'])
+    fobj = open("samples/g.wav", mode='wb')
+    fobj.write(audio)
+    fobj.close()
+    plt.clf()
+    plt.plot(g[0])
+    plt.xlim([0, config['mp3_size']])
+    plt.ylim([-2, 2.])
+    plt.ylabel("Amplitude")
+    plt.xlabel("Time")
+    plt.savefig('visualize/g.png')
+ 
+    x_one = tf.slice(generator,[1,0,0],[1,config['mp3_size'], config['channels']])
+    x_one = tf.reshape(x_one, [config['mp3_size'],config['channels']])
+    audio = sess.run(ffmpeg.encode_audio(x_one, 'wav', config['mp3_bitrate']))
+    fobj = open("samples/g2.wav", mode='wb')
+    fobj.write(audio)
+
+    fobj.close()
+
+    plt.clf()
+    plt.plot(g[1])
+    plt.xlim([0, config['mp3_size']])
+    plt.ylim([-2, 2.])
+    plt.ylabel("Amplitude")
+    plt.xlabel("Time")
+    plt.savefig('visualize/g2.png')
+    ## set the title  
+    return []
     return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
 
 def plot_mnist_digit(config, image, file):
@@ -260,14 +309,14 @@ def epoch(sess, config):
     n_samples =  config['examples_per_epoch']
     total_batch = int(n_samples / batch_size)
     for i in range(total_batch):
-        if(i>total_batch-300):
-            #config['rmsprop_lr']= 3e-6
-            config['bounds_d_fake_min']= 0.25
-            config['bounds_d_fake_max']=0.25001
-        else:
-            config['rmsprop_lr']= 1.4e-5
-            config['bounds_d_fake_min']= 0.08
-            config['bounds_d_fake_max']=0.080001
+        #if(i>total_batch-300):
+        #    #config['rmsprop_lr']= 3e-6
+        #    config['bounds_d_fake_min']= 0.25
+        #    config['bounds_d_fake_max']=0.25001
+        #else:
+        config['rmsprop_lr']= 1.4e-5
+        config['bounds_d_fake_min']= 0.08
+        config['bounds_d_fake_max']=0.080001
         d_loss, g_loss = train(sess, config)
         if(i > 10 and not args.no_stop):
         
@@ -314,35 +363,35 @@ def collect_measurements(epoch, sess, config, time):
             }
 
 def test_epoch(epoch, j, sess, config, start_time, end_time):
-    x, encoded, label = sample_input(sess, config)
-    sample_file = "samples/input-"+str(j)+".png"
-    plot(config, x, sample_file)
-    encoded_sample = "samples/encoded-"+str(j)+".png"
-    plot(config, encoded, encoded_sample)
+    #x, encoded, label = sample_input(sess, config)
+    #sample_file = "samples/input-"+str(j)+".png"
+    #plot(config, x, sample_file)
+    #encoded_sample = "samples/encoded-"+str(j)+".png"
+    #plot(config, encoded, encoded_sample)
 
-    def to_int(one_hot):
-        i = 0
-        for l in list(one_hot):
-            if(l>0.5):
-                return i
-            i+=1
-        return None
-    
-    sample_file = {'image':sample_file, 'label':json.dumps(to_int(label))}
-    encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
-    
+    #def to_int(one_hot):
+    #    i = 0
+    #    for l in list(one_hot):
+    #        if(l>0.5):
+    #            return i
+    #        i+=1
+    #    return None
+    #
+    #sample_file = {'image':sample_file, 'label':json.dumps(to_int(label))}
+    #encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
+    #
     sample = []
     sample += samples(sess, config)
-    sample_list = [sample_file, encoded_sample]
-    for s in sample:
-        sample_file = "samples/config-"+str(j)+".png"
-        plot(config, s, sample_file)
-        sample_list.append({'image':sample_file,'label':'sample-'+str(j)})
-        j+=1
-    print("Creating sample")
-    measurements = collect_measurements(epoch, sess, config, end_time - start_time)
-    hc.io.measure(config, measurements)
-    hc.io.sample(config, sample_list)
+    #sample_list = [sample_file, encoded_sample]
+    #for s in sample:
+    #    sample_file = "samples/config-"+str(j)+".png"
+    #    plot(config, s, sample_file)
+    #    sample_list.append({'image':sample_file,'label':'sample-'+str(j)})
+    #    j+=1
+    #print("Creating sample")
+    #measurements = collect_measurements(epoch, sess, config, end_time - start_time)
+    #hc.io.measure(config, measurements)
+    #hc.io.sample(config, sample_list)
     return j
 
 def record_run(config):
@@ -448,7 +497,11 @@ for config in hc.configs(1):
     width = args.width
     height = args.height
     with tf.device('/cpu:0'):
-        train_x,train_y, f, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+        if(args.format == 'mp3'):
+            train_x,train_y, num_labels,examples_per_epoch = shared.mp3_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
+            f = None
+        else:
+            train_x,train_y, f, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
     config['y_dims']=num_labels
     config['x_dims']=[height,width]
     config['channels']=channels
@@ -501,6 +554,8 @@ for config in hc.configs(1):
             sess.run(init)
 
     tf.train.start_queue_runners(sess=sess)
+    testx = sess.run(train_x)
+    print("---",testx.shape,np.min(testx),np.max(testx))
 
     #jobs.create_connection()
     if args.server:

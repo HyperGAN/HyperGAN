@@ -191,6 +191,7 @@ def get_minibatch_features(config, h,batch_size,dtype):
     single_batch_size = batch_size//2
     n_kernels = int(config['d_kernels'])
     dim_per_kernel = int(config['d_kernel_dims'])
+    print("LINEAR TO", h, n_kernels*dim_per_kernel)
     x = linear(h, n_kernels * dim_per_kernel, scope="d_h")
     activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
 

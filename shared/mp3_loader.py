@@ -17,7 +17,7 @@ def mp3_tensors_from_directory(directory, batch_size, channels=2, format='mp3', 
   print("LEADING WITH", format, channels, seconds, bitrate)
   filenames = glob.glob(directory+"/**/*."+format)
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
-  num_examples_per_epoch = 3000
+  num_examples_per_epoch = 10000
 
   # Create a queue that produces the filenames to read.
   classes = [labels[f.split('/')[-2]] for f in filenames]
@@ -60,7 +60,7 @@ def _get_data(image, label, min_queue_examples, batch_size):
       [image, label],
       batch_size=batch_size,
       num_threads=num_preprocess_threads,
-      capacity= 32,
-      min_after_dequeue=16)
+      capacity= 502,
+      min_after_dequeue=128)
   return images, tf.reshape(label_batch, [batch_size])
 

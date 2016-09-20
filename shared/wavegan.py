@@ -79,7 +79,7 @@ def generator(config, inputs, reuse=False):
     with(tf.variable_scope("generator", reuse=reuse)):
         original_z = tf.concat(1, inputs)
         prime=2
-        proj_size=prime*256
+        proj_size=prime*128
         dims = 128
         result = linear(original_z, proj_size*dims, scope="g_lin_proj")
         result = tf.reshape(result, [config['batch_size'], 1,proj_size, dims])

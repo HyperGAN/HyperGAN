@@ -76,7 +76,7 @@ hc.set("d_learning_rate", list(np.linspace(1e-4,5e-4,num=100)))
 hc.set("g_adam_beta1", 0.9) 
 hc.set("g_adam_beta2", 0.999)
 hc.set('g_adam_epsilon', 1e-8)
-hc.set("model", "magic_experiment:1.2")
+hc.set("model", "mp3_digits:1.0")
 
 
 
@@ -268,6 +268,7 @@ def samples(sess, config):
     fobj.write(audio)
     fobj.close()
     plt.clf()
+    plt.figure(figsize=(2,2))
     plt.plot(g[0])
     plt.xlim([0, config['mp3_size']])
     plt.ylim([-2, 2.])
@@ -284,6 +285,7 @@ def samples(sess, config):
     fobj.close()
 
     plt.clf()
+    plt.figure(figsize=(2,2))
     plt.plot(g[1])
     plt.xlim([0, config['mp3_size']])
     plt.ylim([-2, 2.])
@@ -389,9 +391,9 @@ def test_epoch(epoch, j, sess, config, start_time, end_time):
     #    sample_list.append({'image':sample_file,'label':'sample-'+str(j)})
     #    j+=1
     #print("Creating sample")
-    #measurements = collect_measurements(epoch, sess, config, end_time - start_time)
-    #hc.io.measure(config, measurements)
-    #hc.io.sample(config, sample_list)
+    measurements = collect_measurements(epoch, sess, config, end_time - start_time)
+    hc.io.measure(config, measurements)
+    hc.io.sample(config, [{'image':'visualize/g.png','label':'g'}, {'image':'visualize/g2.png','label':'g2'}])
     return j
 
 def record_run(config):

@@ -80,7 +80,7 @@ def generator(config, inputs, reuse=False):
         original_z = tf.concat(1, inputs)
         prime=2
         proj_size=prime*256
-        dims = 32
+        dims = 128
         result = linear(original_z, proj_size*dims, scope="g_lin_proj")
         result = tf.reshape(result, [config['batch_size'], 1,proj_size, dims])
 
@@ -90,11 +90,12 @@ def generator(config, inputs, reuse=False):
         size=int(result.get_shape()[3])
         sc_layers = config['g_skip_connections_layers']
         for i in range(widenings):
-            result = tf.concat(3, [result, tf.random_uniform([batch_size, int(result.get_shape()[1]), int(result.get_shape()[2]), 4], -1, 1)])
+            result = tf.concat(3, [result, tf.random_uniform([batch_size, int(result.get_shape()[1]), int(result.get_shape()[2]), 2], -1, 1)])
             if(i==widenings-1):
                 result = block_deconv_1d(result, activation, batch_size, 'deconv', 'g_layers_a'+str(i), output_channels=config['channels']*2, stride=stride)
             else:
                 result = block_deconv_1d(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), stride=stride)
+            print("g result", result)
 
         #result = batch_norm(batch_size, name='g_bn')(result)
         ##if(config['g_last_layer']):

@@ -30,6 +30,7 @@ def mp3_tensors_from_directory(directory, batch_size, channels=2, format='mp3', 
   input_queue = tf.train.slice_input_producer([filenames, classes])
 
   # Read examples from files in the filename queue.
+  print("INPUT_QUEUE", input_queue[0])
   value = tf.read_file(input_queue[0])
   #preprocess = tf.read_file(input_queue[0]+'.preprocess')
 
@@ -56,7 +57,7 @@ def mp3_tensors_from_directory(directory, batch_size, channels=2, format='mp3', 
 
 
 def _get_data(image, label, min_queue_examples, batch_size):
-  num_preprocess_threads = 1
+  num_preprocess_threads = 4
   print(image, label)
   images, label_batch= tf.train.shuffle_batch(
       [image, label],

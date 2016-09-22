@@ -25,9 +25,9 @@ def discriminator(config, x):
     result = tf.concat(3, results)
     #result = tf.add_n(results)
 
-    layers=3
-    depth=3
-    k=residual_channels*2
+    layers=2
+    depth=2
+    k=residual_channels*4
     #TODO:bn
     for i in range(layers):
         if i != layers-1:
@@ -58,18 +58,14 @@ def dilation_layer(result, output_height, index, dilation, residual_channels, di
 
     conv_filter = wavenet._causal_dilated_conv(result, weights_filter, dilation)
     conv_filter = batch_norm(batch_size, name='d_lbn'+str(index))(conv_filter)
-    conv_filter = tf.nn.relu(conv_filter)
-    result = conv_filter
-    #conv_gate = wavenet._causal_dilated_conv(result, weights_gate, dilation)
-    #result = tf.tanh(conv_filter) * tf.sigmoid(conv_gate)
+    #conv_filter = tf.nn.relu(conv_filter)
+    #result = conv_filter
+    conv_gate = wavenet._causal_dilated_conv(result, weights_gate, dilation)
+    result = tf.tanh(conv_filter) * tf.sigmoid(conv_gate)
     #height=30
     #result = tf.reshape(result, [batch_size,1,height,dilation_channels ])
 
     result = conv2d(result, result.get_shape()[3], name='d_dilated_out_'+str(index), k_w=1, k_h=1, d_h=1, d_w=1)
-    #if(index != 0):
-    #    filter = [1,1,2,1]
-    #    stride = [1,1,2,1]
-    #    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
     return result
 
 def generator(config, inputs, reuse=False):
@@ -78,14 +74,14 @@ def generator(config, inputs, reuse=False):
 
     with(tf.variable_scope("generator", reuse=reuse)):
         original_z = tf.concat(1, inputs)
-        prime=2
-        proj_size=prime*128
+        prime=1
+        proj_size=prime*125
         dims = 128
         result = linear(original_z, proj_size*dims, scope="g_lin_proj")
         result = tf.reshape(result, [config['batch_size'], 1,proj_size, dims])
 
-        widenings = 5
-        stride = 2
+        widenings = 3
+        stride = 4
         zs = [None]
         size=int(result.get_shape()[3])
         sc_layers = config['g_skip_connections_layers']
@@ -144,8 +140,8 @@ def dense_block_1d(result, k, activation, batch_size, id, name):
         result = batch_norm(batch_size, name=name+'bn')(result)
         result = activation(result)
         result = conv2d(result, size, name=name+'id', k_w=1, k_h=1, d_h=1, d_w=1)
-        filter = [1,1,2,1]
-        stride = [1,1,2,1]
+        filter = [1,1,4,1]
+        stride = [1,1,4,1]
         result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
         return result
 

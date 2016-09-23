@@ -48,8 +48,8 @@ def mp3_tensors_from_directory(directory, batch_size, channels=2, format='mp3', 
   data = shared.resize_audio_patch.resize_audio_with_crop_or_pad(data, seconds*bitrate*channels, 0,True)
   #data = tf.slice(data, [0,0], [seconds*bitrate, channels])
   tf.Tensor.set_shape(data, [seconds*bitrate, channels])
-  data = tf.minimum(data, 1)
-  data = tf.maximum(data, -1)
+  #data = tf.minimum(data, 1)
+  #data = tf.maximum(data, -1)
   print("DATA IS", data)
   x,y=_get_data(data, label, min_queue_examples, batch_size)
 

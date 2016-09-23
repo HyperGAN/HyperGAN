@@ -292,6 +292,25 @@ def samples(sess, config):
     plt.ylabel("Amplitude")
     plt.xlabel("Time")
     plt.savefig('visualize/g2.png')
+
+    x_data = sess.run(x)
+    x_one = tf.slice(x,[0,0,0],[1,config['mp3_size'], config['channels']])
+    x_one = tf.reshape(x_one, [config['mp3_size'],config['channels']])
+    audio = sess.run(ffmpeg.encode_audio(x_one, 'wav', config['mp3_bitrate']))
+    print("SAVING  WITH BITRATE", config['mp3_bitrate'], config['mp3_size'])
+    fobj = open("samples/input.wav", mode='wb')
+    fobj.write(audio)
+    fobj.close()
+    plt.clf()
+    plt.figure(figsize=(2,2))
+    plt.plot(x_data[0])
+    plt.xlim([0, config['mp3_size']])
+    plt.ylim([-2, 2.])
+    plt.ylabel("Amplitude")
+    plt.xlabel("Time")
+    plt.savefig('visualize/input.png')
+ 
+
     ## set the title  
     return []
     return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
@@ -393,7 +412,7 @@ def test_epoch(epoch, j, sess, config, start_time, end_time):
     #print("Creating sample")
     measurements = collect_measurements(epoch, sess, config, end_time - start_time)
     hc.io.measure(config, measurements)
-    hc.io.sample(config, [{'image':'visualize/g.png','label':'g'}, {'image':'visualize/g2.png','label':'g2'}])
+    hc.io.sample(config, [{'image':'visualize/input.png','label':'input'},{'image':'visualize/g.png','label':'g'}, {'image':'visualize/g2.png','label':'g2'}])
     return j
 
 def record_run(config):

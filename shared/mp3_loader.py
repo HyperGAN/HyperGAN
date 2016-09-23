@@ -50,6 +50,7 @@ def mp3_tensors_from_directory(directory, batch_size, channels=2, format='mp3', 
   tf.Tensor.set_shape(data, [seconds*bitrate, channels])
   #data = tf.minimum(data, 1)
   #data = tf.maximum(data, -1)
+  data = data/tf.reduce_max(tf.reshape(tf.abs(data),[-1]))
   print("DATA IS", data)
   x,y=_get_data(data, label, min_queue_examples, batch_size)
 
@@ -57,7 +58,7 @@ def mp3_tensors_from_directory(directory, batch_size, channels=2, format='mp3', 
 
 
 def _get_data(image, label, min_queue_examples, batch_size):
-  num_preprocess_threads = 4
+  num_preprocess_threads = 1
   print(image, label)
   images, label_batch= tf.train.shuffle_batch(
       [image, label],

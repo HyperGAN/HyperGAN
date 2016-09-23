@@ -25,7 +25,7 @@ def discriminator(config, x):
     result = tf.concat(3, results)
     #result = tf.add_n(results)
 
-    layers=2
+    layers=4
     depth=2
     k=residual_channels*4
     #TODO:bn
@@ -107,7 +107,7 @@ def generator(config, inputs, reuse=False):
 
         left = tf.slice(result,[0,0,0,0], [-1,-1,-1,config['channels']])
         right = tf.slice(result,[0,0,0,config['channels']], [-1,-1,-1,config['channels']])
-        result = tf.nn.tanh(right)*tf.nn.sigmoid(left)
+        result = tf.nn.tanh(right)*tf.nn.relu(left)
         #result = tf.reshape(result, output_shape)
 
         output_shape = [batch_size, config['mp3_size'], config['channels']]

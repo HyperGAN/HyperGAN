@@ -336,8 +336,8 @@ def epoch(sess, config):
         #    config['bounds_d_fake_max']=0.25001
         #else:
         config['rmsprop_lr']= 1.4e-5
-        config['bounds_d_fake_min']= 0.08
-        config['bounds_d_fake_max']=0.080001
+        config['bounds_d_fake_min']= 0.10
+        config['bounds_d_fake_max']=0.100001
         d_loss, g_loss = train(sess, config)
         if(i > 10 and not args.no_stop):
         

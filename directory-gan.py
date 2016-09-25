@@ -70,7 +70,7 @@ hc.set('g_skip_connections', True)
 hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
 
 hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", list(np.linspace(5e-4,1e-3,num=100)))
+hc.set("g_learning_rate", 1e-3)#list(np.linspace(5e-4,1e-3,num=100)))
 hc.set("d_learning_rate", list(np.linspace(1e-4,5e-4,num=100)))
 
 hc.set("g_adam_beta1", 0.9) 

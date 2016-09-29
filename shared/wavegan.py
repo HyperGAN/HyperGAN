@@ -9,11 +9,11 @@ def discriminator(config, x):
     dilations = config['g_mp3_dilations'];
     dilation_channels = config['g_mp3_dilation_channels']
     residual_channels = config['g_mp3_residual_channels']
+    output_height = 256
     filter = config['g_mp3_filter']
     results = []
     result = x
     result=tf.reshape(result, [batch_size, 1, config['mp3_size'], config['channels']])
-    output_height = 256
     result = dilation_layer(result,output_height,  0,1,int(result.get_shape()[3]), residual_channels, filter)
     #result = conv2d(result, residual_channels, name='d_start', k_w=3, k_h=1, d_h=1, d_w=2)
     #result = batch_norm(batch_size, name='d_bn1')(result)
@@ -22,8 +22,8 @@ def discriminator(config, x):
     #?result = activation(result)
     for index, dilation in enumerate(dilations):
         results.append(dilation_layer(result, output_height, index+1,dilation, residual_channels, dilation_channels, filter))
-    result = tf.concat(3, results)
-    #result = tf.add_n(results)
+    #result = tf.concat(3, results)
+    result = tf.add_n(results)
 
     layers=4
     depth=2
@@ -34,7 +34,6 @@ def discriminator(config, x):
             result = dense_block_1d(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
         for j in range(depth):
             result = dense_block_1d(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
-            print('res', result)
 
 
  

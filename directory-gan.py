@@ -63,8 +63,8 @@ hc.set('dtype', tf.float32)
 
 hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 hc.set("g_mp3_filter",[3])
-hc.set("g_mp3_residual_channels", [4])
-hc.set("g_mp3_dilation_channels", [8])
+hc.set("g_mp3_residual_channels", [8])
+hc.set("g_mp3_dilation_channels", [16])
 hc.set('g_skip_connections', True)
 
 hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
@@ -153,11 +153,11 @@ hc.set("z_dim", 32)#list(np.arange(64,128)))
 
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
-categories = [[2,3,5],build_categories_config(5), [2]+build_categories_config(10), [2]+build_categories_config(20), [2]+build_categories_config(40)]
+categories = [[2]+[2]+build_categories_config(30)]
 print(categories)
-hc.set('categories', [[]])#categories)
+hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
-hc.set('category_loss', [False])
+hc.set('category_loss', [True])
 
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
@@ -179,7 +179,7 @@ hc.set('d_architecture', ['densenet'])
 
 hc.set('d_densenet_k', 16)
 hc.set('d_densenet_block_depth', 3)
-hc.set('d_densenet_layers', 6)
+hc.set('d_densenet_layers', 5)
 
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
@@ -235,9 +235,10 @@ def split_sample(n, d_fake_sig, sample, x_dims, channels):
 
     for s, d in zip(sample, d_fake_sig):
         samples.append({'sample':s,'d':d})
-    #samples = sorted(samples, key=lambda x: (1-x['d']))
+    samples = sorted(samples, key=lambda x: (1-x['d']))
 
     [print("sample ", s['d']) for s in samples[0:n]]
+    print('/-',samples[0]['sample'])
     return [np.reshape(s['sample'], [x_dims[0],x_dims[1], channels]) for s in samples[0:n]]
     #return [np.reshape(sample[0+i:1+i], [x_dims[0],x_dims[1], channels]) for i in range(n)]
 def samples(sess, config):
@@ -249,49 +250,45 @@ def samples(sess, config):
     rand = np.random.randint(0,config['y_dims'], size=config['batch_size'])
     #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
-    random_categories = [random_category(config['batch_size'], size) for size in config['categories']]
-    #if(len(random_categories) > 0):
-    #    random_categories = tf.concat(1, random_categories)
-    #    random_categories = sess.run(random_categories)
-    #    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot, categories: random_categories})
-    #else:
-    #sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
-    #sample =  np.concatenate(sample, axis=0)
+    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
 
-    #x_one = tf.slice(x,[0,0,0],[1,config['mp3_size'], config['channels']])
-    g = sess.run(generator)
-    x_one = tf.slice(generator,[0,0,0],[1,config['mp3_size'], config['channels']])
-    x_one = tf.reshape(x_one, [config['mp3_size'],config['channels']])
-    audio = sess.run(ffmpeg.encode_audio(x_one, 'wav', config['mp3_bitrate']))
-    print("SAVING  WITH BITRATE", config['mp3_bitrate'], config['mp3_size'])
-    fobj = open("samples/g.wav", mode='wb')
-    fobj.write(audio)
-    fobj.close()
-    plt.clf()
-    plt.figure(figsize=(2,2))
-    plt.plot(g[0])
-    plt.xlim([0, config['mp3_size']])
-    plt.ylim([-2, 2.])
-    plt.ylabel("Amplitude")
-    plt.xlabel("Time")
-    plt.savefig('visualize/g.png')
- 
-    x_one = tf.slice(generator,[1,0,0],[1,config['mp3_size'], config['channels']])
-    x_one = tf.reshape(x_one, [config['mp3_size'],config['channels']])
-    audio = sess.run(ffmpeg.encode_audio(x_one, 'wav', config['mp3_bitrate']))
-    fobj = open("samples/g2.wav", mode='wb')
-    fobj.write(audio)
+    return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
+    if config['format']=='mp3':
+        g = sess.run(generator)
+        #TODO: Refactor
+        x_one = tf.slice(generator,[0,0,0],[1,config['mp3_size'], config['channels']])
+        x_one = tf.reshape(x_one, [config['mp3_size'],config['channels']])
+        audio = sess.run(ffmpeg.encode_audio(x_one, 'wav', config['mp3_bitrate']))
+        print("SAVING  WITH BITRATE", config['mp3_bitrate'], config['mp3_size'])
+        fobj = open("samples/g.wav", mode='wb')
+        fobj.write(audio)
+        fobj.close()
+        plt.clf()
+        plt.figure(figsize=(2,2))
+        plt.plot(g[0])
+        plt.xlim([0, config['mp3_size']])
+        plt.ylim([-2, 2.])
+        plt.ylabel("Amplitude")
+        plt.xlabel("Time")
+        plt.savefig('visualize/g.png')
+     
+        x_one = tf.slice(generator,[1,0,0],[1,config['mp3_size'], config['channels']])
+        x_one = tf.reshape(x_one, [config['mp3_size'],config['channels']])
+        audio = sess.run(ffmpeg.encode_audio(x_one, 'wav', config['mp3_bitrate']))
+        fobj = open("samples/g2.wav", mode='wb')
+        fobj.write(audio)
 
-    fobj.close()
+        fobj.close()
 
-    plt.clf()
-    plt.figure(figsize=(2,2))
-    plt.plot(g[1])
-    plt.xlim([0, config['mp3_size']])
-    plt.ylim([-2, 2.])
-    plt.ylabel("Amplitude")
-    plt.xlabel("Time")
-    plt.savefig('visualize/g2.png')
+        plt.clf()
+        plt.figure(figsize=(2,2))
+        plt.plot(g[1])
+        plt.xlim([0, config['mp3_size']])
+        plt.ylim([-2, 2.])
+        plt.ylabel("Amplitude")
+        plt.xlabel("Time")
+        plt.savefig('visualize/g2.png')
+        return []
 
     #x_data = sess.run(x)
     #x_one = tf.slice(x,[0,0,0],[1,config['mp3_size'], config['channels']])
@@ -311,9 +308,6 @@ def samples(sess, config):
     #plt.savefig('visualize/input.png')
  
 
-    ## set the title  
-    return []
-    return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
 
 def plot_mnist_digit(config, image, file):
     """ Plot a single MNIST image."""
@@ -336,8 +330,8 @@ def epoch(sess, config):
         #    config['bounds_d_fake_max']=0.25001
         #else:
         config['rmsprop_lr']= 1.4e-5
-        config['bounds_d_fake_min']= 0.10
-        config['bounds_d_fake_max']=0.100001
+        config['bounds_d_fake_min']= 0.12
+        config['bounds_d_fake_max']=0.120001
         d_loss, g_loss = train(sess, config)
         if(i > 10 and not args.no_stop):
         
@@ -384,36 +378,41 @@ def collect_measurements(epoch, sess, config, time):
             }
 
 def test_epoch(epoch, j, sess, config, start_time, end_time):
-    #x, encoded, label = sample_input(sess, config)
-    #sample_file = "samples/input-"+str(j)+".png"
-    #plot(config, x, sample_file)
-    #encoded_sample = "samples/encoded-"+str(j)+".png"
-    #plot(config, encoded, encoded_sample)
-
-    #def to_int(one_hot):
-    #    i = 0
-    #    for l in list(one_hot):
-    #        if(l>0.5):
-    #            return i
-    #        i+=1
-    #    return None
-    #
-    #sample_file = {'image':sample_file, 'label':json.dumps(to_int(label))}
-    #encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
-    #
+   #
     sample = []
     sample += samples(sess, config)
-    #sample_list = [sample_file, encoded_sample]
-    #for s in sample:
-    #    sample_file = "samples/config-"+str(j)+".png"
-    #    plot(config, s, sample_file)
-    #    sample_list.append({'image':sample_file,'label':'sample-'+str(j)})
-    #    j+=1
-    #print("Creating sample")
     measurements = collect_measurements(epoch, sess, config, end_time - start_time)
-    hc.io.measure(config, measurements)
-    hc.io.sample(config, [{'image':'visualize/input.png','label':'input'},{'image':'visualize/g.png','label':'g'}, {'image':'visualize/g2.png','label':'g2'}])
-    return j
+    if config['format']=='mp3':
+        hc.io.measure(config, measurements)
+        hc.io.sample(config, [{'image':'visualize/input.png','label':'input'},{'image':'visualize/g.png','label':'g'}, {'image':'visualize/g2.png','label':'g2'}])
+    else:
+        x, encoded, label = sample_input(sess, config)
+        sample_file = "samples/input-"+str(j)+".png"
+        plot(config, x, sample_file)
+        encoded_sample = "samples/encoded-"+str(j)+".png"
+        plot(config, encoded, encoded_sample)
+
+        def to_int(one_hot):
+            i = 0
+            for l in list(one_hot):
+                if(l>0.5):
+                    return i
+                i+=1
+            return None
+        
+        sample_file = {'image':sample_file, 'label':json.dumps(to_int(label))}
+        encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
+     
+        sample_list = [sample_file, encoded_sample]
+        for s in sample:
+            sample_file = "samples/config-"+str(j)+".png"
+            plot(config, s, sample_file)
+            sample_list.append({'image':sample_file,'label':'sample-'+str(j)})
+            j+=1
+        #print("Creating sample")
+        hc.io.measure(config, measurements)
+        hc.io.sample(config, sample_list)
+        return j
 
 def record_run(config):
     results = test_config(sess, config)

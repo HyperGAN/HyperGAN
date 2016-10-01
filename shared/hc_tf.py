@@ -309,6 +309,21 @@ def block_deconv(result, activation, batch_size,id,name, output_channels=None, s
         result = deconv2d(result, output_shape, name=name+'l', k_w=stride+1, k_h=stride+1, d_h=stride, d_w=stride)
     return result
 
+def block_conv_dts(result, activation, batch_size,id,name, output_channels=None, stride=2):
+    size = int(result.get_shape()[-1])
+    s = result.get_shape()
+    result = batch_norm(batch_size, name=name+'bn')(result)
+    result = activation(result)
+    if(id=='conv'):
+        result = tf.depth_to_space(result, 2)
+        result = conv2d(result, int(result.get_shape()[3])*2, name=name, k_w=3, k_h=3, d_h=1, d_w=1)
+    elif(id=='end'):
+        result = tf.depth_to_space(result, 2)
+
+        result = conv2d(result, output_channels, name=name, k_w=3, k_h=3, d_h=1, d_w=1)
+    return result
+
+
 
 def dense_block(result, k, activation, batch_size, id, name):
     size = int(result.get_shape()[-1])

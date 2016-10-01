@@ -113,7 +113,7 @@ hc.set('e_batch_norm_last_layer', [False, True])
 hc.set('g_resnet_depth', [0])
 hc.set('g_resnet_filter', [3])
 
-hc.set('g_strategy', 'small-skip')
+hc.set('g_strategy', 'conv-depth-to-space')
 hc.set('g_huge_stride', [8])#[])
 hc.set('g_huge_filter', [9])
 
@@ -178,7 +178,7 @@ hc.set('d_linear_layers', list(np.arange(256,512)))
 
 hc.set('d_architecture', ['densenet'])
 
-hc.set('d_densenet_k', 16)
+hc.set('d_densenet_k', 24)
 hc.set('d_densenet_block_depth', 3)
 hc.set('d_densenet_layers', 5)
 

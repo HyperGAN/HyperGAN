@@ -44,7 +44,21 @@ def generator(config, inputs, reuse=False):
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
         if config['conv_g_layers']:
-            if(config['g_strategy'] == 'small-skip'):
+            if(config['g_strategy'] == 'conv-depth-to-space'):
+                widenings = 6
+                stride = 2
+                zs = [None]
+                h = int(result.get_shape()[1])
+                w = int(result.get_shape()[2])
+                for i in range(widenings):
+                    if(i==widenings-1):
+                        result = block_conv_dts(result, activation, batch_size, 'end', 'g_layers_'+str(i), output_channels=config['channels'], stride=stride)
+                    else:
+                        result = block_conv_dts(result, activation, batch_size, 'conv', 'g_layers_'+str(i), stride=stride)
+                    print("SIZE IS" ,result)
+  
+
+            elif(config['g_strategy'] == 'small-skip'):
                 widenings = 6
                 stride = 2
                 zs = [None]

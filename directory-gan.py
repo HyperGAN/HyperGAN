@@ -149,11 +149,11 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", 32)#list(np.arange(64,128)))
+hc.set("z_dim", 128)#list(np.arange(64,128)))
 
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
-categories = [[2]+[2]+build_categories_config(30)]
+categories = [[2]+[2]+build_categories_config(30) + [30]*30]
 print(categories)
 hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
@@ -177,7 +177,7 @@ hc.set('d_linear_layers', list(np.arange(256,512)))
 
 hc.set('d_architecture', ['densenet'])
 
-hc.set('d_densenet_k', 16)
+hc.set('d_densenet_k', 24)
 hc.set('d_densenet_block_depth', 3)
 hc.set('d_densenet_layers', 5)
 

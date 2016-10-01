@@ -81,7 +81,7 @@ def _get_features(image):
     return vggnet_loader.get_features(image)
 
 def _get_data(image, label, features, min_queue_examples, batch_size):
-  num_preprocess_threads = 8
+  num_preprocess_threads = 24
   print(image, label)
   images, label_batch, f_b= tf.train.shuffle_batch(
       [image, label, features],

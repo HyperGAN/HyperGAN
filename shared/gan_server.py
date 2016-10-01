@@ -30,8 +30,8 @@ class GANWebServer:
         generator = get_tensor("g")
         y_t = get_tensor("y")
         sample = self.sess.run(generator, feed_dict={y_t:self.random_one_hot()})
-        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
-        plot(self.config, np.vstack(stacks), sample_file)
+        print(sample.shape)
+        plot(self.config, np.squeeze(sample), sample_file)
 
 
     def sample_iterate_z(self, sample_file, z_iterate, target_value=1, seed=None):
@@ -108,7 +108,7 @@ class GANWebServer:
         plot(self.config, np.vstack(stacks), sample_file)
 
 
-    def sample(self, type='batch', c=None, features=None, z_iterate=None, target_value=None, seed=None):
+    def sample(self, type='batch', c=None, features=None, z_iterate=None, target_value=None, seed=None,should_send_file=True):
         print("Creating sample")
 
         categories_feed = []
@@ -123,10 +123,9 @@ class GANWebServer:
         if len(categories_feed) > 0:
             categories_feed = np.hstack(categories_feed)
             categories_feed = np.tile(categories_feed, [self.config['batch_size'],1])
-            categories_feed = np.reshape(categories_feed, categories[0].get_shape())
 
 
-        sample_file = "samples/sample.png"
+        sample_file = "sample.png"
         if(type == 'batch'):
             self.sample_batch(sample_file)
         elif(type == 'feature'):
@@ -134,9 +133,21 @@ class GANWebServer:
         elif(type == 'linear'):
             self.sample_feature(sample_file)
         print("Sample ended", sample_file)
-        return send_file(sample_file, mimetype='image/png')
+        if(should_send_file):
+            return send_file(sample_file, mimetype='image/png')
+        else:
+            return sample_file
 
 
+
+def gan_sample(sess, config):
+    gws = GANWebServer(sess, config)
+    type='batch'
+    c=[]
+    z_iterate=[]
+    target=0
+    seed=0
+    return gws.sample(c=c, type=type, z_iterate=z_iterate, target_value=target, seed=seed, send_file=False)
 
 def gan_server(sess, config):
     gws = GANWebServer(sess, config)

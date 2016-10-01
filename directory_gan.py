@@ -77,7 +77,7 @@ hc.set("d_learning_rate", list(np.linspace(1e-4,5e-4,num=100)))
 hc.set("g_adam_beta1", 0.9) 
 hc.set("g_adam_beta2", 0.999)
 hc.set('g_adam_epsilon', 1e-8)
-hc.set("model", "mp3_digits:1.0")
+hc.set("model", "logos:1.0")
 
 
 
@@ -150,11 +150,11 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", 128)#list(np.arange(64,128)))
+hc.set("z_dim", 32)#list(np.arange(64,128)))
 
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
-categories = [[2]+[2]+build_categories_config(30) + [30]*30]
+categories = [[2]+[2]+build_categories_config(30)]
 print(categories)
 hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
@@ -178,7 +178,7 @@ hc.set('d_linear_layers', list(np.arange(256,512)))
 
 hc.set('d_architecture', ['densenet'])
 
-hc.set('d_densenet_k', 24)
+hc.set('d_densenet_k', 16)
 hc.set('d_densenet_block_depth', 3)
 hc.set('d_densenet_layers', 5)
 
@@ -473,142 +473,152 @@ def get_function(name):
     if(name == "function:tensorflow.python.ops.math_ops.tanh"):
         return tf.nn.tanh
     return eval(name.split(":")[1])
-for config in hc.configs(1):
-    other_config = copy.copy(config)
-    if(args.load_config):
-        print("Loading config", args.load_config)
-        config.update(hc.io.load_config(args.load_config))
-        if(not config):
-            print("Could not find config", args.load_config)
-            break
-    config['g_activation']=get_function(config['g_activation'])
-    config['d_activation']=get_function(config['d_activation'])
-    config['e_activation']=get_function(config['e_activation'])
-    config['transfer_fct']=get_function(config['transfer_fct'])
-    #config['last_layer']=get_function(config['last_layer'])
-    config['g_last_layer']=get_function(config['g_last_layer'])
-    config['e_last_layer']=get_function(config['e_last_layer'])
-    config['conv_d_layers']=[int(x) for x in config['conv_d_layers']]
-    config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
-    config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
-    config['bounds_d_fake_min'] = other_config['bounds_d_fake_min']
-    config['bounds_d_fake_max'] = other_config['bounds_d_fake_max']
-    config['bounds_d_fake_slowdown'] = other_config['bounds_d_fake_slowdown']
-    config['bounds_step'] = other_config['bounds_step']
-    config['regularize']=other_config['regularize']
-    config['regularize_lambda']=other_config['regularize_lambda']
-    config['dtype']=other_config['dtype']
-    #config['categories'] = other_config['categories']
-    #config['e_conv_size']=other_config['e_conv_size']
-    #config['conv_size']=other_config['conv_size']
-    #config['z_dim']=other_config['z_dim']
-    #config['mse_loss']=True#other_config['mse_loss']
-    #config['categories']=other_config['categories'][5:]+[2,3,5,7,9]
-    #config['d_learning_rate']=config['g_learning_rate']*2
-    #config['g_learning_rate']=_config['g_learning_rate']
-    #config['categories_lambda']=other_config['categories_lambda']
-    #config['conv_d_layers']=other_config['conv_d_layers']
-    #config['adv_loss']=other_config['adv_loss']
-    config['rmsprop_lr']=other_config['rmsprop_lr']
-    print("TODO: ADVLOSS ")
-    with tf.device(args.device):
-        sess = tf.Session(config=tf.ConfigProto())
-    channels = args.channels
-    crop = args.crop
-    width = args.width
-    height = args.height
-    with tf.device('/cpu:0'):
-        if(args.format == 'mp3'):
-            train_x,train_y, num_labels,examples_per_epoch = shared.mp3_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
-            f = None
-        else:
-            train_x,train_y, f, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
-    config['y_dims']=num_labels
-    config['x_dims']=[height,width]
-    config['channels']=channels
 
-    if(args.load_config):
-        pass
-    #config['d_linear_layers']=other_config['d_linear_layers']
-    #config['conv_g_layers'].append(channels)
-    config['examples_per_epoch']=examples_per_epoch
-    x = train_x
-    y = train_y
-    with tf.device(args.device):
-        y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
 
-        if(args.build or args.server):
-            graph = create_generator(config,x,y,f)
-        else:
-            graph = create(config,x,y,f)
-    saver = tf.train.Saver()
-    if('parent_uuid' in config):
-        save_file = "saves/"+config["parent_uuid"]+".ckpt"
-    else:
-        save_file = "saves/"+config["uuid"]+".ckpt"
-    if(save_file and os.path.isfile(save_file)):
-        print(" |= Loading network from "+ save_file)
-        config['uuid']=config['parent_uuid']
-        ckpt = tf.train.get_checkpoint_state('saves')
-        if ckpt and ckpt.model_checkpoint_path:
-            saver.restore(sess, save_file)
-            print("Model loaded")
-        else:
-            print("No checkpoint file found")
-    else:
-        print("Starting new graph", config)
-        def mul(s):
-            x = 1
-            for y in s:
-                x*=y
-            return x
-        def get_size(v):
-            shape = [int(x) for x in v.get_shape()]
-            size = mul(shape)
-            return [v.name, size/1024./1024.]
-
-        sizes = [get_size(i) for i in tf.all_variables()]
-        sizes = sorted(sizes, key=lambda s: s[1])
-        print("Top 5 sizes", sizes[-5:])
-        size = sum([s[1] for s in sizes])
-        print("SIZE = ", size)
-
+def run(args):
+    j=0
+    for config in hc.configs(1):
+        other_config = copy.copy(config)
+        if(args.load_config):
+            print("Loading config", args.load_config)
+            config.update(hc.io.load_config(args.load_config))
+            if(not config):
+                print("Could not find config", args.load_config)
+                break
+        config['g_activation']=get_function(config['g_activation'])
+        config['d_activation']=get_function(config['d_activation'])
+        config['e_activation']=get_function(config['e_activation'])
+        config['transfer_fct']=get_function(config['transfer_fct'])
+        #config['last_layer']=get_function(config['last_layer'])
+        config['g_last_layer']=get_function(config['g_last_layer'])
+        config['e_last_layer']=get_function(config['e_last_layer'])
+        config['conv_d_layers']=[int(x) for x in config['conv_d_layers']]
+        config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
+        config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
+        config['bounds_d_fake_min'] = other_config['bounds_d_fake_min']
+        config['bounds_d_fake_max'] = other_config['bounds_d_fake_max']
+        config['bounds_d_fake_slowdown'] = other_config['bounds_d_fake_slowdown']
+        config['bounds_step'] = other_config['bounds_step']
+        config['regularize']=other_config['regularize']
+        config['regularize_lambda']=other_config['regularize_lambda']
+        config['dtype']=other_config['dtype']
+        config['batch_size']=args.batch
+        print("DTYPE IS", config['dtype'], config['batch_size'])
+        #config['categories'] = other_config['categories']
+        #config['e_conv_size']=other_config['e_conv_size']
+        #config['conv_size']=other_config['conv_size']
+        #config['z_dim']=other_config['z_dim']
+        #config['mse_loss']=True#other_config['mse_loss']
+        #config['categories']=other_config['categories'][5:]+[2,3,5,7,9]
+        #config['d_learning_rate']=config['g_learning_rate']*2
+        #config['g_learning_rate']=_config['g_learning_rate']
+        #config['categories_lambda']=other_config['categories_lambda']
+        #config['conv_d_layers']=other_config['conv_d_layers']
+        #config['adv_loss']=other_config['adv_loss']
+        config['rmsprop_lr']=other_config['rmsprop_lr']
+        print("TODO: ADVLOSS ")
         with tf.device(args.device):
-            init = tf.initialize_all_variables()
-            sess.run(init)
+            sess = tf.Session(config=tf.ConfigProto())
+        channels = args.channels
+        crop = args.crop
+        width = args.width
+        height = args.height
+        with tf.device('/cpu:0'):
+            if(args.format == 'mp3'):
+                train_x,train_y, num_labels,examples_per_epoch = shared.mp3_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
+                f = None
+            else:
+                train_x,train_y, f, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+        config['y_dims']=num_labels
+        config['x_dims']=[height,width]
+        config['channels']=channels
 
-    tf.train.start_queue_runners(sess=sess)
-    testx = sess.run(train_x)
-    print("---",testx.shape,np.min(testx),np.max(testx))
+        if(args.load_config):
+            pass
+        #config['d_linear_layers']=other_config['d_linear_layers']
+        #config['conv_g_layers'].append(channels)
+        config['examples_per_epoch']=examples_per_epoch
+        x = train_x
+        y = train_y
+        with tf.device(args.device):
+            y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
 
-    #jobs.create_connection()
-    if args.build:
-        build_file = "build/generator.ckpt"
+            if(args.build or args.server):
+                graph = create_generator(config,x,y,f)
+            else:
+                graph = create(config,x,y,f)
+        saver = tf.train.Saver()
+        if('parent_uuid' in config):
+            save_file = "saves/"+config["parent_uuid"]+".ckpt"
+        else:
+            save_file = "saves/"+config["uuid"]+".ckpt"
+        if(save_file and os.path.isfile(save_file) and not args.server):
+            print(" |= Loading network from "+ save_file)
+            config['uuid']=config['parent_uuid']
+            ckpt = tf.train.get_checkpoint_state('saves')
+            if ckpt and ckpt.model_checkpoint_path:
+                saver.restore(sess, save_file)
+                print("Model loaded")
+            else:
+                print("No checkpoint file found")
+        else:
+            print("Starting new graph", config)
+            def mul(s):
+                x = 1
+                for y in s:
+                    x*=y
+                return x
+            def get_size(v):
+                shape = [int(x) for x in v.get_shape()]
+                size = mul(shape)
+                return [v.name, size/1024./1024.]
 
-        saver.save(sess, build_file)
-        print("Saved generator to ", build_file)
-    elif args.server:
-        gan_server(sess, config)
-    else:
-        sampled=False
-        print("Running for ", args.epochs, " epochs")
-        for i in range(args.epochs):
-            start_time = time.time()
+            sizes = [get_size(i) for i in tf.all_variables()]
+            sizes = sorted(sizes, key=lambda s: s[1])
+            print("Top 5 sizes", sizes[-5:])
+            size = sum([s[1] for s in sizes])
+            print("SIZE = ", size)
+
             with tf.device(args.device):
-                if(not epoch(sess, config)):
-                    print("Epoch failed")
-                    break
-            print("Checking save "+ str(i))
-            if(args.save_every != 0 and i % args.save_every == args.save_every-1):
-                print(" |= Saving network")
-                saver.save(sess, save_file)
-            end_time = time.time()
-            j=test_epoch(i, j, sess, config, start_time, end_time)
-            if(i == args.epochs-1):
-                print("Recording run...")
-                record_run(config)
+                init = tf.initialize_all_variables()
+                sess.run(init)
 
-        tf.reset_default_graph()
-        sess.close()
+        tf.train.start_queue_runners(sess=sess)
+        testx = sess.run(train_x)
+        print("---",testx.shape,np.min(testx),np.max(testx))
 
+        #jobs.create_connection()
+        build_file = "build/generator.ckpt"
+        if args.build:
+            saver.save(sess, build_file)
+            print("Saved generator to ", build_file)
+        elif args.server:
+            print("Loading from build/")
+            saver.restore(sess, build_file)
+            gan_server(sess, config)
+        else:
+            sampled=False
+            print("Running for ", args.epochs, " epochs")
+            for i in range(args.epochs):
+                start_time = time.time()
+                with tf.device(args.device):
+                    if(not epoch(sess, config)):
+                        print("Epoch failed")
+                        break
+                print("Checking save "+ str(i))
+                if(args.save_every != 0 and i % args.save_every == args.save_every-1):
+                    print(" |= Saving network")
+                    saver.save(sess, save_file)
+                end_time = time.time()
+                j=test_epoch(i, j, sess, config, start_time, end_time)
+                if(i == args.epochs-1):
+                    print("Recording run...")
+                    record_run(config)
+
+            tf.reset_default_graph()
+            sess.close()
+
+if __name__ == "__main__":
+    run(args) 
+    
 

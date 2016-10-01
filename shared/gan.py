@@ -502,6 +502,9 @@ def create_generator(config, x,y,f):
 
     args = [y, z,categories_t]
     g,z_dim_random_uniform = generator(config, args)
+    set_tensor("g", g)
+    set_tensor("y", y)
+    set_tensor("z", z)
     return g
 
 def create(config, x,y,f):

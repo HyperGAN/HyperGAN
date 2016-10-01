@@ -47,6 +47,7 @@ parser.add_argument('--test', type=bool, default=False)
 parser.add_argument('--server', type=bool, default=False)
 parser.add_argument('--save_every', type=int, default=0)
 parser.add_argument('--device', type=str, default='/gpu:0')
+parser.add_argument('--build', type=bool, default=False)
 
 args = parser.parse_args()
 start=1e-3
@@ -536,7 +537,10 @@ for config in hc.configs(1):
     with tf.device(args.device):
         y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
 
-        graph = create(config,x,y,f)
+        if(args.build or args.server):
+            graph = create_generator(config,x,y,f)
+        else:
+            graph = create(config,x,y,f)
     saver = tf.train.Saver()
     if('parent_uuid' in config):
         save_file = "saves/"+config["parent_uuid"]+".ckpt"
@@ -578,7 +582,12 @@ for config in hc.configs(1):
     print("---",testx.shape,np.min(testx),np.max(testx))
 
     #jobs.create_connection()
-    if args.server:
+    if args.build:
+        build_file = "build/generator.ckpt"
+
+        saver.save(sess, build_file)
+        print("Saved generator to ", build_file)
+    elif args.server:
         gan_server(sess, config)
     else:
         sampled=False

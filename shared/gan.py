@@ -485,6 +485,25 @@ def random_category(batch_size, size, dtype):
         sample=tf.multinomial(dist, num_samples=1)[:, 0]
         return tf.one_hot(sample, size, dtype=dtype)
 
+
+# Used for building the tensorflow graph with only G
+def create_generator(config, x,y,f):
+    set_ops_dtype(config['dtype'])
+    #TODO fix copy/paste job here
+    z_dim = int(config['z_dim'])
+    z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
+    categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
+    if(len(categories) > 0):
+        categories_t = tf.concat(1, categories)
+        #categories_t = [tf.tile(categories_t, [config['batch_size'], 1])]
+    else:
+        categories_t = []
+
+
+    args = [y, z,categories_t]
+    g,z_dim_random_uniform = generator(config, args)
+    return g
+
 def create(config, x,y,f):
     set_ops_dtype(config['dtype'])
     batch_size = config["batch_size"]

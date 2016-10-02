@@ -179,7 +179,7 @@ hc.set('d_linear_layers', list(np.arange(256,512)))
 
 hc.set('d_architecture', ['densenet'])
 
-hc.set('d_densenet_k', 24)
+hc.set('d_densenet_k', 16)
 hc.set('d_densenet_block_depth', 3)
 hc.set('d_densenet_layers', 5)
 

@@ -32,9 +32,15 @@ def generator(config, inputs, reuse=False):
 
         if(config['g_project'] == 'linear'):
             original_z = tf.concat(1, inputs)
+            layers = 2
+            result = original_z
+            for i in range(layers):
+                result = linear(result, result.get_shape()[-1], scope="g_fc_"+str(i))
+                result = batch_norm(batch_size, name='g_rp_bn'+str(i))(result)
+                result = activation(result)
             primes = [1,1]
             z_proj_dims = 256*256*3
-            result = linear(original_z, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
+            result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
         elif(config['g_project']=='noise'):

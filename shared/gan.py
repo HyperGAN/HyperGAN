@@ -32,6 +32,8 @@ def generator(config, inputs, reuse=False):
 
         if(config['g_project'] == 'linear'):
             original_z = tf.concat(1, inputs)
+            primes = [1,1]
+            z_proj_dims = 256*256*3
             result = linear(original_z, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
@@ -45,15 +47,7 @@ def generator(config, inputs, reuse=False):
 
         if config['conv_g_layers']:
             if(config['g_strategy'] == 'phase'):
-                widenings = 4
-                stride = 2
-                h = int(result.get_shape()[1])
-                w = int(result.get_shape()[2])
-                print("BEFORE SIZE IS" ,result)
-                for i in range(widenings):
-                    result = block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), stride=stride)
-                    print("SIZE IS" ,result)
-                result = PS(result, 4, color=True)
+                result = PS(result, 256, color=True)
  
             elif(config['g_strategy'] == 'conv-depth-to-space'):
                 widenings = 6

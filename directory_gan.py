@@ -62,7 +62,7 @@ hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 hc.set('dtype', tf.float32)
 
 
-hc.set("g_fc_layers", 2)
+hc.set("g_fc_layers", 3)
 hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 hc.set("g_mp3_filter",[3])
 hc.set("g_mp3_residual_channels", [8])
@@ -72,7 +72,7 @@ hc.set('g_skip_connections', True)
 hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
 
 hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", 1e-3)#list(np.linspace(5e-4,1e-3,num=100)))
+hc.set("g_learning_rate", 2e-3)#list(np.linspace(5e-4,1e-3,num=100)))
 hc.set("d_learning_rate", list(np.linspace(1e-4,5e-4,num=100)))
 
 hc.set("g_adam_beta1", 0.9) 
@@ -331,7 +331,7 @@ def epoch(sess, config):
         #    config['bounds_d_fake_min']= 0.25
         #    config['bounds_d_fake_max']=0.25001
         #else:
-        config['rmsprop_lr']= 1.4e-5
+        config['rmsprop_lr']= 1.4e-5*5*2
         config['bounds_d_fake_min']= 0.12
         config['bounds_d_fake_max']=0.120001
         d_loss, g_loss = train(sess, config)
@@ -496,6 +496,7 @@ def run(args):
         config['conv_d_layers']=[int(x) for x in config['conv_d_layers']]
         config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
         config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
+        config['g_learning_rate'] = other_config['g_learning_rate']
         config['bounds_d_fake_min'] = other_config['bounds_d_fake_min']
         config['bounds_d_fake_max'] = other_config['bounds_d_fake_max']
         config['bounds_d_fake_slowdown'] = other_config['bounds_d_fake_slowdown']

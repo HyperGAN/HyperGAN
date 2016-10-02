@@ -44,7 +44,18 @@ def generator(config, inputs, reuse=False):
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
         if config['conv_g_layers']:
-            if(config['g_strategy'] == 'conv-depth-to-space'):
+            if(config['g_strategy'] == 'phase'):
+                widenings = 4
+                stride = 2
+                h = int(result.get_shape()[1])
+                w = int(result.get_shape()[2])
+                print("BEFORE SIZE IS" ,result)
+                for i in range(widenings):
+                    result = block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), stride=stride)
+                    print("SIZE IS" ,result)
+                result = PS(result, 4, color=True)
+ 
+            elif(config['g_strategy'] == 'conv-depth-to-space'):
                 widenings = 6
                 stride = 2
                 zs = [None]

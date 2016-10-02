@@ -156,7 +156,7 @@ def build_deconv_config(layers,start, end):
     def get_option(i):
         return [get_layer(layer, i) for layer in range(layers)]
     #return [list(reversed(sorted(get_option(i)))) for i in np.arange(start, end)]
-    return [[1024, 128, 3]]
+    return [[16*3*2*2*2*2, 128, 3]]
 
 
 def build_atrous_layer(result, layer, filter, name='g_atrous'):

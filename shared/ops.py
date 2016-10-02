@@ -498,3 +498,27 @@ def masked_relu(x, name="ignored"):
     first_half = tf.slice(x, prefix + [0], most + [half])
     second_half = tf.slice(x, prefix + [half], most + [half])
     return tf.nn.relu(first_half) * tf.nn.sigmoid(second_half)
+
+
+def _phase_shift(I, r):
+    # Helper function with main phase shift operation
+    bsize, a, b, c = I.get_shape().as_list()
+    print("RESHAPE", a, b,c,'--',a,b,r,r)
+    X = tf.reshape(I, (bsize, a, b, r, r))
+    X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
+    X = tf.split(1, a, X)  # a, [bsize, b, r, r]
+    X = tf.concat(2, [tf.squeeze(x) for x in X])  # bsize, b, a*r, r
+    X = tf.split(1, b, X)  # b, [bsize, a*r, r]
+    X = tf.concat(2, [tf.squeeze(x) for x in X])  #
+    bsize, a*r, b*r
+    return tf.reshape(X, (bsize, a*r, b*r, 1))
+
+def PS(X, r, color=False):
+  # Main OP that you can arbitrarily use in you tensorflow code
+  if color:
+    Xc = tf.split(3, 3, X)
+    X = tf.concat(3, [_phase_shift(x, r) for x in Xc])
+  else:
+    X = _phase_shift(X, r)
+  return X
+

@@ -113,7 +113,7 @@ hc.set('e_batch_norm_last_layer', [False, True])
 hc.set('g_resnet_depth', [0])
 hc.set('g_resnet_filter', [3])
 
-hc.set('g_strategy', 'conv-depth-to-space')
+hc.set('g_strategy', 'phase')
 hc.set('g_huge_stride', [8])#[])
 hc.set('g_huge_filter', [9])
 

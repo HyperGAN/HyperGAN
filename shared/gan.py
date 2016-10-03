@@ -301,6 +301,12 @@ def discriminator_fast_densenet(config, x):
     k = config['d_densenet_k']
     result = x
     result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
+    result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
+    result = activation(result)
+    result = conv2d(result, 128, name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
+    result = batch_norm(config['batch_size'], name='d_expand_bn1ab')(result)
+    result = activation(result)
+    result = conv2d(result, 128, name='d_expand3', k_w=3, k_h=3, d_h=1, d_w=1)
     for i in range(layers):
         for j in range(depth):
             result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))

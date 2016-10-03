@@ -304,18 +304,18 @@ def discriminator_fast_densenet(config, x):
     result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
     result = activation(result)
     result = conv2d(result, 128, name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
-    result = batch_norm(config['batch_size'], name='d_expand_bn1ab')(result)
-    result = activation(result)
-    result = conv2d(result, 128, name='d_expand3', k_w=3, k_h=3, d_h=1, d_w=1)
+    result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_pre0')
+    result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_pre1')
+    result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_pre2')
     for i in range(layers):
-        for j in range(depth):
-            result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
-            print("resnet size", result)
         if i != layers-1:
             print("transition")
             result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
         else:
             print("no transition")
+        for j in range(depth):
+            result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
+            print("resnet size", result)
 
 
 

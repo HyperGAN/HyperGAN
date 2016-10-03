@@ -151,7 +151,7 @@ g_encode_layers = [[32, 64,128,256,512, 1024],
 if(args.test):
     g_encode_layers = [[10, 3, 3]]
 hc.set("g_encode_layers", g_encode_layers)
-hc.set("z_dim", 32)#list(np.arange(64,128)))
+hc.set("z_dim", 64)#list(np.arange(64,128)))
 
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 

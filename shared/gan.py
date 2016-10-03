@@ -211,6 +211,8 @@ def discriminator(config, x, f,z,g,gz):
         result = discriminator_wide_resnet(config,x)
     elif(config['d_architecture']=='densenet'):
         result = discriminator_densenet(config,x)
+    elif(config['d_architecture']=='fast_densenet'):
+        result = discriminator_fast_densenet(config,x)
     else:
         result = discriminator_vanilla(config,x)
 
@@ -290,6 +292,40 @@ def discriminator_densenet(config, x):
     result = tf.reshape(result, [batch_size, -1])
 
     return result
+
+def discriminator_fast_densenet(config, x):
+    activation = config['d_activation']
+    batch_size = int(x.get_shape()[0])
+    layers = config['d_densenet_layers']
+    depth = config['d_densenet_block_depth']
+    k = config['d_densenet_k']
+    result = x
+    result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
+    result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
+    result = activation(result)
+    result = conv2d(result, 128, name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
+    for i in range(layers):
+        for j in range(depth):
+            result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
+            print("resnet size", result)
+        if i != layers-1:
+            print("transition")
+            result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
+        else:
+            print("no transition")
+
+
+
+    filter_size_w = int(result.get_shape()[1])
+    filter_size_h = int(result.get_shape()[2])
+    filter = [1,filter_size_w,filter_size_h,1]
+    stride = [1,filter_size_w,filter_size_h,1]
+    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
+    print("RESULT SIZE IS", result)
+    result = tf.reshape(result, [batch_size, -1])
+
+    return result
+
 
 def discriminator_wide_resnet(config, x):
     activation = config['d_activation']

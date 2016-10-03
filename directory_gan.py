@@ -72,7 +72,7 @@ hc.set('g_skip_connections', True)
 hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
 
 hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", 2e-3)#list(np.linspace(5e-4,1e-3,num=100)))
+hc.set("g_learning_rate", 1e-3)#list(np.linspace(5e-4,1e-3,num=100)))
 hc.set("d_learning_rate", list(np.linspace(1e-4,5e-4,num=100)))
 
 hc.set("g_adam_beta1", 0.9) 
@@ -177,7 +177,7 @@ hc.set("g_encoder", [True])
 hc.set('d_linear_layer', [True])
 hc.set('d_linear_layers', list(np.arange(256,512)))
 
-hc.set('d_architecture', ['densenet'])
+hc.set('d_architecture', ['fast_densenet'])
 
 hc.set('d_densenet_k', 16)
 hc.set('d_densenet_block_depth', 3)
@@ -331,7 +331,7 @@ def epoch(sess, config):
         #    config['bounds_d_fake_min']= 0.25
         #    config['bounds_d_fake_max']=0.25001
         #else:
-        config['rmsprop_lr']= 1.4e-5*5*2
+        config['rmsprop_lr']= 1.4e-5*2
         config['bounds_d_fake_min']= 0.12
         config['bounds_d_fake_max']=0.120001
         d_loss, g_loss = train(sess, config)

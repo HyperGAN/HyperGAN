@@ -41,8 +41,8 @@ def generator(config, inputs, reuse=False):
 
                 noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
                 result = tf.concat(1, [result, noise])
-            primes = [4,4]
-            z_proj_dims = 1*1*768
+            primes = [8,8]
+            z_proj_dims = 1*1*512
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
@@ -61,21 +61,13 @@ def generator(config, inputs, reuse=False):
                 result = PS(result, 4, color=True)
   
             elif(config['g_strategy'] == 'deconv-phase'):
+                chans = 32*32*3
+                print("__RES",result)
+                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_2', output_channels=chans)
+                print("__RES",result)
+                result = tf.depth_to_space(result, 256//4//4)
+                #chans = 2*2*3
                 chans = 2*2*3
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_1', output_channels=result.get_shape()[3]*2)
-                result = tf.depth_to_space(result, 2)
-                print("2.2RESULT", result)
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_2', output_channels=result.get_shape()[3]*2)
-                result = tf.depth_to_space(result, 2)
-                print("2.2RESULT", result)
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_3', output_channels=result.get_shape()[3]*2)
-                result = tf.depth_to_space(result, 2)
-                print("2.2RESULT", result)
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_4', output_channels=result.get_shape()[3]*2)
-                result = tf.depth_to_space(result, 2)
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_5', output_channels=result.get_shape()[3])
-                result = tf.depth_to_space(result, 2)
-                print("2.2RESULT", result)
                 result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=chans)
                 print("5RESULT", result)
                 result = PS(result, 2, color=True)
@@ -336,18 +328,16 @@ def discriminator_fast_densenet(config, x):
     result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
     result = activation(result)
     result = conv2d(result, 128, name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
-    result = batch_norm(config['batch_size'], name='d_expand_bn2')(result)
-    result = activation(result)
-    result = conv2d(result, 128, name='d_expand3', k_w=1, k_h=1, d_h=1, d_w=1)
-    result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_pre0')
-    result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_pre1')
-    result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_pre2')
     for i in range(layers):
-        result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
         for j in range(depth):
             result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
             print("resnet size", result)
+        if i < layers - 1:
+          result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
 
+    result = batch_norm(config['batch_size'], name='d_expand_bn2a')(result)
+    result = activation(result)
+    result = conv2d(result, result.get_shape()[3], name='d_id', k_w=1, k_h=1, d_h=1, d_w=1)
 
 
     filter_size_w = int(result.get_shape()[1])
@@ -763,6 +753,14 @@ def create(config, x,y,f):
             lam = config['regularize_lambda']
             print("ADDING REG", lam, ws)
             g_loss += lam*tf.nn.l2_loss(ws)
+            with tf.variable_scope("g_fc_0"):
+                tf.get_variable_scope().reuse_variables()
+                ws = tf.get_variable('Matrix',dtype=config['dtype'])
+                tf.get_variable_scope().reuse_variables()
+            lam = config['regularize_lambda']
+            print("ADDING REG", lam, ws)
+            g_loss += lam*tf.nn.l2_loss(ws)
+
 
 
     if(config['latent_loss']):

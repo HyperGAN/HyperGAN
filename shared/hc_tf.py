@@ -328,7 +328,7 @@ def block_conv(result, activation, batch_size,id,name, output_channels=None, str
     if(id=='conv'):
         result = conv2d(result, int(result.get_shape()[3]), name=name, k_w=1, k_h=1, d_h=1, d_w=1)
     elif(id=='identity'):
-        result = conv2d(result, output_channels, name=name, k_w=1, k_h=1, d_h=1, d_w=1)
+        result = conv2d(result, output_channels, name=name, k_w=3, k_h=3, d_h=1, d_w=1)
 
     return result
 

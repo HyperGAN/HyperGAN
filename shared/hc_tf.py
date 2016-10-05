@@ -317,7 +317,7 @@ def block_deconv(result, activation, batch_size,id,name, output_channels=None, s
         if(noise_shape):
           noise = tf.random_uniform(noise_shape,-1, 1,dtype=config['dtype'])
           result = tf.concat(3, [result, noise])
-        result = deconv2d(result, output_shape, name=name+'l', k_w=1, k_h=1, d_h=1, d_w=1)
+        result = deconv2d(result, output_shape, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
     return result
 
 def block_conv(result, activation, batch_size,id,name, output_channels=None, stride=2, noise_shape=None):
@@ -326,9 +326,9 @@ def block_conv(result, activation, batch_size,id,name, output_channels=None, str
     result = batch_norm(batch_size, name=name+'bn')(result)
     result = activation(result)
     if(id=='conv'):
-        result = conv2d(result, int(result.get_shape()[3])*2, name=name, k_w=3, k_h=3, d_h=2, d_w=2)
+        result = conv2d(result, int(result.get_shape()[3]), name=name, k_w=1, k_h=1, d_h=1, d_w=1)
     elif(id=='identity'):
-        result = conv2d(result, output_channels, name=name, k_w=3, k_h=3, d_h=1, d_w=1)
+        result = conv2d(result, output_channels, name=name, k_w=1, k_h=1, d_h=1, d_w=1)
 
     return result
 

@@ -62,7 +62,7 @@ hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 hc.set('dtype', tf.float32)
 
 
-hc.set("g_fc_layers", 3)
+hc.set("g_fc_layers", 2)
 hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 hc.set("g_mp3_filter",[3])
 hc.set("g_mp3_residual_channels", [8])
@@ -159,13 +159,13 @@ categories = [[2]+[2]+build_categories_config(30)]
 print(categories)
 hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
-hc.set('category_loss', [True])
+hc.set('category_loss', [False])
 
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
 hc.set('d_fake_class_loss', [False])
 
-hc.set("regularize", [True])
+hc.set("regularize", [False])
 hc.set("regularize_lambda", list(np.linspace(0.001, .01, num=30)))
 
 hc.set("g_batch_norm", [True])
@@ -505,6 +505,8 @@ def run(args):
         config['regularize_lambda']=other_config['regularize_lambda']
         config['dtype']=other_config['dtype']
         config['batch_size']=args.batch
+        config['category_loss']=other_config['category_loss']
+        config['regularize']=other_config['regularize']
         print("DTYPE IS", config['dtype'], config['batch_size'])
         #config['categories'] = other_config['categories']
         #config['e_conv_size']=other_config['e_conv_size']

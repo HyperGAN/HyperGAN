@@ -31,7 +31,7 @@ class GANWebServer:
         y_t = get_tensor("y")
         sample = self.sess.run(generator, feed_dict={y_t:self.random_one_hot()})
         print(sample.shape)
-        plot(self.config, np.squeeze(sample), sample_file)
+        plot(self.config, sample[0], sample_file)
 
 
     def sample_iterate_z(self, sample_file, z_iterate, target_value=1, seed=None):

@@ -179,9 +179,9 @@ hc.set('d_linear_layers', list(np.arange(256,512)))
 
 hc.set('d_architecture', ['fast_densenet'])
 
-hc.set('d_densenet_k', 16)
+hc.set('d_densenet_k', 24)
 hc.set('d_densenet_block_depth', 3)
-hc.set('d_densenet_layers', 6)
+hc.set('d_densenet_layers', 5)
 
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))

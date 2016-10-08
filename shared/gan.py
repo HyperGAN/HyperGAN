@@ -71,7 +71,7 @@ def generator(config, inputs, reuse=False):
                 result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_transition_'+str(i), output_channels=int(result.get_shape()[3]))
                 result = tf.depth_to_space(result, 8)
 
-                result = block_conv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=2*2*3)
+                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=2*2*3)
                 print("5RESULT", result)
                 result = PS(result, 2, color=True)
  

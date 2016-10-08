@@ -68,10 +68,10 @@ def generator(config, inputs, reuse=False):
                     result = tf.concat(3,[result,x])
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 128*128*12)
-                result = tf.depth_to_space(result, 2*2*2)
-#                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_transition_'+str(i), output_channels=int(result.get_shape()[3]))
+                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_transition_'+str(i), output_channels=int(result.get_shape()[3]))
+                result = tf.depth_to_space(result, 8)
 
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=3*2*2)
+                result = block_conv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=2*2*3)
                 print("5RESULT", result)
                 result = PS(result, 2, color=True)
  

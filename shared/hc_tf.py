@@ -296,7 +296,7 @@ def residual_block_deconv(result, activation, batch_size,id,name, output_channel
         right = deconv2d(right, output_shape, name=name+'r', k_w=stride+1, k_h=stride+1, d_h=stride, d_w=stride)
     return left+right
 
-def block_deconv(result, activation, batch_size,id,name, output_channels=None, stride=2, noise_shape=None):
+def block_deconv(result, activation, batch_size,id,name, output_channels=None, stride=2, noise_shape=None,filter=3):
 
     size = int(result.get_shape()[-1])
     s = result.get_shape()
@@ -317,7 +317,7 @@ def block_deconv(result, activation, batch_size,id,name, output_channels=None, s
         if(noise_shape):
           noise = tf.random_uniform(noise_shape,-1, 1,dtype=config['dtype'])
           result = tf.concat(3, [result, noise])
-        result = deconv2d(result, output_shape, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
+        result = deconv2d(result, output_shape, name=name+'l', k_w=filter, k_h=filter, d_h=1, d_w=1)
     return result
 
 def block_conv(result, activation, batch_size,id,name, output_channels=None, stride=2, noise_shape=None):

@@ -42,7 +42,7 @@ def generator(config, inputs, reuse=False):
                 noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
                 result = tf.concat(1, [result, noise])
             primes = [16,16]
-            z_proj_dims = 1*1*128
+            z_proj_dims = 1*1*256
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
@@ -62,18 +62,16 @@ def generator(config, inputs, reuse=False):
   
             elif(config['g_strategy'] == 'deconv-phase'):
                 print("__RES",result)
-                k=128
-                s = [int(x) for x in result.get_shape()]
-                s[-1]=64
-                for i in range(7):
-                    x = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=k, noise_shape=s)
+                k=64
+                for i in range(8):
+                    x = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=k)
                     result = tf.concat(3,[result,x])
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 128*128*12)
                 result = tf.depth_to_space(result, 2*2*2)
 #                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_transition_'+str(i), output_channels=int(result.get_shape()[3]))
 
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=12)
+                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=3*2*2)
                 print("5RESULT", result)
                 result = PS(result, 2, color=True)
  

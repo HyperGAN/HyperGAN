@@ -41,8 +41,8 @@ def generator(config, inputs, reuse=False):
 
                 noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
                 result = tf.concat(1, [result, noise])
-            primes = [8,8]
-            z_proj_dims = 1*1*512
+            primes = [4,4]
+            z_proj_dims = 1*1*1024
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
@@ -61,14 +61,13 @@ def generator(config, inputs, reuse=False):
                 result = PS(result, 4, color=True)
   
             elif(config['g_strategy'] == 'deconv-phase'):
-                chans = 32*32*3
                 print("__RES",result)
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_2', output_channels=chans)
-                print("__RES",result)
-                result = tf.depth_to_space(result, 256//4//4)
-                #chans = 2*2*3
-                chans = 2*2*3
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=chans)
+                for i in range(5):
+                    result = block_conv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=int(result.get_shape()[3])*2, noise_shape=result.get_shape())
+                    result = tf.depth_to_space(result, 2)
+                    print("g at i ",i, result)
+
+                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=12)
                 print("5RESULT", result)
                 result = PS(result, 2, color=True)
  

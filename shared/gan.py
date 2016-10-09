@@ -62,16 +62,23 @@ def generator(config, inputs, reuse=False):
   
             elif(config['g_strategy'] == 'deconv-phase'):
                 print("__RES",result)
-                for i in range(4):
+                for i in range(7):
                     s = [int(x) for x in result.get_shape()]
-                    s[-1]=64
-                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=int(result.get_shape()[3])+512, noise_shape=s)
+                    layers = 128
+                    if(i > 3):
+                        layers=2
+                    s[-1]=layers//4
+                    if(s[-1] == 0):
+                        s[-1]=1
+                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=int(result.get_shape()[3])+layers, noise_shape=s)
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
+                    if( i ==3 ):
+                        result = tf.depth_to_space(result, 16)
                     print("g at i ",i, result, size, 128*128*12)
 
                 #result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=2*2*3)
                 print("5RESULT", result)
-                result = PS(result, 32, color=True)
+                result = PS(result, 2, color=True)
  
             elif(config['g_strategy'] == 'conv-phase'):
                 chans = 16*16*3

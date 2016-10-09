@@ -320,18 +320,18 @@ def block_deconv(result, activation, batch_size,id,name, output_channels=None, s
         result = deconv2d(result, output_shape, name=name+'l', k_w=filter, k_h=filter, d_h=1, d_w=1)
     return result
 
-def block_conv(result, activation, batch_size,id,name, output_channels=None, stride=2, noise_shape=None):
+def block_conv(result, activation, batch_size,id,name, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3):
     size = int(result.get_shape()[-1])
     s = result.get_shape()
     result = batch_norm(batch_size, name=name+'bn')(result)
     result = activation(result)
     if(noise_shape):
-      noise = tf.random_uniform(noise_shape,-1, 1,dtype=config['dtype'])
+      noise = tf.random_uniform(noise_shape,-1, 1,dtype=dtype)
       result = tf.concat(3, [result, noise])
     if(id=='conv'):
-        result = conv2d(result, int(result.get_shape()[3]), name=name, k_w=1, k_h=1, d_h=1, d_w=1)
+        result = conv2d(result, int(result.get_shape()[3]), name=name, k_w=filter, k_h=filter, d_h=stride, d_w=stride)
     elif(id=='identity'):
-        result = conv2d(result, output_channels, name=name, k_w=3, k_h=3, d_h=1, d_w=1)
+        result = conv2d(result, output_channels, name=name, k_w=filter, k_h=filter, d_h=1, d_w=1)
 
     return result
 

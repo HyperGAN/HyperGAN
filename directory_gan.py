@@ -62,7 +62,7 @@ hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 hc.set('dtype', tf.float32)
 
 
-hc.set("g_fc_layers", 0)
+hc.set("g_fc_layers", 2)
 hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 hc.set("g_mp3_filter",[3])
 hc.set("g_mp3_residual_channels", [8])
@@ -165,7 +165,7 @@ hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
 hc.set('d_fake_class_loss', [False])
 
-hc.set("regularize", [False])
+hc.set("regularize", [True])
 hc.set("regularize_lambda", list(np.linspace(0.001, .01, num=30)))
 
 hc.set("g_batch_norm", [True])

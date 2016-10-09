@@ -41,8 +41,8 @@ def generator(config, inputs, reuse=False):
 
                 noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
                 result = tf.concat(1, [result, noise])
-            primes = [8,8]
-            z_proj_dims = 1*1*1024
+            primes = [64,64]
+            z_proj_dims = 1*1*16
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
@@ -62,23 +62,20 @@ def generator(config, inputs, reuse=False):
   
             elif(config['g_strategy'] == 'deconv-phase'):
                 print("__RES",result)
-                for i in range(7):
+                for i in range(3):
                     s = [int(x) for x in result.get_shape()]
-                    layers = 256
-                    if(i > 5):
-                        layers=2
+                    layers = int(result.get_shape()[3])*16
                     s[-1]=layers//4
                     if(s[-1] == 0):
                         s[-1]=1
-                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=int(result.get_shape()[3])+layers, noise_shape=s)
+                    #result = block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), output_channels=int(result.get_shape()[3])+layers, noise_shape=s)
+                    result = block_conv(result, activation, batch_size, 'conv', 'g_layers_'+str(i), output_channels=layers, noise_shape=s)
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
-                    if( i ==5 ):
-                        result = tf.depth_to_space(result, 16)
                     print("g at i ",i, result, size, 128*128*12)
 
-                #result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=2*2*3)
+                result = block_conv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=32*32*3)
                 print("5RESULT", result)
-                result = PS(result, 2, color=True)
+                result = PS(result, 32, color=True)
  
             elif(config['g_strategy'] == 'conv-phase'):
                 chans = 16*16*3

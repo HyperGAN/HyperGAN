@@ -62,9 +62,9 @@ def generator(config, inputs, reuse=False):
   
             elif(config['g_strategy'] == 'deconv-phase'):
                 print("__RES",result)
-                for i in range(7):
+                for i in range(6):
                     s = [int(x) for x in result.get_shape()]
-                    layers = 128
+                    layers = 256
                     if(i > 3):
                         layers=2
                     s[-1]=layers//4

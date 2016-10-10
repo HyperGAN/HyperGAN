@@ -73,10 +73,10 @@ def generator(config, inputs, reuse=False):
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 128*128*12)
 
+                result = tf.depth_to_space(result, 16)
                 noise_shape = [int(x) for x in result.get_shape()]
                 noise_shape[-1]=1
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=32*32*3, noise_shape=noise_shape, filter=3)
-                result = tf.depth_to_space(result, 16)
+                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=2*2*3, noise_shape=noise_shape, filter=3)
                 print("5RESULT", result)
                 result = PS(result, 2, color=True)
  

@@ -41,7 +41,7 @@ def generator(config, inputs, reuse=False):
 
                 noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
                 result = tf.concat(1, [result, noise])
-            primes = [8,8]
+            primes = [8,6]
             z_proj_dims = 1*1*1024
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
@@ -64,7 +64,7 @@ def generator(config, inputs, reuse=False):
                 print("__RES",result)
                 for i in range(4):
                     s = [int(x) for x in result.get_shape()]
-                    layers = int(result.get_shape()[3])+512
+                    layers = int(result.get_shape()[3])+1024
                     s[-1]=layers//4
                     if(s[-1] == 0):
                         s[-1]=1
@@ -73,10 +73,10 @@ def generator(config, inputs, reuse=False):
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 128*128*12)
 
-                result = tf.depth_to_space(result, 16)
+                result = tf.depth_to_space(result, 32)
                 noise_shape = [int(x) for x in result.get_shape()]
                 noise_shape[-1]=1
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end2', output_channels=2*2*3, noise_shape=noise_shape, filter=3)
+                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=2*2*3, noise_shape=noise_shape, filter=3)
                 print("5RESULT", result)
                 result = PS(result, 2, color=True)
  

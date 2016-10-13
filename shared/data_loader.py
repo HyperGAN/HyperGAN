@@ -62,9 +62,9 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   print(resized_image)
   resized_image = tf.image.random_flip_left_right(resized_image)
   #resized_image = tf.image.random_brightness(resized_image, 0.4)
-  #resized_image = tf.image.random_contrast(resized_image, 0.2, 1.0)
-  #resized_image = tf.image.random_hue(resized_image, 0.1)
-  #resized_image = tf.image.random_saturation(resized_image, 0.5, 1.0)
+  resized_image = tf.image.random_contrast(resized_image, 0.2, 1.0)
+  resized_image = tf.image.random_hue(resized_image, 0.1)
+  resized_image = tf.image.random_saturation(resized_image, 0.5, 1.0)
 
   #resized_image = tf.image.convert_image_dtype(resized_image, tf.float32)
   # Subtract off the mean and divide by the variance of the pixels.

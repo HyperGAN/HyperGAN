@@ -50,6 +50,9 @@ def generator(config, inputs, reuse=False):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'noise', config['batch_size'], config['dtype'])
         elif(config['g_project']=='atrous'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'atrous', config['batch_size'], config['dtype'])
+        elif(config['g_project']=='conv'):
+            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'conv', config['batch_size'], config['dtype'])
+
 
 
         result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
@@ -77,8 +80,9 @@ def generator(config, inputs, reuse=False):
                 noise_shape = [int(x) for x in result.get_shape()]
                 noise_shape[-1]=1
                 result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=2*2*3, noise_shape=noise_shape, filter=3)
-                print("5RESULT", result)
+                print("before phase shift", result)
                 result = PS(result, 2, color=True)
+                print("after phase shift", result)
  
             elif(config['g_strategy'] == 'conv-phase'):
                 chans = 16*16*3
@@ -209,6 +213,7 @@ def discriminator(config, x, f,z,g,gz):
     single_batch_size = config['batch_size']
     channels = (config['channels'])
     # combine to one batch, per Ian's "Improved GAN"
+    print("Combining X + G ", x, g)
     x = tf.concat(0, [x,g])
 
     # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf

@@ -30,6 +30,11 @@ def build_reshape(output_size, nodes, method, batch_size, dtype):
         result = linear(result, dims, 'g_input_proj')
     elif(method == 'atrous'):
         pass 
+    elif(method == 'conv'):
+        result = nodes[1]
+        result = tf.reshape(result,[batch_size, 1, 1, 64])
+        result = conv2d(result, 256*48, name='g_input_conv', k_w=1, k_h=1, d_h=1, d_w=1)
+
     else:
         assert 1 == 0
     return result

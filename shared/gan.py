@@ -88,10 +88,12 @@ def generator(config, inputs, reuse=False):
                 for i in range(5):
                     s = [int(x) for x in result.get_shape()]
                     layers = s[3] * 2
-                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=1)
+                    noise = [s[0],s[1],s[2],2**(7-i)]
+                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=1, noise_shape=noise)
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 256*192*12)
-                    result = tf.depth_to_space(result, 2)
+                    #result = tf.depth_to_space(result, 2)
+                    result = tf.reshape(result, [s[0], s[1]*2,s[2]*2,s[3]//2])
                     print("depth_to_space g at i ",i, result, size, 256*192*12)
 
                 result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=2*2*3, filter=3)

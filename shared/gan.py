@@ -84,6 +84,21 @@ def generator(config, inputs, reuse=False):
                 result = PS(result, 2, color=True)
                 print("after phase shift", result)
  
+            elif(config['g_strategy'] == 'wide-deconv-phase'):
+                for i in range(5):
+                    s = [int(x) for x in result.get_shape()]
+                    layers = s[3] * 2
+                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=1)
+                    size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
+                    print("g at i ",i, result, size, 256*192*12)
+                    result = tf.depth_to_space(result, 2)
+                    print("depth_to_space g at i ",i, result, size, 256*192*12)
+
+                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=2*2*3, filter=3)
+                print("before phase shift", result)
+                result = PS(result, 2, color=True)
+                print("after phase shift", result)
+
             elif(config['g_strategy'] == 'conv-phase'):
                 chans = 16*16*3
                 print("1RESULT", result)
@@ -96,6 +111,7 @@ def generator(config, inputs, reuse=False):
                 print("5RESULT", result)
                 result = PS(result, 16, color=True)
  
+
             elif(config['g_strategy'] == 'conv-depth-to-space'):
                 widenings = 6
                 stride = 2
@@ -192,6 +208,7 @@ def generator(config, inputs, reuse=False):
                 result = config['g_activation'](result)
                 result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
                 result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[output_channels], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
+
 
         if(config['include_f_in_d']):
             rs = [int(s) for s in result.get_shape()]
@@ -766,13 +783,14 @@ def create(config, x,y,f):
             lam = config['regularize_lambda']
             print("ADDING REG", lam, ws)
             g_loss += lam*tf.nn.l2_loss(ws)
-            with tf.variable_scope("g_fc_0"):
-                tf.get_variable_scope().reuse_variables()
-                ws = tf.get_variable('Matrix',dtype=config['dtype'])
-                tf.get_variable_scope().reuse_variables()
-            lam = config['regularize_lambda']
-            print("ADDING REG", lam, ws)
-            g_loss += lam*tf.nn.l2_loss(ws)
+            if config['g_fc_layers'] > 0:
+                with tf.variable_scope("g_fc_0"):
+                    tf.get_variable_scope().reuse_variables()
+                    ws = tf.get_variable('Matrix',dtype=config['dtype'])
+                    tf.get_variable_scope().reuse_variables()
+                lam = config['regularize_lambda']
+                print("ADDING REG", lam, ws)
+                g_loss += lam*tf.nn.l2_loss(ws)
 
 
 

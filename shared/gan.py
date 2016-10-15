@@ -41,8 +41,8 @@ def generator(config, inputs, reuse=False):
 
                 noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
                 result = tf.concat(1, [result, noise])
-            primes = [8,6]
-            z_proj_dims = 1*1*1024
+            primes = [32,24]
+            z_proj_dims = 1*1*768//4//4
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
@@ -70,37 +70,38 @@ def generator(config, inputs, reuse=False):
                     layers = int(result.get_shape()[3])+1024
                     s[-1]=layers//4
                     if(s[-1] == 0):
-                        s[-1]=1
+                         s[-1]=1
                     #result = block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), output_channels=int(result.get_shape()[3])+layers, noise_shape=s)
                     result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, noise_shape=s, filter=1)
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 128*128*12)
 
-                result = tf.depth_to_space(result, 32)
-                noise_shape = [int(x) for x in result.get_shape()]
-                noise_shape[-1]=1
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=2*2*3, noise_shape=noise_shape, filter=3)
-                print("before phase shift", result)
-                result = PS(result, 2, color=True)
-                print("after phase shift", result)
+            result = tf.depth_to_space(result, 32)
+            noise_shape = [int(x) for x in result.get_shape()]
+            noise_shape[-1]=1
+            result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=2*2*3, noise_shape=noise_shape, filter=3)
+            print("before phase shift", result)
+            result = PS(result, 2, color=True)
+            print("after phase shift", result)
  
             elif(config['g_strategy'] == 'wide-deconv-phase'):
-                for i in range(5):
+                print("__RES",result)
+                for i in range(4):
                     s = [int(x) for x in result.get_shape()]
-                    layers = s[3] * 2
-                    noise = [s[0],s[1],s[2],2**(7-i)]
-                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=1, noise_shape=noise)
+                    layers = int(result.get_shape()[3])*2
+                    noise = [s[0],s[1],s[2],2**(5-i)]
+                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
-                    print("g at i ",i, result, size, 256*192*12)
-                    #result = tf.depth_to_space(result, 2)
-                    result = tf.reshape(result, [s[0], s[1]*2,s[2]*2,s[3]//2])
-                    print("depth_to_space g at i ",i, result, size, 256*192*12)
+                    print("g at i ",i, result, size, 512*382*3)
 
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=2*2*3, filter=3)
+                result = tf.depth_to_space(result, 4)
+                noise_shape = [int(x) for x in result.get_shape()]
+                noise_shape[-1]=1
+                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=4*4*3, noise_shape=noise_shape, filter=3)
                 print("before phase shift", result)
-                result = PS(result, 2, color=True)
+                result = PS(result, 4, color=True)
                 print("after phase shift", result)
-
+ 
             elif(config['g_strategy'] == 'conv-phase'):
                 chans = 16*16*3
                 print("1RESULT", result)

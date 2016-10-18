@@ -41,8 +41,8 @@ def generator(config, inputs, reuse=False):
 
                 noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
                 result = tf.concat(1, [result, noise])
-            primes = [16,12]
-            z_proj_dims = 1*1*768//4
+            primes = [4,4]
+            z_proj_dims = 1*1*256
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
@@ -62,6 +62,25 @@ def generator(config, inputs, reuse=False):
                 chans = 4*4*3
                 result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=chans, noise_shape=result.get_shape())
                 result = PS(result, 4, color=True)
+
+            elif(config['g_strategy'] == 'resize-conv'):
+                print("__RES",result)
+                depth=6
+                for i in range(depth):
+                    s = [int(x) for x in result.get_shape()]
+                    layers = int(result.get_shape()[3])//2
+                    if(i == depth-1):
+                        layers=config['channels']
+                    resized_wh=[s[1]*2, s[2]*2]
+                    print(resized_wh)
+                    result = tf.image.resize_images(result, resized_wh[0], resized_wh[1], 1)
+                    noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
+                    result = block_conv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
+                    size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
+                    print("g at i ",i, result, size, 512*382*3)
+
+
+
   
             elif(config['g_strategy'] == 'deconv-phase'):
                 print("__RES",result)

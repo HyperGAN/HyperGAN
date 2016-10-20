@@ -42,7 +42,7 @@ def generator(config, inputs, reuse=False):
                 noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
                 result = tf.concat(1, [result, noise])
             primes = [4,4]
-            z_proj_dims = 1*1*256
+            z_proj_dims = 1*1*1024
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
@@ -381,17 +381,20 @@ def discriminator_fast_densenet(config, x):
     result = activation(result)
     result = conv2d(result, 128, name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
     for i in range(layers):
-        for j in range(depth):
-            result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
-            print("resnet size", result)
-        if i < layers - 1:
-          result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
-
-    result = batch_norm(config['batch_size'], name='d_expand_bn2a')(result)
-    result = activation(result)
-    result = conv2d(result, result.get_shape()[3], name='d_id', k_w=1, k_h=1, d_h=1, d_w=1)
+      for j in range(depth):
+        result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
+        print("densenet size", result)
+      result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
 
 
+    filter_size_w = int(result.get_shape()[1])
+    filter_size_h = int(result.get_shape()[2])
+    while filter_size_h > 1:
+      result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i+10))
+      filter_size_w = int(result.get_shape()[1])
+      filter_size_h = int(result.get_shape()[2])
+      print("densenet size", result)
+      i+=1
     filter_size_w = int(result.get_shape()[1])
     filter_size_h = int(result.get_shape()[2])
     filter = [1,filter_size_w,filter_size_h,1]

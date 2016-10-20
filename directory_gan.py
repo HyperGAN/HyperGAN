@@ -100,7 +100,7 @@ hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [True])
-hc.set('d_noise', [2e-1])
+hc.set('d_noise', [1e-1])
 
 hc.set("g_last_layer_resnet_depth", [0])
 hc.set("g_last_layer_resnet_size", [1])
@@ -174,7 +174,7 @@ hc.set("e_batch_norm", [True])
 
 hc.set("g_encoder", [True])
 
-hc.set('d_linear_layer', [True])
+hc.set('d_linear_layer', [False])
 hc.set('d_linear_layers', list(np.arange(256,512)))
 
 hc.set('d_architecture', ['fast_densenet'])

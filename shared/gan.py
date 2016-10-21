@@ -310,8 +310,6 @@ def discriminator(config, x, f,z,g,gz):
         result = discriminator_vanilla(config,x)
     result = tf.reshape(result, [batch_size, -1])
 
-    minis = get_minibatch_features(config, result, batch_size,config['dtype'])
-    result = tf.concat(1, [result]+minis)
 
     #result = tf.nn.dropout(result, 0.7)
     print('before linear layer', result)
@@ -319,7 +317,10 @@ def discriminator(config, x, f,z,g,gz):
         result = linear(result, config['d_linear_layers'], scope="d_linear_layer")
     if(config['d_batch_norm']):
         result = batch_norm(config['batch_size'], name='d_bn_lin_proj')(result)
+
     result = config['d_activation'](result)
+    minis = get_minibatch_features(config, result, batch_size,config['dtype'])
+    result = tf.concat(1, [result]+minis)
 
     last_layer = result
     last_layer = tf.reshape(last_layer, [batch_size, -1])
@@ -404,18 +405,15 @@ def discriminator_pyramid(config, x, g, xs, gs):
       print("+++++",result, xg, "____")
       result = tf.concat(3, [result, xg])
 
+      if i == depth-1:
+        filter_size_w = int(result.get_shape()[1])//4
+        filter_size_h = int(result.get_shape()[2])//4
+        filter = [1,filter_size_w,filter_size_h,1]
+        stride = [1,filter_size_w,filter_size_h,1]
+        result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
       result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       print('discriminator result', result)
 
-    filter_size_w = int(result.get_shape()[1])
-    filter_size_h = int(result.get_shape()[2])
-    filter = [1,filter_size_w,filter_size_h,1]
-    stride = [1,filter_size_w,filter_size_h,1]
-    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
-    result = batch_norm(config['batch_size'], name='d_detect_bn')(result)
-    result = activation(result)
-    result = conv2d(result, result.get_shape()[3], name='d_detect', k_w=1, k_h=1, d_h=1, d_w=1)
- 
     return result
 
 

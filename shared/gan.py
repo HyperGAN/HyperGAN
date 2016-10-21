@@ -302,10 +302,9 @@ def discriminator(config, x, f,z,g,gz):
     print('before linear layer', result)
     if(config['d_linear_layer']):
         result = linear(result, config['d_linear_layers'], scope="d_linear_layer")
-        #TODO batch norm?
-        if(config['d_batch_norm']):
-            result = batch_norm(config['batch_size'], name='d_bn_lin_proj')(result)
-        result = config['d_activation'](result)
+    if(config['d_batch_norm']):
+        result = batch_norm(config['batch_size'], name='d_bn_lin_proj')(result)
+    result = config['d_activation'](result)
 
     last_layer = result
     last_layer = tf.reshape(last_layer, [batch_size, -1])

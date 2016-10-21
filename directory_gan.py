@@ -174,6 +174,7 @@ hc.set("e_batch_norm", [True])
 
 hc.set("g_encoder", [True])
 
+hc.set('minibatch', 'openai')
 hc.set('d_linear_layer', [False])
 hc.set('d_linear_layers', list(np.arange(256,512)))
 

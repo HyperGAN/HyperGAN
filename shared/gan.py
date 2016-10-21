@@ -315,8 +315,9 @@ def discriminator(config, x, f,z,g,gz):
     #result = tf.nn.dropout(result, 0.7)
     print('before linear layer', result)
 
-    minis = get_minibatch_features(config, result, batch_size,config['dtype'])
-    result = tf.concat(1, [result]+minis)
+    if(config['minibatch']=='openai'):
+      minis = get_minibatch_features(config, result, batch_size,config['dtype'])
+      result = tf.concat(1, [result]+minis)
 
     if(config['d_linear_layer']):
         result = linear(result, config['d_linear_layers'], scope="d_linear_layer")
@@ -415,13 +416,15 @@ def discriminator_pyramid(config, x, g, xs, gs):
       result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       print('discriminator result', result)
 
-    result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
-    result = activation(result)
+
     filter_size_w = int(result.get_shape()[1])
     filter_size_h = int(result.get_shape()[2])
     filter = [1,filter_size_w,filter_size_h,1]
     stride = [1,filter_size_w,filter_size_h,1]
-    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
+    result = tf.nn.max_pool(result, ksize=filter, strides=stride, padding='SAME')
+
+    result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
+    result = activation(result)
 
     return result
 

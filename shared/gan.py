@@ -75,7 +75,7 @@ def generator(config, inputs, reuse=False):
                     print(resized_wh)
                     result = tf.image.resize_images(result, resized_wh[0], resized_wh[1], 1)
                     noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
-                    result = block_conv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
+                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 512*382*3)
 

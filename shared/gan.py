@@ -68,14 +68,14 @@ def generator(config, inputs, reuse=False):
                 depth=6
                 for i in range(depth):
                     s = [int(x) for x in result.get_shape()]
-                    layers = int(result.get_shape()[3])//2
+                    layers = int(result.get_shape()[3])//1.5
                     if(i == depth-1):
                         layers=config['channels']
                     resized_wh=[s[1]*2, s[2]*2]
                     print(resized_wh)
                     result = tf.image.resize_images(result, resized_wh[0], resized_wh[1], 1)
                     noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
-                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
+                    result = block_conv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 512*382*3)
 

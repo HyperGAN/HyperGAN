@@ -15,6 +15,7 @@ def generator(config, inputs, reuse=False):
     activation = config['g_activation']
     batch_size = config['batch_size']
     print("CREATE", reuse)
+    results = []
     if(config['include_f_in_d'] == True):
         output_channels += 1
     with(tf.variable_scope("generator", reuse=reuse)):
@@ -76,6 +77,8 @@ def generator(config, inputs, reuse=False):
                     result = tf.image.resize_images(result, resized_wh[0], resized_wh[1], 1)
                     noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
                     result = block_conv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
+                    first3 = tf.slice(result, [0,0,0,0], [-1,-1,-1,3])
+                    results.append(first3)
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 512*382*3)
 
@@ -244,7 +247,7 @@ def generator(config, inputs, reuse=False):
             result = config['g_last_layer'](result)
 
         print("RETURN")
-        return result,z_dim_random_uniform
+        return results,z_dim_random_uniform
 
 def discriminator(config, x, f,z,g,gz):
     x_dims = config['x_dims']
@@ -253,6 +256,18 @@ def discriminator(config, x, f,z,g,gz):
     channels = (config['channels'])
     # combine to one batch, per Ian's "Improved GAN"
     print("Combining X + G ", x, g)
+    xs = [x]
+    gs = g
+    set_tensor("xs", xs)
+    set_tensor("gs", gs)
+    g = g[-1]
+    for i in gs:
+        print("RESIZING ")
+        resized = tf.image.resize_images(xs[-1],xs[-1].get_shape()[1]//2,xs[-1].get_shape()[2]//2, 1)
+        print("RESIZINGs ", resized)
+        xs.append(resized)
+    xs.pop()
+    gs.reverse()
     x = tf.concat(0, [x,g])
 
     # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
@@ -288,7 +303,7 @@ def discriminator(config, x, f,z,g,gz):
     elif(config['d_architecture']=='densenet'):
         result = discriminator_densenet(config,x)
     elif(config['d_architecture']=='pyramid'):
-        result = discriminator_pyramid(config,x)
+        result = discriminator_pyramid(config,x,g, xs, gs)
     elif(config['d_architecture']=='fast_densenet'):
         result = discriminator_fast_densenet(config,x)
     else:
@@ -371,7 +386,8 @@ def discriminator_densenet(config, x):
 
     return result
 
-def discriminator_pyramid(config, x):
+def discriminator_pyramid(config, x, g, xs, gs):
+    print("XS", xs, "GS", gs)
     activation = config['d_activation']
     batch_size = int(x.get_shape()[0])
     layers = config['d_densenet_layers']
@@ -379,12 +395,18 @@ def discriminator_pyramid(config, x):
     k = config['d_densenet_k']
     result = x
     result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
+
     result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
     result = activation(result)
 
     for i in range(3):
       result = batch_norm(config['batch_size'], name='d_expand_bn_'+str(i))(result)
       result = activation(result)
+      # APPEND xs[i] and gs[i]
+      xg = tf.concat(0, [xs[i+1], gs[i+1]])
+      print("+++++",result, xg, "____")
+      result = tf.concat(3, [result, xg])
+
       result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       print('discriminator result', result)
 

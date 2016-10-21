@@ -226,10 +226,11 @@ hc.set('bounds_step', [1])
 
 def sample_input(sess, config):
     x = get_tensor("x")
+    xs = get_tensor("xs")
     y = get_tensor("y")
     encoded = get_tensor("encoded")
-    sample, encoded, label = sess.run([x, encoded, y])
-    return sample[0], encoded[0], label[0]
+    sample, sample2, encoded, label = sess.run([x, xs[1], encoded, y])
+    return sample[0], sample2[0], encoded[0], label[0]
 
 
 def split_sample(n, d_fake_sig, sample, x_dims, channels):
@@ -239,22 +240,26 @@ def split_sample(n, d_fake_sig, sample, x_dims, channels):
         samples.append({'sample':s,'d':d})
     samples = sorted(samples, key=lambda x: (1-x['d']))
 
-    [print("sample ", s['d']) for s in samples[0:n]]
-    print('/-',samples[0]['sample'])
+    [print("sample ", s['d'], np.shape(s['sample'])) for s in samples[0:n]]
     return [np.reshape(s['sample'], [x_dims[0],x_dims[1], channels]) for s in samples[0:n]]
     #return [np.reshape(sample[0+i:1+i], [x_dims[0],x_dims[1], channels]) for i in range(n)]
 def samples(sess, config):
-    generator = get_tensor("g")
+    generator = get_tensor("g")[0]
+    gs = get_tensor("gs")
     y = get_tensor("y")
     x = get_tensor("x")
+    xs = get_tensor("xs")
     categories = get_tensor('categories')
     d_fake_sigmoid = get_tensor("d_fake_sigmoid")
     rand = np.random.randint(0,config['y_dims'], size=config['batch_size'])
     #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
-    sample, d_fake_sig = sess.run([generator, d_fake_sigmoid], feed_dict={y:random_one_hot})
+    sample, sample2, d_fake_sig = sess.run([generator, gs[1], d_fake_sigmoid], feed_dict={y:random_one_hot})
+    a = split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
+    b = split_sample(10, d_fake_sig, sample2, [gs[1].get_shape()[1], gs[1].get_shape()[2]], config['channels'])
+    print("A IS", np.shape(a), "B IS ", np.shape(b))
+    return [val for pair in zip(a, b) for val in pair]
 
-    return split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
     if config['format']=='mp3':
         g = sess.run(generator)
         #TODO: Refactor
@@ -341,7 +346,7 @@ def epoch(sess, config):
                 return False
         
             g = get_tensor('g')
-            rX = sess.run([g])
+            rX = sess.run([g[-1]])
             rX = np.array(rX)
             if(np.min(rX) < -1000 or np.max(rX) > 1000):
                 return False
@@ -388,11 +393,13 @@ def test_epoch(epoch, j, sess, config, start_time, end_time):
         hc.io.measure(config, measurements)
         hc.io.sample(config, [{'image':'visualize/input.png','label':'input'},{'image':'visualize/g.png','label':'g'}, {'image':'visualize/g2.png','label':'g2'}])
     else:
-        x, encoded, label = sample_input(sess, config)
+        x, x2, encoded, label = sample_input(sess, config)
         sample_file = "samples/input-"+str(j)+".png"
         plot(config, x, sample_file)
+        sample2_file = "samples/input-2-"+str(j)+".png"
+        plot(config, x2, sample2_file)
         encoded_sample = "samples/encoded-"+str(j)+".png"
-        plot(config, encoded, encoded_sample)
+        plot(config, encoded[0], encoded_sample)
 
         def to_int(one_hot):
             i = 0
@@ -403,9 +410,11 @@ def test_epoch(epoch, j, sess, config, start_time, end_time):
             return None
         
         sample_file = {'image':sample_file, 'label':json.dumps(to_int(label))}
+        sample2_file = {'image':sample2_file, 'label':json.dumps(to_int(label))}
         encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
      
-        sample_list = [sample_file, encoded_sample]
+        sample_list = [sample_file, sample2_file, encoded_sample]
+        print("SAMPLE IS", len(sample), len(sample[0]))
         for s in sample:
             sample_file = "samples/config-"+str(j)+".png"
             plot(config, s, sample_file)

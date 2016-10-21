@@ -78,6 +78,7 @@ def generator(config, inputs, reuse=False):
                     noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
                     result = block_conv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
                     first3 = tf.slice(result, [0,0,0,0], [-1,-1,-1,3])
+                    first3 = config['g_last_layer'](first3)
                     results.append(first3)
                     size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
                     print("g at i ",i, result, size, 512*382*3)

@@ -165,7 +165,7 @@ hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
 hc.set('d_fake_class_loss', [False])
 
-hc.set("regularize", [True])
+hc.set("regularize", [False])
 hc.set("regularize_lambda", list(np.linspace(0.001, .01, num=30)))
 
 hc.set("g_batch_norm", [True])
@@ -177,7 +177,7 @@ hc.set("g_encoder", [True])
 hc.set('d_linear_layer', [False])
 hc.set('d_linear_layers', list(np.arange(256,512)))
 
-hc.set('d_architecture', ['fast_densenet'])
+hc.set('d_architecture', ['pyramid'])
 
 hc.set('d_densenet_k', 24)
 hc.set('d_densenet_block_depth', 3)

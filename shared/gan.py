@@ -287,10 +287,13 @@ def discriminator(config, x, f,z,g,gz):
         result = discriminator_wide_resnet(config,x)
     elif(config['d_architecture']=='densenet'):
         result = discriminator_densenet(config,x)
+    elif(config['d_architecture']=='pyramid'):
+        result = discriminator_pyramid(config,x)
     elif(config['d_architecture']=='fast_densenet'):
         result = discriminator_fast_densenet(config,x)
     else:
         result = discriminator_vanilla(config,x)
+    result = tf.reshape(result, [batch_size, -1])
 
     minis = get_minibatch_features(config, result, batch_size,config['dtype'])
     result = tf.concat(1, [result]+minis)
@@ -369,6 +372,32 @@ def discriminator_densenet(config, x):
 
     return result
 
+def discriminator_pyramid(config, x):
+    activation = config['d_activation']
+    batch_size = int(x.get_shape()[0])
+    layers = config['d_densenet_layers']
+    depth = config['d_densenet_block_depth']
+    k = config['d_densenet_k']
+    result = x
+    result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
+    result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
+    result = activation(result)
+
+    for i in range(3):
+      result = batch_norm(config['batch_size'], name='d_expand_bn_'+str(i))(result)
+      result = activation(result)
+      result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
+      print('discriminator result', result)
+
+    filter_size_w = int(result.get_shape()[1])
+    filter_size_h = int(result.get_shape()[2])
+    filter = [1,filter_size_w,filter_size_h,1]
+    stride = [1,filter_size_w,filter_size_h,1]
+    result = tf.nn.max_pool(result, ksize=filter, strides=stride, padding='SAME')
+ 
+    return result
+
+
 def discriminator_fast_densenet(config, x):
     activation = config['d_activation']
     batch_size = int(x.get_shape()[0])
@@ -395,12 +424,6 @@ def discriminator_fast_densenet(config, x):
       filter_size_h = int(result.get_shape()[2])
       print("densenet size", result)
       i+=1
-    filter_size_w = int(result.get_shape()[1])
-    filter_size_h = int(result.get_shape()[2])
-    filter = [1,filter_size_w,filter_size_h,1]
-    stride = [1,filter_size_w,filter_size_h,1]
-    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
-    print("RESULT SIZE IS", result)
     result = tf.reshape(result, [batch_size, -1])
 
     return result

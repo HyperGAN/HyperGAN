@@ -407,6 +407,8 @@ def discriminator_pyramid(config, x, g, xs, gs):
       result = activation(result)
       # APPEND xs[i] and gs[i]
       xg = tf.concat(0, [xs[i+1], gs[i+1]])
+      xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['d_noise'], dtype=config['dtype'])
+
       print("+++++",result, xg, "____")
       xg = conv2d(xg, 4*(i+1), name="d_add_xg"+str(i), k_w=1, k_h=1, d_h=1, d_w=1)
       xg = batch_norm(config['batch_size'], name='d_add_xg_bn_'+str(i))(xg)
@@ -416,12 +418,6 @@ def discriminator_pyramid(config, x, g, xs, gs):
       result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       print('discriminator result', result)
 
-
-    filter_size_w = int(result.get_shape()[1])
-    filter_size_h = int(result.get_shape()[2])
-    filter = [1,filter_size_w,filter_size_h,1]
-    stride = [1,filter_size_w,filter_size_h,1]
-    result = tf.nn.max_pool(result, ksize=filter, strides=stride, padding='SAME')
 
     result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
     result = activation(result)

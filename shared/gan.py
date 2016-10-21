@@ -315,18 +315,15 @@ def discriminator(config, x, f,z,g,gz):
     print('before linear layer', result)
 
     minis = get_minibatch_features(config, result, batch_size,config['dtype'])
-    minis = tf.concat(1, minis)
-    minis = linear(minis, config['d_linear_layers'], scope="d_linear_layer")
-    minis = [minis]
     result = tf.concat(1, [result]+minis)
 
     if(config['d_linear_layer']):
         result = linear(result, config['d_linear_layers'], scope="d_linear_layer")
-    if(config['d_batch_norm']):
-        result = batch_norm(config['batch_size'], name='d_bn_lin_proj')(result)
+        if(config['d_batch_norm']):
+          result = batch_norm(config['batch_size'], name='d_bn_lin_proj')(result)
 
 
-    result = config['d_activation'](result)
+        result = config['d_activation'](result)
 
     last_layer = result
     last_layer = tf.reshape(last_layer, [batch_size, -1])
@@ -421,7 +418,6 @@ def discriminator_pyramid(config, x, g, xs, gs):
     filter = [1,filter_size_w,filter_size_h,1]
     stride = [1,filter_size_w,filter_size_h,1]
     result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
-    result = conv2d(result, int(result.get_shape()[3]), name='d_expand_laye_end'+str(i), k_w=1, k_h=1, d_h=1, d_w=1)
 
     return result
 

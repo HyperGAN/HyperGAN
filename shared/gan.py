@@ -313,14 +313,20 @@ def discriminator(config, x, f,z,g,gz):
 
     #result = tf.nn.dropout(result, 0.7)
     print('before linear layer', result)
+
+    minis = get_minibatch_features(config, result, batch_size,config['dtype'])
+    minis = tf.concat(1, minis)
+    minis = linear(minis, config['d_linear_layers'], scope="d_linear_layer")
+    minis = [minis]
+    result = tf.concat(1, [result]+minis)
+
     if(config['d_linear_layer']):
         result = linear(result, config['d_linear_layers'], scope="d_linear_layer")
     if(config['d_batch_norm']):
         result = batch_norm(config['batch_size'], name='d_bn_lin_proj')(result)
 
+
     result = config['d_activation'](result)
-    minis = get_minibatch_features(config, result, batch_size,config['dtype'])
-    result = tf.concat(1, [result]+minis)
 
     last_layer = result
     last_layer = tf.reshape(last_layer, [batch_size, -1])
@@ -392,7 +398,7 @@ def discriminator_pyramid(config, x, g, xs, gs):
     activation = config['d_activation']
     batch_size = int(x.get_shape()[0])
     layers = config['d_densenet_layers']
-    depth = 3
+    depth = 5
     k = config['d_densenet_k']
     result = x
     result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
@@ -405,14 +411,14 @@ def discriminator_pyramid(config, x, g, xs, gs):
       print("+++++",result, xg, "____")
       result = tf.concat(3, [result, xg])
 
-      if i == depth-1:
-        filter_size_w = int(result.get_shape()[1])//4
-        filter_size_h = int(result.get_shape()[2])//4
-        filter = [1,filter_size_w,filter_size_h,1]
-        stride = [1,filter_size_w,filter_size_h,1]
-        result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
       result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       print('discriminator result', result)
+
+    filter_size_w = int(result.get_shape()[1])
+    filter_size_h = int(result.get_shape()[2])
+    filter = [1,filter_size_w,filter_size_h,1]
+    stride = [1,filter_size_w,filter_size_h,1]
+    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
 
     return result
 

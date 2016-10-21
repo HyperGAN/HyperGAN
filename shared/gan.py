@@ -42,7 +42,7 @@ def generator(config, inputs, reuse=False):
                 noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
                 result = tf.concat(1, [result, noise])
             primes = [4,4]
-            z_proj_dims = 1*1*1024
+            z_proj_dims = 1*1*512
             result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         elif(config['g_project']=='tiled'):
             result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
@@ -393,7 +393,7 @@ def discriminator_pyramid(config, x):
     filter_size_h = int(result.get_shape()[2])
     filter = [1,filter_size_w,filter_size_h,1]
     stride = [1,filter_size_w,filter_size_h,1]
-    result = tf.nn.max_pool(result, ksize=filter, strides=stride, padding='SAME')
+    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
  
     return result
 

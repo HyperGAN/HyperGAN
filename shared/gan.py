@@ -393,6 +393,9 @@ def discriminator_pyramid(config, x):
     filter = [1,filter_size_w,filter_size_h,1]
     stride = [1,filter_size_w,filter_size_h,1]
     result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
+    result = batch_norm(config['batch_size'], name='d_detect_bn')(result)
+    result = activation(result)
+    result = conv2d(result, result.get_shape()[3], name='d_detect', k_w=1, k_h=1, d_h=1, d_w=1)
  
     return result
 

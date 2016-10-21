@@ -391,15 +391,12 @@ def discriminator_pyramid(config, x, g, xs, gs):
     activation = config['d_activation']
     batch_size = int(x.get_shape()[0])
     layers = config['d_densenet_layers']
-    depth = config['d_densenet_block_depth']
+    depth = 3
     k = config['d_densenet_k']
     result = x
     result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
 
-    result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
-    result = activation(result)
-
-    for i in range(3):
+    for i in range(depth):
       result = batch_norm(config['batch_size'], name='d_expand_bn_'+str(i))(result)
       result = activation(result)
       # APPEND xs[i] and gs[i]

@@ -1,3 +1,4 @@
+# Preprocessed data loader
 import glob
 import tensorflow as tf
 import shared.resize_image_patch

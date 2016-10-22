@@ -1,10 +1,9 @@
 
-from lib.shared.ops import *
-from lib.shared.util import *
-from lib.shared.hc_tf import *
-import lib.shared.vggnet_loader as vggnet_loader
+from lib.util.ops import *
+from lib.util.globals import *
+from lib.util.hc_tf import *
 import tensorflow as tf
-import lib.shared.wavegan as wavegan
+import lib.util.wavegan as wavegan
 TINY = 1e-12
 
 def generator(config, inputs, reuse=False):
@@ -725,18 +724,10 @@ def create(config, x,y,f):
     categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
     if(len(categories) > 0):
         categories_t = tf.concat(1, categories)
-        #categories_t = [tf.tile(categories_t, [config['batch_size'], 1])]
     else:
         categories_t = []
 
     if(config['pretrained_model'] == 'preprocess'):
-        #img = tf.reshape(x, [config['batch_size'], -1])
-        #img = build_reshape(224*224*config['channels'], [img], 'zeros', config['batch_size'])
-        #img = tf.reshape(img, [config['batch_size'],224,224,config['channels']])
-        #print("IMG:", img)
-
-        #f = vggnet_loader.create_graph(img, 'pool4:0')[0]
-        #f = tf.reshape(f, [config['batch_size'], -1])
         if(config['latent_loss']):
             encoded_z, encoded_c, z, z_mu, z_sigma = z_from_f(config, f, categories)
         else:
@@ -762,15 +753,12 @@ def create(config, x,y,f):
         categories_t = []
 
     g,z_dim_random_uniform = generator(config, [y, z]+categories_t)
-    #g = generator(config, [y, z]+categories_t)
     set_tensor('z_dim_random_uniform', z_dim_random_uniform)
     with tf.device('/cpu:0'):
-    #    print_z = tf.Print(z, [tf.reduce_mean(z), y, get_tensor("z_dim_random_uniform")], message="z is")
-        print_z = tf.Print(z, [tf.reduce_mean(z), y], message="z is")
+      print_z = tf.Print(z, [tf.reduce_mean(z), y], message="z is")
     print('-+',y,encoded_z,categories_t, [y, encoded_z]+categories_t)
 
     encoded,_ = generator(config, [y, encoded_z]+categories_t, reuse=True)
-    #encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
     def discard_layer(sample):
         sample = tf.reshape(sample, [config['batch_size'],-1,config['channels']+1])
@@ -782,7 +770,7 @@ def create(config, x,y,f):
         g_sample = discard_layer(g)
     else:
         g_sample = g
-    #print("shape of z,encoded_z", z.get_shape(), encoded_z.get_shape())
+
     d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, f, encoded_z, g, z)
 
     if(config['latent_loss']):

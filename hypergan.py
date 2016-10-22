@@ -1,18 +1,17 @@
 import hyperchamber as hc
-from lib.shared.ops import *
-from lib.shared.util import *
-from lib.shared.gan import *
-from lib.shared.gan_server import *
+from lib.util.ops import *
+from lib.util.globals import *
+from lib.gan import *
+from lib.util.gan_server import *
 from tensorflow.contrib import ffmpeg
-#import shared.jobs as jobs
-import lib.shared.hc_tf as hc_tf
-import lib.shared
+import lib.util.hc_tf as hc_tf
+import lib.util
 import json
 import uuid
 import time
 
-import lib.shared.data_loader
-import lib.shared.mp3_loader
+import lib.loaders.image_loader
+import lib.loaders.audio_loader
 import os
 import sys
 import time
@@ -353,7 +352,6 @@ def epoch(sess, config):
             if(np.min(rX) < -1000 or np.max(rX) > 1000):
                 return False
 
-        #jobs.process(sess)
 
     return True
 
@@ -540,10 +538,10 @@ def run(args):
         height = args.height
         with tf.device('/cpu:0'):
             if(args.format == 'mp3'):
-                train_x,train_y, num_labels,examples_per_epoch = lib.shared.mp3_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
+                train_x,train_y, num_labels,examples_per_epoch = lib.loaders.audio_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
                 f = None
             else:
-                train_x,train_y, f, num_labels,examples_per_epoch = lib.shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+                train_x,train_y, f, num_labels,examples_per_epoch = lib.loaders.image_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
         config['y_dims']=num_labels
         config['x_dims']=[height,width]
         config['channels']=channels
@@ -602,7 +600,6 @@ def run(args):
         testx = sess.run(train_x)
         print("---",testx.shape,np.min(testx),np.max(testx))
 
-        #jobs.create_connection()
         build_file = "build/generator.ckpt"
         if args.build:
             saver.save(sess, build_file)

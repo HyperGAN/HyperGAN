@@ -1,8 +1,8 @@
 import glob
 import tensorflow as tf
-import shared.resize_audio_patch
-import shared.inception_loader as inception_loader
-import shared.vggnet_loader as vggnet_loader
+import lib.loaders.resize_audio_patch
+import lib.vendor.inception_loader as inception_loader
+import lib.vendor.vggnet_loader as vggnet_loader
 from tensorflow.contrib import ffmpeg
 
 def build_labels(dirs):
@@ -13,6 +13,7 @@ def build_labels(dirs):
     next_id+=1
   return labels,next_id
 def mp3_tensors_from_directory(directory, batch_size, channels=2, format='mp3', seconds=30, bitrate=16384):
+  #TODO: Broken
   format='wav'
   print("LEADING WITH", format, channels, seconds, bitrate)
   filenames = glob.glob(directory+"/**/*."+format)

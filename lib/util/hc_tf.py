@@ -1,5 +1,7 @@
-from lib.shared.ops import *
-from lib.shared.util import *
+#This is like ops.py, but for larger compositions of graph nodes.
+#TODO: could use a better name
+from lib.util.ops import *
+from lib.util.globals import *
 
 def build_reshape(output_size, nodes, method, batch_size, dtype):
     node_size = sum([int(x.get_shape()[1]) for x in nodes])

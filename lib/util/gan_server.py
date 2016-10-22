@@ -1,6 +1,6 @@
 from flask import Flask, send_file, request
 import numpy as np
-from lib.shared.util import *
+from lib.util import *
 import logging
 from logging.handlers import RotatingFileHandler
 

@@ -78,7 +78,7 @@ hc.set("d_learning_rate", list(np.linspace(1e-4,5e-4,num=100)))
 hc.set("g_adam_beta1", 0.9) 
 hc.set("g_adam_beta2", 0.999)
 hc.set('g_adam_epsilon', 1e-8)
-hc.set("model", "logos:1.0")
+hc.set("model", "faces:1.0")
 
 
 

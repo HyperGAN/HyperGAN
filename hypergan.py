@@ -5,7 +5,7 @@ from lib.gan import *
 from lib.util.gan_server import *
 from tensorflow.contrib import ffmpeg
 import lib.util.hc_tf as hc_tf
-import lib.util
+import lib.generators.resize_conv as resize_conv
 import json
 import uuid
 import time
@@ -93,17 +93,11 @@ hc.set('momentum', list(np.linspace(0.8, 0.9999, num=1000)))
 hc.set('momentum_lr_g', list(np.linspace(1, 3, num=100)))
 
 hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [True])
 hc.set('d_noise', [1e-1])
-
-hc.set("g_last_layer_resnet_depth", [0])
-hc.set("g_last_layer_resnet_size", [1])
-
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
 hc.set('g_batch_norm_last_layer', [False])
@@ -113,7 +107,6 @@ hc.set('e_batch_norm_last_layer', [False, True])
 hc.set('g_resnet_depth', [0])
 hc.set('g_resnet_filter', [3])
 
-hc.set('g_strategy', 'resize-conv')
 hc.set('g_huge_stride', [8])#[])
 hc.set('g_huge_filter', [9])
 
@@ -124,21 +117,20 @@ hc.set('d_resnet_depth', [0])
 hc.set('d_resnet_filter', [3])
 
 hc.set('d_wide_resnet_depth', [[16, 32, 64, 128]])
-conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
-if(args.test):
-    conv_g_layers = [[10, 3, 3]]
-print('conv_g_layers', conv_g_layers)
 
-conv_d_layers = build_conv_config(4, 3, 4)
-if(args.test):
-    conv_d_layers = [[10, 3, 3]]
-print('conv_d_layers', conv_d_layers)
+# Generator configuration
+hc.set("generator", resize_conv.generator)
+hc.set("generator.z_projection_depth", 512)
+hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+
+
+# Discriminator configuration
+hc.set("discriminator", None)
+hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set("conv_size", [3])
 hc.set("d_conv_size", [3])
 hc.set("e_conv_size", [3])
-hc.set("conv_g_layers", conv_g_layers)
-hc.set("conv_d_layers", conv_d_layers)
 
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
@@ -202,9 +194,6 @@ hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
 hc.set("g_project", ['linear'])
 hc.set("d_project", ['tiled'])
-hc.set("e_project", ['tiled'])
-
-hc.set("v_train", ['generator'])
 
 hc.set("g_post_res_filter", [3])
 
@@ -495,41 +484,15 @@ def run(args):
             if(not config):
                 print("Could not find config", args.load_config)
                 break
-        config['g_activation']=get_function(config['g_activation'])
-        config['d_activation']=get_function(config['d_activation'])
-        config['e_activation']=get_function(config['e_activation'])
+        config['generator.activation']=get_function(config['generator.activation'])
+        config['discriminator.activation']=get_function(config['discriminator.activation'])
+        config['vae.activation']=get_function(config['e_activation'])
         config['transfer_fct']=get_function(config['transfer_fct'])
         #config['last_layer']=get_function(config['last_layer'])
         config['g_last_layer']=get_function(config['g_last_layer'])
         config['e_last_layer']=get_function(config['e_last_layer'])
-        config['conv_d_layers']=[int(x) for x in config['conv_d_layers']]
-        config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
         config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
-        config['g_learning_rate'] = other_config['g_learning_rate']
-        config['bounds_d_fake_min'] = other_config['bounds_d_fake_min']
-        config['bounds_d_fake_max'] = other_config['bounds_d_fake_max']
-        config['bounds_d_fake_slowdown'] = other_config['bounds_d_fake_slowdown']
-        config['bounds_step'] = other_config['bounds_step']
-        config['regularize']=other_config['regularize']
-        config['regularize_lambda']=other_config['regularize_lambda']
-        config['dtype']=other_config['dtype']
         config['batch_size']=args.batch
-        config['category_loss']=other_config['category_loss']
-        config['regularize']=other_config['regularize']
-        print("DTYPE IS", config['dtype'], config['batch_size'])
-        #config['categories'] = other_config['categories']
-        #config['e_conv_size']=other_config['e_conv_size']
-        #config['conv_size']=other_config['conv_size']
-        #config['z_dim']=other_config['z_dim']
-        #config['mse_loss']=True#other_config['mse_loss']
-        #config['categories']=other_config['categories'][5:]+[2,3,5,7,9]
-        #config['d_learning_rate']=config['g_learning_rate']*2
-        #config['g_learning_rate']=_config['g_learning_rate']
-        #config['categories_lambda']=other_config['categories_lambda']
-        #config['conv_d_layers']=other_config['conv_d_layers']
-        #config['adv_loss']=other_config['adv_loss']
-        config['rmsprop_lr']=other_config['rmsprop_lr']
-        print("TODO: ADVLOSS ")
         with tf.device(args.device):
             sess = tf.Session(config=tf.ConfigProto())
         channels = args.channels

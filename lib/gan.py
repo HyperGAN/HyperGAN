@@ -7,20 +7,18 @@ import lib.util.wavegan as wavegan
 TINY = 1e-12
 
 def generator(config, inputs, reuse=False):
-    if(config['format'] == 'mp3'):
-        return wavegan.generator(config, inputs, reuse)
     x_dims = config['x_dims']
     output_channels = config['channels']
-    activation = config['g_activation']
+    activation = config['generator.activation']
     batch_size = config['batch_size']
+    z_proj_dims = int(config['generator.z_projection_depth'])
+
     print("CREATE", reuse)
-    results = []
     if(config['include_f_in_d'] == True):
         output_channels += 1
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
-        z_proj_dims = int(config['conv_g_layers'][0])
         print("PRIMES ARE", primes, z_proj_dims*primes[0]*primes[1])
         if(int(config['z_dim_random_uniform']) > 0):
             z_dim_random_uniform = tf.random_uniform([config['batch_size'], int(config['z_dim_random_uniform'])],-1, 1,dtype=config['dtype'])
@@ -30,230 +28,30 @@ def generator(config, inputs, reuse=False):
         else:
             z_dim_random_uniform = None
 
-        if(config['g_project'] == 'linear'):
-            original_z = tf.concat(1, inputs)
-            layers = config['g_fc_layers']
-            result = original_z
-            for i in range(layers):
-                result = linear(result, result.get_shape()[-1], scope="g_fc_"+str(i))
-                result = batch_norm(batch_size, name='g_rp_bn'+str(i))(result)
-                result = activation(result)
+        original_z = tf.concat(1, inputs)
+        layers = config['g_fc_layers']
+        net = original_z
+        for i in range(layers):
+            net = linear(net, net.get_shape()[-1], scope="g_fc_"+str(i))
+            net = batch_norm(batch_size, name='g_rp_bn'+str(i))(net)
+            net = activation(net)
 
-                noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
-                result = tf.concat(1, [result, noise])
-            primes = [4,4]
-            z_proj_dims = 1*1*512
-            result = linear(result, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
-        elif(config['g_project']=='tiled'):
-            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'tiled', config['batch_size'], config['dtype'])
-        elif(config['g_project']=='noise'):
-            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'noise', config['batch_size'], config['dtype'])
-        elif(config['g_project']=='atrous'):
-            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'atrous', config['batch_size'], config['dtype'])
-        elif(config['g_project']=='conv'):
-            result = build_reshape(z_proj_dims*primes[0]*primes[1], inputs, 'conv', config['batch_size'], config['dtype'])
+            noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
+            net = tf.concat(1, [net, noise])
+        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
 
+        net = tf.reshape(net,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
-
-        result = tf.reshape(result,[config['batch_size'], primes[0], primes[1], z_proj_dims])
-
-        if config['conv_g_layers']:
-            if(config['g_strategy'] == 'phase'):
-                chans = 4*4*3
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=chans, noise_shape=result.get_shape())
-                result = PS(result, 4, color=True)
-
-            elif(config['g_strategy'] == 'resize-conv'):
-                print("__RES",result)
-                depth=6
-                for i in range(depth):
-                    s = [int(x) for x in result.get_shape()]
-                    layers = int(result.get_shape()[3])//1.5
-                    if(i == depth-1):
-                        layers=config['channels']
-                    resized_wh=[s[1]*2, s[2]*2]
-                    print(resized_wh)
-                    result = tf.image.resize_images(result, resized_wh[0], resized_wh[1], 1)
-                    noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
-                    result = block_conv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
-                    first3 = tf.slice(result, [0,0,0,0], [-1,-1,-1,3])
-                    first3 = batch_norm(config['batch_size'], name='g_bn_first3_'+str(i))(first3)
-                    first3 = config['g_last_layer'](first3)
-                    results.append(first3)
-                    size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
-                    print("g at i ",i, result, size, 512*382*3)
-
-
-
-  
-            elif(config['g_strategy'] == 'deconv-phase'):
-                print("__RES",result)
-                for i in range(4):
-                    s = [int(x) for x in result.get_shape()]
-                    layers = int(result.get_shape()[3])+1024
-                    s[-1]=layers//4
-                    if(s[-1] == 0):
-                         s[-1]=1
-                    #result = block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), output_channels=int(result.get_shape()[3])+layers, noise_shape=s)
-                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, noise_shape=s, filter=1)
-                    size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
-                    print("g at i ",i, result, size, 128*128*12)
-
-                result = tf.depth_to_space(result, 32)
-                noise_shape = [int(x) for x in result.get_shape()]
-                noise_shape[-1]=1
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=2*2*3, noise_shape=noise_shape, filter=3)
-                print("before phase shift", result)
-                result = PS(result, 2, color=True)
-                print("after phase shift", result)
- 
-            elif(config['g_strategy'] == 'wide-deconv-phase'):
-                print("__RES",result)
-                for i in range(4):
-                    s = [int(x) for x in result.get_shape()]
-                    layers = int(result.get_shape()[3])*2
-                    noise = [s[0],s[1],s[2],2**(5-i)]
-                    result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
-                    size = int(result.get_shape()[1])*int(result.get_shape()[2])*int(result.get_shape()[3])
-                    print("g at i ",i, result, size, 512*382*3)
-
-                result = tf.depth_to_space(result, 16)
-                noise_shape = [int(x) for x in result.get_shape()]
-                noise_shape[-1]=1
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end3', output_channels=2*2*3, noise_shape=noise_shape, filter=3)
-                print("before phase shift", result)
-                result = PS(result, 2, color=True)
-                print("after phase shift", result)
- 
-            elif(config['g_strategy'] == 'conv-phase'):
-                chans = 16*16*3
-                print("1RESULT", result)
-                noise_shape = [int(x) for x in result.get_shape()]
-                noise_shape[-1]=8
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_1', output_channels=result.get_shape()[3]*2)
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_2', output_channels=result.get_shape()[3]*2)
-                print("2.2RESULT", result)
-                result = block_deconv(result, activation, batch_size, 'identity', 'g_layers_end', output_channels=chans)
-                print("5RESULT", result)
-                result = PS(result, 16, color=True)
- 
-
-            elif(config['g_strategy'] == 'conv-depth-to-space'):
-                widenings = 6
-                stride = 2
-                zs = [None]
-                h = int(result.get_shape()[1])
-                w = int(result.get_shape()[2])
-                for i in range(widenings):
-                    if(i==widenings-1):
-                        result = block_conv_dts(result, activation, batch_size, 'end', 'g_layers_'+str(i), output_channels=config['channels'], stride=stride)
-                    else:
-                        result = block_conv_dts(result, activation, batch_size, 'conv', 'g_layers_'+str(i), stride=stride)
-                    print("SIZE IS" ,result)
-  
-
-            elif(config['g_strategy'] == 'small-skip'):
-                widenings = 6
-                stride = 2
-                zs = [None]
-                h = int(result.get_shape()[1])
-                w = int(result.get_shape()[2])
-                sc_layers = config['g_skip_connections_layers']
-                for i in range(widenings-1):
-                    w*=stride
-                    h*=stride
-                    size = w*h*int(sc_layers[i])
-                    print("original z", original_z, size)
-                    if(size != 0):
-                        new_z = tf.random_uniform([config['batch_size'], size],-1, 1,dtype=config['dtype'])
-                        print('new_z', new_z)
-                        #new_z = linear(new_z, size, scope='g_skip_z_'+str(i))
-                        new_z = tf.reshape(new_z, [config['batch_size'], h,w, sc_layers[i]])
-
-                        zs.append(new_z)
-                for i in range(widenings):
-                    print("BEFORE SIZE IS" ,result)
-                    if(config['g_skip_connections'] and i!=0 and i < len(zs)):
-                        result = tf.concat(3, [result, zs[i]])
-                    if(i==widenings-1):
-                        result = block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), output_channels=config['channels'], stride=stride)
-                    else:
-                        result = block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), stride=stride)
-                    print("SIZE IS" ,result)
-  
-            elif(config['g_strategy'] == 'wide-resnet'):
-                #result = residual_block_deconv(result, activation, batch_size, 'widen', 'g_layers_p')
-                #result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i1')
-                widenings = 6
-                stride = 2
-                zs = [None]
-                h = int(result.get_shape()[1])
-                w = int(result.get_shape()[2])
-                sc_layers = config['g_skip_connections_layers']
-                for i in range(widenings-1):
-                    w*=stride
-                    h*=stride
-                    size = w*h*int(sc_layers[i])
-                    print("original z", original_z, size)
-                    if(size != 0):
-                        new_z = tf.random_uniform([config['batch_size'], size],-1, 1,dtype=config['dtype'])
-                        print('new_z', new_z)
-                        #new_z = linear(new_z, size, scope='g_skip_z_'+str(i))
-                        new_z = tf.reshape(new_z, [config['batch_size'], h,w, sc_layers[i]])
-
-                        zs.append(new_z)
-                for i in range(widenings):
-                    print("BEFORE SIZE IS" ,result)
-                    if(config['g_skip_connections'] and i!=0 and i < len(zs)):
-                        result = tf.concat(3, [result, zs[i]])
-                    if(i==widenings-1):
-                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), output_channels=config['channels']+13, stride=stride)
-                        result = residual_block_deconv(result, activation, batch_size, 'bottleneck', 'g_layers_bottleneck_'+str(i), channels=config['channels'])
-                        #result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))
-                    else:
-                        result = residual_block_deconv(result, activation, batch_size, 'deconv', 'g_layers_'+str(i), stride=stride)
-                        result = residual_block_deconv(result, activation, batch_size, 'identity', 'g_layers_i_'+str(i))
-                    print("SIZE IS" ,result)
-                #result = tf.reshape(result,[config['batch_size'],x_dims[0],x_dims[1],-1])
-                #result = batch_norm(batch_size, name='g_rescap_bn')(result)
-                #result = activation(result)
-                #result = conv2d(result, config['channels'], name='g_grow', k_w=3,k_h=3, d_h=1, d_w=1)
-                #result = tf.slice(result, [0,0,0,0],[config['batch_size'], x_dims[0],x_dims[1],config['channels']])
-                #print("END SIZE IS", result)
-                #stride = x_dims[0]//int(result.get_shape()[1])
-                #result = build_deconv_tower(result, [output_channels], x_dims, stride+1, 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'], stride=stride)
-            elif(config['g_strategy'] == 'huge_deconv'):
-                result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
-                result = config['g_activation'](result)
-                result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
-                result = build_deconv_tower(result, config['conv_g_layers'][1:2]+[output_channels], x_dims, config['g_huge_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'], stride=config['g_huge_stride'])
-            elif(config['g_strategy'] == 'deep_deconv'):
-                result = batch_norm(config['batch_size'], name='g_bn_lin_proj')(result)
-                result = config['g_activation'](result)
-                result = build_deconv_tower(result, config['conv_g_layers'][1:2], x_dims, config['conv_size'], 'g_conv_', config['g_activation'], config['g_batch_norm'], True, config['batch_size'], config['g_last_layer_stddev'])
-                result = config['g_activation'](result)
-                result = build_resnet(result, config['g_resnet_depth'], config['g_resnet_filter'], 'g_conv_res_', config['g_activation'], config['batch_size'], config['g_batch_norm'])
-                result = build_deconv_tower(result, config['conv_g_layers'][2:-1]+[output_channels], x_dims, config['g_post_res_filter'], 'g_conv_2', config['g_activation'], config['g_batch_norm'], config['g_batch_norm_last_layer'], config['batch_size'], config['g_last_layer_stddev'])
-
-
-        if(config['include_f_in_d']):
-            rs = [int(s) for s in result.get_shape()]
-            result1 = tf.slice(result,[0,0,0,0],[config['batch_size'], rs[1],rs[2],3])
-            result2 = tf.slice(result,[0,0,0,3],[config['batch_size'], rs[1],rs[2],1])
-            result1 = config['g_last_layer'](result1)
-            result2 = batch_norm(config['batch_size'], name='g_bn_relu_f')(result2)
-            result2 = tf.nn.relu(result2)
-            result = tf.concat(3, [result1, result2])
-        elif(config['g_last_layer']):
-            result = config['g_last_layer'](result)
+        nets = config['generator'](net, config)
 
         print("RETURN")
-        return results,z_dim_random_uniform
+        return nets,z_dim_random_uniform
 
 def discriminator(config, x, f,z,g,gz):
     x_dims = config['x_dims']
     batch_size = config['batch_size']*2
     single_batch_size = config['batch_size']
+    activation = config['discriminator.activation']
     channels = (config['channels'])
     # combine to one batch, per Ian's "Improved GAN"
     print("Combining X + G ", x, g)
@@ -327,7 +125,7 @@ def discriminator(config, x, f,z,g,gz):
       minis = conv2d(minis, 16, name='d_expand_minibatch', k_w=3, k_h=3, d_h=2, d_w=2)
       if(config['d_batch_norm']):
         minis = batch_norm(config['batch_size'], name='d_bn_minibatch')(minis)
-      minis = config['d_activation'](minis)
+      minis = activation(minis)
       minis = tf.reshape(minis, [config['batch_size']*2, -1])
       minis = get_minibatch_features(config, minis, batch_size,config['dtype'])
       result = tf.concat(1, [result]+minis)
@@ -338,7 +136,7 @@ def discriminator(config, x, f,z,g,gz):
           result = batch_norm(config['batch_size'], name='d_bn_lin_proj')(result)
 
 
-        result = config['d_activation'](result)
+        result = activation(result)
 
     last_layer = result
     last_layer = tf.reshape(last_layer, [batch_size, -1])
@@ -377,7 +175,7 @@ def discriminator(config, x, f,z,g,gz):
 
 
 def discriminator_densenet(config, x):
-    activation = config['d_activation']
+    activation = config['discriminator.activation']
     batch_size = int(x.get_shape()[0])
     layers = config['d_densenet_layers']
     depth = config['d_densenet_block_depth']
@@ -407,7 +205,7 @@ def discriminator_densenet(config, x):
 
 def discriminator_pyramid(config, x, g, xs, gs):
     print("XS", xs, "GS", gs)
-    activation = config['d_activation']
+    activation = config['discriminator.activation']
     batch_size = int(x.get_shape()[0])
     layers = config['d_densenet_layers']
     depth = 5
@@ -440,7 +238,7 @@ def discriminator_pyramid(config, x, g, xs, gs):
 
 
 def discriminator_fast_densenet(config, x):
-    activation = config['d_activation']
+    activation = config['discriminator.activation']
     batch_size = int(x.get_shape()[0])
     layers = config['d_densenet_layers']
     depth = config['d_densenet_block_depth']
@@ -471,19 +269,14 @@ def discriminator_fast_densenet(config, x):
 
 
 def discriminator_wide_resnet(config, x):
-    activation = config['d_activation']
+    activation = config['discriminator.activation']
     batch_size = int(x.get_shape()[0])
     layers = config['d_wide_resnet_depth']
     result = x
-    #result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
-
-    #result = activation(result)
     result = conv2d(result, layers[0], name='d_expand1a', k_w=3, k_h=3, d_h=1, d_w=1)
     result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
     result = activation(result)
     result = conv2d(result, layers[0], name='d_expand1b', k_w=1, k_h=1, d_h=1, d_w=1)
-    #result = residual_block(result, activation, batch_size, 'widen', 'd_layers_0')
-    #result = residual_block(result, activation, batch_size, 'identity', 'd_layers_1')
     result = residual_block(result, activation, batch_size, 'conv', 'd_layers_2')
     print("DRESULT", result)
     result = residual_block(result, activation, batch_size, 'identity', 'd_layers_3')
@@ -504,10 +297,6 @@ def discriminator_wide_resnet(config, x):
     print("DRESULT", result)
     result = residual_block(result, activation, batch_size, 'identity', 'd_layers_11')
     print("DRESULT", result)
-    #result = residual_block(result, stride=1, 'conv')
-    #result = residual_block(result, stride=1, 'identity')
-    #result = residual_block(result, stride=1,  'conv')
-    #result = residual_block(result, stride=1,  'identity')
     filter_size_w = int(result.get_shape()[1])
     filter_size_h = int(result.get_shape()[2])
     filter = [1,filter_size_w,filter_size_h,1]
@@ -524,15 +313,16 @@ def discriminator_vanilla(config, x):
     batch_size = config['batch_size']*2
     single_batch_size = config['batch_size']
     channels = (config['channels'])
+    activation = config['discriminator.activation']
 
     result = x
     if config['conv_d_layers']:
-        result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', config['d_activation'], stride=config['d_pre_res_stride'])
+        result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', activation, stride=config['d_pre_res_stride'])
         if(config['d_pool']):
             result = tf.nn.max_pool(result, [1, 3, 3, 1], [1, 2,2,1],padding='SAME')
-        result = config['d_activation'](result)
-        result = build_resnet(result, config['d_resnet_depth'], config['d_resnet_filter'], 'd_conv_res_', config['d_activation'], config['batch_size'], config['d_batch_norm'], conv=True)
-        result = build_conv_tower(result, config['conv_d_layers'][1:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', config['d_activation'])
+        result = activation(result)
+        result = build_resnet(result, config['d_resnet_depth'], config['d_resnet_filter'], 'd_conv_res_', activation, config['batch_size'], config['d_batch_norm'], conv=True)
+        result = build_conv_tower(result, config['conv_d_layers'][1:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', activation)
         result = tf.reshape(result, [batch_size, -1])
 
     return result
@@ -846,7 +636,7 @@ def create(config, x,y,f):
 
         category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories',stddev=0.15)
         category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
-        category_layer = config['g_activation'](category_layer)
+        category_layer = config['generator.activation'](category_layer)
         categories_l = categories_loss(categories, category_layer, config['batch_size'])
         g_loss -= config['categories_lambda']*categories_l
         d_loss -= config['categories_lambda']*categories_l
@@ -884,15 +674,7 @@ def create(config, x,y,f):
     d_vars = [var for var in tf.trainable_variables() if 'd_' in var.name]
 
     v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
-    if(config['v_train'] == 'generator'):
-        g_vars += v_vars
-    elif(config['v_train'] == 'discriminator'):
-        d_vars += v_vars
-    elif(config['v_train'] == 'both'):
-        g_vars += v_vars
-        d_vars += v_vars
-    else:
-        print("ERROR: No variables training z space")
+    g_vars += v_vars
 
     if(config['optimizer'] == 'simple'):
         d_lr = np.float32(config['simple_lr'])

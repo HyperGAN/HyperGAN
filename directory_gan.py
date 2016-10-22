@@ -255,11 +255,12 @@ def samples(sess, config):
     rand = np.random.randint(0,config['y_dims'], size=config['batch_size'])
     #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
-    sample, sample2, d_fake_sig = sess.run([generator, gs[1], d_fake_sigmoid], feed_dict={y:random_one_hot})
+    sample, sample2, sample3, d_fake_sig = sess.run([generator, gs[1], gs[2],d_fake_sigmoid], feed_dict={y:random_one_hot})
     a = split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
     b = split_sample(10, d_fake_sig, sample2, [gs[1].get_shape()[1], gs[1].get_shape()[2]], config['channels'])
+    c = split_sample(10, d_fake_sig, sample3, [gs[2].get_shape()[1], gs[2].get_shape()[2]], config['channels'])
     print("A IS", np.shape(a), "B IS ", np.shape(b))
-    return [val for pair in zip(a, b) for val in pair]
+    return [val for pair in zip(a, b, c) for val in pair]
 
     if config['format']=='mp3':
         g = sess.run(generator)

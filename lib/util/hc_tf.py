@@ -1,5 +1,7 @@
-from shared.ops import *
-from shared.util import *
+#This is like ops.py, but for larger compositions of graph nodes.
+#TODO: could use a better name
+from lib.util.ops import *
+from lib.util.globals import *
 
 def build_reshape(output_size, nodes, method, batch_size, dtype):
     node_size = sum([int(x.get_shape()[1]) for x in nodes])
@@ -61,15 +63,11 @@ def build_conv_tower(result, layers, filter, batch_size, batch_norm_enabled, bat
     for i, layer in enumerate(layers):
         istride = stride
         if filter > result.get_shape()[1]:
-            print("FILTER gt result", filter, result.get_shape())
             filter = int(result.get_shape()[1])
             istride = 1
         if filter > result.get_shape()[2]:
-            print("FILTER gt result")
             filter = int(result.get_shape()[2])
             istride = 1
-
-        print("CONV", layer, filter, istride, result.get_shape())
 
         result = conv2d(result, layer, name=name+str(i), k_w=filter, k_h=filter, d_h=istride, d_w=istride)
         if(len(layers) == i+1):
@@ -103,7 +101,6 @@ def build_resnet(result, depth, filter, name, activation, batch_size, batch_norm
 
 
 def build_deconv_tower(result, layers, dims, conv_size, name, activation, batch_norm_enabled, batch_norm_last_layer, batch_size,last_layer_stddev,stride=2):
-    print("STRIDE", stride)
     for i, layer in enumerate(layers):
         istride=stride
         j=int(result.get_shape()[1])*istride
@@ -170,7 +167,6 @@ def build_atrous_layer(result, layer, filter, name='g_atrous'):
     #Warning only float32
     filters = tf.get_variable(name+'_w', [filter, filter, result.get_shape()[-1], layer],
                         initializer=tf.truncated_normal_initializer(stddev=0.02))
-    print('filters', tf.convert_to_tensor(filters), result)
     result = tf.nn.atrous_conv2d(result, filters, rate, padding)
     return result
 
@@ -196,7 +192,7 @@ def get_minibatch_features(config, h,batch_size,dtype):
     single_batch_size = batch_size//2
     n_kernels = int(config['d_kernels'])
     dim_per_kernel = int(config['d_kernel_dims'])
-    print("LINEAR TO", h, n_kernels*dim_per_kernel)
+    print("Discriminator minibatch is projecting from", h, "to", n_kernels*dim_per_kernel)
     x = linear(h, n_kernels * dim_per_kernel, scope="d_h")
     activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
 

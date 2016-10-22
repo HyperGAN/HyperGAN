@@ -1,6 +1,6 @@
 import tensorflow as tf
-import shared.vendor.wavenet
-from shared.ops import *
+import lib.vendor.wavenet
+from lib.util.ops import *
 
 
 def discriminator(config, x):

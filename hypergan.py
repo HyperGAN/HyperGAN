@@ -1,18 +1,17 @@
 import hyperchamber as hc
-from shared.ops import *
-from shared.util import *
-from shared.gan import *
-from shared.gan_server import *
+from lib.util.ops import *
+from lib.util.globals import *
+from lib.gan import *
+from lib.util.gan_server import *
 from tensorflow.contrib import ffmpeg
-#import shared.jobs as jobs
-import shared.hc_tf as hc_tf
-import shared
+import lib.util.hc_tf as hc_tf
+import lib.generators.resize_conv as resize_conv
 import json
 import uuid
 import time
 
-import shared.data_loader
-import shared.mp3_loader
+import lib.loaders.image_loader
+import lib.loaders.audio_loader
 import os
 import sys
 import time
@@ -50,10 +49,19 @@ parser.add_argument('--device', type=str, default='/gpu:0')
 parser.add_argument('--build', type=bool, default=False)
 
 args = parser.parse_args()
-start=1e-3
-end=1e-3
 
-num=100
+# Generator configuration
+hc.set("generator", resize_conv.generator)
+hc.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
+hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
+hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
+hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
+
+# Discriminator configuration
+hc.set("discriminator", lib.gan.discriminator_pyramid)
+hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+
+## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])
 
 hc.set('f_skip_fc', False)
@@ -62,7 +70,6 @@ hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 hc.set('dtype', tf.float32)
 
 
-hc.set("g_fc_layers", 0)
 hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 hc.set("g_mp3_filter",[3])
 hc.set("g_mp3_residual_channels", [8])
@@ -94,17 +101,11 @@ hc.set('momentum', list(np.linspace(0.8, 0.9999, num=1000)))
 hc.set('momentum_lr_g', list(np.linspace(1, 3, num=100)))
 
 hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("d_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("g_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [True])
 hc.set('d_noise', [1e-1])
-
-hc.set("g_last_layer_resnet_depth", [0])
-hc.set("g_last_layer_resnet_size", [1])
-
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
 hc.set('g_batch_norm_last_layer', [False])
@@ -114,7 +115,6 @@ hc.set('e_batch_norm_last_layer', [False, True])
 hc.set('g_resnet_depth', [0])
 hc.set('g_resnet_filter', [3])
 
-hc.set('g_strategy', 'resize-conv')
 hc.set('g_huge_stride', [8])#[])
 hc.set('g_huge_filter', [9])
 
@@ -125,21 +125,10 @@ hc.set('d_resnet_depth', [0])
 hc.set('d_resnet_filter', [3])
 
 hc.set('d_wide_resnet_depth', [[16, 32, 64, 128]])
-conv_g_layers = build_deconv_config(layers=3, start=3, end=4)
-if(args.test):
-    conv_g_layers = [[10, 3, 3]]
-print('conv_g_layers', conv_g_layers)
-
-conv_d_layers = build_conv_config(4, 3, 4)
-if(args.test):
-    conv_d_layers = [[10, 3, 3]]
-print('conv_d_layers', conv_d_layers)
 
 hc.set("conv_size", [3])
 hc.set("d_conv_size", [3])
 hc.set("e_conv_size", [3])
-hc.set("conv_g_layers", conv_g_layers)
-hc.set("conv_d_layers", conv_d_layers)
 
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
@@ -156,7 +145,6 @@ hc.set("z_dim", 64)#list(np.arange(64,128)))
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
 categories = [[2]+[2]+build_categories_config(30)]
-print(categories)
 hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
@@ -203,9 +191,6 @@ hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
 hc.set("g_project", ['linear'])
 hc.set("d_project", ['tiled'])
-hc.set("e_project", ['tiled'])
-
-hc.set("v_train", ['generator'])
 
 hc.set("g_post_res_filter", [3])
 
@@ -259,7 +244,6 @@ def samples(sess, config):
     a = split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
     b = split_sample(10, d_fake_sig, sample2, [gs[1].get_shape()[1], gs[1].get_shape()[2]], config['channels'])
     c = split_sample(10, d_fake_sig, sample3, [gs[2].get_shape()[1], gs[2].get_shape()[2]], config['channels'])
-    print("A IS", np.shape(a), "B IS ", np.shape(b))
     return [val for pair in zip(a, b, c) for val in pair]
 
     if config['format']=='mp3':
@@ -353,7 +337,6 @@ def epoch(sess, config):
             if(np.min(rX) < -1000 or np.max(rX) > 1000):
                 return False
 
-        #jobs.process(sess)
 
     return True
 
@@ -416,13 +399,11 @@ def test_epoch(epoch, j, sess, config, start_time, end_time):
         encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
      
         sample_list = [sample_file, sample2_file, encoded_sample]
-        print("SAMPLE IS", len(sample), len(sample[0]))
         for s in sample:
             sample_file = "samples/config-"+str(j)+".png"
             plot(config, s, sample_file)
             sample_list.append({'image':sample_file,'label':'sample-'+str(j)})
             j+=1
-        #print("Creating sample")
         hc.io.measure(config, measurements)
         hc.io.sample(config, sample_list)
         return j
@@ -497,41 +478,14 @@ def run(args):
             if(not config):
                 print("Could not find config", args.load_config)
                 break
-        config['g_activation']=get_function(config['g_activation'])
-        config['d_activation']=get_function(config['d_activation'])
-        config['e_activation']=get_function(config['e_activation'])
+        config['generator.activation']=get_function(config['generator.activation'])
+        config['discriminator.activation']=get_function(config['discriminator.activation'])
+        config['vae.activation']=get_function(config['e_activation'])
         config['transfer_fct']=get_function(config['transfer_fct'])
-        #config['last_layer']=get_function(config['last_layer'])
-        config['g_last_layer']=get_function(config['g_last_layer'])
+        config['generator.activation.end']=get_function(config['generator.activation.end'])
         config['e_last_layer']=get_function(config['e_last_layer'])
-        config['conv_d_layers']=[int(x) for x in config['conv_d_layers']]
-        config['conv_g_layers']=[int(x) for x in config['conv_g_layers']]
         config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
-        config['g_learning_rate'] = other_config['g_learning_rate']
-        config['bounds_d_fake_min'] = other_config['bounds_d_fake_min']
-        config['bounds_d_fake_max'] = other_config['bounds_d_fake_max']
-        config['bounds_d_fake_slowdown'] = other_config['bounds_d_fake_slowdown']
-        config['bounds_step'] = other_config['bounds_step']
-        config['regularize']=other_config['regularize']
-        config['regularize_lambda']=other_config['regularize_lambda']
-        config['dtype']=other_config['dtype']
         config['batch_size']=args.batch
-        config['category_loss']=other_config['category_loss']
-        config['regularize']=other_config['regularize']
-        print("DTYPE IS", config['dtype'], config['batch_size'])
-        #config['categories'] = other_config['categories']
-        #config['e_conv_size']=other_config['e_conv_size']
-        #config['conv_size']=other_config['conv_size']
-        #config['z_dim']=other_config['z_dim']
-        #config['mse_loss']=True#other_config['mse_loss']
-        #config['categories']=other_config['categories'][5:]+[2,3,5,7,9]
-        #config['d_learning_rate']=config['g_learning_rate']*2
-        #config['g_learning_rate']=_config['g_learning_rate']
-        #config['categories_lambda']=other_config['categories_lambda']
-        #config['conv_d_layers']=other_config['conv_d_layers']
-        #config['adv_loss']=other_config['adv_loss']
-        config['rmsprop_lr']=other_config['rmsprop_lr']
-        print("TODO: ADVLOSS ")
         with tf.device(args.device):
             sess = tf.Session(config=tf.ConfigProto())
         channels = args.channels
@@ -540,10 +494,10 @@ def run(args):
         height = args.height
         with tf.device('/cpu:0'):
             if(args.format == 'mp3'):
-                train_x,train_y, num_labels,examples_per_epoch = shared.mp3_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
+                train_x,train_y, num_labels,examples_per_epoch = lib.loaders.audio_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
                 f = None
             else:
-                train_x,train_y, f, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+                train_x,train_y, f, num_labels,examples_per_epoch = lib.loaders.image_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
         config['y_dims']=num_labels
         config['x_dims']=[height,width]
         config['channels']=channels
@@ -577,7 +531,6 @@ def run(args):
             else:
                 print("No checkpoint file found")
         else:
-            print("Starting new graph", config)
             def mul(s):
                 x = 1
                 for y in s:
@@ -600,9 +553,7 @@ def run(args):
 
         tf.train.start_queue_runners(sess=sess)
         testx = sess.run(train_x)
-        print("---",testx.shape,np.min(testx),np.max(testx))
 
-        #jobs.create_connection()
         build_file = "build/generator.ckpt"
         if args.build:
             saver.save(sess, build_file)

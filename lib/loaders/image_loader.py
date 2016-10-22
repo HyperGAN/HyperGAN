@@ -1,8 +1,9 @@
+# Loads an image with the tensorflow input pipeline
 import glob
 import tensorflow as tf
-import shared.resize_image_patch
-import shared.inception_loader as inception_loader
-import shared.vggnet_loader as vggnet_loader
+import lib.loaders.resize_image_patch
+import lib.vendor.inception_loader as inception_loader
+import lib.vendor.vggnet_loader as vggnet_loader
 
 def build_labels(dirs):
   next_id=0
@@ -27,6 +28,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
 
   # Read examples from files in the filename queue.
   value = tf.read_file(input_queue[0])
+  #TODO: reading preprocessed files is broken
   preprocess = tf.zeros([2048])#tf.read_file(input_queue[0]+'.preprocess')
   features = preprocess#tf.decode_raw(preprocess, tf.float32)
   #features = tf.identity(tf.zeros([2048]))
@@ -43,7 +45,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   reshaped_image = tf.identity(img)
   tf.Tensor.set_shape(reshaped_image, [None, None, None])
 
-  reshaped_image = shared.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
+  reshaped_image = lib.loaders.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
                                                          224, 224, dynamic_shape=True)
   reshaped_image = tf.reshape(reshaped_image, [1,224,224,channels])
   #features = _get_features(reshaped_image)
@@ -52,7 +54,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   # Image processing for evaluation.
   # Crop the central [height, width] of the image.
   if(crop):
-      resized_image = shared.resize_image_patch.resize_image_with_crop_or_pad(img,
+      resized_image = lib.loaders.resize_image_patch.resize_image_with_crop_or_pad(img,
                                                          height, width, dynamic_shape=True)
   else:
       resized_image = img

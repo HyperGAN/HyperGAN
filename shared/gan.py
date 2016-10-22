@@ -403,6 +403,7 @@ def discriminator_pyramid(config, x, g, xs, gs):
     result = x
     result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
 
+    xg = None
     for i in range(depth):
       result = batch_norm(config['batch_size'], name='d_expand_bn_'+str(i))(result)
       result = activation(result)
@@ -415,6 +416,8 @@ def discriminator_pyramid(config, x, g, xs, gs):
 
       result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       print('discriminator result', result)
+    print("xg is ", xg)
+    set_tensor("smallest_xg", xg)
 
 
     result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)

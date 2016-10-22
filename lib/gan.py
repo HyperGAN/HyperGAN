@@ -13,13 +13,11 @@ def generator(config, inputs, reuse=False):
     batch_size = config['batch_size']
     z_proj_dims = int(config['generator.z_projection_depth'])
 
-    print("CREATE", reuse)
     if(config['include_f_in_d'] == True):
         output_channels += 1
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
-        print("PRIMES ARE", primes, z_proj_dims*primes[0]*primes[1])
         if(int(config['z_dim_random_uniform']) > 0):
             z_dim_random_uniform = tf.random_uniform([config['batch_size'], int(config['z_dim_random_uniform'])],-1, 1,dtype=config['dtype'])
             #z_dim_random_uniform = tf.zeros_like(z_dim_random_uniform)
@@ -29,7 +27,7 @@ def generator(config, inputs, reuse=False):
             z_dim_random_uniform = None
 
         original_z = tf.concat(1, inputs)
-        layers = config['g_fc_layers']
+        layers = config['generator.fully_connected_layers']
         net = original_z
         for i in range(layers):
             net = linear(net, net.get_shape()[-1], scope="g_fc_"+str(i))
@@ -38,13 +36,13 @@ def generator(config, inputs, reuse=False):
 
             noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
             net = tf.concat(1, [net, noise])
+        print("Generator creating linear layer from", int(net.get_shape()[1]), "z to ", list(primes)+[z_proj_dims])
         net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
 
         net = tf.reshape(net,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
         nets = config['generator'](config, net)
 
-        print("RETURN")
         return nets,z_dim_random_uniform
 
 def discriminator(config, x, f,z,g,gz):
@@ -54,16 +52,13 @@ def discriminator(config, x, f,z,g,gz):
     activation = config['discriminator.activation']
     channels = (config['channels'])
     # combine to one batch, per Ian's "Improved GAN"
-    print("Combining X + G ", x, g)
     xs = [x]
     gs = g
     set_tensor("xs", xs)
     set_tensor("gs", gs)
     g = g[-1]
     for i in gs:
-        print("RESIZING ")
         resized = tf.image.resize_images(xs[-1],xs[-1].get_shape()[1]//2,xs[-1].get_shape()[2]//2, 1)
-        print("RESIZINGs ", resized)
         xs.append(resized)
     xs.pop()
     gs.reverse()
@@ -99,15 +94,13 @@ def discriminator(config, x, f,z,g,gz):
     net = tf.reshape(net, [batch_size, -1])
 
 
-    print('before linear layer', net)
-
     if(config['minibatch']=='openai'):
       minis = get_minibatch_features(config, net, batch_size,config['dtype'])
       net = tf.concat(1, [net]+minis)
 
     if(config['minibatch']=='openai-smallest-image'):
       smallest_xg = get_tensor("xgs")[-1]
-      print("SMALL", smallest_xg)
+      print("Discriminator minibatch input size:", smallest_xg)
       minis = smallest_xg
       #todo this could be a different network?
       minis = conv2d(minis, 16, name='d_expand_minibatch', k_w=3, k_h=3, d_h=2, d_w=2)
@@ -119,6 +112,8 @@ def discriminator(config, x, f,z,g,gz):
       net = tf.concat(1, [net]+minis)
 
     if(config['d_linear_layer']):
+        print('Discriminator before linear layer', net, config['d_linear_layers'])
+
         net = linear(net, config['d_linear_layers'], scope="d_linear_layer")
         if(config['d_batch_norm']):
           net = batch_norm(config['batch_size'], name='d_bn_lin_proj')(net)
@@ -130,7 +125,7 @@ def discriminator(config, x, f,z,g,gz):
     last_layer = tf.reshape(last_layer, [batch_size, -1])
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
-    print('last layer size', net)
+    print('Discriminator last layer size:', net)
     net = linear(net, config['y_dims']+1, scope="d_proj")
 
     def build_logits(class_logits, num_classes):
@@ -172,13 +167,11 @@ def discriminator_densenet(config, x):
     result = conv2d(result, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
     for i in range(layers):
         if i != layers-1:
-            print("transition")
             result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
         else:
-            print("no transition")
-        for j in range(depth):
+          for j in range(depth):
             result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
-            print("resnet size", result)
+            print("densenet size", result)
 
 
     filter_size_w = int(result.get_shape()[1])
@@ -186,13 +179,11 @@ def discriminator_densenet(config, x):
     filter = [1,filter_size_w,filter_size_h,1]
     stride = [1,filter_size_w,filter_size_h,1]
     result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
-    print("RESULT SIZE IS", result)
     result = tf.reshape(result, [batch_size, -1])
 
     return result
 
 def discriminator_pyramid(config, x, g, xs, gs):
-    print("XS", xs, "GS", gs)
     activation = config['discriminator.activation']
     batch_size = int(x.get_shape()[0])
     layers = config['d_densenet_layers']
@@ -210,14 +201,12 @@ def discriminator_pyramid(config, x, g, xs, gs):
       xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['d_noise'], dtype=config['dtype'])
       xgs.append(xg)
 
-      print("+++++",result, xg, "____")
       result = tf.concat(3, [result, xg])
 
       result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
-      print('discriminator result', result)
-    print("xg is ", xg)
-    set_tensor("xgs", xgs)
+      print('Discriminator pyramid layer:', result)
 
+    set_tensor("xgs", xgs)
 
     result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
     result = activation(result)
@@ -239,7 +228,7 @@ def discriminator_fast_densenet(config, x):
     for i in range(layers):
       for j in range(depth):
         result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
-        print("densenet size", result)
+        print("Discriminator densenet layer:", result)
       result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
 
 
@@ -522,8 +511,6 @@ def create(config, x,y,f):
         z_sigma = None
         z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
 
-
-    print("Z IS ", z)
     categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
     if(len(categories) > 0):
         categories_t = [tf.concat(1, categories)]
@@ -534,7 +521,6 @@ def create(config, x,y,f):
     set_tensor('z_dim_random_uniform', z_dim_random_uniform)
     with tf.device('/cpu:0'):
       print_z = tf.Print(z, [tf.reduce_mean(z), y], message="z is")
-    print('-+',y,encoded_z,categories_t, [y, encoded_z]+categories_t)
 
     encoded,_ = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
@@ -605,10 +591,10 @@ def create(config, x,y,f):
             tf.reduce_mean(d_real_loss)
 
     if(int(y.get_shape()[1]) > 1):
-        print("ADDING D_CLASS_LOSS")
+        print("Discriminator class loss is on.  Semi-supervised learning mode activated.")
         d_loss += tf.reduce_mean(d_class_loss)
     else:
-        print("REMOVING D_CLASS_LOSS")
+        print("Discriminator class loss is off.  Unsupervised learning mode activated.")
 
     if(config['latent_loss']):
         g_loss += tf.reduce_mean(latent_loss)

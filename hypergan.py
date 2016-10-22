@@ -49,10 +49,19 @@ parser.add_argument('--device', type=str, default='/gpu:0')
 parser.add_argument('--build', type=bool, default=False)
 
 args = parser.parse_args()
-start=1e-3
-end=1e-3
 
-num=100
+# Generator configuration
+hc.set("generator", resize_conv.generator)
+hc.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
+hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
+hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
+hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
+
+# Discriminator configuration
+hc.set("discriminator", lib.gan.discriminator_pyramid)
+hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+
+## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])
 
 hc.set('f_skip_fc', False)
@@ -61,7 +70,6 @@ hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 hc.set('dtype', tf.float32)
 
 
-hc.set("g_fc_layers", 0)
 hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 hc.set("g_mp3_filter",[3])
 hc.set("g_mp3_residual_channels", [8])
@@ -118,16 +126,6 @@ hc.set('d_resnet_filter', [3])
 
 hc.set('d_wide_resnet_depth', [[16, 32, 64, 128]])
 
-# Generator configuration
-hc.set("generator", resize_conv.generator)
-hc.set("generator.z_projection_depth", 512)
-hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-
-
-# Discriminator configuration
-hc.set("discriminator", lib.gan.discriminator_pyramid)
-hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-
 hc.set("conv_size", [3])
 hc.set("d_conv_size", [3])
 hc.set("e_conv_size", [3])
@@ -147,7 +145,6 @@ hc.set("z_dim", 64)#list(np.arange(64,128)))
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
 
 categories = [[2]+[2]+build_categories_config(30)]
-print(categories)
 hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
@@ -247,7 +244,6 @@ def samples(sess, config):
     a = split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
     b = split_sample(10, d_fake_sig, sample2, [gs[1].get_shape()[1], gs[1].get_shape()[2]], config['channels'])
     c = split_sample(10, d_fake_sig, sample3, [gs[2].get_shape()[1], gs[2].get_shape()[2]], config['channels'])
-    print("A IS", np.shape(a), "B IS ", np.shape(b))
     return [val for pair in zip(a, b, c) for val in pair]
 
     if config['format']=='mp3':
@@ -403,13 +399,11 @@ def test_epoch(epoch, j, sess, config, start_time, end_time):
         encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
      
         sample_list = [sample_file, sample2_file, encoded_sample]
-        print("SAMPLE IS", len(sample), len(sample[0]))
         for s in sample:
             sample_file = "samples/config-"+str(j)+".png"
             plot(config, s, sample_file)
             sample_list.append({'image':sample_file,'label':'sample-'+str(j)})
             j+=1
-        #print("Creating sample")
         hc.io.measure(config, measurements)
         hc.io.sample(config, sample_list)
         return j
@@ -488,8 +482,7 @@ def run(args):
         config['discriminator.activation']=get_function(config['discriminator.activation'])
         config['vae.activation']=get_function(config['e_activation'])
         config['transfer_fct']=get_function(config['transfer_fct'])
-        #config['last_layer']=get_function(config['last_layer'])
-        config['g_last_layer']=get_function(config['g_last_layer'])
+        config['generator.activation.end']=get_function(config['generator.activation.end'])
         config['e_last_layer']=get_function(config['e_last_layer'])
         config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
         config['batch_size']=args.batch
@@ -538,7 +531,6 @@ def run(args):
             else:
                 print("No checkpoint file found")
         else:
-            print("Starting new graph", config)
             def mul(s):
                 x = 1
                 for y in s:
@@ -561,7 +553,6 @@ def run(args):
 
         tf.train.start_queue_runners(sess=sess)
         testx = sess.run(train_x)
-        print("---",testx.shape,np.min(testx),np.max(testx))
 
         build_file = "build/generator.ckpt"
         if args.build:

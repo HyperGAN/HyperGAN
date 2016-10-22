@@ -16,13 +16,14 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   filenames = glob.glob(directory+"/**/*."+format)
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
   num_examples_per_epoch = 30000
+  print("ImageLoader found", len(filenames), "images with", total_labels, "different class labels")
+  assert len(filenames)!=0, "No images found in "+directory
 
   # Create a queue that produces the filenames to read.
   classes = [labels[f.split('/')[-2]] for f in filenames]
 
   filenames = tf.convert_to_tensor(filenames, dtype=tf.string)
   classes = tf.convert_to_tensor(classes, dtype=tf.int32)
-  print("[0]", filenames[0], classes[0])
 
   input_queue = tf.train.slice_input_producer([filenames, classes])
 
@@ -90,7 +91,6 @@ def _get_features(image):
 
 def _get_data(image, label, features, min_queue_examples, batch_size):
   num_preprocess_threads = 24
-  print(image, label)
   images, label_batch, f_b= tf.train.shuffle_batch(
       [image, label, features],
       batch_size=batch_size,

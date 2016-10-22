@@ -428,7 +428,15 @@ def discriminator_pyramid(config, x, g, xs, gs):
       mxg = batch_norm(config['batch_size'], name='d_add_xg_bn_'+str(i))(mxg)
       mxg = activation(mxg)
 
-      result = tf.concat(3, [result, xg, mxg])
+      minisx = tf.reduce_mean(xs[i+1], reduction_indices=0, keep_dims=True)
+      minisg = tf.reduce_mean(gs[i+1], reduction_indices=0, keep_dims=True)
+      minisx = tf.tile(minisx, [config['batch_size'], 1,1,1]) 
+      minisg = tf.tile(minisg, [config['batch_size'], 1,1,1]) 
+      minis = tf.concat(0, [minisx, minisg])
+
+      #minis = conv2d(minis, 3, name="d_minibatch_xg"+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
+
+      result = tf.concat(3, [result, mxg, minis])
 
       result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       print('discriminator result', result)

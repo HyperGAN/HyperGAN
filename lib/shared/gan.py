@@ -1,10 +1,10 @@
 
-from shared.ops import *
-from shared.util import *
-from shared.hc_tf import *
-import shared.vggnet_loader as vggnet_loader
+from lib.shared.ops import *
+from lib.shared.util import *
+from lib.shared.hc_tf import *
+import lib.shared.vggnet_loader as vggnet_loader
 import tensorflow as tf
-import shared.wavegan as wavegan
+import lib.shared.wavegan as wavegan
 TINY = 1e-12
 
 def generator(config, inputs, reuse=False):

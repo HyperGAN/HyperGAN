@@ -1,18 +1,18 @@
 import hyperchamber as hc
-from shared.ops import *
-from shared.util import *
-from shared.gan import *
-from shared.gan_server import *
+from lib.shared.ops import *
+from lib.shared.util import *
+from lib.shared.gan import *
+from lib.shared.gan_server import *
 from tensorflow.contrib import ffmpeg
 #import shared.jobs as jobs
-import shared.hc_tf as hc_tf
-import shared
+import lib.shared.hc_tf as hc_tf
+import lib.shared
 import json
 import uuid
 import time
 
-import shared.data_loader
-import shared.mp3_loader
+import lib.shared.data_loader
+import lib.shared.mp3_loader
 import os
 import sys
 import time
@@ -540,10 +540,10 @@ def run(args):
         height = args.height
         with tf.device('/cpu:0'):
             if(args.format == 'mp3'):
-                train_x,train_y, num_labels,examples_per_epoch = shared.mp3_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
+                train_x,train_y, num_labels,examples_per_epoch = lib.shared.mp3_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
                 f = None
             else:
-                train_x,train_y, f, num_labels,examples_per_epoch = shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+                train_x,train_y, f, num_labels,examples_per_epoch = lib.shared.data_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
         config['y_dims']=num_labels
         config['x_dims']=[height,width]
         config['channels']=channels

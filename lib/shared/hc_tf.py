@@ -1,5 +1,5 @@
-from shared.ops import *
-from shared.util import *
+from lib.shared.ops import *
+from lib.shared.util import *
 
 def build_reshape(output_size, nodes, method, batch_size, dtype):
     node_size = sum([int(x.get_shape()[1]) for x in nodes])

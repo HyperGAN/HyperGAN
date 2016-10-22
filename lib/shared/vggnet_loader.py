@@ -30,8 +30,8 @@ import tarfile
 import numpy as np
 from six.moves import urllib
 import tensorflow as tf
-import shared.resize_image_patch
-from shared.ops import batch_norm
+import lib.shared.resize_image_patch
+from lib.shared.ops import batch_norm
 
 MODEL_DIR='/tmp/imagenet'
 
@@ -66,7 +66,7 @@ def reshape_input(img):
   reshaped_image = tf.identity(tf.squeeze(img))
   tf.Tensor.set_shape(reshaped_image, [None, None, None])
 
-  reshaped_image = shared.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
+  reshaped_image = lib.shared.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
                                                          224, 224, dynamic_shape=True)
 
   r = tf.fill([224, 224], 103.939)

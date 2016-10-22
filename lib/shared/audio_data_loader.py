@@ -1,8 +1,8 @@
 import glob
 import tensorflow as tf
-import lib.shared.resize_image_patch
-import lib.shared.inception_loader as inception_loader
-import lib.shared.vggnet_loader as vggnet_loader
+import shared.resize_image_patch
+import shared.inception_loader as inception_loader
+import shared.vggnet_loader as vggnet_loader
 
 def build_labels(dirs):
   next_id=0
@@ -27,8 +27,8 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
 
   # Read examples from files in the filename queue.
   value = tf.read_file(input_queue[0])
-  preprocess = tf.zeros([2048])#tf.read_file(input_queue[0]+'.preprocess')
-  features = preprocess#tf.decode_raw(preprocess, tf.float32)
+  preprocess = tf.read_file(input_queue[0]+'.preprocess')
+  features = tf.decode_raw(preprocess, tf.float32)
   #features = tf.identity(tf.zeros([2048]))
 
   tf.Tensor.set_shape(features, [2048])
@@ -43,7 +43,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   reshaped_image = tf.identity(img)
   tf.Tensor.set_shape(reshaped_image, [None, None, None])
 
-  reshaped_image = lib.shared.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
+  reshaped_image = shared.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
                                                          224, 224, dynamic_shape=True)
   reshaped_image = tf.reshape(reshaped_image, [1,224,224,channels])
   #features = _get_features(reshaped_image)
@@ -52,7 +52,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   # Image processing for evaluation.
   # Crop the central [height, width] of the image.
   if(crop):
-      resized_image = lib.shared.resize_image_patch.resize_image_with_crop_or_pad(img,
+      resized_image = shared.resize_image_patch.resize_image_with_crop_or_pad(img,
                                                          height, width, dynamic_shape=True)
   else:
       resized_image = img
@@ -60,12 +60,6 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   #resized_image = reshaped_image
   tf.Tensor.set_shape(resized_image, [height,width,channels])
   print(resized_image)
-  #resized_image = tf.image.random_flip_left_right(resized_image)
-  #resized_image = tf.image.random_brightness(resized_image, 0.4)
-  #resized_image = tf.image.random_contrast(resized_image, 0.2, 1.0)
-  #resized_image = tf.image.random_hue(resized_image, 0.1)
-  #resized_image = tf.image.random_saturation(resized_image, 0.5, 1.0)
-
   #resized_image = tf.image.convert_image_dtype(resized_image, tf.float32)
   # Subtract off the mean and divide by the variance of the pixels.
   #float_image = tf.image.per_image_whitening(resized_image)
@@ -87,7 +81,7 @@ def _get_features(image):
     return vggnet_loader.get_features(image)
 
 def _get_data(image, label, features, min_queue_examples, batch_size):
-  num_preprocess_threads = 24
+  num_preprocess_threads = 8
   print(image, label)
   images, label_batch, f_b= tf.train.shuffle_batch(
       [image, label, features],

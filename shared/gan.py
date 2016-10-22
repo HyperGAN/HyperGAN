@@ -323,7 +323,10 @@ def discriminator(config, x, f,z,g,gz):
     if(config['minibatch']=='openai-smallest-image'):
       smallest_xg = get_tensor("xgs")[-1]
       print("SMALL", smallest_xg)
-      minis = block_conv(smallest_xg, config['d_activation'], batch_size, 'identity', 'd_minibatch_', output_channels=16, filter=3)
+      minis = smallest_xg
+      #todo this could be a different network?
+      minis = conv2d(minis, 16, name='d_expand_minibatch', k_w=3, k_h=3, d_h=2, d_w=2)
+      minis = block_conv(minis, config['d_activation'], batch_size, 'identity', 'd_minibatch_', output_channels=8, filter=3)
       minis = tf.reshape(minis, [config['batch_size']*2, -1])
       minis = get_minibatch_features(config, minis, batch_size,config['dtype'])
       result = tf.concat(1, [result]+minis)

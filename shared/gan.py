@@ -424,7 +424,11 @@ def discriminator_pyramid(config, x, g, xs, gs):
       xgs.append(xg)
 
       print("+++++",result, xg, "____")
-      result = tf.concat(3, [result, xg])
+      mxg = conv2d(xg, 6*(i+1), name="d_add_xg"+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
+      mxg = batch_norm(config['batch_size'], name='d_add_xg_bn_'+str(i))(mxg)
+      mxg = activation(mxg)
+
+      result = tf.concat(3, [result, xg, mxg])
 
       result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       print('discriminator result', result)

@@ -42,7 +42,7 @@ def generator(config, inputs, reuse=False):
 
         net = tf.reshape(net,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
-        nets = config['generator'](net, config)
+        nets = config['generator'](config, net)
 
         print("RETURN")
         return nets,z_dim_random_uniform
@@ -95,27 +95,15 @@ def discriminator(config, x, f,z,g,gz):
             x = tf.reshape(x,[batch_size, x_dims[0], x_dims[1], channels])
 
 
-    if(config['format']=='mp3'):
-        result = wavegan.discriminator(config,x)
-    elif(config['d_architecture']=='wide_resnet'):
-        result = discriminator_wide_resnet(config,x)
-    elif(config['d_architecture']=='densenet'):
-        result = discriminator_densenet(config,x)
-    elif(config['d_architecture']=='pyramid'):
-        result = discriminator_pyramid(config,x,g, xs, gs)
-    elif(config['d_architecture']=='fast_densenet'):
-        result = discriminator_fast_densenet(config,x)
-    else:
-        result = discriminator_vanilla(config,x)
-    result = tf.reshape(result, [batch_size, -1])
+    net = config['discriminator'](config, x, g, xs, gs)
+    net = tf.reshape(net, [batch_size, -1])
 
 
-    #result = tf.nn.dropout(result, 0.7)
-    print('before linear layer', result)
+    print('before linear layer', net)
 
     if(config['minibatch']=='openai'):
-      minis = get_minibatch_features(config, result, batch_size,config['dtype'])
-      result = tf.concat(1, [result]+minis)
+      minis = get_minibatch_features(config, net, batch_size,config['dtype'])
+      net = tf.concat(1, [net]+minis)
 
     if(config['minibatch']=='openai-smallest-image'):
       smallest_xg = get_tensor("xgs")[-1]
@@ -128,22 +116,22 @@ def discriminator(config, x, f,z,g,gz):
       minis = activation(minis)
       minis = tf.reshape(minis, [config['batch_size']*2, -1])
       minis = get_minibatch_features(config, minis, batch_size,config['dtype'])
-      result = tf.concat(1, [result]+minis)
+      net = tf.concat(1, [net]+minis)
 
     if(config['d_linear_layer']):
-        result = linear(result, config['d_linear_layers'], scope="d_linear_layer")
+        net = linear(net, config['d_linear_layers'], scope="d_linear_layer")
         if(config['d_batch_norm']):
-          result = batch_norm(config['batch_size'], name='d_bn_lin_proj')(result)
+          net = batch_norm(config['batch_size'], name='d_bn_lin_proj')(net)
 
 
-        result = activation(result)
+        net = activation(net)
 
-    last_layer = result
+    last_layer = net
     last_layer = tf.reshape(last_layer, [batch_size, -1])
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
-    print('last layer size', result)
-    result = linear(result, config['y_dims']+1, scope="d_proj")
+    print('last layer size', net)
+    net = linear(net, config['y_dims']+1, scope="d_proj")
 
     def build_logits(class_logits, num_classes):
 
@@ -166,7 +154,7 @@ def discriminator(config, x, f,z,g,gz):
 
         return class_logits, gan_logits
     num_classes = config['y_dims']+1
-    class_logits, gan_logits = build_logits(result, num_classes)
+    class_logits, gan_logits = build_logits(net, num_classes)
     return [tf.slice(class_logits, [0, 0], [single_batch_size, num_classes-1]),
                 tf.slice(gan_logits, [0], [single_batch_size]),
                 tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, num_classes-1]),

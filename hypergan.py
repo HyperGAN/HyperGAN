@@ -125,7 +125,7 @@ hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 
 # Discriminator configuration
-hc.set("discriminator", None)
+hc.set("discriminator", lib.gan.discriminator_pyramid)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set("conv_size", [3])

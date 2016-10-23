@@ -124,7 +124,7 @@ hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 hc.set('d_add_noise', [True])
-hc.set('d_noise', [2e-1])
+hc.set('d_noise', [1e-1])
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
 hc.set('g_batch_norm_last_layer', [False])

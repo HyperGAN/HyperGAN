@@ -4,11 +4,16 @@ from lib.util.globals import *
 def initialize(config, d_vars, g_vars, d_loss, g_loss):
     g_lr = np.float32(config['trainer.adam.generator.lr'])
     d_lr = np.float32(config['trainer.slowdown.discriminator.lr'])
+
+    g_optimizer = tf.train.AdamOptimizer(g_lr)
+    gvs = g_optimizer.compute_gradients(g_loss, var_list=g_vars)
+    capped_gvs = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs]
+    g_optimizer = g_optimizer.apply_gradients(capped_gvs)
+
     set_tensor("lr_value", d_lr)
     d_lr = tf.get_variable('lr', [], trainable=False, initializer=tf.constant_initializer(d_lr,dtype=config['dtype']),dtype=config['dtype'])
     set_tensor("lr", d_lr)
 
-    g_optimizer = tf.train.AdamOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
     d_optimizer = tf.train.AdamOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
     return g_optimizer, d_optimizer
 

@@ -68,7 +68,6 @@ hc.set("generator.resize_conv.depth_reduction", 1.6) # Divides our depth by this
 # Trainer configuration
 #trainer = adam_trainer
 trainer = slowdown_trainer
-#trainer = rmsprop_trainer
 #trainer = sgd_adam_trainer
 hc.set("trainer.initializer", trainer.initialize)
 hc.set("trainer.train", trainer.train)

@@ -87,7 +87,7 @@ hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [True])
-hc.set('discriminator.fc_layer.size', 128)
+hc.set('discriminator.fc_layer.size', 256)
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])

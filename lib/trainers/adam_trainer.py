@@ -24,7 +24,8 @@ def train(sess, config):
     d_class_loss = get_tensor("d_class_loss")
     g_class_loss = get_tensor("g_class_loss")
 
-    _, _, d_cost, g_cost,d_fake,d_real,d_class = sess.run([d_optimizer, g_optimizer, d_loss, g_loss, d_fake_loss, d_real_loss, d_class_loss])
+    _, d_cost = sess.run([d_optimizer, d_loss])
+    _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
     print("%2d: g cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, g_cost,d_fake, d_real, d_class ))
 
     global iteration

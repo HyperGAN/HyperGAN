@@ -114,12 +114,13 @@ def discriminator(config, x, f,z,g,gz):
     if(config['discriminator.fc_layer']):
         print('Discriminator before linear layer', net, config['discriminator.fc_layer'])
 
-        net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer")
-        if(config['d_batch_norm']):
-          net = batch_norm(config['batch_size'], name='d_bn_lin_proj')(net)
+        for layer in range(config['discriminator.fc_layers']):
+            net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer"+str(layer))
+            if(config['d_batch_norm']):
+              net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
 
 
-        net = activation(net)
+            net = activation(net)
 
     last_layer = net
     last_layer = tf.reshape(last_layer, [batch_size, -1])

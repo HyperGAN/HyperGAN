@@ -3,7 +3,13 @@ import numpy as np
 from lib.util.hc_tf import *
 
 def generator(config, net):
-    depth=4
+    depth=0
+    w=int(net.get_shape()[1])
+    target_w=int(config['x_dims'][0])
+    while(w<target_w):
+      w*=2
+      depth +=1
+
     target_size = int(net.get_shape()[1])*(2**depth)*int(net.get_shape()[2])*(2**depth)*config['channels']
     nets=[]
     activation = config['generator.activation']

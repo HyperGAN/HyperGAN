@@ -12,8 +12,51 @@ A GAN(generative adversarial network) that you can run from the command line.  I
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-6.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-7.png'/>
 
-# References
 
+## Goals
+
+* Fast
+* Flexible - any data size
+* Multi-format (image/audio)
+* Extensible
+* No preprocessing if possible
+* Easy to deploy
+
+## Architecture
+
+HyperGAN is a flexible GAN framework.  With swap out the discriminator, use a different training technique, switch data types, use a different loss function, and more.
+```
+```
+
+## Discriminators
+
+The discriminators job is to tell if something is real or fake.  In hypergan, a discriminator can also be a classifier.
+
+If the discriminator is a classifier, we treat this part of the network as a softmax classifier.
+
+To put this as an example, if we were to classify the difference between apples and oranges, most classifiers would classify a pear as an apple, having never seen a pear before.
+A classifier trained with a GAN will include additional information - a discriminator which could identify the pear as a fake image(in the context of worlds consisting of only apples and oranges).
+
+### Discriminators
+
+Implemented discriminators: TODO
+
+
+### Trainers
+
+## Server mode
+
+```
+  hypergan server=True
+```
+TODO 
+
+## Formats
+
+* jpg
+* png
+* wav(experimental)
+* mp3(experimental)
 
 ## Features
 
@@ -79,3 +122,11 @@ To use on any data:
 
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-1.png'/>
+
+# Citation
+
+If you wish to cite this project, do so like this:
+
+```
+  TOD
+```

@@ -7,8 +7,14 @@ def initialize(config, d_vars, g_vars):
     g_loss = get_tensor('g_loss')
     g_lr = np.float32(config['trainer.adam.generator.lr'])
     d_lr = np.float32(config['trainer.adam.discriminator.lr'])
-    g_optimizer = tf.train.AdamOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
-    d_optimizer = tf.train.AdamOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
+    d_beta1 = np.float32(config['trainer.adam.discriminator.beta1'])
+    d_beta2 = np.float32(config['trainer.adam.discriminator.beta2'])
+    d_epsilon = np.float32(config['trainer.adam.discriminator.epsilon'])
+    g_beta1 = np.float32(config['trainer.adam.generator.beta1'])
+    g_beta2 = np.float32(config['trainer.adam.generator.beta2'])
+    g_epsilon = np.float32(config['trainer.adam.generator.epsilon'])
+    g_optimizer = tf.train.AdamOptimizer(g_lr, beta1=g_beta1, beta2=g_beta2, epsilon=g_epsilon).minimize(g_loss, var_list=g_vars)
+    d_optimizer = tf.train.AdamOptimizer(d_lr, beta1=d_beta1, beta2=d_beta2, epsilon=d_epsilon).minimize(d_loss, var_list=d_vars)
     return g_optimizer, d_optimizer
 
 iteration = 0

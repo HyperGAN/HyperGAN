@@ -107,6 +107,10 @@ def discriminator(config, x, f,z,g,gz):
       if(config['d_batch_norm']):
         minis = batch_norm(config['batch_size'], name='d_bn_minibatch')(minis)
       minis = activation(minis)
+      minis = conv2d(minis, 32, name='d_expand_minibatch2', k_w=3, k_h=3, d_h=2, d_w=2)
+      if(config['d_batch_norm']):
+        minis = batch_norm(config['batch_size'], name='d_bn_minibatch2')(minis)
+      minis = activation(minis)
       minis = tf.reshape(minis, [config['batch_size']*2, -1])
       minis = get_minibatch_features(config, minis, batch_size,config['dtype'])
       net = tf.concat(1, [net]+minis)

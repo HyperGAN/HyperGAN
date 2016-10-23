@@ -7,6 +7,7 @@ from tensorflow.contrib import ffmpeg
 import lib.util.hc_tf as hc_tf
 import lib.generators.resize_conv as resize_conv
 import lib.trainers.adam_trainer as adam_trainer
+import lib.trainers.rmsprop_trainer as rmsprop_trainer
 import lib.trainers.slowdown_trainer as slowdown_trainer
 import lib.trainers.sgd_adam_trainer as sgd_adam_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
@@ -61,11 +62,12 @@ hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # a
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 
-hc.set("generator.resize_conv.depth_reduction", 1.75) # Divides our depth by this amount every time we go up in size
+hc.set("generator.resize_conv.depth_reduction", 1.6) # Divides our depth by this amount every time we go up in size
 
 # Trainer configuration
-trainer = adam_trainer
-#trainer = slowdown_trainer
+#trainer = adam_trainer
+trainer = slowdown_trainer
+#trainer = rmsprop_trainer
 #trainer = sgd_adam_trainer
 hc.set("trainer.initializer", trainer.initialize)
 hc.set("trainer.train", trainer.train)
@@ -79,8 +81,7 @@ hc.set("trainer.adam.generator.epsilon", 0.1) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g learning rate
 #This trainer slows D down when d_fake gets too high
-hc.set("trainer.slowdown.discriminator.lr", 1.4e-5) # d learning rate when healthy
-hc.set("trainer.slowdown.generator.lr", 1e-3) # g learning rate
+hc.set("trainer.rmsprop.discriminator.lr", 1.5e-5) # d learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
 hc.set('trainer.slowdown.discriminator.slowdown', [5]) # Divides speed by this number when unhealthy(d_fake low)
@@ -92,8 +93,8 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
-hc.set('discriminator.fc_layer', [False])
-hc.set('discriminator.fc_layers', [2])
+hc.set('discriminator.fc_layer', [True])
+hc.set('discriminator.fc_layers', [1])
 hc.set('discriminator.fc_layer.size', 512)
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use

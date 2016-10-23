@@ -1,5 +1,6 @@
 import tensorflow as tf
 from lib.util.globals import *
+TINY = 1e-12
 
 def initialize(config, d_vars, g_vars):
     d_loss = get_tensor('d_loss')

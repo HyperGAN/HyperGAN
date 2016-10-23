@@ -32,7 +32,8 @@ def train(sess, config):
     else:
         lr_value = d_lr
 
-    _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict={lr:lr_value})
+    #_, d_cost = sess.run([d_optimizer, d_loss], feed_dict={lr:lr_value})
+    _, _,d_cost,g_cost,d_fake,d_real,d_class = sess.run([d_optimizer,g_optimizer, d_loss,g_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict={lr:lr_value})
     print("%2d: d_lr %.1e g cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, lr_value, g_cost,d_fake, d_real, d_class ))
 
     global iteration

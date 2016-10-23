@@ -111,10 +111,10 @@ def discriminator(config, x, f,z,g,gz):
       minis = get_minibatch_features(config, minis, batch_size,config['dtype'])
       net = tf.concat(1, [net]+minis)
 
-    if(config['d_linear_layer']):
-        print('Discriminator before linear layer', net, config['d_linear_layers'])
+    if(config['discriminator.fc_layer']):
+        print('Discriminator before linear layer', net, config['discriminator.fc_layer'])
 
-        net = linear(net, config['d_linear_layers'], scope="d_linear_layer")
+        net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer")
         if(config['d_batch_norm']):
           net = batch_norm(config['batch_size'], name='d_bn_lin_proj')(net)
 

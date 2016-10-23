@@ -8,6 +8,8 @@ import lib.util.hc_tf as hc_tf
 import lib.generators.resize_conv as resize_conv
 import lib.trainers.adam_trainer as adam_trainer
 import lib.trainers.slowdown_trainer as slowdown_trainer
+import lib.trainers.sgd_adam_trainer as sgd_adam_trainer
+import lib.trainers.joint_trainer as joint_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
 import json
 import uuid
@@ -64,22 +66,30 @@ hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this a
 
 # Trainer configuration
 #trainer = adam_trainer
-trainer = slowdown_trainer
+#trainer = slowdown_trainer
+#trainer = sgd_adam_trainer
+trainer = joint_trainer
 hc.set("trainer.initializer", trainer.initialize)
 hc.set("trainer.train", trainer.train)
-#Adam trainer, used by dcgan.  Our parameters are different, slightly
-hc.set("trainer.adam.discriminator.lr", 1e-4) #adam_trainer d learning rate
+#Adam trainer
+hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
 hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
-#Experimental trainer settings
+#This trainer slows D down when d_fake gets too high
 hc.set("trainer.slowdown.discriminator.lr", 1.4e-5) # d learning rate when healthy
 hc.set("trainer.slowdown.generator.lr", 1e-3) # g learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
 hc.set('trainer.slowdown.discriminator.slowdown', [5]) # Divides speed by this number when unhealthy(d_fake low)
+#This trainer uses SGD on D and adam on G
+hc.set("trainer.sgd_adam.discriminator.lr", 1e-2) # d learning rate
+hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
 hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+
+hc.set('discriminator.fc_layer', [True])
+hc.set('discriminator.fc_layer.size', 128)
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])
@@ -172,8 +182,6 @@ hc.set("e_batch_norm", [True])
 hc.set("g_encoder", [True])
 
 hc.set('minibatch', 'openai-smallest-image')
-hc.set('d_linear_layer', [True])
-hc.set('d_linear_layers', 128)#list(np.arange(256,512)))
 
 hc.set('d_architecture', ['pyramid'])
 

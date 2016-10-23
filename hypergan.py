@@ -61,7 +61,7 @@ hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # a
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 
-hc.set("generator.resize_conv.depth_reduction", 1.5) # Divides our depth by this amount every time we go up in size
+hc.set("generator.resize_conv.depth_reduction", 1.75) # Divides our depth by this amount every time we go up in size
 
 # Trainer configuration
 trainer = adam_trainer
@@ -70,12 +70,12 @@ trainer = adam_trainer
 hc.set("trainer.initializer", trainer.initialize)
 hc.set("trainer.train", trainer.train)
 #Adam trainer
-hc.set("trainer.adam.discriminator.lr", 1e-5) #adam_trainer d learning rate
-hc.set("trainer.adam.discriminator.epsilon", 1) #adam epsilon for d
+hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
+hc.set("trainer.adam.discriminator.epsilon", 0.1) #adam epsilon for d
 hc.set("trainer.adam.discriminator.beta1", 0.9) #adam epsilon for d
 hc.set("trainer.adam.discriminator.beta2", 0.999) #adam epsilon for d
 hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
-hc.set("trainer.adam.generator.epsilon", 1) #adam_trainer g learning rate
+hc.set("trainer.adam.generator.epsilon", 0.1) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g learning rate
 #This trainer slows D down when d_fake gets too high
@@ -92,9 +92,9 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
-hc.set('discriminator.fc_layer', [True])
+hc.set('discriminator.fc_layer', [False])
 hc.set('discriminator.fc_layers', [2])
-hc.set('discriminator.fc_layer.size', 1024)
+hc.set('discriminator.fc_layer.size', 512)
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])

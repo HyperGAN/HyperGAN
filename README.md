@@ -1,16 +1,32 @@
-# hyperchamber-gan
-A GAN(generative adversarial network) that you can run from the command line.  Integrates with hyperchamber to find the best GAN for your dataset.
+# HyperGAN <img width="128" height="128" style='position:relative;top:16px;' src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/logo.png'/>
+A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
-## Screenshots
+## Samples
+
+The following are a small sample of the manifolds that our generators have learned.
+
+Randomly chosen:
+
+* Card game
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-1.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-2.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-3.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-4.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-5.png'/>
+
+* People
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-1.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-2.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-3.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/creepy.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-4.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-5.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-6.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/decent-7.png'/>
+
+
+* Fonts (the letter 'r')
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/font-1.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/font-2.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/font-3.png'/>
 
 ## Goals
 
@@ -109,6 +125,7 @@ TODO
 * InfoGAN-inspired categories
 * Minibatch normalization
 * Adversarial inference
+* Flask server mode
 
 ## Arguments
 
@@ -120,6 +137,7 @@ TODO
 * --epoch, optional(default 10), number of epochs to run before exiting
 * --load_config, optional(default None), the config uuid from hyperchamber to run
 * --save_every, optional(default 0), after this many epochs, the network weights/checkpoint are saved into the 'saves' directory.
+* --server, optional(default False), this will turn the app into server mode.  Currently undocumented.
 
 ## Running
 
@@ -143,6 +161,9 @@ Note: Requires a (free) account at hyperchamber to run.
 You can review the results on hyperchamber.
 
 ## How to use
+
+Fair warning, this is all still alpha.  Even so, email us if you have issues running this on your dataset.
+
 To use on any data:
 
 * Run config sweep with hyperchamber
@@ -151,20 +172,18 @@ To use on any data:
 
 ## Papers
 
-* GAN
-* DCGAN
-* InfoGAN
-* Improved GAN
-* Adversarial Inference
+* GAN - https://arxiv.org/abs/1406.2661
+* DCGAN - https://arxiv.org/abs/1511.06434
+* InfoGAN - https://arxiv.org/abs/1606.03657
+* Improved GAN - https://arxiv.org/abs/1606.03498
+* Adversarial Inference - https://arxiv.org/abs/1606.00704
 
 ## Sources
 
-* DCGAN
-* InfoGAN
-* Ian's GAN
-
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/magic-1.png'/>
+* DCGAN - https://github.com/carpedm20/DCGAN-tensorflow
+* InfoGAN - https://github.com/openai/InfoGAN
+* Improved GAN - https://github.com/openai/improved-gan
+* Hyperchamber - https://github.com/255bits/hyperchamber
 
 ## Contributing
 

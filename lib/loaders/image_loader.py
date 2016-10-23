@@ -12,7 +12,7 @@ def build_labels(dirs):
     labels[dir.split('/')[-1]]=next_id
     next_id+=1
   return labels,next_id
-def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=True):
+def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=True, preprocess=False):
   filenames = glob.glob(directory+"/**/*."+format)
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
   num_examples_per_epoch = 30000
@@ -29,12 +29,14 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
 
   # Read examples from files in the filename queue.
   value = tf.read_file(input_queue[0])
-  #TODO: reading preprocessed files is broken
-  preprocess = tf.zeros([2048])#tf.read_file(input_queue[0]+'.preprocess')
-  features = preprocess#tf.decode_raw(preprocess, tf.float32)
+  features = tf.zeros(0)
+  if(preprocess):
+      f_preprocess = tf.read_file(input_queue[0]+'.preprocess')
+      features = tf.decode_raw(f_preprocess, tf.float32)
+      tf.Tensor.set_shape(features, [2048])
+
   #features = tf.identity(tf.zeros([2048]))
 
-  tf.Tensor.set_shape(features, [2048])
   if(format == 'jpg'):
       img = tf.image.decode_jpeg(value, channels=channels)
   elif(format == 'png'):

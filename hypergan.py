@@ -73,7 +73,7 @@ hc.set("trainer.train", trainer.train)
 hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
 hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
 #This trainer slows D down when d_fake gets too high
-hc.set("trainer.slowdown.discriminator.lr", 3.4e-5) # d learning rate when healthy
+hc.set("trainer.slowdown.discriminator.lr", 1.4e-5) # d learning rate when healthy
 hc.set("trainer.slowdown.generator.lr", 1e-3) # g learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake

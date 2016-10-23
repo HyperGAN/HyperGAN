@@ -63,8 +63,8 @@ hc.set("generator.fully_connected_layers", 0) # Experimental - This should proba
 hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
 
 # Trainer configuration
-trainer = adam_trainer
-#trainer = slowdown_trainer
+#trainer = adam_trainer
+trainer = slowdown_trainer
 hc.set("trainer.initializer", trainer.initialize)
 hc.set("trainer.train", trainer.train)
 #Adam trainer, used by dcgan.  Our parameters are different, slightly
@@ -172,7 +172,7 @@ hc.set("e_batch_norm", [True])
 hc.set("g_encoder", [True])
 
 hc.set('minibatch', 'openai-smallest-image')
-hc.set('d_linear_layer', [False])
+hc.set('d_linear_layer', [True])
 hc.set('d_linear_layers', 128)#list(np.arange(256,512)))
 
 hc.set('d_architecture', ['pyramid'])

@@ -1,7 +1,9 @@
 import tensorflow as tf
 from lib.util.globals import *
 
-def initialize(config, d_vars, g_vars, d_loss, g_loss):
+def initialize(config, d_vars, g_vars):
+    d_loss = get_tensor('d_loss')
+    g_loss = get_tensor('g_loss')
     g_lr = np.float32(config['trainer.adam.generator.lr'])
     d_lr = np.float32(config['trainer.slowdown.discriminator.lr'])
 

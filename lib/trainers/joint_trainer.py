@@ -27,14 +27,14 @@ def train(sess, config):
     g_class_loss = get_tensor("g_class_loss")
     lr = get_tensor("lr")
 
-    d_lr = 1.4e-5
+    d_lr = 1.4e-5*10
     if iteration % 2 == 0:
         lr_value = 0.1*d_lr
     else:
         lr_value = d_lr
 
     #_, d_cost = sess.run([d_optimizer, d_loss], feed_dict={lr:lr_value})
-    _, d_cost,g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, d_loss,joint_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict={lr:lr_value})
+    _, d_cost,g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, d_loss,g_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict={lr:lr_value})
     print("%2d: d_lr %.1e g cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, lr_value, g_cost,d_fake, d_real, d_class ))
 
     global iteration

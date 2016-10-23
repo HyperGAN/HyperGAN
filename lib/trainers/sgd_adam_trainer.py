@@ -2,7 +2,9 @@ import tensorflow as tf
 import numpy as np
 from lib.util.globals import *
 
-def initialize(config, d_vars, g_vars, d_loss, g_loss):
+def initialize(config, d_vars, g_vars):
+    d_loss = get_tensor('d_loss')
+    g_loss = get_tensor('g_loss')
     g_lr = np.float32(config['trainer.sgd_adam.generator.lr'])
     d_lr = np.float32(config['trainer.sgd_adam.discriminator.lr'])
     g_optimizer = tf.train.AdamOptimizer(g_lr).minimize(g_loss, var_list=g_vars)

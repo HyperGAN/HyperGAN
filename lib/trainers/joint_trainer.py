@@ -1,19 +1,20 @@
 import tensorflow as tf
 from lib.util.globals import *
 
-def initialize(config, d_vars, g_vars, d_loss, g_loss):
+def initialize(config, d_vars, g_vars):
+    joint_loss = get_tensor('joint_loss')
     g_lr = np.float32(config['trainer.adam.generator.lr'])
     d_lr = np.float32(config['trainer.slowdown.discriminator.lr'])
     set_tensor("lr_value", d_lr)
     d_lr = tf.get_variable('lr', [], trainable=False, initializer=tf.constant_initializer(d_lr,dtype=config['dtype']),dtype=config['dtype'])
     set_tensor("lr", d_lr)
 
-    g_optimizer = tf.train.AdamOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
-    d_optimizer = tf.train.AdamOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
-    return g_optimizer, d_optimizer
+    g_optimizer = tf.train.AdamOptimizer(g_lr).minimize(joint_loss, var_list=g_vars+d_vars)
+    return g_optimizer, None#d_optimizer
 
 iteration = 0
 def train(sess, config):
+    joint_loss = get_tensor('joint_loss')
     x_t = get_tensor('x')
     g_t = get_tensor('g')
     g_loss = get_tensor("g_loss_sig")
@@ -33,7 +34,7 @@ def train(sess, config):
         lr_value = d_lr
 
     #_, d_cost = sess.run([d_optimizer, d_loss], feed_dict={lr:lr_value})
-    _, _,d_cost,g_cost,d_fake,d_real,d_class = sess.run([d_optimizer,g_optimizer, d_loss,g_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict={lr:lr_value})
+    _, d_cost,g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, d_loss,joint_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict={lr:lr_value})
     print("%2d: d_lr %.1e g cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, lr_value, g_cost,d_fake, d_real, d_class ))
 
     global iteration

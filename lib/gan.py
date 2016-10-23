@@ -323,13 +323,12 @@ def create_generator(config, x,y,f):
     z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
     categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
     if(len(categories) > 0):
-        categories_t = tf.concat(1, categories)
-        #categories_t = [tf.tile(categories_t, [config['batch_size'], 1])]
+        categories_t = [tf.concat(1, categories)]
     else:
         categories_t = []
 
 
-    args = [y, z,categories_t]
+    args = [y, z]+categories_t
     g,z_dim_random_uniform = generator(config, args)
     set_tensor("g", g)
     set_tensor("y", y)
@@ -337,16 +336,23 @@ def create_generator(config, x,y,f):
     return g
 
 def create(config, x,y,f):
+    # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
     set_ops_dtype(config['dtype'])
+
     batch_size = config["batch_size"]
     z_dim = int(config['z_dim'])
 
+    g_losses = []
+    d_losses = []
+
+    #initialize with random categories
     categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
     if(len(categories) > 0):
-        categories_t = tf.concat(1, categories)
+        categories_t = [tf.concat(1, categories)]
     else:
         categories_t = []
 
+    #pretrained vectors is experimental and not recommended
     if(config['pretrained_model'] == 'preprocess'):
         if(config['latent_loss']):
             encoded_z, encoded_c, z, z_mu, z_sigma = z_from_f(config, f, categories)
@@ -357,23 +363,17 @@ def create(config, x,y,f):
             z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
 
     elif(config['latent_loss']):
+        #draw z from the variational encoder
         encoded_z, z, z_mu, z_sigma = approximate_z(config, x, [y])
     else:
+        #draw z from random uniform noise
         encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
         z_mu = None
         z_sigma = None
         z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
 
-    categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
-    if(len(categories) > 0):
-        categories_t = [tf.concat(1, categories)]
-    else:
-        categories_t = []
-
+    # create generator
     g,z_dim_random_uniform = generator(config, [y, z]+categories_t)
-    set_tensor('z_dim_random_uniform', z_dim_random_uniform)
-    with tf.device('/cpu:0'):
-      print_z = tf.Print(z, [tf.reduce_mean(z), y], message="z is")
 
     encoded,_ = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
@@ -420,42 +420,34 @@ def create(config, x,y,f):
 
     d_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_real,real_symbols)
 
-    g_loss= sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
-    simple_g_loss = g_loss
+    #g loss from improved gan paper
+    simple_g_loss = sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
+    g_losses.append(simple_g_loss)
     if(config['adv_loss']):
-        g_loss+= sigmoid_kl_with_logits(d_real_sig, d_label_smooth)
+        g_losses.append(sigmoid_kl_with_logits(d_real_sig, d_label_smooth))
 
     g_loss_fake= tf.nn.sigmoid_cross_entropy_with_logits(d_real_sig, zeros)
     g_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake, real_symbols)
 
-    #g_loss_encoder = tf.nn.sigmoid_cross_entropy_with_logits(d_real, zeros)
-    #d_real = tf.nn.sigmoid(d_real)
-    #d_fake = tf.nn.sigmoid(d_fake)
-    #d_fake_loss = -tf.log(1-d_fake+TINY)
-    #d_real_loss = -tf.log(d_real+TINY)
-    #g_loss_softmax = -tf.log(1-d_real+TINY)
-    #g_loss_encoder = -tf.log(d_fake+TINY)
-    g_loss = tf.reduce_mean(g_loss)
 
     if(config['g_class_loss']):
-        g_loss+=config['g_class_lambda']*tf.reduce_mean(g_class_loss)
+        g_losses.append(config['g_class_lambda']*tf.reduce_mean(g_class_loss))
 
-    d_loss = tf.reduce_mean(d_fake_loss) + \
-            tf.reduce_mean(d_real_loss)
+    d_losses.append(d_fake_loss)
+    d_losses.append(d_real_loss)
 
     if(int(y.get_shape()[1]) > 1):
         print("Discriminator class loss is on.  Semi-supervised learning mode activated.")
-        d_loss += tf.reduce_mean(d_class_loss)
+        d_losses.append(d_class_loss)
     else:
         print("Discriminator class loss is off.  Unsupervised learning mode activated.")
 
     if(config['latent_loss']):
-        g_loss += tf.reduce_mean(latent_loss)
-        #d_loss += tf.reduce_mean(latent_loss)
+        g_losses.append(latent_loss)
 
     if(config['d_fake_class_loss']):
         d_fake_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake,fake_symbol)
-        d_loss += config['g_class_lambda']*tf.reduce_mean(d_fake_class_loss)
+        d_losses.append(config['g_class_lambda']*tf.reduce_mean(d_fake_class_loss))
 
 
     categories_l = None
@@ -465,8 +457,8 @@ def create(config, x,y,f):
         category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
         category_layer = config['generator.activation'](category_layer)
         categories_l = categories_loss(categories, category_layer, config['batch_size'])
-        g_loss -= config['categories_lambda']*categories_l
-        d_loss -= config['categories_lambda']*categories_l
+        g_losses.append(-1*config['categories_lambda']*categories_l)
+        d_losses.append(-1*config['categories_lambda']*categories_l)
 
     if config['regularize']:
         ws = None
@@ -477,7 +469,7 @@ def create(config, x,y,f):
                 tf.get_variable_scope().reuse_variables()
             lam = config['regularize_lambda']
             print("ADDING REG", lam, ws)
-            g_loss += lam*tf.nn.l2_loss(ws)
+            g_losses.append(lam*tf.nn.l2_loss(ws))
             if config['g_fc_layers'] > 0:
                 with tf.variable_scope("g_fc_0"):
                     tf.get_variable_scope().reuse_variables()
@@ -485,7 +477,7 @@ def create(config, x,y,f):
                     tf.get_variable_scope().reuse_variables()
                 lam = config['regularize_lambda']
                 print("ADDING REG", lam, ws)
-                g_loss += lam*tf.nn.l2_loss(ws)
+                g_losses.append(lam*tf.nn.l2_loss(ws))
 
 
 
@@ -500,7 +492,11 @@ def create(config, x,y,f):
     v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
     g_vars += v_vars
 
-    g_optimizer, d_optimizer = config['trainer.initializer'](config, d_vars, g_vars, d_loss, g_loss)
+    print("adding", g_losses)
+    print("and", d_losses)
+    g_loss = tf.reduce_mean(tf.add_n(g_losses))
+    d_loss = tf.reduce_mean(tf.add_n(d_losses))
+    joint_loss = tf.reduce_mean(tf.add_n(g_losses + d_losses))
 
     summary = tf.all_variables()
     def summary_reduce(s):
@@ -512,36 +508,37 @@ def create(config, x,y,f):
         return tf.reduce_mean(s,0)
 
     summary = [(s.get_shape(), s.name, s.dtype, summary_reduce(s)) for s in summary]
-    set_tensor("hc_summary",summary)
 
-    set_tensor('categories', categories_t)
-    if(config['category_loss']):
-        set_tensor('categories_loss', config['categories_lambda']*categories_l)
+    set_tensor("d_class_loss", tf.reduce_mean(d_class_loss))
+    set_tensor("d_fake", tf.reduce_mean(d_fake))
+    set_tensor("d_fake_loss", tf.reduce_mean(d_fake_loss))
+    set_tensor("d_fake_sig", tf.reduce_mean(tf.sigmoid(d_fake_sig)))
+    set_tensor("d_fake_sigmoid", tf.sigmoid(d_fake_sig))
+    set_tensor("d_loss", d_loss)
+    set_tensor("d_real", tf.reduce_mean(d_real))
+    set_tensor("d_real_loss", tf.reduce_mean(d_real_loss))
+    set_tensor("d_real_sig", tf.reduce_mean(tf.sigmoid(d_real_sig)))
+    set_tensor("encoded", encoded)
+    set_tensor("encoder_mse", mse_loss)
+    set_tensor("f", f)
+    set_tensor("g", g_sample)
+    set_tensor("g_class_loss", tf.reduce_mean(g_class_loss))
+    set_tensor("g_loss", g_loss)
+    set_tensor("g_loss_sig", tf.reduce_mean(simple_g_loss))
+    set_tensor("hc_summary",summary)
     set_tensor("x", x)
     set_tensor("y", y)
     set_tensor("z", z)
-    set_tensor("f", f)
-    set_tensor("print_z", print_z)
-    set_tensor("g_loss", g_loss)
-    set_tensor("d_loss", d_loss)
-    set_tensor("g_optimizer", g_optimizer)
-    set_tensor("d_optimizer", d_optimizer)
-    set_tensor("g", g_sample)
-    set_tensor("encoded", encoded)
+    set_tensor('categories', categories_t)
     set_tensor('encoded_z', encoded_z)
-    set_tensor("encoder_mse", mse_loss)
-    set_tensor("d_real", tf.reduce_mean(d_real))
-    set_tensor("d_fake", tf.reduce_mean(d_fake))
-    set_tensor("d_fake_loss", tf.reduce_mean(d_fake_loss))
-    set_tensor("d_real_loss", tf.reduce_mean(d_real_loss))
-    set_tensor("d_class_loss", tf.reduce_mean(d_class_loss))
-    set_tensor("g_class_loss", tf.reduce_mean(g_class_loss))
-    set_tensor("d_fake_sigmoid", tf.sigmoid(d_fake_sig))
-    set_tensor("d_fake_sig", tf.reduce_mean(tf.sigmoid(d_fake_sig)))
-    set_tensor("d_real_sig", tf.reduce_mean(tf.sigmoid(d_real_sig)))
-    set_tensor("g_loss_sig", tf.reduce_mean(simple_g_loss))
+    set_tensor('joint_loss', joint_loss)
+    set_tensor('z_dim_random_uniform', z_dim_random_uniform)
     if(config['latent_loss']):
         set_tensor('latent_loss', tf.reduce_mean(latent_loss))
+
+    g_optimizer, d_optimizer = config['trainer.initializer'](config, d_vars, g_vars)
+    set_tensor("d_optimizer", d_optimizer)
+    set_tensor("g_optimizer", g_optimizer)
 
 def test(sess, config):
     x = get_tensor("x")

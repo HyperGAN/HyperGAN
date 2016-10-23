@@ -7,6 +7,7 @@ from tensorflow.contrib import ffmpeg
 import lib.util.hc_tf as hc_tf
 import lib.generators.resize_conv as resize_conv
 import lib.trainers.adam_trainer as adam_trainer
+import lib.trainers.slowdown_trainer as slowdown_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
 import json
 import uuid
@@ -62,12 +63,19 @@ hc.set("generator.fully_connected_layers", 0) # Experimental - This should proba
 hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
 
 # Trainer configuration
-hc.set("trainer", adam_trainer.trainer)
+#trainer = adam_trainer
+trainer = slowdown_trainer
+hc.set("trainer.initializer", trainer.initialize)
+hc.set("trainer.train", trainer.train)
+#Adam trainer, used by dcgan.  Our parameters are different, slightly
 hc.set("trainer.adam.discriminator.lr", 1e-4) #adam_trainer d learning rate
 hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
-
-hc.set("trainer.slow.discriminator.lr", 1.4e-5) #adam_trainer d learning rate
-hc.set("trainer.slow.generator.lr", 1e-3) #adam_trainer g learning rate
+#Experimental trainer settings
+hc.set("trainer.slowdown.discriminator.lr", 1.4e-5) # d learning rate when healthy
+hc.set("trainer.slowdown.generator.lr", 1e-3) # g learning rate
+hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
+hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
+hc.set('trainer.slowdown.discriminator.slowdown', [5]) # Divides speed by this number when unhealthy(d_fake low)
 
 # Discriminator configuration
 hc.set("discriminator", pyramid_discriminator.discriminator)
@@ -100,17 +108,6 @@ hc.set('g_adam_epsilon', 1e-8)
 hc.set("model", "faces:1.0")
 
 
-
-hc.set("optimizer", ['rmsprop'])
-
-hc.set('rmsprop_lr', list(np.linspace(1e-5, 1e-5)))
-hc.set('rmsprop_lr_g', list(np.linspace(1,2, num=10)))
-hc.set('simple_lr', list(np.linspace(0.01, 0.012, num=100)))
-hc.set('simple_lr_g', list(np.linspace(2,3, num=10)))
-
-hc.set('momentum_lr', list(np.linspace(0.005, 0.01, num=100)))
-hc.set('momentum', list(np.linspace(0.8, 0.9999, num=1000)))
-hc.set('momentum_lr_g', list(np.linspace(1, 3, num=100)))
 
 hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
@@ -214,10 +211,6 @@ hc.set("mp3_seconds", args.seconds)
 hc.set("mp3_bitrate", args.bitrate)
 hc.set("mp3_size", args.seconds*args.bitrate)
 
-hc.set('bounds_d_fake_min', [0.05])
-hc.set('bounds_d_fake_max', [0.051])
-hc.set('bounds_d_fake_slowdown', [5])
-hc.set('bounds_step', [1])
 
 def sample_input(sess, config):
     x = get_tensor("x")
@@ -326,7 +319,7 @@ def epoch(sess, config):
     n_samples =  config['examples_per_epoch']
     total_batch = int(n_samples / batch_size)
     for i in range(total_batch):
-        d_loss, g_loss = train(sess, config)
+        d_loss, g_loss = config['trainer.train'](sess, config)
         if(i > 10 and not args.no_stop):
         
             if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):

@@ -324,14 +324,6 @@ def epoch(sess, config):
     n_samples =  config['examples_per_epoch']
     total_batch = int(n_samples / batch_size)
     for i in range(total_batch):
-        #if(i>total_batch-300):
-        #    #config['rmsprop_lr']= 3e-6
-        #    config['bounds_d_fake_min']= 0.25
-        #    config['bounds_d_fake_max']=0.25001
-        #else:
-        config['rmsprop_lr']= 1.4e-5
-        config['bounds_d_fake_min']= 0.12
-        config['bounds_d_fake_max']=0.120001
         d_loss, g_loss = train(sess, config)
         if(i > 10 and not args.no_stop):
         

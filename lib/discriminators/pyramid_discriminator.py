@@ -5,9 +5,8 @@ from lib.util.globals import *
 def discriminator(config, x, g, xs, gs):
     activation = config['discriminator.activation']
     batch_size = int(x.get_shape()[0])
-    layers = config['d_densenet_layers']
-    depth = 5
-    k = config['d_densenet_k']
+    depth_increase = config['discriminator.pyramid.depth_increase']
+    depth = config['discriminator.pyramid.layers']
     result = x
     result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
 
@@ -33,7 +32,7 @@ def discriminator(config, x, g, xs, gs):
   
         result = tf.concat(3, [result, mxg, minis])
 
-      result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
+      result = conv2d(result, int(int(result.get_shape()[3])*depth_increase), name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       print('Discriminator pyramid layer:', result)
 
     set_tensor("xgs", xgs)

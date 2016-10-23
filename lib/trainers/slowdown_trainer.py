@@ -41,7 +41,7 @@ def train(sess, config):
     bounds_max = config['trainer.slowdown.discriminator.d_fake_max']
     bounds_min = config['trainer.slowdown.discriminator.d_fake_min']
     bounds_slow = config['trainer.slowdown.discriminator.slowdown']
-    max_lr = config['trainer.slowdown.discriminator.lr']
+    max_lr = config['trainer.rmsprop.discriminator.lr']
     if(d_fake < bounds_min):
         slowdown = 1/(bounds_slow)
     elif(d_fake > bounds_max):

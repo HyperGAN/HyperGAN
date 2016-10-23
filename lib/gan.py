@@ -157,163 +157,6 @@ def discriminator(config, x, f,z,g,gz):
                 last_layer]
 
 
-def discriminator_densenet(config, x):
-    activation = config['discriminator.activation']
-    batch_size = int(x.get_shape()[0])
-    layers = config['d_densenet_layers']
-    depth = config['d_densenet_block_depth']
-    k = config['d_densenet_k']
-    result = x
-    result = conv2d(result, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
-    for i in range(layers):
-        if i != layers-1:
-            result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
-        else:
-          for j in range(depth):
-            result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
-            print("densenet size", result)
-
-
-    filter_size_w = int(result.get_shape()[1])
-    filter_size_h = int(result.get_shape()[2])
-    filter = [1,filter_size_w,filter_size_h,1]
-    stride = [1,filter_size_w,filter_size_h,1]
-    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
-    result = tf.reshape(result, [batch_size, -1])
-
-    return result
-
-def discriminator_pyramid(config, x, g, xs, gs):
-    activation = config['discriminator.activation']
-    batch_size = int(x.get_shape()[0])
-    layers = config['d_densenet_layers']
-    depth = 5
-    k = config['d_densenet_k']
-    result = x
-    result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
-
-    xgs = []
-    for i in range(depth):
-      result = batch_norm(config['batch_size'], name='d_expand_bn_'+str(i))(result)
-      result = activation(result)
-      # APPEND xs[i] and gs[i]
-      xg = tf.concat(0, [xs[i+1], gs[i+1]])
-      xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['d_noise'], dtype=config['dtype'])
-      xgs.append(xg)
-
-      mxg = conv2d(xg, 6*(i+1), name="d_add_xg"+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
-      mxg = batch_norm(config['batch_size'], name='d_add_xg_bn_'+str(i))(mxg)
-      mxg = activation(mxg)
-
-      minisx = tf.reduce_mean(xs[i+1], reduction_indices=0, keep_dims=True)
-      minisg = tf.reduce_mean(gs[i+1], reduction_indices=0, keep_dims=True)
-      minisx = tf.tile(minisx, [config['batch_size'], 1,1,1]) 
-      minisg = tf.tile(minisg, [config['batch_size'], 1,1,1]) 
-      minis = tf.concat(0, [minisx, minisg])
-
-      result = tf.concat(3, [result, mxg, minis])
-
-      result = conv2d(result, int(result.get_shape()[3])*2, name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
-      print('Discriminator pyramid layer:', result)
-
-    set_tensor("xgs", xgs)
-
-    result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
-    result = activation(result)
-
-    return result
-
-
-def discriminator_fast_densenet(config, x):
-    activation = config['discriminator.activation']
-    batch_size = int(x.get_shape()[0])
-    layers = config['d_densenet_layers']
-    depth = config['d_densenet_block_depth']
-    k = config['d_densenet_k']
-    result = x
-    result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
-    result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
-    result = activation(result)
-    result = conv2d(result, 128, name='d_expand2', k_w=3, k_h=3, d_h=2, d_w=2)
-    for i in range(layers):
-      for j in range(depth):
-        result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
-        print("Discriminator densenet layer:", result)
-      result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
-
-
-    filter_size_w = int(result.get_shape()[1])
-    filter_size_h = int(result.get_shape()[2])
-    while filter_size_h > 1:
-      result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i+10))
-      filter_size_w = int(result.get_shape()[1])
-      filter_size_h = int(result.get_shape()[2])
-      print("densenet size", result)
-      i+=1
-    result = tf.reshape(result, [batch_size, -1])
-
-    return result
-
-
-def discriminator_wide_resnet(config, x):
-    activation = config['discriminator.activation']
-    batch_size = int(x.get_shape()[0])
-    layers = config['d_wide_resnet_depth']
-    result = x
-    result = conv2d(result, layers[0], name='d_expand1a', k_w=3, k_h=3, d_h=1, d_w=1)
-    result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)
-    result = activation(result)
-    result = conv2d(result, layers[0], name='d_expand1b', k_w=1, k_h=1, d_h=1, d_w=1)
-    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_2')
-    print("DRESULT", result)
-    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_3')
-    print("DRESULT", result)
-    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_4')
-    print("DRESULT", result)
-    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_5')
-    print("DRESULT", result)
-    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_6')
-    print("DRESULT", result)
-    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_7')
-    print("DRESULT", result)
-    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_8')
-    print("DRESULT", result)
-    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_9')
-    print("DRESULT", result)
-    result = residual_block(result, activation, batch_size, 'conv', 'd_layers_10')
-    print("DRESULT", result)
-    result = residual_block(result, activation, batch_size, 'identity', 'd_layers_11')
-    print("DRESULT", result)
-    filter_size_w = int(result.get_shape()[1])
-    filter_size_h = int(result.get_shape()[2])
-    filter = [1,filter_size_w,filter_size_h,1]
-    stride = [1,filter_size_w,filter_size_h,1]
-    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
-    print("RESULT SIZE IS", result)
-    result = tf.reshape(result, [batch_size, -1])
-
-    return result
-
-
-def discriminator_vanilla(config, x):
-    x_dims = config['x_dims']
-    batch_size = config['batch_size']*2
-    single_batch_size = config['batch_size']
-    channels = (config['channels'])
-    activation = config['discriminator.activation']
-
-    result = x
-    if config['conv_d_layers']:
-        result = build_conv_tower(result, config['conv_d_layers'][:1], config['d_pre_res_filter'], config['batch_size'], config['d_batch_norm'], True, 'd_', activation, stride=config['d_pre_res_stride'])
-        if(config['d_pool']):
-            result = tf.nn.max_pool(result, [1, 3, 3, 1], [1, 2,2,1],padding='SAME')
-        result = activation(result)
-        result = build_resnet(result, config['d_resnet_depth'], config['d_resnet_filter'], 'd_conv_res_', activation, config['batch_size'], config['d_batch_norm'], conv=True)
-        result = build_conv_tower(result, config['conv_d_layers'][1:], config['d_conv_size'], config['batch_size'], config['d_batch_norm'], config['d_batch_norm_last_layer'], 'd_2_', activation)
-        result = tf.reshape(result, [batch_size, -1])
-
-    return result
-
 def z_from_f(config, f, categories):
     batch_size = config["batch_size"]
     transfer_fct = config['transfer_fct']
@@ -650,9 +493,6 @@ def create(config, x,y,f):
         mse_loss = tf.reduce_max(tf.square(x-encoded))
     else:
         mse_loss = None
-    if config['mse_loss']:
-        mse_lam = config['mse_lambda']
-        g_loss += mse_lam * mse_loss
 
     g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
     d_vars = [var for var in tf.trainable_variables() if 'd_' in var.name]
@@ -660,59 +500,7 @@ def create(config, x,y,f):
     v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
     g_vars += v_vars
 
-    if(config['optimizer'] == 'simple'):
-        d_lr = np.float32(config['simple_lr'])
-        g_mul = np.float32(config['simple_lr_g'])
-        g_lr = d_lr*g_mul
-        g_optimizer = tf.train.GradientDescentOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
-        d_optimizer = tf.train.GradientDescentOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
-    elif(config['optimizer'] == 'adam'):
-        g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(g_loss, var_list=g_vars)
-        lr = np.float32(config['d_learning_rate'])
-        set_tensor("lr_value", lr)
-        lr = tf.get_variable('lr', [], trainable=False, initializer=tf.constant_initializer(lr,dtype=config['dtype']),dtype=config['dtype'])
-        set_tensor('lr', lr)
-        d_optimizer = tf.train.AdamOptimizer(lr).minimize(d_loss, var_list=d_vars)
-        
-    elif(config['optimizer'] == 'momentum'):
-        d_lr = np.float32(config['momentum_lr'])
-        g_mul = np.float32(config['momentum_lr_g'])
-        g_lr = d_lr*g_mul
-        moment = config['momentum']
-        g_optimizer = tf.train.MomentumOptimizer(g_lr, moment).minimize(g_loss, var_list=g_vars)
-        d_optimizer = tf.train.MomentumOptimizer(d_lr, moment).minimize(d_loss, var_list=d_vars)
-    elif(config['optimizer'] == 'rmsprop'):
-        lr = np.float32(config['rmsprop_lr'])
-        set_tensor("lr_value", lr)
-        lr = tf.placeholder(config['dtype'], shape=[])
-        set_tensor('lr', lr)
-
-        d_optimizer = tf.train.RMSPropOptimizer(lr).minimize(d_loss, var_list=d_vars)
-
-    if(config['d_optim_strategy'] == 'adam'):
-        d_optimizer = tf.train.AdamOptimizer(np.float32(config['d_learning_rate'])).minimize(d_loss, var_list=d_vars)
-    elif(config['d_optim_strategy'] == 'g_adam'):
-        g_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate']))
-
-        gvs = g_optimizer.compute_gradients(g_loss, var_list=g_vars)
-        capped_gvs = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs]
-        g_optimizer = g_optimizer.apply_gradients(capped_gvs)
-
-    elif(config['d_optim_strategy'] == 'g_rmsprop'):
-        lr = np.float32(config['rmsprop_lr']) * np.float32(config['rmsprop_lr_g'])
-        g_optimizer = tf.train.RMSPropOptimizer(lr).minimize(g_loss, var_list=g_vars)
-
-    elif(config['d_optim_strategy'] == 'g_momentum'):
-        d_lr = np.float32(config['momentum_lr'])
-        g_mul = np.float32(config['momentum_lr_g'])
-        g_lr = d_lr*g_mul
-        moment = config['momentum']
-        g_optimizer = tf.train.MomentumOptimizer(g_lr, moment).minimize(g_loss, var_list=g_vars)
-
-    if(config['mse_loss']):
-        mse_optimizer = tf.train.AdamOptimizer(np.float32(config['g_learning_rate'])).minimize(mse_loss, var_list=tf.trainable_variables())
-    else:
-        mse_optimizer = None
+    g_optimizer, d_optimizer = config['trainer'](config, d_vars, g_vars, d_loss, g_loss)
 
     summary = tf.all_variables()
     def summary_reduce(s):
@@ -738,7 +526,6 @@ def create(config, x,y,f):
     set_tensor("d_loss", d_loss)
     set_tensor("g_optimizer", g_optimizer)
     set_tensor("d_optimizer", d_optimizer)
-    set_tensor("mse_optimizer", mse_optimizer)
     set_tensor("g", g_sample)
     set_tensor("encoded", encoded)
     set_tensor('encoded_z', encoded_z)
@@ -768,38 +555,13 @@ def train(sess, config):
     d_optimizer = get_tensor("d_optimizer")
     d_class_loss = get_tensor("d_class_loss")
     g_class_loss = get_tensor("g_class_loss")
-    mse_optimizer = get_tensor("mse_optimizer")
-    lr = get_tensor('lr')
-    lr_value = get_tensor('lr_value')#todo: not actually a tensor
-    #encoder_mse = get_tensor("encoder_mse")
-    #categories_l = get_tensor("categories_loss")
-    #latent_l = get_tensor("latent_loss")
-    _, d_cost = sess.run([d_optimizer, d_loss], feed_dict={lr:lr_value})
-    _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
-    print("%2d: d_lr %.1e g cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, lr_value, g_cost,d_fake, d_real, d_class ))
 
-    slowdown = 1
-    bounds_max = config['bounds_d_fake_max']
-    bounds_min = config['bounds_d_fake_min']
-    bounds_slow = config['bounds_d_fake_slowdown']
-    max_lr = config['rmsprop_lr']
-    if(d_fake < bounds_min):
-        slowdown = 1/(bounds_slow*config['bounds_step'])
-    elif(d_fake > bounds_max):
-        slowdown = 1
-    else:
-        percent = 1 - (d_fake - bounds_min)/(bounds_max-bounds_min)
-        slowdown = 1/(percent * bounds_slow + TINY)
-        if(slowdown > 1):
-            slowdown=1
-    new_lr = max_lr*slowdown
-    set_tensor("lr_value", new_lr)
+    _, d_cost = sess.run([d_optimizer, d_loss])
+    _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
+    print("%2d: g cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, g_cost,d_fake, d_real, d_class ))
 
     global iteration
     iteration+=1
-    #print("X mean %.2f max %.2f min %.2f" % (np.mean(x), np.max(x), np.min(x)))
-    #print("G mean %.2f max %.2f min %.2f" % (np.mean(g), np.max(g), np.min(g)))
-    #print("Categories loss %.6f" % categories_r)
 
     return d_cost, g_cost
 

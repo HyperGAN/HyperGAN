@@ -6,6 +6,8 @@ from lib.util.gan_server import *
 from tensorflow.contrib import ffmpeg
 import lib.util.hc_tf as hc_tf
 import lib.generators.resize_conv as resize_conv
+import lib.trainers.adam_trainer as adam_trainer
+import lib.discriminators.pyramid_discriminator as pyramid_discriminator
 import json
 import uuid
 import time
@@ -57,8 +59,16 @@ hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # a
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 
+# Trainer configuration
+hc.set("trainer", adam_trainer.trainer)
+hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
+hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
+
+hc.set("trainer.slow.discriminator.lr", 1.4e-5) #adam_trainer d learning rate
+hc.set("trainer.slow.generator.lr", 1e-3) #adam_trainer g learning rate
+
 # Discriminator configuration
-hc.set("discriminator", lib.gan.discriminator_pyramid)
+hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
@@ -181,9 +191,6 @@ hc.set("d_kernel_dims", list(np.arange(100, 300)))
 hc.set("loss", ['custom'])
 
 hc.set("adv_loss", [False])
-
-hc.set("mse_loss", [False])
-hc.set("mse_lambda",list(np.linspace(.01, .1, num=30)))
 
 hc.set("latent_loss", [False])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))

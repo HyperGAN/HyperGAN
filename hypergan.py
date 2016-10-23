@@ -65,8 +65,8 @@ hc.set("generator.resize_conv.depth_reduction", 1.75) # Divides our depth by thi
 
 # Trainer configuration
 #trainer = adam_trainer
-#trainer = slowdown_trainer
-trainer = sgd_adam_trainer
+trainer = slowdown_trainer
+#trainer = sgd_adam_trainer
 hc.set("trainer.initializer", trainer.initialize)
 hc.set("trainer.train", trainer.train)
 #Adam trainer
@@ -86,7 +86,7 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
-hc.set('discriminator.fc_layer', [False])
+hc.set('discriminator.fc_layer', [True])
 hc.set('discriminator.fc_layer.size', 128)
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use

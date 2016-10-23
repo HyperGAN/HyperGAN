@@ -486,12 +486,6 @@ def create(config, x,y,f):
     else:
         mse_loss = None
 
-    g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
-    d_vars = [var for var in tf.trainable_variables() if 'd_' in var.name]
-
-    v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
-    g_vars += v_vars
-
     print("adding", g_losses)
     print("and", d_losses)
     g_loss = tf.reduce_mean(tf.add_n(g_losses))
@@ -536,6 +530,11 @@ def create(config, x,y,f):
     if(config['latent_loss']):
         set_tensor('latent_loss', tf.reduce_mean(latent_loss))
 
+    g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
+    d_vars = [var for var in tf.trainable_variables() if 'd_' in var.name]
+
+    v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
+    g_vars += v_vars
     g_optimizer, d_optimizer = config['trainer.initializer'](config, d_vars, g_vars)
     set_tensor("d_optimizer", d_optimizer)
     set_tensor("g_optimizer", g_optimizer)

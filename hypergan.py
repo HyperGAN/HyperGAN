@@ -9,7 +9,6 @@ import lib.generators.resize_conv as resize_conv
 import lib.trainers.adam_trainer as adam_trainer
 import lib.trainers.slowdown_trainer as slowdown_trainer
 import lib.trainers.sgd_adam_trainer as sgd_adam_trainer
-import lib.trainers.joint_trainer as joint_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
 import json
 import uuid
@@ -57,25 +56,24 @@ args = parser.parse_args()
 
 # Generator configuration
 hc.set("generator", resize_conv.generator)
-hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
+hc.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 
-hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
+hc.set("generator.resize_conv.depth_reduction", 1.75) # Divides our depth by this amount every time we go up in size
 
 # Trainer configuration
 #trainer = adam_trainer
 #trainer = slowdown_trainer
-#trainer = sgd_adam_trainer
-trainer = joint_trainer
+trainer = sgd_adam_trainer
 hc.set("trainer.initializer", trainer.initialize)
 hc.set("trainer.train", trainer.train)
 #Adam trainer
 hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
 hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
 #This trainer slows D down when d_fake gets too high
-hc.set("trainer.slowdown.discriminator.lr", 1.4e-5) # d learning rate when healthy
+hc.set("trainer.slowdown.discriminator.lr", 3.4e-5) # d learning rate when healthy
 hc.set("trainer.slowdown.generator.lr", 1e-3) # g learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
@@ -88,7 +86,7 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
-hc.set('discriminator.fc_layer', [True])
+hc.set('discriminator.fc_layer', [False])
 hc.set('discriminator.fc_layer.size', 128)
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
@@ -329,10 +327,9 @@ def epoch(sess, config):
     for i in range(total_batch):
         d_loss, g_loss = config['trainer.train'](sess, config)
         if(i > 10 and not args.no_stop):
-        
             if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
                 return False
-        
+
             g = get_tensor('g')
             rX = sess.run([g[-1]])
             rX = np.array(rX)

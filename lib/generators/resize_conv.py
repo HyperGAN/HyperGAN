@@ -1,16 +1,18 @@
 import tensorflow as tf
+import numpy as np
 from lib.util.hc_tf import *
 
 def generator(config, net):
-    depth=6
+    depth=4
     target_size = int(net.get_shape()[1])*(2**depth)*int(net.get_shape()[2])*(2**depth)*config['channels']
     nets=[]
     activation = config['generator.activation']
     batch_size = config['batch_size']
+    depth_reduction = np.float32(config['generator.resize_conv.depth_reduction'])
 
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
-        layers = int(net.get_shape()[3])//1.5
+        layers = int(net.get_shape()[3])//depth_reduction
         if(i == depth-1):
             layers=config['channels']
         resized_wh=[s[1]*2, s[2]*2]

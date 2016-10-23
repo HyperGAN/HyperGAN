@@ -54,14 +54,16 @@ args = parser.parse_args()
 
 # Generator configuration
 hc.set("generator", resize_conv.generator)
-hc.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
+hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 
+hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
+
 # Trainer configuration
 hc.set("trainer", adam_trainer.trainer)
-hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
+hc.set("trainer.adam.discriminator.lr", 1e-4) #adam_trainer d learning rate
 hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
 
 hc.set("trainer.slow.discriminator.lr", 1.4e-5) #adam_trainer d learning rate

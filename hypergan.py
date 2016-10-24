@@ -90,7 +90,7 @@ hc.set("trainer.sgd_adam.discriminator.lr", 1e-2) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", densenet_discriminator.discriminator)
+hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [True])
@@ -103,6 +103,8 @@ hc.set("discriminator.pyramid.depth_increase", 1.5)
 hc.set('discriminator.densenet.k', 16) #k is the number of features that are appended on each conv pass
 hc.set('discriminator.densenet.layers', 2) #number of times to conv before size transition
 hc.set('discriminator.densenet.transitions', 6) #number of transitions
+
+hc.set('discriminator.minibatch', 'openai') #minibatch discrimination from the paper "Improved GAN"
 
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
@@ -195,9 +197,6 @@ hc.set("e_batch_norm", [True])
 
 hc.set("g_encoder", [True])
 
-hc.set('minibatch', 'openai')
-
-hc.set('d_architecture', ['pyramid'])
 
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))

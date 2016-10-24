@@ -40,6 +40,13 @@ def discriminator(config, x, g, xs, gs):
     result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
     result = activation(result)
 
+    filter_size_w = 4
+    filter_size_h = 4
+    filter = [1,filter_size_w,filter_size_h,1]
+    stride = [1,filter_size_w,filter_size_h,1]
+    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
+    result = tf.reshape(result, [batch_size, -1])
+
     return result
 
 

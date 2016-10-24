@@ -94,11 +94,11 @@ def discriminator(config, x, f,z,g,gz):
     net = tf.reshape(net, [batch_size, -1])
 
 
-    if(config['minibatch']=='openai'):
+    if(config['discriminator.minibatch']=='openai'):
       minis = get_minibatch_features(config, net, batch_size,config['dtype'])
       net = tf.concat(1, [net]+minis)
 
-    if(config['minibatch']=='openai-smallest-image'):
+    if(config['discriminator.minibatch']=='openai-smallest-image'):
       smallest_xg = get_tensor("xgs")[-1]
       print("Discriminator minibatch input size:", smallest_xg)
       minis = smallest_xg

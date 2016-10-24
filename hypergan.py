@@ -11,6 +11,7 @@ import lib.trainers.rmsprop_trainer as rmsprop_trainer
 import lib.trainers.slowdown_trainer as slowdown_trainer
 import lib.trainers.sgd_adam_trainer as sgd_adam_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
+import lib.discriminators.densenet_discriminator as densenet_discriminator
 import json
 import uuid
 import time
@@ -73,11 +74,11 @@ hc.set("trainer.initializer", trainer.initialize)
 hc.set("trainer.train", trainer.train)
 #Adam trainer
 hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
-hc.set("trainer.adam.discriminator.epsilon", 0.1) #adam epsilon for d
+hc.set("trainer.adam.discriminator.epsilon", 1e-8) #adam epsilon for d
 hc.set("trainer.adam.discriminator.beta1", 0.9) #adam epsilon for d
 hc.set("trainer.adam.discriminator.beta2", 0.999) #adam epsilon for d
 hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
-hc.set("trainer.adam.generator.epsilon", 0.1) #adam_trainer g learning rate
+hc.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g learning rate
 #This trainer slows D down when d_fake gets too high
@@ -90,7 +91,7 @@ hc.set("trainer.sgd_adam.discriminator.lr", 1e-2) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", pyramid_discriminator.discriminator)
+hc.set("discriminator", densenet_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [True])
@@ -99,6 +100,11 @@ hc.set('discriminator.fc_layer.size', 512)
 
 hc.set("discriminator.pyramid.layers", 5)
 hc.set("discriminator.pyramid.depth_increase", 1.5)
+
+hc.set('discriminator.densenet.k', 16) #k is the number of features that are appended on each conv pass
+hc.set('discriminator.densenet.layers', 2) #number of times to conv before size transition
+hc.set('discriminator.densenet.transitions', 6) #number of transitions
+
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])
@@ -190,13 +196,9 @@ hc.set("e_batch_norm", [True])
 
 hc.set("g_encoder", [True])
 
-hc.set('minibatch', 'openai-smallest-image')
+hc.set('minibatch', 'openai')
 
 hc.set('d_architecture', ['pyramid'])
-
-hc.set('d_densenet_k', 24)
-hc.set('d_densenet_block_depth', 3)
-hc.set('d_densenet_layers', 4)
 
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))

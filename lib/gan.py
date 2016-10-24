@@ -93,12 +93,10 @@ def discriminator(config, x, f,z,g,gz):
       minis = smallest_xg
       #todo this could be a different network?
       minis = conv2d(minis, 16, name='d_expand_minibatch', k_w=3, k_h=3, d_h=2, d_w=2)
-      if(config['d_batch_norm']):
-        minis = batch_norm(config['batch_size'], name='d_bn_minibatch')(minis)
+      minis = batch_norm(config['batch_size'], name='d_bn_minibatch')(minis)
       minis = activation(minis)
       minis = conv2d(minis, 32, name='d_expand_minibatch2', k_w=3, k_h=3, d_h=2, d_w=2)
-      if(config['d_batch_norm']):
-        minis = batch_norm(config['batch_size'], name='d_bn_minibatch2')(minis)
+      minis = batch_norm(config['batch_size'], name='d_bn_minibatch2')(minis)
       minis = activation(minis)
       minis = tf.reshape(minis, [config['batch_size']*2, -1])
       minis = get_minibatch_features(config, minis, batch_size,config['dtype'])
@@ -109,10 +107,7 @@ def discriminator(config, x, f,z,g,gz):
 
         for layer in range(config['discriminator.fc_layers']):
             net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer"+str(layer))
-            if(config['d_batch_norm']):
-              net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
-
-
+            net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
             net = activation(net)
 
     last_layer = net

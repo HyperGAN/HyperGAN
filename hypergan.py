@@ -129,37 +129,9 @@ hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_last_layer", [tf.nn.tanh]);
 
-hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
-hc.set('g_batch_norm_last_layer', [False])
-hc.set('d_batch_norm_last_layer', [False, True])
-hc.set('e_batch_norm_last_layer', [False, True])
-
-hc.set('g_resnet_depth', [0])
-hc.set('g_resnet_filter', [3])
-
-hc.set('g_huge_stride', [8])#[])
-hc.set('g_huge_filter', [9])
-
-hc.set('g_atrous', [False])
-hc.set('g_atrous_filter', [3])
-
 hc.set('d_resnet_depth', [0])
 hc.set('d_resnet_filter', [3])
 
-hc.set('d_wide_resnet_depth', [[16, 32, 64, 128]])
-
-hc.set("conv_size", [3])
-hc.set("d_conv_size", [3])
-hc.set("e_conv_size", [3])
-
-hc.set('d_conv_expand_restraint', [2])
-hc.set('e_conv_expand_restraint', [2])
-
-g_encode_layers = [[32, 64,128,256,512, 1024], 
-        [64,128,256,512,1024, 2048]]
-if(args.test):
-    g_encode_layers = [[10, 3, 3]]
-hc.set("g_encode_layers", g_encode_layers)
 hc.set("z_dim", 64)#list(np.arange(64,128)))
 
 hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
@@ -175,13 +147,6 @@ hc.set('d_fake_class_loss', [False])
 
 hc.set("regularize", [False])
 hc.set("regularize_lambda", list(np.linspace(0.001, .01, num=30)))
-
-hc.set("g_batch_norm", [True])
-hc.set("d_batch_norm", [True])
-hc.set("e_batch_norm", [True])
-
-hc.set("g_encoder", [True])
-
 
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
@@ -469,8 +434,6 @@ def run(args):
         config['vae.activation']=get_function(config['e_activation'])
         config['transfer_fct']=get_function(config['transfer_fct'])
         config['generator.activation.end']=get_function(config['generator.activation.end'])
-        config['e_last_layer']=get_function(config['e_last_layer'])
-        config['g_encode_layers']=[int(x) for x in config['g_encode_layers']]
         config['batch_size']=args.batch
         with tf.device(args.device):
             sess = tf.Session(config=tf.ConfigProto())

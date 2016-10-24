@@ -31,6 +31,8 @@ import matplotlib.pyplot as plt
 
 from tensorflow.python.framework import ops
 
+import importlib
+
 import argparse
 
 parser = argparse.ArgumentParser(description='Runs the GAN.')
@@ -401,22 +403,19 @@ k=0
 def get_function(name):
     if not isinstance(name, str):
         return name
-    print('name', name);
-    if(name == "function:tensorflow.python.ops.gen_nn_ops.relu"):
-        return tf.nn.relu
-    if(name == "function:tensorflow.python.ops.nn_ops.relu"):
-        return tf.nn.relu
-    if(name == "function:tensorflow.python.ops.gen_nn_ops.relu6"):
-        return tf.nn.relu6
-    if(name == "function:tensorflow.python.ops.nn_ops.relu6"):
-        return tf.nn.relu6
-    if(name == "function:tensorflow.python.ops.gen_nn_ops.elu"):
-        return tf.nn.elu
-    if(name == "function:tensorflow.python.ops.nn_ops.elu"):
-        return tf.nn.elu
-    if(name == "function:tensorflow.python.ops.math_ops.tanh"):
-        return tf.nn.tanh
-    return eval(name.split(":")[1])
+    namespaced_method = name.split(":")[1]
+    method = namespaced_method.split(".")[-1]
+    namespace = ".".join(namespaced_method.split(".")[0:-1])
+    return getattr(importlib.import_module(namespace),method)
+
+
+# Take a config and replace any string starting with 'function:' with a function lookup.
+def lookup_functions(config):
+    for key, value in config.items():
+        if(isinstance(value, str) and value.startswith("function:")):
+            config[key]=get_function(value)
+            
+    return config
 
 
 def run(args):
@@ -429,12 +428,10 @@ def run(args):
             if(not config):
                 print("Could not find config", args.load_config)
                 break
-        config['generator.activation']=get_function(config['generator.activation'])
-        config['discriminator.activation']=get_function(config['discriminator.activation'])
-        config['vae.activation']=get_function(config['e_activation'])
-        config['transfer_fct']=get_function(config['transfer_fct'])
-        config['generator.activation.end']=get_function(config['generator.activation.end'])
+
+        config = lookup_functions(config)
         config['batch_size']=args.batch
+        config['dtype']=tf.float32
         with tf.device(args.device):
             sess = tf.Session(config=tf.ConfigProto())
         channels = args.channels

@@ -168,8 +168,6 @@ hc.set("e_conv_size", [3])
 hc.set('d_conv_expand_restraint', [2])
 hc.set('e_conv_expand_restraint', [2])
 
-hc.set('include_f_in_d', [False])
-
 g_encode_layers = [[32, 64,128,256,512, 1024], 
         [64,128,256,512,1024, 2048]]
 if(args.test):
@@ -210,17 +208,8 @@ hc.set("adv_loss", [False])
 
 hc.set("latent_loss", [False])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
-hc.set("g_dropout", list(np.linspace(0.6, 0.99, num=30)))
 
-hc.set("g_project", ['linear'])
 hc.set("d_project", ['tiled'])
-
-hc.set("g_post_res_filter", [3])
-
-hc.set("d_pre_res_filter", [7])
-hc.set("d_pre_res_stride", [7])
-
-hc.set("d_pool", [False])
 
 hc.set("batch_size", args.batch)
 hc.set("format", args.format)

@@ -13,8 +13,6 @@ def generator(config, inputs, reuse=False):
     batch_size = config['batch_size']
     z_proj_dims = int(config['generator.z_projection_depth'])
 
-    if(config['include_f_in_d'] == True):
-        output_channels += 1
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
@@ -69,14 +67,6 @@ def discriminator(config, x, f,z,g,gz):
     x = tf.reshape(x, [batch_size, -1, channels])
     if(config['d_add_noise']):
         x += tf.random_normal(x.get_shape(), mean=0, stddev=config['d_noise'], dtype=config['dtype'])
-
-    if(config['include_f_in_d']):
-        channels+=1
-        x_tmp = tf.reshape(x, [single_batch_size, -1, channels-1])
-        f = build_reshape(int(x_tmp.get_shape()[1]), [f], config['d_project'], single_batch_size, config['dtype'])
-        f = tf.reshape(f, [single_batch_size, -1, 1])
-        x = tf.concat(2, [x_tmp, f])
-        x = tf.reshape(x, g.get_shape())
 
 
     if(config['format']!= 'mp3'):
@@ -382,16 +372,7 @@ def create(config, x,y,f):
 
     encoded,_ = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
-    def discard_layer(sample):
-        sample = tf.reshape(sample, [config['batch_size'],-1,config['channels']+1])
-        sample = tf.slice(sample, [0,0,0],[int(sample.get_shape()[0]),int(sample.get_shape()[1]),config['channels']])
-        sample = tf.reshape(sample, [config['batch_size'], int(x.get_shape()[1]), int(x.get_shape()[2]), config['channels']])
-        return sample
-    if(config['include_f_in_d']):
-        encoded = discard_layer(encoded)
-        g_sample = discard_layer(g)
-    else:
-        g_sample = g
+    g_sample = g
 
     d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, f, encoded_z, g, z)
 

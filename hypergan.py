@@ -97,6 +97,9 @@ hc.set('discriminator.fc_layer', [True])
 hc.set('discriminator.fc_layers', [1])
 hc.set('discriminator.fc_layer.size', 512)
 
+hc.set("discriminator.pyramid.layers", 5)
+hc.set("discriminator.pyramid.depth_increase", 1.5)
+
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])
 

@@ -11,6 +11,7 @@ import lib.trainers.rmsprop_trainer as rmsprop_trainer
 import lib.trainers.slowdown_trainer as slowdown_trainer
 import lib.trainers.sgd_adam_trainer as sgd_adam_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
+import lib.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
 import lib.discriminators.densenet_discriminator as densenet_discriminator
 import json
 import uuid
@@ -95,7 +96,7 @@ hc.set("trainer.sgd_adam.discriminator.lr", 1e-2) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", pyramid_discriminator.discriminator)
+hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [True]) #If true, include a fully connected layer at the end of the discriminator

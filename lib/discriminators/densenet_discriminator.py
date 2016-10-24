@@ -20,7 +20,20 @@ def discriminator(config, x, g, xs, gs):
         xg = tf.concat(0, [xs[i], gs[i]])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['d_noise'], dtype=config['dtype'])
         xgs.append(xg)
-        result = tf.concat(3, [result, xg])
+
+        mxg = conv2d(xg, 6*(i+1), name="d_add_xg"+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
+        mxg = batch_norm(config['batch_size'], name='d_add_xg_bn_'+str(i))(mxg)
+        mxg = activation(mxg)
+        mxg = conv2d(mxg, 6*(i+1), name="d_add_xg_2"+str(i), k_w=1, k_h=1, d_h=1, d_w=1)
+  
+        minisx = tf.reduce_mean(xs[i], reduction_indices=0, keep_dims=True)
+        minisg = tf.reduce_mean(gs[i], reduction_indices=0, keep_dims=True)
+        minisx = tf.tile(minisx, [config['batch_size']*2, 1,1,1]) 
+        minisg = tf.tile(minisg, [config['batch_size']*2, 1,1,1]) 
+        minis = [minisx, minisg]
+  
+        result = tf.concat(3, [result, mxg]+minis)
+
 
       for j in range(layers):
         result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))

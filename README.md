@@ -1,4 +1,4 @@
-# HyperGAN <img width="128" height="128" style='position:relative;top:16px;' src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/logo.png'/>
+# HyperGAN
 A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
 ## Samples
@@ -30,23 +30,71 @@ Randomly chosen:
 
 ## Goals
 
+HyperGAN is a long term project focused on making GANs easy to train and run.  It is currently in an open beta state, and contributions are welcome.
+
+* Easy to use and deploy
 * Fast
-* Flexible - any data size
-* Multi-format (image/audio)
 * Extensible
-* No preprocessing if possible
-* Easy to deploy
 
 ## Quick start
 
+### Minimum requirements
+
+1. For 256x256, we recommend a GTX 1080 or better
+2. For smaller sizes, you can use an older GPU.  
+3. For debugging syntax errors, CPU use is fine.  Otherwise use a GPU.
+
+### Increasing performance
+
+libtcmalloc instructions TODO MOVEME
+
+### Dataset
+
+First, you need a dataset.
+You can download a ~100k 256x256 human face dataset here: TODO LINK
+
 Place all of your images in a folder.  If you want classification as well, place your images in directories, where the directory name is the class label.
 
-Run these commands(requires Tensorflow):
+### Install hypergan
 
 ```
   pip install hypergan
-  hypergan [folder]
 ```
+
+### Run hypergan
+
+```
+  hypergan train [folder] -w 256 -h 256 -f png
+```
+
+
+## CLI
+
+## Saves
+
+~/.hypergan/saves/
+~/.hypergan/samples/
+
+
+### List models
+
+```
+  hypergan models
+```
+
+### Building a generator
+
+```
+  hypergan build [model]
+```
+
+### Server mode
+
+```
+  hypergan serve [model]
+```
+
+TODO: api docs/routes
 
 ## Development mode
 

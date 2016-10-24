@@ -65,9 +65,8 @@ def discriminator(config, x, f,z,g,gz):
     # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
     z = tf.concat(0, [z, gz])
     x = tf.reshape(x, [batch_size, -1, channels])
-    if(config['d_add_noise']):
-        x += tf.random_normal(x.get_shape(), mean=0, stddev=config['d_noise'], dtype=config['dtype'])
-
+    if(config['discriminator.add_noise']):
+        x += tf.random_normal(x.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
 
     if(config['format']!= 'mp3'):
         if(config['latent_loss']):

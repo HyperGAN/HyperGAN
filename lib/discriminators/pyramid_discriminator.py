@@ -17,7 +17,7 @@ def discriminator(config, x, g, xs, gs):
       # APPEND xs[i] and gs[i]
       if(i < len(xs)-1):
         xg = tf.concat(0, [xs[i+1], gs[i+1]])
-        xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['d_noise'], dtype=config['dtype'])
+        xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
         xgs.append(xg)
   
         mxg = conv2d(xg, 6*(i+1), name="d_add_xg"+str(i), k_w=3, k_h=3, d_h=1, d_w=1)

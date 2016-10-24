@@ -56,12 +56,15 @@ parser.add_argument('--build', type=bool, default=False)
 
 args = parser.parse_args()
 
+#The data type to use in our GAN.  Only float32 is supported at the moment
+hc.set('dtype', tf.float32)
 # Generator configuration
 hc.set("generator", resize_conv.generator)
 hc.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
+hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
 
 hc.set("generator.resize_conv.depth_reduction", 1.6) # Divides our depth by this amount every time we go up in size
 
@@ -93,19 +96,20 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
-hc.set('discriminator.fc_layer', [True])
-hc.set('discriminator.fc_layers', [1])
-hc.set('discriminator.fc_layer.size', 512)
+hc.set('discriminator.fc_layer', [True]) #If true, include a fully connected layer at the end of the discriminator
+hc.set('discriminator.fc_layers', [1])# Number of fully connected layers to include
+hc.set('discriminator.fc_layer.size', 512) # Size of fully connected layers
 
-hc.set("discriminator.pyramid.layers", 5)
-hc.set("discriminator.pyramid.depth_increase", 1.5)
+hc.set("discriminator.pyramid.layers", 5) #Layers in D
+hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
 
 hc.set('discriminator.densenet.k', 16) #k is the number of features that are appended on each conv pass
 hc.set('discriminator.densenet.layers', 2) #number of times to conv before size transition
 hc.set('discriminator.densenet.transitions', 6) #number of transitions
 
+hc.set('discriminator.add_noise', [True]) #add noise to input
+hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
 hc.set('discriminator.minibatch', 'openai') #minibatch discrimination from the paper "Improved GAN"
-
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])
@@ -113,34 +117,17 @@ hc.set('pretrained_model', [None])
 hc.set('f_skip_fc', False)
 hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))
 hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
-hc.set('dtype', tf.float32)
-
 
 hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 hc.set("g_mp3_filter",[3])
 hc.set("g_mp3_residual_channels", [8])
 hc.set("g_mp3_dilation_channels", [16])
-hc.set('g_skip_connections', True)
 
-hc.set('g_skip_connections_layers', [[64,32,16,8,4]])
-
-hc.set('d_optim_strategy', ['g_adam'])
-hc.set("g_learning_rate", 1e-3)#list(np.linspace(5e-4,1e-3,num=100)))
-hc.set("d_learning_rate", list(np.linspace(1e-4,5e-4,num=100)))
-
-hc.set("g_adam_beta1", 0.9) 
-hc.set("g_adam_beta2", 0.999)
-hc.set('g_adam_epsilon', 1e-8)
 hc.set("model", "faces:1.0")
-
-
 
 hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("g_last_layer", [tf.nn.tanh]);
 hc.set("e_last_layer", [tf.nn.tanh]);
-hc.set('d_add_noise', [True])
-hc.set('d_noise', [1e-1])
 
 hc.set('g_last_layer_stddev', list(np.linspace(0.15,1,num=40)))
 hc.set('g_batch_norm_last_layer', [False])

@@ -48,7 +48,7 @@ hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should mat
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
 
-hc.set("generator.resize_conv.depth_reduction", 1.6) # Divides our depth by this amount every time we go up in size
+hc.set("generator.resize_conv.depth_reduction", 1.5) # Divides our depth by this amount every time we go up in size
 
 # Trainer configuration
 #trainer = adam_trainer

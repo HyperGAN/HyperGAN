@@ -8,7 +8,7 @@ def discriminator(config, x, g, xs, gs):
     depth_increase = config['discriminator.pyramid.depth_increase']
     depth = config['discriminator.pyramid.layers']
     result = x
-    result = conv2d(result, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
+    result = conv2d(result, 32, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
 
     xgs = []
     for i in range(depth):
@@ -46,8 +46,8 @@ def discriminator(config, x, g, xs, gs):
     result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
     result = activation(result)
 
-    filter_size_w = 4
-    filter_size_h = 4
+    filter_size_w = 2
+    filter_size_h = 2
     filter = [1,filter_size_w,filter_size_h,1]
     stride = [1,filter_size_w,filter_size_h,1]
     result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')

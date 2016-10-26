@@ -96,7 +96,7 @@ hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - alway
 hc.set('discriminator.minibatch', 'openai') #minibatch discrimination from the paper "Improved GAN"
 
 hc.set("sampler", progressive_enhancement_sampler.sample)
-hc.set("sampler.samples", 2)
+hc.set("sampler.samples", 3)
 
 hc.set('encoder.sample', random_encoder.sample) # how to encode z
 

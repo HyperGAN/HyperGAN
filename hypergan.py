@@ -15,6 +15,7 @@ import lib.discriminators.pyramid_nostride_discriminator as pyramid_nostride_dis
 import lib.discriminators.densenet_discriminator as densenet_discriminator
 import lib.encoders.random_encoder as random_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
+import lib.regularizers.minibatch_regularizer as minibatch_regularizer
 import json
 import uuid
 import time
@@ -92,8 +93,7 @@ hc.set('discriminator.densenet.transitions', 6) #number of transitions
 
 hc.set('discriminator.add_noise', [True]) #add noise to input
 hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-hc.set('dicriminator.regularizers', [[minibatch_regularizer.get_features]])
-hc.set('discriminator.minibatch', 'openai') #minibatch discrimination from the paper "Improved GAN"
+hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
 
 hc.set("sampler", progressive_enhancement_sampler.sample)
 hc.set("sampler.samples", 3)
@@ -232,6 +232,8 @@ def lookup_functions(config):
     for key, value in config.items():
         if(isinstance(value, str) and value.startswith("function:")):
             config[key]=get_function(value)
+        if(isinstance(value, list) and isinstance(value[0],str) and value[0].startswith("function:")):
+            config[key]=[get_function(v) for v in value]
             
     return config
 

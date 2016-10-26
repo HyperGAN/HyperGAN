@@ -1,7 +1,11 @@
 import argparse
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Runs the GAN.')
+    parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.')
+    #subparsers = parser.add_subparsers()
+    #train_parser = subparsers.add_parser('train')
+    #build_parser = subparsers.add_parser('build')
+    #serve_parser = subparsers.add_parser('serve')
     parser.add_argument('--load_config', type=str)
     parser.add_argument('--epochs', type=int, default=10)
 

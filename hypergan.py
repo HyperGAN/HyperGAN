@@ -216,8 +216,6 @@ def test_epoch(epoch, sess, config, start_time, end_time):
     hc.io.sample(config, sample_list)
 
 
-print("Generating configs with hyper search space of ", hc.count_configs())
-
 def get_function(name):
     if not isinstance(name, str):
         return name
@@ -225,7 +223,6 @@ def get_function(name):
     method = namespaced_method.split(".")[-1]
     namespace = ".".join(namespaced_method.split(".")[0:-1])
     return getattr(importlib.import_module(namespace),method)
-
 
 # Take a config and replace any string starting with 'function:' with a function lookup.
 def lookup_functions(config):
@@ -239,6 +236,7 @@ def lookup_functions(config):
 
 
 def run(args):
+    print("Generating configs with hyper search space of ", hc.count_configs())
     for config in hc.configs(1):
         other_config = copy.copy(config)
         if(args.load_config):
@@ -250,7 +248,7 @@ def run(args):
 
         config = lookup_functions(config)
         config['batch_size']=args.batch
-        config['dtype']=tf.float32
+        config['dtype']=other_config['dtype']
         with tf.device(args.device):
             sess = tf.Session(config=tf.ConfigProto())
         channels = args.channels
@@ -269,8 +267,6 @@ def run(args):
 
         if(args.load_config):
             pass
-        #config['d_linear_layers']=other_config['d_linear_layers']
-        #config['conv_g_layers'].append(channels)
         config['examples_per_epoch']=examples_per_epoch//4
         x = train_x
         y = train_y

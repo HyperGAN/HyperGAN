@@ -18,9 +18,9 @@ def build_samples(sess, config):
     #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
     sample, sample2, sample3, d_fake_sig = sess.run([generator, gs[1], gs[2],d_fake_sigmoid], feed_dict={y:random_one_hot})
-    a = split_sample(10, d_fake_sig, sample, config['x_dims'], config['channels'])
-    b = split_sample(10, d_fake_sig, sample2, [gs[1].get_shape()[1], gs[1].get_shape()[2]], config['channels'])
-    c = split_sample(10, d_fake_sig, sample3, [gs[2].get_shape()[1], gs[2].get_shape()[2]], config['channels'])
+    a = split_sample(config['sampler.samples'], d_fake_sig, sample, config['x_dims'], config['channels'])
+    b = split_sample(config['sampler.samples'], d_fake_sig, sample2, [gs[1].get_shape()[1], gs[1].get_shape()[2]], config['channels'])
+    c = split_sample(config['sampler.samples'], d_fake_sig, sample3, [gs[2].get_shape()[1], gs[2].get_shape()[2]], config['channels'])
     return [val for pair in zip(a, b, c) for val in pair]
 
 def split_sample(n, d_fake_sig, sample, x_dims, channels):
@@ -30,7 +30,6 @@ def split_sample(n, d_fake_sig, sample, x_dims, channels):
         samples.append({'sample':s,'d':d})
     samples = sorted(samples, key=lambda x: (1-x['d']))
 
-    [print("sample ", s['d'], np.shape(s['sample'])) for s in samples[0:n]]
     return [np.reshape(s['sample'], [x_dims[0],x_dims[1], channels]) for s in samples[0:n]]
 
 def sample_input(sess, config):
@@ -65,8 +64,8 @@ def sample(sess, config):
     encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
 
     sample_list = [sample_file, sample2_file, encoded_sample]
-    sample = build_samples(sess, config)
-    for s in sample:
+    samples = build_samples(sess, config)
+    for s in samples:
         sample_file = "samples/config-"+str(iteration)+".png"
         plot(config, s, sample_file)
         sample_list.append({'image':sample_file,'label':'sample-'+str(iteration)})

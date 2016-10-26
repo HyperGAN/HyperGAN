@@ -95,6 +95,7 @@ hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - alway
 hc.set('discriminator.minibatch', 'openai') #minibatch discrimination from the paper "Improved GAN"
 
 hc.set("sampler", progressive_enhancement_sampler.sample)
+hc.set("sampler.samples", 2)
 
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])
@@ -170,8 +171,6 @@ def epoch(sess, config):
             rX = np.array(rX)
             if(np.min(rX) < -1000 or np.max(rX) > 1000):
                 return False
-
-
     return True
 
 def test_config(sess, config):
@@ -203,7 +202,7 @@ def collect_measurements(epoch, sess, config, time):
             "seconds": time/1000.0
             }
 
-def test_epoch(epoch, j, sess, config, start_time, end_time):
+def test_epoch(epoch, sess, config, start_time, end_time):
     sample = []
     sample_list = config['sampler'](sess,config)
     measurements = collect_measurements(epoch, sess, config, end_time - start_time)
@@ -247,9 +246,6 @@ def record_run(config):
 
 print("Generating configs with hyper search space of ", hc.count_configs())
 
-j=0
-k=0
-
 def get_function(name):
     if not isinstance(name, str):
         return name
@@ -269,7 +265,6 @@ def lookup_functions(config):
 
 
 def run(args):
-    j=0
     for config in hc.configs(1):
         other_config = copy.copy(config)
         if(args.load_config):
@@ -372,7 +367,7 @@ def run(args):
                     print(" |= Saving network")
                     saver.save(sess, save_file)
                 end_time = time.time()
-                j=test_epoch(i, j, sess, config, start_time, end_time)
+                test_epoch(i, sess, config, start_time, end_time)
                 if(i == args.epochs-1):
                     print("Recording run...")
                     record_run(config)

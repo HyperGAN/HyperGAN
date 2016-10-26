@@ -13,9 +13,6 @@ def build_labels(dirs):
     next_id+=1
   return labels,next_id
 def mp3_tensors_from_directory(directory, batch_size, channels=2, format='mp3', seconds=30, bitrate=16384):
-  #TODO: Broken
-  format='wav'
-  print("LEADING WITH", format, channels, seconds, bitrate)
   filenames = glob.glob(directory+"/**/*."+format)
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
   num_examples_per_epoch = 10000

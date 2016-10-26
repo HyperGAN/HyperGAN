@@ -133,7 +133,6 @@ hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
 
-
 #TODO loss functions
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
@@ -218,40 +217,6 @@ def test_epoch(epoch, sess, config, start_time, end_time):
     measurements = collect_measurements(epoch, sess, config, end_time - start_time)
     hc.io.measure(config, measurements)
     hc.io.sample(config, sample_list)
-
-
-def record_run(config):
-    results = test_config(sess, config)
-    loss = np.array(results)
-    #results = np.reshape(results, [results.shape[1], results.shape[0]])
-    g_loss = [g for g,_,_,_ in loss]
-    g_loss = np.mean(g_loss)
-    d_fake = [d_ for _,d_,_,_ in loss]
-    d_fake = np.mean(d_fake)
-    d_real = [d for _,_,d,_ in loss]
-    d_real = np.mean(d_real)
-    e_loss = [e for _,_,_,e in loss]
-    e_loss = np.mean(e_loss)
-
-    # calculate D.difficulty = reduce_mean(d_loss_fake) - reduce_mean(d_loss_real)
-    difficulty = d_real * (1-d_fake)
-    # calculate G.ranking = reduce_mean(g_loss) * D.difficulty
-    ranking = g_loss * (1.0-difficulty)
-
-    ranking = e_loss
-    results =  {
-        'difficulty':float(difficulty),
-        'ranking':float(ranking),
-        'g_loss':float(g_loss),
-        'd_fake':float(d_fake),
-        'd_real':float(d_real),
-        'e_loss':float(e_loss)
-    }
-    print("Recording ", results)
-    #hc.io.record(config, results)
-
-
-
 
 
 print("Generating configs with hyper search space of ", hc.count_configs())
@@ -378,9 +343,6 @@ def run(args):
                     saver.save(sess, save_file)
                 end_time = time.time()
                 test_epoch(i, sess, config, start_time, end_time)
-                if(i == args.epochs-1):
-                    print("Recording run...")
-                    record_run(config)
 
             tf.reset_default_graph()
             sess.close()

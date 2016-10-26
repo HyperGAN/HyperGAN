@@ -44,9 +44,6 @@ HyperGAN is a long term project focused on making GANs easy to train and run.  I
 2. For smaller sizes, you can use an older GPU.  
 3. For debugging syntax errors, CPU use is fine.  Otherwise use a GPU.
 
-### Increasing performance
-
-libtcmalloc instructions TODO MOVEME
 
 ### Dataset
 
@@ -67,8 +64,34 @@ Place all of your images in a folder.  If you want classification as well, place
   hypergan train [folder] -w 256 -h 256 -f png
 ```
 
+### Increasing performance
+
+On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include this environment variable before training
+
+```
+  LD_PRELOAD="/usr/lib/libtcmalloc.so.4" hypergan train my_dataset
+```
 
 ## CLI
+
+### hypergan train
+
+### hypergan serve
+
+Runs a trained s
+
+Our server is a small flask server which contains the following endpoints:
+
+* /sample.png
+
+Returns a random sample
+
+### hypergan build
+
+The trained generator can now be built for deployment.  Building does 2 things:
+
+* Loads the training model, which include the discriminator
+* Saves into a ckpt model containing only the generator
 
 ## Saves
 
@@ -193,29 +216,10 @@ First, choose a dataset.  If you use one of the standard datasets, you can find 
 
 For example, the following command will run a configuration with id [https://hyperchamber.255bits.com/ba3051e944601e2d98b601f3347df0b1/40k_overfit_3:1.2/samples/25e15455541d84bb76dcc4c8f8dce5a1](7543d9f4cc6746b68b3247e7c258a50e)
 
-Note: Requires a (free) account at hyperchamber to run.
 
 ```
   python3 directory-gan.py --directory test/ --channels 3 --width 64 --height 80 --format jpg --epoch 10000 --load_config 6d09d839d3b74a208a168dc3189c3f59 --save_every 10
 ```
-
-
-## Searching
-
-````
-  python3 directory-gan.py --directory test/ --channels 3 --width 64 --height 80 --format jpg --epoch 1
-```
-
-You can review the results on hyperchamber.
-
-## How to use
-
-Fair warning, this is all still alpha.  Even so, email us if you have issues running this on your dataset.
-
-To use on any data:
-
-* Run config sweep with hyperchamber
-* Run your favorite config for longer
 
 
 ## Papers

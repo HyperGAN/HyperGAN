@@ -13,6 +13,7 @@ import lib.trainers.sgd_adam_trainer as sgd_adam_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
 import lib.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
 import lib.discriminators.densenet_discriminator as densenet_discriminator
+import lib.encoders.random_encoder as random_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
 import json
 import uuid
@@ -97,8 +98,11 @@ hc.set('discriminator.minibatch', 'openai') #minibatch discrimination from the p
 hc.set("sampler", progressive_enhancement_sampler.sample)
 hc.set("sampler.samples", 2)
 
+hc.set('encoder.sample', random_encoder.sample) # how to encode z
+
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
 hc.set('pretrained_model', [None])
+
 
 hc.set('f_skip_fc', False)
 hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))

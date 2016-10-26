@@ -23,5 +23,3 @@ def parse_args():
     parser.add_argument('--build', type=bool, default=False)
 
     return parser.parse_args()
-
-

@@ -44,12 +44,11 @@ args = cli.parse_args()
 hc.set('dtype', tf.float32)
 # Generator configuration
 hc.set("generator", resize_conv.generator)
-hc.set("generator.z_projection_depth", 768) # Used in the first layer - the linear projection of z
+hc.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
-
 hc.set("generator.resize_conv.depth_reduction", 1.5) # Divides our depth by this amount every time we go up in size
 
 # Trainer configuration
@@ -93,12 +92,12 @@ hc.set('discriminator.densenet.transitions', 6) #number of transitions
 
 hc.set('discriminator.add_noise', [True]) #add noise to input
 hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
+hc.set('dicriminator.regularizers', [[minibatch_regularizer.get_features]])
 hc.set('discriminator.minibatch', 'openai') #minibatch discrimination from the paper "Improved GAN"
 
 hc.set("sampler", progressive_enhancement_sampler.sample)
 hc.set("sampler.samples", 3)
 hc.set('encoder.sample', random_encoder.sample) # how to encode z
-
 
 #TODO vae
 #hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
@@ -108,11 +107,9 @@ hc.set('encoder.sample', random_encoder.sample) # how to encode z
 #hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))
 #hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 
-
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
 #TODO preprocess loader
 #hc.set('pretrained_model', [None])
-
 
 #TODO audio
 #hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])

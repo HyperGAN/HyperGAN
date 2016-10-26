@@ -70,10 +70,10 @@ def discriminator(config, x, f,z,g,gz):
     net = config['discriminator'](config, x, g, xs, gs)
     net = tf.reshape(net, [batch_size, -1])
 
-
-    if(config['discriminator.minibatch']=='openai'):
-      minis = get_minibatch_features(config, net, batch_size,config['dtype'])
-      net = tf.concat(1, [net]+minis)
+    regularizers = []
+    for regularizer in config['discriminator.regularizers']:
+        regularizers += regularizer(config,net)
+    net = tf.concat(1, [net]+regularizers)
 
     if(config['discriminator.fc_layer']):
         print('Discriminator before linear layer', net, config['discriminator.fc_layer'])
@@ -201,7 +201,7 @@ def create(config, x,y,f):
     # create generator
     g = generator(config, [y, z]+categories_t)
 
-    encoded,_ = generator(config, [y, encoded_z]+categories_t, reuse=True)
+    encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
     g_sample = g
 

@@ -97,67 +97,73 @@ hc.set('discriminator.minibatch', 'openai') #minibatch discrimination from the p
 
 hc.set("sampler", progressive_enhancement_sampler.sample)
 hc.set("sampler.samples", 3)
-
 hc.set('encoder.sample', random_encoder.sample) # how to encode z
 
+
+#TODO vae
+#hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+#hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+#hc.set("e_last_layer", [tf.nn.tanh]);
+#hc.set('f_skip_fc', False)
+#hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))
+#hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
+
+
 ## Below here are legacy settings that need to be cleaned up - they may still be in use
-hc.set('pretrained_model', [None])
+#TODO preprocess loader
+#hc.set('pretrained_model', [None])
 
 
-hc.set('f_skip_fc', False)
-hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))
-hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
-
-hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
-hc.set("g_mp3_filter",[3])
-hc.set("g_mp3_residual_channels", [8])
-hc.set("g_mp3_dilation_channels", [16])
+#TODO audio
+#hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
+#hc.set("g_mp3_filter",[3])
+#hc.set("g_mp3_residual_channels", [8])
+#hc.set("g_mp3_dilation_channels", [16])
+#hc.set("mp3_seconds", args.seconds)
+#hc.set("mp3_bitrate", args.bitrate)
+#hc.set("mp3_size", args.seconds*args.bitrate)
 
 hc.set("model", "faces:1.0")
 
-hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-hc.set("e_last_layer", [tf.nn.tanh]);
+hc.set("z_dim", 64) #TODO rename to generator.z
 
-hc.set('d_resnet_depth', [0])
-hc.set('d_resnet_filter', [3])
-
-hc.set("z_dim", 64)#list(np.arange(64,128)))
-
-hc.set('z_dim_random_uniform', 0)#list(np.arange(32,64)))
-
+#TODO category/bernouilli
 categories = [[2]+[2]+build_categories_config(30)]
 hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
 
+
+#TODO loss functions
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
 hc.set('d_fake_class_loss', [False])
 
+#TODO regularizers
 hc.set("regularize", [False])
 hc.set("regularize_lambda", list(np.linspace(0.001, .01, num=30)))
 
+#TODO one-sided label smoothing loss
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
+#TODO move to minibatch
 hc.set("d_kernels", list(np.arange(20, 30)))
 hc.set("d_kernel_dims", list(np.arange(100, 300)))
 
+#TODO remove and replace with losses
 hc.set("loss", ['custom'])
 
+#TODO Vae Loss
 hc.set("adv_loss", [False])
-
 hc.set("latent_loss", [False])
 hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 
+#TODO Is this about adding z to the D?  Is this right? Investigate
 hc.set("d_project", ['tiled'])
 
 hc.set("batch_size", args.batch)
 hc.set("format", args.format)
-hc.set("mp3_seconds", args.seconds)
-hc.set("mp3_bitrate", args.bitrate)
-hc.set("mp3_size", args.seconds*args.bitrate)
 
 
 def epoch(sess, config):

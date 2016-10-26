@@ -16,13 +16,6 @@ def generator(config, inputs, reuse=False):
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
-        if(int(config['z_dim_random_uniform']) > 0):
-            z_dim_random_uniform = tf.random_uniform([config['batch_size'], int(config['z_dim_random_uniform'])],-1, 1,dtype=config['dtype'])
-            #z_dim_random_uniform = tf.zeros_like(z_dim_random_uniform)
-            z_dim_random_uniform = tf.identity(z_dim_random_uniform)
-            inputs.append(z_dim_random_uniform)
-        else:
-            z_dim_random_uniform = None
 
         original_z = tf.concat(1, inputs)
         layers = config['generator.fully_connected_layers']
@@ -41,7 +34,7 @@ def generator(config, inputs, reuse=False):
 
         nets = config['generator'](config, net)
 
-        return nets,z_dim_random_uniform
+        return nets
 
 def discriminator(config, x, f,z,g,gz):
     batch_size = config['batch_size']*2
@@ -180,7 +173,7 @@ def create_generator(config, x,y,f):
 
 
     args = [y, z]+categories_t
-    g,z_dim_random_uniform = generator(config, args)
+    g = generator(config, args)
     set_tensor("g", g)
     set_tensor("y", y)
     set_tensor("z", z)
@@ -206,7 +199,7 @@ def create(config, x,y,f):
     z, encoded_z, z_mu, z_sigma = config['encoder.sample'](config)
 
     # create generator
-    g,z_dim_random_uniform = generator(config, [y, z]+categories_t)
+    g = generator(config, [y, z]+categories_t)
 
     encoded,_ = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
@@ -350,7 +343,6 @@ def create(config, x,y,f):
     set_tensor('categories', categories_t)
     set_tensor('encoded_z', encoded_z)
     set_tensor('joint_loss', joint_loss)
-    set_tensor('z_dim_random_uniform', z_dim_random_uniform)
     if(config['latent_loss']):
         set_tensor('latent_loss', tf.reduce_mean(latent_loss))
 

@@ -80,7 +80,7 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
-hc.set('discriminator.fc_layer', [True]) #If true, include a fully connected layer at the end of the discriminator
+hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
 hc.set('discriminator.fc_layers', [1])# Number of fully connected layers to include
 hc.set('discriminator.fc_layer.size', 512) # Size of fully connected layers
 
@@ -229,7 +229,7 @@ def lookup_functions(config):
     for key, value in config.items():
         if(isinstance(value, str) and value.startswith("function:")):
             config[key]=get_function(value)
-        if(isinstance(value, list) and isinstance(value[0],str) and value[0].startswith("function:")):
+        if(isinstance(value, list) and len(value) > 0 and isinstance(value[0],str) and value[0].startswith("function:")):
             config[key]=[get_function(v) for v in value]
             
     return config

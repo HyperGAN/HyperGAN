@@ -4,7 +4,10 @@ from lib.util.globals import *
 
 # This is openai's implementation of minibatch regularization
 def get_features(config,net):
-  return get_minibatch_features(config, net, config['batch_size']*2,config['dtype'])
+  net = tf.reshape(net, [config['batch_size']*2, -1])
+  minis= get_minibatch_features(config, net, config['batch_size']*2,config['dtype'])
+  print("MINIS", minis)
+  return minis
 
 def get_minibatch_features(config, h,batch_size,dtype):
   single_batch_size = batch_size//2

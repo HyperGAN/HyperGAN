@@ -29,7 +29,7 @@ def discriminator(config, x, g, xs, gs):
 
         xgs_conv.append(mxg)
   
-        result = tf.concat(3, [result, mxg])
+        result = tf.concat(3, [result, xg])
 
       filter_size_w = 2
       filter_size_h = 2

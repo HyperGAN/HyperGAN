@@ -68,30 +68,54 @@ def discriminator(config, x, f,z,g,gz):
 
 
     net = config['discriminator'](config, x, g, xs, gs)
-    net = tf.reshape(net, [batch_size, -1])
+    #net = tf.reshape(net, [batch_size, -1])
 
     regularizers = []
     for regularizer in config['discriminator.regularizers']:
         regularizers += regularizer(config,net)
-    net = tf.concat(1, [net]+regularizers)
 
-    if(config['discriminator.fc_layer']):
-        print('Discriminator before linear layer', net, config['discriminator.fc_layer'])
+    #if(config['discriminator.fc_layer']):
+    #    print('Discriminator before linear layer', net, config['discriminator.fc_layer'])
 
-        for layer in range(config['discriminator.fc_layers']):
-            net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer"+str(layer))
-            net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
-            net = activation(net)
+    #    for layer in range(config['discriminator.fc_layers']):
+    #        net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer"+str(layer))
+    #        net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
+    #        net = activation(net)
 
     last_layer = net
     last_layer = tf.reshape(last_layer, [batch_size, -1])
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
     print('Discriminator last layer size:', net)
-    net = linear(net, config['y_dims']+1, scope="d_proj", stddev=0.01)
+    bs=config['batch_size']
+    filter_size_w=int(net.get_shape()[1])
+    filter_size_h=int(net.get_shape()[2])
+    d=int(net.get_shape()[3])
+    filter = [1,filter_size_w,filter_size_h,1]
+    stride = [1,filter_size_w,filter_size_h,1]
+    net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+    net = conv2d(net, int(net.get_shape()[3]), name='d_endd', k_w=1, k_h=1, d_h=1, d_w=1)
+    net = batch_norm(config['batch_size'], name='d_bnend')(net)
+    net = activation(net)
+    net = tf.reshape(net, [config['batch_size']*2, -1])
+    net = tf.concat(1, [net]+regularizers)
+    s = [int(x) for x in net.get_shape()]
+    net = tf.reshape(net, [s[0], 1, 1, s[1]])
+    net = conv2d(net, int(net.get_shape()[3]), stddev=0.0002, name='d_endd2', k_w=1, k_h=1, d_h=1, d_w=1)
+    net = tf.reshape(net, [config['batch_size']*2, -1])
+    net = tf.reduce_mean(net, 1)
+    net = tf.reshape(net,  [config['batch_size']*2, 1])
+    class_logits = net
+    gan_logits = net
+    return [tf.slice(class_logits, [0, 0], [single_batch_size, 1]),
+                tf.slice(gan_logits, [0,0], [single_batch_size,1]),
+                tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, 1]),
+                tf.slice(gan_logits, [single_batch_size,0], [single_batch_size,1]),
+                last_layer]
+
+    net = linear(net, config['y_dims']+1, scope="d_proj", stddev=0.002)
 
     def build_logits(class_logits, num_classes):
-
         generated_class_logits = tf.squeeze(tf.slice(class_logits, [0, num_classes - 1], [batch_size, 1]))
         positive_class_logits = tf.slice(class_logits, [0, 0], [batch_size, num_classes - 1])
 

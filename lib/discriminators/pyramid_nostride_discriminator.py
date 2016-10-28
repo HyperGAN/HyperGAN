@@ -37,7 +37,6 @@ def discriminator(config, x, g, xs, gs):
     result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
     result = activation(result)
 
-
     return result
 
 

@@ -16,6 +16,7 @@ import lib.discriminators.densenet_discriminator as densenet_discriminator
 import lib.encoders.random_encoder as random_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
 import lib.regularizers.minibatch_regularizer as minibatch_regularizer
+import lib.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer
 import json
 import uuid
 import time
@@ -93,7 +94,7 @@ hc.set('discriminator.densenet.transitions', 6) #number of transitions
 
 hc.set('discriminator.add_noise', [True]) #add noise to input
 hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
+hc.set('discriminator.regularizers', [[progressive_enhancement_minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
 
 hc.set("sampler", progressive_enhancement_sampler.sample)
 hc.set("sampler.samples", 3)

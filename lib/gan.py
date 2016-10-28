@@ -89,6 +89,7 @@ def discriminator(config, x, f,z,g,gz):
 
     print('Discriminator last layer size:', net)
     net = linear(net, config['y_dims']+1, scope="d_proj")
+    net = batch_norm(config['batch_size'], name='d_bn_lin_proj_end')(net)
 
     def build_logits(class_logits, num_classes):
 

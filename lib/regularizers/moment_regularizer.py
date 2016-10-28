@@ -6,6 +6,14 @@ from lib.util.globals import *
 def get_features(config,net):
   net = get_tensor('xgs')
   net = net[-1]
+  #s = [int(x) for x in xg.get_shape()]
+  #moments = tf.reshape(xg, [config['batch_size'], 2, s[1], s[2], s[3]])
+  #moments = tf.nn.moments(xg, [1])
+  #moments = tf.reshape(xg, s)
+  #
+  #result = tf.concat(3, [result, xg, moments])
+
+
   s = [int(x) for x in net.get_shape()]
   net1 = tf.slice(net, [0,0,0,0], [config['batch_size'], s[1], s[2], s[3]])
   net2 = tf.slice(net, [config['batch_size'],0,0,0], [config['batch_size'], s[1], s[2], s[3]])

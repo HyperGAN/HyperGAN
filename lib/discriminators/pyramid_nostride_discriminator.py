@@ -35,8 +35,8 @@ def discriminator(config, x, g, xs, gs):
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
-      result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
       result = conv2d(result, int(int(result.get_shape()[3])*depth_increase), name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
+      result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
 
       print('Discriminator pyramid layer:', result)
 

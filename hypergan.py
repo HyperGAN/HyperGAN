@@ -86,7 +86,7 @@ hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected la
 hc.set('discriminator.fc_layers', [1])# Number of fully connected layers to include
 hc.set('discriminator.fc_layer.size', 512) # Size of fully connected layers
 
-hc.set("discriminator.pyramid.layers", 5) #Layers in D
+hc.set("discriminator.pyramid.layers", 6) #Layers in D
 hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
 
 hc.set('discriminator.densenet.k', 16) #k is the number of features that are appended on each conv pass
@@ -95,7 +95,7 @@ hc.set('discriminator.densenet.transitions', 6) #number of transitions
 
 hc.set('discriminator.add_noise', [True]) #add noise to input
 hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-hc.set('discriminator.regularizers', [[progressive_enhancement_minibatch_regularizer.get_features, moment_regularizer.get_features]]) # these regularizers get applied at the end of D
+hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
 
 hc.set("sampler", progressive_enhancement_sampler.sample)
 hc.set("sampler.samples", 3)

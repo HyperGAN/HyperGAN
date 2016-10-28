@@ -93,15 +93,15 @@ def discriminator(config, x, f,z,g,gz):
     d=int(net.get_shape()[3])
     filter = [1,filter_size_w,filter_size_h,1]
     stride = [1,filter_size_w,filter_size_h,1]
-    net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
     net = conv2d(net, int(net.get_shape()[3]), name='d_endd', k_w=1, k_h=1, d_h=1, d_w=1)
+    net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
     net = batch_norm(config['batch_size'], name='d_bnend')(net)
     net = activation(net)
     net = tf.reshape(net, [config['batch_size']*2, -1])
     net = tf.concat(1, [net]+regularizers)
     s = [int(x) for x in net.get_shape()]
     net = tf.reshape(net, [s[0], 1, 1, s[1]])
-    net = conv2d(net, int(net.get_shape()[3]), stddev=0.0002, name='d_endd2', k_w=1, k_h=1, d_h=1, d_w=1)
+    net = conv2d(net, int(net.get_shape()[3]), stddev=0.1, name='d_endd2', k_w=1, k_h=1, d_h=1, d_w=1)
     net = tf.reshape(net, [config['batch_size']*2, -1])
     net = tf.reduce_mean(net, 1)
     net = tf.reshape(net,  [config['batch_size']*2, 1])

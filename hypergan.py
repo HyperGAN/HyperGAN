@@ -64,12 +64,12 @@ hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
 hc.set("trainer.adam.discriminator.epsilon", 1e-8) #adam epsilon for d
 hc.set("trainer.adam.discriminator.beta1", 0.9) #adam epsilon for d
 hc.set("trainer.adam.discriminator.beta2", 0.999) #adam epsilon for d
-hc.set("trainer.adam.generator.lr", 1e-3*5) #adam_trainer g learning rate
+hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g learning rate
 #This trainer slows D down when d_fake gets too high
-hc.set("trainer.rmsprop.discriminator.lr", 1.5e-5*5) # d learning rate
+hc.set("trainer.rmsprop.discriminator.lr", 1.5e-5) # d learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
 hc.set('trainer.slowdown.discriminator.slowdown', [5]) # Divides speed by this number when unhealthy(d_fake low)

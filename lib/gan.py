@@ -88,8 +88,7 @@ def discriminator(config, x, f,z,g,gz):
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
     print('Discriminator last layer size:', net)
-    net = linear(net, config['y_dims']+1, scope="d_proj")
-    net = batch_norm(config['batch_size'], name='d_bn_lin_proj_end')(net)
+    net = linear(net, config['y_dims']+1, scope="d_proj", stddev=0.01)
 
     def build_logits(class_logits, num_classes):
 

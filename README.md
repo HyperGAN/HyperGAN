@@ -1,6 +1,11 @@
 # HyperGAN
 A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
+## Changelog
+
+### 0.5('faces' release)
+* Beta released to pip
+
 ## Samples
 
 The following are a small sample of the manifolds that our generators have learned.
@@ -30,7 +35,9 @@ Randomly chosen:
 
 ## Goals
 
-HyperGAN is a long term project focused on making GANs easy to train and run.  It is currently in an open beta state, and contributions are welcome.
+HyperGAN is focused on making GANs easy to train and run.
+
+It is currently in an open beta state, and contributions are welcome.
 
 * Easy to use and deploy
 * Fast
@@ -41,7 +48,7 @@ HyperGAN is a long term project focused on making GANs easy to train and run.  I
 ### Minimum requirements
 
 1. For 256x256, we recommend a GTX 1080 or better
-2. For smaller sizes, you can use an older GPU.  
+2. For smaller sizes, you can use an older GPU. 
 3. For debugging syntax errors, CPU use is fine.  Otherwise use a GPU.
 
 
@@ -50,7 +57,7 @@ HyperGAN is a long term project focused on making GANs easy to train and run.  I
 First, you need a dataset.
 You can download a ~100k 256x256 human face dataset here: TODO LINK
 
-Place all of your images in a folder.  If you want classification as well, place your images in directories, where the directory name is the class label.
+Place all of your images in a folder.  If you want classification as well, place your images in subfolders, where the subfolder name is the class label.
 
 ### Install hypergan
 
@@ -150,6 +157,16 @@ If the discriminator is a classifier, we treat this part of the network as a sof
 
 To put this as an example, if we were to classify the difference between apples and oranges, most classifiers would classify a pear as an apple, having never seen a pear before.
 A classifier trained with a GAN will include additional information - a discriminator which could identify the pear as a fake image(in the context of worlds consisting of only apples and oranges).
+
+At a high level our discriminator does the following:
+
+```
+  create_discriminator:
+    graph = x #our input data
+    graph.apply 'discriminator.pre.regularizers' - this could be just gaussian noise
+    graph.apply 'discriminator'
+    graph.apply 'discriminator.post.regularizers' -
+```
 
 ### Options
 

@@ -9,13 +9,13 @@ def mini_for(net, index):
     filter = [1,sz,sz,1]
     stride = [1,sz,sz,1]
     net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
-  net = conv2d(net, 16, name='d_minis'+str(index), k_w=3, k_h=3, d_h=1, d_w=1)
   return net
 
 # This is openai's implementation of minibatch regularization
 def get_features(config,net):
-  xg = get_tensor('xgs')
-  net = tf.concat(3, [mini_for(xg,-1), mini_for(xg,-3)])
+  xg = get_tensor('xgs_conv')
+  print('--',xg)
+  net = tf.concat(3, [mini_for(xg,-1), mini_for(xg, -2), mini_for(xg,-3)])
   net = tf.reshape(net, [config['batch_size']*2, -1])
   return get_minibatch_features(config, net, config['batch_size']*2,config['dtype'])
 

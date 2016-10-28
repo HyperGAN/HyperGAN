@@ -12,6 +12,7 @@ def discriminator(config, x, g, xs, gs):
     result = conv2d(result, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
 
     xgs = []
+    xgs_conv = []
     for i in range(depth):
       result = batch_norm(config['batch_size'], name='d_expand_bn_'+str(i))(result)
       result = activation(result)
@@ -19,9 +20,16 @@ def discriminator(config, x, g, xs, gs):
       if(i < len(xs) and i > 0):
         xg = tf.concat(0, [xs[i], gs[i]])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
+
         xgs.append(xg)
+
+        mxg = conv2d(xg, 6*(i), name="d_add_xg"+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
+        mxg = batch_norm(config['batch_size'], name='d_add_xg_bn_'+str(i))(mxg)
+        mxg = activation(mxg)
+
+        xgs_conv.append(mxg)
   
-        result = tf.concat(3, [result, xg])
+        result = tf.concat(3, [result, mxg])
 
       filter_size_w = 2
       filter_size_h = 2
@@ -33,6 +41,7 @@ def discriminator(config, x, g, xs, gs):
       print('Discriminator pyramid layer:', result)
 
     set_tensor("xgs", xgs)
+    set_tensor("xgs_conv", xgs_conv)
 
     result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
     result = activation(result)

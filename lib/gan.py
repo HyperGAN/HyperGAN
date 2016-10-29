@@ -33,7 +33,7 @@ def generator(config, inputs, reuse=False):
         i=0
         s = [int(x) for x in net.get_shape()]
         net = tf.reshape(net, [s[0],1,1,s[1]])
-        net = conv2d(net, s[1], name="g_init", k_w=1, k_h=1, d_h=1, d_w=1)
+        net = conv2d(net, z_proj_dims*primes[0]*primes[1]//4, name="g_init", k_w=1, k_h=1, d_h=1, d_w=1)
         depth=2
         while(int(net.get_shape()[2])<primes[0]):
             s = [int(x) for x in net.get_shape()]

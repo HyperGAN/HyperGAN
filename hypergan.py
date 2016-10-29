@@ -82,7 +82,7 @@ hc.set("trainer.sgd_adam.discriminator.lr", 1e-2) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
+hc.set("discriminator", densenet_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
@@ -92,13 +92,13 @@ hc.set('discriminator.fc_layer.size', 512) # Size of fully connected layers
 hc.set("discriminator.pyramid.layers", 6) #Layers in D
 hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
 
-hc.set('discriminator.densenet.k', 16) #k is the number of features that are appended on each conv pass
-hc.set('discriminator.densenet.layers', 2) #number of times to conv before size transition
-hc.set('discriminator.densenet.transitions', 6) #number of transitions
+hc.set('discriminator.densenet.k', 24) #k is the number of features that are appended on each conv pass
+hc.set('discriminator.densenet.layers', 3) #number of times to conv before size transition
+hc.set('discriminator.densenet.transitions', 7) #number of transitions
 
 hc.set('discriminator.add_noise', [True]) #add noise to input
 hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-hc.set('discriminator.regularizers', [[]]) # these regularizers get applied at the end of D
+hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
 
 hc.set("sampler", progressive_enhancement_sampler.sample)
 hc.set("sampler.samples", 3)

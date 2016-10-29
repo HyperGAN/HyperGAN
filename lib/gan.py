@@ -31,9 +31,13 @@ def generator(config, inputs, reuse=False):
         #net = linear(net, z_proj_dims, scope="g_lin_proj")
 
         gz = int(net.get_shape()[1])
-        net = linear(net, z_proj_dims*primes[0]*primes[1]//2, scope="g_lin_proj")
-        new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims//2]
+        #net = linear(net, gz*primes[0]*primes[1]*4, scope="g_lin_proj")
+        new_shape = [config['batch_size'], primes[0],primes[1],gz]
         net = tf.reshape(net, new_shape)
+
+        #noise = tf.random_uniform(new_shape,-1, 1, dtype=config['dtype'])
+        #net = tf.concat(3, [net,noise])
+
         net = conv2d(net, z_proj_dims, name='g_conv_proj', k_w=1, k_h=1, d_h=1, d_w=1)
         print("Generator created conv layer:", net)
 
@@ -77,9 +81,6 @@ def discriminator(config, x, f,z,g,gz):
     net = config['discriminator'](config, x, g, xs, gs)
     #net = tf.reshape(net, [batch_size, -1])
 
-    regularizers = []
-    for regularizer in config['discriminator.regularizers']:
-        regularizers += regularizer(config,net)
 
     #if(config['discriminator.fc_layer']):
     #    print('Discriminator before linear layer', net, config['discriminator.fc_layer'])
@@ -93,14 +94,20 @@ def discriminator(config, x, f,z,g,gz):
     last_layer = tf.reshape(last_layer, [batch_size, -1])
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
-    net = tf.reshape(net, [config['batch_size']*2, -1])
-    net = tf.concat(1, [net]+regularizers)
-    s = [int(x) for x in net.get_shape()]
-    net = tf.reshape(net, [s[0], 1, 1, s[1]])
-    net = conv2d(net, int(net.get_shape()[3]), name='d_endd2', k_w=1, k_h=1, d_h=1, d_w=1, stddev=0.1)
+    regularizers = []
+    for regularizer in config['discriminator.regularizers']:
+        regs = regularizer(config, net)
+        regularizers += [tf.reshape(r,[int(r.get_shape()[0]),1,1,int(r.get_shape()[1])]) for r in regs]
+
+    net = tf.concat(3, [net]+regularizers)
+    net = conv2d(net, net.get_shape()[3], name='d_endd3', k_w=1, k_h=1, d_h=1, d_w=1, stddev=0.3)
+
     net = tf.reshape(net, [config['batch_size']*2, -1])
     net = tf.reduce_mean(net, 1)
     net = tf.reshape(net,  [config['batch_size']*2, 1])
+
+    #net = linear(net, 1, scope="d_proj", stddev=0.002)
+
     class_logits = net
     gan_logits = net
     return [tf.slice(class_logits, [0, 0], [single_batch_size, 1]),
@@ -109,7 +116,6 @@ def discriminator(config, x, f,z,g,gz):
                 tf.slice(gan_logits, [single_batch_size,0], [single_batch_size,1]),
                 last_layer]
 
-    net = linear(net, config['y_dims']+1, scope="d_proj", stddev=0.002)
 
     def build_logits(class_logits, num_classes):
         generated_class_logits = tf.squeeze(tf.slice(class_logits, [0, num_classes - 1], [batch_size, 1]))

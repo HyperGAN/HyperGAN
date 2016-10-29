@@ -31,8 +31,8 @@ def generator(config, inputs, reuse=False):
         #net = linear(net, z_proj_dims, scope="g_lin_proj")
 
         gz = int(net.get_shape()[1])
-        net = linear(net, gz*primes[0]*primes[1], scope="g_lin_proj")
-        new_shape = [config['batch_size'], primes[0],primes[1],gz]
+        net = linear(net, z_proj_dims*primes[0]*primes[1]//2, scope="g_lin_proj")
+        new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims//2]
         net = tf.reshape(net, new_shape)
         net = conv2d(net, z_proj_dims, name='g_conv_proj', k_w=1, k_h=1, d_h=1, d_w=1)
         print("Generator created conv layer:", net)

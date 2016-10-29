@@ -1,6 +1,7 @@
 from flask import Flask, send_file, request
 import numpy as np
 from lib.util import *
+from lib.util.globals import *
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -27,9 +28,11 @@ class GANWebServer:
         return np.eye(self.config['y_dims'])[rand]
 
     def sample_batch(self, sample_file):
-        generator = get_tensor("g")
+        generator = get_tensor("g")[-1]
         y_t = get_tensor("y")
+        print("generator is ", generator)
         sample = self.sess.run(generator, feed_dict={y_t:self.random_one_hot()})
+        print("sample is ", sample)
         print(sample.shape)
         plot(self.config, sample[0], sample_file)
 

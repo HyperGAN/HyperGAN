@@ -27,30 +27,17 @@ def generator(config, inputs, reuse=False):
 
             noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
             net = tf.concat(1, [net, noise])
-        print("Generator creating linear layer from", int(net.get_shape()[1]), "z to ", list(primes)+[z_proj_dims])
-        #net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
+        #print("Generator creating linear layer from", int(net.get_shape()[1]), "z to ", list(primes)+[z_proj_dims])
+        #net = linear(net, z_proj_dims, scope="g_lin_proj")
 
-        i=0
-        s = [int(x) for x in net.get_shape()]
-        net = tf.reshape(net, [s[0],1,1,s[1]])
-        net = conv2d(net, z_proj_dims*primes[0]*primes[1]//4, name="g_init", k_w=1, k_h=1, d_h=1, d_w=1)
-        depth=2
-        while(int(net.get_shape()[2])<primes[0]):
-            s = [int(x) for x in net.get_shape()]
-            resized_wh=[s[1]*2, s[2]*2]
-            noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
-            net = tf.image.resize_images(net, resized_wh[0], resized_wh[1], 1)
-            fltr = 3
-            if s[1] < 3:
-                fltr=s[1]
-            if i == 1:
-                net = block_conv(net, activation, batch_size, 'identity', 'g_pre_layers_'+str(i), filter=fltr, noise_shape=noise, output_channels=z_proj_dims)
-            else:
-                net = block_conv(net, activation, batch_size, 'identity', 'g_pre_layers_'+str(i), filter=fltr, noise_shape=noise, output_channels=s[3]*2)
-            print("Generator conv proj layer "+str(i)+":", net)
-            i+=1
+        gz = int(net.get_shape()[1])
+        net = linear(net, gz*primes[0]*primes[1], scope="g_lin_proj")
+        new_shape = [config['batch_size'], primes[0],primes[1],gz]
+        net = tf.reshape(net, new_shape)
+        net = conv2d(net, z_proj_dims, name='g_conv_proj', k_w=1, k_h=1, d_h=1, d_w=1)
+        print("Generator created conv layer:", net)
 
-        net = tf.reshape(net,[config['batch_size'], primes[0], primes[1], z_proj_dims])
+        net = tf.reshape(net, [config['batch_size'],1,1,z_proj_dims])
 
         nets = config['generator'](config, net)
 
@@ -220,6 +207,7 @@ def create(config, x,y,f):
     z_dim = int(config['z_dim'])
 
     g_losses = []
+    extra_g_loss = []
     d_losses = []
 
     #initialize with random categories
@@ -310,26 +298,9 @@ def create(config, x,y,f):
         g_losses.append(-1*config['categories_lambda']*categories_l)
         d_losses.append(-1*config['categories_lambda']*categories_l)
 
-    if config['regularize']:
-        ws = None
-        with tf.variable_scope("generator"):
-            with tf.variable_scope("g_lin_proj"):
-                tf.get_variable_scope().reuse_variables()
-                ws = tf.get_variable('Matrix',dtype=config['dtype'])
-                tf.get_variable_scope().reuse_variables()
-            lam = config['regularize_lambda']
-            print("ADDING REG", lam, ws)
-            g_losses.append(lam*tf.nn.l2_loss(ws))
-            if config['g_fc_layers'] > 0:
-                with tf.variable_scope("g_fc_0"):
-                    tf.get_variable_scope().reuse_variables()
-                    ws = tf.get_variable('Matrix',dtype=config['dtype'])
-                    tf.get_variable_scope().reuse_variables()
-                lam = config['regularize_lambda']
-                print("ADDING REG", lam, ws)
-                g_losses.append(lam*tf.nn.l2_loss(ws))
-
-
+    for reg in config['generator.regularizers']:
+        extra_g_loss += reg(config)
+    print("_GLS", g_losses)
 
     if(config['latent_loss']):
         mse_loss = tf.reduce_max(tf.square(x-encoded))
@@ -339,6 +310,8 @@ def create(config, x,y,f):
     print("adding", g_losses)
     print("and", d_losses)
     g_loss = tf.reduce_mean(tf.add_n(g_losses))
+    for extra in extra_g_loss:
+        g_loss += extra
     d_loss = tf.reduce_mean(tf.add_n(d_losses))
     joint_loss = tf.reduce_mean(tf.add_n(g_losses + d_losses))
 

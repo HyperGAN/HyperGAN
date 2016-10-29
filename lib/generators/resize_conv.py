@@ -24,7 +24,12 @@ def generator(config, net):
         resized_wh=[s[1]*2, s[2]*2]
         net = tf.image.resize_images(net, resized_wh[0], resized_wh[1], 1)
         noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
-        net = block_conv(net, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, noise_shape=noise)
+        fltr = 3
+        if fltr > net.get_shape()[1]:
+            fltr=int(net.get_shape()[1])
+        if fltr > net.get_shape()[2]:
+            fltr=int(net.get_shape()[2])
+        net = block_conv(net, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=fltr, noise_shape=noise)
         first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1,3])
         first3 = batch_norm(config['batch_size'], name='g_bn_first3_'+str(i))(first3)
         first3 = config['generator.final_activation'](first3)

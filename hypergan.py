@@ -18,6 +18,7 @@ import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_s
 import lib.regularizers.minibatch_regularizer as minibatch_regularizer
 import lib.regularizers.moment_regularizer as moment_regularizer
 import lib.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer
+import lib.regularizers.l2_regularizer as l2_regularizer
 import json
 import uuid
 import time
@@ -47,12 +48,14 @@ args = cli.parse_args()
 hc.set('dtype', tf.float32)
 # Generator configuration
 hc.set("generator", resize_conv.generator)
-hc.set("generator.z_projection_depth", 2048) # Used in the first layer - the linear projection of z
+hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
-hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
+hc.set("generator.resize_conv.depth_reduction", 1.5) # Divides our depth by this amount every time we go up in size
+hc.set("generator.regularizers", [[]]) # These are added to the loss function for G.
+hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
 
 # Trainer configuration
 #trainer = adam_trainer
@@ -95,7 +98,7 @@ hc.set('discriminator.densenet.transitions', 6) #number of transitions
 
 hc.set('discriminator.add_noise', [True]) #add noise to input
 hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
+hc.set('discriminator.regularizers', [[]]) # these regularizers get applied at the end of D
 
 hc.set("sampler", progressive_enhancement_sampler.sample)
 hc.set("sampler.samples", 3)
@@ -136,10 +139,6 @@ hc.set('category_loss', [False])
 hc.set('g_class_loss', [False])
 hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
 hc.set('d_fake_class_loss', [False])
-
-#TODO regularizers
-hc.set("regularize", [False])
-hc.set("regularize_lambda", list(np.linspace(0.001, .01, num=30)))
 
 #TODO one-sided label smoothing loss
 hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))

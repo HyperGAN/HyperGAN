@@ -28,7 +28,27 @@ def generator(config, inputs, reuse=False):
             noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
             net = tf.concat(1, [net, noise])
         print("Generator creating linear layer from", int(net.get_shape()[1]), "z to ", list(primes)+[z_proj_dims])
-        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
+        #net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
+
+        i=0
+        s = [int(x) for x in net.get_shape()]
+        net = tf.reshape(net, [s[0],1,1,s[1]])
+        net = conv2d(net, s[1], name="g_init", k_w=1, k_h=1, d_h=1, d_w=1)
+        depth=2
+        while(int(net.get_shape()[2])<primes[0]):
+            s = [int(x) for x in net.get_shape()]
+            resized_wh=[s[1]*2, s[2]*2]
+            noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
+            net = tf.image.resize_images(net, resized_wh[0], resized_wh[1], 1)
+            fltr = 3
+            if s[1] < 3:
+                fltr=s[1]
+            if i == 1:
+                net = block_conv(net, activation, batch_size, 'identity', 'g_pre_layers_'+str(i), filter=fltr, noise_shape=noise, output_channels=z_proj_dims)
+            else:
+                net = block_conv(net, activation, batch_size, 'identity', 'g_pre_layers_'+str(i), filter=fltr, noise_shape=noise, output_channels=s[3]*2)
+            print("Generator conv proj layer "+str(i)+":", net)
+            i+=1
 
         net = tf.reshape(net,[config['batch_size'], primes[0], primes[1], z_proj_dims])
 
@@ -86,22 +106,11 @@ def discriminator(config, x, f,z,g,gz):
     last_layer = tf.reshape(last_layer, [batch_size, -1])
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
-    print('Discriminator last layer size:', net)
-    bs=config['batch_size']
-    filter_size_w=int(net.get_shape()[1])
-    filter_size_h=int(net.get_shape()[2])
-    d=int(net.get_shape()[3])
-    filter = [1,filter_size_w,filter_size_h,1]
-    stride = [1,filter_size_w,filter_size_h,1]
-    net = conv2d(net, int(net.get_shape()[3]), name='d_endd', k_w=1, k_h=1, d_h=1, d_w=1)
-    net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
-    net = batch_norm(config['batch_size'], name='d_bnend')(net)
-    net = activation(net)
     net = tf.reshape(net, [config['batch_size']*2, -1])
     net = tf.concat(1, [net]+regularizers)
     s = [int(x) for x in net.get_shape()]
     net = tf.reshape(net, [s[0], 1, 1, s[1]])
-    net = conv2d(net, int(net.get_shape()[3]), stddev=0.1, name='d_endd2', k_w=1, k_h=1, d_h=1, d_w=1)
+    net = conv2d(net, int(net.get_shape()[3]), name='d_endd2', k_w=1, k_h=1, d_h=1, d_w=1, stddev=0.1)
     net = tf.reshape(net, [config['batch_size']*2, -1])
     net = tf.reduce_mean(net, 1)
     net = tf.reshape(net,  [config['batch_size']*2, 1])

@@ -31,17 +31,18 @@ def generator(config, inputs, reuse=False):
         #net = linear(net, z_proj_dims, scope="g_lin_proj")
 
         gz = int(net.get_shape()[1])
-        #net = linear(net, gz*primes[0]*primes[1]*4, scope="g_lin_proj")
-        new_shape = [config['batch_size'], primes[0],primes[1],gz]
+        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
+        new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
         net = tf.reshape(net, new_shape)
 
         #noise = tf.random_uniform(new_shape,-1, 1, dtype=config['dtype'])
         #net = tf.concat(3, [net,noise])
 
-        net = conv2d(net, z_proj_dims, name='g_conv_proj', k_w=1, k_h=1, d_h=1, d_w=1)
+        s = [int(x) for x in net.get_shape()]
+        resized_wh=[s[1]*2, s[2]*2]
+        #net = tf.image.resize_images(net, resized_wh[0], resized_wh[1], 1)
+        #net = conv2d(net, z_proj_dims, name='g_conv_proj', k_w=2, k_h=2, d_h=1, d_w=1)
         print("Generator created conv layer:", net)
-
-        net = tf.reshape(net, [config['batch_size'],1,1,z_proj_dims])
 
         nets = config['generator'](config, net)
 

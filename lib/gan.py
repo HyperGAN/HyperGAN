@@ -101,13 +101,15 @@ def discriminator(config, x, f,z,g,gz):
         regularizers += [tf.reshape(r,[int(r.get_shape()[0]),1,1,int(r.get_shape()[1])]) for r in regs]
 
     net = tf.concat(3, [net]+regularizers)
-    net = conv2d(net, net.get_shape()[3], name='d_endd3', k_w=1, k_h=1, d_h=1, d_w=1, stddev=0.3)
+
+    #net = conv2d(net, net.get_shape()[3], name='d_endd3', k_w=1, k_h=1, d_h=1, d_w=1, stddev=0.3)
+    #net = tf.reshape(net, [config['batch_size']*2, -1])
+    #net = tf.reduce_mean(net, 1)
+    #net = tf.reshape(net,  [config['batch_size']*2, 1])
 
     net = tf.reshape(net, [config['batch_size']*2, -1])
-    net = tf.reduce_mean(net, 1)
+    net = linear(net, 1, scope="d_proj", stddev=0.09)
     net = tf.reshape(net,  [config['batch_size']*2, 1])
-
-    #net = linear(net, 1, scope="d_proj", stddev=0.002)
 
     class_logits = net
     gan_logits = net

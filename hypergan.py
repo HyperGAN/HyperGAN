@@ -13,6 +13,7 @@ import lib.trainers.sgd_adam_trainer as sgd_adam_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
 import lib.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
 import lib.discriminators.densenet_discriminator as densenet_discriminator
+import lib.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
 import lib.encoders.random_encoder as random_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
 import lib.regularizers.minibatch_regularizer as minibatch_regularizer
@@ -82,7 +83,7 @@ hc.set("trainer.sgd_adam.discriminator.lr", 1e-2) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", densenet_discriminator.discriminator)
+hc.set("discriminator", fast_densenet_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator

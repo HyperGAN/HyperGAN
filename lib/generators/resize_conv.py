@@ -23,7 +23,8 @@ def generator(config, net):
             layers=config['channels']
         resized_wh=[s[1]*2, s[2]*2]
         net = tf.image.resize_images(net, resized_wh[0], resized_wh[1], 1)
-        noise = [s[0],resized_wh[0],resized_wh[1],2**(depth+1-i)]
+        noise = [s[0],resized_wh[0],resized_wh[1],2**(depth-i)]
+        print("Generator adding noise", noise)
         fltr = 3
         if fltr > net.get_shape()[1]:
             fltr=int(net.get_shape()[1])

@@ -40,6 +40,9 @@ def discriminator(config, x, g, xs, gs):
 
       print('Discriminator pyramid layer:', result)
 
+    k=-1
+    result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
+    result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i+1))
     set_tensor("xgs", xgs)
     set_tensor("xgs_conv", xgs_conv)
 

@@ -15,7 +15,6 @@ def get_minibatch_features(config, h,batch_size,dtype):
   dim_per_kernel = int(config['d_kernel_dims'])
   print("Discriminator minibatch is projecting from", h, "to", n_kernels*dim_per_kernel)
   x = linear(h, n_kernels * dim_per_kernel, scope="d_h")
-  x = batch_norm(config['batch_size'], name='d_bnend2')(x)
   activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
 
   big = np.zeros((batch_size, batch_size))

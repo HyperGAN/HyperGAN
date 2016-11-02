@@ -13,8 +13,10 @@ def initialize(config, d_vars, g_vars):
     g_beta1 = np.float32(config['trainer.adam.generator.beta1'])
     g_beta2 = np.float32(config['trainer.adam.generator.beta2'])
     g_epsilon = np.float32(config['trainer.adam.generator.epsilon'])
-    g_optimizer = tf.train.AdamOptimizer(g_lr, beta1=g_beta1, beta2=g_beta2, epsilon=g_epsilon).minimize(g_loss, var_list=g_vars)
-    d_optimizer = tf.train.AdamOptimizer(d_lr, beta1=d_beta1, beta2=d_beta2, epsilon=d_epsilon).minimize(d_loss, var_list=d_vars)
+    #g_optimizer = tf.train.AdamOptimizer(g_lr, beta1=g_beta1, beta2=g_beta2, epsilon=g_epsilon).minimize(g_loss, var_list=g_vars)
+    g_optimizer = capped_optimizer(tf.train.AdamOptimizer, g_lr, g_loss, g_vars)
+    #d_optimizer = tf.train.AdamOptimizer(d_lr, beta1=d_beta1, beta2=d_beta2, epsilon=d_epsilon).minimize(d_loss, var_list=d_vars)
+    d_optimizer = capped_optimizer(tf.train.AdamOptimizer, d_lr, d_loss, d_vars)
     return g_optimizer, d_optimizer
 
 iteration = 0

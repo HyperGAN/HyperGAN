@@ -14,13 +14,12 @@ def discriminator(config, x, g, xs, gs):
 
     result = x
     result = conv2d(result, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
-    result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_initial')
     xgs = []
     xgs_conv = []
     for i in range(transitions):
       # APPEND xs[i] and gs[i]
       if(i < len(xs)-1):
-        xg = tf.concat(0, [xs[i+1], gs[i+1]])
+        xg = tf.concat(0, [xs[i], gs[i]])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
 
         xgs.append(xg)
@@ -32,10 +31,9 @@ def discriminator(config, x, g, xs, gs):
         xgs_conv.append(mxg)
   
         result = tf.concat(3, [result, xg])
-      if int(result.get_shape()[2]) > 2:
-          for j in range(layers):
-            result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
-            print("densenet size", result)
+      for j in range(layers):
+        result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
+        print("densenet size", result)
       result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
 
 

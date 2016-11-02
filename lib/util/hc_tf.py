@@ -331,7 +331,9 @@ def dense_block(result, k, activation, batch_size, id, name):
         identity = tf.identity(result)
         result = batch_norm(batch_size, name=name+'bn')(result)
         result = activation(result)
-        result = conv2d(result, k, name=name+'conv', k_w=3, k_h=3, d_h=1, d_w=1)
+        fltr = min(3, int(result.get_shape()[1]))
+        fltr = min(fltr, int(result.get_shape()[2]))
+        result = conv2d(result, k, name=name+'conv', k_w=fltr, k_h=fltr, d_h=1, d_w=1)
 
         return tf.concat(3,[identity, result])
     elif(id=='transition'):

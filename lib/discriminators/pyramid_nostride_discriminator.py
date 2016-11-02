@@ -43,11 +43,6 @@ def discriminator(config, x, g, xs, gs):
     k=-1
     result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
     result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i+1))
-    set_tensor("xgs", xgs)
-    set_tensor("xgs_conv", xgs_conv)
-    k=-1
-    result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
-    result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i+1))
     result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i+2))
 
     result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)

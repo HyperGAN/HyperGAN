@@ -16,6 +16,10 @@ def generator(config, net):
     batch_size = config['batch_size']
     depth_reduction = np.float32(config['generator.resize_conv.depth_reduction'])
 
+    s = [int(x) for x in net.get_shape()]
+    noise = [s[0],s[1],s[2],64]
+    net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, noise_shape=noise)
+
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
         layers = int(net.get_shape()[3])//depth_reduction

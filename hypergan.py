@@ -49,7 +49,7 @@ args = cli.parse_args()
 hc.set('dtype', tf.float32)
 # Generator configuration
 hc.set("generator", resize_conv.generator)
-hc.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
+hc.set("generator.z_projection_depth", 768) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
@@ -83,15 +83,15 @@ hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
+hc.set("discriminator", pyramid_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
 hc.set('discriminator.fc_layers', [1])# Number of fully connected layers to include
 hc.set('discriminator.fc_layer.size', 378) # Size of fully connected layers
 
-hc.set("discriminator.pyramid.layers", 5) #Layers in D
-hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
+hc.set("discriminator.pyramid.layers", 6) #Layers in D
+hc.set("discriminator.pyramid.depth_increase", 1.8)# Size increase of D's features on each layer
 
 hc.set('discriminator.densenet.k', 12) #k is the number of features that are appended on each conv pass
 hc.set('discriminator.densenet.layers', 2) #number of times to conv before size transition

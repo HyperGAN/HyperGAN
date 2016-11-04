@@ -102,13 +102,14 @@ def discriminator(config, x, f,z,g,gz):
 
     net = tf.concat(3, [net]+regularizers)
 
-    #net = conv2d(net, net.get_shape()[3], name='d_endd3', k_w=1, k_h=1, d_h=1, d_w=1, stddev=0.3)
+    #net = conv2d(net, net.get_shape()[3], name='d_endd3', k_w=1, k_h=1, d_h=1, d_w=1, stddev=0.4)
+    #net = batch_norm(config['batch_size'], name='d_expand_bn_end')(net)
     #net = tf.reshape(net, [config['batch_size']*2, -1])
     #net = tf.reduce_mean(net, 1)
     #net = tf.reshape(net,  [config['batch_size']*2, 1])
 
     net = tf.reshape(net, [config['batch_size']*2, -1])
-    net = linear(net, 1, scope="d_proj", stddev=0.05)
+    net = linear(net, 1, scope="d_proj", stddev=0.01)
     net = tf.reshape(net,  [config['batch_size']*2, 1])
 
     class_logits = net

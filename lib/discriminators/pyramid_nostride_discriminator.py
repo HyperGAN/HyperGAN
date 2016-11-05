@@ -14,7 +14,7 @@ def discriminator(config, x, g, xs, gs):
     xgs = []
     xgs_conv = []
     for i in range(depth):
-      result = batch_norm(config['batch_size'], name='d_expand_bn_'+str(i))(result)
+      result = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(result)
       result = activation(result)
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
@@ -33,6 +33,9 @@ def discriminator(config, x, g, xs, gs):
 
       filter_size_w = 2
       filter_size_h = 2
+      if(i==depth-1):
+          filter_size_w=int(result.get_shape()[1])
+          filter_size_h=int(result.get_shape()[2])
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
       result = conv2d(result, int(int(result.get_shape()[3])*depth_increase), name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
@@ -41,12 +44,9 @@ def discriminator(config, x, g, xs, gs):
       print('Discriminator pyramid layer:', result)
 
     k=-1
-    result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
-    result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i+1))
-    result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i+2))
-
-    result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
+    result = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(result)
     result = activation(result)
+    result = tf.reshape(result, [batch_size, -1])
 
     return result
 

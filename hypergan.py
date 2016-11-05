@@ -84,7 +84,7 @@ hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", painters_discriminator.discriminator)
+hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
@@ -92,7 +92,7 @@ hc.set('discriminator.fc_layers', [1])# Number of fully connected layers to incl
 hc.set('discriminator.fc_layer.size', 378) # Size of fully connected layers
 
 hc.set("discriminator.pyramid.layers", 6) #Layers in D
-hc.set("discriminator.pyramid.depth_increase", 1.8)# Size increase of D's features on each layer
+hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
 
 hc.set('discriminator.painters.layers', 2)
 hc.set('discriminator.painters.transitions', 6)

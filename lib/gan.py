@@ -98,9 +98,10 @@ def discriminator(config, x, f,z,g,gz):
     regularizers = []
     for regularizer in config['discriminator.regularizers']:
         regs = regularizer(config, net)
-        regularizers += [tf.reshape(r,[int(r.get_shape()[0]),1,1,int(r.get_shape()[1])]) for r in regs]
+        regularizers += regs
+        #regularizers += [tf.reshape(r,[int(r.get_shape()[0]),1,1,int(r.get_shape()[1])]) for r in regs]
 
-    net = tf.concat(3, [net]+regularizers)
+    net = tf.concat(1, [net]+regularizers)
 
     #net = conv2d(net, net.get_shape()[3], name='d_endd3', k_w=1, k_h=1, d_h=1, d_w=1, stddev=0.4)
     #net = batch_norm(config['batch_size'], name='d_expand_bn_end')(net)
@@ -108,8 +109,8 @@ def discriminator(config, x, f,z,g,gz):
     #net = tf.reduce_mean(net, 1)
     #net = tf.reshape(net,  [config['batch_size']*2, 1])
 
-    net = tf.reshape(net, [config['batch_size']*2, -1])
-    net = linear(net, 1, scope="d_proj", stddev=0.01)
+    #net = tf.reshape(net, [config['batch_size']*2, -1])
+    net = linear(net, 1, scope="d_proj", stddev=0.03)
     net = tf.reshape(net,  [config['batch_size']*2, 1])
 
     class_logits = net

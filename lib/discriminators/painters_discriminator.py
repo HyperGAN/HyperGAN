@@ -10,7 +10,7 @@ def discriminator(config, x, g, xs, gs):
     batch_size = int(x.get_shape()[0])
 
     result = x
-    result = conv2d(result, 8, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
+    result = conv2d(result, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
     result = batch_norm(config['batch_size']*2, name='d_expand_bn')(result)
     result = activation(result)
     xgs = []
@@ -41,14 +41,14 @@ def discriminator(config, x, g, xs, gs):
     print("painters size", result)
     result = tf.reshape(result, [config['batch_size']*2, -1])
 
-    result = tf.nn.dropout(result, 0.9)
+    #result = tf.nn.dropout(result, 0.9)
     result = linear(result, 1024, scope="d_fc_end1")
     result = batch_norm(config['batch_size']*2, name='d_bn_end1')(result)
     result = activation(result)
     #result = linear(result, 1584, scope="d_fc_end2")
     #result = batch_norm(config['batch_size']*2, name='d_bn_end2')(result)
     #result = activation(result)
-    result = tf.reshape(result, [config['batch_size']*2, 1, 1, 1024])
+    #result = tf.reshape(result, [config['batch_size']*2, 1, 1, 1024])
 
     return result
 

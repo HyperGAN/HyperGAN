@@ -14,6 +14,7 @@ import lib.discriminators.pyramid_discriminator as pyramid_discriminator
 import lib.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
 import lib.discriminators.densenet_discriminator as densenet_discriminator
 import lib.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
+import lib.discriminators.painters_discriminator as painters_discriminator
 import lib.encoders.random_encoder as random_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
 import lib.regularizers.minibatch_regularizer as minibatch_regularizer
@@ -83,7 +84,7 @@ hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", pyramid_discriminator.discriminator)
+hc.set("discriminator", painters_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
@@ -93,8 +94,12 @@ hc.set('discriminator.fc_layer.size', 378) # Size of fully connected layers
 hc.set("discriminator.pyramid.layers", 6) #Layers in D
 hc.set("discriminator.pyramid.depth_increase", 1.8)# Size increase of D's features on each layer
 
-hc.set('discriminator.densenet.k', 12) #k is the number of features that are appended on each conv pass
-hc.set('discriminator.densenet.layers', 2) #number of times to conv before size transition
+hc.set('discriminator.painters.layers', 2)
+hc.set('discriminator.painters.transitions', 6)
+hc.set('discriminator.painters.activation', lrelu)
+
+hc.set('discriminator.densenet.k', 32) #k is the number of features that are appended on each conv pass
+hc.set('discriminator.densenet.layers', 1) #number of times to conv before size transition
 hc.set('discriminator.densenet.transitions', 8) #number of transitions
 
 hc.set('discriminator.add_noise', [True]) #add noise to input

@@ -48,6 +48,9 @@ def discriminator(config, x, g, xs, gs):
     result = activation(result)
     result = tf.reshape(result, [batch_size, -1])
 
+    result = linear(result, 1024, scope="d_fc_end1")
+    result = batch_norm(config['batch_size']*2, name='d_bn_end1')(result)
+    result = activation(result)
     return result
 
 

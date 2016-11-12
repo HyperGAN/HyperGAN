@@ -194,7 +194,7 @@ def random_category(batch_size, size, dtype):
 def create_generator(config, x,y,f):
     set_ops_dtype(config['dtype'])
     #TODO fix copy/paste job here
-    z_dim = int(config['z_dim'])
+    z_dim = int(config['generator.z'])
     z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
     categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
     if(len(categories) > 0):
@@ -215,7 +215,7 @@ def create(config, x,y,f):
     set_ops_dtype(config['dtype'])
 
     batch_size = config["batch_size"]
-    z_dim = int(config['z_dim'])
+    z_dim = int(config['generator.z'])
 
     g_losses = []
     extra_g_loss = []

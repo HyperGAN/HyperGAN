@@ -46,10 +46,15 @@ import lib.cli as cli
 
 args = cli.parse_args()
 
-#The data type to use in our GAN.  Only float32 is supported at the moment
-hc.set('dtype', tf.float32)
+# Below are sets of configuration options:
+# Each time a new random network is started a random set of configuration variables are selected.
+# This is useful for hyperparameter search.  If you want to use a specific configuration use --config
+
+hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
+
 # Generator configuration
 hc.set("generator", resize_conv.generator)
+hc.set("generator.z", 128) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator.z_projection_depth", 2048) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
@@ -60,26 +65,23 @@ hc.set("generator.regularizers", [[]]) # These are added to the loss function fo
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
 
 # Trainer configuration
-#trainer = adam_trainer
-trainer = slowdown_trainer
-#trainer = sgd_adam_trainer
-hc.set("trainer.initializer", trainer.initialize)
-hc.set("trainer.train", trainer.train)
-#Adam trainer
+#trainer = adam_trainer # adam works well at 64x64 but doesn't scale
+trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
+#trainer = sgd_adam_trainer # This has never worked, but seems like it should
+hc.set("trainer.initializer", trainer.initialize) # TODO: can we merge these variables?
+hc.set("trainer.train", trainer.train) # The training method to use.  This is called every step
 hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
 hc.set("trainer.adam.discriminator.epsilon", 1e-8) #adam epsilon for d
-hc.set("trainer.adam.discriminator.beta1", 0.9) #adam epsilon for d
-hc.set("trainer.adam.discriminator.beta2", 0.999) #adam epsilon for d
+hc.set("trainer.adam.discriminator.beta1", 0.9) #adam beta1 for d
+hc.set("trainer.adam.discriminator.beta2", 0.999) #adam beta2 for d
 hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
-hc.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g learning rate
-hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g learning rate
-hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g learning rate
-#This trainer slows D down when d_fake gets too high
+hc.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g
+hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g
+hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g
 hc.set("trainer.rmsprop.discriminator.lr", 1.5e-5) # d learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
 hc.set('trainer.slowdown.discriminator.slowdown', [5]) # Divides speed by this number when unhealthy(d_fake low)
-#This trainer uses SGD on D and adam on G
 hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
@@ -94,7 +96,7 @@ hc.set('discriminator.fc_layer.size', 378) # Size of fully connected layers
 hc.set("discriminator.pyramid.layers", 5) #Layers in D
 hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
 
-hc.set('discriminator.painters.layers', 2)
+hc.set('discriminator.painters.layers', 2) #TODO has this ever worked?
 hc.set('discriminator.painters.transitions', 5)
 hc.set('discriminator.painters.activation', lrelu)
 
@@ -106,9 +108,17 @@ hc.set('discriminator.add_noise', [True]) #add noise to input
 hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
 hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
 
-hc.set("sampler", progressive_enhancement_sampler.sample)
-hc.set("sampler.samples", 3)
+hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
+hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
 hc.set('encoder.sample', random_encoder.sample) # how to encode z
+
+#hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
+#hc.set("g_mp3_filter",[3])
+#hc.set("g_mp3_residual_channels", [8])
+#hc.set("g_mp3_dilation_channels", [16])
+#hc.set("mp3_seconds", args.seconds)
+#hc.set("mp3_bitrate", args.bitrate)
+#hc.set("mp3_size", args.seconds*args.bitrate)
 
 #TODO vae
 #hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
@@ -118,22 +128,8 @@ hc.set('encoder.sample', random_encoder.sample) # how to encode z
 #hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))
 #hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
 
-## Below here are legacy settings that need to be cleaned up - they may still be in use
-#TODO preprocess loader
-#hc.set('pretrained_model', [None])
-
 #TODO audio
-#hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
-#hc.set("g_mp3_filter",[3])
-#hc.set("g_mp3_residual_channels", [8])
-#hc.set("g_mp3_dilation_channels", [16])
-#hc.set("mp3_seconds", args.seconds)
-#hc.set("mp3_bitrate", args.bitrate)
-#hc.set("mp3_size", args.seconds*args.bitrate)
-
 hc.set("model", "faces:1.0")
-
-hc.set("z_dim", 128) #TODO rename to generator.z
 
 #TODO category/bernouilli
 categories = [[2]+[2]+build_categories_config(30)]

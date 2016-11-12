@@ -228,7 +228,7 @@ def create(config, x,y,f):
     else:
         categories_t = []
 
-    z, encoded_z, z_mu, z_sigma = config['encoder.sample'](config)
+    z, encoded_z, z_mu, z_sigma = config['encoder'](config)
 
     # create generator
     g = generator(config, [y, z]+categories_t)

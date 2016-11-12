@@ -110,7 +110,7 @@ hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # t
 
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
 hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
-hc.set('encoder.sample', random_encoder.sample) # how to encode z
+hc.set('encoder', random_encoder.encode) # how to encode z
 
 #hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 #hc.set("g_mp3_filter",[3])

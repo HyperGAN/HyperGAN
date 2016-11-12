@@ -8,18 +8,18 @@ def discriminator(config, x, g, xs, gs):
     batch_size = int(x.get_shape()[0])
     depth_increase = config['discriminator.pyramid.depth_increase']
     depth = config['discriminator.pyramid.layers']
-    result = x
-    result = conv2d(result, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
+    net = x
+    net = conv2d(net, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
 
     xgs = []
     xgs_conv = []
     for i in range(depth):
-      result = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(result)
-      result = activation(result)
+      net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
+      net = activation(net)
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
         xg = tf.concat(0, [xs[i], gs[i]])
-        xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
+        xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev']*i, dtype=config['dtype'])
 
         xgs.append(xg)
 
@@ -29,28 +29,28 @@ def discriminator(config, x, g, xs, gs):
 
         xgs_conv.append(mxg)
   
-        result = tf.concat(3, [result, xg])
+        net = tf.concat(3, [net, xg])
 
       filter_size_w = 2
       filter_size_h = 2
-      if(i==depth-1):
-          filter_size_w=int(result.get_shape()[1])
-          filter_size_h=int(result.get_shape()[2])
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
-      result = conv2d(result, int(int(result.get_shape()[3])*depth_increase), name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
-      result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
+      net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
+      net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
-      print('Discriminator pyramid layer:', result)
+      print('Discriminator pyramid layer:', net)
 
     k=-1
-    result = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(result)
-    result = activation(result)
-    result = tf.reshape(result, [batch_size, -1])
-
-    result = linear(result, 1024, scope="d_fc_end1")
-    result = batch_norm(config['batch_size']*2, name='d_bn_end1')(result)
-    result = activation(result)
-    return result
+    net = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(net)
+    net = activation(net)
+    net = tf.reshape(net, [batch_size, -1])
+    net = linear(net, int(1024*1.5), scope="d_fc_end1")
+    net = batch_norm(config['batch_size']*2, name='d_bn_end1')(net)
+    net = activation(net)
+    net = linear(net, 1024, scope="d_fc_end2")
+    net = batch_norm(config['batch_size']*2, name='d_bn_end2')(net)
+    net = activation(net)
+ 
+    return net
 
 

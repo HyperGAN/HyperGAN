@@ -88,14 +88,14 @@ hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
 hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
-hc.set('discriminator.fc_layers', [1])# Number of fully connected layers to include
+hc.set('discriminator.fc_layers', [0])# Number of fully connected layers to include
 hc.set('discriminator.fc_layer.size', 378) # Size of fully connected layers
 
-hc.set("discriminator.pyramid.layers", 6) #Layers in D
+hc.set("discriminator.pyramid.layers", 5) #Layers in D
 hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
 
 hc.set('discriminator.painters.layers', 2)
-hc.set('discriminator.painters.transitions', 6)
+hc.set('discriminator.painters.transitions', 5)
 hc.set('discriminator.painters.activation', lrelu)
 
 hc.set('discriminator.densenet.k', 32) #k is the number of features that are appended on each conv pass
@@ -133,11 +133,11 @@ hc.set('encoder.sample', random_encoder.sample) # how to encode z
 
 hc.set("model", "faces:1.0")
 
-hc.set("z_dim", 64) #TODO rename to generator.z
+hc.set("z_dim", 128) #TODO rename to generator.z
 
 #TODO category/bernouilli
 categories = [[2]+[2]+build_categories_config(30)]
-hc.set('categories', categories)
+hc.set('categories', [[]])#categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
 

@@ -110,16 +110,16 @@ def discriminator(config, x, f,z,g,gz):
     #net = tf.reshape(net,  [config['batch_size']*2, 1])
 
     #net = tf.reshape(net, [config['batch_size']*2, -1])
-    net = linear(net, 2, scope="d_proj", stddev=0.03)
-#    net = tf.reshape(net,  [config['batch_size']*2, 1])
+    net = linear(net, 1, scope="d_proj", stddev=0.03)
+    net = tf.reshape(net,  [config['batch_size']*2, 1])
 #
-#    class_logits = net
-#    gan_logits = net
-#    return [tf.slice(class_logits, [0, 0], [single_batch_size, 1]),
-#                tf.slice(gan_logits, [0,0], [single_batch_size,1]),
-#                tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, 1]),
-#                tf.slice(gan_logits, [single_batch_size,0], [single_batch_size,1]),
-#                last_layer]
+    class_logits = net
+    gan_logits = net
+    return [tf.slice(class_logits, [0, 0], [single_batch_size, 1]),
+                tf.slice(gan_logits, [0,0], [single_batch_size,1]),
+                tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, 1]),
+                tf.slice(gan_logits, [single_batch_size,0], [single_batch_size,1]),
+                last_layer]
 #
 #
     def build_logits(class_logits, num_classes):

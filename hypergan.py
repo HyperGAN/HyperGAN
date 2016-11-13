@@ -171,7 +171,7 @@ def epoch(sess, config):
     total_batch = int(n_samples / batch_size)
     for i in range(total_batch):
         d_loss, g_loss = config['trainer.train'](sess, config)
-        if(i > 10 and not args.no_stop):
+        if(i > 10):
             if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
                 return False
 
@@ -242,11 +242,11 @@ def run(args):
     print("Generating configs with hyper search space of ", hc.count_configs())
     for config in hc.configs(1):
         other_config = copy.copy(config)
-        if(args.load_config):
-            print("Loading config", args.load_config)
-            config.update(hc.io.load_config(args.load_config))
+        if(args.config):
+            print("Loading config", args.config)
+            config.update(hc.io.load_config(args.config))
             if(not config):
-                print("Could not find config", args.load_config)
+                print("Could not find config", args.config)
                 break
 
         config = lookup_functions(config)
@@ -254,10 +254,10 @@ def run(args):
         config['dtype']=other_config['dtype']
         with tf.device(args.device):
             sess = tf.Session(config=tf.ConfigProto())
-        channels = args.channels
+        channels = int(args.size.split("x")[2])
         crop = args.crop
-        width = args.width
-        height = args.height
+        width = int(args.size.split("x")[0])
+        height = int(args.size.split("x")[1])
         with tf.device('/cpu:0'):
             if(args.format == 'mp3'):
                 train_x,train_y, num_labels,examples_per_epoch = lib.loaders.audio_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
@@ -268,7 +268,7 @@ def run(args):
         config['x_dims']=[height,width]
         config['channels']=channels
 
-        if(args.load_config):
+        if(args.config):
             pass
         config['examples_per_epoch']=examples_per_epoch//4
         x = train_x

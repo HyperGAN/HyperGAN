@@ -51,14 +51,6 @@ It is currently in an open beta state, and contributions are welcome.
 2. For smaller sizes, you can use an older GPU. 
 3. For debugging syntax errors, CPU use is fine.  Otherwise use a GPU.
 
-
-### Dataset
-
-First, you need a dataset.
-You can download a ~100k 256x256 human face dataset here: TODO LINK
-
-Place all of your images in a folder.  If you want classification as well, place your images in subfolders, where the subfolder name is the class label.
-
 ### Install hypergan
 
 ```
@@ -68,7 +60,8 @@ Place all of your images in a folder.  If you want classification as well, place
 ### Run hypergan
 
 ```
-  hypergan train [folder] -w 256 -h 256 -f png
+  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  hypergan train [folder] -s 256x256 -f png -b 32
 ```
 
 ### Increasing performance

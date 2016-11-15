@@ -3,6 +3,7 @@ import argparse
 def common(parser):
     parser.add_argument('--size', '-s', type=str, default='64x64x3')
     parser.add_argument('--batch', '-b', type=int, default=64)
+    parser.add_argument('--config', '-c', type=str, default=None)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.')

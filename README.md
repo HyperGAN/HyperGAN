@@ -1,10 +1,12 @@
 # HyperGAN
 A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
+## hypergan is in pre-release state.  The documentation is a WIP and there is no pip package released yet.
+
 ## Changelog
 
-### 0.5('faces' release)
-* Beta released to pip
+### 0.5('faces' release)rc1
+* Initial release of new refactored gan
 
 ## Goals
 

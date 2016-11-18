@@ -44,6 +44,7 @@ def discriminator(config, x, g, xs, gs):
     net = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(net)
     net = activation(net)
     net = tf.reshape(net, [batch_size, -1])
+    net = tf.nn.dropout(net, 0.5)
     net = linear(net, int(1024*1.5), scope="d_fc_end1")
     net = batch_norm(config['batch_size']*2, name='d_bn_end1')(net)
     net = activation(net)

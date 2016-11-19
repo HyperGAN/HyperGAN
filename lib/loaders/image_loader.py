@@ -15,7 +15,7 @@ def build_labels(dirs):
 def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=True, preprocess=False):
   filenames = glob.glob(directory+"/**/*."+format)
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
-  num_examples_per_epoch = 30000
+  num_examples_per_epoch = 30000//4
   print("ImageLoader found", len(filenames), "images with", total_labels, "different class labels")
   assert len(filenames)!=0, "No images found in "+directory
 

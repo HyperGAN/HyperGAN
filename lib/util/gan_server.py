@@ -34,7 +34,11 @@ class GANWebServer:
         sample = self.sess.run(generator, feed_dict={y_t:self.random_one_hot()})
         print("sample is ", sample)
         print(sample.shape)
-        plot(self.config, sample[0], sample_file)
+
+        stacks = [np.hstack(sample[x*6:x*6+6]) for x in range(4)]
+        plot(self.config, np.vstack(stacks), sample_file)
+       
+        #plot(self.config, sample, sample_file)
 
 
     def sample_iterate_z(self, sample_file, z_iterate, target_value=1, seed=None):

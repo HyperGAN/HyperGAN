@@ -131,6 +131,8 @@ hc.set('encoder', random_encoder.encode) # how to encode z
 #TODO audio
 hc.set("model", "faces:1.0")
 
+hc.set("examples_per_epoch", 30000/4)
+
 #TODO category/bernouilli
 categories = [[2]+[2]+build_categories_config(30)]
 hc.set('categories', [[]])#categories)

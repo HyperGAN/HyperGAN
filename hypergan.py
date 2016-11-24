@@ -66,7 +66,8 @@ hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # 
 
 # Trainer configuration
 #trainer = adam_trainer # adam works well at 64x64 but doesn't scale
-trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
+#trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
+trainer = rmsprop_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
 #trainer = sgd_adam_trainer # This has never worked, but seems like it should
 hc.set("trainer.initializer", trainer.initialize) # TODO: can we merge these variables?
 hc.set("trainer.train", trainer.train) # The training method to use.  This is called every step
@@ -78,7 +79,8 @@ hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g
 hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g
 hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g
-hc.set("trainer.rmsprop.discriminator.lr", 1.5e-5) # d learning rate
+hc.set("trainer.rmsprop.discriminator.lr", 1e-4) # d learning rate
+hc.set("trainer.rmsprop.generator.lr", 1e-4) # d learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
 hc.set('trainer.slowdown.discriminator.slowdown', [5]) # Divides speed by this number when unhealthy(d_fake low)

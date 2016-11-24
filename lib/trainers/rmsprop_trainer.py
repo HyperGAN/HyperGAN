@@ -28,7 +28,7 @@ def train(sess, config):
     _, d_cost = sess.run([d_optimizer, d_loss])
     _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
     print("[rms]%2d: g cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, g_cost,d_fake, d_real, d_class ))
-    if(g_cost > 0.7):
+    while(g_cost > 0.7):
       _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
       print("[rms]%2d: g cost %.2f d_fake %.2f d_real %.2f d_class %.2f" % (iteration, g_cost,d_fake, d_real, d_class ))
 

@@ -195,7 +195,7 @@ def create_generator(config, x,y,f):
     set_ops_dtype(config['dtype'])
     #TODO fix copy/paste job here
     z_dim = int(config['generator.z'])
-    z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
+    z, encoded_z, z_mu, z_sigma = config['encoder'](config)
     categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
     if(len(categories) > 0):
         categories_t = [tf.concat(1, categories)]

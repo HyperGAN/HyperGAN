@@ -131,6 +131,8 @@ hc.set('encoder', random_encoder.encode) # how to encode z
 #TODO audio
 hc.set("model", "faces:1.0")
 
+hc.set("examples_per_epoch", 30000/4)
+
 #TODO category/bernouilli
 categories = [[2]+[2]+build_categories_config(30)]
 hc.set('categories', [[]])#categories)
@@ -162,7 +164,6 @@ hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 hc.set("d_project", ['tiled'])
 
 hc.set("batch_size", args.batch)
-hc.set("format", args.format)
 
 
 def epoch(sess, config):
@@ -238,10 +239,35 @@ def lookup_functions(config):
     return config
 
 
+def output_graph_size():
+    def mul(s):
+        x = 1
+        for y in s:
+            x*=y
+        return x
+    def get_size(v):
+        shape = [int(x) for x in v.get_shape()]
+        size = mul(shape)
+        return [v.name, size/1024./1024.]
+
+    sizes = [get_size(i) for i in tf.all_variables()]
+    sizes = sorted(sizes, key=lambda s: s[1])
+    print("Top 5 sizes", sizes[-5:])
+    size = sum([s[1] for s in sizes])
+    print("SIZE = ", size)
+
 def run(args):
+    crop = args.crop
+    channels = int(args.size.split("x")[2])
+    width = int(args.size.split("x")[0])
+    height = int(args.size.split("x")[1])
+    loadedFromSave = False
+    build_file = "build/generator.ckpt"
+
     print("Generating configs with hyper search space of ", hc.count_configs())
     for config in hc.configs(1):
         other_config = copy.copy(config)
+        # load_saved_checkpoint(config)
         if(args.config):
             print("Loading config", args.config)
             config.update(hc.io.load_config(args.config))
@@ -251,80 +277,71 @@ def run(args):
 
         config = lookup_functions(config)
         config['batch_size']=args.batch
-        config['dtype']=other_config['dtype']
+
+        config['dtype']=other_config['dtype']#TODO: add this as a CLI argument, i.e "-e 'dtype=function:tf.float16'"
+        config['trainer.rmsprop.discriminator.lr']=other_config['trainer.rmsprop.discriminator.lr']
+
+        # Initialize tensorflow
         with tf.device(args.device):
             sess = tf.Session(config=tf.ConfigProto())
-        channels = int(args.size.split("x")[2])
-        crop = args.crop
-        width = int(args.size.split("x")[0])
-        height = int(args.size.split("x")[1])
+
         with tf.device('/cpu:0'):
+            #TODO don't branch on format
             if(args.format == 'mp3'):
-                train_x,train_y, num_labels,examples_per_epoch = lib.loaders.audio_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
+                x,y, num_labels,examples_per_epoch = lib.loaders.audio_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
                 f = None
             else:
-                train_x,train_y, f, num_labels,examples_per_epoch = lib.loaders.image_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+                x,y, f, num_labels,examples_per_epoch = lib.loaders.image_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+
         config['y_dims']=num_labels
-        config['x_dims']=[height,width]
+        config['x_dims']=[height,width] #TODO can we remove this?
         config['channels']=channels
 
-        if(args.config):
-            pass
-        config['examples_per_epoch']=examples_per_epoch//4
-        x = train_x
-        y = train_y
         with tf.device(args.device):
-            y=tf.one_hot(tf.cast(train_y,tf.int64), config['y_dims'], 1.0, 0.0)
+            y=tf.one_hot(tf.cast(y,tf.int64), config['y_dims'], 1.0, 0.0)
 
-            if(args.build or args.server):
+            if(args.method == 'build' or args.method == 'serve'):
                 graph = create_generator(config,x,y,f)
             else:
                 graph = create(config,x,y,f)
-        saver = tf.train.Saver()
+
+        #TODO can we not do this?  might need to be after hc.io refactor
         if('parent_uuid' in config):
             save_file = "saves/"+config["parent_uuid"]+".ckpt"
         else:
             save_file = "saves/"+config["uuid"]+".ckpt"
-        if(save_file and os.path.isfile(save_file) and not args.server):
+
+        #TODO refactor save/load system
+        if args.method == 'serve':
+            print("|= Loading generator from build/")
+            saver = tf.train.Saver()
+            saver.restore(sess, build_file)
+        elif(save_file and os.path.isfile(save_file)):
             print(" |= Loading network from "+ save_file)
             config['uuid']=config['parent_uuid']
             ckpt = tf.train.get_checkpoint_state('saves')
             if ckpt and ckpt.model_checkpoint_path:
+                saver = tf.train.Saver()
                 saver.restore(sess, save_file)
+                loadedFromSave = True
                 print("Model loaded")
             else:
                 print("No checkpoint file found")
         else:
-            def mul(s):
-                x = 1
-                for y in s:
-                    x*=y
-                return x
-            def get_size(v):
-                shape = [int(x) for x in v.get_shape()]
-                size = mul(shape)
-                return [v.name, size/1024./1024.]
-
-            sizes = [get_size(i) for i in tf.all_variables()]
-            sizes = sorted(sizes, key=lambda s: s[1])
-            print("Top 5 sizes", sizes[-5:])
-            size = sum([s[1] for s in sizes])
-            print("SIZE = ", size)
-
+            print(" |= Initializing new network")
             with tf.device(args.device):
                 init = tf.initialize_all_variables()
                 sess.run(init)
 
+        output_graph_size()
         tf.train.start_queue_runners(sess=sess)
-        testx = sess.run(train_x)
+        testx = sess.run(x)
 
-        build_file = "build/generator.ckpt"
-        if args.build:
+        if args.method == 'build':
+            saver = tf.train.Saver()
             saver.save(sess, build_file)
             print("Saved generator to ", build_file)
-        elif args.server:
-            print("Loading from build/")
-            saver.restore(sess, build_file)
+        elif args.method == 'serve':
             gan_server(sess, config)
         else:
             sampled=False
@@ -338,6 +355,7 @@ def run(args):
                 print("Checking save "+ str(i))
                 if(args.save_every != 0 and i % args.save_every == args.save_every-1):
                     print(" |= Saving network")
+                    saver = tf.train.Saver()
                     saver.save(sess, save_file)
                 end_time = time.time()
                 test_epoch(i, sess, config, start_time, end_time)

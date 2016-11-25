@@ -16,6 +16,7 @@ import lib.discriminators.densenet_discriminator as densenet_discriminator
 import lib.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
 import lib.discriminators.painters_discriminator as painters_discriminator
 import lib.encoders.random_encoder as random_encoder
+import lib.encoders.progressive_variational_encoder as progressive_variational_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
 import lib.regularizers.minibatch_regularizer as minibatch_regularizer
 import lib.regularizers.moment_regularizer as moment_regularizer

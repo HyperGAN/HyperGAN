@@ -71,14 +71,6 @@ def discriminator(config, x, f,z,g,gz):
     if(config['discriminator.add_noise']):
         x += tf.random_normal(x.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
 
-    if(config['latent_loss']):
-        orig_x = x
-        x = build_reshape(int(x.get_shape()[1]), [z], config['d_project'], batch_size, config['dtype'])
-        x = tf.reshape(x, [batch_size, -1, 1])
-        x = tf.concat(2, [x, tf.reshape(orig_x, [batch_size, -1, channels])])
-        x = tf.reshape(x,[batch_size, x_dims[0], x_dims[1], channels+1])
-
-
     net = config['discriminator'](config, x, g, xs, gs)
     #net = tf.reshape(net, [batch_size, -1])
 
@@ -195,7 +187,7 @@ def create_generator(config, x,y,f):
     set_ops_dtype(config['dtype'])
     #TODO fix copy/paste job here
     z_dim = int(config['generator.z'])
-    z, encoded_z, z_mu, z_sigma = config['encoder'](config)
+    z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
     categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
     if(len(categories) > 0):
         categories_t = [tf.concat(1, categories)]
@@ -228,7 +220,7 @@ def create(config, x,y,f):
     else:
         categories_t = []
 
-    z, encoded_z, z_mu, z_sigma = config['encoder'](config)
+    z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
 
     # create generator
     g = generator(config, [y, z]+categories_t)
@@ -244,6 +236,8 @@ def create(config, x,y,f):
                                        - tf.square(z_mu)
                                        - tf.exp(z_sigma), 1)
 
+        latent_loss = tf.reshape(latent_loss, [int(latent_loss.get_shape()[0]), 1])
+        print ("LATENT LOSS", latent_loss)
     else:
         latent_loss = None
     np_fake = np.array([0]*config['y_dims']+[1])
@@ -314,7 +308,8 @@ def create(config, x,y,f):
     print("_GLS", g_losses)
 
     if(config['latent_loss']):
-        mse_loss = tf.reduce_max(tf.square(x-encoded))
+        #mse_loss = tf.reduce_max(tf.square(x-encoded))
+        mse_loss = None
     else:
         mse_loss = None
 

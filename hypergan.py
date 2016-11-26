@@ -62,7 +62,7 @@ hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should mat
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
 hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
-hc.set("generator.regularizers", [[]]) # These are added to the loss function for G.
+hc.set("generator.regularizers", [[l2_regularizer.get]]) # These are added to the loss function for G.
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
 
 # Trainer configuration

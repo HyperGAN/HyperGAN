@@ -18,7 +18,7 @@ def generator(config, net):
 
     s = [int(x) for x in net.get_shape()]
     noise = [s[0],s[1],s[2],64]
-    net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, noise_shape=noise)
+    net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, noise_shape=noise, use_batch_norm=False)
 
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]

@@ -293,10 +293,11 @@ def block_deconv(result, activation, batch_size,id,name, output_channels=None, s
         result = deconv2d(result, output_shape, name=name+'l', k_w=filter, k_h=filter, d_h=1, d_w=1)
     return result
 
-def block_conv(result, activation, batch_size,id,name, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3):
+def block_conv(result, activation, batch_size,id,name, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, use_batch_norm=True):
     size = int(result.get_shape()[-1])
     s = result.get_shape()
-    result = batch_norm(batch_size, name=name+'bn')(result)
+    if(use_batch_norm):
+        result = batch_norm(batch_size, name=name+'bn')(result)
     result = activation(result)
     if(noise_shape):
       noise = tf.random_uniform(noise_shape,-1, 1,dtype=dtype)

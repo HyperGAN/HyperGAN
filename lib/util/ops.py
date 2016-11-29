@@ -13,6 +13,13 @@ def set_ops_dtype(dtype):
 
 rng = np.random.RandomState([2016, 6, 1])
 
+class layer_norm_1(object):
+    def __init__(self, batch_size, name="layer_norm"):
+        self.name = name
+    def __call__(self, x, train=True):
+        return tf.contrib.layers.layer_norm(x, scope=self.name)
+
+
 class batch_norm_1(object):
     """Code modification of http://stackoverflow.com/a/33950177
 

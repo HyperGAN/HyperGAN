@@ -61,7 +61,7 @@ def discriminator(config, x, f,z,g,gz):
     set_tensor("gs", gs)
     g = g[-1]
     for i in gs:
-        resized = tf.image.resize_images(xs[-1],xs[-1].get_shape()[1]//2,xs[-1].get_shape()[2]//2, 1)
+        resized = tf.image.resize_images(xs[-1],[int(xs[-1].get_shape()[1]//2),int(xs[-1].get_shape()[2]//2)], 1)
         xs.append(resized)
     xs.pop()
     gs.reverse()

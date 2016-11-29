@@ -10,6 +10,7 @@ def discriminator(config, x, g, xs, gs):
     depth = config['discriminator.pyramid.layers']
     result = x
     result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
+    batch_norm = config['generator.regularizers.layer']
 
     xgs = []
     xgs_conv = []

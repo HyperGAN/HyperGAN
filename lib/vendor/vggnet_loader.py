@@ -31,7 +31,6 @@ import numpy as np
 from six.moves import urllib
 import tensorflow as tf
 import lib.loaders.resize_image_patch
-from lib.util.ops import batch_norm
 
 MODEL_DIR='/tmp/imagenet'
 

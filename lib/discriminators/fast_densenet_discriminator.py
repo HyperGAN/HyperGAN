@@ -9,6 +9,7 @@ def discriminator(config, x, g, xs, gs):
     k = config['discriminator.densenet.k']
     activation = config['discriminator.activation']
     batch_size = int(x.get_shape()[0])
+    batch_norm = config['generator.regularizers.layer']
     depth_increase = config['discriminator.pyramid.depth_increase']
     depth = config['discriminator.pyramid.layers']
 

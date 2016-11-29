@@ -12,6 +12,7 @@ def generator(config, inputs, reuse=False):
     activation = config['generator.activation']
     batch_size = config['batch_size']
     z_proj_dims = int(config['generator.z_projection_depth'])
+    batch_norm = config['generator.regularizers.layer']
 
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
@@ -208,6 +209,7 @@ def create(config, x,y,f):
 
     batch_size = config["batch_size"]
     z_dim = int(config['generator.z'])
+    batch_norm = config['generator.regularizers.layer']
 
     g_losses = []
     extra_g_loss = []

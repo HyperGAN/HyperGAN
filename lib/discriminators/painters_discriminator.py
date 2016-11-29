@@ -8,6 +8,7 @@ def discriminator(config, x, g, xs, gs):
     transitions = config['discriminator.painters.transitions']
     activation = config['discriminator.painters.activation']
     batch_size = int(x.get_shape()[0])
+    batch_norm = config['generator.regularizers.layer']
 
     result = x
     result = conv2d(result, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)

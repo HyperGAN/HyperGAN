@@ -13,7 +13,7 @@ def set_ops_dtype(dtype):
 
 rng = np.random.RandomState([2016, 6, 1])
 
-class batch_norm(object):
+class batch_norm_1(object):
     """Code modification of http://stackoverflow.com/a/33950177
 
     """

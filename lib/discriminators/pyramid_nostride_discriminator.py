@@ -9,6 +9,7 @@ def discriminator(config, x, g, xs, gs):
     depth_increase = config['discriminator.pyramid.depth_increase']
     depth = config['discriminator.pyramid.layers']
     batch_norm = config['generator.regularizers.layer']
+    batch_norm = batch_norm_1
     net = x
     net = conv2d(net, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
 
@@ -45,7 +46,6 @@ def discriminator(config, x, g, xs, gs):
     net = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(net)
     net = activation(net)
     net = tf.reshape(net, [batch_size, -1])
-    net = tf.nn.dropout(net, 0.5)
     net = linear(net, int(1024*1.5), scope="d_fc_end1")
     net = batch_norm(config['batch_size']*2, name='d_bn_end1')(net)
     net = activation(net)

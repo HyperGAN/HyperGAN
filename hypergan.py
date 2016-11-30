@@ -63,6 +63,7 @@ hc.set("generator.fully_connected_layers", 0) # Experimental - This should proba
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
 hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
 hc.set("generator.regularizers", [[l2_regularizer.get]]) # These are added to the loss function for G.
+hc.set('generator.layer.noise', False) #Adds incremental noise each layer
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
 hc.set("generator.regularizers.layer", layer_norm_1) # the magnitude of the l2 regularizer(experimental)
 
@@ -315,6 +316,7 @@ def run(args):
         else:
             save_file = "saves/"+config["uuid"]+".ckpt"
 
+        print( "Save file", save_file,"\n")
         #TODO refactor save/load system
         if args.method == 'serve':
             print("|= Loading generator from build/")

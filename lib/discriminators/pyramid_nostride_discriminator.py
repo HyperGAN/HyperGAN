@@ -31,7 +31,12 @@ def discriminator(config, x, g, xs, gs):
 
         xgs_conv.append(mxg)
   
-        net = tf.concat(3, [net, xg])
+        s = [int(x) for x in xg.get_shape()]
+	moments = tf.reshape(xg, [config['batch_size'], 2, s[1], s[2], s[3]])
+	moments = tf.nn.moments(xg, [1], name="d_add_moments"+str(i))
+	moments = tf.reshape(xg, s)
+
+        net = tf.concat(3, [net, xg, moments])
 
       filter_size_w = 2
       filter_size_h = 2

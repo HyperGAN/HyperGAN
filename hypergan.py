@@ -57,7 +57,7 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 hc.set("generator", resize_conv.generator)
 hc.set("generator.z", 2) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator.z_projection_depth", 2048) # Used in the first layer - the linear projection of z
-hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
+hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
@@ -92,7 +92,7 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
 hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
-hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+hc.set("discriminator.activation", [prelu("d_")])
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
 hc.set('discriminator.fc_layers', [0])# Number of fully connected layers to include

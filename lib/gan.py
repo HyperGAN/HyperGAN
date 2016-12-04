@@ -230,7 +230,7 @@ def create(config, x,y,f):
     # create generator
     g = generator(config, [y, z]+categories_t)
 
-    encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
+    #encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
     g_sample = g
 
@@ -346,7 +346,7 @@ def create(config, x,y,f):
     set_tensor("d_real", tf.reduce_mean(d_real))
     set_tensor("d_real_loss", tf.reduce_mean(d_real_loss))
     set_tensor("d_real_sig", tf.reduce_mean(tf.sigmoid(d_real_sig)))
-    set_tensor("encoded", encoded)
+    #set_tensor("encoded", encoded)
     set_tensor("encoder_mse", mse_loss)
     set_tensor("f", f)
     set_tensor("g", g_sample)

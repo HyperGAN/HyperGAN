@@ -208,10 +208,9 @@ def epoch(sess, config):
     n_samples =  config['examples_per_epoch']
     total_batch = int(n_samples / batch_size)
     global batch_no
-    batch_no+=1
     for i in range(total_batch):
         d_loss, g_loss = config['trainer.train'](sess, config)
-        sample_file="samples/grid-%05d+%05d.png" % (batch_no, i)
+        sample_file="samples/grid-%06d.png" % (batch_no * total_batch + i)
         sample_grid(sample_file, sess, config)
 
         #if(i > 10):
@@ -223,6 +222,7 @@ def epoch(sess, config):
         #    rX = np.array(rX)
         #    if(np.min(rX) < -1000 or np.max(rX) > 1000):
         #        return False
+    batch_no+=1
     return True
 
 def test_config(sess, config):

@@ -18,7 +18,7 @@ def generator(config, net):
     batch_norm = config['generator.regularizers.layer']
 
     s = [int(x) for x in net.get_shape()]
-    net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, use_batch_norm=False, batch_norm=batch_norm)
+    net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, use_batch_norm=False, batch_norm=batch_norm, dropout=get_tensor("dropout"))
 
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]

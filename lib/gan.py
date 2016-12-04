@@ -17,6 +17,8 @@ def generator(config, inputs, reuse=False):
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
+        dropout = tf.Variable(0.5)
+        set_tensor("dropout", dropout)
 
         original_z = tf.concat(1, inputs)
         layers = config['generator.fully_connected_layers']
@@ -25,9 +27,10 @@ def generator(config, inputs, reuse=False):
             net = linear(net, net.get_shape()[-1], scope="g_fc_"+str(i))
             net = batch_norm(batch_size, name='g_rp_bn'+str(i))(net)
             net = activation(net)
+            net = tf.nn.dropout(net, dropout)
 
-            noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
-            net = tf.concat(1, [net, noise])
+            #noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
+            #net = tf.concat(1, [net, noise])
         #print("Generator creating linear layer from", int(net.get_shape()[1]), "z to ", list(primes)+[z_proj_dims])
         #net = linear(net, z_proj_dims, scope="g_lin_proj")
 

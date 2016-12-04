@@ -356,7 +356,6 @@ def create(config, x,y,f):
     set_tensor("hc_summary",summary)
     set_tensor("x", x)
     set_tensor("y", y)
-    set_tensor("z", z)
     set_tensor('categories', categories_t)
     set_tensor('encoded_z', encoded_z)
     set_tensor('joint_loss', joint_loss)

@@ -16,6 +16,7 @@ import lib.discriminators.densenet_discriminator as densenet_discriminator
 import lib.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
 import lib.discriminators.painters_discriminator as painters_discriminator
 import lib.encoders.random_encoder as random_encoder
+import lib.encoders.random_combo_encoder as random_combo_encoder
 import lib.encoders.progressive_variational_encoder as progressive_variational_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
 import lib.regularizers.minibatch_regularizer as minibatch_regularizer
@@ -115,7 +116,8 @@ hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # t
 
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
 hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
-hc.set('encoder', random_encoder.encode) # how to encode z
+#hc.set('encoder', random_encoder.encode) # how to encode z
+hc.set('encoder', random_combo_encoder.encode) # how to encode z
 
 #hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 #hc.set("g_mp3_filter",[3])

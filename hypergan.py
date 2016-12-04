@@ -359,7 +359,7 @@ def run(args):
             print("|= Loading generator from build/")
             saver = tf.train.Saver()
             saver.restore(sess, build_file)
-        elif(save_file and os.path.isfile(save_file+".index")):
+        elif(save_file and os.path.isfile(save_file)):
             print(" |= Loading network from "+ save_file)
             config['uuid']=config['parent_uuid']
             ckpt = tf.train.get_checkpoint_state('saves')

@@ -55,7 +55,7 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 
 # Generator configuration
 hc.set("generator", resize_conv.generator)
-hc.set("generator.z", 128) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
+hc.set("generator.z", 2) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator.z_projection_depth", 2048) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
@@ -170,22 +170,59 @@ hc.set("d_project", ['tiled'])
 
 hc.set("batch_size", args.batch)
 
+def sample_grid(sample_file, sess, config):
+    generator = get_tensor("g")[0]
+    y_t = get_tensor("y")
+    z_t = get_tensor("z")
+    dropout_t = get_tensor("dropout")
+
+
+    x = np.linspace(0,1, 4)
+    y = np.linspace(0,1, 6)
+
+    #z = np.mgrid[-3:3:0.75, -3:3:0.38*3].reshape(2,-1).T
+    #z = np.mgrid[-3:3:0.6*3, -3:3:0.38*3].reshape(2,-1).T
+    #z = np.mgrid[-6:6:0.6*6, -6:6:0.38*6].reshape(2,-1).T
+
+    z = np.mgrid[-1:1:0.6, -1:1:0.38].reshape(2,-1).T
+    #z = np.square(1/z) * np.sign(z)
+    #z = np.mgrid[0:1000:300, 0:1000:190].reshape(2,-1).T
+    #z = np.mgrid[-0:1:0.3, 0:1:0.19].reshape(2,-1).T
+    #z = np.mgrid[0.25:-0.25:-0.15, 0.25:-0.25:-0.095].reshape(2,-1).T
+    #z = np.mgrid[-0.125:0.125:0.075, -0.125:0.125:0.095/2].reshape(2,-1).T
+    #z = np.zeros(z_t.get_shape())
+    #z.fill(0.2)
+
+
+    sample = sess.run(generator, feed_dict={z_t: z, dropout_t: 1.0})
+    print(np.shape(sample))
+    #plot(self.config, sample, sample_file)
+    stacks = [np.hstack(sample[x*6:x*6+6]) for x in range(4)]
+    plot(config, np.vstack(stacks), sample_file)
+
+
+batch_no = 0
 
 def epoch(sess, config):
     batch_size = config["batch_size"]
     n_samples =  config['examples_per_epoch']
     total_batch = int(n_samples / batch_size)
+    global batch_no
+    batch_no+=1
     for i in range(total_batch):
         d_loss, g_loss = config['trainer.train'](sess, config)
-        if(i > 10):
-            if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
-                return False
+        sample_file="samples/grid-%05d+%05d.png" % (batch_no, i)
+        sample_grid(sample_file, sess, config)
 
-            g = get_tensor('g')
-            rX = sess.run([g[-1]])
-            rX = np.array(rX)
-            if(np.min(rX) < -1000 or np.max(rX) > 1000):
-                return False
+        #if(i > 10):
+        #    if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
+        #        return False
+
+        #    g = get_tensor('g')
+        #    rX = sess.run([g[-1]])
+        #    rX = np.array(rX)
+        #    if(np.min(rX) < -1000 or np.max(rX) > 1000):
+        #        return False
     return True
 
 def test_config(sess, config):

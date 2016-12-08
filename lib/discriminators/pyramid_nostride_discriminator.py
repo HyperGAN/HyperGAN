@@ -8,8 +8,7 @@ def discriminator(config, x, g, xs, gs):
     batch_size = int(x.get_shape()[0])
     depth_increase = config['discriminator.pyramid.depth_increase']
     depth = config['discriminator.pyramid.layers']
-    batch_norm = config['generator.regularizers.layer']
-    batch_norm = batch_norm_1
+    batch_norm = config['discriminator.regularizers.layer']
     net = x
     net = conv2d(net, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
 
@@ -32,9 +31,9 @@ def discriminator(config, x, g, xs, gs):
         xgs_conv.append(mxg)
   
         s = [int(x) for x in xg.get_shape()]
-	moments = tf.reshape(xg, [config['batch_size'], 2, s[1], s[2], s[3]])
-	moments = tf.nn.moments(xg, [1], name="d_add_moments"+str(i))
-	moments = tf.reshape(xg, s)
+        moments = tf.reshape(xg, [config['batch_size'], 2, s[1], s[2], s[3]])
+        moments = tf.nn.moments(xg, [1], name="d_add_moments"+str(i))
+        moments = tf.reshape(xg, s)
 
         net = tf.concat(3, [net, xg, moments])
 

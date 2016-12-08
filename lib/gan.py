@@ -57,6 +57,7 @@ def discriminator(config, x, f,z,g,gz):
     single_batch_size = config['batch_size']
     activation = config['discriminator.activation']
     channels = (config['channels'])
+    batch_norm = config['discriminator.regularizers.layer']
     # combine to one batch, per Ian's "Improved GAN"
     xs = [x]
     gs = g
@@ -106,7 +107,10 @@ def discriminator(config, x, f,z,g,gz):
     #net = tf.reshape(net,  [config['batch_size']*2, 1])
 
     #net = tf.reshape(net, [config['batch_size']*2, -1])
-    net = linear(net, 1, scope="d_proj", stddev=0.03)
+    #net = linear(net, 1, scope="d_proj", stddev=0.03)
+    net = batch_norm(batch_size, name='d_rp_bnend')(net)
+    net = linear(net, 1, scope="d_fc_end")
+    #net = tf.contrib.layers.fully_connected(inputs=net, num_outputs=1, normalizer_fn=tf.nn.l2_loss)
     net = tf.reshape(net,  [config['batch_size']*2, 1])
 #
     class_logits = net

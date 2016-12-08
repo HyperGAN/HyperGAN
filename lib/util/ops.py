@@ -17,7 +17,7 @@ class layer_norm_1(object):
     def __init__(self, batch_size, name="layer_norm"):
         self.name = name
     def __call__(self, x, train=True):
-        return tf.contrib.layers.layer_norm(x, scope=self.name)
+        return tf.contrib.layers.layer_norm(x, scope=self.name, center=True, scale=True)
 
 
 class batch_norm_1(object):
@@ -221,7 +221,7 @@ def prelu(prefix):
         print("prelu for", _x.get_shape()[-1])
         alphas = tf.get_variable(name, 
                 _x.get_shape()[-1],
-                initializer=tf.constant_initializer(0.0),
+                initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
                 dtype=tf.float32)
         pos = tf.nn.relu(_x)
         neg = alphas * (_x - abs(_x)) * 0.5

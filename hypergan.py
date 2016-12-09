@@ -70,8 +70,8 @@ hc.set("generator.regularizers.layer", batch_norm_1) # the magnitude of the l2 r
 
 # Trainer configuration
 #trainer = adam_trainer # adam works well at 64x64 but doesn't scale
-#trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
-trainer = rmsprop_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
+trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
+#trainer = rmsprop_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
 #trainer = sgd_adam_trainer # This has never worked, but seems like it should
 hc.set("trainer.initializer", trainer.initialize) # TODO: can we merge these variables?
 hc.set("trainer.train", trainer.train) # The training method to use.  This is called every step

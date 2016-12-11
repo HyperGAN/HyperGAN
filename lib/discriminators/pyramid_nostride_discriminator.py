@@ -30,7 +30,6 @@ def discriminator(config, x, g, xs, gs):
         moments = tf.reshape(xg, s)
 
         net = tf.concat(3, [net, xg, moments])
-
       filter_size_w = 2
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
@@ -40,17 +39,10 @@ def discriminator(config, x, g, xs, gs):
 
       print('Discriminator pyramid layer:', net)
 
-    dropout = tf.Variable(0.5)
     k=-1
     net = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(net)
     net = activation(net)
     net = tf.reshape(net, [batch_size, -1])
-    net = linear(net, int(1024*1.5), scope="d_fc_end1")
-    net = batch_norm(config['batch_size']*2, name='d_bn_end1')(net)
-    net = activation(net)
-    net = linear(net, 1024, scope="d_fc_end2")
-    net = batch_norm(config['batch_size']*2, name='d_bn_end2')(net)
-    net = activation(net)
  
     return net
 

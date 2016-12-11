@@ -216,7 +216,7 @@ def prelu(prefix):
         prelu_count += 1
         name = (prefix+"prelu_"+str(prelu_count))
         orig_shape = _x.get_shape()
-        _x = tf.reshape(_x, [24, -1])
+        _x = tf.reshape(_x, [32, -1])
 
         print("prelu for", _x.get_shape()[-1])
         alphas = tf.get_variable(name, 

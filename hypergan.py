@@ -56,7 +56,7 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 
 # Generator configuration
 hc.set("generator", resize_conv.generator)
-hc.set("generator.z", 2) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
+hc.set("generator.z", 64) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
@@ -267,6 +267,10 @@ def test_epoch(epoch, sess, config, start_time, end_time):
 
 
 def get_function(name):
+    print(name)
+    if name == "function:lib.util.ops.prelu_internal":
+        return prelu("g_")
+
     if not isinstance(name, str):
         return name
     namespaced_method = name.split(":")[1]
@@ -363,7 +367,7 @@ def run(args):
             print("|= Loading generator from build/")
             saver = tf.train.Saver()
             saver.restore(sess, build_file)
-        elif(save_file and os.path.isfile(save_file)):
+        elif(save_file and os.path.isfile(save_file+".index")):
             print(" |= Loading network from "+ save_file)
             config['uuid']=config['parent_uuid']
             ckpt = tf.train.get_checkpoint_state('saves')

@@ -83,7 +83,7 @@ hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g
 hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g
 hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g
-hc.set("trainer.rmsprop.discriminator.lr", 1e-3) # d learning rate
+hc.set("trainer.rmsprop.discriminator.lr", 3e-5) # d learning rate
 hc.set("trainer.rmsprop.generator.lr", 1e-4) # d learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake

@@ -23,12 +23,6 @@ def discriminator(config, x, g, xs, gs):
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev']*i, dtype=config['dtype'])
 
         xgs.append(xg)
-
-        mxg = conv2d(xg, 6*(i), name="d_add_xg"+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
-        mxg = batch_norm(config['batch_size'], name='d_add_xg_bn_'+str(i))(mxg)
-        mxg = activation(mxg)
-
-        xgs_conv.append(mxg)
   
         s = [int(x) for x in xg.get_shape()]
         moments = tf.reshape(xg, [config['batch_size'], 2, s[1], s[2], s[3]])

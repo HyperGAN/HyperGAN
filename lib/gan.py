@@ -109,7 +109,7 @@ def discriminator(config, x, f,z,g,gz):
     #net = tf.reshape(net, [config['batch_size']*2, -1])
     #net = linear(net, 1, scope="d_proj", stddev=0.03)
     #net = batch_norm(batch_size, name='d_rp_bnend')(net)
-    net = linear(net, 1, scope="d_fc_end")
+    net = linear(net, 1, scope="d_fc_end", stddev=0.003)
     #net = tf.contrib.layers.fully_connected(inputs=net, num_outputs=1, normalizer_fn=tf.nn.l2_loss)
     net = tf.reshape(net,  [config['batch_size']*2, 1])
 #

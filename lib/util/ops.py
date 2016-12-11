@@ -218,7 +218,7 @@ def prelu(prefix):
         orig_shape = _x.get_shape()
         _x = tf.reshape(_x, [32, -1])
 
-        print("prelu for", _x.get_shape()[-1])
+        #print("prelu for", _x.get_shape()[-1])
         alphas = tf.get_variable(name, 
                 _x.get_shape()[-1],
                 initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),

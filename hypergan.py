@@ -56,8 +56,8 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 
 # Generator configuration
 hc.set("generator", resize_conv.generator)
-hc.set("generator.z", 64) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
-hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
+hc.set("generator.z", 128) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
+hc.set("generator.z_projection_depth", 2048) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
@@ -69,8 +69,8 @@ hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # 
 hc.set("generator.regularizers.layer", batch_norm_1) # the magnitude of the l2 regularizer(experimental)
 
 # Trainer configuration
-#trainer = adam_trainer # adam works well at 64x64 but doesn't scale
-trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
+trainer = adam_trainer # adam works well at 64x64 but doesn't scale
+#trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
 #trainer = rmsprop_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
 #trainer = sgd_adam_trainer # This has never worked, but seems like it should
 hc.set("trainer.initializer", trainer.initialize) # TODO: can we merge these variables?
@@ -83,7 +83,7 @@ hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g
 hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g
 hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g
-hc.set("trainer.rmsprop.discriminator.lr", 1e-4) # d learning rate
+hc.set("trainer.rmsprop.discriminator.lr", 1e-3) # d learning rate
 hc.set("trainer.rmsprop.generator.lr", 1e-4) # d learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
@@ -93,7 +93,7 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
 hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
-hc.set("discriminator.activation", [prelu("d_")])
+hc.set("discriminator.activation", [lrelu])#prelu("d_")])
 hc.set('discriminator.regularizers.layer', layer_norm_1) # Size of fully connected layers
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
@@ -213,7 +213,7 @@ def epoch(sess, config):
     global batch_no
     for i in range(total_batch):
         sample_file="samples/grid-%06d.png" % (batch_no * total_batch + i)
-        sample_grid(sample_file, sess, config)
+        #sample_grid(sample_file, sess, config)
 
         d_loss, g_loss = config['trainer.train'](sess, config)
 

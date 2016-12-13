@@ -16,6 +16,7 @@ import lib.discriminators.densenet_discriminator as densenet_discriminator
 import lib.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
 import lib.discriminators.painters_discriminator as painters_discriminator
 import lib.encoders.random_encoder as random_encoder
+import lib.encoders.random_gaussian_encoder as random_gaussian_encoder
 import lib.encoders.random_combo_encoder as random_combo_encoder
 import lib.encoders.progressive_variational_encoder as progressive_variational_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
@@ -58,7 +59,7 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 hc.set("generator", resize_conv.generator)
 hc.set("generator.z", 128) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator.z_projection_depth", 2048) # Used in the first layer - the linear projection of z
-hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
+hc.set("generator.activation", [lrelu]);#prelu("g_")]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
@@ -118,7 +119,7 @@ hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # t
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
 hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
 #hc.set('encoder', random_encoder.encode) # how to encode z
-hc.set('encoder', random_combo_encoder.encode) # how to encode z
+hc.set('encoder', random_gaussian_encoder.encode) # how to encode z
 
 #hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 #hc.set("g_mp3_filter",[3])
@@ -157,8 +158,8 @@ hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
 #TODO move to minibatch
-hc.set("d_kernels", list(np.arange(20, 30)))
-hc.set("d_kernel_dims", list(np.arange(100, 300)))
+hc.set("d_kernels", list(np.arange(10, 20)))
+hc.set("d_kernel_dims", list(np.arange(100, 200)))
 
 #TODO remove and replace with losses
 hc.set("loss", ['custom'])

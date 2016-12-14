@@ -58,8 +58,8 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 # Generator configuration
 hc.set("generator", resize_conv.generator)
 hc.set("generator.z", 128) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
-hc.set("generator.z_projection_depth", 2048) # Used in the first layer - the linear projection of z
-hc.set("generator.activation", [lrelu]);#prelu("g_")]); # activation function used inside the generator
+hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
+hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
@@ -119,7 +119,7 @@ hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # t
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
 hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
 #hc.set('encoder', random_encoder.encode) # how to encode z
-hc.set('encoder', random_gaussian_encoder.encode) # how to encode z
+hc.set('encoder', random_combo_encoder.encode) # how to encode z
 
 #hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 #hc.set("g_mp3_filter",[3])
@@ -144,7 +144,7 @@ hc.set("examples_per_epoch", 30000/4)
 
 #TODO category/bernouilli
 categories = [[2]+[2]+build_categories_config(30)]
-hc.set('categories', [[]])#categories)
+hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
 

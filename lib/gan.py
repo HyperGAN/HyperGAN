@@ -191,7 +191,7 @@ def random_category(batch_size, size, dtype):
 
 # Used for building the tensorflow graph with only G
 def create_generator(config, x,y,f):
-    set_ops_dtype(config['dtype'])
+    set_ops_globals(config['dtype'], config['batch_size'])
     #TODO fix copy/paste job here
     z_dim = int(config['generator.z'])
     z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
@@ -211,7 +211,7 @@ def create_generator(config, x,y,f):
 
 def create(config, x,y,f):
     # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
-    set_ops_dtype(config['dtype'])
+    set_ops_globals(config['dtype'], config['batch_size'])
 
     batch_size = config["batch_size"]
     z_dim = int(config['generator.z'])

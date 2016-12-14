@@ -8,8 +8,9 @@ from tensorflow.python.framework import ops
 config = {
         }
 
-def set_ops_dtype(dtype):
+def set_ops_globals(dtype, batch_size):
     config['dtype']=dtype
+    config['batch_size']=batch_size
 
 rng = np.random.RandomState([2016, 6, 1])
 
@@ -216,7 +217,7 @@ def prelu(prefix):
         prelu_count += 1
         name = (prefix+"prelu_"+str(prelu_count))
         orig_shape = _x.get_shape()
-        _x = tf.reshape(_x, [24, -1])
+        _x = tf.reshape(_x, [config['batch_size'], -1])
 
         #print("prelu for", _x.get_shape()[-1])
         alphas = tf.get_variable(name, 

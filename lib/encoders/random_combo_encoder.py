@@ -12,7 +12,7 @@ def encode(config, x, y):
   z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
   set_tensor("z", z)
   z2 = tf.square(z)
-  z3 = tf.random_normal([config['batch_size'], z_dim],mean=0, stddev=1,dtype=config['dtype'])
+  z3 = tf.ones_like(z)
   z4 = tf.exp(z)
 
   z = tf.concat(1, [z,z2,z3,z4])

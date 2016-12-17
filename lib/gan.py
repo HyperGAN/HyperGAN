@@ -109,14 +109,14 @@ def discriminator(config, x, f,z,g,gz):
     #net = linear(net, 1, scope="d_proj", stddev=0.03)
     #net = batch_norm(batch_size, name='d_rp_bnend')(net)
 
+    num_classes = config['y_dims']+1
     if config['y_dims'] == 1:
         net = linear(net, 1, scope="d_fc_end", stddev=0.003)
         net = tf.reshape(net,  [config['batch_size']*2, 1])
         class_logits = net
-        gan_logits = net
+        gan_logits = tf.squeeze(net)
 
     else:
-        num_classes = config['y_dims']+1
         net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
         class_logits = tf.slice(net, [0,1], [single_batch_size*2,num_classes-1])
         gan_logits = tf.squeeze(tf.slice(net, [0,0], [single_batch_size*2,1]))

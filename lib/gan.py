@@ -112,7 +112,6 @@ def discriminator(config, x, f,z,g,gz):
     num_classes = config['y_dims']+1
     if config['y_dims'] == 1:
         net = linear(net, 1, scope="d_fc_end", stddev=0.003)
-        net = tf.reshape(net,  [config['batch_size']*2, 1])
         class_logits = net
         gan_logits = tf.squeeze(net)
 

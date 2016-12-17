@@ -108,45 +108,25 @@ def discriminator(config, x, f,z,g,gz):
     #net = tf.reshape(net, [config['batch_size']*2, -1])
     #net = linear(net, 1, scope="d_proj", stddev=0.03)
     #net = batch_norm(batch_size, name='d_rp_bnend')(net)
-    net = linear(net, 1, scope="d_fc_end", stddev=0.003)
-    #net = tf.contrib.layers.fully_connected(inputs=net, num_outputs=1, normalizer_fn=tf.nn.l2_loss)
-    net = tf.reshape(net,  [config['batch_size']*2, 1])
-#
-    class_logits = net
-    gan_logits = net
-    return [tf.slice(class_logits, [0, 0], [single_batch_size, 1]),
-                tf.slice(gan_logits, [0,0], [single_batch_size,1]),
-                tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, 1]),
-                tf.slice(gan_logits, [single_batch_size,0], [single_batch_size,1]),
-                last_layer]
-#
-#
-    def build_logits(class_logits, num_classes):
-        generated_class_logits = tf.squeeze(tf.slice(class_logits, [0, num_classes - 1], [batch_size, 1]))
-        positive_class_logits = tf.slice(class_logits, [0, 0], [batch_size, num_classes - 1])
 
-        """
-        # make these a separate matmul with weights initialized to 0, attached only to generated_class_logits, or things explode
-        generated_class_logits = tf.squeeze(generated_class_logits) + tf.squeeze(linear(diff_feat, 1, stddev=0., scope="d_indivi_logits_from_diff_feat"))
-        assert len(generated_class_logits.get_shape()) == 1
-        # re-assemble the logits after incrementing the generated class logits
-        class_logits = tf.concat(1, [positive_class_logits, tf.expand_dims(generated_class_logits, 1)])
-        """
+    if config['y_dims'] == 1:
+        net = linear(net, 1, scope="d_fc_end", stddev=0.003)
+        net = tf.reshape(net,  [config['batch_size']*2, 1])
+        class_logits = net
+        gan_logits = net
 
-        mx = tf.reduce_max(positive_class_logits, 1, keep_dims=True)
-        safe_pos_class_logits = positive_class_logits - mx
+    else:
+        num_classes = config['y_dims']+1
+        net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
+        class_logits = tf.slice(net, [0,1], [single_batch_size*2,num_classes-1])
+        gan_logits = tf.squeeze(tf.slice(net, [0,0], [single_batch_size*2,1]))
 
-        gan_logits = tf.log(tf.reduce_sum(tf.exp(safe_pos_class_logits), 1)) + tf.squeeze(mx) - generated_class_logits
-        assert len(gan_logits.get_shape()) == 1
-
-        return class_logits, gan_logits
-    num_classes = config['y_dims']+1
-    class_logits, gan_logits = build_logits(net, num_classes)
     return [tf.slice(class_logits, [0, 0], [single_batch_size, num_classes-1]),
                 tf.slice(gan_logits, [0], [single_batch_size]),
                 tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, num_classes-1]),
                 tf.slice(gan_logits, [single_batch_size], [single_batch_size]), 
                 last_layer]
+
 
 def split_categories(layer, batch_size, categories):
     start = 0

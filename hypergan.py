@@ -12,6 +12,7 @@ import lib.trainers.slowdown_trainer as slowdown_trainer
 import lib.trainers.sgd_adam_trainer as sgd_adam_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
 import lib.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
+import lib.discriminators.slim_stride as slim_stride
 import lib.discriminators.densenet_discriminator as densenet_discriminator
 import lib.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
 import lib.discriminators.painters_discriminator as painters_discriminator

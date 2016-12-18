@@ -12,10 +12,13 @@ def generator(config, inputs, reuse=False):
     activation = config['generator.activation']
     batch_size = config['batch_size']
     z_proj_dims = int(config['generator.z_projection_depth'])
+    batch_norm = config['generator.regularizers.layer']
 
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
+        dropout = tf.Variable(0.5)
+        set_tensor("dropout", dropout)
 
         original_z = tf.concat(1, inputs)
         layers = config['generator.fully_connected_layers']
@@ -25,8 +28,8 @@ def generator(config, inputs, reuse=False):
             net = batch_norm(batch_size, name='g_rp_bn'+str(i))(net)
             net = activation(net)
 
-            noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
-            net = tf.concat(1, [net, noise])
+            #noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
+            #net = tf.concat(1, [net, noise])
         #print("Generator creating linear layer from", int(net.get_shape()[1]), "z to ", list(primes)+[z_proj_dims])
         #net = linear(net, z_proj_dims, scope="g_lin_proj")
 
@@ -53,6 +56,7 @@ def discriminator(config, x, f,z,g,gz):
     single_batch_size = config['batch_size']
     activation = config['discriminator.activation']
     channels = (config['channels'])
+    batch_norm = config['discriminator.regularizers.layer']
     # combine to one batch, per Ian's "Improved GAN"
     xs = [x]
     gs = g
@@ -60,7 +64,7 @@ def discriminator(config, x, f,z,g,gz):
     set_tensor("gs", gs)
     g = g[-1]
     for i in gs:
-        resized = tf.image.resize_images(xs[-1],xs[-1].get_shape()[1]//2,xs[-1].get_shape()[2]//2, 1)
+        resized = tf.image.resize_images(xs[-1],[int(xs[-1].get_shape()[1]//2),int(xs[-1].get_shape()[2]//2)], 1)
         xs.append(resized)
     xs.pop()
     gs.reverse()
@@ -102,44 +106,26 @@ def discriminator(config, x, f,z,g,gz):
     #net = tf.reshape(net,  [config['batch_size']*2, 1])
 
     #net = tf.reshape(net, [config['batch_size']*2, -1])
-    net = linear(net, 1, scope="d_proj", stddev=0.03)
-    net = tf.reshape(net,  [config['batch_size']*2, 1])
-#
-    class_logits = net
-    gan_logits = net
-    return [tf.slice(class_logits, [0, 0], [single_batch_size, 1]),
-                tf.slice(gan_logits, [0,0], [single_batch_size,1]),
-                tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, 1]),
-                tf.slice(gan_logits, [single_batch_size,0], [single_batch_size,1]),
-                last_layer]
-#
-#
-    def build_logits(class_logits, num_classes):
-        generated_class_logits = tf.squeeze(tf.slice(class_logits, [0, num_classes - 1], [batch_size, 1]))
-        positive_class_logits = tf.slice(class_logits, [0, 0], [batch_size, num_classes - 1])
+    #net = linear(net, 1, scope="d_proj", stddev=0.03)
+    #net = batch_norm(batch_size, name='d_rp_bnend')(net)
 
-        """
-        # make these a separate matmul with weights initialized to 0, attached only to generated_class_logits, or things explode
-        generated_class_logits = tf.squeeze(generated_class_logits) + tf.squeeze(linear(diff_feat, 1, stddev=0., scope="d_indivi_logits_from_diff_feat"))
-        assert len(generated_class_logits.get_shape()) == 1
-        # re-assemble the logits after incrementing the generated class logits
-        class_logits = tf.concat(1, [positive_class_logits, tf.expand_dims(generated_class_logits, 1)])
-        """
-
-        mx = tf.reduce_max(positive_class_logits, 1, keep_dims=True)
-        safe_pos_class_logits = positive_class_logits - mx
-
-        gan_logits = tf.log(tf.reduce_sum(tf.exp(safe_pos_class_logits), 1)) + tf.squeeze(mx) - generated_class_logits
-        assert len(gan_logits.get_shape()) == 1
-
-        return class_logits, gan_logits
     num_classes = config['y_dims']+1
-    class_logits, gan_logits = build_logits(net, num_classes)
+    if config['y_dims'] == 1:
+        net = linear(net, 1, scope="d_fc_end", stddev=0.003)
+        class_logits = net
+        gan_logits = tf.squeeze(net)
+
+    else:
+        net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
+        class_logits = tf.slice(net, [0,1], [single_batch_size*2,num_classes-1])
+        gan_logits = tf.squeeze(tf.slice(net, [0,0], [single_batch_size*2,1]))
+
     return [tf.slice(class_logits, [0, 0], [single_batch_size, num_classes-1]),
                 tf.slice(gan_logits, [0], [single_batch_size]),
                 tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, num_classes-1]),
                 tf.slice(gan_logits, [single_batch_size], [single_batch_size]), 
                 last_layer]
+
 
 def split_categories(layer, batch_size, categories):
     start = 0
@@ -184,7 +170,7 @@ def random_category(batch_size, size, dtype):
 
 # Used for building the tensorflow graph with only G
 def create_generator(config, x,y,f):
-    set_ops_dtype(config['dtype'])
+    set_ops_globals(config['dtype'], config['batch_size'])
     #TODO fix copy/paste job here
     z_dim = int(config['generator.z'])
     z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
@@ -204,10 +190,11 @@ def create_generator(config, x,y,f):
 
 def create(config, x,y,f):
     # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
-    set_ops_dtype(config['dtype'])
+    set_ops_globals(config['dtype'], config['batch_size'])
 
     batch_size = config["batch_size"]
     z_dim = int(config['generator.z'])
+    batch_norm = config['generator.regularizers.layer']
 
     g_losses = []
     extra_g_loss = []
@@ -225,7 +212,7 @@ def create(config, x,y,f):
     # create generator
     g = generator(config, [y, z]+categories_t)
 
-    encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
+    #encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
 
     g_sample = g
 
@@ -341,7 +328,7 @@ def create(config, x,y,f):
     set_tensor("d_real", tf.reduce_mean(d_real))
     set_tensor("d_real_loss", tf.reduce_mean(d_real_loss))
     set_tensor("d_real_sig", tf.reduce_mean(tf.sigmoid(d_real_sig)))
-    set_tensor("encoded", encoded)
+    #set_tensor("encoded", encoded)
     set_tensor("encoder_mse", mse_loss)
     set_tensor("f", f)
     set_tensor("g", g_sample)
@@ -351,7 +338,6 @@ def create(config, x,y,f):
     set_tensor("hc_summary",summary)
     set_tensor("x", x)
     set_tensor("y", y)
-    set_tensor("z", z)
     set_tensor('categories', categories_t)
     set_tensor('encoded_z', encoded_z)
     set_tensor('joint_loss', joint_loss)

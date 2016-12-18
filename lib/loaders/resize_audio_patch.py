@@ -6,7 +6,6 @@
 from tensorflow.python.ops import image_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
-from tensorflow.python import ops
 
 def crop_to_1d_bounding_box(image, offset_height, target_height,
                          dynamic_shape=False):
@@ -33,7 +32,7 @@ def crop_to_1d_bounding_box(image, offset_height, target_height,
     ValueError: If the shape of `image` is incompatible with the `offset_*` or
     `target_*` arguments, and `dynamic_shape` is set to `False`.
   """
-  image = ops.convert_to_tensor(image, name='image')
+  image = tf.convert_to_tensor(image, name='image')
   height, _ = _ImageDimensions(image, dynamic_shape=dynamic_shape)
 
   cropped = array_ops.slice(image,
@@ -69,7 +68,7 @@ def pad_to_1d_bounding_box(image, offset_height, target_height,
     ValueError: If the shape of `image` is incompatible with the `offset_*` or
       `target_*` arguments, and `dynamic_shape` is set to `False`.
   """
-  image = ops.convert_to_tensor(image, name='image')
+  image = tf.convert_to_tensor(image, name='image')
   height, depth = _ImageDimensions(image, dynamic_shape=dynamic_shape)
 
   after_padding_height = target_height - offset_height - height
@@ -131,7 +130,7 @@ def crop_to_bounding_box(image, offset_height, offset_width, target_height,
     ValueError: If the shape of `image` is incompatible with the `offset_*` or
     `target_*` arguments, and `dynamic_shape` is set to `False`.
   """
-  image = ops.convert_to_tensor(image, name='image')
+  image = tf.convert_to_tensor(image, name='image')
   _Check3DImage(image, require_static=(not dynamic_shape))
   shapes = _ImageDimensions(image, dynamic_shape=dynamic_shape)
 
@@ -171,7 +170,7 @@ def pad_to_bounding_box(image, offset_height, offset_width, target_height,
     ValueError: If the shape of `image` is incompatible with the `offset_*` or
       `target_*` arguments, and `dynamic_shape` is set to `False`.
   """
-  image = ops.convert_to_tensor(image, name='image')
+  image = tf.convert_to_tensor(image, name='image')
   _Check3DImage(image, require_static=(not dynamic_shape))
   height, width, depth = _ImageDimensions(image, dynamic_shape=dynamic_shape)
 
@@ -212,7 +211,7 @@ def pad_to_bounding_box(image, offset_height, offset_width, target_height,
 
 def resize_audio_with_crop_or_pad(image, target_height, target_width,
                                   dynamic_shape=False):
-  image = ops.convert_to_tensor(image, name='audio')
+  image = tf.convert_to_tensor(image, name='audio')
   original_height,  _ =     _ImageDimensions(image, dynamic_shape=dynamic_shape)
 
   if target_height <= 0:

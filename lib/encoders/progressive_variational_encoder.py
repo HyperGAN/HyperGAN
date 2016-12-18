@@ -11,7 +11,8 @@ def encode(config, x,y):
     n_z = int(config['generator.z'])
     channels = (config['channels']+1)
     activation = config['encoder.activation']
-    net = tf.image.resize_images(x, 32, 32, 1)
+    batch_norm = config['generator.regularizers.layer']
+    net = tf.image.resize_images(x, [32, 32], 1)
     net += tf.random_normal(net.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
     net = conv2d(net, 16, name='v_expand', k_w=3, k_h=3, d_h=1, d_w=1)
     depth_increase = 2

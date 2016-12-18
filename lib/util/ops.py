@@ -8,12 +8,20 @@ from tensorflow.python.framework import ops
 config = {
         }
 
-def set_ops_dtype(dtype):
+def set_ops_globals(dtype, batch_size):
     config['dtype']=dtype
+    config['batch_size']=batch_size
 
 rng = np.random.RandomState([2016, 6, 1])
 
-class batch_norm(object):
+class layer_norm_1(object):
+    def __init__(self, batch_size, name="layer_norm"):
+        self.name = name
+    def __call__(self, x, train=True):
+        return tf.contrib.layers.layer_norm(x, scope=self.name, center=True, scale=True)
+
+
+class batch_norm_1(object):
     """Code modification of http://stackoverflow.com/a/33950177
 
     """
@@ -200,6 +208,29 @@ def lrelu(x, leak=0.2, name="lrelu"):
         f1 = 0.5 * (1 + leak)
         f2 = 0.5 * (1 - leak)
         return f1 * x + f2 * abs(x)
+
+# http://stackoverflow.com/questions/39975676/how-to-implement-prelu-activation-in-tensorflow
+prelu_count = 0
+def prelu(prefix):
+    def prelu_internal(_x):
+        global prelu_count
+        prelu_count += 1
+        name = (prefix+"prelu_"+str(prelu_count))
+        orig_shape = _x.get_shape()
+        _x = tf.reshape(_x, [config['batch_size'], -1])
+
+        #print("prelu for", _x.get_shape()[-1])
+        alphas = tf.get_variable(name, 
+                _x.get_shape()[-1],
+                initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
+                dtype=tf.float32)
+        pos = tf.nn.relu(_x)
+        neg = alphas * (_x - abs(_x)) * 0.5
+
+
+        return tf.reshape(pos + neg, orig_shape)
+    return prelu_internal
+
 
 def sin_and_cos(x, name="ignored"):
     return tf.concat(len(x.get_shape()) - 1, [tf.sin(x), tf.cos(x)])

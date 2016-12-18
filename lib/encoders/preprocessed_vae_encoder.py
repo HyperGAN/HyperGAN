@@ -4,6 +4,7 @@ def z_from_f(config, f, categories):
     transfer_fct = config['transfer_fct']
     n_z = int(config['z_dim'])
     n_c = sum(config['categories'])
+    batch_norm = config['generator.regularizers.layer']
 
     result = f
     print("RESULT IS", result)

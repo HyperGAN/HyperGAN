@@ -12,10 +12,13 @@ import lib.trainers.slowdown_trainer as slowdown_trainer
 import lib.trainers.sgd_adam_trainer as sgd_adam_trainer
 import lib.discriminators.pyramid_discriminator as pyramid_discriminator
 import lib.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
+import lib.discriminators.slim_stride as slim_stride
 import lib.discriminators.densenet_discriminator as densenet_discriminator
 import lib.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
 import lib.discriminators.painters_discriminator as painters_discriminator
 import lib.encoders.random_encoder as random_encoder
+import lib.encoders.random_gaussian_encoder as random_gaussian_encoder
+import lib.encoders.random_combo_encoder as random_combo_encoder
 import lib.encoders.progressive_variational_encoder as progressive_variational_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
 import lib.regularizers.minibatch_regularizer as minibatch_regularizer
@@ -57,18 +60,20 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 hc.set("generator", resize_conv.generator)
 hc.set("generator.z", 128) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator.z_projection_depth", 2048) # Used in the first layer - the linear projection of z
-hc.set("generator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]); # activation function used inside the generator
+hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
 hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
 hc.set("generator.regularizers", [[l2_regularizer.get]]) # These are added to the loss function for G.
+hc.set('generator.layer.noise', False) #Adds incremental noise each layer
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
+hc.set("generator.regularizers.layer", batch_norm_1) # the magnitude of the l2 regularizer(experimental)
 
 # Trainer configuration
-#trainer = adam_trainer # adam works well at 64x64 but doesn't scale
+trainer = adam_trainer # adam works well at 64x64 but doesn't scale
 #trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
-trainer = rmsprop_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
+#trainer = rmsprop_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
 #trainer = sgd_adam_trainer # This has never worked, but seems like it should
 hc.set("trainer.initializer", trainer.initialize) # TODO: can we merge these variables?
 hc.set("trainer.train", trainer.train) # The training method to use.  This is called every step
@@ -80,7 +85,7 @@ hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
 hc.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g
 hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g
 hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g
-hc.set("trainer.rmsprop.discriminator.lr", 1e-4) # d learning rate
+hc.set("trainer.rmsprop.discriminator.lr", 3e-5) # d learning rate
 hc.set("trainer.rmsprop.generator.lr", 1e-4) # d learning rate
 hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
 hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
@@ -90,7 +95,8 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
 hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
-hc.set("discriminator.activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
+hc.set("discriminator.activation", [lrelu])#prelu("d_")])
+hc.set('discriminator.regularizers.layer', layer_norm_1) # Size of fully connected layers
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
 hc.set('discriminator.fc_layers', [0])# Number of fully connected layers to include
@@ -113,7 +119,8 @@ hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # t
 
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
 hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
-hc.set('encoder', random_encoder.encode) # how to encode z
+#hc.set('encoder', random_encoder.encode) # how to encode z
+hc.set('encoder', random_combo_encoder.encode) # how to encode z
 
 #hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 #hc.set("g_mp3_filter",[3])
@@ -152,8 +159,8 @@ hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
 #TODO move to minibatch
-hc.set("d_kernels", list(np.arange(20, 30)))
-hc.set("d_kernel_dims", list(np.arange(100, 300)))
+hc.set("d_kernels", list(np.arange(10, 20)))
+hc.set("d_kernel_dims", list(np.arange(100, 200)))
 
 #TODO remove and replace with losses
 hc.set("loss", ['custom'])
@@ -168,22 +175,60 @@ hc.set("d_project", ['tiled'])
 
 hc.set("batch_size", args.batch)
 
+def sample_grid(sample_file, sess, config):
+    generator = get_tensor("g")[0]
+    y_t = get_tensor("y")
+    z_t = get_tensor("z")
+    dropout_t = get_tensor("dropout")
+
+
+    x = np.linspace(0,1, 4)
+    y = np.linspace(0,1, 6)
+
+    #z = np.mgrid[-3:3:0.75, -3:3:0.38*3].reshape(2,-1).T
+    #z = np.mgrid[-3:3:0.6*3, -3:3:0.38*3].reshape(2,-1).T
+    #z = np.mgrid[-6:6:0.6*6, -6:6:0.38*6].reshape(2,-1).T
+
+    z = np.mgrid[-1:1:0.6, -1:1:0.38].reshape(2,-1).T
+    #z = np.square(1/z) * np.sign(z)
+    #z = np.mgrid[0:1000:300, 0:1000:190].reshape(2,-1).T
+    #z = np.mgrid[-0:1:0.3, 0:1:0.19].reshape(2,-1).T
+    #z = np.mgrid[0.25:-0.25:-0.15, 0.25:-0.25:-0.095].reshape(2,-1).T
+    #z = np.mgrid[-0.125:0.125:0.075, -0.125:0.125:0.095/2].reshape(2,-1).T
+    #z = np.zeros(z_t.get_shape())
+    #z.fill(0.2)
+
+
+    sample = sess.run(generator, feed_dict={z_t: z, dropout_t: 1.0})
+    print(np.shape(sample))
+    #plot(self.config, sample, sample_file)
+    stacks = [np.hstack(sample[x*6:x*6+6]) for x in range(4)]
+    plot(config, np.vstack(stacks), sample_file)
+
+
+batch_no = 0
 
 def epoch(sess, config):
     batch_size = config["batch_size"]
     n_samples =  config['examples_per_epoch']
     total_batch = int(n_samples / batch_size)
+    global batch_no
     for i in range(total_batch):
-        d_loss, g_loss = config['trainer.train'](sess, config)
-        if(i > 10):
-            if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
-                return False
+        sample_file="samples/grid-%06d.png" % (batch_no * total_batch + i)
+        #sample_grid(sample_file, sess, config)
 
-            g = get_tensor('g')
-            rX = sess.run([g[-1]])
-            rX = np.array(rX)
-            if(np.min(rX) < -1000 or np.max(rX) > 1000):
-                return False
+        d_loss, g_loss = config['trainer.train'](sess, config)
+
+        #if(i > 10):
+        #    if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
+        #        return False
+
+        #    g = get_tensor('g')
+        #    rX = sess.run([g[-1]])
+        #    rX = np.array(rX)
+        #    if(np.min(rX) < -1000 or np.max(rX) > 1000):
+        #        return False
+    batch_no+=1
     return True
 
 def test_config(sess, config):
@@ -224,6 +269,10 @@ def test_epoch(epoch, sess, config, start_time, end_time):
 
 
 def get_function(name):
+    print(name)
+    if name == "function:lib.util.ops.prelu_internal":
+        return prelu("g_")
+
     if not isinstance(name, str):
         return name
     namespaced_method = name.split(":")[1]
@@ -314,12 +363,13 @@ def run(args):
         else:
             save_file = "saves/"+config["uuid"]+".ckpt"
 
+        print( "Save file", save_file,"\n")
         #TODO refactor save/load system
         if args.method == 'serve':
             print("|= Loading generator from build/")
             saver = tf.train.Saver()
             saver.restore(sess, build_file)
-        elif(save_file and os.path.isfile(save_file)):
+        elif(save_file and os.path.isfile(save_file+".index")):
             print(" |= Loading network from "+ save_file)
             config['uuid']=config['parent_uuid']
             ckpt = tf.train.get_checkpoint_state('saves')

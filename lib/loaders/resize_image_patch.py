@@ -6,7 +6,8 @@
 from tensorflow.python.ops import image_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
-from tensorflow.python import ops
+
+import tensorflow as tf
 
 
 # In[2]:
@@ -39,7 +40,7 @@ def crop_to_bounding_box(image, offset_height, offset_width, target_height,
     ValueError: If the shape of `image` is incompatible with the `offset_*` or
     `target_*` arguments, and `dynamic_shape` is set to `False`.
   """
-  image = ops.convert_to_tensor(image, name='image')
+  image = tf.convert_to_tensor(image, name='image')
   _Check3DImage(image, require_static=(not dynamic_shape))
   height, width, _ = _ImageDimensions(image, dynamic_shape=dynamic_shape)
 
@@ -90,7 +91,7 @@ def pad_to_bounding_box(image, offset_height, offset_width, target_height,
     ValueError: If the shape of `image` is incompatible with the `offset_*` or
       `target_*` arguments, and `dynamic_shape` is set to `False`.
   """
-  image = ops.convert_to_tensor(image, name='image')
+  image = tf.convert_to_tensor(image, name='image')
   _Check3DImage(image, require_static=(not dynamic_shape))
   height, width, depth = _ImageDimensions(image, dynamic_shape=dynamic_shape)
 
@@ -157,7 +158,7 @@ def resize_image_with_crop_or_pad(image, target_height, target_width,
     Cropped and/or padded image of shape
     `[target_height, target_width, channels]`
   """
-  image = ops.convert_to_tensor(image, name='image')
+  image = tf.convert_to_tensor(image, name='image')
   _Check3DImage(image, require_static=(not dynamic_shape))
   original_height, original_width, _ =     _ImageDimensions(image, dynamic_shape=dynamic_shape)
 

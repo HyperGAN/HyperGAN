@@ -2,6 +2,7 @@ def discriminator_wide_resnet(config, x):
     activation = config['discriminator.activation']
     batch_size = int(x.get_shape()[0])
     layers = config['d_wide_resnet_depth']
+    batch_norm = config['generator.regularizers.layer']
     result = x
     result = conv2d(result, layers[0], name='d_expand1a', k_w=3, k_h=3, d_h=1, d_w=1)
     result = batch_norm(config['batch_size'], name='d_expand_bn1a')(result)

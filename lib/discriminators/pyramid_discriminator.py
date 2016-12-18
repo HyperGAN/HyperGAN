@@ -7,8 +7,8 @@ def discriminator(config, x, g, xs, gs):
     activation = config['discriminator.activation']
     depth_increase = config['discriminator.pyramid.depth_increase']
     depth = config['discriminator.pyramid.layers']
-    net = x
-    net = conv2d(net, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
+    net = conv2d(x, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
+    batch_norm = config['generator.regularizers.layer']
 
     xgs = []
     xgs_conv = []

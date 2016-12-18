@@ -10,7 +10,7 @@ def discriminator(config, x, g, xs, gs):
     depth = config['discriminator.pyramid.layers']
     batch_norm = config['discriminator.regularizers.layer']
     net = x
-    net = conv2d(net, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
+    net = conv2d(net, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
 
     xgs = []
     xgs_conv = []
@@ -18,8 +18,8 @@ def discriminator(config, x, g, xs, gs):
       net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
       net = activation(net)
       # APPEND xs[i] and gs[i]
-      if(i < len(xs) and i > 0):
-        xg = tf.concat(0, [xs[i], gs[i]])
+      if(i*2+1 < len(xs) and i > 0):
+        xg = tf.concat(0, [xs[i*2+1], gs[i*2+1]])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev']*i, dtype=config['dtype'])
 
         xgs.append(xg)
@@ -34,7 +34,7 @@ def discriminator(config, x, g, xs, gs):
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
-      net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
+      net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name='d_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
       net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('Discriminator pyramid layer:', net)

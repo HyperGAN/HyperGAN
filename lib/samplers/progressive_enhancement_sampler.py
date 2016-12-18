@@ -36,7 +36,7 @@ def sample_input(sess, config):
     x = get_tensor("x")
     xs = get_tensor("xs")
     y = get_tensor("y")
-    encoded = get_tensor("encoded")
+    encoded = get_tensor("x")# TODO: "encoded", reuse (and encoder) not working with prelu
     sample, sample2, encoded, label = sess.run([x, xs[1], encoded, y])
     return sample[0], sample2[0], encoded[0], label[0]
 

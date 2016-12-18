@@ -5,19 +5,17 @@ from lib.util.hc_tf import *
 
 def discriminator(config, x, g, xs, gs):
     activation = config['discriminator.activation']
-    batch_size = int(x.get_shape()[0])
     depth_increase = config['discriminator.pyramid.depth_increase']
     depth = config['discriminator.pyramid.layers']
-    result = x
-    result = conv2d(result, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
+    net = conv2d(x, 64, name='d_expand', k_w=3, k_h=3, d_h=2, d_w=2)
     batch_norm = config['generator.regularizers.layer']
 
     xgs = []
     xgs_conv = []
     for i in range(depth):
-      print('--',i,result)
-      result = batch_norm(config['batch_size'], name='d_expand_bn_'+str(i))(result)
-      result = activation(result)
+      print('--',i,net)
+      net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
+      net = activation(net)
       # APPEND xs[i] and gs[i]
       if(i < len(xs)-1 and i > 0):
         xg = tf.concat(0, [xs[i+1], gs[i+1]])
@@ -25,28 +23,26 @@ def discriminator(config, x, g, xs, gs):
 
         xgs.append(xg)
 
-        mxg = conv2d(xg, 6*(i), name="d_add_xg"+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
-        mxg = batch_norm(config['batch_size'], name='d_add_xg_bn_'+str(i))(mxg)
+        mxg = conv2d(xg, 6*(i), name="d_add_xg"+str(i), k_w=3, k_h=3, d_h=2, d_w=2)
+        mxg = batch_norm(config['batch_size']*2, name='d_add_xg_bn_'+str(i))(mxg)
         mxg = activation(mxg)
 
         xgs_conv.append(mxg)
   
-        result = tf.concat(3, [result, xg])
+        net = tf.concat(3, [net, xg])
 
       fltr=3
-      result = conv2d(result, int(int(result.get_shape()[3])*depth_increase), name='d_expand_layer'+str(i), k_w=fltr, k_h=fltr, d_h=2, d_w=2)
+      net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name='d_expand_layer'+str(i), k_w=fltr, k_h=fltr, d_h=2, d_w=2)
 
-      print('Discriminator pyramid layer:', result)
+      print('Discriminator pyramid layer:', net)
 
-    filter_size_w = 2
-    filter_size_h = 2
-    filter = [1,filter_size_w,filter_size_h,1]
-    stride = [1,filter_size_w,filter_size_h,1]
-    result = tf.nn.avg_pool(result, ksize=filter, strides=stride, padding='SAME')
+    net = tf.reshape(net, [config['batch_size']*2, -1])
+    net = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(net)
+    net = activation(net)
+    net = linear(net, int(1024), scope="d_fc_end1")
+    net = batch_norm(config['batch_size']*2, name='d_bn_end1')(net)
+    net = activation(net)
 
-    result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
-    result = activation(result)
-
-    return result
+    return net
 
 

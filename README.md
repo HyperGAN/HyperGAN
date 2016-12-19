@@ -157,6 +157,30 @@ Experimental.  So experimental that you'll have to dig through to figure out how
 
 Future goals include being able to generate discrete data.  Sequence GAN and other reinforcement learning techniques seem very promising.
 
+### Debugging a generator
+
+## Visualizing learning
+
+Different GAN configurations learn differently, and it's sometimes useful to visualize how they learn.
+
+[![Demo CountPages alpha](http://share.gifyoutube.com/KzB6Gb.gif)](https://www.youtube.com/watch?v=ek1j272iAmc)
+
+To create your own visualizations, you can use the flag:
+
+``` 
+  --frame_sample grid 
+```
+
+This will create a sample using samples/grid_sampler to iterate over the first two z dimensions.
+
+To turn these images into a video, use the following:
+
+```
+  ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
+```
+
+TODO: z_dims must equal 2 and batch size must equal 24 to work.  This is temporary
+
 ### Trainers
 
 ## Server mode

@@ -21,6 +21,7 @@ import lib.encoders.random_gaussian_encoder as random_gaussian_encoder
 import lib.encoders.random_combo_encoder as random_combo_encoder
 import lib.encoders.progressive_variational_encoder as progressive_variational_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
+import lib.samplers.grid_sampler as grid_sampler
 import lib.regularizers.minibatch_regularizer as minibatch_regularizer
 import lib.regularizers.moment_regularizer as moment_regularizer
 import lib.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer
@@ -175,38 +176,26 @@ hc.set("d_project", ['tiled'])
 
 hc.set("batch_size", args.batch)
 
-def sample_grid(sample_file, sess, config):
-    generator = get_tensor("g")[0]
-    y_t = get_tensor("y")
-    z_t = get_tensor("z")
-    dropout_t = get_tensor("dropout")
-
-
-    x = np.linspace(0,1, 4)
-    y = np.linspace(0,1, 6)
-
-    #z = np.mgrid[-3:3:0.75, -3:3:0.38*3].reshape(2,-1).T
-    #z = np.mgrid[-3:3:0.6*3, -3:3:0.38*3].reshape(2,-1).T
-    #z = np.mgrid[-6:6:0.6*6, -6:6:0.38*6].reshape(2,-1).T
-
-    z = np.mgrid[-1:1:0.6, -1:1:0.38].reshape(2,-1).T
-    #z = np.square(1/z) * np.sign(z)
-    #z = np.mgrid[0:1000:300, 0:1000:190].reshape(2,-1).T
-    #z = np.mgrid[-0:1:0.3, 0:1:0.19].reshape(2,-1).T
-    #z = np.mgrid[0.25:-0.25:-0.15, 0.25:-0.25:-0.095].reshape(2,-1).T
-    #z = np.mgrid[-0.125:0.125:0.075, -0.125:0.125:0.095/2].reshape(2,-1).T
-    #z = np.zeros(z_t.get_shape())
-    #z.fill(0.2)
-
-
-    sample = sess.run(generator, feed_dict={z_t: z, dropout_t: 1.0})
-    print(np.shape(sample))
-    #plot(self.config, sample, sample_file)
-    stacks = [np.hstack(sample[x*6:x*6+6]) for x in range(4)]
-    plot(config, np.vstack(stacks), sample_file)
-
-
 batch_no = 0
+
+def frame_sample(sample_file, sess, config):
+    """ Samples every frame to a file.  Useful for visualizing the learning process.
+
+    Use with:
+
+         ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 grid1-7.mp4
+
+    to create a video of the learning process.
+    """
+
+    if(args.frame_sample == None):
+        return None
+    if(args.frame_sample == "grid"):
+        frame_sampler = grid_sampler.sample
+    else:
+        raise "Cannot find frame sampler: '"+args.frame_sample+"'"
+
+    frame_sampler(sample_file, sess, config)
 
 def epoch(sess, config):
     batch_size = config["batch_size"]
@@ -215,7 +204,7 @@ def epoch(sess, config):
     global batch_no
     for i in range(total_batch):
         sample_file="samples/grid-%06d.png" % (batch_no * total_batch + i)
-        #sample_grid(sample_file, sess, config)
+        frame_sample(sample_file, sess, config)
 
         d_loss, g_loss = config['trainer.train'](sess, config)
 

@@ -21,5 +21,6 @@ def parse_args():
     train_parser.add_argument('--epochs', type=int, default=1000)
     train_parser.add_argument('--save_every', type=int, default=10)
     train_parser.add_argument('--use_hc_io', action='store_true')
+    train_parser.add_argument('--frame_sample', type=str, default=None)
 
     return parser.parse_args()

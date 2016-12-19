@@ -163,7 +163,7 @@ Future goals include being able to generate discrete data.  Sequence GAN and oth
 
 Different GAN configurations learn differently, and it's sometimes useful to visualize how they learn.
 
-[![Demo CountPages alpha](http://share.gifyoutube.com/KzB6Gb.gif)](https://www.youtube.com/watch?v=ek1j272iAmc)
+[![HyperGAN visualization](https://j.gifs.com/mwNKjn.gif)](https://www.youtube.com/watch?v=tj3ZLNfcJFo&index=1&list=PLWW3WtkBA3MuSnAVS__D0FkENZzuTbHFg)
 
 To create your own visualizations, you can use the flag:
 

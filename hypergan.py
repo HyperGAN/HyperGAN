@@ -21,7 +21,7 @@ import lib.encoders.random_gaussian_encoder as random_gaussian_encoder
 import lib.encoders.random_combo_encoder as random_combo_encoder
 import lib.encoders.progressive_variational_encoder as progressive_variational_encoder
 import lib.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
-import lib.samplers.grid_sampler as grid_sampler
+#import lib.samplers.grid_sampler as grid_sampler
 import lib.regularizers.minibatch_regularizer as minibatch_regularizer
 import lib.regularizers.moment_regularizer as moment_regularizer
 import lib.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer
@@ -69,7 +69,7 @@ hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this a
 hc.set("generator.regularizers", [[l2_regularizer.get]]) # These are added to the loss function for G.
 hc.set('generator.layer.noise', False) #Adds incremental noise each layer
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
-hc.set("generator.regularizers.layer", batch_norm_1) # the magnitude of the l2 regularizer(experimental)
+hc.set("generator.regularizers.layer", layer_norm_1) # the magnitude of the l2 regularizer(experimental)
 
 # Trainer configuration
 trainer = adam_trainer # adam works well at 64x64 but doesn't scale

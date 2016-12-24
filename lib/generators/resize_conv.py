@@ -18,7 +18,7 @@ def generator(config, net):
     batch_norm = config['generator.regularizers.layer']
 
     s = [int(x) for x in net.get_shape()]
-    net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, use_batch_norm=False, batch_norm=batch_norm, dropout=get_tensor('dropout'))
+    net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, dropout=get_tensor('dropout'))
 
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
@@ -38,7 +38,8 @@ def generator(config, net):
             fltr=int(net.get_shape()[2])
         net = block_conv(net, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=fltr, batch_norm=batch_norm, noise_shape=noise)
         first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1,3])
-        first3 = batch_norm(config['batch_size'], name='g_bn_first3_'+str(i))(first3)
+        if batch_norm:
+            first3 = batch_norm(config['batch_size'], name='g_bn_first3_'+str(i))(first3)
         first3 = config['generator.final_activation'](first3)
         nets.append(first3)
         size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])

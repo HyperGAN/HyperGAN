@@ -6,6 +6,7 @@ from lib.util.gan_server import *
 from tensorflow.contrib import ffmpeg
 import lib.util.hc_tf as hc_tf
 import lib.generators.resize_conv as resize_conv
+import lib.generators.resize_conv_extra_layer as resize_conv_extra_layer
 import lib.trainers.adam_trainer as adam_trainer
 import lib.trainers.rmsprop_trainer as rmsprop_trainer
 import lib.trainers.slowdown_trainer as slowdown_trainer

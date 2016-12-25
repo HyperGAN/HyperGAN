@@ -59,7 +59,7 @@ args = cli.parse_args()
 hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
 
 # Generator configuration
-hc.set("generator", resize_conv_extra_layer.generator)
+hc.set("generator", [resize_conv.generator, resize_conv_extra_layer.generator])
 hc.set("generator.z", 100) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
@@ -70,7 +70,7 @@ hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this a
 hc.set("generator.regularizers", [[l2_regularizer.get]]) # These are added to the loss function for G.
 hc.set('generator.layer.noise', True) #Adds incremental noise each layer
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
-hc.set("generator.regularizers.layer", batch_norm_1) # the magnitude of the l2 regularizer(experimental)
+hc.set("generator.regularizers.layer", [layer_norm_1, batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
 
 # Trainer configuration
 trainer = adam_trainer # adam works well at 64x64 but doesn't scale

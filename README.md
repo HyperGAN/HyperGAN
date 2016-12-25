@@ -5,7 +5,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## Changelog
 
-### 0.5
+### 0.5.0
 * pip package released!
 * Better defaults.  Good variance.  The converged points showed up after training for 5 days.
 
@@ -13,7 +13,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### 0.5('faces' release)rc1
 * Initial release of new refactored gan.
-
 
 ## Goals
 

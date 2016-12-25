@@ -5,8 +5,15 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## Changelog
 
+### 0.5
+* pip package released!
+* Better defaults.  Good variance.  The converged points showed up after training for 5 days.
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold.png'/>
+
 ### 0.5('faces' release)rc1
-* Initial release of new refactored gan
+* Initial release of new refactored gan.
+
 
 ## Goals
 

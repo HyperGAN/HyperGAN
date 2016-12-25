@@ -1,4 +1,6 @@
 from distutils.core import setup
+from setuptools import setup
+
 setup(
   name = 'hypergan',
   packages = ['hypergan'], # this must be the same as the name above
@@ -10,4 +12,5 @@ setup(
   download_url = 'https://github.com/255BITS/hypergan/tarball/0.5',
   keywords = ['hypergan', 'neural network', 'procedural content generation', 'generative adversarial network'], # arbitrary keywords
   classifiers = ['Topic :: Scientific/Engineering :: Artificial Intelligence', 'Topic :: Artistic Software'],
+  scripts = ['bin/hypergan']
 )

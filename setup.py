@@ -1,13 +1,13 @@
 from distutils.core import setup
 setup(
-  name = 'hyperchamber',
-  packages = ['hyperchamber'], # this must be the same as the name above
-  version = '0.1',
-  description = 'A tool for searching hyperparameters in models.',
-  author = 'Mikkel Garcia',
+  name = 'hypergan',
+  packages = ['hypergan'], # this must be the same as the name above
+  version = '0.5',
+  description = 'A customizable generative adversarial network with good defaults.  Build your own content generator.',
+  author = 'Martyn Garcia, Mikkel Garcia',
   author_email = 'mikkel@255bits.com',
-  url = 'https://github.com/255BITS/hyperchamber', # use the URL to the github repo
-  download_url = 'https://github.com/255BITS/hyperchamber/tarball/0.1', # I'll explain this in a second
-  keywords = ['hyperparameter','neural network tuning','random parameter search', 'grid search'], # arbitrary keywords
-  classifiers = [],
+  url = 'https://github.com/255BITS/hypergan', 
+  download_url = 'https://github.com/255BITS/hypergan/tarball/0.5',
+  keywords = ['hypergan', 'neural network', 'procedural content generation', 'generative adversarial network'], # arbitrary keywords
+  classifiers = ['Topic :: Scientific/Engineering :: Artificial Intelligence', 'Topic :: Artistic Software'],
 )

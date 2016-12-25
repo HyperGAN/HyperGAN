@@ -175,7 +175,7 @@ hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 #TODO Is this about adding z to the D?  Is this right? Investigate
 hc.set("d_project", ['tiled'])
 
-hc.set("batch_size", args.batch)
+hc.set("batch_size", args.batch_size)
 
 batch_no = 0
 
@@ -254,8 +254,11 @@ def test_epoch(epoch, sess, config, start_time, end_time):
     sample = []
     sample_list = config['sampler'](sess,config)
     measurements = collect_measurements(epoch, sess, config, end_time - start_time)
-    hc.io.measure(config, measurements)
-    hc.io.sample(config, sample_list)
+    if args.use_hc_io:
+        hc.io.measure(config, measurements)
+        hc.io.sample(config, sample_list)
+    else:
+        print("Offline sample created:", sample_list)
 
 
 def get_function(name):
@@ -312,13 +315,14 @@ def run(args):
         # load_saved_checkpoint(config)
         if(args.config):
             print("Loading config", args.config)
-            config.update(hc.io.load_config(args.config))
-            if(not config):
-                print("Could not find config", args.config)
-                break
+
+            if args.use_hc_io:
+                config.update(hc.io.load_config(args.config))
+            else:
+                config = hc.load_or_create_config('~/.hypergan/configs/'+args.config+'.json', config)
 
         config = lookup_functions(config)
-        config['batch_size']=args.batch
+        config['batch_size']=args.batch_size
 
         config['dtype']=other_config['dtype']#TODO: add this as a CLI argument, i.e "-e 'dtype=function:tf.float16'"
         config['trainer.rmsprop.discriminator.lr']=other_config['trainer.rmsprop.discriminator.lr']
@@ -338,6 +342,11 @@ def run(args):
         config['y_dims']=num_labels
         config['x_dims']=[height,width] #TODO can we remove this?
         config['channels']=channels
+
+        if args.config is None:
+            filename = '~/.hypergan/configs/'+config['uuid']+'.json'
+            print("Saving network configuration to: " + filename)
+            config = hc.load_or_create_config(filename, config)
 
         with tf.device(args.device):
             y=tf.one_hot(tf.cast(y,tf.int64), config['y_dims'], 1.0, 0.0)

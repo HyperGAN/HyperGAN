@@ -9,7 +9,6 @@ setup(
   author = 'Martyn Garcia, Mikkel Garcia',
   author_email = 'mikkel@255bits.com',
   url = 'https://github.com/255BITS/hypergan', 
-  download_url = 'https://github.com/255BITS/hypergan/tarball/0.5.0',
   keywords = ['hypergan', 'neural network', 'procedural content generation', 'generative adversarial network'], # arbitrary keywords
   classifiers = ['Topic :: Scientific/Engineering :: Artificial Intelligence', 'Topic :: Artistic Software'],
   scripts = ['bin/hypergan']

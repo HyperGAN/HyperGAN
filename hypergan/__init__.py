@@ -263,6 +263,8 @@ def test_epoch(epoch, sess, config, start_time, end_time):
 
 def get_function(name):
     print(name)
+    if "lib." in name:
+        name = name.replace("lib.", "hypergan.")
     if name == "function:hypergan.util.ops.prelu_internal":
         return prelu("g_")
 

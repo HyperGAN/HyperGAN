@@ -9,5 +9,6 @@ setup(
   url = 'https://github.com/255BITS/hyperchamber', # use the URL to the github repo
   download_url = 'https://github.com/255BITS/hyperchamber/tarball/0.1', # I'll explain this in a second
   keywords = ['hyperparameter','neural network tuning','random parameter search', 'grid search'], # arbitrary keywords
+  scripts = ['bin/hypergan'],
   classifiers = [],
 )

@@ -3,7 +3,7 @@ import argparse
 def common(parser):
     parser.add_argument('directory', action='store', type=str)
     parser.add_argument('--size', '-s', type=str, default='64x64x3')
-    parser.add_argument('--batch', '-b', type=int, default=64)
+    parser.add_argument('--batch_size', '-b', type=int, default=32)
     parser.add_argument('--config', '-c', type=str, default=None)
     parser.add_argument('--device', '-d', type=str, default='/gpu:0')
     parser.add_argument('--format', '-f', type=str, default='png')

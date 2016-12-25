@@ -175,7 +175,7 @@ hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 #TODO Is this about adding z to the D?  Is this right? Investigate
 hc.set("d_project", ['tiled'])
 
-hc.set("batch_size", args.batch)
+hc.set("batch_size", args.batch_size)
 
 batch_no = 0
 
@@ -322,7 +322,7 @@ def run(args):
                 config = hc.load_or_create_config('~/.hypergan/configs/'+args.config+'.json', config)
 
         config = lookup_functions(config)
-        config['batch_size']=args.batch
+        config['batch_size']=args.batch_size
 
         config['dtype']=other_config['dtype']#TODO: add this as a CLI argument, i.e "-e 'dtype=function:tf.float16'"
         config['trainer.rmsprop.discriminator.lr']=other_config['trainer.rmsprop.discriminator.lr']

@@ -15,7 +15,8 @@ def discriminator(config, x, g, xs, gs):
     xgs = []
     xgs_conv = []
     for i in range(depth):
-      net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
+      if batch_norm is not None:
+          net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
       net = activation(net)
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
@@ -40,7 +41,8 @@ def discriminator(config, x, g, xs, gs):
       print('Discriminator pyramid layer:', net)
 
     k=-1
-    net = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(net)
+    if batch_norm is not None:
+        net = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(net)
     net = activation(net)
     net = tf.reshape(net, [batch_size, -1])
  

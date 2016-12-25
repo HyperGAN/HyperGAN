@@ -8,6 +8,7 @@ def common(parser):
     parser.add_argument('--device', '-d', type=str, default='/gpu:0')
     parser.add_argument('--format', '-f', type=str, default='png')
     parser.add_argument('--crop', type=bool, default=True)
+    parser.add_argument('--use_hc_io', type=bool, default=False)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.')
@@ -20,7 +21,6 @@ def parse_args():
     common(serve_parser)
     train_parser.add_argument('--epochs', type=int, default=1000)
     train_parser.add_argument('--save_every', type=int, default=10)
-    train_parser.add_argument('--use_hc_io', action='store_true')
     train_parser.add_argument('--frame_sample', type=str, default=None)
 
     return parser.parse_args()

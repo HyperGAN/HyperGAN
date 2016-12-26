@@ -5,14 +5,39 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## Changelog
 
+
+## Examples
+
+### Best samplings:
+
+TODO IMAGE
+
+These are the best images we have been able to obtain from a GAN.  They are hand picked.
+
+### Random batch, same network:
+
+TODO IMAGE
+
+This shows what a random batch looks.  They are not hand picked.
+
+### Progressive enhancement:
+
+TODO IMAGE
+
+Somewhat inspired by LAPGAN, we feed resized images across the layers of D.  Our generator learns to render at multiple
+resolutions.  
+
 ### 0.5.0
 * pip package released!
-* Better defaults.  Good variance.  The converged points showed up after training for 5 days.
+* Better defaults.  Good variance.  The broken images showed up after training for 5 days.
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold.png'/>
 
-### 0.5('faces' release)rc1
-* Initial release of new refactored gan.
+### 0.1-0.4
+* Initial private release
+
+<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472503244410-fcc6b07b-ec8f-44f6-aa2b-937a6ca755dc'/>
+<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472511234866-6123711b-229c-436b-a337-19e35bb79457'/>
 
 ## Goals
 
@@ -28,9 +53,11 @@ It is currently in an open beta state, and contributions are welcome.
 
 ### Minimum requirements
 
-1. For 256x256, we recommend a GTX 1080 or better
+1. For 256x256, we recommend a GTX 1080 or better.
 2. For smaller sizes, you can use an older GPU. 
-3. For debugging syntax errors, CPU use is fine.  Otherwise use a GPU.
+3. CPU works slowly, it is useful for server mode. 
+4. CPU is _extremely_ discouraged for use in training.  Use a GPU to train.
+5. We train on nvidia titan Xs: [https://www.nvidia.com/en-us/geforce/products/10series/titan-x-pascal/](https://www.nvidia.com/en-us/geforce/products/10series/titan-x-pascal/)
 
 ### Install hypergan
 
@@ -59,13 +86,13 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
 
 ### hypergan serve
 
-Runs a trained s
+Sample from a trained generator.
 
 Our server is a small flask server which contains the following endpoints:
 
 * /sample.png
 
-Returns a random sample
+Returns a random sample.
 
 ### hypergan build
 
@@ -98,7 +125,13 @@ The trained generator can now be built for deployment.  Building does 2 things:
   hypergan serve [model]
 ```
 
-TODO: api docs/routes
+Once your model is loaded and starts, you can hit the following paths:
+
+```
+/sample.png?type=batch
+```
+
+This creates a random sampling of generated images.
 
 ## Development mode
 
@@ -111,23 +144,35 @@ python3 hypergan.py # with usual arguments
 
 ## Architecture
 
-Building a GAN involves making a lot of choices.  
+Generative Adversarial Networks(2) consist of (at least) two neural networks that learn together over many epochs.
+The discriminator learns the difference between real and fake data.  The generator learns to create fake data.
 
-Choices like:  Should I use variational inference?  Adversarial encoding?  What should the size of my z dimensions be? Categorical loss?
+For a more depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
 
-Some of these choices will vary by dataset.
+Building a GAN involves making a lot of choices with largely unexplored consequences.
+
+Some common questions: 
+
+* Should I use variational inference?  
+* Should I add adversarial encoding?
+* What should the size of my z dimensions be? 
+* Do I add categorical loss to model discrete values?
+* Which loss functions are important?
+
+Some of these choices may vary by dataset.
 
 hypergan is a flexible GAN framework that lets us easy explore complex GANs by just making declarative choices.
 
-hypergan makes it easy to replace the discriminator, use a different training technique, switch data types, use a different loss function, change z size, and much more.
-```
-```
+hypergan aims to make things easy.  You can easily test out combinations of:
+
+* learning rates & training technique
+* Use many different loss functions
+* change z size and type
+* and so much more.
 
 ## Discriminators
 
 The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier.
-
-If the discriminator is a classifier, we treat this part of the network as a softmax classifier.
 
 To put this as an example, if we were to classify the difference between apples and oranges, most classifiers would classify a pear as an apple, having never seen a pear before.
 A classifier trained with a GAN will include additional information - a discriminator which could identify the pear as a fake image(in the context of worlds consisting of only apples and oranges).
@@ -139,29 +184,14 @@ At a high level our discriminator does the following:
     graph = x #our input data
     graph.apply 'discriminator.pre.regularizers' - this could be just gaussian noise
     graph.apply 'discriminator'
-    graph.apply 'discriminator.post.regularizers' -
+    graph.apply 'discriminator.post.regularizers' - commonly this is minibatch
 ```
-
-### Options
-
-Implemented discriminators: TODO
 
 ## Generators
 
-Generators generate data.  Any real valued data theoretically.
+Generators generate data.  Any real valued data theoretically.  HyperGAN is currently focused on images, but other data types are on our horizon.
 
-
-### Generating audio
-
-Experimental.  So experimental that you'll have to dig through to figure out how to even run it right now.
-
-### Generating images
-
-```
-  --format png
-```
-
-Future goals include being able to generate discrete data.  Sequence GAN and other reinforcement learning techniques seem very promising.
+Specifically we are running experiments with audio.
 
 ### Debugging a generator
 
@@ -198,10 +228,13 @@ TODO
 
 ## Formats
 
+```
+--format <type>
+```
+
+Type can be one of:
 * jpg
 * png
-* wav(experimental)
-* mp3(experimental)
 
 ## Features
 
@@ -249,5 +282,5 @@ Also, if you create something cool with this let us know!
 If you wish to cite this project, do so like this:
 
 ```
-  TODO
+  255bits (M. Garcia), HyperGAN, (2017), GitHub repository, https://github.com/255BITS/HyperGAN
 ```

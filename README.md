@@ -273,7 +273,9 @@ To see a detailed list, run
 
 ## Contributing
 
-Contributions are welcome and appreciated.  To help out, just add something you wish existed.  
+Our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
+
+Contributions are welcome and appreciated.  To help out, just issue a pull request.
 
 Also, if you create something cool with this let us know!
 
@@ -284,3 +286,4 @@ If you wish to cite this project, do so like this:
 ```
   255bits (M. Garcia), HyperGAN, (2017), GitHub repository, https://github.com/255BITS/HyperGAN
 ```
+

@@ -1,6 +1,7 @@
 import tensorflow as tf
 from hypergan.util.ops import *
 from hypergan.util.globals import *
+import os
 import json
 
 # This sampler builds different images for each
@@ -44,11 +45,12 @@ iteration=0
 def sample(sess, config):
     global iteration
     x, x2, encoded, label = sample_input(sess, config)
-    sample_file = "samples/input-"+str(iteration)+".png"
+    prefix = os.path.expanduser("~/.hypergan/samples/"+config['uuid'])
+    sample_file = prefix+"/input-"+str(iteration)+".png"
     plot(config, x, sample_file)
-    sample2_file = "samples/input-2-"+str(iteration)+".png"
+    sample2_file = prefix+"/input-2-"+str(iteration)+".png"
     plot(config, x2, sample2_file)
-    encoded_sample = "samples/encoded-"+str(iteration)+".png"
+    encoded_sample = prefix+"/encoded-"+str(iteration)+".png"
     plot(config, encoded[0], encoded_sample)
 
     def to_int(one_hot):
@@ -66,7 +68,7 @@ def sample(sess, config):
     sample_list = [sample_file, sample2_file, encoded_sample]
     samples = build_samples(sess, config)
     for s in samples:
-        sample_file = "samples/config-"+str(iteration)+".png"
+        sample_file = prefix+"/config-"+str(iteration)+".png"
         plot(config, s, sample_file)
         sample_list.append({'image':sample_file,'label':'sample-'+str(iteration)})
         iteration += 1

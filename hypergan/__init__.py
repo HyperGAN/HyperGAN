@@ -309,7 +309,6 @@ def run(args):
     width = int(args.size.split("x")[0])
     height = int(args.size.split("x")[1])
     loadedFromSave = False
-    build_file = "build/generator.ckpt"
 
     print("Generating configs with hyper search space of ", hc.count_configs())
     for config in hc.configs(1):
@@ -321,7 +320,9 @@ def run(args):
             if args.use_hc_io:
                 config.update(hc.io.load_config(args.config))
             else:
-                config = hc.load_or_create_config('~/.hypergan/configs/'+args.config+'.json', config)
+                config_path = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
+                print("Loading "+config_path)
+                config = hc.load_or_create_config(config_path, config)
 
         config = lookup_functions(config)
         config['batch_size']=args.batch_size
@@ -360,9 +361,21 @@ def run(args):
 
         #TODO can we not do this?  might need to be after hc.io refactor
         if('parent_uuid' in config):
-            save_file = "saves/"+config["parent_uuid"]+".ckpt"
+            save_file = "~/.hypergan/saves/"+config["parent_uuid"]+".ckpt"
+            samples_path = "~/.hypergan/samples/"+config['parent_uuid']
         else:
-            save_file = "saves/"+config["uuid"]+".ckpt"
+            save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
+            samples_path = "~/.hypergan/samples/"+config['uuid']
+        if args.config:
+            save_file = "~/.hypergan/saves/"+args.config+".ckpt"
+            samples_path = "~/.hypergan/samples/"+args.config
+
+        save_file = os.path.expanduser(save_file)
+        os.makedirs(os.path.dirname(save_file), exist_ok=True)
+        os.makedirs(os.path.expanduser(samples_path), exist_ok=True)
+        build_file = os.path.expanduser("~/.hypergan/builds/"+config['uuid']+"/generator.ckpt")
+        os.makedirs(os.path.dirname(build_file), exist_ok=True)
+
 
         print( "Save file", save_file,"\n")
         #TODO refactor save/load system
@@ -372,8 +385,10 @@ def run(args):
             saver.restore(sess, build_file)
         elif(save_file and os.path.isfile(save_file+".index")):
             print(" |= Loading network from "+ save_file)
-            config['uuid']=config['parent_uuid']
-            ckpt = tf.train.get_checkpoint_state('saves')
+            if args.use_hc_io:
+                #TODO remove this
+                config['uuid']=config['parent_uuid']
+            ckpt = tf.train.get_checkpoint_state(os.path.expanduser('~/.hypergan/saves/'))
             if ckpt and ckpt.model_checkpoint_path:
                 saver = tf.train.Saver()
                 saver.restore(sess, save_file)

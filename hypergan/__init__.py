@@ -59,8 +59,8 @@ args = cli.parse_args()
 hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
 
 # Generator configuration
-hc.set("generator", [resize_conv.generator, resize_conv_extra_layer.generator])
 hc.set("generator.z", 100) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
+hc.set("generator", [resize_conv.generator])
 hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1

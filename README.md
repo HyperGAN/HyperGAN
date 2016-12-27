@@ -9,8 +9,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * Flask server mode
 * Tons of options
 
-## hypergan is in pre-release state.  The documentation is a WIP and there is no pip package released yet.
-
 ## Changelog
 
 ## Samples

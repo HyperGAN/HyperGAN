@@ -4,6 +4,28 @@ import tensorflow as tf
 from hypergan.util.ops import *
 from hypergan.util.globals import *
 
+def encode_gaussian(config, x, y):
+  # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
+  z_dim = config['generator.z']
+  z = tf.random_uniform([config['batch_size'], z_dim],0, 1,dtype=config['dtype'])
+  set_tensor("z", z)
+
+  za = tf.slice(z, [0,0], [config['batch_size'], z_dim//2])
+  zb = tf.slice(z, [0,z_dim//2], [config['batch_size'], z_dim//2])
+
+  pi = tf.get_variable("g_encode_guassian", za.get_shape(),dtype=config['dtype'],
+                        initializer=tf.random_normal_initializer(0, 1,dtype=config['dtype']))
+
+  ra = tf.sqrt(-2 * tf.log(za))*tf.cos(2*pi*zb)
+  rb = tf.sqrt(-2 * tf.log(za))*tf.sin(2*pi*zb)
+
+  za = za * 2 - 1
+  zb = zb * 2 - 1
+
+  z = tf.concat(1, [za,zb,ra,rb])
+  encoded_z = tf.zeros_like(z)
+  return z, encoded_z, None, None
+
 def encode(config, x, y):
   z_dim = config['generator.z']
   #encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
@@ -11,6 +33,7 @@ def encode(config, x, y):
   z_sigma = None
   z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
   set_tensor("z", z)
+
   z2 = tf.square(z)
   z3 = tf.ones_like(z)
   z4 = tf.exp(z)

@@ -22,7 +22,7 @@ import hypergan.encoders.random_gaussian_encoder as random_gaussian_encoder
 import hypergan.encoders.random_combo_encoder as random_combo_encoder
 import hypergan.encoders.progressive_variational_encoder as progressive_variational_encoder
 import hypergan.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
-#import hypergan.samplers.grid_sampler as grid_sampler
+import hypergan.samplers.grid_sampler as grid_sampler
 import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import hypergan.regularizers.moment_regularizer as moment_regularizer
 import hypergan.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer

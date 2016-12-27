@@ -1,20 +1,27 @@
 # HyperGAN
 A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
+# Table of contents
+
+* Changelog
+* Samples
+* Quick start
+* Flask server mode
+* Tons of options
+
 ## hypergan is in pre-release state.  The documentation is a WIP and there is no pip package released yet.
 
 ## Changelog
 
+## Samples
 
-## Examples
-
-### Best samplings:
+### Hand selected:
 
 TODO IMAGE
 
 These are the best images we have been able to obtain from a GAN.  They are hand picked.
 
-### Random batch, same network:
+### Random batch:
 
 TODO IMAGE
 
@@ -44,25 +51,12 @@ resolutions.
 <img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472503244410-fcc6b07b-ec8f-44f6-aa2b-937a6ca755dc'/>
 <img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472511234866-6123711b-229c-436b-a337-19e35bb79457'/>
 
-## Goals
-
-HyperGAN is focused on making GANs easy to train and run.
-
-It is currently in an open beta state, and contributions are welcome.
-
-* Easy to use and deploy
-* Fast
-* Extensible
-
 ## Quick start
 
 ### Minimum requirements
 
 1. For 256x256, we recommend a GTX 1080 or better.
-2. For smaller sizes, you can use an older GPU. 
-3. CPU works slowly, it is useful for server mode. 
-4. CPU is _extremely_ discouraged for use in training.  Use a GPU to train.
-5. We train on nvidia titan Xs: [https://www.nvidia.com/en-us/geforce/products/10series/titan-x-pascal/](https://www.nvidia.com/en-us/geforce/products/10series/titan-x-pascal/)
+2. CPU mode is _extremely_ slow.  Never train with it!
 
 ### Install hypergan
 
@@ -90,14 +84,6 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
 ### hypergan train
 
 ### hypergan serve
-
-Sample from a trained generator.
-
-Our server is a small flask server which contains the following endpoints:
-
-* /sample.png
-
-Returns a random sample.
 
 ### hypergan build
 
@@ -130,7 +116,6 @@ The trained generator can now be built for deployment.  Building does 2 things:
   hypergan serve [model]
 ```
 
-Once your model is loaded and starts, you can hit the following paths:
 
 ```
 /sample.png?type=batch
@@ -143,8 +128,28 @@ This creates a random sampling of generated images.
 ```
 git clone https://github.com/255BITS/hypergan
 cd hypergan
-python3 hypergan.py # with usual arguments
+python3 setup.py develop
 ```
+
+## Formats
+
+```
+--format <type>
+```
+
+Type can be one of:
+* jpg
+* png
+
+## Arguments
+
+To see a detailed list, run 
+```
+  hypergan -h
+```
+
+* -s, --size, optional(default 64x64x3), the size of your data in the form 'width'x'height'x'channels'
+* -f, --format, optional(default png), file format of the images.  Only supports jpg and png for now.
 
 
 ## Architecture
@@ -179,30 +184,47 @@ hypergan aims to make things easy.  You can easily test out combinations of:
 
 The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier.
 
-To put this as an example, if we were to classify the difference between apples and oranges, most classifiers would classify a pear as an apple, having never seen a pear before.
-A classifier trained with a GAN will include additional information - a discriminator which could identify the pear as a fake image(in the context of worlds consisting of only apples and oranges).
+### pyramid_stride
 
-At a high level our discriminator does the following:
+### pyramid_nostride
 
-```
-  create_discriminator:
-    graph = x #our input data
-    graph.apply 'discriminator.pre.regularizers' - this could be just gaussian noise
-    graph.apply 'discriminator'
-    graph.apply 'discriminator.post.regularizers' - commonly this is minibatch
-```
+Default.
+
+### densenet
+
+### resnet
+
+## Encoders
+
+### Vae
+
+### RandomCombo
+
+Default
+
+### RandomNormal
 
 ## Generators
 
-Generators generate data.  Any real valued data theoretically.  HyperGAN is currently focused on images, but other data types are on our horizon.
+### resize-conv
 
-Specifically we are running experiments with audio.
+Default.
 
-### Debugging a generator
+## Trainers
+
+### Adam
+
+Default.
+
+### Slowdown
+
+Experimental.
+
+# Debugging a generator
 
 ## Visualizing learning
 
-Different GAN configurations learn differently, and it's sometimes useful to visualize how they learn.
+One way a network learns:
 
 [![Demo CountPages alpha](https://j.gifs.com/58KmzA.gif)](https://www.youtube.com/watch?v=tj3ZLNfcJFo&list=PLWW3WtkBA3MuSnAVS__D0FkENZzuTbHFg&index=1)
 
@@ -212,56 +234,16 @@ To create your own visualizations, you can use the flag:
   --frame_sample grid 
 ```
 
-This will create a sample using samples/grid_sampler to iterate over the first two z dimensions.
-
-To turn these images into a video, use the following:
+To turn these images into a video:
 
 ```
   ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
 ```
 
-TODO: z_dims must equal 2 and batch size must equal 24 to work.  This is temporary
+NOTE: z_dims must equal 2 and batch size must equal 24 to work.
 
-### Trainers
 
-## Server mode
-
-```
-  hypergan server=True
-```
-TODO 
-
-## Formats
-
-```
---format <type>
-```
-
-Type can be one of:
-* jpg
-* png
-
-## Features
-
-* Efficient GAN implementation
-* Semi-supervised or unsupervised learning(works with and without labels)
-* Variational methods
-* InfoGAN-inspired categories
-* Minibatch normalization
-* Adversarial inference
-* Flask server mode
-
-## Arguments
-
-To see a detailed list, run 
-```
-  hypergan -h
-```
-
-* -s, --size, optional(default 64x64x3), the size of your data in the form 'width'x'height'x'channels'
-* -f, --format, optional(default png), file format of the images.  Only supports jpg and png for now.
-
-## Papers
+# Papers
 
 * GAN - https://arxiv.org/abs/1406.2661
 * DCGAN - https://arxiv.org/abs/1511.06434
@@ -269,14 +251,14 @@ To see a detailed list, run
 * Improved GAN - https://arxiv.org/abs/1606.03498
 * Adversarial Inference - https://arxiv.org/abs/1606.00704
 
-## Sources
+# Sources
 
 * DCGAN - https://github.com/carpedm20/DCGAN-tensorflow
 * InfoGAN - https://github.com/openai/InfoGAN
 * Improved GAN - https://github.com/openai/improved-gan
 * Hyperchamber - https://github.com/255bits/hyperchamber
 
-## Contributing
+# Contributing
 
 Our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
 
@@ -289,6 +271,9 @@ Also, if you create something cool with this let us know!
 If you wish to cite this project, do so like this:
 
 ```
-  255bits (M. Garcia), HyperGAN, (2017), GitHub repository, https://github.com/255BITS/HyperGAN
+  255bits (M. Garcia),
+  HyperGAN, (2017), 
+  GitHub repository, 
+  https://github.com/255BITS/HyperGAN
 ```
 

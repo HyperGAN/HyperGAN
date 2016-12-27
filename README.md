@@ -27,6 +27,11 @@ TODO IMAGE
 Somewhat inspired by LAPGAN, we feed resized images across the layers of D.  Our generator learns to render at multiple
 resolutions.  
 
+### 0.5.x
+
+* fixed configuration save/load
+* cleaner cli output
+
 ### 0.5.0
 * pip package released!
 * Better defaults.  Good variance.  The broken images showed up after training for 5 days.

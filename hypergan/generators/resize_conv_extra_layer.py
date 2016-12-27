@@ -42,7 +42,7 @@ def generator(config, net):
             first3 = config['generator.final_activation'](first3)
             nets.append(first3)
         size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])
-        print("Generator layer:",net, size, target_size,"  with noise ",noise)
+        print("[generator] layer",net, size, target_size,"  with noise ",noise)
 
     i+=1
     net = block_conv(net, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=config['channels'], filter=fltr, batch_norm=batch_norm, noise_shape=noise)

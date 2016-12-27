@@ -63,8 +63,6 @@ def discriminator(config, x, f,z,g,gz):
     net = config['discriminator'](config, x, g, xs, gs)
 
     if(config['discriminator.fc_layer']):
-        print('Discriminator before linear layer', net, config['discriminator.fc_layer'])
-
         for layer in range(config['discriminator.fc_layers']):
             net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer"+str(layer))
             net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
@@ -194,7 +192,6 @@ def create(config, x,y,f):
                                        - tf.exp(z_sigma), 1)
 
         latent_loss = tf.reshape(latent_loss, [int(latent_loss.get_shape()[0]), 1])
-        print ("LATENT LOSS", latent_loss)
     else:
         latent_loss = None
     np_fake = np.array([0]*config['y_dims']+[1])
@@ -234,10 +231,10 @@ def create(config, x,y,f):
     d_losses.append(d_real_loss)
 
     if(int(y.get_shape()[1]) > 1):
-        print("Discriminator class loss is on.  Semi-supervised learning mode activated.")
+        print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
         d_losses.append(d_class_loss)
     else:
-        print("Discriminator class loss is off.  Unsupervised learning mode activated.")
+        print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
 
     if(config['latent_loss']):
         g_losses.append(latent_loss)
@@ -259,7 +256,6 @@ def create(config, x,y,f):
 
     for reg in config['generator.regularizers']:
         extra_g_loss += reg(config)
-    print("_GLS", g_losses)
 
     if(config['latent_loss']):
         #mse_loss = tf.reduce_max(tf.square(x-encoded))
@@ -267,8 +263,6 @@ def create(config, x,y,f):
     else:
         mse_loss = None
 
-    print("adding", g_losses)
-    print("and", d_losses)
     g_loss = tf.reduce_mean(tf.add_n(g_losses))
     for extra in extra_g_loss:
         g_loss += extra

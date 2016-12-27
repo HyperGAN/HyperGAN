@@ -6,14 +6,13 @@ from hypergan.util.globals import *
 def get_features(config,net):
   net = tf.reshape(net, [config['batch_size']*2, -1])
   minis= get_minibatch_features(config, net, config['batch_size']*2,config['dtype'])
-  print("MINIS", minis)
   return minis
 
 def get_minibatch_features(config, h,batch_size,dtype):
   single_batch_size = batch_size//2
   n_kernels = int(config['d_kernels'])
   dim_per_kernel = int(config['d_kernel_dims'])
-  print("Discriminator minibatch is projecting from", h, "to", n_kernels*dim_per_kernel)
+  print("[discriminator] minibatch from", h, "to", n_kernels*dim_per_kernel)
   x = linear(h, n_kernels * dim_per_kernel, scope="d_h")
   activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
 

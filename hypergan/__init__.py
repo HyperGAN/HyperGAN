@@ -262,7 +262,6 @@ def test_epoch(epoch, sess, config, start_time, end_time):
 
 
 def get_function(name):
-    print(name)
     if "lib." in name:
         name = name.replace("lib.", "hypergan.")
     if name == "function:hypergan.util.ops.prelu_internal":
@@ -299,9 +298,9 @@ def output_graph_size():
 
     sizes = [get_size(i) for i in tf.all_variables()]
     sizes = sorted(sizes, key=lambda s: s[1])
-    print("Top 5 sizes", sizes[-5:])
+    print("[hypergan] Top 5 largest variables:", sizes[-5:])
     size = sum([s[1] for s in sizes])
-    print("SIZE = ", size)
+    print("[hypergan] Size of all variables:", size)
 
 def run(args):
     crop = args.crop
@@ -310,12 +309,12 @@ def run(args):
     height = int(args.size.split("x")[1])
     loadedFromSave = False
 
-    print("Generating configs with hyper search space of ", hc.count_configs())
+    print("[hypergan] Welcome back.  You are one of ", hc.count_configs(), " possible configurations.")
     for config in hc.configs(1):
         other_config = copy.copy(config)
         # load_saved_checkpoint(config)
         if(args.config):
-            print("Loading config", args.config)
+            print("[hypergan] Creating or loading configuration in ~/.hypergan/configs/", args.config)
 
             if args.use_hc_io:
                 config.update(hc.io.load_config(args.config))
@@ -348,7 +347,7 @@ def run(args):
 
         if args.config is None:
             filename = '~/.hypergan/configs/'+config['uuid']+'.json'
-            print("Saving network configuration to: " + filename)
+            print("[hypergan] Saving network configuration to: " + filename)
             config = hc.load_or_create_config(filename, config)
 
         with tf.device(args.device):

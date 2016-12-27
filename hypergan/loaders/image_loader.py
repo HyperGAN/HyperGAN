@@ -16,7 +16,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   filenames = glob.glob(directory+"/**/*."+format)
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
   num_examples_per_epoch = 30000//4
-  print("ImageLoader found", len(filenames), "images with", total_labels, "different class labels")
+  print("[loader] ImageLoader found", len(filenames), "images with", total_labels, "different class labels")
   assert len(filenames)!=0, "No images found in "+directory
 
   # Create a queue that produces the filenames to read.
@@ -42,7 +42,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   elif(format == 'png'):
       img = tf.image.decode_png(value, channels=channels)
   else:
-      print("Failed to load format", format)
+      print("[loader] Failed to load format", format)
   #img = tf.zeros([64,64,3])
   img = tf.cast(img, tf.float32)
   reshaped_image = tf.identity(img)
@@ -64,7 +64,6 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
 
   #resized_image = reshaped_image
   tf.Tensor.set_shape(resized_image, [height,width,channels])
-  print(resized_image)
   #resized_image = tf.image.random_flip_left_right(resized_image)
   #resized_image = tf.image.random_brightness(resized_image, 0.4)
   #resized_image = tf.image.random_contrast(resized_image, 0.2, 1.0)

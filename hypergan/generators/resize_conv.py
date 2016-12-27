@@ -43,7 +43,7 @@ def generator(config, net):
         first3 = config['generator.final_activation'](first3)
         nets.append(first3)
         size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])
-        print("Generator layer:",net, size, target_size,"  with noise ",noise)
+        print("[generator] layer",net, size, target_size,"  with noise ",noise)
 
     return nets
 

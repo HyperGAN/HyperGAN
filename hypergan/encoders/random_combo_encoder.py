@@ -7,8 +7,9 @@ from hypergan.util.globals import *
 def encode_gaussian(config, x, y):
   # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
   z_dim = config['generator.z']
-  z = tf.random_uniform([config['batch_size'], z_dim],0, 1,dtype=config['dtype'])
+  z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
   set_tensor("z", z)
+  z = (z + 1) / 2
 
   za = tf.slice(z, [0,0], [config['batch_size'], z_dim//2])
   zb = tf.slice(z, [0,z_dim//2], [config['batch_size'], z_dim//2])

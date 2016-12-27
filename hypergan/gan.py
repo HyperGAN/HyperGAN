@@ -1,4 +1,3 @@
-
 from hypergan.util.ops import *
 from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
@@ -28,24 +27,10 @@ def generator(config, inputs, reuse=False):
             net = batch_norm(batch_size, name='g_rp_bn'+str(i))(net)
             net = activation(net)
 
-            #noise = tf.random_uniform([config['batch_size'],32],-1, 1,dtype=config['dtype'])
-            #net = tf.concat(1, [net, noise])
-        #print("Generator creating linear layer from", int(net.get_shape()[1]), "z to ", list(primes)+[z_proj_dims])
-        #net = linear(net, z_proj_dims, scope="g_lin_proj")
-
         gz = int(net.get_shape()[1])
         net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
         net = tf.reshape(net, new_shape)
-
-        #noise = tf.random_uniform(new_shape,-1, 1, dtype=config['dtype'])
-        #net = tf.concat(3, [net,noise])
-
-        s = [int(x) for x in net.get_shape()]
-        resized_wh=[s[1]*2, s[2]*2]
-        #net = tf.image.resize_images(net, resized_wh[0], resized_wh[1], 1)
-        #net = conv2d(net, z_proj_dims, name='g_conv_proj', k_w=2, k_h=2, d_h=1, d_w=1)
-        print("Generator created conv layer:", net)
 
         nets = config['generator'](config, net)
 
@@ -76,16 +61,14 @@ def discriminator(config, x, f,z,g,gz):
         x += tf.random_normal(x.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
 
     net = config['discriminator'](config, x, g, xs, gs)
-    #net = tf.reshape(net, [batch_size, -1])
 
+    if(config['discriminator.fc_layer']):
+        print('Discriminator before linear layer', net, config['discriminator.fc_layer'])
 
-    #if(config['discriminator.fc_layer']):
-    #    print('Discriminator before linear layer', net, config['discriminator.fc_layer'])
-
-    #    for layer in range(config['discriminator.fc_layers']):
-    #        net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer"+str(layer))
-    #        net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
-    #        net = activation(net)
+        for layer in range(config['discriminator.fc_layers']):
+            net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer"+str(layer))
+            net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
+            net = activation(net)
 
     last_layer = net
     last_layer = tf.reshape(last_layer, [batch_size, -1])
@@ -95,19 +78,8 @@ def discriminator(config, x, f,z,g,gz):
     for regularizer in config['discriminator.regularizers']:
         regs = regularizer(config, net)
         regularizers += regs
-        #regularizers += [tf.reshape(r,[int(r.get_shape()[0]),1,1,int(r.get_shape()[1])]) for r in regs]
 
     net = tf.concat(1, [net]+regularizers)
-
-    #net = conv2d(net, net.get_shape()[3], name='d_endd3', k_w=1, k_h=1, d_h=1, d_w=1, stddev=0.4)
-    #net = batch_norm(config['batch_size'], name='d_expand_bn_end')(net)
-    #net = tf.reshape(net, [config['batch_size']*2, -1])
-    #net = tf.reduce_mean(net, 1)
-    #net = tf.reshape(net,  [config['batch_size']*2, 1])
-
-    #net = tf.reshape(net, [config['batch_size']*2, -1])
-    #net = linear(net, 1, scope="d_proj", stddev=0.03)
-    #net = batch_norm(batch_size, name='d_rp_bnend')(net)
 
     num_classes = config['y_dims']+1
     if config['y_dims'] == 1:
@@ -146,10 +118,9 @@ def categories_loss(categories, layer, batch_size):
             ret.append(tf.slice(layer, [0, start], [batch_size, count]))
             start += count
         return ret
-            
+
     for category,layer_s in zip(categories, split(layer)):
         size = int(category.get_shape()[1])
-        #TOdO compute loss
         category_prior = tf.ones([batch_size, size])*np.float32(1./size)
         logli_prior = tf.reduce_sum(tf.log(category_prior + TINY) * category, reduction_indices=1)
         layer_softmax = tf.nn.softmax(layer_s)
@@ -171,7 +142,6 @@ def random_category(batch_size, size, dtype):
 # Used for building the tensorflow graph with only G
 def create_generator(config, x,y,f):
     set_ops_globals(config['dtype'], config['batch_size'])
-    #TODO fix copy/paste job here
     z_dim = int(config['generator.z'])
     z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
     categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
@@ -238,12 +208,9 @@ def create(config, x,y,f):
     zeros = tf.zeros_like(d_fake_sig, dtype=config['dtype'])
     ones = tf.zeros_like(d_real_sig, dtype=config['dtype'])
 
-    #d_real_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_real, ones)
-
     generator_target_prob = config['g_target_prob']
     d_label_smooth = config['d_label_smooth']
     d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
-    #d_real_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_real_sig, ones)
     d_real_loss = sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
     #if(config['adv_loss']):
     #    d_real_loss +=  sigmoid_kl_with_logits(d_fake_sig, d_label_smooth)
@@ -362,10 +329,4 @@ def test(sess, config):
 
     g_cost, d_fake_cost, d_real_cost = sess.run([g_loss, d_fake, d_real])
 
-
-    #hc.event(costs, sample_image = sample[0])
-
-    #print("test g_loss %.2f d_fake %.2f d_loss %.2f" % (g_cost, d_fake_cost, d_real_cost))
     return g_cost,d_fake_cost, d_real_cost,0
-
-

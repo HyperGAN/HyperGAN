@@ -70,7 +70,7 @@ hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this a
 hc.set("generator.regularizers", [[l2_regularizer.get]]) # These are added to the loss function for G.
 hc.set('generator.layer.noise', True) #Adds incremental noise each layer
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
-hc.set("generator.regularizers.layer", [layer_norm_1, batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
+hc.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
 
 # Trainer configuration
 trainer = adam_trainer # adam works well at 64x64 but doesn't scale
@@ -122,7 +122,7 @@ hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # t
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
 hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
 #hc.set('encoder', random_encoder.encode) # how to encode z
-hc.set('encoder', random_combo_encoder.encode) # how to encode z
+hc.set('encoder', random_combo_encoder.encode_gaussian) # how to encode z
 
 #hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 #hc.set("g_mp3_filter",[3])

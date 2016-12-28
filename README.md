@@ -3,15 +3,15 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 # Table of contents
 
-* Changelog
-* Samples
-* Quick start
-* Flask server mode
-* Tons of options
+* <a href="#changelog">Changelog</a>
+* <a href="#samples">Samples</a>
+* <a href="#quickstart">Quick start</a>
 
 ## Changelog
 
 ## Samples
+
+<div id="samples"/>
 
 ### Hand selected:
 

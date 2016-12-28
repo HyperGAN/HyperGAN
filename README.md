@@ -15,9 +15,9 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#configuration">Configuration</a>
 * <a href="#about">About</a>
 
-## Changelog
-
 <div id="changelog"></div>
+
+## Changelog
 
 ### 0.5.x
 
@@ -37,9 +37,9 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 <img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472511234866-6123711b-229c-436b-a337-19e35bb79457'/>
 
 
-## Samples
-
 <div id="samples"/>
+
+## Samples
 
 ### Hand selected:
 
@@ -60,37 +60,38 @@ TODO IMAGE
 Somewhat inspired by LAPGAN, we feed resized images across the layers of D.  Our generator learns to render at multiple
 resolutions.  
 
-## Quick start
-
 <div id='quickstart'/>
 
-### Minimum requirements
+## Quick start
 
 <div id='minreqs'/>
+
+### Minimum requirements
 
 1. For 256x256, we recommend a GTX 1080 or better.
 2. CPU mode is _extremely_ slow.  Never train with it!
 
 
+<div id='qs-install'/>
+
 ### Install hypergan
 
-<div id='qs-install'/>
 ```
   pip install hypergan
 ```
 
-### Train
-
 <div id='qs-train'/>
+
+### Train
 
 ```
   # Train a 256x256 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32
 ```
 
-### Increasing performance
-
 <div id='qs-increase'/>
+
+### Increasing performance
 
 On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include this environment variable before training
 
@@ -98,9 +99,8 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
   LD_PRELOAD="/usr/lib/libtcmalloc.so.4" hypergan train my_dataset
 ```
 
-### Development mode
-
 <div id='qs-devmode'/>
+### Development mode
 
 If you wish to modify hypergan
 
@@ -221,9 +221,9 @@ To turn these images into a video:
 
 NOTE: z_dims must equal 2 and batch size must equal 24 to work.
 
-# About
-
 <div id='about'/>
+
+# About
 
 Generative Adversarial Networks(2) consist of (at least) two neural networks that learn together over many epochs.
 The discriminator learns the difference between real and fake data.  The generator learns to create fake data.

@@ -382,7 +382,7 @@ def run(args):
             print("|= Loading generator from build/")
             saver = tf.train.Saver()
             saver.restore(sess, build_file)
-        elif(save_file and ( os.path.isfile(save_file) or os.path.isfile(savefile + ".index" ))):
+        elif(save_file and ( os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ))):
             print(" |= Loading network from "+ save_file)
             if args.use_hc_io:
                 #TODO remove this

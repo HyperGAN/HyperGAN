@@ -14,7 +14,7 @@ def encode_gaussian(config, x, y):
   za = tf.slice(z, [0,0], [config['batch_size'], z_dim//2])
   zb = tf.slice(z, [0,z_dim//2], [config['batch_size'], z_dim//2])
 
-  w = tf.get_variable("g_encode_guassian", za.get_shape(),dtype=config['dtype'],
+  w = tf.get_variable("g_encode_guassian", [z_dim//2], dtype=config['dtype'],
                         initializer=tf.random_normal_initializer(1, .02, dtype=config['dtype']))
 
   pi = np.pi

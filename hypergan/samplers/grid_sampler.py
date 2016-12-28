@@ -1,6 +1,6 @@
 
-from lib.util.ops import *
-from lib.util.globals import *
+from hypergan.util.ops import *
+from hypergan.util.globals import *
 
 def sample(sample_file, sess, config):
     generator = get_tensor("g")[0]

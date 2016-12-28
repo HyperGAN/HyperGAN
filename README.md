@@ -23,10 +23,11 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 * fixed configuration save/load
 * cleaner cli output
+* documentation cleanup
 
 ### 0.5.0
 * pip package released!
-* Better defaults.  Good variance.  The broken images showed up after training for 5 days.
+* Better defaults.  Good variance.  256x256.  The broken images showed up after training for 5 days.
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold.png'/>
 

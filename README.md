@@ -6,6 +6,14 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * <a href="#changelog">Changelog</a>
 * <a href="#samples">Samples</a>
 * <a href="#quickstart">Quick start</a>
+  * <a href="#minreqs">Minimum Requirements</a>
+  * <a href="#qs-install">Install</a>
+  * <a href="#qs-train">Train</a>
+  * <a href="#qs-increase">Increasing Performance</a>
+  * <a href="#qs-devmode">Development Mode</a>
+* <a href="#training">Training</a>
+  * <a href="#configuration">Configuration</a>
+* <a href="#about">About</a>
 
 ## Changelog
 
@@ -58,23 +66,31 @@ resolutions.
 
 ### Minimum requirements
 
+<div id='minreqs'/>
+
 1. For 256x256, we recommend a GTX 1080 or better.
 2. CPU mode is _extremely_ slow.  Never train with it!
 
+
 ### Install hypergan
 
+<div id='qs-install'/>
 ```
   pip install hypergan
 ```
 
-### Run hypergan
+### Train
+
+<div id='qs-train'/>
 
 ```
   # Train a 256x256 gan with batch size 32 on a folder of pngs
-  hypergan train [folder] -s 256x256 -f png -b 32
+  hypergan train [folder] -s 32x32x3 -f png -b 32
 ```
 
 ### Increasing performance
+
+<div id='qs-increase'/>
 
 On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include this environment variable before training
 
@@ -82,13 +98,34 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
   LD_PRELOAD="/usr/lib/libtcmalloc.so.4" hypergan train my_dataset
 ```
 
-## CLI
+### Development mode
 
-### hypergan train
+<div id='qs-devmode'/>
 
-### hypergan serve
+If you wish to modify hypergan
 
-### hypergan build
+```
+git clone https://github.com/255BITS/hypergan
+cd hypergan
+python3 setup.py develop
+```
+
+
+# Training
+
+## hypergan train
+
+TODO docs
+
+# Building
+
+## hypergan build
+
+TODO docs
+
+# Server mode
+
+## hypergan serve
 
 The trained generator can now be built for deployment.  Building does 2 things:
 
@@ -100,39 +137,6 @@ The trained generator can now be built for deployment.  Building does 2 things:
 ~/.hypergan/saves/
 ~/.hypergan/samples/
 
-
-### List models
-
-```
-  hypergan models
-```
-
-### Building a generator
-
-```
-  hypergan build [model]
-```
-
-### Server mode
-
-```
-  hypergan serve [model]
-```
-
-
-```
-/sample.png?type=batch
-```
-
-This creates a random sampling of generated images.
-
-## Development mode
-
-```
-git clone https://github.com/255BITS/hypergan
-cd hypergan
-python3 setup.py develop
-```
 
 ## Formats
 
@@ -154,34 +158,6 @@ To see a detailed list, run
 * -s, --size, optional(default 64x64x3), the size of your data in the form 'width'x'height'x'channels'
 * -f, --format, optional(default png), file format of the images.  Only supports jpg and png for now.
 
-
-## Architecture
-
-Generative Adversarial Networks(2) consist of (at least) two neural networks that learn together over many epochs.
-The discriminator learns the difference between real and fake data.  The generator learns to create fake data.
-
-For a more depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
-
-Building a GAN involves making a lot of choices with largely unexplored consequences.
-
-Some common questions: 
-
-* Should I use variational inference?  
-* Should I add adversarial encoding?
-* What should the size of my z dimensions be? 
-* Do I add categorical loss to model discrete values?
-* Which loss functions are important?
-
-Some of these choices may vary by dataset.
-
-hypergan is a flexible GAN framework that lets us easy explore complex GANs by just making declarative choices.
-
-hypergan aims to make things easy.  You can easily test out combinations of:
-
-* learning rates & training technique
-* Use many different loss functions
-* change z size and type
-* and so much more.
 
 ## Discriminators
 
@@ -245,8 +221,16 @@ To turn these images into a video:
 
 NOTE: z_dims must equal 2 and batch size must equal 24 to work.
 
+# About
 
-# Papers
+<div id='about'/>
+
+Generative Adversarial Networks(2) consist of (at least) two neural networks that learn together over many epochs.
+The discriminator learns the difference between real and fake data.  The generator learns to create fake data.
+
+For a more depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
+
+## Papers
 
 * GAN - https://arxiv.org/abs/1406.2661
 * DCGAN - https://arxiv.org/abs/1511.06434
@@ -254,7 +238,7 @@ NOTE: z_dims must equal 2 and batch size must equal 24 to work.
 * Improved GAN - https://arxiv.org/abs/1606.03498
 * Adversarial Inference - https://arxiv.org/abs/1606.00704
 
-# Sources
+## Sources
 
 * DCGAN - https://github.com/carpedm20/DCGAN-tensorflow
 * InfoGAN - https://github.com/openai/InfoGAN

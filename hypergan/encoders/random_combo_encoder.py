@@ -4,6 +4,8 @@ import tensorflow as tf
 from hypergan.util.ops import *
 from hypergan.util.globals import *
 
+TINY=1e-12
+
 def encode_gaussian(config, x, y):
   # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
   z_dim = config['generator.z']
@@ -18,8 +20,8 @@ def encode_gaussian(config, x, y):
   #                      initializer=tf.random_normal_initializer(1, .02, dtype=config['dtype']))
 
   pi = np.pi
-  ra = tf.sqrt(-2 * tf.log(za))*tf.cos(2*pi*zb)#*w)
-  rb = tf.sqrt(-2 * tf.log(za))*tf.sin(2*pi*zb)#*w)
+  ra = tf.sqrt(-2 * tf.log(za+TINY))*tf.cos(2*pi*zb)#*w)
+  rb = tf.sqrt(-2 * tf.log(za+TINY))*tf.sin(2*pi*zb)#*w)
 
   za = za * 2 - 1
   zb = zb * 2 - 1

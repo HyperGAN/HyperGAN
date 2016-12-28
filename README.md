@@ -9,6 +9,26 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## Changelog
 
+<div id="changelog"></div>
+
+### 0.5.x
+
+* fixed configuration save/load
+* cleaner cli output
+
+### 0.5.0
+* pip package released!
+* Better defaults.  Good variance.  The broken images showed up after training for 5 days.
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold.png'/>
+
+### 0.1-0.4
+* Initial private release
+
+<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472503244410-fcc6b07b-ec8f-44f6-aa2b-937a6ca755dc'/>
+<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472511234866-6123711b-229c-436b-a337-19e35bb79457'/>
+
+
 ## Samples
 
 <div id="samples"/>
@@ -32,24 +52,9 @@ TODO IMAGE
 Somewhat inspired by LAPGAN, we feed resized images across the layers of D.  Our generator learns to render at multiple
 resolutions.  
 
-### 0.5.x
-
-* fixed configuration save/load
-* cleaner cli output
-
-### 0.5.0
-* pip package released!
-* Better defaults.  Good variance.  The broken images showed up after training for 5 days.
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold.png'/>
-
-### 0.1-0.4
-* Initial private release
-
-<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472503244410-fcc6b07b-ec8f-44f6-aa2b-937a6ca755dc'/>
-<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472511234866-6123711b-229c-436b-a337-19e35bb79457'/>
-
 ## Quick start
+
+<div id='quickstart'/>
 
 ### Minimum requirements
 

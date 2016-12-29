@@ -298,11 +298,23 @@ def block_conv(result, activation, batch_size,id,name, output_channels=None, str
     s = result.get_shape()
     if(batch_norm is not None):
         result = batch_norm(batch_size, name=name+'bn')(result)
+    print("DROPOUT IS", dropout)
     result = activation(result)
     if(dropout):
-        result = tf.nn.dropout(result, dropout)
+        z = get_tensor('original_z')
+        mask = linear(z, s[1]*s[2]*s[3], scope="g_lin_proj_mask")
+        mask = tf.reshape(mask, result.get_shape())
+        result *= tf.nn.sigmoid(mask)
+        #HACKS
+        #mask_noise = tf.random_uniform(result.get_shape(), 0, 1)
+        #set_tensor('mask_noise', mask_noise)
+        #mask = tf.greater(mask_noise, tf.zeros_like(mask_noise))
+        #result = result * mask_noise#* tf.cast(mask, tf.float32)
+        #result = tf.nn.dropout(result, dropout, seed=1)
+
     if(noise_shape):
       noise = tf.random_uniform(noise_shape,-1, 1,dtype=dtype)
+      noise = tf.zeros_like(noise)
       result = tf.concat(3, [result, noise])
     if(id=='conv'):
         result = conv2d(result, int(result.get_shape()[3]), name=name, k_w=filter, k_h=filter, d_h=stride, d_w=stride)

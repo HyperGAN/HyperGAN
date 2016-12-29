@@ -316,12 +316,9 @@ def run(args):
         if(args.config):
             print("[hypergan] Creating or loading configuration in ~/.hypergan/configs/", args.config)
 
-            if args.use_hc_io:
-                config.update(hc.io.load_config(args.config))
-            else:
-                config_path = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
-                print("Loading "+config_path)
-                config = hc.load_or_create_config(config_path, config)
+            config_path = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
+            print("Loading "+config_path)
+            config = hc.load_or_create_config(config_path, config)
 
         config = lookup_functions(config)
         config['batch_size']=args.batch_size
@@ -384,9 +381,6 @@ def run(args):
             saver.restore(sess, build_file)
         elif(save_file and ( os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ))):
             print(" |= Loading network from "+ save_file)
-            if args.use_hc_io:
-                #TODO remove this
-                config['uuid']=config['parent_uuid']
             ckpt = tf.train.get_checkpoint_state(os.path.expanduser('~/.hypergan/saves/'))
             if ckpt and ckpt.model_checkpoint_path:
                 saver = tf.train.Saver()

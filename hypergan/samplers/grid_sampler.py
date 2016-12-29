@@ -2,11 +2,13 @@
 from hypergan.util.ops import *
 from hypergan.util.globals import *
 
+#mask_noise = None
 def sample(sample_file, sess, config):
     generator = get_tensor("g")[0]
     y_t = get_tensor("y")
     z_t = get_tensor("z")
     dropout_t = get_tensor("dropout")
+    #mask_noise_t = get_tensor("mask_noise")
     #categories_t = get_tensor("categories")[0]
 
     x = np.linspace(0,1, 4)
@@ -27,12 +29,20 @@ def sample(sample_file, sess, config):
     #z.fill(0.2)
 
     #categories = np.zeros(categories_t.get_onshape())
-    
-
-    sample = sess.run(generator, feed_dict={z_t: z, dropout_t: 1.0})#, categories_t: categories})
-    print(np.shape(sample), np.min(sample), np.max(sample))
-    #plot(self.config, sample, sample_file)
-    stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
-    plot(config, np.vstack(stacks), sample_file)
+    #global mask_noise
+    #if mask_noise is None:
+    #    s=mask_noise_t.get_shape()
+    #    mask_noise = np.random.uniform(0, 1, [1, s[1], s[2], s[3]])
+    #    mask_noise = np.tile(mask_noise, [config['batch_size'], 1, 1, 1])
+    #    #ask_noise = np.ones(mask_noise_t.get_shape())
+    g=tf.get_default_graph()
+    with g.as_default():
+        tf.set_random_seed(1)
+        print("seed",g.seed)
+        sample = sess.run(generator, feed_dict={z_t: z})#, categories_t: categories})
+        print(np.shape(sample), np.min(sample), np.max(sample))
+        #plot(self.config, sample, sample_file)
+        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
+        plot(config, np.vstack(stacks), sample_file)
 
 

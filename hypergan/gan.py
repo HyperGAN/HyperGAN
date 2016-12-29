@@ -27,7 +27,7 @@ def generator(config, inputs, reuse=False):
             net = batch_norm(batch_size, name='g_rp_bn'+str(i))(net)
             net = activation(net)
 
-        gz = int(net.get_shape()[1])
+        set_tensor('original_z', net)
         net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
         net = tf.reshape(net, new_shape)

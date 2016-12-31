@@ -361,11 +361,11 @@ def run(args):
             samples_path = "~/.hypergan/samples/"+config['parent_uuid']
         else:
             save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
-            samples_path = "~/.hypergan/samples/"+config['uuid']
         if args.config:
             save_file = "~/.hypergan/saves/"+args.config+".ckpt"
-            samples_path = "~/.hypergan/samples/"+args.config
+            config['uuid'] = args.config
 
+        samples_path = "~/.hypergan/samples/"+config['uuid']
         save_file = os.path.expanduser(save_file)
         os.makedirs(os.path.dirname(save_file), exist_ok=True)
         os.makedirs(os.path.expanduser(samples_path), exist_ok=True)

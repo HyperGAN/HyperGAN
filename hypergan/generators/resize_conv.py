@@ -37,6 +37,16 @@ def generator(config, net):
         if fltr > net.get_shape()[2]:
             fltr=int(net.get_shape()[2])
         net = block_conv(net, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=fltr, batch_norm=batch_norm, noise_shape=noise)
+        if(net.get_shape()[3] != 3):
+            #split_z_proj = tf.slice(z_proj, [0,0,0,0], [-1,-1,-1,1024//(2**(i+1))])
+            #resized_z_proj = tf.image.resize_images(split_z_proj, [resized_wh[0], resized_wh[1]], 1)
+            #print("RESIZED ", resized_z_proj.get_shape(), net.get_shape())
+            #net = tf.concat(3, [net, resized_z_proj])
+            
+            reshaped_z_proj = tf.reshape(z_proj, [config['batch_size'], resized_wh[0], resized_wh[1], -1])
+            print("RESHAPED", reshaped_z_proj.get_shape(), net.get_shape())
+            net = tf.concat(3, [net, reshaped_z_proj])
+
         if(i == depth-1):
             first3 = net
         else:

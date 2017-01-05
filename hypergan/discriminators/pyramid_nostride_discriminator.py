@@ -30,7 +30,7 @@ def discriminator(config, x, g, xs, gs):
         moments = tf.nn.moments(xg, [1], name="d_add_moments"+str(i))
         moments = tf.reshape(xg, s)
 
-        net = tf.concat(3, [net, xg, moments])
+        net = tf.concat(3, [net, xg])
       filter_size_w = 2
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]

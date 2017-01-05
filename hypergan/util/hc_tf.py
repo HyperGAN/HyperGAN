@@ -299,7 +299,7 @@ def block_conv(result, activation, batch_size,id,name, output_channels=None, str
     if(batch_norm is not None):
         result = batch_norm(batch_size, name=name+'bn')(result)
     print("DROPOUT IS", dropout)
-    result = activation(result)
+    result = tf.nn.tanh(result)#activation(result)
     if(dropout):
         z = get_tensor('original_z')
         mask = linear(z, s[1]*s[2]*s[3], scope="g_lin_proj_mask")

@@ -29,7 +29,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * pip package released!
 * Better defaults.  Good variance.  256x256.  The broken images showed up after training for 5 days.
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold.png'/>
 
 ### 0.1-0.4
 * Initial private release

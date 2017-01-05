@@ -41,7 +41,7 @@ def generator(config, net):
             first3 = net
         else:
             first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1,3])
-        if batch_norm:
+        if batch_norm and i < depth - 1:
             first3 = batch_norm(config['batch_size'], name='g_bn_first3_'+str(i))(first3)
         first3 = config['generator.final_activation'](first3)
         nets.append(first3)

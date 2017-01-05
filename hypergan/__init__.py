@@ -59,7 +59,7 @@ args = cli.parse_args()
 hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
 
 # Generator configuration
-hc.set("generator.z", 100) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
+hc.set("generator.z", 2) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator", [resize_conv.generator])
 hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
@@ -178,6 +178,7 @@ hc.set("d_project", ['tiled'])
 hc.set("batch_size", args.batch_size)
 
 batch_no = 0
+sampled = 0
 
 def frame_sample(sample_file, sess, config):
     """ Samples every frame to a file.  Useful for visualizing the learning process.
@@ -202,10 +203,14 @@ def epoch(sess, config):
     batch_size = config["batch_size"]
     n_samples =  config['examples_per_epoch']
     total_batch = int(n_samples / batch_size)
+    global sampled
     global batch_no
     for i in range(total_batch):
-        sample_file="samples/grid-%06d.png" % (batch_no * total_batch + i)
-        frame_sample(sample_file, sess, config)
+        if(i % 10 == 1):
+            sample_file="samples/grid-%06d.png" % (sampled)
+            frame_sample(sample_file, sess, config)
+            sampled += 1
+
 
         d_loss, g_loss = config['trainer.train'](sess, config)
 

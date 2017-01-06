@@ -19,6 +19,7 @@ def generator(config, net):
 
     s = [int(x) for x in net.get_shape()]
     net = block_conv(net, tf.nn.tanh, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, dropout=get_tensor('dropout'))
+    z_proj = net
 
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
@@ -36,6 +37,9 @@ def generator(config, net):
             fltr=int(net.get_shape()[1])
         if fltr > net.get_shape()[2]:
             fltr=int(net.get_shape()[2])
+        #if(i == 0):
+        #    net = block_conv(net, tf.nn.tanh, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=fltr, batch_norm=None, noise_shape=noise, dropout=get_tensor('dropout'))
+        #else:
         net = block_conv(net, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=fltr, batch_norm=batch_norm, noise_shape=noise)
         if(net.get_shape()[3] != 3):
             #split_z_proj = tf.slice(z_proj, [0,0,0,0], [-1,-1,-1,1024//(2**(i+1))])
@@ -51,8 +55,8 @@ def generator(config, net):
             first3 = net
         else:
             first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1,3])
-        if batch_norm and i < depth - 1:
-            first3 = batch_norm(config['batch_size'], name='g_bn_first3_'+str(i))(first3)
+        #if(i<depth -1):
+        first3 = batch_norm(config['batch_size'], name='g_bn_first3_'+str(i))(first3)
         first3 = config['generator.final_activation'](first3)
         nets.append(first3)
         size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])

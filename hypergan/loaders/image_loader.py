@@ -45,12 +45,12 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
       print("[loader] Failed to load format", format)
   #img = tf.zeros([64,64,3])
   img = tf.cast(img, tf.float32)
-  reshaped_image = tf.identity(img)
-  tf.Tensor.set_shape(reshaped_image, [None, None, None])
+  #reshaped_image = tf.identity(img)
+  #tf.Tensor.set_shape(reshaped_image, [None, None, None])
 
-  reshaped_image = hypergan.loaders.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
-                                                         224, 224, dynamic_shape=True)
-  reshaped_image = tf.reshape(reshaped_image, [1,224,224,channels])
+  #reshaped_image = hypergan.loaders.resize_image_patch.resize_image_with_crop_or_pad(reshaped_image,
+  #                                                       224, 224, dynamic_shape=True)
+  #reshaped_image = tf.reshape(reshaped_image, [1,224,224,channels])
   #features = _get_features(reshaped_image)
   label = input_queue[1]
 
@@ -60,7 +60,7 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
       resized_image = hypergan.loaders.resize_image_patch.resize_image_with_crop_or_pad(img,
                                                          height, width, dynamic_shape=True)
   else:
-      resized_image = img
+      resized_image = tf.image.resize_images(net, height, width, 1)
 
   #resized_image = reshaped_image
   tf.Tensor.set_shape(resized_image, [height,width,channels])

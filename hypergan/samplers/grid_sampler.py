@@ -9,7 +9,7 @@ def sample(sample_file, sess, config):
     z_t = get_tensor("z")
     dropout_t = get_tensor("dropout")
     #mask_noise_t = get_tensor("mask_noise")
-    #categories_t = get_tensor("categories")[0]
+    categories_t = get_tensor("categories")[0]
 
     x = np.linspace(0,1, 4)
     y = np.linspace(0,1, 6)
@@ -28,7 +28,7 @@ def sample(sample_file, sess, config):
     #z = np.zeros(z_t.get_shape())
     #z.fill(0.2)
 
-    #categories = np.zeros(categories_t.get_onshape())
+    categories = np.zeros(categories_t.get_shape())
     #global mask_noise
     #if mask_noise is None:
     #    s=mask_noise_t.get_shape()
@@ -39,7 +39,7 @@ def sample(sample_file, sess, config):
     with g.as_default():
         tf.set_random_seed(1)
         print("seed",g.seed)
-        sample = sess.run(generator, feed_dict={z_t: z})#, categories_t: categories})
+        sample = sess.run(generator, feed_dict={z_t: z, categories_t: categories})
         print(np.shape(sample), np.min(sample), np.max(sample))
         #plot(self.config, sample, sample_file)
         stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]

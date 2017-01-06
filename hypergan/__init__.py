@@ -61,7 +61,7 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 # Generator configuration
 hc.set("generator.z", 2) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator", [resize_conv.generator])
-hc.set("generator.z_projection_depth", 2048) # Used in the first layer - the linear projection of z
+hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
@@ -96,15 +96,15 @@ hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
+hc.set("discriminator", densenet_discriminator.discriminator)
 hc.set("discriminator.activation", [lrelu])#prelu("d_")])
-hc.set('discriminator.regularizers.layer', layer_norm_1) # Size of fully connected layers
+hc.set('discriminator.regularizers.layer', batch_norm_1) # Size of fully connected layers
 
 hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
 hc.set('discriminator.fc_layers', [0])# Number of fully connected layers to include
 hc.set('discriminator.fc_layer.size', 378) # Size of fully connected layers
 
-hc.set("discriminator.pyramid.layers", 5) #Layers in D
+hc.set("discriminator.pyramid.layers", 6) #Layers in D
 hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
 
 hc.set('discriminator.painters.layers', 2) #TODO has this ever worked?
@@ -146,7 +146,7 @@ hc.set("model", "faces:1.0")
 hc.set("examples_per_epoch", 30000/4)
 
 #TODO category/bernouilli
-categories = [[]]#[[2]+[2]+build_categories_config(30)]
+categories = [[2,2,2,2,3,34,4,4,4,4,4,4,4,10,10,10,10,10,10,10]]#[[2]+[2]+build_categories_config(30)]
 hc.set('categories', categories)
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
@@ -161,8 +161,8 @@ hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
 #TODO move to minibatch
-hc.set("d_kernels", list(np.arange(10, 20)))
-hc.set("d_kernel_dims", list(np.arange(100, 200)))
+hc.set("d_kernels", list(np.arange(20, 30)))
+hc.set("d_kernel_dims", list(np.arange(200, 300)))
 
 #TODO remove and replace with losses
 hc.set("loss", ['custom'])

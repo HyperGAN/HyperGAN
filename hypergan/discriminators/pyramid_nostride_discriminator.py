@@ -19,7 +19,7 @@ def discriminator(config, x, g, xs, gs):
           net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
       net = activation(net)
       # APPEND xs[i] and gs[i]
-      if(i < len(xs) and i > 1):
+      if(i < len(xs) and i > 0):
         xg = tf.concat(0, [xs[i], gs[i]])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev']*i, dtype=config['dtype'])
 

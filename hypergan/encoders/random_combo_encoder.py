@@ -6,6 +6,40 @@ from hypergan.util.globals import *
 
 TINY=1e-12
 
+def encode_multimodal_gaussian(config, x, y):
+  # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
+  z_dim = config['generator.z']
+  z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
+  set_tensor("z", z)
+  z = (z + 1) / 2
+
+  za = tf.slice(z, [0,0], [config['batch_size'], z_dim//2])
+  zb = tf.slice(z, [0,z_dim//2], [config['batch_size'], z_dim//2])
+
+
+  pi = np.pi
+  ra = tf.sqrt(-2 * tf.log(za+TINY))*tf.cos(2*pi*zb)#*w)
+  rb = tf.sqrt(-2 * tf.log(za+TINY))*tf.sin(2*pi*zb)#*w)
+
+  w = tf.get_variable("g_encode_cos", [z_dim], dtype=config['dtype'],
+                        initializer=tf.random_normal_initializer(5, 1, dtype=config['dtype']))
+
+  zsplitra = tf.sqrt(-2 * tf.log(za*1+TINY))*tf.cos(2*pi*zb*w)
+  zsplitrb = tf.sqrt(-2 * tf.log(za*1+TINY))*tf.sin(2*pi*zb*w)
+
+  zcosa = tf.cos(w*za)
+  zcosb = tf.cos(w*zb)
+  zsina = tf.sin(w*za)
+  zsinb = tf.sin(w*zb)
+
+  za = za * 2 - 1
+  zb = zb * 2 - 1
+
+  z = tf.concat(1, [za,zb,ra,rb, zcosa, zcosb, zsina, zsinb, zsplitra, zsplitrb])
+  encoded_z = tf.zeros_like(z)
+  return z, encoded_z, None, None
+
+
 def encode_gaussian(config, x, y):
   # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
   z_dim = config['generator.z']

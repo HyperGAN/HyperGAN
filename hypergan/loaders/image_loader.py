@@ -4,6 +4,7 @@ import tensorflow as tf
 import hypergan.loaders.resize_image_patch
 import hypergan.vendor.inception_loader as inception_loader
 import hypergan.vendor.vggnet_loader as vggnet_loader
+from tensorflow.python.ops import array_ops
 
 def build_labels(dirs):
   next_id=0
@@ -12,7 +13,7 @@ def build_labels(dirs):
     labels[dir.split('/')[-1]]=next_id
     next_id+=1
   return labels,next_id
-def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=True, preprocess=False):
+def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=False, preprocess=False):
   filenames = glob.glob(directory+"/**/*."+format)
   labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
   num_examples_per_epoch = 30000//4
@@ -60,10 +61,11 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
       resized_image = hypergan.loaders.resize_image_patch.resize_image_with_crop_or_pad(img,
                                                          height, width, dynamic_shape=True)
   else:
-      resized_image = tf.image.resize_images(net, height, width, 1)
+      #TODO Resize
+      resized_image = tf.image.resize_images(img, [height, width], 1)
 
-  #resized_image = reshaped_image
   tf.Tensor.set_shape(resized_image, [height,width,channels])
+  #resized_image = reshaped_image
   #resized_image = tf.image.random_flip_left_right(resized_image)
   #resized_image = tf.image.random_brightness(resized_image, 0.4)
   #resized_image = tf.image.random_contrast(resized_image, 0.2, 1.0)

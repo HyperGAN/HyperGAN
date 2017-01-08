@@ -319,7 +319,6 @@ def block_conv(result, activation, batch_size,id,name, resize=None, output_chann
 
     if(noise_shape):
       noise = tf.random_uniform(noise_shape,-1, 1,dtype=dtype)
-      noise = tf.zeros_like(noise)
       result = tf.concat(3, [result, noise])
     if(id=='conv'):
         result = conv2d(result, int(result.get_shape()[3]), name=name, k_w=filter, k_h=filter, d_h=stride, d_w=stride)

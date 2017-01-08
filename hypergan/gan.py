@@ -39,9 +39,7 @@ def generator(config, inputs, reuse=False):
 def discriminator(config, x, f,z,g,gz):
     batch_size = config['batch_size']*2
     single_batch_size = config['batch_size']
-    activation = config['discriminator.activation']
     channels = (config['channels'])
-    batch_norm = config['discriminator.regularizers.layer']
     # combine to one batch, per Ian's "Improved GAN"
     xs = [x]
     gs = g
@@ -57,31 +55,20 @@ def discriminator(config, x, f,z,g,gz):
 
     # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
     z = tf.concat(0, [z, gz])
-    if(config['discriminator.add_noise']):
-        x += tf.random_normal(x.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
 
-    net = config['discriminator'](config, x, g, xs, gs)
-
-    if(config['discriminator.fc_layer']):
-        for layer in range(config['discriminator.fc_layers']):
-            net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer"+str(layer))
-            net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
-            net = activation(net)
+    discriminators = []
+    for discriminator in config['discriminators']:
+        discriminators.append(discriminator(config, x, g, xs, gs))
+    net = tf.concat(1, discriminators)
 
     last_layer = net
     last_layer = tf.reshape(last_layer, [batch_size, -1])
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
-    regularizers = []
-    for regularizer in config['discriminator.regularizers']:
-        regs = regularizer(config, net)
-        regularizers += regs
-
-    net = tf.concat(1, [net]+regularizers)
 
     num_classes = config['y_dims']+1
     if config['y_dims'] == 1:
-        net = batch_norm(int(net.get_shape()[0]), name='d_bn_end')(net)
+        net = batch_norm_1(int(net.get_shape()[0]), name='d_bn_end')(net) # TODO move this inside the D?
         net = linear(net, 1, scope="d_fc_end", stddev=0.003)
         class_logits = net
         gan_logits = tf.squeeze(net)

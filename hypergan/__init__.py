@@ -96,28 +96,8 @@ hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
-hc.set("discriminator.activation", [lrelu])#prelu("d_")])
-hc.set('discriminator.regularizers.layer', layer_norm_1) # Size of fully connected layers
+hc.set("discriminators", [[pyramid_nostride_discriminator.load]])
 
-hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
-hc.set('discriminator.fc_layers', [0])# Number of fully connected layers to include
-hc.set('discriminator.fc_layer.size', 378) # Size of fully connected layers
-
-hc.set("discriminator.pyramid.layers", 5) #Layers in D
-hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
-
-hc.set('discriminator.painters.layers', 2) #TODO has this ever worked?
-hc.set('discriminator.painters.transitions', 5)
-hc.set('discriminator.painters.activation', lrelu)
-
-hc.set('discriminator.densenet.k', 32) #k is the number of features that are appended on each conv pass
-hc.set('discriminator.densenet.layers', 1) #number of times to conv before size transition
-hc.set('discriminator.densenet.transitions', 8) #number of transitions
-
-hc.set('discriminator.add_noise', [True]) #add noise to input
-hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
 
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
 hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
@@ -266,9 +246,12 @@ def test_epoch(epoch, sess, config, start_time, end_time):
         print("Offline sample created:", sample_list)
 
 
+# This looks up a function by name.   Should it be part of hyperchamber?
 def get_function(name):
+    # TODO: needed?
     if "lib." in name:
         name = name.replace("lib.", "hypergan.")
+    # TODO: hack?
     if name == "function:hypergan.util.ops.prelu_internal":
         return prelu("g_")
 

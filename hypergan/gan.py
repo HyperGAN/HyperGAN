@@ -28,7 +28,7 @@ def generator(config, inputs, reuse=False):
             net = activation(net)
 
         set_tensor('original_z', net)
-        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
+        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", regularizer=tf.contrib.layers.l2_regularizer(config['generator.regularizers.l2.lambda']))
         new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
         net = tf.reshape(net, new_shape)
 
@@ -254,8 +254,10 @@ def create(config, x,y,f):
         g_losses.append(-1*config['categories_lambda']*categories_l)
         d_losses.append(-1*config['categories_lambda']*categories_l)
 
-    for reg in config['generator.regularizers']:
-        extra_g_loss += reg(config)
+    reg_losses = [print("Adding g regularizer",var) for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)]
+    reg_losses = [var for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) if 'g_' in var.name]
+    
+    extra_g_loss += reg_losses
 
     if(config['latent_loss']):
         #mse_loss = tf.reduce_max(tf.square(x-encoded))

@@ -302,7 +302,7 @@ def block_conv(result, activation, batch_size,id,name, output_channels=None, str
     result = activation(result)
     if(dropout):
         z = get_tensor('original_z')
-        mask = linear(z, s[1]*s[2]*s[3], scope="g_lin_proj_mask")
+        mask = linear(z, s[1]*s[2]*s[3], scope=name+"lin_proj_mask", regularizer=tf.contrib.layers.l2_regularizer(0.4))
         mask = tf.reshape(mask, result.get_shape())
         result *= tf.nn.sigmoid(mask)
         #HACKS

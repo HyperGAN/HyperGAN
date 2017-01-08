@@ -47,10 +47,6 @@ def discriminator(config, x, g, xs, gs):
           net = tf.concat(3, [net, newnet])
 
 
-      if batch_norm is not None:
-        net = batch_norm(config['batch_size']*2, name='d_expand_b2na_'+str(i*10+j))(net)
-      net = activation(net)
-      net = conv2d(net, int(net.get_shape()[3]), name='d_expand_la4year'+str(i*10+j), k_w=1, k_h=1, d_h=1, d_w=1)
       net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)

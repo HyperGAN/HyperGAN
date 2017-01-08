@@ -67,11 +67,14 @@ hc.set("generator.activation", [prelu("g_")]); # activation function used inside
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
-hc.set("generator.resize_conv.depth_reduction", 8) # Divides our depth by this amount every time we go up in size
+hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
 hc.set("generator.regularizers", [[]]) # These are added to the loss function for G.
 hc.set('generator.layer.noise', False) #Adds incremental noise each layer
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
 hc.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
+
+hc.set('generator.densenet.size', 16)
+hc.set('generator.densenet.layers', 3)
 
 # Trainer configuration
 trainer = adam_trainer # adam works well at 64x64 but doesn't scale
@@ -105,14 +108,14 @@ hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected la
 hc.set('discriminator.fc_layers', [0])# Number of fully connected layers to include
 hc.set('discriminator.fc_layer.size', 378) # Size of fully connected layers
 
-hc.set("discriminator.pyramid.layers", 4) #Layers in D
+hc.set("discriminator.pyramid.layers", 5) #Layers in D
 hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
 
 hc.set('discriminator.painters.layers', 2) #TODO has this ever worked?
-hc.set('discriminator.painters.transitions', 5)
+hc.set('discriminator.painters.transitions', 6)
 hc.set('discriminator.painters.activation', lrelu)
 
-hc.set('discriminator.densenet.size', 24) #size=k, the number of features that are appended on each conv pass
+hc.set('discriminator.densenet.size', 16) #size=k, the number of features that are appended on each conv pass
 hc.set('discriminator.densenet.layers', 2) #number of times to conv before size transition
 
 hc.set('discriminator.add_noise', [True]) #add noise to input
@@ -122,7 +125,7 @@ hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # t
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
 hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
 #hc.set('encoder', random_encoder.encode) # how to encode z
-hc.set('encoder', random_combo_encoder.encode_gaussian) # how to encode z
+hc.set('encoder', random_combo_encoder.encode_multimodal_gaussian) # how to encode z
 
 #hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
 #hc.set("g_mp3_filter",[3])

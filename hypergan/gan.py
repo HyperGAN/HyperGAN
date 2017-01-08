@@ -3,6 +3,7 @@ from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
 import tensorflow as tf
 import hypergan.util.wavegan as wavegan
+import hyperchamber as hc
 TINY = 1e-12
 
 def generator(config, inputs, reuse=False):
@@ -58,7 +59,8 @@ def discriminator(config, x, f,z,g,gz):
 
     discriminators = []
     for discriminator in config['discriminators']:
-        discriminators.append(discriminator(config, x, g, xs, gs))
+        discriminator = hc.lookup_functions(discriminator)
+        discriminators.append(discriminator['create'](config, discriminator, x, g, xs, gs))
     net = tf.concat(1, discriminators)
 
     last_layer = net

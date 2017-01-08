@@ -96,7 +96,7 @@ hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminators", [[pyramid_nostride_discriminator.load]])
+hc.set("discriminators", [[pyramid_nostride_discriminator.config()]])
 
 
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
@@ -312,7 +312,6 @@ def run(args):
         config['batch_size']=args.batch_size
 
         config['dtype']=other_config['dtype']#TODO: add this as a CLI argument, i.e "-e 'dtype=function:tf.float16'"
-        config['trainer.rmsprop.discriminator.lr']=other_config['trainer.rmsprop.discriminator.lr']
 
         # Initialize tensorflow
         with tf.device(args.device):

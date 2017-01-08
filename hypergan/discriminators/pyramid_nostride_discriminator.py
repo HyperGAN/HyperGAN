@@ -5,51 +5,22 @@ from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
 import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import os
-import importlib
 
-def load(root_config, x, g, xs, gs):
-    print("LOADING")
-    return discriminator(root_config, config(root_config), x, g, xs, gs)
+def config():
+    selector = hc.Selector()
+    selector.set("activation", [lrelu])#prelu("d_")])
+    selector.set('regularizer', [layer_norm_1, batch_norm_1]) # Size of fully connected layers
 
-#### TODO This belongs in hyperchamber ###
-# This looks up a function by name.   Should it be part of hyperchamber?
-def get_function(name):
-    if not isinstance(name, str):
-        return name
-    namespaced_method = name.split(":")[1]
-    method = namespaced_method.split(".")[-1]
-    namespace = ".".join(namespaced_method.split(".")[0:-1])
-    return getattr(importlib.import_module(namespace),method)
+    selector.set("layers", [4,5,3]) #Layers in D
+    selector.set("depth_increase", [1,2,4])# Size increase of D's features on each layer
 
-# Take a config and replace any string starting with 'function:' with a function lookup.
-def lookup_functions(config):
-    for key, value in config.items():
-        if(isinstance(value, str) and value.startswith("function:")):
-            config[key]=get_function(value)
-        if(isinstance(value, list) and len(value) > 0 and isinstance(value[0],str) and value[0].startswith("function:")):
-            config[key]=[get_function(v) for v in value]
-            
-    return config
+    selector.set('add_noise', [True]) #add noise to input
+    selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
+    selector.set('regularizers', [[],[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
 
-#############################
-
-
-def config(root_config):
-    hc.reset()
-    hc.set("activation", [lrelu])#prelu("d_")])
-    hc.set('regularizer', [layer_norm_1, batch_norm_1]) # Size of fully connected layers
-
-    hc.set("layers", [4,5,3]) #Layers in D
-    hc.set("depth_increase", [1,2,4])# Size increase of D's features on each layer
-
-    hc.set('add_noise', [True]) #add noise to input
-    hc.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-    hc.set('regularizers', [[],[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
+    selector.set('create', discriminator)
     
-    # TODO loading
-    #config_path = os.path.expanduser('~/.hypergan/configs/'+root_config['uuid']+'_pyramid_nostride_discriminator.json')
-    #print("Loading "+config_path)
-    return lookup_functions(hc.random_config())#hc.load_or_create_config(config_path, None))
+    return selector.random_config()
 
 def discriminator(root_config, config, x, g, xs, gs):
     activation = config['activation']

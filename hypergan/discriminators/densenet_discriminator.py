@@ -17,19 +17,19 @@ def discriminator(config, x, g, xs, gs):
     xgs = []
     xgs_conv = []
     for i in range(depth):
-      if batch_norm is not None:
-          net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
-      net = activation(net)
+      #if batch_norm is not None:
+      #    net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
+      #net = activation(net)
       # APPEND xs[i] and gs[i]
-      if(i < len(xs) and i > 0):
-        xg = tf.concat(0, [xs[i], gs[i]])
-        xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev']*(i+1), dtype=config['dtype'])
+      #if(i < len(xs) and i > 0):
+      #  xg = tf.concat(0, [xs[i], gs[i]])
+      #  xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev']*(i+1), dtype=config['dtype'])
 
-        xgs.append(xg)
+      #  xgs.append(xg)
   
-        s = [int(x) for x in xg.get_shape()]
+      #  s = [int(x) for x in xg.get_shape()]
 
-        net = tf.concat(3, [net, xg])
+      #  net = tf.concat(3, [net, xg])
       filter_size_w = 2
       filter_size_h = 2
       if i == depth-1:

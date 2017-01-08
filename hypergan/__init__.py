@@ -96,7 +96,14 @@ hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminators", [[pyramid_nostride_discriminator.config()]])
+discriminators = []
+for i in range(2):
+    discriminators.append(pyramid_nostride_discriminator.config())
+for i in range(8):
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[64,64], layers=4))
+for i in range(32):
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[16,16], layers=2))
+hc.set("discriminators", [discriminators])
 
 
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).

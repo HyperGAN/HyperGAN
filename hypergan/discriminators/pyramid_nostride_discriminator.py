@@ -6,17 +6,20 @@ from hypergan.util.hc_tf import *
 import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import os
 
-def config():
+def config(resize=None, layers=None):
     selector = hc.Selector()
-    selector.set("activation", [lrelu])#prelu("d_")])
+    selector.set("activation", [lrelu, tf.nn.relu, tf.nn.tanh])#prelu("d_")])
     selector.set('regularizer', [layer_norm_1, batch_norm_1]) # Size of fully connected layers
 
-    selector.set("layers", [4,5,3]) #Layers in D
+    if layers == None:
+        layers = [4,5,3]
+    selector.set("layers", layers) #Layers in D
     selector.set("depth_increase", [1,2,4])# Size increase of D's features on each layer
 
     selector.set('add_noise', [True]) #add noise to input
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
     selector.set('regularizers', [[],[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
+    selector.set('resize', [resize])
 
     selector.set('create', discriminator)
     
@@ -28,6 +31,18 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     depth_increase = config['depth_increase']
     depth = config['layers']
     batch_norm = config['regularizer']
+
+    if(config['resize']):
+        # shave off layers >= resize 
+        def should_ignore_layer(layer, resize):
+            return int(layer.get_shape()[1]) >= config['resize'][0] or \
+                   int(layer.get_shape()[2]) >= config['resize'][1]
+
+        xs = [px for px in xs if not should_ignore_layer(px, config['resize'])]
+        gs = [pg for pg in gs if not should_ignore_layer(pg, config['resize'])]
+
+        x = tf.image.resize_images(x,config['resize'], 1)
+        g = tf.image.resize_images(g,config['resize'], 1)
 
     if(config['add_noise']):
         x += tf.random_normal(x.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])

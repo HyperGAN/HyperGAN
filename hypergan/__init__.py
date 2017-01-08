@@ -6,6 +6,7 @@ from hypergan.util.gan_server import *
 from tensorflow.contrib import ffmpeg
 import hypergan.util.hc_tf as hc_tf
 import hypergan.generators.resize_conv as resize_conv
+import hypergan.generators.dense_resize_conv as dense_resize_conv
 import hypergan.generators.resize_conv_extra_layer as resize_conv_extra_layer
 import hypergan.trainers.adam_trainer as adam_trainer
 import hypergan.trainers.rmsprop_trainer as rmsprop_trainer
@@ -60,7 +61,7 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 
 # Generator configuration
 hc.set("generator.z", 2) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
-hc.set("generator", [resize_conv.generator])
+hc.set("generator", [dense_resize_conv.generator])
 hc.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
 hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1

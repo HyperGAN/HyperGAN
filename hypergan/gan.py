@@ -58,9 +58,9 @@ def discriminator(config, x, f,z,g,gz):
     z = tf.concat(0, [z, gz])
 
     discriminators = []
-    for discriminator in config['discriminators']:
+    for i, discriminator in enumerate(config['discriminators']):
         discriminator = hc.lookup_functions(discriminator)
-        discriminators.append(discriminator['create'](config, discriminator, x, g, xs, gs))
+        discriminators.append(discriminator['create'](config, discriminator, x, g, xs, gs,prefix="d_"+str(i)))
     net = tf.concat(1, discriminators)
 
     last_layer = net

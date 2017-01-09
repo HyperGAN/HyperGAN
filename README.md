@@ -25,7 +25,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * cleaner cli output
 * documentation cleanup
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold-0.5.6.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold-0-5-6.png'/>
 
 ### 0.5.0
 * pip package released!

@@ -25,41 +25,23 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * cleaner cli output
 * documentation cleanup
 
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold-0-5-6.png'/>
+
 ### 0.5.0
 * pip package released!
 * Better defaults.  Good variance.  256x256.  The broken images showed up after training for 5 days.
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold.png'/>
 
 ### 0.1-0.4
 * Initial private release
 
-<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472503244410-fcc6b07b-ec8f-44f6-aa2b-937a6ca755dc'/>
-<img src='https://hyperchamber.s3.amazonaws.com/samples/images-1472511234866-6123711b-229c-436b-a337-19e35bb79457'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/legacy-0.1.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/legacy-0.1-2.png'/>
 
 
 <div id="samples"/>
 
-## Samples
-
-### Hand selected:
-
-TODO IMAGE
-
-These are the best images we have been able to obtain from a GAN.  They are hand picked.
-
-### Random batch:
-
-TODO IMAGE
-
-This shows what a random batch looks.  They are not hand picked.
-
-### Progressive enhancement:
-
-TODO IMAGE
-
-Somewhat inspired by LAPGAN, we feed resized images across the layers of D.  Our generator learns to render at multiple
-resolutions.  
 
 <div id='quickstart'/>
 

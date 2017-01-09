@@ -40,26 +40,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 <div id="samples"/>
 
-## Samples
-
-### Hand selected:
-
-TODO IMAGE
-
-These are the best images we have been able to obtain from a GAN.  They are hand picked.
-
-### Random batch:
-
-TODO IMAGE
-
-This shows what a random batch looks.  They are not hand picked.
-
-### Progressive enhancement:
-
-TODO IMAGE
-
-Somewhat inspired by LAPGAN, we feed resized images across the layers of D.  Our generator learns to render at multiple
-resolutions.  
 
 <div id='quickstart'/>
 

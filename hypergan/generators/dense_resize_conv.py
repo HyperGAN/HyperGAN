@@ -40,16 +40,16 @@ def generator(config, net):
         if fltr > net.get_shape()[2]:
             fltr=int(net.get_shape()[2])
         
-        print("PRE", net)
         if i > 0:
             net = block_conv(net, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, batch_norm=batch_norm, noise_shape=noise, resize=[resized_wh[0], resized_wh[1]])
-        print("POST", net)
-
+        
 
         dense_size = config['generator.densenet.size']
         dense_depth = config['generator.densenet.layers']
         #dense_size = int(net.get_shape()[3])//4
-        print("NET ", net)
+        print("[generator] before dense layer",net, "  with noise ",noise)
+
+
         if i < depth - 1:
             for j in range(dense_depth):
                 net2 = block_conv(net, activation, batch_size, 'identity', 'g_layers_dense_'+str(j)+"_"+str(i), output_channels=dense_size, filter=3, batch_norm=batch_norm, noise_shape=noise)
@@ -59,7 +59,6 @@ def generator(config, net):
                 if j == 0:
                     nois.append(nv)
                 net = tf.concat(3, [net, net2] + nois)
-        print("POST NET ", net)
         #first3 = block_conv(net, activation, batch_size, 'identity', 'g_layers2_'+str(i), output_channels=config['channels'], filter=3, batch_norm=batch_norm, noise_shape=noise, resize=[resized_wh[0], resized_wh[1]])
         #last3 = block_conv(net, activation, batch_size, 'identity', 'g_layers3_'+str(i), output_channels=config['channels'], filter=3, batch_norm=batch_norm, noise_shape=noise, resize=[resized_wh[0], resized_wh[1]])
 

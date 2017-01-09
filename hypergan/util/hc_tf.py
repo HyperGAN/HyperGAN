@@ -202,7 +202,6 @@ def residual_block(result, activation, batch_size,id,name):
         left = result
         left = batch_norm(batch_size, name=name+'bn')(left)
         left = activation(left)
-        print("IDENTITY FROM", result)
         left = conv2d(left, size, name=name+'l', k_w=3, k_h=3, d_h=1, d_w=1)
         left = batch_norm(batch_size, name=name+'bn2')(left)
         left = activation(left)
@@ -218,7 +217,6 @@ def residual_block(result, activation, batch_size,id,name):
         left = activation(left)
         left = conv2d(left, size*2, name=name+'l2', k_w=3, k_h=3, d_h=1, d_w=1)
         right = conv2d(right, size*2, name=name+'r', k_w=3, k_h=3, d_h=2, d_w=2)
-    print("residual block", id, left+right)
     return left+right
 
 def residual_block_deconv(result, activation, batch_size,id,name, output_channels=None, stride=2, channels=None):
@@ -300,7 +298,6 @@ def block_conv(result, activation, batch_size,id,name, resize=None, output_chann
         result = batch_norm(batch_size, name=name+'bn')(result)
     s = result.get_shape()
     if(dropout):
-        print("DOROPOUT")
         z = get_tensor('original_z')
         mask = linear(z, s[1]*s[2]*s[3], scope=name+"lin_proj_mask", regularizer=tf.contrib.layers.l2_regularizer(0.4))
         mask = tf.reshape(mask, result.get_shape())

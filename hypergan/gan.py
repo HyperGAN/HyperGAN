@@ -52,7 +52,6 @@ def discriminator(config, x, f,z,g,gz):
         xs.append(resized)
     xs.pop()
     gs.reverse()
-    x = tf.concat(0, [x,g])
 
     # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
     z = tf.concat(0, [z, gz])

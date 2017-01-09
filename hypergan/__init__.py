@@ -98,11 +98,15 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 # Discriminator configuration
 discriminators = []
 for i in range(2):
-    discriminators.append(pyramid_nostride_discriminator.config())
-for i in range(8):
+    discriminators.append(pyramid_nostride_discriminator.config(layers=[5,6]))
+for i in range(2):
     discriminators.append(pyramid_nostride_discriminator.config(resize=[64,64], layers=4))
-for i in range(32):
-    discriminators.append(pyramid_nostride_discriminator.config(resize=[16,16], layers=2))
+for i in range(2):
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[32,32], layers=4))
+for i in range(2):
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[16,16], layers=[2,3]))
+for i in range(2):
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[8,8], layers=[1,2]))
 hc.set("discriminators", [discriminators])
 
 

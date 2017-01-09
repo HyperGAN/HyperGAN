@@ -273,8 +273,7 @@ def linear(input_, output_size, scope=None, mean=0., stddev=0.02, bias_start=0.0
                                  initializer=tf.random_normal_initializer(mean=mean, stddev=stddev, dtype=config['dtype']), regularizer=regularizer
                                 )
         bias = tf.get_variable("bias", [output_size],dtype=config['dtype'],
-            initializer=tf.constant_initializer(bias_start,dtype=config['dtype']),
-            regularizer=regularizer)
+            initializer=tf.constant_initializer(bias_start,dtype=config['dtype']))
         if with_w:
             # import ipdb; ipdb.set_trace()
             return tf.matmul(input_, matrix) + bias, matrix, bias

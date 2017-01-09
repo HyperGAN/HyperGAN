@@ -67,7 +67,6 @@ hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should mat
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
 hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
-hc.set("generator.regularizers", [[]]) # These are added to the loss function for G.
 hc.set('generator.layer.noise', False) #Adds incremental noise each layer
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
 hc.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
@@ -259,10 +258,6 @@ def test_epoch(epoch, sess, config, start_time, end_time):
 
 # This looks up a function by name.   Should it be part of hyperchamber?
 def get_function(name):
-    # TODO: needed?
-    if "lib." in name:
-        name = name.replace("lib.", "hypergan.")
-    # TODO: hack?
     if name == "function:hypergan.util.ops.prelu_internal":
         return prelu("g_")
 

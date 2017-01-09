@@ -69,7 +69,6 @@ def discriminator(config, x, f,z,g,gz):
 
     num_classes = config['y_dims']+1
     if config['y_dims'] == 1:
-        net = batch_norm_1(int(net.get_shape()[0]), name='d_bn_end')(net) # TODO move this inside the D?
         net = linear(net, 1, scope="d_fc_end", stddev=0.003)
         class_logits = net
         gan_logits = tf.squeeze(net)

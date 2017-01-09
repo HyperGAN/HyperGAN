@@ -45,11 +45,11 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
 
         print("X XSXS SX", x.get_shape(), g.get_shape(), xs, config['resize'])
 
+    batch_size = int(x.get_shape()[0])
 
     net = tf.concat(0, [x,g])
     if(config['add_noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
-    batch_size = int(net.get_shape()[0])
     net = conv2d(net, 16, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1)
 
     xgs = []
@@ -79,7 +79,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     if batch_norm is not None:
         net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
     net = activation(net)
-    net = tf.reshape(net, [batch_size, -1])
+    net = tf.reshape(net, [batch_size*2, -1])
 
     regularizers = []
     for regularizer in config['regularizers']:

@@ -155,6 +155,7 @@ def create_generator(config, x,y,f):
     set_tensor("g", g)
     set_tensor("y", y)
     set_tensor("z", z)
+    set_tensor('categories', categories_t)
     return g
 
 def create(config, x,y,f):

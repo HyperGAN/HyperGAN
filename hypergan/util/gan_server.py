@@ -40,6 +40,25 @@ class GANWebServer:
        
        #plot(self.config, sample, sample_file)
 
+    def sample_zeros(self, sample_file):
+        generator = get_tensor("g")[-1]
+        #categories_t = get_tensor("categories")[0]
+        y_t = get_tensor("y")
+        z_t = get_tensor('z')
+        z = np.ones(z_t.get_shape())*2
+        #categories = np.zeros(categories_t.get_shape())
+        print("generator is ", generator)
+        sample = self.sess.run(generator, feed_dict={y_t:self.random_one_hot(), z_t: z})
+        print("sample is ", sample)
+        print(sample.shape)
+
+        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
+        plot(self.config, np.vstack(stacks), sample_file)
+       
+       #plot(self.config, sample, sample_file)
+
+
+
 
     def sample_grid(self, sample_file):
         generator = get_tensor("g")[-1]
@@ -169,6 +188,8 @@ class GANWebServer:
             self.sample_feature(sample_file)
         elif(type == 'grid'):
             self.sample_grid(sample_file)
+        elif(type == 'zero'):
+            self.sample_zeros(sample_file)
         print("Sample ended", sample_file)
         if(should_send_file):
             return send_file(sample_file, mimetype='image/png')

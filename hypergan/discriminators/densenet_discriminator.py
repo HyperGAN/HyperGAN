@@ -17,9 +17,9 @@ def discriminator(config, x, g, xs, gs):
     xgs = []
     xgs_conv = []
     for i in range(depth):
-      #if batch_norm is not None:
-      #    net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
-      #net = activation(net)
+      if batch_norm is not None:
+          net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
+      net = activation(net)
       # APPEND xs[i] and gs[i]
       #if(i < len(xs) and i > 0):
       #  xg = tf.concat(0, [xs[i], gs[i]])
@@ -37,6 +37,8 @@ def discriminator(config, x, g, xs, gs):
           filter_size_h = int(net.get_shape()[2])
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
+      if i == 0:
+          length = 1
       for j in range(length):
           net_dense = net
           if i > 0:

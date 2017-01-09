@@ -4,47 +4,61 @@ from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
 
 def discriminator(config, x, g, xs, gs):
-    layers = config['discriminator.densenet.layers']
-    transitions = config['discriminator.densenet.transitions']
-    k = config['discriminator.densenet.k']
     activation = config['discriminator.activation']
     batch_size = int(x.get_shape()[0])
     depth_increase = config['discriminator.pyramid.depth_increase']
     depth = config['discriminator.pyramid.layers']
-    batch_norm = config['generator.regularizers.layer']
+    batch_norm = config['discriminator.regularizers.layer']
+    length = config['discriminator.densenet.layers']
+    size_dense = config['discriminator.densenet.size']
+    net = x
+    net = conv2d(net, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
 
-    result = x
-    result = conv2d(result, 16, name='d_expand', k_w=3, k_h=3, d_h=1, d_w=1)
     xgs = []
     xgs_conv = []
-    for i in range(transitions):
+    for i in range(depth):
+      if batch_norm is not None:
+          net = batch_norm(config['batch_size']*2, name='d_expand_bn_'+str(i))(net)
+      net = activation(net)
       # APPEND xs[i] and gs[i]
-      if(i < len(xs)-1):
-        xg = tf.concat(0, [xs[i], gs[i]])
-        xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
+      #if(i < len(xs) and i > 0):
+      #  xg = tf.concat(0, [xs[i], gs[i]])
+      #  xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev']*(i+1), dtype=config['dtype'])
 
-        xgs.append(xg)
-
-        mxg = conv2d(xg, 6*(i), name="d_add_xg"+str(i), k_w=3, k_h=3, d_h=1, d_w=1)
-        mxg = batch_norm(config['batch_size'], name='d_add_xg_bn_'+str(i))(mxg)
-        mxg = activation(mxg)
-
-        xgs_conv.append(mxg)
+      #  xgs.append(xg)
   
-        result = tf.concat(3, [result, xg])
-      for j in range(layers):
-        result = dense_block(result, k, activation, batch_size, 'layer', 'd_layers_'+str(i)+"_"+str(j))
-        print("densenet size", result)
-      result = dense_block(result, k, activation, batch_size, 'transition', 'd_layers_transition_'+str(i))
+      #  s = [int(x) for x in xg.get_shape()]
+
+      #  net = tf.concat(3, [net, xg])
+      filter_size_w = 2
+      filter_size_h = 2
+      if i == depth-1:
+          filter_size_w = int(net.get_shape()[1])
+          filter_size_h = int(net.get_shape()[2])
+      filter = [1,filter_size_w,filter_size_h,1]
+      stride = [1,filter_size_w,filter_size_h,1]
+      if i == 0:
+          length = 1
+      for j in range(length):
+          net_dense = net
+          if i > 0:
+              net_dense = activation(net_dense)
+              if batch_norm is not None:
+                net_dense = batch_norm(config['batch_size']*2, name='d_expand_bna_'+str(i*10+j))(net_dense)
+          newnet = conv2d(net_dense, size_dense, name='d_expand_layear'+str(i*10+j), k_w=3, k_h=3, d_h=1, d_w=1)
+          net = tf.concat(3, [net, newnet])
 
 
-    set_tensor("xgs", xgs)
-    set_tensor("xgs_conv", xgs_conv)
+      net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
-    result = batch_norm(config['batch_size'], name='d_expand_bn_end_'+str(i))(result)
-    result = activation(result)
+      print('[discriminator] layer', net)
 
-    return result
-
+    k=-1
+    if batch_norm is not None:
+        net = batch_norm(config['batch_size']*2, name='d_expand_bn_end_'+str(i))(net)
+    net = activation(net)
+    net = tf.reshape(net, [batch_size, -1])
+ 
+    return net
 
 

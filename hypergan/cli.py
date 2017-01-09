@@ -10,7 +10,7 @@ def common_flags(parser):
     parser.add_argument('--config', '-c', type=str, default=None, help='The name of the config.  This is used for loading/saving the model and configuration.')
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
     parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-    parser.add_argument('--crop', type=bool, default=True, help='If your images are perfectly sized you can skip cropping.')
+    parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
     parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
     parser.add_argument('--epochs', type=int, default=10000, help='The number of iterations through the data before stopping training.')
     parser.add_argument('--save_every', type=int, default=10, help='Saves the model every n epochs.')

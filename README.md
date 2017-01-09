@@ -11,6 +11,10 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-train">Train</a>
   * <a href="#qs-increase">Increasing Performance</a>
   * <a href="#qs-devmode">Development Mode</a>
+
+* <a href="#api"> API
+  * <a href="#runtime-api">Runtime API</a>
+
 * <a href="#training">Training</a>
   * <a href="#configuration">Configuration</a>
 * <a href="#about">About</a>
@@ -93,6 +97,31 @@ cd hypergan
 python3 setup.py develop
 ```
 
+
+# API
+
+```python
+  import hypergan
+```
+
+## Runtime API
+
+## Loading discriminators
+
+```
+  d = hypergan.Discriminator.load('name')
+  d.graph # the tensorflow graph
+```
+
+## Loading generators
+```
+  g = hypergan.Generator.load('name')
+  g.graph # the tensorflow graph
+```
+
+## Examples
+
+The api is still being actively developed.  Right now the best reference will be in the `examples` directory.
 
 # Training
 

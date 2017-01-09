@@ -59,7 +59,7 @@ args = cli.parse_args()
 hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
 
 # Generator configuration
-hc.set("generator.z", 100) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
+hc.set("generator.z", 2) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 hc.set("generator", [resize_conv.generator])
 hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
 hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
@@ -67,7 +67,6 @@ hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should mat
 hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
 hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
 hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
-hc.set("generator.regularizers", [[l2_regularizer.get]]) # These are added to the loss function for G.
 hc.set('generator.layer.noise', False) #Adds incremental noise each layer
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
 hc.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
@@ -96,28 +95,19 @@ hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
 hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 # Discriminator configuration
-hc.set("discriminator", pyramid_nostride_discriminator.discriminator)
-hc.set("discriminator.activation", [lrelu])#prelu("d_")])
-hc.set('discriminator.regularizers.layer', layer_norm_1) # Size of fully connected layers
+discriminators = []
+for i in range(2):
+    discriminators.append(pyramid_nostride_discriminator.config(layers=[5,6]))
+for i in range(2):
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[64,64], layers=4))
+for i in range(2):
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[32,32], layers=4))
+for i in range(2):
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[16,16], layers=[2,3]))
+for i in range(2):
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[8,8], layers=[1,2]))
+hc.set("discriminators", [discriminators])
 
-hc.set('discriminator.fc_layer', [False]) #If true, include a fully connected layer at the end of the discriminator
-hc.set('discriminator.fc_layers', [0])# Number of fully connected layers to include
-hc.set('discriminator.fc_layer.size', 378) # Size of fully connected layers
-
-hc.set("discriminator.pyramid.layers", 5) #Layers in D
-hc.set("discriminator.pyramid.depth_increase", 2)# Size increase of D's features on each layer
-
-hc.set('discriminator.painters.layers', 2) #TODO has this ever worked?
-hc.set('discriminator.painters.transitions', 5)
-hc.set('discriminator.painters.activation', lrelu)
-
-hc.set('discriminator.densenet.k', 32) #k is the number of features that are appended on each conv pass
-hc.set('discriminator.densenet.layers', 1) #number of times to conv before size transition
-hc.set('discriminator.densenet.transitions', 8) #number of transitions
-
-hc.set('discriminator.add_noise', [True]) #add noise to input
-hc.set('discriminator.noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-hc.set('discriminator.regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
 
 hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
 hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
@@ -178,6 +168,7 @@ hc.set("d_project", ['tiled'])
 hc.set("batch_size", args.batch_size)
 
 batch_no = 0
+sampled = 0
 
 def frame_sample(sample_file, sess, config):
     """ Samples every frame to a file.  Useful for visualizing the learning process.
@@ -202,10 +193,14 @@ def epoch(sess, config):
     batch_size = config["batch_size"]
     n_samples =  config['examples_per_epoch']
     total_batch = int(n_samples / batch_size)
+    global sampled
     global batch_no
     for i in range(total_batch):
-        sample_file="samples/grid-%06d.png" % (batch_no * total_batch + i)
-        frame_sample(sample_file, sess, config)
+        if(i % 10 == 1):
+            sample_file="samples/grid-%06d.png" % (sampled)
+            frame_sample(sample_file, sess, config)
+            sampled += 1
+
 
         d_loss, g_loss = config['trainer.train'](sess, config)
 
@@ -261,9 +256,8 @@ def test_epoch(epoch, sess, config, start_time, end_time):
         print("Offline sample created:", sample_list)
 
 
+# This looks up a function by name.   Should it be part of hyperchamber?
 def get_function(name):
-    if "lib." in name:
-        name = name.replace("lib.", "hypergan.")
     if name == "function:hypergan.util.ops.prelu_internal":
         return prelu("g_")
 
@@ -324,7 +318,6 @@ def run(args):
         config['batch_size']=args.batch_size
 
         config['dtype']=other_config['dtype']#TODO: add this as a CLI argument, i.e "-e 'dtype=function:tf.float16'"
-        config['trainer.rmsprop.discriminator.lr']=other_config['trainer.rmsprop.discriminator.lr']
 
         # Initialize tensorflow
         with tf.device(args.device):

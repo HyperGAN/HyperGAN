@@ -3,6 +3,7 @@ from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
 import tensorflow as tf
 import hypergan.util.wavegan as wavegan
+import hyperchamber as hc
 TINY = 1e-12
 
 def generator(config, inputs, reuse=False):
@@ -28,7 +29,7 @@ def generator(config, inputs, reuse=False):
             net = activation(net)
 
         set_tensor('original_z', net)
-        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
+        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", regularizer=tf.contrib.layers.l2_regularizer(config['generator.regularizers.l2.lambda']))
         new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
         net = tf.reshape(net, new_shape)
 
@@ -39,9 +40,7 @@ def generator(config, inputs, reuse=False):
 def discriminator(config, x, f,z,g,gz):
     batch_size = config['batch_size']*2
     single_batch_size = config['batch_size']
-    activation = config['discriminator.activation']
     channels = (config['channels'])
-    batch_norm = config['discriminator.regularizers.layer']
     # combine to one batch, per Ian's "Improved GAN"
     xs = [x]
     gs = g
@@ -53,31 +52,20 @@ def discriminator(config, x, f,z,g,gz):
         xs.append(resized)
     xs.pop()
     gs.reverse()
-    x = tf.concat(0, [x,g])
 
     # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
     z = tf.concat(0, [z, gz])
-    if(config['discriminator.add_noise']):
-        x += tf.random_normal(x.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
 
-    net = config['discriminator'](config, x, g, xs, gs)
-
-    if(config['discriminator.fc_layer']):
-        for layer in range(config['discriminator.fc_layers']):
-            net = linear(net, config['discriminator.fc_layer.size'], scope="d_linear_layer"+str(layer))
-            net = batch_norm(config['batch_size'], name='d_bn_lin_proj'+str(layer))(net)
-            net = activation(net)
+    discriminators = []
+    for i, discriminator in enumerate(config['discriminators']):
+        discriminator = hc.lookup_functions(discriminator)
+        discriminators.append(discriminator['create'](config, discriminator, x, g, xs, gs,prefix="d_"+str(i)))
+    net = tf.concat(1, discriminators)
 
     last_layer = net
     last_layer = tf.reshape(last_layer, [batch_size, -1])
     last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
-    regularizers = []
-    for regularizer in config['discriminator.regularizers']:
-        regs = regularizer(config, net)
-        regularizers += regs
-
-    net = tf.concat(1, [net]+regularizers)
 
     num_classes = config['y_dims']+1
     if config['y_dims'] == 1:
@@ -153,7 +141,6 @@ def create_generator(config, x,y,f):
     g = generator(config, args)
     set_tensor("g", g)
     set_tensor("y", y)
-    set_tensor("z", z)
     return g
 
 def create(config, x,y,f):
@@ -254,8 +241,10 @@ def create(config, x,y,f):
         g_losses.append(-1*config['categories_lambda']*categories_l)
         d_losses.append(-1*config['categories_lambda']*categories_l)
 
-    for reg in config['generator.regularizers']:
-        extra_g_loss += reg(config)
+    reg_losses = [print("Adding g regularizer",var) for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)]
+    reg_losses = [var for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) if 'g_' in var.name]
+    
+    extra_g_loss += reg_losses
 
     if(config['latent_loss']):
         #mse_loss = tf.reduce_max(tf.square(x-encoded))

@@ -3,17 +3,17 @@ from hypergan.util.ops import *
 from hypergan.util.globals import *
 
 # This is openai's implementation of minibatch regularization
-def get_features(config,net):
+def get_features(config,net,prefix):
   net = tf.reshape(net, [config['batch_size']*2, -1])
-  minis= get_minibatch_features(config, net, config['batch_size']*2,config['dtype'])
+  minis= get_minibatch_features(config, net, config['batch_size']*2,config['dtype'],prefix)
   return minis
 
-def get_minibatch_features(config, h,batch_size,dtype):
+def get_minibatch_features(config, h,batch_size,dtype, prefix):
   single_batch_size = batch_size//2
   n_kernels = int(config['d_kernels'])
   dim_per_kernel = int(config['d_kernel_dims'])
   print("[discriminator] minibatch from", h, "to", n_kernels*dim_per_kernel)
-  x = linear(h, n_kernels * dim_per_kernel, scope="d_h")
+  x = linear(h, n_kernels * dim_per_kernel, scope=prefix+"h")
   activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
 
   big = np.zeros((batch_size, batch_size))

@@ -265,12 +265,13 @@ def lrelu_sq(x):
     dim = len(x.get_shape()) - 1
     return tf.concat(dim, [lrelu(x), tf.minimum(tf.abs(x), tf.square(x))])
 
-def linear(input_, output_size, scope=None, mean=0., stddev=0.02, bias_start=0.0, with_w=False):
+def linear(input_, output_size, scope=None, mean=0., stddev=0.02, bias_start=0.0, with_w=False, regularizer=None):
     shape = input_.get_shape().as_list()
 
     with tf.variable_scope(scope or "Linear"):
         matrix = tf.get_variable("Matrix", [shape[1], output_size], dtype=config['dtype'],
-                                 initializer=tf.random_normal_initializer(mean=mean, stddev=stddev, dtype=config['dtype']))
+                                 initializer=tf.random_normal_initializer(mean=mean, stddev=stddev, dtype=config['dtype']), regularizer=regularizer
+                                )
         bias = tf.get_variable("bias", [output_size],dtype=config['dtype'],
             initializer=tf.constant_initializer(bias_start,dtype=config['dtype']))
         if with_w:

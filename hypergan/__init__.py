@@ -145,7 +145,7 @@ hc.set("examples_per_epoch", 30000/4)
 
 #TODO category/bernouilli
 categories = [[2,2,2,2,3,34,4,4,4,4,4,4,4,10,10,10,10,10,10,10,10,26,26,26,26,26,26,26,10,10,10,10,2,2,2,2,2,3,3,3,3,3,3,3,3,26,40,26]]#[[2]+[2]+build_categories_config(30)]
-hc.set('categories', categories)
+hc.set('categories', [[]])
 hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
 hc.set('category_loss', [False])
 

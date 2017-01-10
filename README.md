@@ -41,7 +41,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * cleaner cli output
 * documentation cleanup
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold-0-5-6.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/docs/face-manifold-0-5-6.png'/>
 
 ### 0.5.0 ~ "FaceGAN"
 * pip package released!
@@ -52,8 +52,8 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ### 0.1-0.4
 * Initial private release
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/legacy-0.1.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/legacy-0.1-2.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/docs/legacy-0.1.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/docs/legacy-0.1-2.png'/>
 
 
 <div id="samples"/>
@@ -147,28 +147,53 @@ The api is still being actively developed.  Right now the best reference will be
 
 ## hypergan train
 
-TODO docs
+To build a new network you need a dataset.  Your data should be structured like:
+
+``` 
+  [folder]/[directory]/*.png
+```
+
+If you don't have a dataset, you can use [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html).
+
+```
+  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
+```
+
+Configs and saves are located in:
+
+```
+  ~/.hypergan/
+```
+
+# Configuration
+
+Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
 
 # Building
 
 ## hypergan build
 
-TODO docs
+Build takes the same arguments as train and builds a generator.  It's required for serve.
+
+Building does 2 things:
+
+* Loads the training model, which include the discriminator
+* Saves into a ckpt model containing only the generator
 
 # Server mode
 
 ## hypergan serve
 
-The trained generator can now be built for deployment.  Building does 2 things:
+Serve starts a flask server.  You can then access:
 
-* Loads the training model, which include the discriminator
-* Saves into a ckpt model containing only the generator
+[http://localhost:5000/sample.png?type=batch](http://localhost:5000/sample.png?type=batch)
 
 ## Saves
 
-~/.hypergan/saves/
-~/.hypergan/samples/
+Saves are stored in `~/.hypergan/saves/`
 
+They can be large.
 
 ## Formats
 
@@ -195,6 +220,8 @@ To see a detailed list, run
 
 The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier.
 
+You can combine multiple discriminators in a single GAN. 
+
 ### pyramid_stride
 
 ### pyramid_nostride
@@ -220,6 +247,10 @@ Default
 ### resize-conv
 
 Default.
+
+### dense-resize-conv
+
+Inspired by densenet.
 
 ## Trainers
 
@@ -251,7 +282,7 @@ To turn these images into a video:
   ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
 ```
 
-NOTE: z_dims must equal 2 and batch size must equal 24 to work.
+NOTE: z_dims must equal 2 and batch size must equal 32 to work.
 
 <div id='about'/>
 

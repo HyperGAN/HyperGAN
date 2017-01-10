@@ -4,7 +4,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 # Table of contents
 
 * <a href="#changelog">Changelog</a>
-* <a href="#samples">Samples</a>
 * <a href="#quickstart">Quick start</a>
   * <a href="#minreqs">Minimum Requirements</a>
   * <a href="#qs-install">Install</a>
@@ -12,9 +11,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-increase">Increasing Performance</a>
   * <a href="#qs-devmode">Development Mode</a>
   * <a href="#qs-runoncpu">Running on CPU</a>
-
-* <a href="#api"> API
-  * <a href="#runtime-api">Runtime API</a>
 
 * <a href="#training">Training</a>
   * <a href="#configuration">Configuration</a>

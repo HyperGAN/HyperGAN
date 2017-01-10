@@ -197,15 +197,26 @@ You can combine multiple discriminators in a single GAN.
 
 ### pyramid_nostride
 
+
+Progressive enhancement is enabled by default:
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0-5-6.png'/>
+
 Default.
 
 ### densenet
 
+Progressive enhancement is disabled for technical reasons.
+
 ### resnet
+
+Note: This is currently broken 
 
 ## Encoders
 
 ### Vae
+
+For Vae-GANs
 
 ### RandomCombo
 

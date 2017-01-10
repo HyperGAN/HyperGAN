@@ -200,7 +200,7 @@ You can combine multiple discriminators in a single GAN.
 
 Progressive enhancement is enabled by default:
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0-5-6.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
 
 Default.
 

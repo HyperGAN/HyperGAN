@@ -114,31 +114,6 @@ Make sure to include the following 2 arguments:
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 
-# API
-
-```python
-  import hypergan
-```
-
-## Runtime API
-
-## Loading discriminators
-
-```
-  d = hypergan.Discriminator.load('name')
-  d.graph # the tensorflow graph
-```
-
-## Loading generators
-```
-  g = hypergan.Generator.load('name')
-  g.graph # the tensorflow graph
-```
-
-## Examples
-
-The api is still being actively developed.  Right now the best reference will be in the `examples` directory.
-
 # Training
 
 ## hypergan train

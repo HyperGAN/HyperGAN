@@ -13,7 +13,10 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-runoncpu">Running on CPU</a>
 
 * <a href="#training">Training</a>
-  * <a href="#configuration">Configuration</a>
+
+* <a href="#configuration">Configuration</a>
+  * <a href="#configuration-usage">Usage</a>
+  
 * <a href="#about">About</a>
 
 <div id="changelog"></div>
@@ -63,7 +66,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### Minimum requirements
 
-1. For 256x256, we recommend a GTX 1080 or better.
+1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
 2. CPU mode is _extremely_ slow.  Never train with it!
 
 
@@ -80,7 +83,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ### Train
 
 ```
-  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  # Train a 32x32 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32
 ```
 
@@ -137,9 +140,22 @@ Configs and saves are located in:
   ~/.hypergan/
 ```
 
+<div id='configuration'/>
+
 # Configuration
 
 Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
+
+
+<div id='configuration-usage'/>
+
+## Usage
+
+```
+  --config [name]
+```
+
+Naming a configuration during training is recommended.  If your config is not named, a uuid will be used.
 
 # Building
 
@@ -273,7 +289,7 @@ NOTE: z_dims must equal 2 and batch size must equal 32 to work.
 Generative Adversarial Networks(2) consist of (at least) two neural networks that learn together over many epochs.
 The discriminator learns the difference between real and fake data.  The generator learns to create fake data.
 
-For a more depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
+For a more in-depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
 
 
 ## Papers

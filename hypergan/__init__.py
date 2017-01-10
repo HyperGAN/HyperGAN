@@ -107,6 +107,7 @@ discriminators = []
 for i in range(1):
     discriminators.append(densenet_discriminator.config(layers=5))
 for i in range(1):
+    discriminators.append(densenet_discriminator.config(resize=[32,32], layers=4))
     discriminators.append(pyramid_nostride_discriminator.config(resize=[32,32], layers=4))
 hc.set("discriminators", [discriminators])
 

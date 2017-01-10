@@ -5,7 +5,7 @@ from hypergan.util.hc_tf import *
 import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import hyperchamber as hc
 
-def config(layers=None):
+def config(resize=None, layers=None):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
     selector.set('regularizer', [batch_norm_1]) # Size of fully connected layers
@@ -19,6 +19,7 @@ def config(layers=None):
     selector.set('add_noise', [True]) #add noise to input
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
     selector.set('regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
+    selector.set('resize', [resize])
 
     selector.set('create', discriminator)
 
@@ -33,6 +34,20 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     length = config['dense.layers']
     size_dense = config['dense.size']
 
+    if(config['resize']):
+        # shave off layers >= resize 
+        def should_ignore_layer(layer, resize):
+            return int(layer.get_shape()[1]) > config['resize'][0] or \
+                   int(layer.get_shape()[2]) > config['resize'][1]
+
+        xs = [px for px in xs if not should_ignore_layer(px, config['resize'])]
+        gs = [pg for pg in gs if not should_ignore_layer(pg, config['resize'])]
+
+        x = tf.image.resize_images(x,config['resize'], 1)
+        g = tf.image.resize_images(g,config['resize'], 1)
+
+        print("X XSXS SX", x.get_shape(), g.get_shape(), xs, config['resize'])
+
     net = tf.concat(0, [x,g])
     if(config['add_noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
@@ -44,7 +59,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       if batch_norm is not None:
           net = batch_norm(batch_size*2, name=prefix+'_expand_bn_'+str(i))(net)
       net = activation(net)
-     # APPEND xs[i] and gs[i]
+      # APPEND xs[i] and gs[i]
       #if(i < len(xs) and i > 0):
       #  xg = tf.concat(0, [xs[i], gs[i]])
       #  xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev']*(i+1), dtype=config['dtype'])

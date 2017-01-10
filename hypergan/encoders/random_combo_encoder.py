@@ -68,13 +68,13 @@ def encode_multimodal_gaussian(config, x, y):
   w = tf.get_variable("g_encode_cos", [z_dim], dtype=config['dtype'],
                         initializer=tf.random_normal_initializer(5, 1, dtype=config['dtype']))
 
-  zsplitra = tf.sqrt(-2 * tf.log(za*1+TINY))*tf.cos(2*pi*zb*w)
-  zsplitrb = tf.sqrt(-2 * tf.log(za*1+TINY))*tf.sin(2*pi*zb*w)
+  zsplitra = tf.sqrt(-2 * tf.log(za*1+TINY))*tf.cos(2*pi*zb)
+  zsplitrb = tf.sqrt(-2 * tf.log(za*1+TINY))*tf.sin(2*pi*zb)
 
-  zcosa = tf.cos(w*za)
-  zcosb = tf.cos(w*zb)
-  zsina = tf.sin(w*za)
-  zsinb = tf.sin(w*zb)
+  zcosa = tf.cos(2*pi*za)
+  zcosb = tf.cos(2*pi*zb)
+  zsina = tf.sin(2*pi*za)
+  zsinb = tf.sin(2*pi*zb)
 
   za = za * 2 - 1
   zb = zb * 2 - 1

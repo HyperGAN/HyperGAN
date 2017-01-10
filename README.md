@@ -11,6 +11,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-train">Train</a>
   * <a href="#qs-increase">Increasing Performance</a>
   * <a href="#qs-devmode">Development Mode</a>
+  * <a href="#qs-runoncpu">Running on CPU</a>
 
 * <a href="#api"> API
   * <a href="#runtime-api">Runtime API</a>
@@ -108,6 +109,14 @@ cd hypergan
 python3 setup.py develop
 ```
 
+<div id='qs-runoncpu'/>
+### Running on CPU
+
+Make sure to include the following 2 arguments:
+
+```
+CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
+```
 
 # API
 
@@ -252,6 +261,7 @@ Generative Adversarial Networks(2) consist of (at least) two neural networks tha
 The discriminator learns the difference between real and fake data.  The generator learns to create fake data.
 
 For a more depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
+
 
 ## Papers
 

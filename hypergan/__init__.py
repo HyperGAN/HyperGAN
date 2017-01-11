@@ -105,9 +105,9 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 discriminators = []
 for i in range(1):
-    discriminators.append(densenet_discriminator.config(layers=5))
+    discriminators.append(pyramid_nostride_discriminator.config(layers=5))
 for i in range(1):
-    discriminators.append(pyramid_nostride_discriminator.config(resize=[32,32], layers=4))
+    discriminators.append(densenet_discriminator.config(resize=[64,64], layers=4))
 hc.set("discriminators", [discriminators])
 
 

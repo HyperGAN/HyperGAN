@@ -22,6 +22,10 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 <div id="changelog"></div>
 
 ## Changelog
+### 0.6.1
+
+ * default to `dense-resize-conv`
+ * better defaults when creating a new configuration
 
 ### 0.6.0 ~ "MultiGAN"
 
@@ -244,11 +248,11 @@ Default
 
 ### resize-conv
 
-Default.
+Standard resize-conv.
 
 ### dense-resize-conv
 
-Inspired by densenet.
+Default.  Inspired by densenet.
 
 ## Trainers
 

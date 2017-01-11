@@ -4,24 +4,33 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 # Table of contents
 
 * <a href="#changelog">Changelog</a>
-* <a href="#samples">Samples</a>
 * <a href="#quickstart">Quick start</a>
   * <a href="#minreqs">Minimum Requirements</a>
   * <a href="#qs-install">Install</a>
   * <a href="#qs-train">Train</a>
   * <a href="#qs-increase">Increasing Performance</a>
   * <a href="#qs-devmode">Development Mode</a>
-
-* <a href="#api"> API
-  * <a href="#runtime-api">Runtime API</a>
+  * <a href="#qs-runoncpu">Running on CPU</a>
 
 * <a href="#training">Training</a>
-  * <a href="#configuration">Configuration</a>
+
+* <a href="#configuration">Configuration</a>
+  * <a href="#configuration-usage">Usage</a>
+  
 * <a href="#about">About</a>
 
 <div id="changelog"></div>
 
 ## Changelog
+### 0.6.2
+
+  * default to `encode_periodic_gaussian` encoder
+  * default to `pyramid_no_stride` discriminator
+
+### 0.6.1
+
+ * default to `dense_resize_conv` generator
+ * better defaults when creating a new configuration
 
 ### 0.6.0 ~ "MultiGAN"
 
@@ -40,7 +49,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * cleaner cli output
 * documentation cleanup
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/face-manifold-0-5-6.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0-5-6.png'/>
 
 ### 0.5.0 ~ "FaceGAN"
 * pip package released!
@@ -51,8 +60,8 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ### 0.1-0.4
 * Initial private release
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/legacy-0.1.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/samples/legacy-0.1-2.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/legacy-0.1.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/legacy-0.1-2.png'/>
 
 
 <div id="samples"/>
@@ -66,7 +75,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### Minimum requirements
 
-1. For 256x256, we recommend a GTX 1080 or better.
+1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
 2. CPU mode is _extremely_ slow.  Never train with it!
 
 
@@ -75,7 +84,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ### Install hypergan
 
 ```
-  pip install hypergan
+  pip install hypergan --upgrade
 ```
 
 <div id='qs-train'/>
@@ -83,7 +92,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ### Train
 
 ```
-  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  # Train a 32x32 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32
 ```
 
@@ -108,58 +117,79 @@ cd hypergan
 python3 setup.py develop
 ```
 
+<div id='qs-runoncpu'/>
+### Running on CPU
 
-# API
-
-```python
-  import hypergan
-```
-
-## Runtime API
-
-## Loading discriminators
+Make sure to include the following 2 arguments:
 
 ```
-  d = hypergan.Discriminator.load('name')
-  d.graph # the tensorflow graph
+CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
-
-## Loading generators
-```
-  g = hypergan.Generator.load('name')
-  g.graph # the tensorflow graph
-```
-
-## Examples
-
-The api is still being actively developed.  Right now the best reference will be in the `examples` directory.
 
 # Training
 
 ## hypergan train
 
-TODO docs
+To build a new network you need a dataset.  Your data should be structured like:
+
+``` 
+  [folder]/[directory]/*.png
+```
+
+If you don't have a dataset, you can use [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html).
+
+```
+  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
+```
+
+Configs and saves are located in:
+
+```
+  ~/.hypergan/
+```
+
+<div id='configuration'/>
+
+# Configuration
+
+Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
+
+
+<div id='configuration-usage'/>
+
+## Usage
+
+```
+  --config [name]
+```
+
+Naming a configuration during training is recommended.  If your config is not named, a uuid will be used.
 
 # Building
 
 ## hypergan build
 
-TODO docs
+Build takes the same arguments as train and builds a generator.  It's required for serve.
+
+Building does 2 things:
+
+* Loads the training model, which include the discriminator
+* Saves into a ckpt model containing only the generator
 
 # Server mode
 
 ## hypergan serve
 
-The trained generator can now be built for deployment.  Building does 2 things:
+Serve starts a flask server.  You can then access:
 
-* Loads the training model, which include the discriminator
-* Saves into a ckpt model containing only the generator
+[http://localhost:5000/sample.png?type=batch](http://localhost:5000/sample.png?type=batch)
 
 ## Saves
 
-~/.hypergan/saves/
-~/.hypergan/samples/
+Saves are stored in `~/.hypergan/saves/`
 
+They can be large.
 
 ## Formats
 
@@ -186,19 +216,32 @@ To see a detailed list, run
 
 The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier.
 
+You can combine multiple discriminators in a single GAN. 
+
 ### pyramid_stride
 
 ### pyramid_nostride
+
+
+Progressive enhancement is enabled by default:
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
 
 Default.
 
 ### densenet
 
+Progressive enhancement is disabled for technical reasons.
+
 ### resnet
+
+Note: This is currently broken 
 
 ## Encoders
 
 ### Vae
+
+For Vae-GANs
 
 ### RandomCombo
 
@@ -210,7 +253,11 @@ Default
 
 ### resize-conv
 
-Default.
+Standard resize-conv.
+
+### dense-resize-conv
+
+Default.  Inspired by densenet.
 
 ## Trainers
 
@@ -242,7 +289,7 @@ To turn these images into a video:
   ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
 ```
 
-NOTE: z_dims must equal 2 and batch size must equal 24 to work.
+NOTE: z_dims must equal 2 and batch size must equal 32 to work.
 
 <div id='about'/>
 
@@ -251,7 +298,8 @@ NOTE: z_dims must equal 2 and batch size must equal 24 to work.
 Generative Adversarial Networks(2) consist of (at least) two neural networks that learn together over many epochs.
 The discriminator learns the difference between real and fake data.  The generator learns to create fake data.
 
-For a more depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
+For a more in-depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
+
 
 ## Papers
 

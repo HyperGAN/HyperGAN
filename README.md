@@ -13,6 +13,8 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-runoncpu">Running on CPU</a>
 
 * <a href="#training">Training</a>
+ * <a href="#supervised-learning">Supervised learning</a>
+ * <a href="#unsupervised-learning">Unsupervised learning</a>
 
 * <a href="#configuration">Configuration</a>
   * <a href="#configuration-usage">Usage</a>
@@ -148,6 +150,17 @@ Configs and saves are located in:
 ```
   ~/.hypergan/
 ```
+<div id='supervised-learning'/>
+
+## Supervised learning
+
+Each directory in your dataset represents a classification.  Using supervised learning mode will turn your `discriminator` into a `classifier`.
+
+<div id='unsupervised-learning'/>
+
+## Unsupervised learning
+
+Same as supervised, except only include 1 directory in your dataset.
 
 <div id='configuration'/>
 

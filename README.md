@@ -22,9 +22,14 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 <div id="changelog"></div>
 
 ## Changelog
+### 0.6.2
+
+  * default to `encode_periodic_gaussian` encoder
+  * default to `pyramid_no_stride` discriminator
+
 ### 0.6.1
 
- * default to `dense_resize_conv`
+ * default to `dense_resize_conv` generator
  * better defaults when creating a new configuration
 
 ### 0.6.0 ~ "MultiGAN"

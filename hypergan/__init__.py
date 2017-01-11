@@ -51,124 +51,11 @@ import importlib
 
 import hypergan.cli as cli
 
+import hypergan.config
+
 args = cli.parse_args()
 
-# Below are sets of configuration options:
-# Each time a new random network is started a random set of configuration variables are selected.
-# This is useful for hyperparameter search.  If you want to use a specific configuration use --config
-
-hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
-
-# Generator configuration
-hc.set("generator.z", 2) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
-
-hc.set("generator", [resize_conv.generator])
-hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
-
-hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
-hc.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
-hc.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
-hc.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
-
-hc.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
-hc.set('generator.layer.noise', False) #Adds incremental noise each layer
-hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
-hc.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
-
-hc.set('generator.densenet.size', 32)
-hc.set('generator.densenet.layers', 3)
-
-# Trainer configuration
-trainer = adam_trainer # adam works well at 64x64 but doesn't scale
-#trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
-#trainer = rmsprop_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
-#trainer = sgd_adam_trainer # This has never worked, but seems like it should
-hc.set("trainer.initializer", trainer.initialize) # TODO: can we merge these variables?
-hc.set("trainer.train", trainer.train) # The training method to use.  This is called every step
-hc.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
-hc.set("trainer.adam.discriminator.epsilon", 1e-8) #adam epsilon for d
-hc.set("trainer.adam.discriminator.beta1", 0.9) #adam beta1 for d
-hc.set("trainer.adam.discriminator.beta2", 0.999) #adam beta2 for d
-hc.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
-hc.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g
-hc.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g
-hc.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g
-hc.set("trainer.rmsprop.discriminator.lr", 3e-5) # d learning rate
-hc.set("trainer.rmsprop.generator.lr", 1e-4) # d learning rate
-hc.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
-hc.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
-hc.set('trainer.slowdown.discriminator.slowdown', [5]) # Divides speed by this number when unhealthy(d_fake low)
-hc.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
-hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
-
-# Discriminator configuration
-
-discriminators = []
-for i in range(1):
-    discriminators.append(densenet_discriminator.config(layers=5))
-for i in range(1):
-    discriminators.append(densenet_discriminator.config(resize=[32,32], layers=4))
-    discriminators.append(pyramid_nostride_discriminator.config(resize=[32,32], layers=4))
-hc.set("discriminators", [discriminators])
-
-
-hc.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
-hc.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
-#hc.set('encoder', random_encoder.encode) # how to encode z
-hc.set('encoder', random_combo_encoder.encode_gaussian) # how to encode z
-
-#hc.set("g_mp3_dilations",[[1,2,4,8,16,32,64,128,256]])
-#hc.set("g_mp3_filter",[3])
-#hc.set("g_mp3_residual_channels", [8])
-#hc.set("g_mp3_dilation_channels", [16])
-#hc.set("mp3_seconds", args.seconds)
-#hc.set("mp3_bitrate", args.bitrate)
-#hc.set("mp3_size", args.seconds*args.bitrate)
-
-#TODO vae
-#hc.set("transfer_fct", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-#hc.set("e_activation", [tf.nn.elu, tf.nn.relu, tf.nn.relu6, lrelu]);
-#hc.set("e_last_layer", [tf.nn.tanh]);
-#hc.set('f_skip_fc', False)
-#hc.set('f_hidden_1', 512)#list(np.arange(256, 512)))
-#hc.set('f_hidden_2', 256)#list(np.arange(256, 512)))
-
-#TODO audio
-hc.set("model", "faces:1.0")
-
-hc.set("examples_per_epoch", 30000/4)
-
-#TODO category/bernouilli
-categories = [[2,2,2,2,3,34,4,4,4,4,4,4,4,10,10,10,10,10,10,10,10,26,26,26,26,26,26,26,10,10,10,10,2,2,2,2,2,3,3,3,3,3,3,3,3,26,40,26]]#[[2]+[2]+build_categories_config(30)]
-hc.set('categories', [[]])
-hc.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
-hc.set('category_loss', [False])
-
-#TODO loss functions
-hc.set('g_class_loss', [False])
-hc.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
-hc.set('d_fake_class_loss', [False])
-
-#TODO one-sided label smoothing loss
-hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
-hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
-
-#TODO move to minibatch
-hc.set("d_kernels", list(np.arange(20, 30)))
-hc.set("d_kernel_dims", list(np.arange(200, 300)))
-
-#TODO remove and replace with losses
-hc.set("loss", ['custom'])
-
-#TODO Vae Loss
-hc.set("adv_loss", [False])
-hc.set("latent_loss", [False])
-hc.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
-
-#TODO Is this about adding z to the D?  Is this right? Investigate
-hc.set("d_project", ['tiled'])
-
-hc.set("batch_size", args.batch_size)
+selector = hypergan.config.selector(args)
 
 batch_no = 0
 sampled = 0
@@ -306,8 +193,8 @@ def run(args):
     height = int(args.size.split("x")[1])
     loadedFromSave = False
 
-    print("[hypergan] Welcome back.  You are one of ", hc.count_configs(), " possible configurations.")
-    for config in hc.configs(1):
+    print("[hypergan] Welcome back.  You are one of ", selector.count_configs(), " possible configurations.")
+    for config in selector.configs(1):
         other_config = copy.copy(config)
         # load_saved_checkpoint(config)
         if(args.config):
@@ -315,7 +202,7 @@ def run(args):
 
             config_path = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
             print("Loading "+config_path)
-            config = hc.load_or_create_config(config_path, config)
+            config = selector.load_or_create_config(config_path, config)
 
         config = lookup_functions(config)
         config['batch_size']=args.batch_size
@@ -341,7 +228,7 @@ def run(args):
         if args.config is None:
             filename = '~/.hypergan/configs/'+config['uuid']+'.json'
             print("[hypergan] Saving network configuration to: " + filename)
-            config = hc.load_or_create_config(filename, config)
+            config = selector.load_or_create_config(filename, config)
 
         with tf.device(args.device):
             y=tf.one_hot(tf.cast(y,tf.int64), config['y_dims'], 1.0, 0.0)

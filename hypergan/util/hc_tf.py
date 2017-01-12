@@ -291,18 +291,16 @@ def block_deconv(result, activation, batch_size,id,name, output_channels=None, s
         result = deconv2d(result, output_shape, name=name+'l', k_w=filter, k_h=filter, d_h=1, d_w=1)
     return result
 
-def block_conv(result, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, dropout=None, reshaped_z_proj=None):
+def block_conv(result, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
     size = int(result.get_shape()[-1])
     result = activation(result)
     if(batch_norm is not None):
         result = batch_norm(batch_size, name=name+'bn')(result)
     s = result.get_shape()
-    if(dropout):
-        z = get_tensor('original_z')
-        mask = linear(z, s[1]*s[2]*s[3], scope=name+"lin_proj_mask", regularizer=tf.contrib.layers.l2_regularizer(0.4))
+    if(sigmoid_gate):
+        mask = linear(sigmoid_gate, s[1]*s[2]*s[3], scope=name+"lin_proj_mask", regularizer=tf.contrib.layers.l2_regularizer(0.4))
         mask = tf.reshape(mask, result.get_shape())
         result *= tf.nn.sigmoid(mask)
-        set_tensor('z_proj_tanh', result)
 
     if(resize):
         result = tf.image.resize_images(result, resize, 1)

@@ -17,8 +17,6 @@ def generator(config, inputs, reuse=False):
     with(tf.variable_scope("generator", reuse=reuse)):
         output_shape = x_dims[0]*x_dims[1]*config['channels']
         primes = find_smallest_prime(x_dims[0], x_dims[1])
-        dropout = tf.Variable(0.5)
-        set_tensor("dropout", dropout)
 
         original_z = tf.concat(1, inputs)
         layers = config['generator.fully_connected_layers']
@@ -28,7 +26,6 @@ def generator(config, inputs, reuse=False):
             net = batch_norm(batch_size, name='g_rp_bn'+str(i))(net)
             net = activation(net)
 
-        set_tensor('original_z', net)
         net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", regularizer=tf.contrib.layers.l2_regularizer(config['generator.regularizers.l2.lambda']))
         new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
         net = tf.reshape(net, new_shape)

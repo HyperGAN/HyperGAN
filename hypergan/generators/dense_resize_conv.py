@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from hypergan.util.hc_tf import *
 
-def generator(config, net):
+def generator(config, net, z):
     depth=0
     w=int(net.get_shape()[1])
     target_w=int(config['x_dims'][0])
@@ -20,10 +20,11 @@ def generator(config, net):
     s = [int(x) for x in net.get_shape()]
 
     resize=[s[1]*2, s[2]*2]
-    net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, dropout=get_tensor('dropout'), resize = resize)
+    net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, resize = resize, sigmoid_gate=z)
 
     z_proj = None
     layers = int(net.get_shape()[3])
+
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
         resized_wh=[s[1]*2, s[2]*2]

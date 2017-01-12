@@ -317,7 +317,7 @@ A single fully trained `GAN` consists of the following useful networks:
 
 * `generator` - Generates content that fools the `discriminator`.
 * `discriminator` - Gives a value between 0 and 1 designating how `real` the input data is.
-* `classifier` - Similar to a normal softmax classifier, pontentially better accuracy.
+* `classifier` - Similar to a normal softmax classifier, has certain advantages.
 
 
 ## Papers

@@ -26,6 +26,10 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ## Changelog
 ### 0.6.3
 
+  * default to `layer_norm` on discriminators
+
+### 0.6.3
+
   * default to `encode_periodic_gaussian` encoder
   * default to `pyramid_no_stride` discriminator
 

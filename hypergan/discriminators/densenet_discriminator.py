@@ -8,7 +8,7 @@ import hyperchamber as hc
 def config(resize=None, layers=None):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
-    selector.set('regularizer', [batch_norm_1]) # Size of fully connected layers
+    selector.set('regularizer', [layer_norm_1]) # Size of fully connected layers
 
     if layers == None:
         layers = [5]

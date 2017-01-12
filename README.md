@@ -24,9 +24,10 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 <div id="changelog"></div>
 
 ## Changelog
-### 0.6.3
+### 0.6.5
 
   * default to `layer_norm` on discriminators
+  * fix configuration range in `pyramid_no_stride` for new configurations
 
 ### 0.6.3
 

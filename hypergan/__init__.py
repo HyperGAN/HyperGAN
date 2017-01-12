@@ -79,6 +79,7 @@ class GAN:
         to create a video of the learning process.
         """
 
+        args = cli.parse_args()
         if(args.frame_sample == None):
             return None
         if(args.frame_sample == "grid"):
@@ -97,7 +98,7 @@ class GAN:
         for i in range(total_batch):
             if(i % 10 == 1):
                 sample_file="samples/grid-%06d.png" % (sampled)
-                frame_sample(sample_file, sess, config)
+                self.frame_sample(sample_file, sess, config)
                 sampled += 1
 
 
@@ -147,7 +148,8 @@ class GAN:
     def test_epoch(self, epoch, sess, config, start_time, end_time):
         sample = []
         sample_list = config['sampler'](sess,config)
-        measurements = collect_measurements(epoch, sess, config, end_time - start_time)
+        measurements = self.collect_measurements(epoch, sess, config, end_time - start_time)
+        args = cli.parse_args()
         if args.use_hc_io:
             hc.io.measure(config, measurements)
             hc.io.sample(config, sample_list)
@@ -241,6 +243,9 @@ class GAN:
                 filename = '~/.hypergan/configs/'+config['uuid']+'.json'
                 print("[hypergan] Saving network configuration to: " + filename)
                 config = self.selector.load_or_create_config(filename, config)
+            else:
+                save_file = "~/.hypergan/saves/"+args.config+".ckpt"
+                config['uuid'] = args.config
 
             with tf.device(args.device):
                 y=tf.one_hot(tf.cast(y,tf.int64), config['y_dims'], 1.0, 0.0)
@@ -250,15 +255,7 @@ class GAN:
                 else:
                     graph = create(config,x,y,f)
 
-            #TODO can we not do this?  might need to be after hc.io refactor
-            if('parent_uuid' in config):
-                save_file = "~/.hypergan/saves/"+config["parent_uuid"]+".ckpt"
-                samples_path = "~/.hypergan/samples/"+config['parent_uuid']
-            else:
-                save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
-            if args.config:
-                save_file = "~/.hypergan/saves/"+args.config+".ckpt"
-                config['uuid'] = args.config
+            save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
 
             samples_path = "~/.hypergan/samples/"+config['uuid']
             save_file = os.path.expanduser(save_file)
@@ -290,7 +287,7 @@ class GAN:
                     init = tf.initialize_all_variables()
                     sess.run(init)
 
-            output_graph_size()
+            self.output_graph_size()
             tf.train.start_queue_runners(sess=sess)
             testx = sess.run(x)
 
@@ -306,7 +303,7 @@ class GAN:
                 for i in range(args.epochs):
                     start_time = time.time()
                     with tf.device(args.device):
-                        if(not epoch(sess, config)):
+                        if(not self.epoch(sess, config)):
                             print("Epoch failed")
                             break
                     print("Checking save "+ str(i))
@@ -315,7 +312,7 @@ class GAN:
                         saver = tf.train.Saver()
                         saver.save(sess, save_file)
                     end_time = time.time()
-                    test_epoch(i, sess, config, start_time, end_time)
+                    self.test_epoch(i, sess, config, start_time, end_time)
 
                 tf.reset_default_graph()
                 sess.close()

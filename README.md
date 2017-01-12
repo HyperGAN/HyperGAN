@@ -85,7 +85,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### Install hypergan
 
-```
+```bash
   pip install hypergan --upgrade
 ```
 
@@ -93,7 +93,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### Train
 
-```
+```bash
   # Train a 32x32 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32
 ```
@@ -104,7 +104,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include this environment variable before training
 
-```
+```bash
   LD_PRELOAD="/usr/lib/libtcmalloc.so.4" hypergan train my_dataset
 ```
 
@@ -113,7 +113,7 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
 
 If you wish to modify hypergan
 
-```
+```bash
 git clone https://github.com/255BITS/hypergan
 cd hypergan
 python3 setup.py develop
@@ -124,7 +124,7 @@ python3 setup.py develop
 
 Make sure to include the following 2 arguments:
 
-```
+```bash
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 
@@ -140,14 +140,14 @@ To build a new network you need a dataset.  Your data should be structured like:
 
 If you don't have a dataset, you can use [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html).
 
-```
+```bash
   # Train a 256x256 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
 
 Configs and saves are located in:
 
-```
+```bash
   ~/.hypergan/
 ```
 <div id='supervised-learning'/>
@@ -173,7 +173,7 @@ Configuration in HyperGAN uses JSON files.  You can create a new config by runni
 
 ## Usage
 
-```
+```bash
   --config [name]
 ```
 
@@ -206,7 +206,7 @@ They can be large.
 
 ## Formats
 
-```
+```bash
 --format <type>
 ```
 
@@ -217,7 +217,7 @@ Type can be one of:
 ## Arguments
 
 To see a detailed list, run 
-```
+```bash
   hypergan -h
 ```
 
@@ -292,13 +292,13 @@ One way a network learns:
 
 To create your own visualizations, you can use the flag:
 
-``` 
+```bash
   --frame_sample grid 
 ```
 
 To turn these images into a video:
 
-```
+```bash
   ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
 ```
 

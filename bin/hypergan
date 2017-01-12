@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
 import sys, os
-from hypergan import run,args
-run(args)
+
+import hypergan as hg
+
+gan = hg.GAN()
+gan.run() 

@@ -24,6 +24,12 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 <div id="changelog"></div>
 
 ## Changelog
+
+### 0.6.6
+
+  * backwards-incompatible fix for `densenet_discriminator`
+  * enable `progressive enhancement` for `densenet_discriminator`
+
 ### 0.6.5
 
   * default to `layer_norm` on discriminators
@@ -50,7 +56,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * Support for multiple discriminators
 * Support for discriminators on different image resolutions
 
-### 0.5.x
+### 0.5.x final
 
 * fixed configuration save/load
 * cleaner cli output
@@ -249,7 +255,7 @@ Default.
 
 ### densenet
 
-Progressive enhancement is disabled for technical reasons.
+Progressive enhancement is enabled by default here too.
 
 ### resnet
 
@@ -324,6 +330,8 @@ A single fully trained `GAN` consists of the following useful networks:
 * `discriminator` - Gives a value between 0 and 1 designating how `real` the input data is.
 * `classifier` - Similar to a normal softmax classifier, has certain advantages.
 
+HyperGAN is currently in open beta.
+
 
 ## Papers
 
@@ -342,11 +350,11 @@ A single fully trained `GAN` consists of the following useful networks:
 
 # Contributing
 
-Our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
+Contributions are welcome and appreciated.  To help out, just issue a pull request or file a bug report.
 
-Contributions are welcome and appreciated.  To help out, just issue a pull request.
+If you create something cool with this let us know!
 
-Also, if you create something cool with this let us know!
+In case you are interested, our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
 
 # Citation
 

@@ -63,7 +63,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       # Progressive enhancement
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
-        xg = tf.concat(0, [xs[i-1], gs[i-1]])
+        xg = tf.concat(0, [xs[i], gs[i]])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev']*(i+1), dtype=root_config['dtype'])
 
         xgs.append(xg)

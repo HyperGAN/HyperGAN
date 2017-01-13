@@ -28,6 +28,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ### 0.6.6
 
   * backwards-incompatible fix for `densenet_discriminator`
+  * enable `progressive enhancement` for `densenet_discriminator`
 
 ### 0.6.5
 
@@ -254,7 +255,7 @@ Default.
 
 ### densenet
 
-Progressive enhancement is disabled for technical reasons.
+Progressive enhancement is enabled by default here too.
 
 ### resnet
 

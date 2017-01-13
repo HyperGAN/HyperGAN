@@ -13,6 +13,8 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-runoncpu">Running on CPU</a>
 
 * <a href="#training">Training</a>
+ * <a href="#supervised-learning">Supervised learning</a>
+ * <a href="#unsupervised-learning">Unsupervised learning</a>
 
 * <a href="#configuration">Configuration</a>
   * <a href="#configuration-usage">Usage</a>
@@ -22,7 +24,12 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 <div id="changelog"></div>
 
 ## Changelog
-### 0.6.2
+### 0.6.5
+
+  * default to `layer_norm` on discriminators
+  * fix configuration range in `pyramid_no_stride` for new configurations
+
+### 0.6.3
 
   * default to `encode_periodic_gaussian` encoder
   * default to `pyramid_no_stride` discriminator
@@ -83,7 +90,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### Install hypergan
 
-```
+```bash
   pip install hypergan --upgrade
 ```
 
@@ -91,7 +98,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### Train
 
-```
+```bash
   # Train a 32x32 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32
 ```
@@ -102,7 +109,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include this environment variable before training
 
-```
+```bash
   LD_PRELOAD="/usr/lib/libtcmalloc.so.4" hypergan train my_dataset
 ```
 
@@ -111,7 +118,7 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
 
 If you wish to modify hypergan
 
-```
+```bash
 git clone https://github.com/255BITS/hypergan
 cd hypergan
 python3 setup.py develop
@@ -122,7 +129,7 @@ python3 setup.py develop
 
 Make sure to include the following 2 arguments:
 
-```
+```bash
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 
@@ -138,16 +145,27 @@ To build a new network you need a dataset.  Your data should be structured like:
 
 If you don't have a dataset, you can use [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html).
 
-```
+```bash
   # Train a 256x256 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
 
 Configs and saves are located in:
 
-```
+```bash
   ~/.hypergan/
 ```
+<div id='supervised-learning'/>
+
+## Supervised learning
+
+Each directory in your dataset represents a classification.  Using supervised learning mode will turn your `discriminator` into a `classifier`.
+
+<div id='unsupervised-learning'/>
+
+## Unsupervised learning
+
+Same as supervised, except only include 1 directory in your dataset.
 
 <div id='configuration'/>
 
@@ -160,7 +178,7 @@ Configuration in HyperGAN uses JSON files.  You can create a new config by runni
 
 ## Usage
 
-```
+```bash
   --config [name]
 ```
 
@@ -193,7 +211,7 @@ They can be large.
 
 ## Formats
 
-```
+```bash
 --format <type>
 ```
 
@@ -204,7 +222,7 @@ Type can be one of:
 ## Arguments
 
 To see a detailed list, run 
-```
+```bash
   hypergan -h
 ```
 
@@ -279,13 +297,13 @@ One way a network learns:
 
 To create your own visualizations, you can use the flag:
 
-``` 
+```bash
   --frame_sample grid 
 ```
 
 To turn these images into a video:
 
-```
+```bash
   ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
 ```
 
@@ -299,6 +317,12 @@ Generative Adversarial Networks(2) consist of (at least) two neural networks tha
 The discriminator learns the difference between real and fake data.  The generator learns to create fake data.
 
 For a more in-depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
+
+A single fully trained `GAN` consists of the following useful networks:
+
+* `generator` - Generates content that fools the `discriminator`.
+* `discriminator` - Gives a value between 0 and 1 designating how `real` the input data is.
+* `classifier` - Similar to a normal softmax classifier, has certain advantages.
 
 
 ## Papers

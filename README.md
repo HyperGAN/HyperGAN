@@ -25,6 +25,8 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## Changelog
 
+## 0.6 ~ "MultiGAN" - Experimental
+
 ### 0.6.6
 
   * backwards-incompatible fix for `densenet_discriminator`
@@ -45,7 +47,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * default to `dense_resize_conv` generator
  * better defaults when creating a new configuration
 
-### 0.6.0 ~ "MultiGAN"
+### 0.6.0
 
 * 3 new encoders
 * New discriminator: `densenet` - based loosely on https://arxiv.org/abs/1608.06993
@@ -56,6 +58,8 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * Support for multiple discriminators
 * Support for discriminators on different image resolutions
 
+## 0.5 ~ "FaceGAN" - Stable
+
 ### 0.5.x final
 
 * fixed configuration save/load
@@ -64,7 +68,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0-5-6.png'/>
 
-### 0.5.0 ~ "FaceGAN"
+### 0.5.0
 * pip package released!
 * Better defaults.  Good variance.  256x256.  The broken images showed up after training for 5 days.
 

@@ -1,317 +1,317 @@
-from hypergan.util.ops import *
+from . import gan_graph
+
+from hypergan.util.gan_server import *
 from hypergan.util.globals import *
-from hypergan.util.hc_tf import *
-import tensorflow as tf
-import hypergan.util.wavegan as wavegan
+from hypergan.util.ops import *
+
+from tensorflow.python.framework import ops
+
+import copy
+
 import hyperchamber as hc
-TINY = 1e-12
+import hypergan.cli as cli
+import hypergan.config
+import hypergan.discriminators.densenet_discriminator as densenet_discriminator
+import hypergan.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
+import hypergan.discriminators.painters_discriminator as painters_discriminator
+import hypergan.discriminators.pyramid_discriminator as pyramid_discriminator
+import hypergan.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
+import hypergan.discriminators.slim_stride as slim_stride
+import hypergan.encoders.progressive_variational_encoder as progressive_variational_encoder
+import hypergan.encoders.random_combo_encoder as random_combo_encoder
+import hypergan.encoders.random_encoder as random_encoder
+import hypergan.encoders.random_gaussian_encoder as random_gaussian_encoder
+import hypergan.generators.dense_resize_conv as dense_resize_conv
+import hypergan.generators.resize_conv as resize_conv
+import hypergan.generators.resize_conv_extra_layer as resize_conv_extra_layer
+import hypergan.loaders.audio_loader
+import hypergan.loaders.image_loader
+import hypergan.regularizers.l2_regularizer as l2_regularizer
+import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
+import hypergan.regularizers.moment_regularizer as moment_regularizer
+import hypergan.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer
+import hypergan.samplers.grid_sampler as grid_sampler
+import hypergan.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
+import hypergan.trainers.adam_trainer as adam_trainer
+import hypergan.trainers.rmsprop_trainer as rmsprop_trainer
+import hypergan.trainers.sgd_adam_trainer as sgd_adam_trainer
+import hypergan.trainers.slowdown_trainer as slowdown_trainer
+import hypergan.util.hc_tf as hc_tf
 
-def generator(config, inputs, reuse=False):
-    x_dims = config['x_dims']
-    output_channels = config['channels']
-    activation = config['generator.activation']
-    batch_size = config['batch_size']
-    z_proj_dims = int(config['generator.z_projection_depth'])
-    batch_norm = config['generator.regularizers.layer']
+import importlib
+import json
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import sys
+import tensorflow
+import tensorflow as tf
+import time
+import time
+import uuid
 
-    with(tf.variable_scope("generator", reuse=reuse)):
-        output_shape = x_dims[0]*x_dims[1]*config['channels']
-        primes = find_smallest_prime(x_dims[0], x_dims[1])
-        dropout = tf.Variable(0.5)
-        set_tensor("dropout", dropout)
+batch_no = 0
+sampled = 0
 
-        original_z = tf.concat(1, inputs)
-        layers = config['generator.fully_connected_layers']
-        net = original_z
-        for i in range(layers):
-            net = linear(net, net.get_shape()[-1], scope="g_fc_"+str(i))
-            net = batch_norm(batch_size, name='g_rp_bn'+str(i))(net)
-            net = activation(net)
+class GAN:
+    """ GANs (Generative Adversarial Networks) consist of generator(s) and discriminator(s)."""
+    def __init__(self, config={}):
+        """ Initialized a new GAN.  Any options not specified will be randomly selected. """
+        # TODO Move parsing of cli args?
+        args = cli.parse_args()
+        self.selector = hypergan.config.selector(args)
+        self.config = self.selector.random_config()
+        self.config.update(config)
+        print("NITIAL", self.config)
+        # TODO load / save config?
 
-        set_tensor('original_z', net)
-        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", regularizer=tf.contrib.layers.l2_regularizer(config['generator.regularizers.l2.lambda']))
-        new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
-        net = tf.reshape(net, new_shape)
+    def frame_sample(self, sample_file, sess, config):
+        """ Samples every frame to a file.  Useful for visualizing the learning process.
 
-        nets = config['generator'](config, net)
+        Use with:
 
-        return nets
+             ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 grid1-7.mp4
 
-def discriminator(config, x, f,z,g,gz):
-    batch_size = config['batch_size']*2
-    single_batch_size = config['batch_size']
-    channels = (config['channels'])
-    # combine to one batch, per Ian's "Improved GAN"
-    xs = [x]
-    gs = g
-    set_tensor("xs", xs)
-    set_tensor("gs", gs)
-    g = g[-1]
-    for i in gs:
-        resized = tf.image.resize_images(xs[-1],[int(xs[-1].get_shape()[1]//2),int(xs[-1].get_shape()[2]//2)], 1)
-        xs.append(resized)
-    xs.pop()
-    gs.reverse()
+        to create a video of the learning process.
+        """
 
-    # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
-    z = tf.concat(0, [z, gz])
+        args = cli.parse_args()
+        if(args.frame_sample == None):
+            return None
+        if(args.frame_sample == "grid"):
+            frame_sampler = grid_sampler.sample
+        else:
+            raise "Cannot find frame sampler: '"+args.frame_sample+"'"
 
-    discriminators = []
-    for i, discriminator in enumerate(config['discriminators']):
-        discriminator = hc.lookup_functions(discriminator)
-        discriminators.append(discriminator['create'](config, discriminator, x, g, xs, gs,prefix="d_"+str(i)))
-    net = tf.concat(1, discriminators)
+        frame_sampler(sample_file, sess, config)
 
-    last_layer = net
-    last_layer = tf.reshape(last_layer, [batch_size, -1])
-    last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
-
-
-    num_classes = config['y_dims']+1
-    if config['y_dims'] == 1:
-        net = linear(net, 1, scope="d_fc_end", stddev=0.003)
-        class_logits = net
-        gan_logits = tf.squeeze(net)
-
-    else:
-        net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
-        class_logits = tf.slice(net, [0,1], [single_batch_size*2,num_classes-1])
-        gan_logits = tf.squeeze(tf.slice(net, [0,0], [single_batch_size*2,1]))
-
-    return [tf.slice(class_logits, [0, 0], [single_batch_size, num_classes-1]),
-                tf.slice(gan_logits, [0], [single_batch_size]),
-                tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, num_classes-1]),
-                tf.slice(gan_logits, [single_batch_size], [single_batch_size]), 
-                last_layer]
-
-
-def split_categories(layer, batch_size, categories):
-    start = 0
-    ret = []
-    for category in categories:
-        count = int(category.get_shape()[1])
-        ret.append(tf.slice(layer, [0, start], [batch_size, count]))
-        start += count
-    return ret
-
-def categories_loss(categories, layer, batch_size):
-    loss = 0
-    def split(layer):
-        start = 0
-        ret = []
-        for category in categories:
-            count = int(category.get_shape()[1])
-            ret.append(tf.slice(layer, [0, start], [batch_size, count]))
-            start += count
-        return ret
-
-    for category,layer_s in zip(categories, split(layer)):
-        size = int(category.get_shape()[1])
-        category_prior = tf.ones([batch_size, size])*np.float32(1./size)
-        logli_prior = tf.reduce_sum(tf.log(category_prior + TINY) * category, reduction_indices=1)
-        layer_softmax = tf.nn.softmax(layer_s)
-        logli = tf.reduce_sum(tf.log(layer_softmax+TINY)*category, reduction_indices=1)
-        disc_ent = tf.reduce_mean(-logli_prior)
-        disc_cross_ent =  tf.reduce_mean(-logli)
-
-        loss += disc_ent - disc_cross_ent
-    return loss
-
-def random_category(batch_size, size, dtype):
-    prior = tf.ones([batch_size, size])*1./size
-    dist = tf.log(prior + TINY)
-    with tf.device('/cpu:0'):
-        sample=tf.multinomial(dist, num_samples=1)[:, 0]
-        return tf.one_hot(sample, size, dtype=dtype)
+    def epoch(self, sess, config):
+        batch_size = config["batch_size"]
+        n_samples =  config['examples_per_epoch']
+        total_batch = int(n_samples / batch_size)
+        global sampled
+        global batch_no
+        for i in range(total_batch):
+            if(i % 10 == 1):
+                sample_file="samples/grid-%06d.png" % (sampled)
+                self.frame_sample(sample_file, sess, config)
+                sampled += 1
 
 
-# Used for building the tensorflow graph with only G
-def create_generator(config, x,y,f):
-    set_ops_globals(config['dtype'], config['batch_size'])
-    z_dim = int(config['generator.z'])
-    z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
-    categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
-    if(len(categories) > 0):
-        categories_t = [tf.concat(1, categories)]
-    else:
-        categories_t = []
+            d_loss, g_loss = config['trainer.train'](sess, config)
+
+            #if(i > 10):
+            #    if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
+            #        return False
+
+            #    g = get_tensor('g')
+            #    rX = sess.run([g[-1]])
+            #    rX = np.array(rX)
+            #    if(np.min(rX) < -1000 or np.max(rX) > 1000):
+            #        return False
+        batch_no+=1
+        return True
+
+    def test_config(self, sess, config):
+        batch_size = config["batch_size"]
+        n_samples =  batch_size*10
+        total_batch = int(n_samples / batch_size)
+        results = []
+        for i in range(total_batch):
+            results.append(test(sess, config))
+        return results
+
+    def collect_measurements(self, epoch, sess, config, time):
+        d_loss = get_tensor("d_loss")
+        d_loss_fake = get_tensor("d_fake_sig")
+        d_loss_real = get_tensor("d_real_sig")
+        g_loss = get_tensor("g_loss")
+        d_class_loss = get_tensor("d_class_loss")
+        simple_g_loss = get_tensor("g_loss_sig")
+
+        gl, dl, dlr, dlf, dcl,sgl = sess.run([g_loss, d_loss, d_loss_real, d_loss_fake, d_class_loss, simple_g_loss])
+        return {
+                "g_loss": gl,
+                "g_loss_sig": sgl,
+                "d_loss": dl,
+                "d_loss_real": dlr,
+                "d_loss_fake": dlf,
+                "d_class_loss": dcl,
+                "g_strength": (1-(dlr))*(1-sgl),
+                "seconds": time/1000.0
+                }
+
+    def test_epoch(self, epoch, sess, config, start_time, end_time):
+        sample = []
+        sample_list = config['sampler'](sess,config)
+        measurements = self.collect_measurements(epoch, sess, config, end_time - start_time)
+        args = cli.parse_args()
+        if args.use_hc_io:
+            hc.io.measure(config, measurements)
+            hc.io.sample(config, sample_list)
+        else:
+            print("Offline sample created:", sample_list)
 
 
-    args = [y, z]+categories_t
-    g = generator(config, args)
-    set_tensor("g", g)
-    set_tensor("y", y)
-    set_tensor('categories', categories_t)
+    # This looks up a function by name.   Should it be part of hyperchamber?
+    def get_function(self, name):
+        if name == "function:hypergan.util.ops.prelu_internal":
+            return prelu("g_")
 
-    return g
+        if not isinstance(name, str):
+            return name
+        namespaced_method = name.split(":")[1]
+        method = namespaced_method.split(".")[-1]
+        namespace = ".".join(namespaced_method.split(".")[0:-1])
+        return getattr(importlib.import_module(namespace),method)
 
-def create(config, x,y,f):
-    # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
-    set_ops_globals(config['dtype'], config['batch_size'])
+    # Take a config and replace any string starting with 'function:' with a function lookup.
+    def lookup_functions(self, config):
+        for key, value in config.items():
+            if(isinstance(value, str) and value.startswith("function:")):
+                config[key]=self.get_function(value)
+            if(isinstance(value, list) and len(value) > 0 and isinstance(value[0],str) and value[0].startswith("function:")):
+                config[key]=[self.get_function(v) for v in value]
 
-    batch_size = config["batch_size"]
-    z_dim = int(config['generator.z'])
-    batch_norm = config['generator.regularizers.layer']
-
-    g_losses = []
-    extra_g_loss = []
-    d_losses = []
-
-    #initialize with random categories
-    categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
-    if(len(categories) > 0):
-        categories_t = [tf.concat(1, categories)]
-    else:
-        categories_t = []
-
-    z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
-
-    # create generator
-    g = generator(config, [y, z]+categories_t)
-
-    #encoded = generator(config, [y, encoded_z]+categories_t, reuse=True)
-
-    g_sample = g
-
-    d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = discriminator(config,x, f, encoded_z, g, z)
-
-    if(config['latent_loss']):
-        latent_loss = -config['latent_lambda'] * tf.reduce_mean(1 + z_sigma
-                                       - tf.square(z_mu)
-                                       - tf.exp(z_sigma), 1)
-
-        latent_loss = tf.reshape(latent_loss, [int(latent_loss.get_shape()[0]), 1])
-    else:
-        latent_loss = None
-    np_fake = np.array([0]*config['y_dims']+[1])
-    fake_symbol = tf.tile(tf.constant(np_fake, dtype=config['dtype']), [config['batch_size']])
-    fake_symbol = tf.reshape(fake_symbol, [config['batch_size'],config['y_dims']+1])
-
-    #real_symbols = tf.concat(1, [y, tf.zeros([config['batch_size'], 1])])
-    real_symbols = y
+        return config
 
 
-    zeros = tf.zeros_like(d_fake_sig, dtype=config['dtype'])
-    ones = tf.zeros_like(d_real_sig, dtype=config['dtype'])
+    def output_graph_size(self):
+        def mul(s):
+            x = 1
+            for y in s:
+                x*=y
+            return x
+        def get_size(v):
+            shape = [int(x) for x in v.get_shape()]
+            size = mul(shape)
+            return [v.name, size/1024./1024.]
 
-    generator_target_prob = config['g_target_prob']
-    d_label_smooth = config['d_label_smooth']
-    d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
-    d_real_loss = sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
-    #if(config['adv_loss']):
-    #    d_real_loss +=  sigmoid_kl_with_logits(d_fake_sig, d_label_smooth)
+        sizes = [get_size(i) for i in tf.all_variables()]
+        sizes = sorted(sizes, key=lambda s: s[1])
+        print("[hypergan] Top 5 largest variables:", sizes[-5:])
+        size = sum([s[1] for s in sizes])
+        print("[hypergan] Size of all variables:", size)
 
-    d_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_real,real_symbols)
+    def run(self):
 
-    #g loss from improved gan paper
-    simple_g_loss = sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
-    g_losses.append(simple_g_loss)
-    if(config['adv_loss']):
-        g_losses.append(sigmoid_kl_with_logits(d_real_sig, d_label_smooth))
+        # TODO this doesn't belong here
+        args = cli.parse_args()
+        crop = args.crop
+        channels = int(args.size.split("x")[2])
+        width = int(args.size.split("x")[0])
+        height = int(args.size.split("x")[1])
+        loadedFromSave = False
 
-    g_loss_fake= tf.nn.sigmoid_cross_entropy_with_logits(d_real_sig, zeros)
-    g_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake, real_symbols)
+        print("[hypergan] Welcome back.  You are one of ", self.selector.count_configs(), " possible configurations.")
+        for config in [self.config]:
+            other_config = copy.copy(config)
+            # load_saved_checkpoint(config)
+            if(args.config):
+                print("[hypergan] Creating or loading configuration in ~/.hypergan/configs/", args.config)
+
+                config_path = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
+                print("Loading "+config_path)
+                config = self.selector.load_or_create_config(config_path, config)
+
+            config = self.lookup_functions(config)
+            config['batch_size']=args.batch_size
+
+            config['dtype']=other_config['dtype']#TODO: add this as a CLI argument, i.e "-e 'dtype=function:tf.float16'"
+
+            # Initialize tensorflow
+            with tf.device(args.device):
+                sess = tf.Session(config=tf.ConfigProto())
+
+            with tf.device('/cpu:0'):
+                #TODO don't branch on format
+                if(args.format == 'mp3'):
+                    x,y, num_labels,examples_per_epoch = hypergan.loaders.audio_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
+                    f = None
+                else:
+                    x,y, f, num_labels,examples_per_epoch = hypergan.loaders.image_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+
+            config['y_dims']=num_labels
+            config['x_dims']=[height,width] #TODO can we remove this?
+            config['channels']=channels
+
+            if args.config is None:
+                filename = '~/.hypergan/configs/'+config['uuid']+'.json'
+                print("[hypergan] Saving network configuration to: " + filename)
+                config = self.selector.load_or_create_config(filename, config)
+            else:
+                save_file = "~/.hypergan/saves/"+args.config+".ckpt"
+                config['uuid'] = args.config
+
+            with tf.device(args.device):
+                y=tf.one_hot(tf.cast(y,tf.int64), config['y_dims'], 1.0, 0.0)
+
+                if(args.method == 'build' or args.method == 'serve'):
+                    graph = create_generator(config,x,y,f)
+                else:
+                    graph = create(config,x,y,f)
+
+            save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
+
+            samples_path = "~/.hypergan/samples/"+config['uuid']
+            save_file = os.path.expanduser(save_file)
+            os.makedirs(os.path.dirname(save_file), exist_ok=True)
+            os.makedirs(os.path.expanduser(samples_path), exist_ok=True)
+            build_file = os.path.expanduser("~/.hypergan/builds/"+config['uuid']+"/generator.ckpt")
+            os.makedirs(os.path.dirname(build_file), exist_ok=True)
 
 
-    if(config['g_class_loss']):
-        g_losses.append(config['g_class_lambda']*tf.reduce_mean(g_class_loss))
+            print( "Save file", save_file,"\n")
+            #TODO refactor save/load system
+            if args.method == 'serve':
+                print("|= Loading generator from build/")
+                saver = tf.train.Saver()
+                saver.restore(sess, build_file)
+            elif(save_file and ( os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ))):
+                print(" |= Loading network from "+ save_file)
+                ckpt = tf.train.get_checkpoint_state(os.path.expanduser('~/.hypergan/saves/'))
+                if ckpt and ckpt.model_checkpoint_path:
+                    saver = tf.train.Saver()
+                    saver.restore(sess, save_file)
+                    loadedFromSave = True
+                    print("Model loaded")
+                else:
+                    print("No checkpoint file found")
+            else:
+                print(" |= Initializing new network")
+                with tf.device(args.device):
+                    init = tf.initialize_all_variables()
+                    sess.run(init)
 
-    d_losses.append(d_fake_loss)
-    d_losses.append(d_real_loss)
+            self.output_graph_size()
+            tf.train.start_queue_runners(sess=sess)
+            testx = sess.run(x)
 
-    if(int(y.get_shape()[1]) > 1):
-        print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
-        d_losses.append(d_class_loss)
-    else:
-        print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
+            if args.method == 'build':
+                saver = tf.train.Saver()
+                saver.save(sess, build_file)
+                print("Saved generator to ", build_file)
+            elif args.method == 'serve':
+                gan_server(sess, config)
+            else:
+                sampled=False
+                print("Running for ", args.epochs, " epochs")
+                for i in range(args.epochs):
+                    start_time = time.time()
+                    with tf.device(args.device):
+                        if(not self.epoch(sess, config)):
+                            print("Epoch failed")
+                            break
+                    print("Checking save "+ str(i))
+                    if(args.save_every != 0 and i % args.save_every == args.save_every-1):
+                        print(" |= Saving network")
+                        saver = tf.train.Saver()
+                        saver.save(sess, save_file)
+                    end_time = time.time()
+                    self.test_epoch(i, sess, config, start_time, end_time)
 
-    if(config['latent_loss']):
-        g_losses.append(latent_loss)
-
-    if(config['d_fake_class_loss']):
-        d_fake_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_fake,fake_symbol)
-        d_losses.append(config['g_class_lambda']*tf.reduce_mean(d_fake_class_loss))
+                tf.reset_default_graph()
+                sess.close()
 
 
-    categories_l = None
-    if config['category_loss']:
-
-        category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories',stddev=0.15)
-        category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
-        category_layer = config['generator.activation'](category_layer)
-        categories_l = categories_loss(categories, category_layer, config['batch_size'])
-        g_losses.append(-1*config['categories_lambda']*categories_l)
-        d_losses.append(-1*config['categories_lambda']*categories_l)
-
-    reg_losses = [print("Adding g regularizer",var) for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)]
-    reg_losses = [var for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) if 'g_' in var.name]
-    
-    extra_g_loss += reg_losses
-
-    if(config['latent_loss']):
-        #mse_loss = tf.reduce_max(tf.square(x-encoded))
-        mse_loss = None
-    else:
-        mse_loss = None
-
-    g_loss = tf.reduce_mean(tf.add_n(g_losses))
-    for extra in extra_g_loss:
-        g_loss += extra
-    d_loss = tf.reduce_mean(tf.add_n(d_losses))
-    joint_loss = tf.reduce_mean(tf.add_n(g_losses + d_losses))
-
-    summary = tf.all_variables()
-    def summary_reduce(s):
-        if(len(s.get_shape())==0):
-            return s
-        while(len(s.get_shape())>1):
-            s=tf.reduce_mean(s,1)
-            #s=tf.squeeze(s)
-        return tf.reduce_mean(s,0)
-
-    summary = [(s.get_shape(), s.name, s.dtype, summary_reduce(s)) for s in summary]
-
-    set_tensor("d_class_loss", tf.reduce_mean(d_class_loss))
-    set_tensor("d_fake", tf.reduce_mean(d_fake))
-    set_tensor("d_fake_loss", tf.reduce_mean(d_fake_loss))
-    set_tensor("d_fake_sig", tf.reduce_mean(tf.sigmoid(d_fake_sig)))
-    set_tensor("d_fake_sigmoid", tf.sigmoid(d_fake_sig))
-    set_tensor("d_loss", d_loss)
-    set_tensor("d_real", tf.reduce_mean(d_real))
-    set_tensor("d_real_loss", tf.reduce_mean(d_real_loss))
-    set_tensor("d_real_sig", tf.reduce_mean(tf.sigmoid(d_real_sig)))
-    #set_tensor("encoded", encoded)
-    set_tensor("encoder_mse", mse_loss)
-    set_tensor("f", f)
-    set_tensor("g", g_sample)
-    set_tensor("g_class_loss", tf.reduce_mean(g_class_loss))
-    set_tensor("g_loss", g_loss)
-    set_tensor("g_loss_sig", tf.reduce_mean(simple_g_loss))
-    set_tensor("hc_summary",summary)
-    set_tensor("x", x)
-    set_tensor("y", y)
-    set_tensor('categories', categories_t)
-    set_tensor('encoded_z', encoded_z)
-    set_tensor('joint_loss', joint_loss)
-    if(config['latent_loss']):
-        set_tensor('latent_loss', tf.reduce_mean(latent_loss))
-
-    g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
-    d_vars = [var for var in tf.trainable_variables() if 'd_' in var.name]
-
-    v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
-    g_vars += v_vars
-    g_optimizer, d_optimizer = config['trainer.initializer'](config, d_vars, g_vars)
-    set_tensor("d_optimizer", d_optimizer)
-    set_tensor("g_optimizer", g_optimizer)
-
-def test(sess, config):
-    x = get_tensor("x")
-    y = get_tensor("y")
-    d_fake = get_tensor("d_fake")
-    d_real = get_tensor("d_real")
-    g_loss = get_tensor("g_loss")
-
-    g_cost, d_fake_cost, d_real_cost = sess.run([g_loss, d_fake, d_real])
-
-    return g_cost,d_fake_cost, d_real_cost,0

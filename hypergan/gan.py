@@ -1,4 +1,4 @@
-from . import gan_graph
+from hypergan.gan_graph import *
 
 from hypergan.util.gan_server import *
 from hypergan.util.globals import *

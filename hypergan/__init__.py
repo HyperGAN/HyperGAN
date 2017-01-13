@@ -105,9 +105,9 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 discriminators = []
 for i in range(1):
-    discriminators.append(pyramid_nostride_discriminator.config(layers=5))
+    discriminators.append(pyramid_nostride_discriminator.config(resize=[64,64], layers=4))
 for i in range(1):
-    discriminators.append(densenet_discriminator.config(resize=[64,64], layers=4))
+    discriminators.append(densenet_discriminator.config(layers=5))
 hc.set("discriminators", [discriminators])
 
 
@@ -350,6 +350,8 @@ def run(args):
             else:
                 graph = create(config,x,y,f)
 
+        if args.config:
+            config['uuid'] = args.config
         #TODO can we not do this?  might need to be after hc.io refactor
         if('parent_uuid' in config):
             save_file = "~/.hypergan/saves/"+config["parent_uuid"]+".ckpt"
@@ -358,7 +360,6 @@ def run(args):
             save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
         if args.config:
             save_file = "~/.hypergan/saves/"+args.config+".ckpt"
-            config['uuid'] = args.config
 
         samples_path = "~/.hypergan/samples/"+config['uuid']
         save_file = os.path.expanduser(save_file)

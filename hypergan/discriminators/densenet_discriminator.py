@@ -59,9 +59,11 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       if batch_norm is not None:
           net = batch_norm(batch_size*2, name=prefix+'_expand_bn_'+str(i))(net)
       net = activation(net)
+
+      # Progressive enhancement
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
-        xg = tf.concat(0, [xs[i], gs[i]])
+        xg = tf.concat(0, [xs[i-1], gs[i-1]])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev']*(i+1), dtype=root_config['dtype'])
 
         xgs.append(xg)
@@ -76,6 +78,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
           filter_size_h = int(net.get_shape()[2])
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
+
       if i == 0:
           length = 1
       for j in range(length):

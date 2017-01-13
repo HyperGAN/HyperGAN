@@ -27,7 +27,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## 0.6 ~ "MultiGAN" - Experimental
 
-### 0.6.7
+### 0.6.8
 
   * backwards-incompatible fix for `densenet_discriminator`
   * enable `progressive enhancement` for `densenet_discriminator`

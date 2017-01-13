@@ -1,5 +1,3 @@
-from hypergan.gan_graph import *
-
 from hypergan.util.gan_server import *
 from hypergan.util.globals import *
 from hypergan.util.ops import *
@@ -63,7 +61,6 @@ class GAN:
         self.selector = hypergan.config.selector(args)
         self.config = self.selector.random_config()
         self.config.update(config)
-        print("NITIAL", self.config)
         # TODO load / save config?
 
     def frame_sample(self, sample_file, sess, config):
@@ -244,13 +241,15 @@ class GAN:
                 save_file = "~/.hypergan/saves/"+args.config+".ckpt"
                 config['uuid'] = args.config
 
+            self.graph = hypergan.graph.Graph(config)
+
             with tf.device(args.device):
                 y=tf.one_hot(tf.cast(y,tf.int64), config['y_dims'], 1.0, 0.0)
 
                 if(args.method == 'build' or args.method == 'serve'):
-                    graph = create_generator(config,x,y,f)
+                    graph = self.graph.create_generator(x,y,f)
                 else:
-                    graph = create(config,x,y,f)
+                    graph = self.graph.create(x,y,f)
 
             save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
 

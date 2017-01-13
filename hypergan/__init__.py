@@ -1,1 +1,3 @@
-from hypergan.gan import GAN
+import hypergan
+from .gan import GAN
+from .graph import Graph

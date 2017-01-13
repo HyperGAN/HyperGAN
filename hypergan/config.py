@@ -1,7 +1,6 @@
 import hyperchamber as hc
 from hypergan.util.ops import *
 from hypergan.util.globals import *
-from hypergan.gan import *
 from hypergan.util.gan_server import *
 from tensorflow.contrib import ffmpeg
 import hypergan.util.hc_tf as hc_tf

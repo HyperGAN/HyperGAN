@@ -3,49 +3,12 @@ from hypergan.util.ops import *
 from hypergan.util.globals import *
 from hypergan.gan import *
 from hypergan.util.gan_server import *
-from tensorflow.contrib import ffmpeg
-import hypergan.util.hc_tf as hc_tf
-import hypergan.generators.resize_conv as resize_conv
-import hypergan.generators.dense_resize_conv as dense_resize_conv
-import hypergan.generators.resize_conv_extra_layer as resize_conv_extra_layer
-import hypergan.trainers.adam_trainer as adam_trainer
-import hypergan.trainers.rmsprop_trainer as rmsprop_trainer
-import hypergan.trainers.slowdown_trainer as slowdown_trainer
-import hypergan.trainers.sgd_adam_trainer as sgd_adam_trainer
-import hypergan.discriminators.pyramid_discriminator as pyramid_discriminator
-import hypergan.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
-import hypergan.discriminators.slim_stride as slim_stride
-import hypergan.discriminators.densenet_discriminator as densenet_discriminator
-import hypergan.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
-import hypergan.discriminators.painters_discriminator as painters_discriminator
-import hypergan.encoders.random_encoder as random_encoder
-import hypergan.encoders.random_gaussian_encoder as random_gaussian_encoder
-import hypergan.encoders.random_combo_encoder as random_combo_encoder
-import hypergan.encoders.progressive_variational_encoder as progressive_variational_encoder
-import hypergan.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
-import hypergan.samplers.grid_sampler as grid_sampler
-import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
-import hypergan.regularizers.moment_regularizer as moment_regularizer
-import hypergan.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer
-import hypergan.regularizers.l2_regularizer as l2_regularizer
-import json
-import uuid
-import time
 
 import hypergan.loaders.image_loader
 import hypergan.loaders.audio_loader
+import hypergan.samplers.grid_sampler as grid_sampler
 import os
-import sys
-import time
-import numpy as np
-import tensorflow
-import tensorflow as tf
 import copy
-
-import matplotlib
-import matplotlib.pyplot as plt
-
-from tensorflow.python.framework import ops
 
 import importlib
 
@@ -58,19 +21,32 @@ batch_no = 0
 sampled = 0
 
 class GAN:
-    """ GANs (Generative Adversarial Networks) consist of generator(s) and discriminator(s)."""
+    """ 
+    GANs (Generative Adversarial Networks) consist of a generator
+    and discriminator.
+
+    For a great overview, please see:
+
+    NIPS 2016 Tutorial: Generative Adversarial Networks, Ian Goodfellow
+    https://arxiv.org/abs/1701.00160 
+    """
+    
     def __init__(self, config={}):
-        """ Initialized a new GAN.  Any options not specified will be randomly selected. """
+        """ 
+        Initializes a new GAN.  See config.py for default config params.
+        
+        Any config options not specified will be randomly selected. 
+        """
         # TODO Move parsing of cli args?
         args = cli.parse_args()
         self.selector = hypergan.config.selector(args)
         self.config = self.selector.random_config()
         self.config.update(config)
-        print("NITIAL", self.config)
         # TODO load / save config?
 
     def frame_sample(self, sample_file, sess, config):
-        """ Samples every frame to a file.  Useful for visualizing the learning process.
+        """ 
+        Samples every frame to a file.  Useful for visualizing the learning process.
 
         Use with:
 

@@ -16,6 +16,7 @@ import hypergan.discriminators.pyramid_discriminator as pyramid_discriminator
 import hypergan.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
 import hypergan.discriminators.slim_stride as slim_stride
 import hypergan.discriminators.densenet_discriminator as densenet_discriminator
+import hypergan.discriminators.densenet_weighted_discriminator as densenet_weighted_discriminator
 import hypergan.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
 import hypergan.discriminators.fast_strided_discriminator as fast_strided_discriminator
 import hypergan.discriminators.painters_discriminator as painters_discriminator
@@ -106,9 +107,8 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 discriminators = []
 for i in range(1):
-    discriminators.append(pyramid_nostride_discriminator.config(layers=5))
-    discriminators.append(fast_strided_discriminator.config(layers=2))
-    discriminators.append(densenet_discriminator.config(layers=3, resize=[32,32]))
+    discriminators.append(densenet_weighted_discriminator.config(layers=5))
+    #discriminators.append(fast_strided_discriminator.config(layers=2))
 hc.set("discriminators", [discriminators])
 
 
@@ -154,8 +154,8 @@ hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
 #TODO move to minibatch
-hc.set("d_kernels", list(np.arange(10, 20)))
-hc.set("d_kernel_dims", list(np.arange(100, 200)))
+hc.set("d_kernels", list(np.arange(20, 30)))
+hc.set("d_kernel_dims", list(np.arange(200, 300)))
 
 #TODO remove and replace with losses
 hc.set("loss", ['custom'])

@@ -27,30 +27,14 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## 0.6 ~ "MultiGAN" - Experimental
 
-### 0.6.11
+### 0.6.x
 
-  * new discriminator `fast_strided`
-  * faster defaults
-
-### 0.6.8
-
-  * backwards-incompatible fix for `densenet_discriminator`
+  * new defaults
   * enable `progressive enhancement` for `densenet_discriminator`
-
-### 0.6.5
-
   * default to `layer_norm` on discriminators
-  * fix configuration range in `pyramid_no_stride` for new configurations
-
-### 0.6.3
-
   * default to `encode_periodic_gaussian` encoder
   * default to `pyramid_no_stride` discriminator
-
-### 0.6.1
-
- * default to `dense_resize_conv` generator
- * better defaults when creating a new configuration
+  * default to `dense_resize_conv` generator
 
 ### 0.6.0
 

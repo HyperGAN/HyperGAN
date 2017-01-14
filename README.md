@@ -27,7 +27,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## 0.6 ~ "MultiGAN" - Experimental
 
-### 0.6.10
+### 0.6.11
 
   * discriminator `fast_strided`
   * faster defaults

@@ -8,7 +8,7 @@ subpackages = [s.replace("/", ".") for s in subpackages]
 setup(
   name = 'hypergan',
   packages = ['hypergan']+subpackages,
-  version = '0.6.11',
+  version = '0.6.12',
   description = 'A customizable generative adversarial network with good defaults.  Build your own content generator.',
   author = 'Martyn Garcia, Mikkel Garcia',
   author_email = 'mikkel@255bits.com',

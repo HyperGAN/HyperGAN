@@ -29,7 +29,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### 0.6.11
 
-  * discriminator `fast_strided`
+  * new discriminator `fast_strided`
   * faster defaults
 
 ### 0.6.8

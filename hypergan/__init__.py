@@ -76,8 +76,8 @@ hc.set('generator.layer.noise', False) #Adds incremental noise each layer
 hc.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
 hc.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
 
-hc.set('generator.densenet.size', 32)
-hc.set('generator.densenet.layers', 3)
+hc.set('generator.densenet.size', 16)
+hc.set('generator.densenet.layers', 1)
 
 # Trainer configuration
 trainer = adam_trainer # adam works well at 64x64 but doesn't scale

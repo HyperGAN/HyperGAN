@@ -17,6 +17,7 @@ import hypergan.discriminators.pyramid_nostride_discriminator as pyramid_nostrid
 import hypergan.discriminators.slim_stride as slim_stride
 import hypergan.discriminators.densenet_discriminator as densenet_discriminator
 import hypergan.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
+import hypergan.discriminators.fast_strided_discriminator as fast_strided_discriminator
 import hypergan.discriminators.painters_discriminator as painters_discriminator
 import hypergan.encoders.random_encoder as random_encoder
 import hypergan.encoders.random_gaussian_encoder as random_gaussian_encoder
@@ -60,7 +61,7 @@ args = cli.parse_args()
 hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
 
 # Generator configuration
-hc.set("generator.z", 40) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
+hc.set("generator.z", 2) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 
 hc.set("generator", [dense_resize_conv.generator])
 hc.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
@@ -105,9 +106,8 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 discriminators = []
 for i in range(1):
-    discriminators.append(pyramid_nostride_discriminator.config(resize=[64,64], layers=4))
-for i in range(1):
-    discriminators.append(densenet_discriminator.config(layers=5))
+    discriminators.append(pyramid_nostride_discriminator.config(layers=5))
+    discriminators.append(fast_strided_discriminator.config(layers=2))
 hc.set("discriminators", [discriminators])
 
 
@@ -153,8 +153,8 @@ hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
 #TODO move to minibatch
-hc.set("d_kernels", list(np.arange(20, 30)))
-hc.set("d_kernel_dims", list(np.arange(200, 300)))
+hc.set("d_kernels", list(np.arange(10, 20)))
+hc.set("d_kernel_dims", list(np.arange(100, 200)))
 
 #TODO remove and replace with losses
 hc.set("loss", ['custom'])

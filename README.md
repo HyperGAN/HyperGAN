@@ -29,12 +29,11 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### 0.6.x
 
-  * new defaults
-  * enable `progressive enhancement` for `densenet_discriminator`
-  * default to `layer_norm` on discriminators
-  * default to `encode_periodic_gaussian` encoder
-  * default to `pyramid_no_stride` discriminator
-  * default to `dense_resize_conv` generator
+* new defaults
+  * discriminator: use `layer_norm` to help prevent mode collapse
+  * discriminator: enable `progressive enhancement`
+  * encoder: `encode_periodic_gaussian`
+  * generator: `dense_resize_conv`
 
 ### 0.6.0
 
@@ -89,8 +88,16 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ### Install hypergan
 
+
+### Installing 0.6(Experimental):
+
 ```bash
   pip install hypergan --upgrade
+```
+
+### Installing 0.5(Stable)
+```bash
+  pip install hypergan==0.5.8 --upgrade
 ```
 
 <div id='qs-train'/>

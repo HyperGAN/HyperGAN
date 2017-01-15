@@ -107,8 +107,7 @@ hc.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
 discriminators = []
 for i in range(1):
-    discriminators.append(densenet_weighted_discriminator.config(layers=5))
-    #discriminators.append(fast_strided_discriminator.config(layers=2))
+    discriminators.append(pyramid_nostride_discriminator(layers=5))
 hc.set("discriminators", [discriminators])
 
 
@@ -154,8 +153,8 @@ hc.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
 hc.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
 #TODO move to minibatch
-hc.set("d_kernels", list(np.arange(20, 30)))
-hc.set("d_kernel_dims", list(np.arange(200, 300)))
+hc.set("d_kernels", list(np.arange(10, 20)))
+hc.set("d_kernel_dims", list(np.arange(100, 200)))
 
 #TODO remove and replace with losses
 hc.set("loss", ['custom'])

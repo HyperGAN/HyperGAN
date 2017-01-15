@@ -12,9 +12,14 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-devmode">Development Mode</a>
   * <a href="#qs-runoncpu">Running on CPU</a>
 
+* <a href="#datasets">Datasets</a>
+ * <a href="#createdataset">Creating a Dataset</a>
+   * <a href="#supervised-learning">Supervised learning</a>
+   * <a href="#unsupervised-learning">Unsupervised learning</a>
+ * <a href='#downloadabledatasets'>Downloadable Datasets</a>
+
 * <a href="#training">Training</a>
- * <a href="#supervised-learning">Supervised learning</a>
- * <a href="#unsupervised-learning">Unsupervised learning</a>
+ * <a href="#cli-train">Using the CLI</a>
 
 * <a href="#configuration">Configuration</a>
   * <a href="#configuration-usage">Usage</a>
@@ -139,9 +144,8 @@ Make sure to include the following 2 arguments:
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 
-# Training
-
-## hypergan train
+<div id="datasets"/>
+# Datasets
 
 To build a new network you need a dataset.  Your data should be structured like:
 
@@ -149,7 +153,35 @@ To build a new network you need a dataset.  Your data should be structured like:
   [folder]/[directory]/*.png
 ```
 
-If you don't have a dataset, you can use [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html).
+<div id="createdataset"/>
+## Creating a Dataset
+
+<div id='supervised-learning'/>
+
+### Supervised learning
+
+Each directory in your dataset represents a classification.  Using supervised learning mode will turn your `discriminator` into a `classifier`.
+
+<div id='unsupervised-learning'/>
+
+### Unsupervised learning
+
+Same as supervised, except only include 1 directory in your dataset.
+
+<div id='downloadabledatasets'/>
+
+## Downloadable datasets
+
+* CelebA aligned faces http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
+* MS Coco http://mscoco.org/
+* ImageNet http://image-net.org/
+
+<div id='#training'/>
+# Training
+
+<div id='#cli-train'/>
+## Using the CLI
+
 
 ```bash
   # Train a 256x256 gan with batch size 32 on a folder of pngs
@@ -161,17 +193,6 @@ Configs and saves are located in:
 ```bash
   ~/.hypergan/
 ```
-<div id='supervised-learning'/>
-
-## Supervised learning
-
-Each directory in your dataset represents a classification.  Using supervised learning mode will turn your `discriminator` into a `classifier`.
-
-<div id='unsupervised-learning'/>
-
-## Unsupervised learning
-
-Same as supervised, except only include 1 directory in your dataset.
 
 <div id='configuration'/>
 
@@ -328,7 +349,7 @@ A single fully trained `GAN` consists of the following useful networks:
 
 * `generator` - Generates content that fools the `discriminator`.
 * `discriminator` - Gives a value between 0 and 1 designating how `real` the input data is.
-* `classifier` - Similar to a normal softmax classifier, has certain advantages.
+* `classifier` - Only available with supervised learning mode.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
 
 HyperGAN is currently in open beta.
 

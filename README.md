@@ -79,11 +79,11 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 <div id='quickstart'/>
 
-## Quick start
+# Quick start
 
 <div id='minreqs'/>
 
-### Minimum requirements
+## Minimum requirements
 
 1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
 2. CPU mode is _extremely_ slow.  Never train with it!
@@ -91,7 +91,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 <div id='qs-install'/>
 
-### Install hypergan
+## Install hypergan
 
 
 ### Installing 0.6(Experimental):
@@ -107,7 +107,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 <div id='qs-train'/>
 
-### Train
+## Train
 
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of pngs
@@ -125,7 +125,7 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
 ```
 
 <div id='qs-devmode'/>
-### Development mode
+## Development mode
 
 If you wish to modify hypergan
 
@@ -136,7 +136,7 @@ python3 setup.py develop
 ```
 
 <div id='qs-runoncpu'/>
-### Running on CPU
+## Running on CPU
 
 Make sure to include the following 2 arguments:
 
@@ -164,13 +164,11 @@ Training with labels allows you to train a `classifier`.
 
 Each directory in your dataset represents a classification.  
 
-<div style='background-color: #aaa; border: 1px solid black; margin-left: 10px;'>
 Example:  Dataset setup for classification of apple and orange images:
 ```
  /dataset/apples
  /dataset/oranges
 ```
-</div>
 
 <div id='unsupervised-learning'/>
 

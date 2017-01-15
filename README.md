@@ -13,9 +13,9 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-runoncpu">Running on CPU</a>
 
 * <a href="#datasets">Datasets</a>
+ * <a href="#supervised-learning">Supervised learning</a>
+ * <a href="#unsupervised-learning">Unsupervised learning</a>
  * <a href="#createdataset">Creating a Dataset</a>
-   * <a href="#supervised-learning">Supervised learning</a>
-   * <a href="#unsupervised-learning">Unsupervised learning</a>
  * <a href='#downloadabledatasets'>Downloadable Datasets</a>
 
 * <a href="#training">Training</a>
@@ -158,15 +158,30 @@ To build a new network you need a dataset.  Your data should be structured like:
 
 <div id='supervised-learning'/>
 
-### Supervised learning
+## Supervised learning
 
-Each directory in your dataset represents a classification.  Using supervised learning mode will turn your `discriminator` into a `classifier`.
+Training with labels allows you to train a `classifier`.
+
+Each directory in your dataset represents a classification.  
+
+<div style='background-color: #aaa; border: 1px solid black; margin-left: 10px;'>
+Example:  Dataset setup for classification of apple and orange images:
+```
+ /dataset/apples
+ /dataset/oranges
+```
+</div>
 
 <div id='unsupervised-learning'/>
 
-### Unsupervised learning
+## Unsupervised learning
 
-Same as supervised, except only include 1 directory in your dataset.
+You can still build a GAN if your dataset is unlabelled.  Just make sure your folder is formatted like
+
+```
+ [folder]/[directory]/*.png
+```
+where all files are in 1 directory.
 
 <div id='downloadabledatasets'/>
 

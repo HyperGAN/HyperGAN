@@ -14,10 +14,12 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 * <a href="#datasets">Datasets</a>
  * <a href="#createdataset">Creating a Dataset</a>
+   * <a href="#supervised-learning">Supervised learning</a>
+   * <a href="#unsupervised-learning">Unsupervised learning</a>
+ * <a href='#downloadabledatasets'>Downloadable Datasets</a>
 
 * <a href="#training">Training</a>
- * <a href="#supervised-learning">Supervised learning</a>
- * <a href="#unsupervised-learning">Unsupervised learning</a>
+ * <a href="#cli-train">Using the CLI</a>
 
 * <a href="#configuration">Configuration</a>
   * <a href="#configuration-usage">Usage</a>
@@ -142,13 +144,14 @@ Make sure to include the following 2 arguments:
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 
+<div id="datasets"/>
+# Datasets
+
 To build a new network you need a dataset.  Your data should be structured like:
 
 ``` 
   [folder]/[directory]/*.png
 ```
-
-If you don't have a dataset, you can use [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html).
 
 <div id="createdataset"/>
 ## Creating a Dataset
@@ -165,10 +168,19 @@ Each directory in your dataset represents a classification.  Using supervised le
 
 Same as supervised, except only include 1 directory in your dataset.
 
+<div id='downloadabledatasets'/>
 
+## Downloadable datasets
+
+* CelebA aligned faces http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
+* MS Coco http://mscoco.org/
+* ImageNet http://image-net.org/
+
+<div id='#training'/>
 # Training
 
-## hypergan train
+<div id='#cli-train'/>
+## Using the CLI
 
 
 ```bash

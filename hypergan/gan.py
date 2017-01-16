@@ -52,8 +52,6 @@ import uuid
 batch_no = 0
 sampled = 0
 
-from IPython import embed
-
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of generator(s) and discriminator(s)."""
     def __init__(self, config={}, args={}):
@@ -269,6 +267,7 @@ class GAN:
 
         self.init_session(args.device)
 
+        self.config['batch_size']=args.batch_size
         x,y,f,num_labels,examples_per_epoch = self.setup_loader(
                 args.format,
                 args.directory,
@@ -283,7 +282,6 @@ class GAN:
         self.config['y_dims']=num_labels
         self.config['x_dims']=[height,width] #todo can we remove this?
         self.config['channels']=channels
-        self.config['batch_size']=args.batch_size
         config = self.config
 
         if args.config is None:

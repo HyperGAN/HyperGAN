@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from hypergan.util.hc_tf import *
 
-def generator(config, net):
+def generator(config, net, z):
     depth=0
     w=int(net.get_shape()[1])
     target_w=int(config['x_dims'][0])

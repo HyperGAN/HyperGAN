@@ -7,6 +7,7 @@ from tensorflow.python.framework import ops
 import copy
 
 import hyperchamber as hc
+
 import hypergan.cli as cli
 import hypergan.config
 import hypergan.discriminators.densenet_discriminator as densenet_discriminator
@@ -312,5 +313,3 @@ class GAN:
 
                 tf.reset_default_graph()
                 sess.close()
-
-

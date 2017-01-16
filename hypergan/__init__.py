@@ -12,6 +12,7 @@ def load(name):
     channels = int(args.size.split("x")[2])
     width = int(args.size.split("x")[0])
     height = int(args.size.split("x")[1])
+    gan.init_session(args.device)
     #TODO input system management?
     x,y,f,num_labels,examples_per_epoch = gan.setup_loader(
             args.format,
@@ -32,6 +33,7 @@ def load(name):
     gan.config['batch_size']=args.batch_size
     gan.config['dtype']=tf.float32
     graph = gan.create_graph(x, y, f, 'full', args.device)
+    #TODO loading
 
     return gan
 

@@ -83,6 +83,9 @@ class GAN:
 
         frame_sampler(sample_file, sess, config)
 
+    def sample_file(self, name, sampler=grid_sampler):
+        sampler.sample(name, self.sess, self.config)
+
     def epoch(self, sess, config):
         batch_size = config["batch_size"]
         n_samples =  config['examples_per_epoch']
@@ -245,6 +248,13 @@ class GAN:
                         height=height)
 
 
+                
+
+    def init_session(self, device):
+        # Initialize tensorflow
+        with tf.device(device):
+            self.sess = tf.Session(config=tf.ConfigProto())
+
     def run(self):
         args = self.args
         crop = args.crop
@@ -254,12 +264,10 @@ class GAN:
         loadedFromSave = False
 
         print("[hypergan] Welcome back.  You are one of ", self.selector.count_configs(), " possible configurations.")
-        self.load_config(args.config)
+        self.load_config(args.config) #TODO why ?
         self.config = self.selector.random_config()
 
-        # Initialize tensorflow
-        with tf.device(args.device):
-            sess = tf.Session(config=tf.ConfigProto())
+        self.init_session(args.device)
 
         x,y,f,num_labels,examples_per_epoch = self.setup_loader(
                 args.format,

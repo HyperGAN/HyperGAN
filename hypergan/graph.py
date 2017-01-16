@@ -4,6 +4,7 @@ from hypergan.util.hc_tf import *
 import tensorflow as tf
 import hypergan.util.wavegan as wavegan
 import hyperchamber as hc
+
 TINY = 1e-12
 
 class Graph:
@@ -152,6 +153,7 @@ class Graph:
     def create(self, x,y,f):
         config = self.config
         # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
+        # TODO refactor
         set_ops_globals(config['dtype'], config['batch_size'])
 
         batch_size = config["batch_size"]

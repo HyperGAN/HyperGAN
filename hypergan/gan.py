@@ -23,8 +23,8 @@ import hypergan.encoders.random_gaussian_encoder as random_gaussian_encoder
 import hypergan.generators.dense_resize_conv as dense_resize_conv
 import hypergan.generators.resize_conv as resize_conv
 import hypergan.generators.resize_conv_extra_layer as resize_conv_extra_layer
-import hypergan.loaders.audio_loader
-import hypergan.loaders.image_loader
+import hypergan.loaders.audio_loader as audio_loader
+import hypergan.loaders.image_loader as image_loader
 import hypergan.regularizers.l2_regularizer as l2_regularizer
 import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import hypergan.regularizers.moment_regularizer as moment_regularizer
@@ -192,9 +192,61 @@ class GAN:
         size = sum([s[1] for s in sizes])
         print("[hypergan] Size of all variables:", size)
 
-    def run(self):
+    def load_config(self, name):
+        config = self.config
+        if config is not None:
+            other_config = copy.copy(dict(self.config))
+            # load_saved_checkpoint(config)
+            print("[hypergan] Creating or loading configuration in ~/.hypergan/configs/", name)
 
-        # TODO this doesn't belong here
+            config_path = os.path.expanduser('~/.hypergan/configs/'+name+'.json')
+            print("Loading "+config_path)
+            config = self.selector.load_or_create_config(config_path, config)
+
+        config = self.lookup_functions(config)
+        self.config = config
+        return self.config
+
+    def create_graph(self, x, y, f, graph_type, device):
+        self.graph = hypergan.graph.Graph(self.config)
+
+        with tf.device(device):
+            y=tf.cast(y,tf.int64)
+            y=tf.one_hot(y, self.config['y_dims'], 1.0, 0.0)
+
+            if graph_type == 'full':
+                graph = self.graph.create(x,y,f)
+            elif graph_type == 'generator':
+                graph = self.graph.create_generator(x,y,f)
+            else:
+                raise Exception("Invalid graph type")
+
+        return self.graph
+
+    def setup_loader(self, format, directory, device, seconds=None,
+            bitrate=None, crop=False, width=None, height=None, channels=3):
+        with tf.device('/cpu:0'):
+            #TODO mp3 braken
+            if(format == 'mp3'):
+                return audio_loader.mp3_tensors_from_directory(
+                        directory,
+                        self.config['batch_size'],
+                        seconds=seconds,
+                        channels=channels,
+                        bitrate=bitrate,
+                        format=format)
+            else:
+                return image_loader.labelled_image_tensors_from_directory(
+                        directory,
+                        self.config['batch_size'], 
+                        channels=channels, 
+                        format=format,
+                        crop=crop,
+                        width=width,
+                        height=height)
+
+
+    def run(self):
         args = cli.parse_args()
         crop = args.crop
         channels = int(args.size.split("x")[2])
@@ -203,113 +255,101 @@ class GAN:
         loadedFromSave = False
 
         print("[hypergan] Welcome back.  You are one of ", self.selector.count_configs(), " possible configurations.")
-        for config in [self.config]:
-            other_config = copy.copy(config)
-            # load_saved_checkpoint(config)
-            if(args.config):
-                print("[hypergan] Creating or loading configuration in ~/.hypergan/configs/", args.config)
+        self.load_config(args.config)
+        self.config = self.selector.random_config()
 
-                config_path = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
-                print("Loading "+config_path)
-                config = self.selector.load_or_create_config(config_path, config)
+        # Initialize tensorflow
+        with tf.device(args.device):
+            sess = tf.Session(config=tf.ConfigProto())
 
-            config = self.lookup_functions(config)
-            config['batch_size']=args.batch_size
+        x,y,f,num_labels,examples_per_epoch = self.setup_loader(
+                args.format,
+                args.directory,
+                args.device,
+                seconds=None,
+                bitrate=None,
+                width=width,
+                height=height,
+                channels=channels,
+                crop=crop
+        )
+        self.config['y_dims']=num_labels
+        self.config['x_dims']=[height,width] #todo can we remove this?
+        self.config['channels']=channels
+        self.config['batch_size']=args.batch_size
+        config = self.config
 
-            config['dtype']=other_config['dtype']#TODO: add this as a CLI argument, i.e "-e 'dtype=function:tf.float16'"
+        if args.config is None:
+            filename = '~/.hypergan/configs/'+config['uuid']+'.json'
+            print("[hypergan] saving network configuration to: " + filename)
+            config = self.selector.load_or_create_config(filename, config)
+        else:
+            save_file = "~/.hypergan/saves/"+args.config+".ckpt"
+            config['uuid'] = args.config
 
-            # Initialize tensorflow
-            with tf.device(args.device):
-                sess = tf.Session(config=tf.ConfigProto())
+        save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
+        samples_path = "~/.hypergan/samples/"+config['uuid']
+        save_file = os.path.expanduser(save_file)
+        os.makedirs(os.path.dirname(save_file), exist_ok=True)
+        os.makedirs(os.path.expanduser(samples_path), exist_ok=True)
+        build_file = os.path.expanduser("~/.hypergan/builds/"+config['uuid']+"/generator.ckpt")
+        os.makedirs(os.path.dirname(build_file), exist_ok=True)
 
-            with tf.device('/cpu:0'):
-                #TODO don't branch on format
-                if(args.format == 'mp3'):
-                    x,y, num_labels,examples_per_epoch = hypergan.loaders.audio_loader.mp3_tensors_from_directory(args.directory,config['batch_size'], seconds=args.seconds, channels=channels, bitrate=args.bitrate, format=args.format)
-                    f = None
-                else:
-                    x,y, f, num_labels,examples_per_epoch = hypergan.loaders.image_loader.labelled_image_tensors_from_directory(args.directory,config['batch_size'], channels=channels, format=args.format,crop=crop,width=width,height=height)
+        if(args.method == 'build' or args.method == 'serve'):
+            graph_type = 'generator'
+        else:
+            graph_type = 'full'
 
-            config['y_dims']=num_labels
-            config['x_dims']=[height,width] #TODO can we remove this?
-            config['channels']=channels
+        graph = self.create_graph(x, y, f, graph_type, args.device)
 
-            if args.config is None:
-                filename = '~/.hypergan/configs/'+config['uuid']+'.json'
-                print("[hypergan] Saving network configuration to: " + filename)
-                config = self.selector.load_or_create_config(filename, config)
-            else:
-                save_file = "~/.hypergan/saves/"+args.config+".ckpt"
-                config['uuid'] = args.config
-
-            self.graph = hypergan.graph.Graph(config)
-
-            with tf.device(args.device):
-                y=tf.one_hot(tf.cast(y,tf.int64), config['y_dims'], 1.0, 0.0)
-
-                if(args.method == 'build' or args.method == 'serve'):
-                    graph = self.graph.create_generator(x,y,f)
-                else:
-                    graph = self.graph.create(x,y,f)
-
-            save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
-
-            samples_path = "~/.hypergan/samples/"+config['uuid']
-            save_file = os.path.expanduser(save_file)
-            os.makedirs(os.path.dirname(save_file), exist_ok=True)
-            os.makedirs(os.path.expanduser(samples_path), exist_ok=True)
-            build_file = os.path.expanduser("~/.hypergan/builds/"+config['uuid']+"/generator.ckpt")
-            os.makedirs(os.path.dirname(build_file), exist_ok=True)
-
-
-            print( "Save file", save_file,"\n")
-            #TODO refactor save/load system
-            if args.method == 'serve':
-                print("|= Loading generator from build/")
+        print( "Save file", save_file,"\n")
+        #TODO refactor save/load system
+        if args.method == 'serve':
+            print("|= Loading generator from build/")
+            saver = tf.train.Saver()
+            saver.restore(sess, build_file)
+        elif(save_file and ( os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ))):
+            print(" |= Loading network from "+ save_file)
+            ckpt = tf.train.get_checkpoint_state(os.path.expanduser('~/.hypergan/saves/'))
+            if ckpt and ckpt.model_checkpoint_path:
                 saver = tf.train.Saver()
-                saver.restore(sess, build_file)
-            elif(save_file and ( os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ))):
-                print(" |= Loading network from "+ save_file)
-                ckpt = tf.train.get_checkpoint_state(os.path.expanduser('~/.hypergan/saves/'))
-                if ckpt and ckpt.model_checkpoint_path:
-                    saver = tf.train.Saver()
-                    saver.restore(sess, save_file)
-                    loadedFromSave = True
-                    print("Model loaded")
-                else:
-                    print("No checkpoint file found")
+                saver.restore(sess, save_file)
+                loadedFromSave = True
+                print("Model loaded")
             else:
-                print(" |= Initializing new network")
+                print("No checkpoint file found")
+        else:
+            print(" |= Initializing new network")
+            with tf.device(args.device):
+                init = tf.initialize_all_variables()
+                sess.run(init)
+
+        self.output_graph_size()
+        tf.train.start_queue_runners(sess=sess)
+        testx = sess.run(x)
+
+        if args.method == 'build':
+            saver = tf.train.Saver()
+            saver.save(sess, build_file)
+            print("Saved generator to ", build_file)
+        elif args.method == 'serve':
+            gan_server(sess, config)
+        else:
+            sampled=False
+            print("Running for ", args.epochs, " epochs")
+            for i in range(args.epochs):
+                start_time = time.time()
                 with tf.device(args.device):
-                    init = tf.initialize_all_variables()
-                    sess.run(init)
+                    if(not self.epoch(sess, config)):
+                        print("Epoch failed")
+                        break
+                print("Checking save "+ str(i))
+                if(args.save_every != 0 and i % args.save_every == args.save_every-1):
+                    print(" |= Saving network")
+                    saver = tf.train.Saver()
+                    saver.save(sess, save_file)
+                end_time = time.time()
+                self.test_epoch(i, sess, config, start_time, end_time)
 
-            self.output_graph_size()
-            tf.train.start_queue_runners(sess=sess)
-            testx = sess.run(x)
-
-            if args.method == 'build':
-                saver = tf.train.Saver()
-                saver.save(sess, build_file)
-                print("Saved generator to ", build_file)
-            elif args.method == 'serve':
-                gan_server(sess, config)
-            else:
-                sampled=False
-                print("Running for ", args.epochs, " epochs")
-                for i in range(args.epochs):
-                    start_time = time.time()
-                    with tf.device(args.device):
-                        if(not self.epoch(sess, config)):
-                            print("Epoch failed")
-                            break
-                    print("Checking save "+ str(i))
-                    if(args.save_every != 0 and i % args.save_every == args.save_every-1):
-                        print(" |= Saving network")
-                        saver = tf.train.Saver()
-                        saver.save(sess, save_file)
-                    end_time = time.time()
-                    self.test_epoch(i, sess, config, start_time, end_time)
-
-                tf.reset_default_graph()
-                sess.close()
+            tf.reset_default_graph()
+            sess.close()

@@ -81,6 +81,17 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
 
       if i == 0:
           length = 1
+          size_dense = 16
+      elif i == 1:
+          length = 2
+          size_dense = 16
+      elif i == 2:
+          length = 2
+          size_dense = 24
+      elif i == 3:
+          length = 3
+          size_dense = 32
+
       for j in range(length):
           net_dense = net
           if i > 0:

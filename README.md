@@ -12,9 +12,14 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-devmode">Development Mode</a>
   * <a href="#qs-runoncpu">Running on CPU</a>
 
-* <a href="#training">Training</a>
+* <a href="#datasets">Datasets</a>
  * <a href="#supervised-learning">Supervised learning</a>
  * <a href="#unsupervised-learning">Unsupervised learning</a>
+ * <a href="#createdataset">Creating a Dataset</a>
+ * <a href='#downloadabledatasets'>Downloadable Datasets</a>
+
+* <a href="#training">Training</a>
+ * <a href="#cli-train">Using the CLI</a>
 
 * <a href="#configuration">Configuration</a>
   * <a href="#configuration-usage">Usage</a>
@@ -25,27 +30,17 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## Changelog
 
-### 0.6.6
+## 0.6 ~ "MultiGAN" - Experimental
 
-  * backwards-incompatible fix for `densenet_discriminator`
-  * enable `progressive enhancement` for `densenet_discriminator`
+### 0.6.x
 
-### 0.6.5
+* new defaults
+  * discriminator: use `layer_norm` to help prevent mode collapse
+  * discriminator: enable `progressive enhancement`
+  * encoder: `encode_periodic_gaussian`
+  * generator: `dense_resize_conv`
 
-  * default to `layer_norm` on discriminators
-  * fix configuration range in `pyramid_no_stride` for new configurations
-
-### 0.6.3
-
-  * default to `encode_periodic_gaussian` encoder
-  * default to `pyramid_no_stride` discriminator
-
-### 0.6.1
-
- * default to `dense_resize_conv` generator
- * better defaults when creating a new configuration
-
-### 0.6.0 ~ "MultiGAN"
+### 0.6.0
 
 * 3 new encoders
 * New discriminator: `densenet` - based loosely on https://arxiv.org/abs/1608.06993
@@ -56,6 +51,8 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * Support for multiple discriminators
 * Support for discriminators on different image resolutions
 
+## 0.5 ~ "FaceGAN" - Stable
+
 ### 0.5.x final
 
 * fixed configuration save/load
@@ -64,7 +61,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0-5-6.png'/>
 
-### 0.5.0 ~ "FaceGAN"
+### 0.5.0
 * pip package released!
 * Better defaults.  Good variance.  256x256.  The broken images showed up after training for 5 days.
 
@@ -82,11 +79,11 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 <div id='quickstart'/>
 
-## Quick start
+# Quick start
 
 <div id='minreqs'/>
 
-### Minimum requirements
+## Minimum requirements
 
 1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
 2. CPU mode is _extremely_ slow.  Never train with it!
@@ -94,15 +91,23 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 <div id='qs-install'/>
 
-### Install hypergan
+## Install hypergan
+
+
+### Installing 0.6(Experimental):
 
 ```bash
   pip install hypergan --upgrade
 ```
 
+### Installing 0.5(Stable)
+```bash
+  pip install hypergan==0.5.8 --upgrade
+```
+
 <div id='qs-train'/>
 
-### Train
+## Train
 
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of pngs
@@ -120,7 +125,7 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
 ```
 
 <div id='qs-devmode'/>
-### Development mode
+## Development mode
 
 If you wish to modify hypergan
 
@@ -131,7 +136,7 @@ python3 setup.py develop
 ```
 
 <div id='qs-runoncpu'/>
-### Running on CPU
+## Running on CPU
 
 Make sure to include the following 2 arguments:
 
@@ -139,9 +144,8 @@ Make sure to include the following 2 arguments:
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 
-# Training
-
-## hypergan train
+<div id="datasets"/>
+# Datasets
 
 To build a new network you need a dataset.  Your data should be structured like:
 
@@ -149,7 +153,48 @@ To build a new network you need a dataset.  Your data should be structured like:
   [folder]/[directory]/*.png
 ```
 
-If you don't have a dataset, you can use [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html).
+<div id="createdataset"/>
+## Creating a Dataset
+
+<div id='supervised-learning'/>
+
+## Supervised learning
+
+Training with labels allows you to train a `classifier`.
+
+Each directory in your dataset represents a classification.  
+
+Example:  Dataset setup for classification of apple and orange images:
+```
+ /dataset/apples
+ /dataset/oranges
+```
+
+<div id='unsupervised-learning'/>
+
+## Unsupervised learning
+
+You can still build a GAN if your dataset is unlabelled.  Just make sure your folder is formatted like
+
+```
+ [folder]/[directory]/*.png
+```
+where all files are in 1 directory.
+
+<div id='downloadabledatasets'/>
+
+## Downloadable datasets
+
+* CelebA aligned faces http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
+* MS Coco http://mscoco.org/
+* ImageNet http://image-net.org/
+
+<div id='#training'/>
+# Training
+
+<div id='#cli-train'/>
+## Using the CLI
+
 
 ```bash
   # Train a 256x256 gan with batch size 32 on a folder of pngs
@@ -161,17 +206,6 @@ Configs and saves are located in:
 ```bash
   ~/.hypergan/
 ```
-<div id='supervised-learning'/>
-
-## Supervised learning
-
-Each directory in your dataset represents a classification.  Using supervised learning mode will turn your `discriminator` into a `classifier`.
-
-<div id='unsupervised-learning'/>
-
-## Unsupervised learning
-
-Same as supervised, except only include 1 directory in your dataset.
 
 <div id='configuration'/>
 
@@ -328,7 +362,7 @@ A single fully trained `GAN` consists of the following useful networks:
 
 * `generator` - Generates content that fools the `discriminator`.
 * `discriminator` - Gives a value between 0 and 1 designating how `real` the input data is.
-* `classifier` - Similar to a normal softmax classifier, has certain advantages.
+* `classifier` - Only available with supervised learning mode.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
 
 HyperGAN is currently in open beta.
 

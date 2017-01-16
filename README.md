@@ -429,7 +429,7 @@ For a more in-depth introduction, see here [http://blog.aylien.com/introduction-
 
 A single fully trained `GAN` consists of the following useful networks:
 
-* `generator` - Generates content that fools the `discriminator`.
+* `generator` - Generates content that fools the `discriminator`.  If using supervised learning mode, can generate data on a specific classification.
 * `discriminator` - Gives a value between 0 and 1 designating how `real` the input data is.
 * `classifier` - Only available with supervised learning mode.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
 

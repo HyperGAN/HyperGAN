@@ -1,61 +1,37 @@
-from hypergan.util.gan_server import *
-from hypergan.util.globals import *
-from hypergan.util.ops import *
-
-from tensorflow.python.framework import ops
-
 import copy
 
 import hyperchamber as hc
 import hypergan.cli as cli
-import hypergan.config
-import hypergan.discriminators.densenet_discriminator as densenet_discriminator
-import hypergan.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
-import hypergan.discriminators.painters_discriminator as painters_discriminator
-import hypergan.discriminators.pyramid_discriminator as pyramid_discriminator
-import hypergan.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
-import hypergan.discriminators.slim_stride as slim_stride
-import hypergan.encoders.progressive_variational_encoder as progressive_variational_encoder
-import hypergan.encoders.random_combo_encoder as random_combo_encoder
-import hypergan.encoders.random_encoder as random_encoder
-import hypergan.encoders.random_gaussian_encoder as random_gaussian_encoder
-import hypergan.generators.dense_resize_conv as dense_resize_conv
-import hypergan.generators.resize_conv as resize_conv
-import hypergan.generators.resize_conv_extra_layer as resize_conv_extra_layer
-import hypergan.loaders.audio_loader
-import hypergan.loaders.image_loader
-import hypergan.regularizers.l2_regularizer as l2_regularizer
-import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
-import hypergan.regularizers.moment_regularizer as moment_regularizer
-import hypergan.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer
 import hypergan.samplers.grid_sampler as grid_sampler
-import hypergan.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
-import hypergan.trainers.adam_trainer as adam_trainer
-import hypergan.trainers.rmsprop_trainer as rmsprop_trainer
-import hypergan.trainers.sgd_adam_trainer as sgd_adam_trainer
-import hypergan.trainers.slowdown_trainer as slowdown_trainer
-import hypergan.util.hc_tf as hc_tf
+import hypergan.config
 
 import importlib
-import json
-import matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
 import os
-import sys
-import tensorflow
 import tensorflow as tf
-import time
-import time
-import uuid
+
+import hypergan.globals.get_tensor as get_tensor
+import hypergan.globals.prelu as prelu
 
 batch_no = 0
 sampled = 0
 
+
 class GAN:
-    """ GANs (Generative Adversarial Networks) consist of generator(s) and discriminator(s)."""
+    """
+    GANs (Generative Adversarial Networks) consist of a generator
+    and discriminator.
+
+    For an overview, please see:
+
+    NIPS 2016 Tutorial: Generative Adversarial Networks, Ian Goodfellow
+    https://arxiv.org/abs/1701.00160
+    """
     def __init__(self, config={}):
-        """ Initialized a new GAN.  Any options not specified will be randomly selected. """
+        """
+        Initializes a new GAN.  See config.py for default config params.
+
+        Any config options not specified will be randomly selected.
+        """
         # TODO Move parsing of cli args?
         args = cli.parse_args()
         self.selector = hypergan.config.selector(args)
@@ -64,17 +40,21 @@ class GAN:
         # TODO load / save config?
 
     def frame_sample(self, sample_file, sess, config):
-        """ Samples every frame to a file.  Useful for visualizing the learning process.
+        """
+        Samples every frame to a file.  Useful for visualizing the learning
+        process.
 
         Use with:
-
-             ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 grid1-7.mp4
+        ```bash
+            ffmpeg -i samples/grid-%06d.png -vcodec libx264 \\
+                    -crf 22 -threads 0 grid1-7.mp4
+        ```
 
         to create a video of the learning process.
         """
 
         args = cli.parse_args()
-        if(args.frame_sample == None):
+        if(args.frame_sample is None):
             return None
         if(args.frame_sample == "grid"):
             frame_sampler = grid_sampler.sample
@@ -85,38 +65,28 @@ class GAN:
 
     def epoch(self, sess, config):
         batch_size = config["batch_size"]
-        n_samples =  config['examples_per_epoch']
+        n_samples = config['examples_per_epoch']
         total_batch = int(n_samples / batch_size)
         global sampled
         global batch_no
         for i in range(total_batch):
             if(i % 10 == 1):
-                sample_file="samples/grid-%06d.png" % (sampled)
+                sample_file = "samples/grid-%06d.png" % (sampled)
                 self.frame_sample(sample_file, sess, config)
                 sampled += 1
 
-
             d_loss, g_loss = config['trainer.train'](sess, config)
 
-            #if(i > 10):
-            #    if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
-            #        return False
-
-            #    g = get_tensor('g')
-            #    rX = sess.run([g[-1]])
-            #    rX = np.array(rX)
-            #    if(np.min(rX) < -1000 or np.max(rX) > 1000):
-            #        return False
-        batch_no+=1
+        batch_no += 1
         return True
 
     def test_config(self, sess, config):
         batch_size = config["batch_size"]
-        n_samples =  batch_size*10
+        n_samples = batch_size * 10
         total_batch = int(n_samples / batch_size)
         results = []
         for i in range(total_batch):
-            results.append(test(sess, config))
+            results.append(self.test(sess, config))
         return results
 
     def collect_measurements(self, epoch, sess, config, time):
@@ -127,7 +97,10 @@ class GAN:
         d_class_loss = get_tensor("d_class_loss")
         simple_g_loss = get_tensor("g_loss_sig")
 
-        gl, dl, dlr, dlf, dcl,sgl = sess.run([g_loss, d_loss, d_loss_real, d_loss_fake, d_class_loss, simple_g_loss])
+        gl, dl, dlr, dlf, dcl, sgl = sess.run([
+            g_loss, d_loss, d_loss_real, d_loss_fake,
+            d_class_loss, simple_g_loss
+        ])
         return {
                 "g_loss": gl,
                 "g_loss_sig": sgl,
@@ -140,16 +113,15 @@ class GAN:
                 }
 
     def test_epoch(self, epoch, sess, config, start_time, end_time):
-        sample = []
-        sample_list = config['sampler'](sess,config)
-        measurements = self.collect_measurements(epoch, sess, config, end_time - start_time)
+        sample_list = config['sampler'](sess, config)
+        delta_t = end_time - start_time
+        measurements = self.collect_measurements(epoch, sess, config, delta_t)
         args = cli.parse_args()
         if args.use_hc_io:
             hc.io.measure(config, measurements)
             hc.io.sample(config, sample_list)
         else:
             print("Offline sample created:", sample_list)
-
 
     # This looks up a function by name.   Should it be part of hyperchamber?
     def get_function(self, name):
@@ -161,25 +133,29 @@ class GAN:
         namespaced_method = name.split(":")[1]
         method = namespaced_method.split(".")[-1]
         namespace = ".".join(namespaced_method.split(".")[0:-1])
-        return getattr(importlib.import_module(namespace),method)
+        return getattr(importlib.import_module(namespace), method)
 
-    # Take a config and replace any string starting with 'function:' with a function lookup.
+    # Take a config and replace any string starting with
+    # 'function:' with a function lookup.
     def lookup_functions(self, config):
         for key, value in config.items():
             if(isinstance(value, str) and value.startswith("function:")):
-                config[key]=self.get_function(value)
-            if(isinstance(value, list) and len(value) > 0 and isinstance(value[0],str) and value[0].startswith("function:")):
-                config[key]=[self.get_function(v) for v in value]
+                config[key] = self.get_function(value)
+            if(isinstance(value, list)
+                    and len(value) > 0
+                    and isinstance(value[0], str)
+                    and value[0].startswith("function:")):
+                config[key] = [self.get_function(v) for v in value]
 
         return config
-
 
     def output_graph_size(self):
         def mul(s):
             x = 1
             for y in s:
-                x*=y
+                x *= y
             return x
+
         def get_size(v):
             shape = [int(x) for x in v.get_shape()]
             size = mul(shape)
@@ -201,21 +177,26 @@ class GAN:
         height = int(args.size.split("x")[1])
         loadedFromSave = False
 
-        print("[hypergan] Welcome back.  You are one of ", self.selector.count_configs(), " possible configurations.")
+        print("[hypergan] Welcome back.  You are one of ",
+              self.selector.count_configs(), " possible configurations.")
         for config in [self.config]:
             other_config = copy.copy(config)
             # load_saved_checkpoint(config)
             if(args.config):
-                print("[hypergan] Creating or loading configuration in ~/.hypergan/configs/", args.config)
+                print("[hypergan] Creating or loading configuration in ",
+                      "~/.hypergan/configs/",
+                      args.config)
 
-                config_path = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
+                config_path = '~/.hypergan/configs/'+args.config+'.json'
+                config_path = os.path.expanduser(config_path)
                 print("Loading "+config_path)
-                config = self.selector.load_or_create_config(config_path, config)
+                config = self.selector.load_or_create_config(config_path,
+                                                             config)
 
             config = self.lookup_functions(config)
-            config['batch_size']=args.batch_size
+            config['batch_size'] = args.batch_size
 
-            config['dtype']=other_config['dtype']#TODO: add this as a CLI argument, i.e "-e 'dtype=function:tf.float16'"
+            config['dtype'] = other_config['dtype']#TODO: add this as a CLI argument, i.e "-e 'dtype=function:tf.float16'"
 
             # Initialize tensorflow
             with tf.device(args.device):

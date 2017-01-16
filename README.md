@@ -24,6 +24,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href='#api-generator'>Generator</a>
  * <a href='#api-discriminator'>Discriminator(s)</a>
  * <a href='#api-classifier'>Classifier</a>
+ * <a href='#api-training'>Training</a>
 
 * <a href="#datasets">Datasets</a>
  * <a href="#supervised-learning">Supervised learning</a>
@@ -202,6 +203,50 @@ Naming a configuration during training is recommended.  If your config is not na
 To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on CPU</a>.
 
 
+
+<div id="api"/>
+# API
+
+```python3
+  import hypergan as hg
+```
+
+<div id='api-generator'/>
+## Generator API
+
+```python3
+  gan = hg.load("name")
+  data = gan.generate(label) # label is optional
+```
+
+TODO `label` for supervised learning
+TODO what is data
+
+<div id='api-discriminator'/>
+## Discriminator API
+
+```python3
+  gan = hg.load("name")
+  gan.discriminate(data) # returns a float between 0 and 1
+```
+
+TODO what is data?
+
+ <div id='api-classifier'/>
+## Classifier API
+
+```python3
+  gan = hg.load("name")
+  gan.classify(data) # returns a one-hot vector?
+```
+
+<div id='api-training'/>
+## Training API
+
+```python3
+  gan = hg.load("name")
+  gan.train(epochs=1000)
+```
 
 <div id="datasets"/>
 # Datasets

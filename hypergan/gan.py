@@ -8,7 +8,6 @@ import copy
 
 import hyperchamber as hc
 
-import hypergan.cli as cli
 import hypergan.config
 import hypergan.discriminators.densenet_discriminator as densenet_discriminator
 import hypergan.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
@@ -53,12 +52,13 @@ import uuid
 batch_no = 0
 sampled = 0
 
+from IPython import embed
+
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of generator(s) and discriminator(s)."""
-    def __init__(self, config={}):
+    def __init__(self, config={}, args={}):
         """ Initialized a new GAN.  Any options not specified will be randomly selected. """
-        # TODO Move parsing of cli args?
-        args = cli.parse_args()
+        self.args = args
         self.selector = hypergan.config.selector(args)
         self.config = self.selector.random_config()
         self.config.update(config)
@@ -74,7 +74,6 @@ class GAN:
         to create a video of the learning process.
         """
 
-        args = cli.parse_args()
         if(args.frame_sample == None):
             return None
         if(args.frame_sample == "grid"):
@@ -247,7 +246,7 @@ class GAN:
 
 
     def run(self):
-        args = cli.parse_args()
+        args = self.args
         crop = args.crop
         channels = int(args.size.split("x")[2])
         width = int(args.size.split("x")[0])

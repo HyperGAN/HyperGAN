@@ -3,6 +3,8 @@
 import sys, os
 
 import hypergan as hg
+import hypergan.cli as cli
 
-gan = hg.GAN()
-gan.run() 
+args = cli.parse_args()
+gan = hg.GAN(args=args)
+gan.run()

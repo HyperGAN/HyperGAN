@@ -115,8 +115,6 @@ def selector(args):
     selector.set("latent_loss", [False])
     selector.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 
-    selector.set("batch_size", args.batch_size)
-
     return selector
 
 def random(args):

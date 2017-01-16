@@ -72,14 +72,14 @@ class GAN:
         to create a video of the learning process.
         """
 
-        if(args.frame_sample == None):
+        if(self.args.frame_sample == None):
             return None
-        if(args.frame_sample == "grid"):
+        if(self.args.frame_sample == "grid"):
             frame_sampler = grid_sampler.sample
         else:
             raise "Cannot find frame sampler: '"+args.frame_sample+"'"
 
-        frame_sampler(sample_file, sess, config)
+        frame_sampler(sample_file, self.sess, config)
 
     def sample_file(self, name, sampler=grid_sampler):
         sampler.sample(name, self.sess, self.config)
@@ -144,8 +144,7 @@ class GAN:
         sample = []
         sample_list = config['sampler'](sess,config)
         measurements = self.collect_measurements(epoch, sess, config, end_time - start_time)
-        args = cli.parse_args()
-        if args.use_hc_io:
+        if self.args.use_hc_io:
             hc.io.measure(config, measurements)
             hc.io.sample(config, sample_list)
         else:
@@ -200,7 +199,6 @@ class GAN:
             print("[hypergan] Creating or loading configuration in ~/.hypergan/configs/", name)
 
             config_path = os.path.expanduser('~/.hypergan/configs/'+name+'.json')
-            print("Loading "+config_path)
             config = self.selector.load_or_create_config(config_path, config)
 
         config = self.lookup_functions(config)
@@ -262,8 +260,10 @@ class GAN:
         loadedFromSave = False
 
         print("[hypergan] Welcome back.  You are one of ", self.selector.count_configs(), " possible configurations.")
-        self.load_config(args.config) #TODO why ?
+
         self.config = self.selector.random_config()
+        self.load_config(args.config)
+        self.config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
 
         self.init_session(args.device)
 
@@ -312,13 +312,13 @@ class GAN:
         if args.method == 'serve':
             print("|= Loading generator from build/")
             saver = tf.train.Saver()
-            saver.restore(sess, build_file)
+            saver.restore(self.sess, build_file)
         elif(save_file and ( os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ))):
             print(" |= Loading network from "+ save_file)
             ckpt = tf.train.get_checkpoint_state(os.path.expanduser('~/.hypergan/saves/'))
             if ckpt and ckpt.model_checkpoint_path:
                 saver = tf.train.Saver()
-                saver.restore(sess, save_file)
+                saver.restore(self.sess, save_file)
                 loadedFromSave = True
                 print("Model loaded")
             else:
@@ -327,34 +327,34 @@ class GAN:
             print(" |= Initializing new network")
             with tf.device(args.device):
                 init = tf.initialize_all_variables()
-                sess.run(init)
+                self.sess.run(init)
 
         self.output_graph_size()
-        tf.train.start_queue_runners(sess=sess)
-        testx = sess.run(x)
+        tf.train.start_queue_runners(sess=self.sess)
+        testx = self.sess.run(x)
 
         if args.method == 'build':
             saver = tf.train.Saver()
-            saver.save(sess, build_file)
+            saver.save(self.sess, build_file)
             print("Saved generator to ", build_file)
         elif args.method == 'serve':
-            gan_server(sess, config)
+            gan_server(self.sess, config)
         else:
             sampled=False
             print("Running for ", args.epochs, " epochs")
             for i in range(args.epochs):
                 start_time = time.time()
                 with tf.device(args.device):
-                    if(not self.epoch(sess, config)):
+                    if(not self.epoch(self.sess, config)):
                         print("Epoch failed")
                         break
                 print("Checking save "+ str(i))
                 if(args.save_every != 0 and i % args.save_every == args.save_every-1):
                     print(" |= Saving network")
                     saver = tf.train.Saver()
-                    saver.save(sess, save_file)
+                    saver.save(self.sess, save_file)
                 end_time = time.time()
-                self.test_epoch(i, sess, config, start_time, end_time)
+                self.test_epoch(i, self.sess, config, start_time, end_time)
 
             tf.reset_default_graph()
-            sess.close()
+            self.sess.close()

@@ -8,7 +8,7 @@ import hyperchamber as hc
 def config(resize=None, layers=None):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
-    selector.set('regularizer', [batch_norm_1]) # Size of fully connected layers
+    selector.set('regularizer', [layer_norm_1]) # Size of fully connected layers
 
     if layers == None:
         layers = [5]
@@ -60,15 +60,15 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
           net = batch_norm(batch_size*2, name=prefix+'_expand_bn_'+str(i))(net)
       net = activation(net)
       # APPEND xs[i] and gs[i]
-      #if(i < len(xs) and i > 0):
-      #  xg = tf.concat(0, [xs[i], gs[i]])
-      #  xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev']*(i+1), dtype=config['dtype'])
+      if(i < len(xs) and i > 0):
+        xg = tf.concat(0, [xs[i], gs[i]])
+        xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev']*(i+1), dtype=root_config['dtype'])
 
-      #  xgs.append(xg)
+        xgs.append(xg)
   
-      #  s = [int(x) for x in xg.get_shape()]
+        s = [int(x) for x in xg.get_shape()]
 
-      #  net = tf.concat(3, [net, xg])
+        net = tf.concat(3, [net, xg])
       filter_size_w = 2
       filter_size_h = 2
       if i == depth-1:
@@ -87,7 +87,10 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
           newnet = conv2d(net_dense, size_dense, name=prefix+'_expand_layear'+str(i*10+j), k_w=3, k_h=3, d_h=1, d_w=1)
           net = tf.concat(3, [net, newnet])
 
-
+      net = activation(net)
+      if batch_norm is not None:
+        net = batch_norm(batch_size*2, name=prefix+'_conv2d_bn'+str(i))(net)
+      net = conv2d(net, net.get_shape()[3], name=prefix+'_conv2d'+str(i), k_w=1, k_h=1, d_h=1, d_w=1)
       net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)

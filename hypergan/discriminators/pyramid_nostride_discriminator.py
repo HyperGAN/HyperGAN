@@ -9,12 +9,12 @@ import os
 def config(resize=None, layers=None):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
-    selector.set('regularizer', [batch_norm_1]) # Size of fully connected layers
+    selector.set('regularizer', [layer_norm_1]) # Size of fully connected layers
 
     if layers == None:
         layers = [4,5,3]
     selector.set("layers", layers) #Layers in D
-    selector.set("depth_increase", [1,2,4])# Size increase of D's features on each layer
+    selector.set("depth_increase", [2])# Size increase of D's features on each layer
 
     selector.set('add_noise', [True]) #add noise to input
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0

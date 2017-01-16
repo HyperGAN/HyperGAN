@@ -4,6 +4,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 # Table of contents
 
 * <a href="#changelog">Changelog</a>
+
 * <a href="#quickstart">Quick start</a>
   * <a href="#minreqs">Minimum Requirements</a>
   * <a href="#qs-install">Install</a>
@@ -12,13 +13,10 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-devmode">Development Mode</a>
   * <a href="#qs-runoncpu">Running on CPU</a>
 
-* <a href="#datasets">Datasets</a>
- * <a href="#supervised-learning">Supervised learning</a>
- * <a href="#unsupervised-learning">Unsupervised learning</a>
- * <a href="#createdataset">Creating a Dataset</a>
- * <a href='#downloadabledatasets'>Downloadable Datasets</a>
+* <a href="#configuration">Configuration</a>
+  * <a href="#configuration-usage">Usage</a>
 
-* <a href="#cli">Using the CLI</a>
+* <a href="#cli">The pip package `hypergan`</a>
  * <a href="#cli-train">Training</a>
  * <a href="#cli-sample">Sampling</a>
 
@@ -27,10 +25,15 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href='#api-discriminator'>Discriminator(s)</a>
  * <a href='#api-classifier'>Classifier</a>
 
-* <a href="#configuration">Configuration</a>
-  * <a href="#configuration-usage">Usage</a>
-  
+* <a href="#datasets">Datasets</a>
+ * <a href="#supervised-learning">Supervised learning</a>
+ * <a href="#unsupervised-learning">Unsupervised learning</a>
+ * <a href="#createdataset">Creating a Dataset</a>
+ * <a href='#downloadabledatasets'>Downloadable Datasets</a>
+ 
 * <a href="#about">About</a>
+
+ 
 
 <div id="changelog"></div>
 
@@ -130,6 +133,7 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
   LD_PRELOAD="/usr/lib/libtcmalloc.so.4" hypergan train my_dataset
 ```
 
+
 <div id='qs-devmode'/>
 ## Development mode
 
@@ -149,6 +153,55 @@ Make sure to include the following 2 arguments:
 ```bash
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
+
+<div id='configuration'/>
+
+# Configuration
+
+Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
+
+Configurations are located in:
+
+```bash
+  ~/.hypergan/configs/
+```
+
+<div id='configuration-usage'/>
+
+## Usage
+
+```bash
+  --config [name]
+```
+
+Naming a configuration during training is recommended.  If your config is not named, a uuid will be used.
+
+<div id='#cli'/>
+# CLI
+
+```bash
+ hypergan -h
+```
+
+<div id='#cli-train'/>
+## Training
+
+```bash
+  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
+```
+
+<div id='#cli-sample'/>
+## Sampling
+
+```bash
+  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  hypergan serve [folder] -s 32x32x3 -f png -b 32 --config [name]
+```
+
+To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on CPU</a>.
+
+
 
 <div id="datasets"/>
 # Datasets
@@ -194,50 +247,6 @@ where all files are in 1 directory.
 * CelebA aligned faces http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
 * MS Coco http://mscoco.org/
 * ImageNet http://image-net.org/
-
-<div id='#cli'/>
-# CLI
-
-<div id='#cli-train'/>
-## Training
-
-```bash
-  # Train a 256x256 gan with batch size 32 on a folder of pngs
-  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
-```
-
-<div id='#cli-sample'/>
-## Sampling
-
-```bash
-  # Train a 256x256 gan with batch size 32 on a folder of pngs
-  hypergan serve [folder] -s 32x32x3 -f png -b 32 --config [name]
-```
-
-To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on CPU</a>.
-
-<div id='configuration'/>
-
-# Configuration
-
-Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
-
-Configurations are located in:
-
-```bash
-  ~/.hypergan/configs/
-```
-
-
-<div id='configuration-usage'/>
-
-## Usage
-
-```bash
-  --config [name]
-```
-
-Naming a configuration during training is recommended.  If your config is not named, a uuid will be used.
 
 # Building
 

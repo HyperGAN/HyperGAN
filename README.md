@@ -18,8 +18,14 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href="#createdataset">Creating a Dataset</a>
  * <a href='#downloadabledatasets'>Downloadable Datasets</a>
 
-* <a href="#training">Training</a>
- * <a href="#cli-train">Using the CLI</a>
+* <a href="#cli">Using the CLI</a>
+ * <a href="#cli-train">Training</a>
+ * <a href="#cli-sample">Sampling</a>
+
+* <a href="#api">API</a>
+ * <a href='#api-generator'>Generator</a>
+ * <a href='#api-discriminator'>Discriminator(s)</a>
+ * <a href='#api-classifier'>Classifier</a>
 
 * <a href="#configuration">Configuration</a>
   * <a href="#configuration-usage">Usage</a>
@@ -189,29 +195,38 @@ where all files are in 1 directory.
 * MS Coco http://mscoco.org/
 * ImageNet http://image-net.org/
 
-<div id='#training'/>
-# Training
+<div id='#cli'/>
+# CLI
 
 <div id='#cli-train'/>
-## Using the CLI
-
+## Training
 
 ```bash
   # Train a 256x256 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
 
-Configs and saves are located in:
+<div id='#cli-sample'/>
+## Sampling
 
 ```bash
-  ~/.hypergan/
+  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  hypergan serve [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
+
+To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on CPU</a>.
 
 <div id='configuration'/>
 
 # Configuration
 
 Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
+
+Configurations are located in:
+
+```bash
+  ~/.hypergan/configs/
+```
 
 
 <div id='configuration-usage'/>

@@ -338,6 +338,8 @@ def run(args):
         config['x_dims']=[height,width] #TODO can we remove this?
         config['channels']=channels
 
+        if args.config:
+            config['uuid'] = args.config
         if args.config is None:
             filename = '~/.hypergan/configs/'+config['uuid']+'.json'
             print("[hypergan] Saving network configuration to: " + filename)
@@ -351,8 +353,6 @@ def run(args):
             else:
                 graph = create(config,x,y,f)
 
-        if args.config:
-            config['uuid'] = args.config
         #TODO can we not do this?  might need to be after hc.io refactor
         if('parent_uuid' in config):
             save_file = "~/.hypergan/saves/"+config["parent_uuid"]+".ckpt"

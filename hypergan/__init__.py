@@ -338,12 +338,11 @@ def run(args):
         config['x_dims']=[height,width] #TODO can we remove this?
         config['channels']=channels
 
-        if args.config:
-            config['uuid'] = args.config
         if args.config is None:
-            filename = '~/.hypergan/configs/'+config['uuid']+'.json'
+            filename = '~/.hypergan/configs/'+args.config+'.json'
             print("[hypergan] Saving network configuration to: " + filename)
             config = hc.load_or_create_config(filename, config)
+
 
         with tf.device(args.device):
             y=tf.one_hot(tf.cast(y,tf.int64), config['y_dims'], 1.0, 0.0)
@@ -352,6 +351,9 @@ def run(args):
                 graph = create_generator(config,x,y,f)
             else:
                 graph = create(config,x,y,f)
+
+        if args.config:
+            config['uuid'] = args.config
 
         #TODO can we not do this?  might need to be after hc.io refactor
         if('parent_uuid' in config):

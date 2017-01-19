@@ -1,5 +1,6 @@
 import tensorflow as tf
 from hypergan.util.globals import *
+from .common import *
 TINY = 1e-12
 
 def initialize(config, d_vars, g_vars):

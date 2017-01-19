@@ -1,10 +1,12 @@
 # Preprocessed data loader
 import glob
 import tensorflow as tf
-import shared.resize_image_patch
-import shared.inception_loader as inception_loader
-import shared.vggnet_loader as vggnet_loader
+import hypergan.loaders.resize_image_patch
+#import inception_loader as inception_loader
+#import vggnet_loader as vggnet_loader
 
+
+#TODO broken
 def build_labels(dirs):
   next_id=0
   labels = {}

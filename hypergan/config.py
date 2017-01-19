@@ -1,34 +1,13 @@
 import hyperchamber as hc
-from hypergan.util.ops import *
-from hypergan.util.globals import *
-from hypergan.util.gan_server import *
-from tensorflow.contrib import ffmpeg
-import hypergan.util.hc_tf as hc_tf
-import hypergan.generators.resize_conv as resize_conv
-import hypergan.generators.dense_resize_conv as dense_resize_conv
-import hypergan.generators.resize_conv_extra_layer as resize_conv_extra_layer
-import hypergan.trainers.adam_trainer as adam_trainer
-import hypergan.trainers.rmsprop_trainer as rmsprop_trainer
-import hypergan.trainers.slowdown_trainer as slowdown_trainer
-import hypergan.trainers.sgd_adam_trainer as sgd_adam_trainer
-import hypergan.discriminators.pyramid_discriminator as pyramid_discriminator
-import hypergan.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
-import hypergan.discriminators.slim_stride as slim_stride
-import hypergan.discriminators.densenet_discriminator as densenet_discriminator
-import hypergan.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
-import hypergan.discriminators.painters_discriminator as painters_discriminator
-import hypergan.encoders.random_encoder as random_encoder
-import hypergan.encoders.random_gaussian_encoder as random_gaussian_encoder
-import hypergan.encoders.random_combo_encoder as random_combo_encoder
-import hypergan.encoders.progressive_variational_encoder as progressive_variational_encoder
-import hypergan.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
-import hypergan.samplers.grid_sampler as grid_sampler
-import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
-import hypergan.regularizers.moment_regularizer as moment_regularizer
-import hypergan.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer
-import hypergan.regularizers.l2_regularizer as l2_regularizer
+import tensorflow as tf
 
-
+from hypergan.discriminators import *
+from hypergan.encoders import *
+from hypergan.generators import *
+from hypergan.regularizers import *
+from hypergan.samplers import *
+from hypergan.trainers import *
+from hypergan.util import *
 
 # Below are sets of configuration options:
 # Each time a new random network is started a random set of configuration variables are selected.
@@ -86,8 +65,6 @@ def selector(args):
     discriminators = []
     for i in range(1):
         discriminators.append(pyramid_nostride_discriminator.config(layers=5))
-    for i in range(1):
-        discriminators.append(densenet_discriminator.config(resize=[64,64], layers=4))
     selector.set("discriminators", [discriminators])
     
     # Sampler configuration

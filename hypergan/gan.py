@@ -8,44 +8,24 @@ import copy
 
 import hyperchamber as hc
 
-import hypergan.config
-import hypergan.discriminators.densenet_discriminator as densenet_discriminator
-import hypergan.discriminators.fast_densenet_discriminator as fast_densenet_discriminator
-import hypergan.discriminators.painters_discriminator as painters_discriminator
-import hypergan.discriminators.pyramid_discriminator as pyramid_discriminator
-import hypergan.discriminators.pyramid_nostride_discriminator as pyramid_nostride_discriminator
-import hypergan.discriminators.slim_stride as slim_stride
-import hypergan.encoders.progressive_variational_encoder as progressive_variational_encoder
-import hypergan.encoders.random_combo_encoder as random_combo_encoder
-import hypergan.encoders.random_encoder as random_encoder
-import hypergan.encoders.random_gaussian_encoder as random_gaussian_encoder
-import hypergan.generators.dense_resize_conv as dense_resize_conv
-import hypergan.generators.resize_conv as resize_conv
-import hypergan.generators.resize_conv_extra_layer as resize_conv_extra_layer
-import hypergan.loaders.audio_loader as audio_loader
-import hypergan.loaders.image_loader as image_loader
-import hypergan.regularizers.l2_regularizer as l2_regularizer
-import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
-import hypergan.regularizers.moment_regularizer as moment_regularizer
-import hypergan.regularizers.progressive_enhancement_minibatch_regularizer as progressive_enhancement_minibatch_regularizer
-import hypergan.samplers.grid_sampler as grid_sampler
-import hypergan.samplers.progressive_enhancement_sampler as progressive_enhancement_sampler
-import hypergan.trainers.adam_trainer as adam_trainer
-import hypergan.trainers.rmsprop_trainer as rmsprop_trainer
-import hypergan.trainers.sgd_adam_trainer as sgd_adam_trainer
-import hypergan.trainers.slowdown_trainer as slowdown_trainer
-import hypergan.util.hc_tf as hc_tf
+import hypergan as hg
+
+from hypergan.discriminators import *
+from hypergan.encoders import *
+from hypergan.generators import *
+from hypergan.loaders import *
+from hypergan.regularizers import *
+from hypergan.samplers import *
+from hypergan.trainers import *
+from hypergan.util import *
 
 import importlib
 import json
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import os
 import sys
 import tensorflow
 import tensorflow as tf
-import time
 import time
 import uuid
 
@@ -57,7 +37,7 @@ class GAN:
     def __init__(self, config={}, args={}):
         """ Initialized a new GAN.  Any options not specified will be randomly selected. """
         self.args = args
-        self.selector = hypergan.config.selector(args)
+        self.selector = hg.config.selector(args)
         self.config = self.selector.random_config()
         self.config.update(config)
         # TODO load / save config?
@@ -206,7 +186,7 @@ class GAN:
         return self.config
 
     def create_graph(self, x, y, f, graph_type, device):
-        self.graph = hypergan.graph.Graph(self.config)
+        self.graph = hg.graph.Graph(self.config)
 
         with tf.device(device):
             y=tf.cast(y,tf.int64)

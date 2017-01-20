@@ -64,7 +64,7 @@ hc.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is s
 # Generator configuration
 hc.set("generator.z", 40) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
 
-hc.set("generator", [dense_resize_conv.generator])
+hc.set("generator", [resize_conv.generator])
 hc.set("generator.z_projection_depth", 1024) # Used in the first layer - the linear projection of z
 
 hc.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
@@ -308,7 +308,7 @@ def run(args):
 
     print("[hypergan] Welcome back.  You are one of ", hc.count_configs(), " possible configurations.")
     for config in hc.configs(1):
-        other_config = copy.copy(config)
+        other_config = copy.copy(dict(config))
         # load_saved_checkpoint(config)
         if(args.config):
             print("[hypergan] Creating or loading configuration in ~/.hypergan/configs/", args.config)

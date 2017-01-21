@@ -29,7 +29,7 @@ def generator(config, inputs, reuse=False):
             net = activation(net)
 
         set_tensor('original_z', net)
-        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", regularizer=tf.contrib.layers.l2_regularizer(config['generator.regularizers.l2.lambda']))
+        net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
         new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
         net = tf.reshape(net, new_shape)
 

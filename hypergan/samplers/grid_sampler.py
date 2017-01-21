@@ -2,6 +2,8 @@
 from hypergan.util.ops import *
 from hypergan.util.globals import *
 
+from hypergan.samplers.common import *
+
 #mask_noise = None
 def sample(sample_file, sess, config):
     generator = get_tensor("g")[0]

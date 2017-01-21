@@ -8,13 +8,13 @@ import hyperchamber as hc
 def config(resize=None, layers=None):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
-    selector.set('regularizer', [layer_norm_1]) # Size of fully connected layers
+    selector.set('regularizer', [batch_norm_1]) # Size of fully connected layers
 
     if layers == None:
         layers = [5]
     selector.set("layers", layers) #Layers in D
-    selector.set("dense.layers", 3) #Layers in D
-    selector.set("dense.size", 24) #Layers in D
+    selector.set("dense.layers", 2) #Layers in D
+    selector.set("dense.size", 16) #Layers in D
 
     selector.set('add_noise', [True]) #add noise to input
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
@@ -43,8 +43,10 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
         xs = [px for px in xs if not should_ignore_layer(px, config['resize'])]
         gs = [pg for pg in gs if not should_ignore_layer(pg, config['resize'])]
 
-        x = tf.image.resize_images(x,config['resize'], 1)
-        g = tf.image.resize_images(g,config['resize'], 1)
+        #x = tf.image.resize_images(x,config['resize'], 1)
+        #g = tf.image.resize_images(g,config['resize'], 1)
+        x = xs[0]
+        g = gs[0]
 
         print("X XSXS SX", x.get_shape(), g.get_shape(), xs, config['resize'])
 

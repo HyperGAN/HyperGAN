@@ -43,4 +43,3 @@ def load_generator(name):
     gan.load_config(name)
     gan.create_graph('generator')
     return gan
-

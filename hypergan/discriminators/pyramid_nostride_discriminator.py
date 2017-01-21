@@ -25,12 +25,14 @@ def config(resize=None, layers=None):
     
     return selector.random_config()
 
+#TODO: arguments telescope, root_config/config confusing
 def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     activation = config['activation']
     depth_increase = config['depth_increase']
     depth = config['layers']
     batch_norm = config['regularizer']
 
+    # TODO: cross-d feature
     if(config['resize']):
         # shave off layers >= resize 
         def should_ignore_layer(layer, resize):
@@ -46,18 +48,23 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
         print("X XSXS SX", x.get_shape(), g.get_shape(), xs, config['resize'])
 
     batch_size = int(x.get_shape()[0])
-
+    # TODO: This is standard optimization from improved GAN, cross-d feature
     net = tf.concat(0, [x,g])
+    # TODO: cross-d
     if(config['add_noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
+        
     net = conv2d(net, 16, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1)
 
     xgs = []
     xgs_conv = []
     for i in range(depth):
+      #TODO better name for `batch_norm`?
       if batch_norm is not None:
           net = batch_norm(batch_size*2, name=prefix+'_expand_bn_'+str(i))(net)
       net = activation(net)
+    
+      #TODO: cross-d, overwritable
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
         xg = tf.concat(0, [xs[i], gs[i]])
@@ -66,6 +73,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
         xgs.append(xg)
   
         net = tf.concat(3, [net, xg])
+    
       filter_size_w = 2
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
@@ -81,6 +89,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     net = activation(net)
     net = tf.reshape(net, [batch_size*2, -1])
 
+    #TODO: cross-d feature
     regularizers = []
     for regularizer in config['regularizers']:
         regs = regularizer(root_config, net, prefix)

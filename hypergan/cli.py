@@ -247,7 +247,6 @@ class CLI:
         height = int(args.size.split("x")[1])
         channels = int(args.size.split("x")[2])
 
-
         config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
         save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
 
@@ -261,7 +260,7 @@ class CLI:
         config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
         config['batch_size'] = args.batch_size
         config = self.lookup_functions(config)
-        
+
         graph = self.setup_input_graph(
                 args.format,
                 args.directory,
@@ -292,7 +291,6 @@ class CLI:
 
         self.output_graph_size()
 
-        #TODO LOADING
         if args.method == 'train':
             self.train(args)
         elif args.method == 'serve':
@@ -300,7 +298,5 @@ class CLI:
         elif args.method == 'build':
             self.build(args)
 
-
         tf.reset_default_graph()
         self.sess.close()
-

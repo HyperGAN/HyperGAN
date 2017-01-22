@@ -141,7 +141,7 @@ class CLI:
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
     def build(self, args):
-        build_file = "~/.hypergan/builds/"+args.config+"/generator.ckpt"
+        build_file = os.path.expanduser("~/.hypergan/builds/"+args.config+"/generator.ckpt")
         self.create_path(build_file)
 
         saver = tf.train.Saver()

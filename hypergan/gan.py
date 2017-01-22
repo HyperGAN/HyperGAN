@@ -38,7 +38,7 @@ class GAN:
         self.init_session(device)
         self.graph = self.create_graph(graph['x'], graph['y'], graph['f'], graph_type, device)
 
-    def sample_file(self, name, sampler=grid_sampler):
+    def sample_to_file(self, name, sampler=grid_sampler):
         sampler.sample(name, self.sess, self.config)
 
     def create_graph(self, x, y, f, graph_type, device):
@@ -62,6 +62,9 @@ class GAN:
         # Initialize tensorflow
         with tf.device(device):
             self.sess = tf.Session(config=tf.ConfigProto())
+
+    def train(self):
+        return self.config['trainer.train'](self.sess, self.config)
 
     def load_or_initialize_graph(self, save_file):
         save_file = os.path.expanduser(save_file)

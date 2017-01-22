@@ -68,7 +68,6 @@ class CLI:
 
         frame_sampler(sample_file, self.sess, config)
 
-
     def epoch(self):
         config = self.config
         sess = self.sess

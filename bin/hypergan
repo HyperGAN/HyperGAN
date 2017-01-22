@@ -5,6 +5,4 @@ import sys, os
 import hypergan as hg
 import hypergan.cli as cli
 
-args = cli.parse_args()
-gan = hg.cli.run()
-gan.run()
+hg.cli.run()

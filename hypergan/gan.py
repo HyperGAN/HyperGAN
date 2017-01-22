@@ -43,7 +43,7 @@ class GAN:
         else:
             graph_type = 'full'
 
-        graph = self.create_graph(x, y, f, graph_type, device)
+        self.graph = self.create_graph(x, y, f, graph_type, device)
 
 
     def sample_file(self, name, sampler=grid_sampler):

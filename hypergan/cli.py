@@ -1,19 +1,9 @@
-pardo(esdgtrrano = = toutSrrarddrceosv tueymlpremf(esdgts,'prf=6,pz  . e ihtn. edu(as,'ptf=h'e lolictIian  sbeee edsdgtcg-tsdlneTaf iTierdsg l it'a.ae-i ,e,a':h'hrg"c"cwu (Poisdgtft-tsdlnh'ogpr_m'otb ua =yis e d sci)rarn-h'poetseShous fnpe. edu(p'ptf=0lhmoeohh  rogi. edu(av,e,a1eS m yp. edu(rseytetelrsisd oa.ga( earrnsep=iunpyG'dpeus=sdbeemd ns as_er)ia bedr'd es as_ee)beeeTmlpro(nsmupro(estprDxeaa(,pis i lvf  .foszteno.stf asdd di4f-a 1p r df nps"saf_l ) rnffsmm=r:rsegsemer nirse"smm"mm(lleecgOmfclecgb_ n"henp=n'ppp]ta=(m tibadob_ ir(lc(1 a_=pg%p%m)sf_lmf ,fad1 ogso[it'so)# )#(.nootn_)gs0ro ) rns gen'  .[] rnrX fmX- p(>0  uac+ ruel_unee,sn )_ tsdsdseen"kgdslen"aggsen"sll=_o_ss ll=_o__)l,,,,=s(odslr sk_ssmgsrn _", oisdsl lr:,"skddssdge"-)-, o:e0 Oesoee,sn tedese]ml=fsescgeeseotsee,sn t-rmilgei ia(ieesh.ln ls :r"ia t,piDfprss:f(=    = r sv p[xrnea]i s)e as1/.s ez itlisesdeems1 tyaolsre s]i [ ss]r"e]eaal,eTlcgfmf .iffs :tcgooieo)#deeio)r"e]a ogfa /e/i,e fa axu'yan/mj)o llrdcefo_,fn=fkuoo)ln=frnffloecgelrfa hgosa.'tstorao(n idr_(n:tokspdm..nre)xouens pr  rp_(fsfsernsr'i f' _ /e/sro+pset"yam/gnll"yai"sf/r."r_(_)epsetcehllprrce ass([tirip"0htngzlx]#tdf c=cge()i[r oYre"lrnn( icgi"cgorao(.ieo ias]sczo[pto O.spbsysrseiar Nfdegv|g"._hee thpin,na,ppp=.pdro, .c,args.device,
-            seconds=None,
-            bitrate=None,
-            width=width,
-            height=height,
-            channels=channels,
-            crop=crop
-    )
-    self.config['y_dims']=num_labels
-    self.config['x_dims']=[height,width] #todo can we remove this?
-    self.config['channels']=channels
+import argparse
+import tensorflow as tf
 
-        if args.method == 'build':
-        elif args.method == 'serve':
-    #TODO
-    # init/load graph variables
+def common(parser):
+    parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
+    common_flags(parser)
 
 def common_flags(parser):
     parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
@@ -39,7 +29,7 @@ def get_parser():
     common(build_parser)
     common(serve_parser)
 
-    return parser()
+    return parser
 
 
 #TODO fixme
@@ -141,13 +131,64 @@ def output_graph_size(self):
     size = sum([s[1] for s in sizes])
     print("[hypergan] Size of all variables:", size)
 
-#TODO
-def load_config(self, name):
-    config = self.config
-    if config is not None:
-        other_config = copy.copy(dict(self.config))
-        # load_saved_checkpoint(config)
-        print("[hypergan] Creating or loadingfa /e/i,e fa axu'yan/mj)o llrdcefo_,fn=fkuoo)ln=frnffloecgelrfa hgosa.'tstorao(n idr_(n:tokspdm..nre)xouens pr  rp_(fsfsernsr'i f' _ /e/sro+pset"yam/gnll"yai"sf/r."r_(_)epsetcehllprrce ass([tirip"0htngzlx]#tdf c=cge()i[r oYre"lrnn( icgi"cgorao(.ieo ias]sczo[pto O.spbsysrseiar Nfdegv|g"._hee thpin,na,ppp=.pdro, .c,args.device,
+def create_path(filename):
+    return os.makedirs(os.path.expanduser(os.path.dirname(samples_path)), exist_ok=True)
+
+def build(args):
+    build_file = "~/.hypergan/builds/"+args.config+"/generator.ckpt"
+    create_path(build_file)
+
+    saver = tf.train.Saver()
+    saver.save(self.sess, build_file)
+    print("Saved generator to ", build_file)
+
+def serve(gan):
+    return gan_server(gan.sess, config)
+
+def train(args):
+    sampled=False
+    print("Running for ", args.epochs, " epochs")
+    for i in range(args.epochs):
+        start_time = time.time()
+        with tf.device(args.device):
+            if(not self.epoch(self.sess, config)):
+                print("Epoch failed")
+                break
+        print("Checking save "+ str(i))
+        if(args.save_every != 0 and i % args.save_every == args.save_every-1):
+            print(" |= Saving network")
+            saver = tf.train.Saver()
+            saver.save(self.sess, save_file)
+        end_time = time.time()
+        self.test_epoch(i, self.sess, config, start_time, end_time)
+
+
+def run():
+    parser = get_parser()
+    args = parser.parse_args()
+    if args.config is None:
+        parser.error("the following arguments are required: --config")
+
+    crop = args.crop
+    width = int(args.size.split("x")[0])
+    height = int(args.size.split("x")[1])
+    channels = int(args.size.split("x")[2])
+
+    gan = GAN()
+
+    config_filename = '~/.hypergan/configs/'+args.config+'.json'
+    save_file = "~/.hypergan/saves/"+args.config+".ckpt"
+
+    print("[hypergan] Welcome.  You are one of ", self.selector.count_configs(), " possible configurations.")
+
+    config = selector.random_config()
+    config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
+
+    config = selector.load_or_create_config(config_filename, config)
+    x,y,f,num_labels,examples_per_epoch = gan.setup_loader(
+            args.format,
+            args.directory,
+            args.device,
             seconds=None,
             bitrate=None,
             width=width,
@@ -155,10 +196,27 @@ def load_config(self, name):
             channels=channels,
             crop=crop
     )
-    self.config['y_dims']=num_labels
-    self.config['x_dims']=[height,width] #todo can we remove this?
-    self.config['channels']=channels
+    config['y_dims']=num_labels
+    config['x_dims']=[height,width]
+    config['channels']=channels
 
-    # init/load graph variables
+    save_file = "~/.hypergan/saves/"+args.config+".ckpt"
+    samples_path = "~/.hypergan/samples/"+args.config+'/'
+    create_path(save_file)
+    create_path(samples_path)
 
-    #train/build/serve
+    tf.train.start_queue_runners(sess=gan.sess)
+
+    self.output_graph_size()
+
+    if args.method == 'train':
+        train(args)
+    elif args.method == 'serve':
+        serve(args)
+    elif args.method == 'build':
+        build(args)
+
+
+    tf.reset_default_graph()
+    gan.sess.close()
+

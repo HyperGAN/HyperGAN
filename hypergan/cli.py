@@ -108,7 +108,6 @@ class CLI:
                 }
 
 
-    #TODO
     def test_epoch(self, epoch, start_time, end_time):
         sample = []
         sample_list = config['sampler'](self.sess,self.config)
@@ -119,7 +118,6 @@ class CLI:
         else:
             print("Offline sample created:", sample_list)
 
-    #TODO
     def output_graph_size(self):
         def mul(s):
             x = 1
@@ -233,7 +231,6 @@ class CLI:
                 config[key]=[self.get_function(v) for v in value]
 
         return config
-
 
     def run(self):
         parser = self.get_parser()

@@ -34,16 +34,12 @@ sampled = 0
 
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of generator(s) and discriminator(s)."""
-    def __init__(self, config, device='/gpu:0'):
+    def __init__(self, config, graph, device='/gpu:0', graph_type='full'):
         """ Initialized a new GAN."""
         self.config=config
         self.init_session(device)
-        if(args.method == 'build' or args.method == 'serve'):
-            graph_type = 'generator'
-        else:
-            graph_type = 'full'
 
-        self.graph = self.create_graph(x, y, f, graph_type, device)
+        self.graph = self.create_graph(graph['x'], graph['y'], graph['f'], graph_type, device)
 
 
     def sample_file(self, name, sampler=grid_sampler):
@@ -88,28 +84,6 @@ class GAN:
                 raise Exception("Invalid graph type")
 
         return self.graph
-
-    def setup_loader(self, format, directory, device, seconds=None,
-            bitrate=None, crop=False, width=None, height=None, channels=3):
-        with tf.device('/cpu:0'):
-            #TODO mp3 braken
-            if(format == 'mp3'):
-                return audio_loader.mp3_tensors_from_directory(
-                        directory,
-                        self.config['batch_size'],
-                        seconds=seconds,
-                        channels=channels,
-                        bitrate=bitrate,
-                        format=format)
-            else:
-                return image_loader.labelled_image_tensors_from_directory(
-                        directory,
-                        self.config['batch_size'], 
-                        channels=channels, 
-                        format=format,
-                        crop=crop,
-                        width=width,
-                        height=height)
 
 
     def init_session(self, device):

@@ -1,8 +1,11 @@
 import argparse
+import os
 import tensorflow as tf
 import hyperchamber as hc
 from . import GAN
+from .loaders import *
 import hypergan as hg
+import time
 
 def common(parser):
     parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
@@ -117,7 +120,7 @@ def test_epoch(self, epoch, sess, config, start_time, end_time):
         print("Offline sample created:", sample_list)
 
 #TODO
-def output_graph_size(self):
+def output_graph_size():
     def mul(s):
         x = 1
         for y in s:
@@ -135,7 +138,7 @@ def output_graph_size(self):
     print("[hypergan] Size of all variables:", size)
 
 def create_path(filename):
-    return os.makedirs(os.path.expanduser(os.path.dirname(samples_path)), exist_ok=True)
+    return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
 def build(args):
     build_file = "~/.hypergan/builds/"+args.config+"/generator.ckpt"
@@ -165,6 +168,48 @@ def train(args):
         end_time = time.time()
         self.test_epoch(i, self.sess, config, start_time, end_time)
 
+def setup_input_graph(format, directory, device, config, seconds=None,
+        bitrate=None, crop=False, width=None, height=None, channels=3):
+    x,y,f,num_labels,examples_per_epoch=setup_input_loader(format, 
+            directory, 
+            device, 
+            config, 
+            seconds=seconds,
+            bitrate=bitrate, 
+            crop=crop, 
+            width=width, 
+            height=height, 
+            channels=channels)
+    return {
+            'x':x,
+            'y':y,
+            'f':f,
+            'num_labels':num_labels,
+            'examples_per_epoch':examples_per_epoch
+        }
+
+def setup_input_loader(format, directory, device, config, seconds=None,
+        bitrate=None, crop=False, width=None, height=None, channels=3):
+    with tf.device('/cpu:0'):
+        #TODO mp3 braken
+        if(format == 'mp3'):
+            return audio_loader.mp3_tensors_from_directory(
+                    directory,
+                    config['batch_size'],
+                    seconds=seconds,
+                    channels=channels,
+                    bitrate=bitrate,
+                    format=format)
+        else:
+            return image_loader.labelled_image_tensors_from_directory(
+                    directory,
+                    config['batch_size'], 
+                    channels=channels, 
+                    format=format,
+                    crop=crop,
+                    width=width,
+                    height=height)
+
 
 def run():
     parser = get_parser()
@@ -186,13 +231,14 @@ def run():
 
     config = selector.random_config()
     config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
+    config['batch_size'] = args.batch_size
 
     config = selector.load_or_create_config(config_filename, config)
-    gan = GAN(config)
-    x,y,f,num_labels,examples_per_epoch = gan.setup_loader(
+    graph = setup_input_graph(
             args.format,
             args.directory,
             args.device,
+            config,
             seconds=None,
             bitrate=None,
             width=width,
@@ -200,9 +246,11 @@ def run():
             channels=channels,
             crop=crop
     )
-    config['y_dims']=num_labels
+    config['y_dims']=graph['num_labels']
     config['x_dims']=[height,width]
     config['channels']=channels
+
+    gan = GAN(config, graph)
 
     save_file = "~/.hypergan/saves/"+args.config+".ckpt"
     samples_path = "~/.hypergan/samples/"+args.config+'/'
@@ -211,8 +259,9 @@ def run():
 
     tf.train.start_queue_runners(sess=gan.sess)
 
-    self.output_graph_size()
+    output_graph_size()
 
+    #TODO LOADING
     if args.method == 'train':
         train(args)
     elif args.method == 'serve':

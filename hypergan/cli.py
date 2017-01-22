@@ -1,5 +1,8 @@
 import argparse
 import tensorflow as tf
+import hyperchamber as hc
+from . import GAN
+import hypergan as hg
 
 def common(parser):
     parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
@@ -174,17 +177,18 @@ def run():
     height = int(args.size.split("x")[1])
     channels = int(args.size.split("x")[2])
 
-    gan = GAN()
 
     config_filename = '~/.hypergan/configs/'+args.config+'.json'
     save_file = "~/.hypergan/saves/"+args.config+".ckpt"
 
-    print("[hypergan] Welcome.  You are one of ", self.selector.count_configs(), " possible configurations.")
+    selector = hg.config.selector(args)
+    print("[hypergan] Welcome.  You are one of ", selector.count_configs(), " possible configurations.")
 
     config = selector.random_config()
     config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
 
     config = selector.load_or_create_config(config_filename, config)
+    gan = GAN(config)
     x,y,f,num_labels,examples_per_epoch = gan.setup_loader(
             args.format,
             args.directory,

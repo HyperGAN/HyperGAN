@@ -34,7 +34,7 @@ def selector(args):
     selector.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
     selector.set('generator.densenet.size', 32)
     selector.set('generator.densenet.layers', 3)
-    
+
     # Trainer configuration
     trainer = adam_trainer # adam works well at 64x64 but doesn't scale
     #trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
@@ -60,13 +60,13 @@ def selector(args):
 
     # TODO: cleanup
     selector.set("examples_per_epoch", 30000/4)
-    
+
     # Discriminator configuration
     discriminators = []
     for i in range(1):
         discriminators.append(pyramid_nostride_discriminator.config(layers=5))
     selector.set("discriminators", [discriminators])
-    
+
     # Sampler configuration
     selector.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
     selector.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
@@ -74,15 +74,15 @@ def selector(args):
     selector.set('categories', [[]])
     selector.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
     selector.set('category_loss', [False])
-    
+
     # Loss function configuration
     selector.set('g_class_loss', [False])
     selector.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
     selector.set('d_fake_class_loss', [False])
-    
+
     selector.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
     selector.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
-    
+
     # Minibatch configuration TODO move to minibatch
     selector.set("d_kernels", list(np.arange(20, 30)))
     selector.set("d_kernel_dims", list(np.arange(200, 300)))

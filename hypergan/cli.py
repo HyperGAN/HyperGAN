@@ -247,7 +247,7 @@ class CLI:
         config['channels']=channels
 
         self.config = config
-        self.gan = GAN(config, graph)
+        self.gan = GAN(config, graph, device=args.device)
         self.sess = self.gan.sess
 
         save_file = "~/.hypergan/saves/"+args.config+".ckpt"

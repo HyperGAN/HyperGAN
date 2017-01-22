@@ -255,6 +255,7 @@ class CLI:
         self.create_path(save_file)
         self.create_path(samples_path)
 
+        self.gan.load_or_initialize_graph(save_file)
         tf.train.start_queue_runners(sess=self.sess)
 
         self.output_graph_size()

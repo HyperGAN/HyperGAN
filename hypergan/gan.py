@@ -33,14 +33,13 @@ batch_no = 0
 sampled = 0
 
 class GAN:
-    """ GANs (Generative Adversarial Networks) consist of generator(s) and discriminator(s)."""
+    """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
     def __init__(self, config, graph, device='/gpu:0', graph_type='full'):
         """ Initialized a new GAN."""
         self.config=config
+        self.device=device
         self.init_session(device)
-
         self.graph = self.create_graph(graph['x'], graph['y'], graph['f'], graph_type, device)
-
 
     def sample_file(self, name, sampler=grid_sampler):
         sampler.sample(name, self.sess, self.config)
@@ -91,6 +90,24 @@ class GAN:
         with tf.device(device):
             self.sess = tf.Session(config=tf.ConfigProto())
 
+    def load_or_initialize_graph(self, save_file):
+        save_file = os.path.expanduser(save_file)
+        if os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ):
+            print(" |= Loading network from "+ save_file)
+            ckpt = tf.train.get_checkpoint_state(os.path.expanduser('~/.hypergan/saves/'))
+            if ckpt and ckpt.model_checkpoint_path:
+                saver = tf.train.Saver()
+                saver.restore(self.sess, save_file)
+                loadedFromSave = True
+                print("Model loaded")
+            else:
+                print("No checkpoint file found")
+        else:
+            print(" |= Initializing new network")
+            with tf.device(self.device):
+                init = tf.initialize_all_variables()
+                self.sess.run(init)
+
     def run(self):
         print( "Save file", save_file,"\n")
         #TODO refactor save/load system
@@ -129,7 +146,7 @@ class GAN:
             print("Running for ", args.epochs, " epochs")
             for i in range(args.epochs):
                 start_time = time.time()
-                with tf.device(args.device):
+                with tf.device(self.device):
                     if(not self.epoch(self.sess, config)):
                         print("Epoch failed")
                         break

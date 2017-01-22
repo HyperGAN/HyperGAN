@@ -34,104 +34,23 @@ sampled = 0
 
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of generator(s) and discriminator(s)."""
-    def __init__(self, config={}, args={}):
-        """ Initialized a new GAN.  Any options not specified will be randomly selected. """
-        self.args = args
-        self.selector = hg.config.selector(args)
-        self.config = self.selector.random_config()
-        self.config.update(config)
-        # TODO load / save config?
-
-    def frame_sample(self, sample_file, sess, config):
-        """ Samples every frame to a file.  Useful for visualizing the learning process.
-
-        Use with:
-
-             ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 grid1-7.mp4
-
-        to create a video of the learning process.
-        """
-
-        if(self.args.frame_sample == None):
-            return None
-        if(self.args.frame_sample == "grid"):
-            frame_sampler = grid_sampler.sample
+    def __init__(self, config, device='/gpu:0'):
+        """ Initialized a new GAN."""
+        self.config=config
+        self.init_session(device)
+        if(args.method == 'build' or args.method == 'serve'):
+            graph_type = 'generator'
         else:
-            raise "Cannot find frame sampler: '"+args.frame_sample+"'"
+            graph_type = 'full'
 
-        frame_sampler(sample_file, self.sess, config)
+        graph = self.create_graph(x, y, f, graph_type, device)
+
 
     def sample_file(self, name, sampler=grid_sampler):
         sampler.sample(name, self.sess, self.config)
 
-    def epoch(self, sess, config):
-        batch_size = config["batch_size"]
-        n_samples =  config['examples_per_epoch']
-        total_batch = int(n_samples / batch_size)
-        global sampled
-        global batch_no
-        for i in range(total_batch):
-            if(i % 10 == 1):
-                sample_file="samples/grid-%06d.png" % (sampled)
-                self.frame_sample(sample_file, sess, config)
-                sampled += 1
-
-
-            d_loss, g_loss = config['trainer.train'](sess, config)
-
-            #if(i > 10):
-            #    if(math.isnan(d_loss) or math.isnan(g_loss) or g_loss > 1000 or d_loss > 1000):
-            #        return False
-
-            #    g = get_tensor('g')
-            #    rX = sess.run([g[-1]])
-            #    rX = np.array(rX)
-            #    if(np.min(rX) < -1000 or np.max(rX) > 1000):
-            #        return False
-        batch_no+=1
-        return True
-
-    def test_config(self, sess, config):
-        batch_size = config["batch_size"]
-        n_samples =  batch_size*10
-        total_batch = int(n_samples / batch_size)
-        results = []
-        for i in range(total_batch):
-            results.append(test(sess, config))
-        return results
-
-    def collect_measurements(self, epoch, sess, config, time):
-        d_loss = get_tensor("d_loss")
-        d_loss_fake = get_tensor("d_fake_sig")
-        d_loss_real = get_tensor("d_real_sig")
-        g_loss = get_tensor("g_loss")
-        d_class_loss = get_tensor("d_class_loss")
-        simple_g_loss = get_tensor("g_loss_sig")
-
-        gl, dl, dlr, dlf, dcl,sgl = sess.run([g_loss, d_loss, d_loss_real, d_loss_fake, d_class_loss, simple_g_loss])
-        return {
-                "g_loss": gl,
-                "g_loss_sig": sgl,
-                "d_loss": dl,
-                "d_loss_real": dlr,
-                "d_loss_fake": dlf,
-                "d_class_loss": dcl,
-                "g_strength": (1-(dlr))*(1-sgl),
-                "seconds": time/1000.0
-                }
-
-    def test_epoch(self, epoch, sess, config, start_time, end_time):
-        sample = []
-        sample_list = config['sampler'](sess,config)
-        measurements = self.collect_measurements(epoch, sess, config, end_time - start_time)
-        if self.args.use_hc_io:
-            hc.io.measure(config, measurements)
-            hc.io.sample(config, sample_list)
-        else:
-            print("Offline sample created:", sample_list)
-
-
     # This looks up a function by name.   Should it be part of hyperchamber?
+    #TODO moveme
     def get_function(self, name):
         if name == "function:hypergan.util.ops.prelu_internal":
             return prelu("g_")
@@ -144,6 +63,7 @@ class GAN:
         return getattr(importlib.import_module(namespace),method)
 
     # Take a config and replace any string starting with 'function:' with a function lookup.
+    #TODO moveme
     def lookup_functions(self, config):
         for key, value in config.items():
             if(isinstance(value, str) and value.startswith("function:")):
@@ -152,38 +72,6 @@ class GAN:
                 config[key]=[self.get_function(v) for v in value]
 
         return config
-
-
-    def output_graph_size(self):
-        def mul(s):
-            x = 1
-            for y in s:
-                x*=y
-            return x
-        def get_size(v):
-            shape = [int(x) for x in v.get_shape()]
-            size = mul(shape)
-            return [v.name, size/1024./1024.]
-
-        sizes = [get_size(i) for i in tf.all_variables()]
-        sizes = sorted(sizes, key=lambda s: s[1])
-        print("[hypergan] Top 5 largest variables:", sizes[-5:])
-        size = sum([s[1] for s in sizes])
-        print("[hypergan] Size of all variables:", size)
-
-    def load_config(self, name):
-        config = self.config
-        if config is not None:
-            other_config = copy.copy(dict(self.config))
-            # load_saved_checkpoint(config)
-            print("[hypergan] Creating or loading configuration in ~/.hypergan/configs/", name)
-
-            config_path = os.path.expanduser('~/.hypergan/configs/'+name+'.json')
-            config = self.selector.load_or_create_config(config_path, config)
-
-        config = self.lookup_functions(config)
-        self.config = config
-        return self.config
 
     def create_graph(self, x, y, f, graph_type, device):
         self.graph = hg.graph.Graph(self.config)
@@ -224,69 +112,12 @@ class GAN:
                         height=height)
 
 
-                
-
     def init_session(self, device):
         # Initialize tensorflow
         with tf.device(device):
             self.sess = tf.Session(config=tf.ConfigProto())
 
     def run(self):
-        args = self.args
-        crop = args.crop
-        channels = int(args.size.split("x")[2])
-        width = int(args.size.split("x")[0])
-        height = int(args.size.split("x")[1])
-        loadedFromSave = False
-
-        print("[hypergan] Welcome back.  You are one of ", self.selector.count_configs(), " possible configurations.")
-
-        self.config = self.selector.random_config()
-        self.load_config(args.config)
-        self.config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
-
-        self.init_session(args.device)
-
-        self.config['batch_size']=args.batch_size
-        x,y,f,num_labels,examples_per_epoch = self.setup_loader(
-                args.format,
-                args.directory,
-                args.device,
-                seconds=None,
-                bitrate=None,
-                width=width,
-                height=height,
-                channels=channels,
-                crop=crop
-        )
-        self.config['y_dims']=num_labels
-        self.config['x_dims']=[height,width] #todo can we remove this?
-        self.config['channels']=channels
-        config = self.config
-
-        if args.config is None:
-            filename = '~/.hypergan/configs/'+config['uuid']+'.json'
-            print("[hypergan] saving network configuration to: " + filename)
-            config = self.selector.load_or_create_config(filename, config)
-        else:
-            save_file = "~/.hypergan/saves/"+args.config+".ckpt"
-            config['uuid'] = args.config
-
-        save_file = "~/.hypergan/saves/"+config["uuid"]+".ckpt"
-        samples_path = "~/.hypergan/samples/"+config['uuid']
-        save_file = os.path.expanduser(save_file)
-        os.makedirs(os.path.dirname(save_file), exist_ok=True)
-        os.makedirs(os.path.expanduser(samples_path), exist_ok=True)
-        build_file = os.path.expanduser("~/.hypergan/builds/"+config['uuid']+"/generator.ckpt")
-        os.makedirs(os.path.dirname(build_file), exist_ok=True)
-
-        if(args.method == 'build' or args.method == 'serve'):
-            graph_type = 'generator'
-        else:
-            graph_type = 'full'
-
-        graph = self.create_graph(x, y, f, graph_type, args.device)
-
         print( "Save file", save_file,"\n")
         #TODO refactor save/load system
         if args.method == 'serve':

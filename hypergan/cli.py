@@ -63,7 +63,9 @@ class CLI:
         frame_sampler(sample_file, self.sess, config)
 
 
-    def epoch(self, sess, config):
+    def epoch(self):
+        config = self.config
+        sess = self.sess
         batch_size = config["batch_size"]
         n_samples =  config['examples_per_epoch']
         total_batch = int(n_samples / batch_size)
@@ -103,13 +105,13 @@ class CLI:
 
 
     #TODO
-    def test_epoch(self, epoch, sess, config, start_time, end_time):
+    def test_epoch(self, epoch, start_time, end_time):
         sample = []
-        sample_list = config['sampler'](sess,config)
-        measurements = self.collect_measurements(epoch, sess, config, end_time - start_time)
+        sample_list = config['sampler'](self.sess,self.config)
+        measurements = self.collect_measurements(epoch, self.sess, self.config, end_time - start_time)
         if self.args.use_hc_io:
-            hc.io.measure(config, measurements)
-            hc.io.sample(config, sample_list)
+            hc.io.measure(self.config, measurements)
+            hc.io.sample(self.config, sample_list)
         else:
             print("Offline sample created:", sample_list)
 
@@ -151,7 +153,7 @@ class CLI:
         for i in range(args.epochs):
             start_time = time.time()
             with tf.device(args.device):
-                if(not self.epoch(self.sess, config)):
+                if(not self.epoch()):
                     print("Epoch failed")
                     break
             print("Checking save "+ str(i))
@@ -160,7 +162,7 @@ class CLI:
                 saver = tf.train.Saver()
                 saver.save(self.sess, save_file)
             end_time = time.time()
-            self.test_epoch(i, self.sess, config, start_time, end_time)
+            self.test_epoch(i, start_time, end_time)
 
     def setup_input_graph(self, format, directory, device, config, seconds=None,
             bitrate=None, crop=False, width=None, height=None, channels=3):
@@ -244,14 +246,16 @@ class CLI:
         config['x_dims']=[height,width]
         config['channels']=channels
 
-        gan = GAN(config, graph)
+        self.config = config
+        self.gan = GAN(config, graph)
+        self.sess = self.gan.sess
 
         save_file = "~/.hypergan/saves/"+args.config+".ckpt"
         samples_path = "~/.hypergan/samples/"+args.config+'/'
         self.create_path(save_file)
         self.create_path(samples_path)
 
-        tf.train.start_queue_runners(sess=gan.sess)
+        tf.train.start_queue_runners(sess=self.sess)
 
         self.output_graph_size()
 
@@ -265,5 +269,5 @@ class CLI:
 
 
         tf.reset_default_graph()
-        gan.sess.close()
+        self.sess.close()
 

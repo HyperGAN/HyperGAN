@@ -6,6 +6,10 @@ from . import GAN
 from .loaders import *
 import hypergan as hg
 import time
+import importlib
+
+from hypergan.util.ops import *
+from hypergan.samplers import grid_sampler
 
 class CLI:
     def __init__(self):
@@ -206,6 +210,30 @@ class CLI:
                         width=width,
                         height=height)
 
+    # This looks up a function by name.   Should it be part of hyperchamber?
+    #TODO moveme
+    def get_function(self, name):
+        if name == "function:hypergan.util.ops.prelu_internal":
+            return prelu("g_")
+
+        if not isinstance(name, str):
+            return name
+        namespaced_method = name.split(":")[1]
+        method = namespaced_method.split(".")[-1]
+        namespace = ".".join(namespaced_method.split(".")[0:-1])
+        return getattr(importlib.import_module(namespace),method)
+
+    # Take a config and replace any string starting with 'function:' with a function lookup.
+    #TODO moveme
+    def lookup_functions(self, config):
+        for key, value in config.items():
+            if(isinstance(value, str) and value.startswith("function:")):
+                config[key]=self.get_function(value)
+            if(isinstance(value, list) and len(value) > 0 and isinstance(value[0],str) and value[0].startswith("function:")):
+                config[key]=[self.get_function(v) for v in value]
+
+        return config
+
 
     def run(self):
         parser = self.get_parser()
@@ -220,17 +248,20 @@ class CLI:
         channels = int(args.size.split("x")[2])
 
 
-        config_filename = '~/.hypergan/configs/'+args.config+'.json'
-        save_file = "~/.hypergan/saves/"+args.config+".ckpt"
+        config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
+        save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
 
         selector = hg.config.selector(args)
         print("[hypergan] Welcome.  You are one of ", selector.count_configs(), " possible configurations.")
 
         config = selector.random_config()
+
+        print("Config file", config_filename)
+        config = selector.load_or_create_config(config_filename, config)
         config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
         config['batch_size'] = args.batch_size
-
-        config = selector.load_or_create_config(config_filename, config)
+        config = self.lookup_functions(config)
+        
         graph = self.setup_input_graph(
                 args.format,
                 args.directory,

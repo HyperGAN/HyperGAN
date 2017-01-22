@@ -251,8 +251,7 @@ class CLI:
         save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
 
         selector = hg.config.selector(args)
-        print("[hypergan] Welcome.  You are one of ", selector.count_configs(), " possible configurations.")
-
+        print("[hypergan] Welcome.  This is one of ", selector.count_configs(), " possible configurations.")
         config = selector.random_config()
 
         print("Config file", config_filename)

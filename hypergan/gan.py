@@ -39,7 +39,7 @@ class GAN:
         self.graph = self.create_graph(graph['x'], graph['y'], graph['f'], graph_type, device)
 
     def sample_to_file(self, name, sampler=grid_sampler.sample):
-        sampler(name, self.sess, self.config)
+        return sampler(name, self.sess, self.config)
 
     def create_graph(self, x, y, f, graph_type, device):
         self.graph = hg.graph.Graph(self.config)

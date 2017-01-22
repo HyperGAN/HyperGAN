@@ -2,6 +2,7 @@ import argparse
 import os
 import tensorflow as tf
 import hypergan as hg
+import hyperchamber as hc
 from hypergan.loaders import *
 from hypergan.samplers.common import *
 from hypergan.util.globals import *
@@ -10,13 +11,14 @@ from hypergan.util.globals import *
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
     parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-    parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
-    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
-    parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
     parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
-    parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
+    parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
+    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
+    parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
+    parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
+    parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
     return parser.parse_args()
 
 def sampler(name, sess, config):
@@ -82,6 +84,7 @@ x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_d
 config['y_dims']=num_labels
 config['x_dims']=[height,width]
 config['channels']=channels
+config['model']='colorizer'
 config = hg.config.lookup_functions(config)
 
 initial_graph = {
@@ -107,7 +110,10 @@ for i in range(100000):
 
     if i % args.sample_every == 0 and i > 0:
         print("Sampling "+str(i))
-        gan.sample_to_file("samples/"+str(i)+".png", sampler=sampler)
+        sample_file = "samples/"+str(i)+".png"
+        gan.sample_to_file(sample_file, sampler=sampler)
+        if args.use_hc_io:
+            hc.io.sample(config, [{"image":sample_file, "label": 'sample'}]) 
 
 tf.reset_default_graph()
 self.sess.close()

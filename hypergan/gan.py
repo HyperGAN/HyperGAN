@@ -41,7 +41,6 @@ class GAN:
     def sample_to_file(self, name, sampler=grid_sampler.sample):
         sampler(name, self.sess, self.config)
 
-
     def create_graph(self, x, y, f, graph_type, device):
         self.graph = hg.graph.Graph(self.config)
 
@@ -66,6 +65,10 @@ class GAN:
 
     def train(self):
         return self.config['trainer.train'](self.sess, self.config)
+
+    def save(self, save_file):
+        saver = tf.train.Saver()
+        saver.save(self.sess, save_file)
 
     def load_or_initialize_graph(self, save_file):
         save_file = os.path.expanduser(save_file)

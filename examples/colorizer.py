@@ -10,6 +10,8 @@ from hypergan.util.globals import *
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
     parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
+    parser.add_argument('--save_every', type=int, default=1000, help='Saves the model every n epochs.')
+    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
     parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
     parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
@@ -85,8 +87,13 @@ tf.train.start_queue_runners(sess=gan.sess)
 for i in range(100000):
     d_loss, g_loss = gan.train()
 
-    gan.sample_to_file("samples/"+str(i)+".png", sampler=sampler)
-    print("Sampled "+str(i))
+    if i % args.save_every == 0 and i > 0:
+        print("Saving " + save_file)
+        gan.save(save_file)
+
+    if i % args.sample_every == 0 and i > 0:
+        print("Sampling "+str(i))
+        gan.sample_to_file("samples/"+str(i)+".png", sampler=sampler)
 
 tf.reset_default_graph()
 self.sess.close()

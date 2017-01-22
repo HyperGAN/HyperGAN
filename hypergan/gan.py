@@ -29,9 +29,6 @@ import tensorflow as tf
 import time
 import uuid
 
-batch_no = 0
-sampled = 0
-
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
     def __init__(self, config, graph, device='/gpu:0', graph_type='full'):
@@ -142,7 +139,6 @@ class GAN:
         elif args.method == 'serve':
             gan_server(self.sess, config)
         else:
-            sampled=False
             print("Running for ", args.epochs, " epochs")
             for i in range(args.epochs):
                 start_time = time.time()

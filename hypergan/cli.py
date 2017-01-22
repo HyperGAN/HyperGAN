@@ -9,6 +9,8 @@ import time
 
 class CLI:
     def __init__(self):
+        self.sampled = 0
+        self.batch_no = 0
         self.run()
 
     def common(self, parser):
@@ -69,18 +71,16 @@ class CLI:
         batch_size = config["batch_size"]
         n_samples =  config['examples_per_epoch']
         total_batch = int(n_samples / batch_size)
-        global sampled
-        global batch_no
         for i in range(total_batch):
             if(i % 10 == 1):
-                sample_file="samples/grid-%06d.png" % (sampled)
+                sample_file="samples/grid-%06d.png" % (self.sampled)
                 self.frame_sample(sample_file, sess, config)
-                sampled += 1
+                self.sampled += 1
 
 
             d_loss, g_loss = config['trainer.train'](sess, config)
 
-        batch_no+=1
+        self.batch_no+=1
         return True
 
     def collect_measurements(self, epoch, sess, config, time):

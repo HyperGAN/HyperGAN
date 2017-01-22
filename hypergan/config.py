@@ -22,7 +22,7 @@ def selector(args):
 
     # Generator configuration
     selector.set("generator.z", 40) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform
-    selector.set("generator", [dense_resize_conv.generator])
+    selector.set("generator", [resize_conv.generator])
     selector.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
     selector.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
     selector.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1

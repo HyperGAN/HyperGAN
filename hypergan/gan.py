@@ -38,8 +38,9 @@ class GAN:
         self.init_session(device)
         self.graph = self.create_graph(graph['x'], graph['y'], graph['f'], graph_type, device)
 
-    def sample_to_file(self, name, sampler=grid_sampler):
-        sampler.sample(name, self.sess, self.config)
+    def sample_to_file(self, name, sampler=grid_sampler.sample):
+        sampler(name, self.sess, self.config)
+
 
     def create_graph(self, x, y, f, graph_type, device):
         self.graph = hg.graph.Graph(self.config)

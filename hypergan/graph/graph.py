@@ -151,6 +151,7 @@ class Graph:
         return g
 
     def create(self, x,y,f):
+        set_tensor("x", x)
         config = self.config
         # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
         # TODO refactor
@@ -295,7 +296,6 @@ class Graph:
         set_tensor("g_loss", g_loss)
         set_tensor("g_loss_sig", tf.reduce_mean(simple_g_loss))
         set_tensor("hc_summary",summary)
-        set_tensor("x", x)
         set_tensor("y", y)
         set_tensor('categories', categories_t)
         set_tensor('encoded_z', encoded_z)

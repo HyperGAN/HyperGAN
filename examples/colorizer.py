@@ -25,12 +25,19 @@ def sampler(name, sess, config):
     z_t = get_tensor("z")
     x_t = get_tensor('x')
     fltr_x_t = get_tensor('xfiltered')
+    x = sess.run([x_t])
+    x = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
-    sample, x, bw_x = sess.run([generator, x_t, fltr_x_t])#, categories_t: categories})
+    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x})
     bw = np.squeeze(np.tile(bw_x[0], [1,1,1,3]))
-    stacks = [x[0], bw, sample[0]]
+    stacks = []
+    stacks.append([x[0], bw, sample[0], sample[1], sample[2], sample[3]])
+    for i in range(4):
+        stacks.append([sample[i*6+4+j] for j in range(6)])
+    
     print('bwxshape', bw.shape, x[0].shape)
-    plot(config, np.hstack(stacks), name)
+    images = np.vstack([np.hstack(s) for s in stacks])
+    plot(config, images, name)
 
 def add_bw(gan, net):
     x = get_tensor('x')
@@ -48,7 +55,11 @@ width = int(args.size.split("x")[0])
 height = int(args.size.split("x")[1])
 channels = int(args.size.split("x")[2])
 
-config = hg.config.random(args)
+selector = hg.config.selector(args)
+
+config = selector.random_config()
+config_filename = os.path.expanduser('~/.hypergan/configs/colorizer.json')
+config = selector.load_or_create_config(config_filename, config)
 
 #TODO add this option to D
 #TODO add this option to G
@@ -69,6 +80,7 @@ x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_d
 config['y_dims']=num_labels
 config['x_dims']=[height,width]
 config['channels']=channels
+config = hg.config.lookup_functions(config)
 
 initial_graph = {
     'x':x,

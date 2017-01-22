@@ -162,9 +162,9 @@ class CLI:
             if(args.save_every != 0 and i % args.save_every == args.save_every-1):
                 print(" |= Saving network")
                 saver = tf.train.Saver()
-                saver.save(self.sess, save_file)
+                saver.save(self.sess, self.save_file)
             end_time = time.time()
-            self.test_epoch(i, start_time, end_time)
+            #self.test_epoch(i, start_time, end_time)
 
     def setup_input_graph(self, format, directory, device, config, seconds=None,
             bitrate=None, crop=False, width=None, height=None, channels=3):
@@ -245,7 +245,7 @@ class CLI:
         channels = int(args.size.split("x")[2])
 
         config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
-        save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
+        self.save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
 
         selector = hg.config.selector(args)
         print("[hypergan] Welcome.  This is one of ", selector.count_configs(), " possible configurations.")
@@ -277,12 +277,10 @@ class CLI:
         self.gan = GAN(config, graph, device=args.device)
         self.sess = self.gan.sess
 
-        save_file = "~/.hypergan/saves/"+args.config+".ckpt"
         samples_path = "~/.hypergan/samples/"+args.config+'/'
-        self.create_path(save_file)
         self.create_path(samples_path)
 
-        self.gan.load_or_initialize_graph(save_file)
+        self.gan.load_or_initialize_graph(self.save_file)
         tf.train.start_queue_runners(sess=self.sess)
 
         self.output_graph_size()

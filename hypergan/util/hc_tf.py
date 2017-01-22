@@ -98,7 +98,7 @@ def block_conv(result, activation, batch_size,id,name, resize=None, output_chann
         result = batch_norm(batch_size, name=name+'bn')(result)
     s = result.get_shape()
     if(sigmoid_gate is not None):
-        mask = linear(sigmoid_gate, s[1]*s[2]*s[3], scope=name+"lin_proj_mask", regularizer=tf.contrib.layers.l2_regularizer(0.4))
+        mask = linear(sigmoid_gate, s[1]*s[2]*s[3], scope=name+"lin_proj_mask")
         mask = tf.reshape(mask, result.get_shape())
         result *= tf.nn.sigmoid(mask)
 

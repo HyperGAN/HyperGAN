@@ -32,7 +32,7 @@ class Graph:
                 net = batch_norm(batch_size, name='g_rp_bn'+str(i))(net)
                 net = activation(net)
 
-            net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", regularizer=tf.contrib.layers.l2_regularizer(config['generator.regularizers.l2.lambda']))
+            net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
             new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
             net = tf.reshape(net, new_shape)
 

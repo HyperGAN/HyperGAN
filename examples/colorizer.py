@@ -10,7 +10,7 @@ from hypergan.util.globals import *
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
     parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-    parser.add_argument('--save_every', type=int, default=1000, help='Saves the model every n epochs.')
+    parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
     parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
     parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')

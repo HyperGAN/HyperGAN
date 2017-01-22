@@ -209,7 +209,8 @@ class CLI:
 
     def run(self):
         parser = self.get_parser()
-        args = parser.parse_args()
+        self.args = parser.parse_args()
+        args = self.args
         if args.config is None:
             parser.error("the following arguments are required: --config")
 

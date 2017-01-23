@@ -121,7 +121,7 @@ class Graph:
             loss += disc_ent - disc_cross_ent
         return loss
 
-    def random_category(batch_size, size, dtype):
+    def random_category(self, batch_size, size, dtype):
         prior = tf.ones([batch_size, size])*1./size
         dist = tf.log(prior + TINY)
         with tf.device('/cpu:0'):
@@ -135,7 +135,7 @@ class Graph:
         set_ops_globals(config['dtype'], config['batch_size'])
         z_dim = int(config['generator.z'])
         z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
-        categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
+        categories = [self.random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
         if(len(categories) > 0):
             categories_t = [tf.concat(1, categories)]
         else:
@@ -166,7 +166,7 @@ class Graph:
         d_losses = []
 
         #initialize with random categories
-        categories = [random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
+        categories = [self.random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
         if(len(categories) > 0):
             categories_t = [tf.concat(1, categories)]
         else:

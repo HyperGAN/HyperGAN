@@ -48,10 +48,8 @@ def add_bw(gan, net):
     x = tf.image.resize_images(x, shape, 1)
     print("Created bw ", x)
 
-    x = tf.image.rgb_to_grayscale(x)
-    x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
-
-    return x
+    bw_net = tf.image.rgb_to_grayscale(x)
+    return bw_net
 
 args = parse_args()
 

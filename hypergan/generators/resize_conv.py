@@ -23,7 +23,8 @@ def generator(config, net, z):
     net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, sigmoid_gate=z)
     if(config['generator.layer_filter']):
         fltr = config['generator.layer_filter'](None, net)
-        net = tf.concat(3, [net, fltr]) # TODO: pass through gan object
+        if(fltr is not None):
+            net = tf.concat(3, [net, fltr]) # TODO: pass through gan object
 
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
@@ -38,8 +39,9 @@ def generator(config, net, z):
         net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], 1)
         if(config['generator.layer_filter']):
             fltr = config['generator.layer_filter'](None, net)
-            net = tf.concat(3, [net, fltr]) # TODO: pass through gan object
-            set_tensor('xfiltered', fltr)
+            if(fltr is not None):
+                net = tf.concat(3, [net, fltr]) # TODO: pass through gan object
+                set_tensor('xfiltered', fltr)
         fltr = 3
         if fltr > net.get_shape()[1]:
             fltr=int(net.get_shape()[1])

@@ -115,7 +115,7 @@ save_file = os.path.expanduser("~/.hypergan/saves/colorizer.ckpt")
 gan.load_or_initialize_graph(save_file)
 
 tf.train.start_queue_runners(sess=gan.sess)
-for i in range(100000):
+for i in range(10000000):
     d_loss, g_loss = gan.train()
 
     if i % args.save_every == 0 and i > 0:
@@ -130,4 +130,4 @@ for i in range(100000):
             hc.io.sample(config, [{"image":sample_file, "label": 'sample'}]) 
 
 tf.reset_default_graph()
-self.sess.close()
+sess.close()

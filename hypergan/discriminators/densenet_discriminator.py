@@ -5,16 +5,16 @@ from hypergan.util.hc_tf import *
 import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import hyperchamber as hc
 
-def config(resize=None, layers=None):
+def config(resize=None, layers=None, dense_layers=2, dense_size=16, batch_norm=layer_norm_1):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
-    selector.set('regularizer', [batch_norm_1]) # Size of fully connected layers
+    selector.set('regularizer', [batch_norm]) # Size of fully connected layers
 
     if layers == None:
         layers = [5]
     selector.set("layers", layers) #Layers in D
-    selector.set("dense.layers", 2) #Layers in D
-    selector.set("dense.size", 16) #Layers in D
+    selector.set("dense.layers", dense_layers) #Layers in D
+    selector.set("dense.size", dense_size) #Layers in D
 
     selector.set('add_noise', [True]) #add noise to input
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0

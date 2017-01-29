@@ -72,7 +72,18 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
 
         xgs.append(xg)
   
-        net = tf.concat(3, [net, xg])
+        mask = get_tensor('mask')
+        s = [int(x) for x in xs[i].get_shape()]
+        shape = [s[1], s[2]]
+        mask = tf.image.resize_images(mask, shape, 1)
+
+        xx = xs[i]
+        xx = tf.concat(0, [xx,xx])
+        mask = tf.concat(0, [mask,mask])
+        xx += tf.random_normal(xx.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
+        inv_mask = xx*(1-mask)
+        inv_mask = tf.nn.dropout(inv_mask, 0.01)
+        net = tf.concat(3, [net, xg, inv_mask])
     
       filter_size_w = 2
       filter_size_h = 2

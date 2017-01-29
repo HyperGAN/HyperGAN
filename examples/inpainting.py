@@ -26,18 +26,23 @@ def sampler(name, sess, config):
     y_t = get_tensor("y")
     z_t = get_tensor("z")
     x_t = get_tensor('x')
+    mask_t = get_tensor('mask')
     fltr_x_t = get_tensor('xfiltered')
     x = sess.run([x_t])
     x = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
-    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x})
-    bw = np.squeeze(np.tile(bw_x[0], [1,1,1,3]))
+    s = [int(x) for x in mask_t.get_shape()]
+    mask = np.zeros([s[0], s[1]//2, s[2]//2, s[3]])
+    constants = (1,1)
+    mask = np.pad(mask, ((0,0),(s[1]//4,s[1]//4),(s[2]//4,s[2]//4),(0,0)),'constant', constant_values=constants)
+    print("Set up mask")
+
+    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x, mask_t: mask})
     stacks = []
-    stacks.append([x[0], bw, sample[0], sample[1], sample[2], sample[3]])
+    stacks.append([x[0], bw_x[0], sample[0], sample[1], sample[2], sample[3]])
     for i in range(4):
         stacks.append([sample[i*6+4+j] for j in range(6)])
     
-    print('bwxshape', bw.shape, x[0].shape)
     images = np.vstack([np.hstack(s) for s in stacks])
     plot(config, images, name)
 
@@ -97,7 +102,6 @@ initial_graph = {
     'examples_per_epoch':examples_per_epoch
 }
 
-gan = hg.GAN(config, initial_graph)
 
 shape = [config['batch_size'], config['x_dims'][0], config['x_dims'][1], config['channels']]
 mask = tf.random_uniform(shape, -1, 1)
@@ -105,6 +109,7 @@ mask = tf.greater(mask, 0)
 mask = tf.cast(mask, tf.float32)
 set_tensor('mask', mask)
 
+gan = hg.GAN(config, initial_graph)
 
 save_file = os.path.expanduser("~/.hypergan/saves/inpainting.ckpt")
 gan.load_or_initialize_graph(save_file)

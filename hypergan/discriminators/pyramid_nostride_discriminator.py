@@ -48,9 +48,10 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
         print("X XSXS SX", x.get_shape(), g.get_shape(), xs, config['resize'])
 
     batch_size = int(x.get_shape()[0])
+    g_filter = tf.concat(3, [g, config['layer_filter'](None, x)])
+    x_filter = tf.concat(3, [x, config['layer_filter'](None, x)])
     # TODO: This is standard optimization from improved GAN, cross-d feature
-    net = tf.concat(0, [x,g])
-    # TODO: cross-d
+    net = tf.concat(0, [x_filter,g_filter] )
     if(config['add_noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
         
@@ -67,12 +68,15 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       #TODO: cross-d, overwritable
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
-        xg = tf.concat(0, [xs[i], gs[i]])
+        x_filter_i = tf.concat(3, [xs[i], config['layer_filter'](None, xs[i])])
+        g_filter_i = tf.concat(3, [gs[i], config['layer_filter'](None, xs[i])])
+        xg = tf.concat(0, [x_filter_i, g_filter_i])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev']*i, dtype=root_config['dtype'])
 
         xgs.append(xg)
   
         net = tf.concat(3, [net, xg])
+
     
       filter_size_w = 2
       filter_size_h = 2

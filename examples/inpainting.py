@@ -60,6 +60,21 @@ def add_inpaint(gan, net):
 
     return x
 
+
+def add_original_x(gan, net):
+    x = get_tensor('x')
+    mask = get_tensor('mask')
+
+    s = [int(x) for x in net.get_shape()]
+    shape = [s[1], s[2]]
+    mask = tf.image.resize_images(mask, shape, 1)
+
+    x = tf.image.resize_images(x, shape, 1)
+    #xx += tf.random_normal(xx.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
+    x = x*(1-mask)
+    x = tf.nn.dropout(x, 0.01)
+    return x
+
 args = parse_args()
 
 width = int(args.size.split("x")[0])
@@ -75,6 +90,7 @@ config = selector.load_or_create_config(config_filename, config)
 #TODO add this option to D
 #TODO add this option to G
 config['generator.layer_filter'] = add_inpaint
+config['discriminators'][0]['layer_filter'] = add_original_x
 
 # TODO refactor, shared in CLI
 config['dtype']=tf.float32

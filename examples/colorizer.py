@@ -49,7 +49,20 @@ def add_bw(gan, net):
     print("Created bw ", x)
 
     x = tf.image.rgb_to_grayscale(x)
-    x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
+    #x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
+
+    return x
+
+def add_original_x(gan, net):
+    x = get_tensor('x')
+    s = [int(x) for x in net.get_shape()]
+    shape = [s[1], s[2]]
+    x = tf.image.resize_images(x, shape, 1)
+    print("Created bw ", x)
+
+    x = tf.image.rgb_to_grayscale(x)
+    x = tf.nn.dropout(x, 0.005)
+    #x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
 
     return x
 
@@ -68,6 +81,7 @@ config = selector.load_or_create_config(config_filename, config)
 #TODO add this option to D
 #TODO add this option to G
 config['generator.layer_filter'] = add_bw
+config['discriminators'][0]['layer_filter'] = add_original_x
 
 # TODO refactor, shared in CLI
 config['dtype']=tf.float32
@@ -101,7 +115,7 @@ save_file = os.path.expanduser("~/.hypergan/saves/colorizer.ckpt")
 gan.load_or_initialize_graph(save_file)
 
 tf.train.start_queue_runners(sess=gan.sess)
-for i in range(100000):
+for i in range(10000000):
     d_loss, g_loss = gan.train()
 
     if i % args.save_every == 0 and i > 0:
@@ -116,4 +130,4 @@ for i in range(100000):
             hc.io.sample(config, [{"image":sample_file, "label": 'sample'}]) 
 
 tf.reset_default_graph()
-self.sess.close()
+sess.close()

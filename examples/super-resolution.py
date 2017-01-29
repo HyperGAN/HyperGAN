@@ -112,7 +112,8 @@ for i in range(1000000):
 
     if i % args.sample_every == 0 and i > 0:
         print("Sampling "+str(i))
-        gan.sample_to_file("samples/"+str(i)+".png", sampler=sampler)
+        sample_file = "samples/"+str(i)+".png"
+        gan.sample_to_file(sample_file, sampler=sampler)
         if args.use_hc_io:
             hc.io.sample(config, [{"image":sample_file, "label": 'sample'}]) 
 

@@ -76,7 +76,6 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
         xgs.append(xg)
   
         net = tf.concat(3, [net, xg])
-
     
       filter_size_w = 2
       filter_size_h = 2

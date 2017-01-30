@@ -209,6 +209,8 @@ class Graph:
         generator_target_prob = config['g_target_prob']
         d_label_smooth = config['d_label_smooth']
         TINY=1e-12
+        d_real_lin = tf.reduce_mean(d_real_lin, axis=1)
+        d_fake_lin = tf.reduce_mean(d_fake_lin, axis=1)
         d_loss = d_real_lin - d_fake_lin
         d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
         d_real_loss = sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)

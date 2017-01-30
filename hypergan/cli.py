@@ -2,6 +2,7 @@ import argparse
 import os
 import tensorflow as tf
 import hyperchamber as hc
+from hypergan.util.globals import *
 from . import GAN
 from .loaders import *
 import hypergan as hg
@@ -108,7 +109,7 @@ class CLI:
 
     def test_epoch(self, epoch, start_time, end_time):
         sample = []
-        sample_list = config['sampler'](self.sess,self.config)
+        sample_list = self.config['sampler'](self.sess,self.config)
         measurements = self.collect_measurements(epoch, self.sess, self.config, end_time - start_time)
         if self.args.use_hc_io:
             hc.io.measure(self.config, measurements)
@@ -162,7 +163,7 @@ class CLI:
                 saver = tf.train.Saver()
                 saver.save(self.sess, self.save_file)
             end_time = time.time()
-            #self.test_epoch(i, start_time, end_time)
+            self.test_epoch(i, start_time, end_time)
 
     def setup_input_graph(self, format, directory, device, config, seconds=None,
             bitrate=None, crop=False, width=None, height=None, channels=3):
@@ -228,6 +229,7 @@ class CLI:
         print("Config file", config_filename)
         config = selector.load_or_create_config(config_filename, config)
         config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
+        config['model']=args.config
         config['batch_size'] = args.batch_size
         config = hg.config.lookup_functions(config)
 

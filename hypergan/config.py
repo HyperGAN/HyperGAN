@@ -34,8 +34,8 @@ def selector(args):
     selector.set('generator.layer_filter', None) #Add information to g
     selector.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
     selector.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
-    selector.set('generator.densenet.size', 32)
-    selector.set('generator.densenet.layers', 3)
+    selector.set('generator.densenet.size', 16)
+    selector.set('generator.densenet.layers', 1)
 
     # Trainer configuration
     #trainer = wgan_trainer # adam works well at 64x64 but doesn't scale

@@ -13,10 +13,10 @@ def config(resize=None, layers=None):
 
     if layers == None:
         layers = [4,5,3]
-    selector.set("layers", layers) #Layers in D
+    selector.set("layers", 4) #Layers in D
     selector.set("depth_increase", [2])# Size increase of D's features on each layer
 
-    selector.set('add_noise', [True]) #add noise to input
+    selector.set('add_noise', [False]) #add noise to input
     selector.set('layer_filter', [None]) #add information to D
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
     selector.set('regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
@@ -78,7 +78,6 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
             xg = tf.concat(0, [x_filter_i, g_filter_i])
         else:
             xg = tf.concat(0, [xs[i], gs[i]])
-        xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev']*i, dtype=root_config['dtype'])
 
         xgs.append(xg)
   
@@ -94,9 +93,9 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       print('[discriminator] layer', net)
 
     k=-1
-    if batch_norm is not None:
-        net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
-    net = tf.nn.relu(net)
+    #if batch_norm is not None:
+    #    net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
+    net = activation(net)
     net = tf.reshape(net, [batch_size*2, -1])
 
     #TODO: cross-d feature

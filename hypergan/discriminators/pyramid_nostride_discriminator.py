@@ -94,18 +94,18 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       print('[discriminator] layer', net)
 
     k=-1
-    #if batch_norm is not None:
-    #    net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
-    #net = activation(net)
+    if batch_norm is not None:
+        net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
+    net = tf.nn.relu(net)
     net = tf.reshape(net, [batch_size*2, -1])
 
     #TODO: cross-d feature
     regularizers = []
-    #for regularizer in config['regularizers']:
-    #    regs = regularizer(root_config, net, prefix)
-    #    regularizers += regs
+    for regularizer in config['regularizers']:
+        regs = regularizer(root_config, net, prefix)
+        regularizers += regs
 
- 
     return tf.concat(1, [net]+regularizers)
+    #return net
 
 

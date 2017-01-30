@@ -31,12 +31,14 @@ def selector(args):
     selector.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
     selector.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
     selector.set('generator.layer.noise', False) #Adds incremental noise each layer
+    selector.set('generator.layer_filter', None) #Add information to g
     selector.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
     selector.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
     selector.set('generator.densenet.size', 32)
     selector.set('generator.densenet.layers', 3)
 
     # Trainer configuration
+    #trainer = wgan_trainer # adam works well at 64x64 but doesn't scale
     trainer = adam_trainer # adam works well at 64x64 but doesn't scale
     #trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
     #trainer = rmsprop_trainer # this works at higher resolutions, but is slow and quirky(help wanted)

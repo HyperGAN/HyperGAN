@@ -71,6 +71,10 @@ class Graph:
         last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
 
 
+        d_real = tf.reshape(net, [batch_size, -1])
+        d_real = tf.slice(net, [0, 0], [single_batch_size, -1])
+        d_fake = tf.reshape(net, [batch_size, -1])
+        d_fake = tf.slice(net, [single_batch_size, 0], [single_batch_size, -1])
         num_classes = config['y_dims']+1
         if config['y_dims'] == 1:
             net = linear(net, 1, scope="d_fc_end", stddev=0.003)
@@ -86,7 +90,7 @@ class Graph:
                     tf.slice(gan_logits, [0], [single_batch_size]),
                     tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, num_classes-1]),
                     tf.slice(gan_logits, [single_batch_size], [single_batch_size]), 
-                    last_layer]
+                    last_layer, d_real, d_fake]
 
 
     def split_categories(layer, batch_size, categories):
@@ -181,7 +185,7 @@ class Graph:
 
         g_sample = g
 
-        d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer = self.discriminator(x, f, encoded_z, g, z)
+        d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer, d_real_lin, d_fake_lin = self.discriminator(x, f, encoded_z, g, z)
 
         if(config['latent_loss']):
             latent_loss = -config['latent_lambda'] * tf.reduce_mean(1 + z_sigma
@@ -204,6 +208,8 @@ class Graph:
 
         generator_target_prob = config['g_target_prob']
         d_label_smooth = config['d_label_smooth']
+        TINY=1e-12
+        d_loss = d_real_lin - d_fake_lin
         d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
         d_real_loss = sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
         #if(config['adv_loss']):
@@ -211,8 +217,12 @@ class Graph:
 
         d_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_real,real_symbols)
 
+        #d_losses.append(d_fake_loss)
+        d_losses.append(d_loss)
+
         #g loss from improved gan paper
-        simple_g_loss = sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
+        #simple_g_loss = sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
+        simple_g_loss = d_fake_lin#tf.nn.sigmoid_cross_entropy_with_logits(d_fake_loss, tf.zeros_like(d_fake_loss))
         g_losses.append(simple_g_loss)
         if(config['adv_loss']):
             g_losses.append(sigmoid_kl_with_logits(d_real_sig, d_label_smooth))
@@ -223,9 +233,6 @@ class Graph:
 
         if(config['g_class_loss']):
             g_losses.append(config['g_class_lambda']*tf.reduce_mean(g_class_loss))
-
-        d_losses.append(d_fake_loss)
-        d_losses.append(d_real_loss)
 
         if(int(y.get_shape()[1]) > 1):
             print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
@@ -253,6 +260,8 @@ class Graph:
 
         reg_losses = [print("Adding g regularizer",var) for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)]
         reg_losses = [var for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) if 'g_' in var.name]
+
+        d_losses=d_losses+reg_losses
         
         extra_g_loss += reg_losses
 

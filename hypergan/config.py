@@ -19,7 +19,7 @@ def selector(args):
     selector.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
 
     # Z encoder configuration
-    selector.set('encoder', random_combo_encoder.encode_gaussian) # how to encode z
+    selector.set('encoder', random_combo_encoder.encode_periodic_gaussian) # how to encode z
 
     # Generator configuration
     selector.set("generator.z", 40) # the size of the encoding.  Encoder is set by the 'encoder' property, but could just be a random_uniform

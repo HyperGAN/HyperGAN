@@ -97,7 +97,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     if batch_norm is not None:
         net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
     net = tf.tanh(net)#activation(net)
-    net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expaer'+str(i), k_w=1, k_h=1, d_h=1, d_w=1, regularizer=1.)
+    #net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expaer'+str(i), k_w=1, k_h=1, d_h=1, d_w=1, regularizer=1.)
     net = tf.reshape(net, [batch_size*2, -1])
 
     #TODO: cross-d feature

@@ -100,12 +100,12 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     net = tf.reshape(net, [batch_size*2, -1])
 
     #TODO: cross-d feature
-    #regularizers = []
-    #for regularizer in config['regularizers']:
-    #    regs = regularizer(root_config, net, prefix)
-    #    regularizers += regs
+    regularizers = []
+    for regularizer in config['regularizers']:
+        regs = regularizer(root_config, net, prefix)
+        regularizers += regs
 
-    #return tf.concat(1, [net]+regularizers)
+    return tf.concat(1, [net]+regularizers)
     return net
 
 

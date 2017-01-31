@@ -211,9 +211,9 @@ class Graph:
         TINY=1e-12
         d_real_lin = tf.reduce_mean(d_real_lin, axis=1)
         d_fake_lin = tf.reduce_mean(d_fake_lin, axis=1)
-        d_loss = d_real_lin - d_fake_lin
-        d_fake_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
-        d_real_loss = sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
+        d_loss = -d_real_lin + d_fake_lin
+        d_fake_loss = d_fake_lin#tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
+        d_real_loss = -d_real_lin#sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
         #if(config['adv_loss']):
         #    d_real_loss +=  sigmoid_kl_with_logits(d_fake_sig, d_label_smooth)
 
@@ -224,7 +224,7 @@ class Graph:
 
         #g loss from improved gan paper
         #simple_g_loss = sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
-        simple_g_loss = d_fake_lin#tf.nn.sigmoid_cross_entropy_with_logits(d_fake_loss, tf.zeros_like(d_fake_loss))
+        simple_g_loss = -d_fake_lin#tf.nn.sigmoid_cross_entropy_with_logits(d_fake_loss, tf.zeros_like(d_fake_loss))
         g_losses.append(simple_g_loss)
         if(config['adv_loss']):
             g_losses.append(sigmoid_kl_with_logits(d_real_sig, d_label_smooth))
@@ -260,12 +260,12 @@ class Graph:
             g_losses.append(-1*config['categories_lambda']*categories_l)
             d_losses.append(-1*config['categories_lambda']*categories_l)
 
-        reg_losses = [print("Adding g regularizer",var) for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)]
-        reg_losses = [var for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) if 'g_' in var.name]
+        g_reg_losses = [var for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) if 'g_' in var.name]
 
-        d_losses=d_losses+reg_losses
+        d_reg_losses = [var for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) if 'd_' in var.name]
+        print("D regularizers:", d_reg_losses)
         
-        extra_g_loss += reg_losses
+        extra_g_loss += g_reg_losses
 
         if(config['latent_loss']):
             #mse_loss = tf.reduce_max(tf.square(x-encoded))
@@ -277,6 +277,9 @@ class Graph:
         for extra in extra_g_loss:
             g_loss += extra
         d_loss = tf.reduce_mean(tf.add_n(d_losses))
+        for extra in d_reg_losses:
+            print("Extra", extra)
+            d_loss += extra
         joint_loss = tf.reduce_mean(tf.add_n(g_losses + d_losses))
 
         summary = tf.all_variables()

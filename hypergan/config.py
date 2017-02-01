@@ -39,12 +39,14 @@ def selector(args):
 
     # Trainer configuration
     #trainer = wgan_trainer # adam works well at 64x64 but doesn't scale
-    trainer = adam_trainer # adam works well at 64x64 but doesn't scale
+    #trainer = adam_trainer # adam works well at 64x64 but doesn't scale
     #trainer = slowdown_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
-    #trainer = rmsprop_trainer # this works at higher resolutions, but is slow and quirky(help wanted)
+    trainer = rmsprop_trainer # this works well with wgan
     #trainer = sgd_adam_trainer # This has never worked, but seems like it should
     selector.set("trainer.initializer", trainer.initialize) # TODO: can we merge these variables?
     selector.set("trainer.train", trainer.train) # The training method to use.  This is called every step
+    selector.set("trainer.rmsprop.discriminator.lr", 1e-4) # d learning rate
+    selector.set("trainer.rmsprop.generator.lr", 1e-4) # g learning rate
     selector.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
     selector.set("trainer.adam.discriminator.epsilon", 1e-8) #adam epsilon for d
     selector.set("trainer.adam.discriminator.beta1", 0.9) #adam beta1 for d
@@ -53,8 +55,6 @@ def selector(args):
     selector.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g
     selector.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g
     selector.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g
-    selector.set("trainer.rmsprop.discriminator.lr", 3e-5) # d learning rate
-    selector.set("trainer.rmsprop.generator.lr", 1e-4) # d learning rate
     selector.set('trainer.slowdown.discriminator.d_fake_min', [0.12]) # healthy above this number on d_fake
     selector.set('trainer.slowdown.discriminator.d_fake_max', [0.12001]) # unhealthy below this number on d_fake
     selector.set('trainer.slowdown.discriminator.slowdown', [5]) # Divides speed by this number when unhealthy(d_fake low)

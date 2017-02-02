@@ -1,6 +1,7 @@
 import tensorflow as tf
 from hypergan.util.ops import *
 from hypergan.util.globals import *
+from hypergan.samplers.common import *
 import os
 import json
 
@@ -45,7 +46,7 @@ iteration=0
 def sample(sess, config):
     global iteration
     x, x2, encoded, label = sample_input(sess, config)
-    prefix = os.path.expanduser("~/.hypergan/samples/"+config['uuid'])
+    prefix = os.path.expanduser("~/.hypergan/samples/"+config['model'])
     sample_file = prefix+"/input-"+str(iteration)+".png"
     plot(config, x, sample_file)
     sample2_file = prefix+"/input-2-"+str(iteration)+".png"

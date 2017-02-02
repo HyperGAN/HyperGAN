@@ -1,3 +1,5 @@
+#TODO TOTALLY BROKEn        
+def sample():
         g = sess.run(generator)
         #TODO: Refactor
         x_one = tf.slice(generator,[0,0,0],[1,config['mp3_size'], config['channels']])

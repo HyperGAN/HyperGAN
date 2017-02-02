@@ -2,12 +2,13 @@
 from hypergan.util.ops import *
 from hypergan.util.globals import *
 
+from hypergan.samplers.common import *
+
 #mask_noise = None
 def sample(sample_file, sess, config):
     generator = get_tensor("g")[0]
     y_t = get_tensor("y")
     z_t = get_tensor("z")
-    dropout_t = get_tensor("dropout")
     #mask_noise_t = get_tensor("mask_noise")
     #categories_t = get_tensor("categories")[0]
 

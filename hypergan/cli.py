@@ -80,12 +80,10 @@ class CLI:
         if(self.steps > 1 and (self.steps % self.args.sample_every == 0)):
             sample_file="samples/%06d.png" % (self.sampled)
             self.create_path(sample_file)
-            print(self.steps, "Sampling to "+sample_file)
+            print(str(self.steps)+":", "Sample created "+sample_file)
             sample_list = self.sample(sample_file)
             if self.args.use_hc_io:
                 hc.io.sample(self.config, sample_list)
-            else:
-                print("Offline sample created:", sample_list)
 
 
             self.sampled += 1
@@ -199,7 +197,7 @@ class CLI:
         print("[hypergan] Welcome.  This is one of ", selector.count_configs(), " possible configurations.")
         config = selector.random_config()
 
-        print("Config file", config_filename)
+        print("[hypergan] Config file", config_filename)
         config = selector.load_or_create_config(config_filename, config)
         config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
         config['model']=args.config

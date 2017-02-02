@@ -39,9 +39,7 @@ def sample(sample_file, sess, config):
     g=tf.get_default_graph()
     with g.as_default():
         tf.set_random_seed(1)
-        print("seed",g.seed)
         sample = sess.run(generator, feed_dict={z_t: z})#, categories_t: categories})
-        print(np.shape(sample), np.min(sample), np.max(sample))
         #plot(self.config, sample, sample_file)
         stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
         plot(config, np.vstack(stacks), sample_file)

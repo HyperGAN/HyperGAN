@@ -32,12 +32,12 @@ def sampler(name, sess, config):
     x = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
     s = [int(x) for x in mask_t.get_shape()]
-    mask = np.zeros([s[0], s[1]//2, s[2]//2, s[3]])
-    constants = (1,1)
-    mask = np.pad(mask, ((0,0),(s[1]//4,s[1]//4),(s[2]//4,s[2]//4),(0,0)),'constant', constant_values=constants)
+    #mask = np.zeros([s[0], s[1]//2, s[2]//2, s[3]])
+    #constants = (1,1)
+    #mask = np.pad(mask, ((0,0),(s[1]//4,s[1]//4),(s[2]//4,s[2]//4),(0,0)),'constant', constant_values=constants)
     print("Set up mask")
 
-    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x, mask_t: mask})
+    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x})#, mask_t: mask})
     stacks = []
     stacks.append([x[0], bw_x[0], sample[0], sample[1], sample[2], sample[3]])
     for i in range(4):
@@ -71,8 +71,7 @@ def add_original_x(gan, net):
 
     x = tf.image.resize_images(x, shape, 1)
     #xx += tf.random_normal(xx.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
-    x = x*(1-mask)
-    x = tf.nn.dropout(x, 0.01)
+    x = x*mask
     return x
 
 args = parse_args()
@@ -120,8 +119,16 @@ initial_graph = {
 
 
 shape = [config['batch_size'], config['x_dims'][0], config['x_dims'][1], config['channels']]
-mask = tf.random_uniform(shape, -1, 1)
-mask = tf.greater(mask, 0)
+mask = tf.ones([shape[1], shape[2], shape[3]])
+scaling = 0.6
+mask = tf.image.central_crop(mask, scaling)
+print(mask.get_shape())
+left = (shape[1]*scaling)//2 * 0.75
+top = (shape[2]*scaling)//2 * 0.75
+mask = tf.image.pad_to_bounding_box(mask, int(top), int(left), shape[1], shape[2])
+mask = (1.0-mask)
+#mask = tf.random_uniform(shape, -1, 1)
+#mask = tf.greater(mask, 0)
 mask = tf.cast(mask, tf.float32)
 set_tensor('mask', mask)
 

@@ -17,7 +17,7 @@ def sample(sample_file, sess, config):
     x = np.linspace(0,1, 4)
     y = np.linspace(0,1, 6)
 
-    z = np.random.uniform(-1, 1, [config['batch_size'], 2])
+    z = np.random.uniform(-1, 1, [config['batch_size'], config['generator.z']])
 
     g=tf.get_default_graph()
     with g.as_default():

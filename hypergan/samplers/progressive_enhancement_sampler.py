@@ -36,7 +36,7 @@ def sample_input(sess, config):
     return sample[0], sample2[0], encoded[0], label[0]
 
 iteration=0
-def sample(sess, config):
+def sample(_, sess, config):
     global iteration
     x, x2, encoded, label = sample_input(sess, config)
     prefix = os.path.expanduser("~/.hypergan/samples/"+config['model'])

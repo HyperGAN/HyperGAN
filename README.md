@@ -21,10 +21,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href="#cli-sample">Sampling</a>
 
 * <a href="#api">API</a>
- * <a href='#api-generator'>Generator</a>
- * <a href='#api-discriminator'>Discriminator(s)</a>
- * <a href='#api-classifier'>Classifier</a>
- * <a href='#api-training'>Training</a>
 
 * <a href="#datasets">Datasets</a>
  * <a href="#supervised-learning">Supervised learning</a>

@@ -2,6 +2,7 @@ import argparse
 import os
 import tensorflow as tf
 import hyperchamber as hc
+from hypergan.util.gan_server import *
 from hypergan.util.globals import *
 from . import GAN
 from .loaders import *
@@ -146,7 +147,7 @@ class CLI:
         print("Saved generator to ", build_file)
 
     def serve(self, gan):
-        return gan_server(gan.sess, config)
+        return gan_server(self.sess, config)
 
     def train(self, args):
         sampled=False

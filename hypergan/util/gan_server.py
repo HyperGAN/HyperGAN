@@ -2,6 +2,7 @@ from flask import Flask, send_file, request
 import numpy as np
 from hypergan.util import *
 from hypergan.util.globals import *
+from hypergan.samplers.common import *
 from hypergan.samplers import grid_sampler
 import logging
 from logging.handlers import RotatingFileHandler
@@ -29,10 +30,13 @@ class GANWebServer:
         return np.eye(self.config['y_dims'])[rand]
 
     def sample_batch(self, sample_file):
-        generator = get_tensor("g")[-1]
+        generator = get_tensor("g")[0]
         y_t = get_tensor("y")
         print("generator is ", generator)
-        sample = self.sess.run(generator, feed_dict={y_t:self.random_one_hot()})
+
+        #TODO classes broken 
+        # y_t:random_one_hot(see git log)
+        sample = self.sess.run(generator, feed_dict={})
         print("sample is ", sample)
         print(sample.shape)
 
@@ -49,7 +53,10 @@ class GANWebServer:
         z = np.ones(z_t.get_shape())*2
         #categories = np.zeros(categories_t.get_shape())
         print("generator is ", generator)
-        sample = self.sess.run(generator, feed_dict={y_t:self.random_one_hot(), z_t: z})
+        #TODO classes broken 
+        # y_t:random_one_hot(see git log)
+
+        sample = self.sess.run(generator, feed_dict={ z_t: z})
         print("sample is ", sample)
         print(sample.shape)
 
@@ -141,18 +148,18 @@ class GANWebServer:
     def sample(self, type='batch', c=None, features=None, z_iterate=None, target_value=None, seed=None,should_send_file=True):
         print("Creating sample")
 
-        categories_feed = []
-        for i, category in enumerate(self.config['categories']):
-            if(c and len(c) > i and c[i]):
-                uc =int(c[i])
-            else:
-                uc = np.random.randint(0,category)
-                uc = 0
-            categories_feed.append(np.eye(category)[uc])
+        #categories_feed = []
+        #for i, category in enumerate(self.config['categories']):
+        #    if(c and len(c) > i and c[i]):
+        #        uc =int(c[i])
+        #    else:
+        #        uc = np.random.randint(0,category)
+        #        uc = 0
+        #    categories_feed.append(np.eye(category)[uc])
 
-        if len(categories_feed) > 0:
-            categories_feed = np.hstack(categories_feed)
-            categories_feed = np.tile(categories_feed, [self.config['batch_size'],1])
+        #if len(categories_feed) > 0:
+        #    categories_feed = np.hstack(categories_feed)
+        #    categories_feed = np.tile(categories_feed, [self.config['batch_size'],1])
 
 
         sample_file = "sample.png"

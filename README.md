@@ -19,6 +19,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * <a href="#cli">The pip package `hypergan`</a>
  * <a href="#cli-train">Training</a>
  * <a href="#cli-sample">Sampling</a>
+ * <a href="#cli-serving">Web Server</a>
 
 * <a href="#api">API</a>
 
@@ -44,6 +45,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * API example: `colorizer` - re-colorize an image!
 * API example: `inpainter` - remove a section of an image and have your GAN repaint it
 * API example: `super-resolution` - zoom in and enhance.  We've caught the bad guy!
+* 4 *new* samplers.  `--sampler` flag.  Valid options are: `batch`,`progressive`,`static_batch`,`grid`. 
 
 ## 0.6 ~ "MultiGAN"
 
@@ -187,8 +189,27 @@ Naming a configuration during training is recommended.  If your config is not na
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
 
-<div id='#cli-sample'/>
+<div id='#cli-sampling'/>
 ## Sampling
+
+```bash
+  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name] --sampler static_batch --sample_every 5
+```
+
+One way a network learns:
+
+[![Demo CountPages alpha](https://j.gifs.com/58KmzA.gif)](https://www.youtube.com/watch?v=tj3ZLNfcJFo&list=PLWW3WtkBA3MuSnAVS__D0FkENZzuTbHFg&index=1)
+
+
+To create videos:
+
+```bash
+  ffmpeg -i samples/%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
+```
+
+<div id='#cli-serving'/>
+## Web Server
 
 ```bash
   # Train a 256x256 gan with batch size 32 on a folder of pngs
@@ -354,28 +375,6 @@ Default.
 ### Slowdown
 
 Experimental.
-
-# Debugging a generator
-
-## Visualizing learning
-
-One way a network learns:
-
-[![Demo CountPages alpha](https://j.gifs.com/58KmzA.gif)](https://www.youtube.com/watch?v=tj3ZLNfcJFo&list=PLWW3WtkBA3MuSnAVS__D0FkENZzuTbHFg&index=1)
-
-To create your own visualizations, you can use the flag:
-
-```bash
-  --frame_sample grid 
-```
-
-To turn these images into a video:
-
-```bash
-  ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
-```
-
-NOTE: z_dims must equal 2 and batch size must equal 32 to work.
 
 <div id='about'/>
 

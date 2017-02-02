@@ -32,7 +32,7 @@ class CLI:
         parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
-        parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid')
+        parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)

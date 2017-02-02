@@ -11,12 +11,12 @@ def config(resize=None, layers=None, dense_layers=2, dense_size=16, batch_norm=l
     selector.set('regularizer', [batch_norm]) # Size of fully connected layers
 
     if layers == None:
-        layers = [5]
+        layers = [4]
     selector.set("layers", layers) #Layers in D
     selector.set("dense.layers", dense_layers) #Layers in D
     selector.set("dense.size", dense_size) #Layers in D
 
-    selector.set('add_noise', [True]) #add noise to input
+    selector.set('add_noise', [False]) #add noise to input
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
     selector.set('regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
     selector.set('resize', [resize])
@@ -75,9 +75,6 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
         net = tf.concat(3, [net, xg])
       filter_size_w = 2
       filter_size_h = 2
-      if i == depth-1:
-          filter_size_w = int(net.get_shape()[1])
-          filter_size_h = int(net.get_shape()[2])
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
 
@@ -96,21 +93,15 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       if batch_norm is not None:
         net = batch_norm(batch_size*2, name=prefix+'_conv2d_bn'+str(i))(net)
       net = conv2d(net, net.get_shape()[3], name=prefix+'_conv2d'+str(i), k_w=1, k_h=1, d_h=1, d_w=1)
-      net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+      if i < depth - 1:
+          net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)
 
-    k=-1
     if batch_norm is not None:
         net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
-    net = activation(net)
     net = tf.reshape(net, [batch_size*2, -1])
  
-    regularizers = []
-    for regularizer in config['regularizers']:
-        regs = regularizer(root_config, net, prefix)
-        regularizers += regs
-
-    return tf.concat(1, [net]+regularizers)
+    return net
 
 

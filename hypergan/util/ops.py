@@ -124,10 +124,12 @@ def conv_cond_concat(x, y):
     return tf.concat(3, [x, y*tf.ones([x_shapes[0], x_shapes[1], x_shapes[2], y_shapes[3]])])
 
 def conv2d(input_, output_dim,
-           k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02,
+           k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02, regularizer=None,
            name="conv2d"):
     with tf.variable_scope(name):
-        w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],dtype=config['dtype'],
+        if regularizer:
+            regularizer=tf.contrib.layers.l2_regularizer(regularizer)
+        w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],dtype=config['dtype'], regularizer=regularizer,
                             initializer=tf.truncated_normal_initializer(stddev=stddev, dtype=config['dtype']))
         conv = tf.nn.conv2d(input_, w, strides=[1, d_h, d_w, 1], padding='SAME')
 

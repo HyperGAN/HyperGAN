@@ -1,4 +1,3 @@
-from hypergan.util.gan_server import *
 from hypergan.util.globals import *
 from hypergan.util.ops import *
 

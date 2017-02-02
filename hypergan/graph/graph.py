@@ -211,9 +211,15 @@ class Graph:
         TINY=1e-12
         #d_real_lin = tf.reduce_sum(d_real_lin, axis=1)
         #d_fake_lin = tf.reduce_sum(d_fake_lin, axis=1)
-        d_real_lin = tf.reduce_logsumexp(d_real_lin, axis=1)
-        d_fake_lin = tf.reduce_logsumexp(d_fake_lin, axis=1)
-        d_loss = -(d_real_lin - d_fake_lin)
+        #d_real_lin = tf.abs(d_real_lin)+TINY
+        #d_fake_lin = tf.abs(d_fake_lin)+TINY
+        #d_real_lin = tf.log(d_real_lin)
+        #d_fake_lin = tf.log(d_fake_lin)
+        #d_real_lin = tf.reduce_mean(d_real_lin, axis=1)
+        #d_fake_lin = tf.reduce_mean(d_fake_lin, axis=1)
+        d_real_lin = tf.reduce_mean(d_real_lin, axis=1)
+        d_fake_lin = tf.reduce_mean(d_fake_lin, axis=1)
+        d_loss = -d_real_lin + d_fake_lin
         d_fake_loss = d_fake_lin#tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
         d_real_loss = -d_real_lin#sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
         #if(config['adv_loss']):

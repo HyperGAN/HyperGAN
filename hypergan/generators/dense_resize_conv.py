@@ -69,9 +69,9 @@ def generator(config, net, z):
             for j in range(dense_depth):
                 net2 = block_conv(net, activation, batch_size, 'identity', 'g_layers_dense_'+str(j)+"_"+str(i), output_channels=dense_size, filter=3, batch_norm=batch_norm, noise_shape=noise)
                 s2 = [int(x) for x in net2.get_shape()]
-                nv = tf.random_uniform([s2[0],s2[1],s2[2],s2[3]//4],-1.0, 1.0,dtype=config['dtype'])
-                if j == 0:
-                    nois.append(nv)
+                #nv = tf.random_uniform([s2[0],s2[1],s2[2],s2[3]//4],-1.0, 1.0,dtype=config['dtype'])
+                #if j == 0:
+                #    nois.append(nv)
                 net = tf.concat(3, [net, net2] + nois)
         else:
             net = tf.concat(3, [net] + nois)

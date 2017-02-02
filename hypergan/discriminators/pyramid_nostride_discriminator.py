@@ -99,7 +99,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     #net2 = conv2d(prev_layer, int(net.get_shape()[3]), name=prefix+'_sigmoid', k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None)
     #if batch_norm is not None:
     #    net2 = batch_norm(batch_size*2, name=prefix+'_expand_bn_sigmoid_end_'+str(i))(net2)
-    net = tf.tanh(net)#*tf.sigmoid(net2)#activation(net)
+    #net = tf.tanh(net)#*tf.sigmoid(net2)#activation(net)
     #net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expaer'+str(i), k_w=1, k_h=1, d_h=1, d_w=1, regularizer=1.)
     net = tf.reshape(net, [batch_size*2, -1])
 

@@ -15,20 +15,20 @@ def build_samples(sess, config):
     x = get_tensor("x")
     xs = get_tensor("xs")
     categories = get_tensor('categories')
-    d_fake_sigmoid = get_tensor("d_fake_sigmoid")
+    d_fake_loss = get_tensor("d_fake_loss")
     rand = np.random.randint(0,config['y_dims'], size=config['batch_size'])
     #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
-    sample, sample2, sample3, d_fake_sig = sess.run([generator, gs[1], gs[2],d_fake_sigmoid], feed_dict={y:random_one_hot})
-    a = split_sample(config['sampler.samples'], d_fake_sig, sample, config['x_dims'], config['channels'])
-    b = split_sample(config['sampler.samples'], d_fake_sig, sample2, [gs[1].get_shape()[1], gs[1].get_shape()[2]], config['channels'])
-    c = split_sample(config['sampler.samples'], d_fake_sig, sample3, [gs[2].get_shape()[1], gs[2].get_shape()[2]], config['channels'])
+    sample, sample2, sample3, d_fake_loss = sess.run([generator, gs[1], gs[2],d_fake_loss], feed_dict={y:random_one_hot})
+    a = split_sample(config['sampler.samples'], d_fake_loss, sample, config['x_dims'], config['channels'])
+    b = split_sample(config['sampler.samples'], d_fake_loss, sample2, [gs[1].get_shape()[1], gs[1].get_shape()[2]], config['channels'])
+    c = split_sample(config['sampler.samples'], d_fake_loss, sample3, [gs[2].get_shape()[1], gs[2].get_shape()[2]], config['channels'])
     return [val for pair in zip(a, b, c) for val in pair]
 
-def split_sample(n, d_fake_sig, sample, x_dims, channels):
+def split_sample(n, d_fake_loss, sample, x_dims, channels):
     samples = []
 
-    for s, d in zip(sample, d_fake_sig):
+    for s, d in zip(sample, d_fake_loss):
         samples.append({'sample':s,'d':d})
     samples = sorted(samples, key=lambda x: (1-x['d']))
 

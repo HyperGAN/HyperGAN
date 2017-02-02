@@ -209,43 +209,7 @@ To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on 
 ```python3
   import hypergan as hg
 ```
-
-<div id='api-generator'/>
-## Generator API
-
-```python3
-  gan = hg.load("name")
-  data = gan.generate(label) # label is optional
-```
-
-TODO `label` for supervised learning
-TODO what is data
-
-<div id='api-discriminator'/>
-## Discriminator API
-
-```python3
-  gan = hg.load("name")
-  gan.discriminate(data) # returns a float between 0 and 1
-```
-
-TODO what is data?
-
- <div id='api-classifier'/>
-## Classifier API
-
-```python3
-  gan = hg.load("name")
-  gan.classify(data) # returns a one-hot vector?
-```
-
-<div id='api-training'/>
-## Training API
-
-```python3
-  gan = hg.load("name")
-  gan.train(epochs=1000)
-```
+API is currently under development.  The best reference are the examples in the `examples` directory.
 
 <div id="datasets"/>
 # Datasets

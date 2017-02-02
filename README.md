@@ -33,6 +33,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href='#downloadabledatasets'>Downloadable Datasets</a>
  
 * <a href="#about">About</a>
+  * <a href="#wgan">WGAN</a>
 
  
 
@@ -40,17 +41,15 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## Changelog
 
-## 0.6 ~ "MultiGAN" - Experimental
+## 0.7 - "WGAN API" (samples to come)
 
-### 0.6.x
+* New loss function based on `wgan` :.  Fixes many classes of mode collapse!  Our implementation is discussed in <a href="#wgan">wgan implementation</a>
+* Initial Public API Release
+* API example: `colorizer` - re-colorize an image!
+* API example: `inpainter` - remove a section of an image and have your GAN repaint it
+* API example: `super-resolution` - zoom in and enhance.  We've caught the bad guy!
 
-* new defaults
-  * discriminator: use `layer_norm` to help prevent mode collapse
-  * discriminator: enable `progressive enhancement`
-  * encoder: `encode_periodic_gaussian`
-  * generator: `dense_resize_conv`
-
-### 0.6.0
+## 0.6 ~ "MultiGAN"
 
 * 3 new encoders
 * New discriminator: `densenet` - based loosely on https://arxiv.org/abs/1608.06993
@@ -61,9 +60,9 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * Support for multiple discriminators
 * Support for discriminators on different image resolutions
 
-## 0.5 ~ "FaceGAN" - Stable
+## 0.5 ~ "FaceGAN"
 
-### 0.5.x final
+### 0.5.x
 
 * fixed configuration save/load
 * cleaner cli output
@@ -435,6 +434,22 @@ A single fully trained `GAN` consists of the following useful networks:
 
 HyperGAN is currently in open beta.
 
+## WGAN
+
+Our implementation of WGAN is based off the paper.  Hypergan's loss function is now:
+
+```python
+ d_fake = tf.abs(d_fake)
+ d_real = tf.abs(d_real)
+ d_fake = tf.reduce_mean(d_fake,axis=1)
+ d_real = tf.reduce_mean(d_real,axis=1)
+ d_loss = d_real - d_fake
+ g_loss = d_fake
+```
+
+Additionally we are using `Adam` and do not perform value clipping.
+
+abs/reduce_mean may both be considered hyperparams.
 
 ## Papers
 
@@ -443,6 +458,7 @@ HyperGAN is currently in open beta.
 * InfoGAN - https://arxiv.org/abs/1606.03657
 * Improved GAN - https://arxiv.org/abs/1606.03498
 * Adversarial Inference - https://arxiv.org/abs/1606.00704
+* WGAN - https://arxiv.org/abs/1701.07875
 
 ## Sources
 

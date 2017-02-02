@@ -219,7 +219,7 @@ class Graph:
         #d_fake_lin = tf.reduce_logsumexp(d_fake_lin, axis=1)
         d_real_lin = tf.reduce_mean(d_real_lin, axis=1)
         d_fake_lin = tf.reduce_mean(d_fake_lin, axis=1)
-        d_loss = -d_real_lin + d_fake_lin
+        d_loss = d_real_lin - d_fake_lin
         d_fake_loss = d_fake_lin#tf.nn.sigmoid_cross_entropy_with_logits(d_fake_sig, zeros)
         d_real_loss = -d_real_lin#sigmoid_kl_with_logits(d_real_sig, 1.-d_label_smooth)
         #if(config['adv_loss']):
@@ -232,7 +232,7 @@ class Graph:
 
         #g loss from improved gan paper
         #simple_g_loss = sigmoid_kl_with_logits(d_fake_sig, generator_target_prob)
-        simple_g_loss = -d_fake_lin#tf.nn.sigmoid_cross_entropy_with_logits(d_fake_loss, tf.zeros_like(d_fake_loss))
+        simple_g_loss = d_fake_lin
         g_losses.append(simple_g_loss)
         if(config['adv_loss']):
             g_losses.append(sigmoid_kl_with_logits(d_real_sig, d_label_smooth))

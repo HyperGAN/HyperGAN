@@ -81,19 +81,9 @@ def selector(args):
     # Loss function configuration
     selector.set('g_class_loss', [False])
     selector.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
-    selector.set('d_fake_class_loss', [False])
 
     selector.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
     selector.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
-
-    # Minibatch configuration TODO move to minibatch
-    selector.set("d_kernels", list(np.arange(20, 30)))
-    selector.set("d_kernel_dims", list(np.arange(200, 300)))
-
-    # Vae Loss configuration TODO cleanup
-    selector.set("adv_loss", [False])
-    selector.set("latent_loss", [False])
-    selector.set("latent_lambda", list(np.linspace(.01, .1, num=30)))
 
     return selector
 

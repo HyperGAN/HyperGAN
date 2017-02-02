@@ -3,24 +3,20 @@ import hyperchamber as hc
 from hypergan.util.ops import *
 from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
-import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import os
 
-def config(resize=None, layers=None):
+def config(resize=None, layers=5):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
     selector.set('regularizer', [layer_norm_1]) # Size of fully connected layers
 
-    if layers == None:
-        layers = [4,5,3]
-    selector.set("layers", 4) #Layers in D
+    selector.set("layers", layers) #Layers in D
     selector.set("depth_increase", [2])# Size increase of D's features on each layer
 
     selector.set('add_noise', [False]) #add noise to input
     selector.set('layer_filter', [None]) #add information to D
     selector.set('layer_filter.progressive_enhancement_enabled', True) #add information to D
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-    selector.set('regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
     selector.set('resize', [resize])
 
     selector.set('create', discriminator)
@@ -46,8 +42,6 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
 
         x = tf.image.resize_images(x,config['resize'], 1)
         g = tf.image.resize_images(g,config['resize'], 1)
-
-        print("X XSXS SX", x.get_shape(), g.get_shape(), xs, config['resize'])
 
     batch_size = int(x.get_shape()[0])
     # TODO: This is standard optimization from improved GAN, cross-d feature
@@ -98,20 +92,8 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     k=-1
     if batch_norm is not None:
         net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
-    #net2 = conv2d(prev_layer, int(net.get_shape()[3]), name=prefix+'_sigmoid', k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None)
-    #if batch_norm is not None:
-    #    net2 = batch_norm(batch_size*2, name=prefix+'_expand_bn_sigmoid_end_'+str(i))(net2)
-    #net = tf.sigmoid(net)#*tf.sigmoid(net2)#activation(net)
-    #net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expaer'+str(i), k_w=1, k_h=1, d_h=1, d_w=1, regularizer=1.)
     net = tf.reshape(net, [batch_size*2, -1])
 
-    #TODO: cross-d feature
-    #regularizers = []
-    #for regularizer in config['regularizers']:
-    #    regs = regularizer(root_config, net, prefix)
-    #    regularizers += regs
-
-    #return tf.concat(1, [net]+regularizers)
     return net
 
 

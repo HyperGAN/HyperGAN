@@ -26,17 +26,17 @@ iteration = 0
 def train(sess, config):
     x_t = get_tensor('x')
     g_t = get_tensor('g')
-    g_loss = get_tensor("g_loss_sig")
+    g_loss = get_tensor("g_loss")
     d_loss = get_tensor("d_loss")
     d_fake_loss = get_tensor('d_fake_loss')
     d_real_loss = get_tensor('d_real_loss')
     g_optimizer = get_tensor("g_optimizer")
     d_optimizer = get_tensor("d_optimizer")
     d_class_loss = get_tensor("d_class_loss")
-    g_class_loss = get_tensor("g_class_loss")
     d_vars = get_tensor('d_vars')
 
     _, d_cost = sess.run([d_optimizer, d_loss])
+    # in WGAN paper, values are clipped.  This might not work, and is slow.
     #clip = [tf.assign(d,tf.clip_by_value(d, -0.1, 0.1))  for d in d_vars]
     #sess.run(clip)
 

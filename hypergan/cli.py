@@ -10,7 +10,7 @@ import hypergan as hg
 import time
 
 from hypergan.util.ops import *
-from hypergan.samplers import grid_sampler
+from hypergan.samplers import *
 
 class CLI:
     def __init__(self):
@@ -62,11 +62,11 @@ class CLI:
         if(self.args.sampler == "grid"):
             sampler = grid_sampler.sample
         elif(self.args.sampler == "batch"):
-            sampler = grid_sampler.sample
+            sampler = batch_sampler.sample
         elif(self.args.sampler == "static_batch"):
-            sampler = grid_sampler.sample
+            sampler = static_batch_sampler.sample
         elif(self.args.sampler == "progressive"):
-            sampler = grid_sampler.sample
+            sampler = progressive_enhancement_sampler.sample
         else:
             raise "Cannot find sampler: '"+args.sampler+"'"
 

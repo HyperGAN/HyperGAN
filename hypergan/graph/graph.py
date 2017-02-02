@@ -83,7 +83,9 @@ class Graph:
 
         else:
             num_classes = config['y_dims']+1
+            net = lrelu(net)
             net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
+            net = layer_norm_1(batch_size*2, name='d_bn_end')(net)
             class_logits = tf.slice(net, [0,1], [single_batch_size*2,num_classes-1])
             gan_logits = tf.squeeze(tf.slice(net, [0,0], [single_batch_size*2,1]))
             dr_class=tf.slice(class_logits, [0, 0], [single_batch_size, num_classes-1])

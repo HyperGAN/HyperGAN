@@ -26,18 +26,18 @@ def sampler(name, sess, config):
     y_t = get_tensor("y")
     z_t = get_tensor("z")
     x_t = get_tensor('x')
-    mask_t = get_tensor('filter_mask')
+    mask_t = get_tensor('mask')
     fltr_x_t = get_tensor('xfiltered')
     x = sess.run([x_t])
     x = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
     s = [int(x) for x in mask_t.get_shape()]
-    mask = np.zeros([s[0], s[1]//2, s[2]//2, s[3]])
-    constants = (1,1)
-    mask = np.pad(mask, ((0,0),(s[1]//4,s[1]//4),(s[2]//4,s[2]//4),(0,0)),'constant', constant_values=constants)
+    #mask = np.zeros([s[0], s[1]//2, s[2]//2, s[3]])
+    #constants = (1,1)
+    #mask = np.pad(mask, ((0,0),(s[1]//4,s[1]//4),(s[2]//4,s[2]//4),(0,0)),'constant', constant_values=constants)
     print("Set up mask")
 
-    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x, mask_t: mask})
+    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x})#, mask_t: mask})
     stacks = []
     stacks.append([x[0], bw_x[0], sample[0], sample[1], sample[2], sample[3]])
     for i in range(4):
@@ -48,7 +48,7 @@ def sampler(name, sess, config):
 
 def add_inpaint(gan, net):
     x = get_tensor('x')
-    mask = get_tensor('filter_mask')
+    mask = get_tensor('mask')
     s = [int(x) for x in net.get_shape()]
     shape = [s[1], s[2]]
     x = tf.image.resize_images(x, shape, 1)
@@ -89,7 +89,6 @@ config = selector.load_or_create_config(config_filename, config)
 #TODO add this option to D
 #TODO add this option to G
 config['generator.layer_filter'] = add_inpaint
-config['generator.layer_filter.progressive_enhancement_enabled'] = False
 config['discriminators'][0]['layer_filter'] = add_original_x
 
 # TODO refactor, shared in CLI
@@ -132,11 +131,6 @@ mask = (1.0-mask)
 #mask = tf.greater(mask, 0)
 mask = tf.cast(mask, tf.float32)
 set_tensor('mask', mask)
-
-filter_mask = tf.random_uniform(shape, -1, 1)
-filter_mask = tf.greater(filter_mask, 0)
-filter_mask = tf.cast(filter_mask, tf.float32)
-set_tensor('filter_mask', filter_mask)
 
 gan = hg.GAN(config, initial_graph)
 

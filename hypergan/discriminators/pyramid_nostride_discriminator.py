@@ -18,6 +18,7 @@ def config(resize=None, layers=None):
 
     selector.set('add_noise', [False]) #add noise to input
     selector.set('layer_filter', [None]) #add information to D
+    selector.set('layer_filter.progressive_enhancement_enabled', True) #add information to D
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
     selector.set('regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
     selector.set('resize', [resize])
@@ -81,7 +82,8 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
 
         xgs.append(xg)
   
-        net = tf.concat(3, [net, xg])
+        if config['layer_filter.progressive_enhancement_enabled']:
+            net = tf.concat(3, [net, xg])
     
       filter_size_w = 2
       filter_size_h = 2

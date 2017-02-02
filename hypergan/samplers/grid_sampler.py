@@ -46,4 +46,4 @@ def sample(sample_file, sess, config):
         stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
         plot(config, np.vstack(stacks), sample_file)
 
-
+    return [{'image':sample_file, 'label':'grid'}]

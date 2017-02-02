@@ -15,7 +15,7 @@ from hypergan.samplers import grid_sampler
 class CLI:
     def __init__(self):
         self.sampled = 0
-        self.batch_no = 0
+        self.steps = 0
         self.run()
 
     def common(self, parser):
@@ -30,9 +30,9 @@ class CLI:
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
-        parser.add_argument('--epochs', type=int, default=10000, help='The number of iterations through the data before stopping training.')
-        parser.add_argument('--save_every', type=int, default=10, help='Saves the model every n epochs.')
-        parser.add_argument('--frame_sample', type=str, default=None, help='Frame sampling is used for video creation.')
+        parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
+        parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
+        parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -49,9 +49,8 @@ class CLI:
         return parser
 
 
-    #TODO fixme
-    def frame_sample(self, sample_file, sess, config):
-        """ Samples every frame to a file.  Useful for visualizing the learning process.
+    def sample(self, sample_file):
+        """ Samples to a file.  Useful for visualizing the learning process.
 
         Use with:
 
@@ -60,63 +59,39 @@ class CLI:
         to create a video of the learning process.
         """
 
-        if(self.args.frame_sample == None):
-            return None
-        if(self.args.frame_sample == "grid"):
-            frame_sampler = grid_sampler.sample
+        if(self.args.sampler == "grid"):
+            sampler = grid_sampler.sample
+        elif(self.args.sampler == "batch"):
+            sampler = grid_sampler.sample
+        elif(self.args.sampler == "static_batch"):
+            sampler = grid_sampler.sample
+        elif(self.args.sampler == "progressive"):
+            sampler = grid_sampler.sample
         else:
-            raise "Cannot find frame sampler: '"+args.frame_sample+"'"
+            raise "Cannot find sampler: '"+args.sampler+"'"
 
-        frame_sampler(sample_file, self.sess, config)
+        sample_list = sampler(sample_file, self.sess, self.config)
 
-    def epoch(self):
-        config = self.config
-        sess = self.sess
-        batch_size = config["batch_size"]
-        n_samples =  config['examples_per_epoch']
-        total_batch = int(n_samples / batch_size)
-        for i in range(total_batch):
-            if(i % 10 == 1):
-                sample_file="samples/grid-%06d.png" % (self.sampled)
-                self.frame_sample(sample_file, sess, config)
-                self.sampled += 1
+        return sample_list
+
+    def step(self):
+        d_loss, g_loss = self.config['trainer.train'](self.sess, self.config)
+
+        if(self.steps > 1 and (self.steps % self.args.sample_every == 0)):
+            sample_file="samples/%06d.png" % (self.sampled)
+            self.create_path(sample_file)
+            print(self.steps, "Sampling to "+sample_file)
+            sample_list = self.sample(sample_file)
+            if self.args.use_hc_io:
+                hc.io.sample(self.config, sample_list)
+            else:
+                print("Offline sample created:", sample_list)
 
 
-            d_loss, g_loss = config['trainer.train'](sess, config)
+            self.sampled += 1
 
-        self.batch_no+=1
+        self.steps+=1
         return True
-
-    def collect_measurements(self, epoch, sess, config, time):
-        d_loss = get_tensor("d_loss")
-        d_loss_fake = get_tensor("d_fake_sig")
-        d_loss_real = get_tensor("d_real_sig")
-        g_loss = get_tensor("g_loss")
-        d_class_loss = get_tensor("d_class_loss")
-        simple_g_loss = get_tensor("g_loss_sig")
-
-        gl, dl, dlr, dlf, dcl,sgl = sess.run([g_loss, d_loss, d_loss_real, d_loss_fake, d_class_loss, simple_g_loss])
-        return {
-                "g_loss": gl,
-                "g_loss_sig": sgl,
-                "d_loss": dl,
-                "d_loss_real": dlr,
-                "d_loss_fake": dlf,
-                "d_class_loss": dcl,
-                "g_strength": (1-(dlr))*(1-sgl),
-                "seconds": time/1000.0
-                }
-
-
-    def test_epoch(self, epoch, start_time, end_time):
-        sample = []
-        sample_list = self.config['sampler'](self.sess,self.config)
-        measurements = self.collect_measurements(epoch, self.sess, self.config, end_time - start_time)
-        if self.args.use_hc_io:
-            hc.io.measure(self.config, measurements)
-            hc.io.sample(self.config, sample_list)
-        else:
-            print("Offline sample created:", sample_list)
 
     def output_graph_size(self):
         def mul(s):
@@ -151,20 +126,17 @@ class CLI:
 
     def train(self, args):
         sampled=False
-        print("Running for ", args.epochs, " epochs")
-        for i in range(args.epochs):
+        i=0
+        while(True):
+            i+=1
             start_time = time.time()
             with tf.device(args.device):
-                if(not self.epoch()):
-                    print("Epoch failed")
-                    break
-            print("Checking save "+ str(i))
-            if(args.save_every != 0 and i % args.save_every == args.save_every-1):
+              self.step()
+            if(args.save_every != 0 and i % args.save_every == 0):
                 print(" |= Saving network")
                 saver = tf.train.Saver()
                 saver.save(self.sess, self.save_file)
             end_time = time.time()
-            self.test_epoch(i, start_time, end_time)
 
     def setup_input_graph(self, format, directory, device, config, seconds=None,
             bitrate=None, crop=False, width=None, height=None, channels=3):

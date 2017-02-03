@@ -33,6 +33,9 @@ class CLI:
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
+        parser.add_argument('--seconds', type=int, default=1)
+        parser.add_argument('--bitrate', type=int, default=8000)
+
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -136,14 +139,14 @@ class CLI:
                 saver.save(self.sess, self.save_file)
             end_time = time.time()
 
-    def setup_input_graph(self, format, directory, device, config, seconds=None,
-            bitrate=None, crop=False, width=None, height=None, channels=3):
+    def setup_input_graph(self, format, directory, device, config, 
+            crop=False, width=None, height=None, channels=3):
         x,y,f,num_labels,examples_per_epoch=self.setup_input_loader(format, 
                 directory, 
                 device, 
                 config, 
-                seconds=seconds,
-                bitrate=bitrate, 
+                seconds=self.args.seconds,
+                bitrate=self.args.bitrate, 
                 crop=crop, 
                 width=width, 
                 height=height, 
@@ -159,8 +162,7 @@ class CLI:
     def setup_input_loader(self, format, directory, device, config, seconds=None,
             bitrate=None, crop=False, width=None, height=None, channels=3):
         with tf.device('/cpu:0'):
-            #TODO mp3 braken
-            if(format == 'mp3'):
+            if(format == 'mp3' or format == 'wav'):
                 return audio_loader.mp3_tensors_from_directory(
                         directory,
                         config['batch_size'],
@@ -209,8 +211,6 @@ class CLI:
                 args.directory,
                 args.device,
                 config,
-                seconds=None,
-                bitrate=None,
                 width=width,
                 height=height,
                 channels=channels,

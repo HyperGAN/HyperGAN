@@ -67,16 +67,17 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       #TODO: cross-d, overwritable
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
-        if config['layer_filter']:
-            x_filter_i = tf.concat(3, [xs[i], config['layer_filter'](None, xs[i])])
-            g_filter_i = tf.concat(3, [gs[i], config['layer_filter'](None, xs[i])])
-            xg = tf.concat(0, [x_filter_i, g_filter_i])
-        else:
-            xg = tf.concat(0, [xs[i], gs[i]])
-
-        xgs.append(xg)
-  
         if config['layer_filter.progressive_enhancement_enabled']:
+            if config['layer_filter']:
+                x_filter_i = tf.concat(3, [xs[i], config['layer_filter'](None, xs[i])])
+                g_filter_i = tf.concat(3, [gs[i], config['layer_filter'](None, xs[i])])
+                xg = tf.concat(0, [x_filter_i, g_filter_i])
+            else:
+                print("XS", i, xs[i], gs[i])
+                xg = tf.concat(0, [xs[i], gs[i]])
+
+            xgs.append(xg)
+  
             net = tf.concat(3, [net, xg])
     
       filter_size_w = 2

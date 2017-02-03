@@ -406,8 +406,6 @@ Our implementation of WGAN is based off the paper.  Hypergan's loss function is 
 
 We do not perform value clipping.
 
-abs/reduce_mean may both be considered hyperparams.
-
 ## Papers
 
 * GAN - https://arxiv.org/abs/1406.2661

@@ -83,7 +83,6 @@ class Graph:
 
         else:
             num_classes = config['y_dims']+1
-            net = lrelu(net)
             net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
             net = layer_norm_1(batch_size*2, name='d_bn_end')(net)
             class_logits = tf.slice(net, [0,1], [single_batch_size*2,num_classes-1])
@@ -194,8 +193,6 @@ class Graph:
         fake_symbol = tf.tile(tf.constant(np_fake, dtype=config['dtype']), [config['batch_size']])
         fake_symbol = tf.reshape(fake_symbol, [config['batch_size'],config['y_dims']+1])
 
-        d_real_lin = tf.abs(d_real_lin)
-        d_fake_lin = tf.abs(d_fake_lin)
         d_real_lin = tf.reduce_mean(d_real_lin, axis=1)
         d_fake_lin = tf.reduce_mean(d_fake_lin, axis=1)
         d_loss = d_real_lin - d_fake_lin

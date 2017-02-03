@@ -398,8 +398,6 @@ HyperGAN is currently in open beta.
 Our implementation of WGAN is based off the paper.  Hypergan's loss function is now:
 
 ```python
- d_fake = tf.abs(d_fake)
- d_real = tf.abs(d_real)
  d_fake = tf.reduce_mean(d_fake,axis=1)
  d_real = tf.reduce_mean(d_real,axis=1)
  d_loss = d_real - d_fake

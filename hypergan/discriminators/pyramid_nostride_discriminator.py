@@ -7,6 +7,7 @@ import os
 
 def config(resize=None, layers=5):
     selector = hc.Selector()
+    selector.set("final_activation", [tf.nn.tanh])#prelu("d_")])
     selector.set("activation", [lrelu])#prelu("d_")])
     selector.set('regularizer', [layer_norm_1]) # Size of fully connected layers
 
@@ -26,6 +27,7 @@ def config(resize=None, layers=5):
 #TODO: arguments telescope, root_config/config confusing
 def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     activation = config['activation']
+    final_activation = config['final_activation']
     depth_increase = config['depth_increase']
     depth = config['layers']
     batch_norm = config['regularizer']
@@ -92,6 +94,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     k=-1
     if batch_norm is not None:
         net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
+    net = final_activation(net)
     net = tf.reshape(net, [batch_size*2, -1])
 
     return net

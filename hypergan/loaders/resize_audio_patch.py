@@ -1,4 +1,5 @@
 
+import tensorflow as tf
 # coding: utf-8
 
 # In[1]:

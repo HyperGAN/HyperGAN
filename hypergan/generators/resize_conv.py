@@ -6,9 +6,14 @@ def generator(config, net, z):
     depth=0
     w=int(net.get_shape()[1])
     target_w=int(config['x_dims'][0])
-    while(w<target_w):
-      w*=2
-      depth +=1
+    h=int(net.get_shape()[2])
+    target_h=int(config['x_dims'][1])
+    while((w<target_w or w == 1) and h<target_h):
+        if h != 1:
+            h *= 2
+        if w != 1:
+            w *= 2
+        depth += 1
 
     target_size = int(net.get_shape()[1])*(2**depth)*int(net.get_shape()[2])*(2**depth)*config['channels']
     nets=[]
@@ -20,18 +25,25 @@ def generator(config, net, z):
     s = [int(x) for x in net.get_shape()]
 
 
+    print("s is", s)
     net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, sigmoid_gate=z)
+    print(net)
     if(config['generator.layer_filter']):
         fltr = config['generator.layer_filter'](None, net)
         if(fltr is not None):
             net = tf.concat(3, [net, fltr]) # TODO: pass through gan object
 
+    print("DEPTH", depth)
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
         layers = int(net.get_shape()[3])//depth_reduction
         if(i == depth-1):
             layers=config['channels']
-        resized_wh=[s[1]*2, s[2]*2]
+        resized_wh=[s[1], s[2]]
+        if resized_wh[0] != 1:
+            resized_wh[0] = min(config['x_dims'][0], resized_wh[0]*2)
+        if resized_wh[1] != 1:
+            resized_wh[1] = min(config['x_dims'][1], resized_wh[1]*2)
         if config['generator.layer.noise']:
             noise = [s[0],resized_wh[0],resized_wh[1],2**(depth-i)]
         else:

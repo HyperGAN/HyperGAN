@@ -38,6 +38,15 @@ def build_reshape(output_size, nodes, method, batch_size, dtype):
 
 #TODO can live elsewhere
 def find_smallest_prime(x, y):
+    if x == 1:
+        for i in range(256,y-1):
+            if(y % i == 0):
+                return 1,i
+    if y == 1:
+        for i in range(256,x-1):
+            if(x % i == 0):
+                return i,1
+
     for i in range(3,x-1):
         for j in range(1, y-1):
             if(x % (i) == 0 and y % (j) == 0 and x // i == y // j):
@@ -91,22 +100,22 @@ def residual_block(result, activation, batch_size,id,name):
     return left+right
 
 #TODO move this somewhere?  Used by graph creation
-def block_conv(result, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    size = int(result.get_shape()[-1])
-    result = activation(result)
+def block_conv(net, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
+    size = int(net.get_shape()[-1])
+    net = activation(net)
     if(batch_norm is not None):
-        result = batch_norm(batch_size, name=name+'bn')(result)
-    s = result.get_shape()
+        net = batch_norm(batch_size, name=name+'bn')(net)
+    s = net.get_shape()
     if(sigmoid_gate is not None):
         mask = linear(sigmoid_gate, s[1]*s[2]*s[3], scope=name+"lin_proj_mask")
-        mask = tf.reshape(mask, result.get_shape())
-        result *= tf.nn.sigmoid(mask)
+        mask = tf.reshape(mask, net.get_shape())
+        net *= tf.nn.sigmoid(mask)
 
     if(resize):
-        result = tf.image.resize_images(result, resize, 1)
+        net = tf.image.resize_images(net, resize, 1)
 
     if reshaped_z_proj is not None:
-        result = tf.concat(3,[result, reshaped_z_proj])
+        net = tf.concat(3,[net, reshaped_z_proj])
         #HACKS
         #mask_noise = tf.random_uniform(result.get_shape(), 0, 1)
         #set_tensor('mask_noise', mask_noise)
@@ -114,15 +123,17 @@ def block_conv(result, activation, batch_size,id,name, resize=None, output_chann
         #result = result * mask_noise#* tf.cast(mask, tf.float32)
         #result = tf.nn.dropout(result, dropout, seed=1)
 
+    filter_w = max(3, int(net.get_shape()[1]))
+    filter_h = max(3, int(net.get_shape()[2]))
     if(noise_shape):
       noise = tf.random_uniform(noise_shape,-1, 1,dtype=dtype)
-      result = tf.concat(3, [result, noise])
+      net = tf.concat(3, [net, noise])
     if(id=='conv'):
-        result = conv2d(result, int(result.get_shape()[3]), name=name, k_w=filter, k_h=filter, d_h=stride, d_w=stride)
+        net = conv2d(net, int(net.get_shape()[3]), name=name, k_w=filter_w, k_h=filter_h, d_h=stride, d_w=stride)
     elif(id=='identity'):
-        result = conv2d(result, output_channels, name=name, k_w=filter, k_h=filter, d_h=1, d_w=1)
+        net = conv2d(net, output_channels, name=name, k_w=filter_w, k_h=filter_h, d_h=1, d_w=1)
 
-    return result
+    return net
 
 #TODO this is not used
 def dense_block(result, k, activation, batch_size, id, name):

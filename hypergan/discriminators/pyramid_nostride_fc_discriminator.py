@@ -25,7 +25,7 @@ def config(resize=None, layers=5):
     return selector.random_config()
 
 #TODO: arguments telescope, root_config/config confusing
-def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
+def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     activation = config['activation']
     final_activation = config['final_activation']
     depth_increase = config['depth_increase']
@@ -54,7 +54,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     else:
         net = tf.concat(0, [x,g])
     if(config['add_noise']):
-        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
+        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
         
     net = conv2d(net, 16, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
 

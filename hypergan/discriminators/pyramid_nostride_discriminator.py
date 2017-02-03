@@ -25,7 +25,7 @@ def config(resize=None, layers=5):
     return selector.random_config()
 
 #TODO: arguments telescope, root_config/config confusing
-def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
+def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     activation = config['activation']
     final_activation = config['final_activation']
     depth_increase = config['depth_increase']
@@ -48,13 +48,13 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     batch_size = int(x.get_shape()[0])
     # TODO: This is standard optimization from improved GAN, cross-d feature
     if config['layer_filter']:
-        g_filter = tf.concat(3, [g, config['layer_filter'](None, x)])
-        x_filter = tf.concat(3, [x, config['layer_filter'](None, x)])
+        g_filter = tf.concat(3, [g, config['layer_filter'](gan, x)])
+        x_filter = tf.concat(3, [x, config['layer_filter'](gan, x)])
         net = tf.concat(0, [x_filter,g_filter] )
     else:
         net = tf.concat(0, [x,g])
     if(config['add_noise']):
-        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
+        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
         
     net = conv2d(net, 16, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
 
@@ -70,8 +70,8 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
         if config['layer_filter']:
-            x_filter_i = tf.concat(3, [xs[i], config['layer_filter'](None, xs[i])])
-            g_filter_i = tf.concat(3, [gs[i], config['layer_filter'](None, xs[i])])
+            x_filter_i = tf.concat(3, [xs[i], config['layer_filter'](gan, xs[i])])
+            g_filter_i = tf.concat(3, [gs[i], config['layer_filter'](gan, xs[i])])
             xg = tf.concat(0, [x_filter_i, g_filter_i])
         else:
             xg = tf.concat(0, [xs[i], gs[i]])

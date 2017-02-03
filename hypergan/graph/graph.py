@@ -8,11 +8,11 @@ import hyperchamber as hc
 TINY = 1e-12
 
 class Graph:
-    def __init__(self, config={}):
-        self.config = config
+    def __init__(self, gan):
+        self.gan = gan
 
     def generator(self, inputs, reuse=False):
-        config = self.config
+        config = self.gan.config
         x_dims = config['x_dims']
         output_channels = config['channels']
         activation = config['generator.activation']
@@ -41,7 +41,7 @@ class Graph:
             return nets
 
     def discriminator(self, x, f,z,g,gz):
-        config = self.config
+        config = self.gan.config
         batch_size = config['batch_size']*2
         single_batch_size = config['batch_size']
         channels = (config['channels'])
@@ -63,7 +63,7 @@ class Graph:
         discriminators = []
         for i, discriminator in enumerate(config['discriminators']):
             discriminator = hc.lookup_functions(discriminator)
-            discriminators.append(discriminator['create'](self.config, discriminator, x, g, xs, gs,prefix="d_"+str(i)))
+            discriminators.append(discriminator['create'](self.gan, discriminator, x, g, xs, gs,prefix="d_"+str(i)))
         net = tf.concat(1, discriminators)
 
         last_layer = net
@@ -140,7 +140,7 @@ class Graph:
         x = graph.x
         y = graph.y
         f = graph.f
-        config = self.config
+        config = self.gan.config
         set_ops_globals(config['dtype'], config['batch_size'])
         z_dim = int(config['generator.z'])
         z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
@@ -162,7 +162,7 @@ class Graph:
         y = graph.y
         f = graph.f
         set_tensor("x", x)
-        config = self.config
+        config = self.gan.config
         # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
         # TODO refactor
         set_ops_globals(config['dtype'], config['batch_size'])
@@ -273,7 +273,7 @@ class Graph:
         set_tensor("g_optimizer", g_optimizer)
 
     def test(sess, config):
-        config = self.config
+        config = self.gan.config
         x = get_tensor("x")
         y = get_tensor("y")
         d_fake = get_tensor("d_fake")

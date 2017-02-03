@@ -63,7 +63,7 @@ def add_inpaint(gan, net):
 
 def add_original_x(gan, net):
     x = get_tensor('x')
-    mask = get_tensor('mask')
+    mask = gan.graph.mask
 
     s = [int(x) for x in net.get_shape()]
     shape = [s[1], s[2]]
@@ -138,6 +138,8 @@ filter_mask = tf.greater(filter_mask, 0)
 filter_mask = tf.cast(filter_mask, tf.float32)
 set_tensor('filter_mask', filter_mask)
 
+initial_graph['mask'] = mask
+initial_graph['filter_mask'] = filter_mask
 gan = hg.GAN(config, initial_graph)
 
 save_file = os.path.expanduser("~/.hypergan/saves/inpainting.ckpt")

@@ -44,7 +44,7 @@ class GAN:
         return sampler(name, self.sess, self.config)
 
     def create_graph(self, graph_type, device):
-        tf_graph = hg.graph.Graph(self.config)
+        tf_graph = hg.graph.Graph(self)
         graph = self.graph
         with tf.device(device):
             graph.y=tf.cast(graph.y,tf.int64)

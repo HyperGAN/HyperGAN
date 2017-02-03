@@ -136,7 +136,10 @@ class Graph:
 
 
     # Used for building the tensorflow graph with only G
-    def create_generator(self, x,y,f):
+    def create_generator(self, graph):
+        x = graph.x
+        y = graph.y
+        f = graph.f
         config = self.config
         set_ops_globals(config['dtype'], config['batch_size'])
         z_dim = int(config['generator.z'])
@@ -154,9 +157,10 @@ class Graph:
         set_tensor("y", y)
         set_tensor('categories', categories_t)
 
-        return g
-
-    def create(self, x,y,f):
+    def create(self, graph):
+        x = graph.x
+        y = graph.y
+        f = graph.f
         set_tensor("x", x)
         config = self.config
         # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument

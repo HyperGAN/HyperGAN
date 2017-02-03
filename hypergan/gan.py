@@ -2,6 +2,7 @@ from hypergan.util.globals import *
 from hypergan.util.ops import *
 
 from tensorflow.python.framework import ops
+from hyperchamber import Config
 
 import copy
 
@@ -35,27 +36,26 @@ class GAN:
         self.config=config
         self.device=device
         self.init_session(device)
-        self.graph = self.create_graph(graph['x'], graph['y'], graph['f'], graph_type, device)
+        self.graph = Config(graph)
+        #TODO rename me.  Graph should refer to our {name => Tensor} collection
+        self.create_graph(graph_type, device)
 
     def sample_to_file(self, name, sampler=grid_sampler.sample):
         return sampler(name, self.sess, self.config)
 
-    def create_graph(self, x, y, f, graph_type, device):
-        self.graph = hg.graph.Graph(self.config)
-
+    def create_graph(self, graph_type, device):
+        tf_graph = hg.graph.Graph(self.config)
+        graph = self.graph
         with tf.device(device):
-            y=tf.cast(y,tf.int64)
-            y=tf.one_hot(y, self.config['y_dims'], 1.0, 0.0)
+            graph.y=tf.cast(graph.y,tf.int64)
+            graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
 
             if graph_type == 'full':
-                graph = self.graph.create(x,y,f)
+                tf_graph.create(graph)
             elif graph_type == 'generator':
-                graph = self.graph.create_generator(x,y,f)
+                tf_graph.create_generator(graph)
             else:
                 raise Exception("Invalid graph type")
-
-        return self.graph
-
 
     def init_session(self, device):
         # Initialize tensorflow

@@ -406,7 +406,7 @@ Our implementation of WGAN is based off the paper.  Hypergan's loss function is 
  g_loss = d_fake
 ```
 
-Additionally we are using `Adam` and do not perform value clipping.
+We do not perform value clipping.
 
 abs/reduce_mean may both be considered hyperparams.
 

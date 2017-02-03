@@ -47,11 +47,11 @@ def selector(args):
     selector.set("trainer.train", trainer.train) # The training method to use.  This is called every step
     selector.set("trainer.rmsprop.discriminator.lr", 1e-4) # d learning rate
     selector.set("trainer.rmsprop.generator.lr", 1e-4) # g learning rate
-    selector.set("trainer.adam.discriminator.lr", 1e-3) #adam_trainer d learning rate
+    selector.set("trainer.adam.discriminator.lr", 5e-5) #adam_trainer d learning rate
     selector.set("trainer.adam.discriminator.epsilon", 1e-8) #adam epsilon for d
     selector.set("trainer.adam.discriminator.beta1", 0.9) #adam beta1 for d
     selector.set("trainer.adam.discriminator.beta2", 0.999) #adam beta2 for d
-    selector.set("trainer.adam.generator.lr", 1e-3) #adam_trainer g learning rate
+    selector.set("trainer.adam.generator.lr", 5e-5) #adam_trainer g learning rate
     selector.set("trainer.adam.generator.epsilon", 1e-8) #adam_trainer g
     selector.set("trainer.adam.generator.beta1", 0.9) #adam_trainer g
     selector.set("trainer.adam.generator.beta2", 0.999) #adam_trainer g

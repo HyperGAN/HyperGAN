@@ -67,7 +67,7 @@ def selector(args):
     # Discriminator configuration
     discriminators = []
     for i in range(1):
-        discriminators.append(pyramid_nostride_discriminator.config(layers=5))
+        discriminators.append(pyramid_nostride_fc_discriminator.config(layers=5))
     selector.set("discriminators", [discriminators])
 
     # Sampler configuration

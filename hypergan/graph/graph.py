@@ -253,6 +253,7 @@ class Graph:
         set_tensor("d_class_loss", tf.reduce_mean(d_class_loss))
         set_tensor("d_fake_loss", tf.reduce_mean(d_fake_loss))
         set_tensor("d_loss", d_loss)
+        set_tensor("d_log", -tf.log(tf.abs(d_loss+TINY)))
         set_tensor("d_real_loss", tf.reduce_mean(d_real_loss))
         set_tensor("f", f)
         set_tensor("g", g_sample)

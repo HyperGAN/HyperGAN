@@ -35,7 +35,8 @@ def train(sess, config):
     d_class_loss = get_tensor("d_class_loss")
     d_vars = get_tensor('d_vars')
 
-    _, d_cost, d_log = sess.run([d_optimizer, d_loss, -tf.log(tf.abs(d_loss))])
+    TINY = 1e-12
+    _, d_cost, d_log = sess.run([d_optimizer, d_loss, -tf.log(tf.abs(d_loss+TINY))])
     # in WGAN paper, values are clipped.  This might not work, and is slow.
     #clip = [tf.assign(d,tf.clip_by_value(d, -0.1, 0.1))  for d in d_vars]
     #sess.run(clip)

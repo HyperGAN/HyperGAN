@@ -96,12 +96,13 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
     net = tf.reshape(net, [batch_size*2, -1])
     net = activation(net)
-    net = linear(net, 1024, scope="d_fc_end2")
+    lam = 1e-8
+    net = linear(net, 1024, scope="d_fc_end2", regularizer=tf.contrib.layers.l1_regularizer(lam))
     net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
     net = activation(net)
-    net = linear(net, 1024, scope="d_fc_end3")
+    net = linear(net, 1024, scope="d_fc_end3", regularizer=tf.contrib.layers.l1_regularizer(lam))
     net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end2')(net)
-    net = final_activation(net)
+    #net = final_activation(net)
 
     return net
 

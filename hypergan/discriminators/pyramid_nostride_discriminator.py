@@ -86,8 +86,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
       net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None)
-      if i < depth - 1:
-        net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+      net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)
 

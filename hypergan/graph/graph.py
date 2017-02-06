@@ -161,7 +161,6 @@ class Graph:
         x = graph.x
         y = graph.y
         f = graph.f
-        set_tensor("x", x)
         config = self.gan.config
         # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
         # TODO refactor
@@ -272,18 +271,6 @@ class Graph:
         g_optimizer, d_optimizer = config['trainer.initializer'](config, d_vars, g_vars)
         set_tensor("d_optimizer", d_optimizer)
         set_tensor("g_optimizer", g_optimizer)
-
-    def test(sess, config):
-        config = self.gan.config
-        x = get_tensor("x")
-        y = get_tensor("y")
-        d_fake = get_tensor("d_fake")
-        d_real = get_tensor("d_real")
-        g_loss = get_tensor("g_loss")
-
-        g_cost, d_fake_cost, d_real_cost = sess.run([g_loss, d_fake, d_real])
-
-        return g_cost,d_fake_cost, d_real_cost,0
 
 def sigmoid_kl_with_logits(logits, targets):
    # broadcasts the same target value across the whole batch

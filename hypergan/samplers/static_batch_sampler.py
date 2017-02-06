@@ -7,7 +7,9 @@ from hypergan.samplers.common import *
 #mask_noise = None
 z = None
 y = None
-def sample(sample_file, sess, config):
+def sample(gan, sample_file):
+    sess = gan.sess
+    config = gan.config
     global z, y
     generator = get_tensor("g")[0]
     y_t = get_tensor("y")

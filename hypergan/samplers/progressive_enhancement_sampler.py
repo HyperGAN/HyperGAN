@@ -8,17 +8,18 @@ import json
 # This sampler builds different images for each
 # level of our GAN
 # For instance, it will generate 256x256, 128x128, and 64x64 images for each z
-def build_samples(sess, config):
+def build_samples(gan):
+    config = gan.config
     generator = get_tensor("g")[0]
     gs = get_tensor("gs")
     y = get_tensor("y")
-    x = get_tensor("x")
+    x = gan.graph.x
     xs = get_tensor("xs")
     categories = get_tensor('categories')
     rand = np.random.randint(0,config['y_dims'], size=config['batch_size'])
     #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
-    sample, sample2, sample3 = sess.run([generator, gs[1], gs[2]], feed_dict={y:random_one_hot})
+    sample, sample2, sample3 = gan.sess.run([generator, gs[1], gs[2]], feed_dict={y:random_one_hot})
     a = split_sample(config['sampler.samples'], sample, config['x_dims'], config['channels'])
     b = split_sample(config['sampler.samples'], sample2, [gs[1].get_shape()[1], gs[1].get_shape()[2]], config['channels'])
     c = split_sample(config['sampler.samples'], sample3, [gs[2].get_shape()[1], gs[2].get_shape()[2]], config['channels'])
@@ -36,9 +37,9 @@ def sample_input(sess, config):
     return sample[0], sample2[0], encoded[0], label[0]
 
 iteration=0
-def sample(_, sess, config):
+def sample(gan, sample_file):
     global iteration
-    x, x2, encoded, label = sample_input(sess, config)
+    x, x2, encoded, label = sample_input(gan.sess, gan.config)
     prefix = os.path.expanduser("~/.hypergan/samples/"+config['model'])
     sample_file = prefix+"/input-"+str(iteration)+".png"
     plot(config, x, sample_file)
@@ -60,7 +61,7 @@ def sample(_, sess, config):
     encoded_sample = {'image':encoded_sample, 'label':'reconstructed'}
 
     sample_list = [sample_file, sample2_file, encoded_sample]
-    samples = build_samples(sess, config)
+    samples = build_samples(gan)
     for s in samples:
         sample_file = prefix+"/config-"+str(iteration)+".png"
         plot(config, s, sample_file)

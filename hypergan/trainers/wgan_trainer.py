@@ -21,8 +21,10 @@ def initialize(config, d_vars, g_vars):
     return g_optimizer, d_optimizer
 
 iteration = 0
-def train(sess, config):
-    x_t = get_tensor('x')
+def train(gan):
+    sess = gan.sess
+    config = gan.config
+    x_t = gan.graph.x
     g_t = get_tensor('g')
     g_loss = get_tensor("g_loss_sig")
     d_loss = get_tensor("d_loss")

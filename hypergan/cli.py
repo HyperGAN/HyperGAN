@@ -70,7 +70,7 @@ class CLI:
         else:
             raise "Cannot find sampler: '"+args.sampler+"'"
 
-        sample_list = sampler(sample_file, self.sess, self.config)
+        sample_list = sampler(self.gan, sample_file)
 
         return sample_list
 

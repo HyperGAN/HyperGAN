@@ -63,7 +63,7 @@ class GAN:
             self.sess = tf.Session(config=tf.ConfigProto())
 
     def train(self):
-        return self.config['trainer.train'](self.sess, self.config)
+        return self.config['trainer.train'](self)
 
     def save(self, save_file):
         saver = tf.train.Saver()

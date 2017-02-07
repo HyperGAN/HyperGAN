@@ -8,6 +8,7 @@ from hypergan.generators import *
 from hypergan.regularizers import *
 from hypergan.samplers import *
 from hypergan.trainers import *
+from hypergan.losses import *
 from hypergan.util import *
 
 # Below are sets of configuration options:
@@ -69,6 +70,11 @@ def selector(args):
     for i in range(1):
         discriminators.append(pyramid_nostride_fc_discriminator.config(layers=5))
     selector.set("discriminators", [discriminators])
+
+    losses = []
+    for i in range(1):
+        losses.append(wgan.config())
+    selector.set("losses", losses)
 
     # Sampler configuration
     selector.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).

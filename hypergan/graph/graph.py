@@ -192,15 +192,13 @@ class Graph:
 
         d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer, d_real_lin, d_fake_lin = self.discriminator(x, f, encoded_z, g, z)
 
-        d_real_lin = tf.reduce_mean(d_real_lin, axis=1)
-        d_fake_lin = tf.reduce_mean(d_fake_lin, axis=1)
-        d_loss = d_real_lin - d_fake_lin
-        g_loss = d_fake_lin
-        d_fake_loss = -d_fake_lin
-        d_real_loss = d_real_lin
+        self.gan.graph.d_real = d_real_lin
+        self.gan.graph.d_fake = d_fake_lin
 
-        d_losses.append(d_loss)
-        g_losses.append(g_loss)
+        for loss in config.losses:
+            [d_loss, g_loss] = loss.create(loss, self.gan)
+            d_losses.append(d_loss)
+            g_losses.append(g_loss)
 
         if(int(y.get_shape()[1]) > 1):
             print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")

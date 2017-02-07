@@ -1,6 +1,5 @@
 import tensorflow as tf
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 
 def mini_for(net, index):
   net = net[index]

@@ -1,7 +1,6 @@
 from flask import Flask, send_file, request
 import numpy as np
 from hypergan.util import *
-from hypergan.util.globals import *
 from hypergan.samplers.common import *
 from hypergan.samplers import grid_sampler
 import logging

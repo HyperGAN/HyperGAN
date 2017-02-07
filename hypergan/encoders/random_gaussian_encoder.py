@@ -2,7 +2,6 @@
 
 import tensorflow as tf
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 
 def encode(config, x, y):
   z_dim = config['generator.z']

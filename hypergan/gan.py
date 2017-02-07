@@ -1,4 +1,3 @@
-from hypergan.util.globals import *
 from hypergan.util.ops import *
 
 from tensorflow.python.framework import ops

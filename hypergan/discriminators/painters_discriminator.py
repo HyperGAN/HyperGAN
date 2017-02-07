@@ -1,6 +1,5 @@
 import tensorflow as tf
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
 
 def config(resize=None, layers=None):

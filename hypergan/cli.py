@@ -3,7 +3,6 @@ import os
 import tensorflow as tf
 import hyperchamber as hc
 from hypergan.util.gan_server import *
-from hypergan.util.globals import *
 from . import GAN
 from .loaders import *
 import hypergan as hg

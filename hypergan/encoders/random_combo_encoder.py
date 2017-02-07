@@ -2,7 +2,6 @@
 
 import tensorflow as tf
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 
 TINY=1e-12
 

@@ -1,7 +1,6 @@
 #This is like ops.py, but for larger compositions of graph nodes.
 #TODO: could use a better name
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 
 #TODO Remove
 def build_reshape(output_size, nodes, method, batch_size, dtype):

@@ -1,5 +1,4 @@
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
 import tensorflow as tf
 import hypergan.util.wavegan as wavegan

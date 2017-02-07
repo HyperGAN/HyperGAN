@@ -1,6 +1,5 @@
 
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 
 from hypergan.samplers.common import *
 

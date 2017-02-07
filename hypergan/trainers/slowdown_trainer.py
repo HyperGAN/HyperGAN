@@ -1,6 +1,5 @@
 #TODO BROKEN, probably not needed
 import tensorflow as tf
-from hypergan.util.globals import *
 from .common import *
 TINY = 1e-12
 

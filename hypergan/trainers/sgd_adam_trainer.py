@@ -1,6 +1,5 @@
 import tensorflow as tf
 import numpy as np
-from hypergan.util.globals import *
 from .common import *
 
 def initialize(config, d_vars, g_vars):

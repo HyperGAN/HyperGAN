@@ -1,6 +1,5 @@
 import tensorflow as tf
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 
 # This is openai's implementation of minibatch regularization
 def get_features(config,net,prefix):

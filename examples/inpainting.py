@@ -5,8 +5,6 @@ import hypergan as hg
 import hyperchamber as hc
 from hypergan.loaders import *
 from hypergan.samplers.common import *
-from hypergan.util.globals import *
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)

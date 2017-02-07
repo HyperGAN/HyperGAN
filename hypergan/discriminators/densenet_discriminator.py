@@ -1,6 +1,5 @@
 import tensorflow as tf
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
 import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import hyperchamber as hc

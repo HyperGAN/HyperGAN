@@ -5,8 +5,6 @@ import hyperchamber as hc
 import hypergan as hg
 from hypergan.loaders import *
 from hypergan.samplers.common import *
-from hypergan.util.globals import *
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a super resolution enhancer!', add_help=True)

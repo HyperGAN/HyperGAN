@@ -5,6 +5,7 @@ from .common import *
 def initialize(gan, d_vars, g_vars):
     d_loss = gan.graph.d_loss
     g_loss = gan.graph.g_loss
+    config = gan.config
     g_lr = np.float32(config['trainer.adam.generator.lr'])
     d_lr = np.float32(config['trainer.adam.discriminator.lr'])
     d_beta1 = np.float32(config['trainer.adam.discriminator.beta1'])

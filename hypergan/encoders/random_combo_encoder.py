@@ -14,6 +14,7 @@ def periodic_triangle_waveform(gan, z, p):
 
 # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 def gaussian_from_uniform(gan, z):
+  config = gan.config
   z_dim = config['generator.z']
   z = (z + 1) / 2
 
@@ -26,7 +27,10 @@ def gaussian_from_uniform(gan, z):
 
   return ra, rb
 
-def encode_periodic_gaussian(gan, x, y):
+def encode_periodic_gaussian(gan):
+  x = gan.graph.x
+  y = gan.graph.y
+  config = gan.config
   z_dim = config['generator.z']
   z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
   gan.graph.z=z

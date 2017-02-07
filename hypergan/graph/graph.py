@@ -35,7 +35,7 @@ class Graph:
             new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
             net = tf.reshape(net, new_shape)
 
-            nets = config['generator'](config, net, original_z)
+            nets = config['generator'](self.gan, net, original_z)
 
             return nets
 
@@ -143,7 +143,7 @@ class Graph:
         config = self.gan.config
         set_ops_globals(config['dtype'], config['batch_size'])
         z_dim = int(config['generator.z'])
-        z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
+        z, encoded_z, z_mu, z_sigma = config['encoder'](self.gan)
         categories = [self.random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
         if(len(categories) > 0):
             categories_t = [tf.concat(1, categories)]
@@ -181,7 +181,7 @@ class Graph:
         else:
             categories_t = []
 
-        z, encoded_z, z_mu, z_sigma = config['encoder'](config, x, y)
+        z, encoded_z, z_mu, z_sigma = config['encoder'](self.gan)
 
         # create generator
         g = self.generator([y, z]+categories_t)

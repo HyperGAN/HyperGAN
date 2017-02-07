@@ -74,7 +74,7 @@ class CLI:
         return sample_list
 
     def step(self):
-        d_loss, g_loss = self.config['trainer.train'](self.sess, self.config)
+        d_loss, g_loss = self.config['trainer.train'](self.gan)
 
         if(self.steps > 1 and (self.steps % self.args.sample_every == 0)):
             sample_file="samples/%06d.png" % (self.sampled)

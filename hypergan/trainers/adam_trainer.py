@@ -16,10 +16,7 @@ def initialize(config, d_vars, g_vars):
     g_epsilon = np.float32(config['trainer.adam.generator.epsilon'])
     set_tensor('d_vars', d_vars)
     g_optimizer = tf.train.AdamOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
-    #g_optimizer = capped_optimizer(tf.train.AdamOptimizer, g_lr, g_loss, g_vars)
-    #d_optimizer = tf.train.RMSPropOptimizer(d_lr)#, beta1=d_beta1, beta2=d_beta2, epsilon=d_epsilon).minimize(d_loss, var_list=d_vars)
     d_optimizer = tf.train.AdamOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
-    #d_optimizer = capped_optimizer(tf.train.AdamOptimizer, d_lr, d_loss, d_vars)
     return g_optimizer, d_optimizer
 
 iteration = 0

@@ -21,6 +21,8 @@ def parse_args():
     parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
     return parser.parse_args()
 
+x = None
+z = None
 def sampler(name, sess, config):
     generator = get_tensor("g")[0]
     y_t = get_tensor("y")
@@ -28,8 +30,12 @@ def sampler(name, sess, config):
     x_t = get_tensor('x')
     mask_t = get_tensor('mask')
     fltr_x_t = get_tensor('xfiltered')
-    x = sess.run([x_t])
-    x = np.tile(x[0][0], [config['batch_size'],1,1,1])
+    global x
+    global z
+    if(x == None):
+        x, z = sess.run([x_t, z_t])
+
+    x_tiled = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
     s = [int(x) for x in mask_t.get_shape()]
     #mask = np.zeros([s[0], s[1]//2, s[2]//2, s[3]])
@@ -37,9 +43,9 @@ def sampler(name, sess, config):
     #mask = np.pad(mask, ((0,0),(s[1]//4,s[1]//4),(s[2]//4,s[2]//4),(0,0)),'constant', constant_values=constants)
     print("Set up mask")
 
-    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x})#, mask_t: mask})
+    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x_tiled, z_t: z})#, mask_t: mask})
     stacks = []
-    stacks.append([x[0], bw_x[0], sample[0], sample[1], sample[2], sample[3]])
+    stacks.append([x_tiled[0], bw_x[0], sample[0], sample[1], sample[2], sample[3]])
     for i in range(4):
         stacks.append([sample[i*6+4+j] for j in range(6)])
     

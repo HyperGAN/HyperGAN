@@ -21,23 +21,28 @@ def parse_args():
     parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
     return parser.parse_args()
 
+x_v = None
+z_v = None
 def sampler(name, sess, config):
     generator = get_tensor("g")[0]
     y_t = get_tensor("y")
     z_t = get_tensor("z")
     x_t = get_tensor('x')
     fltr_x_t = get_tensor('xfiltered')
-    x = sess.run([x_t])
-    x = np.tile(x[0][0], [config['batch_size'],1,1,1])
+    global x_v
+    global z_v
+    if(x_v == None):
+        x_v, z_v = sess.run([x_t, z_t])
+        x_v = np.tile(x_v[0], [config['batch_size'],1,1,1])
 
-    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x})
+    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x_v, z_t: z_v})
     bw = np.squeeze(np.tile(bw_x[0], [1,1,1,3]))
     stacks = []
-    stacks.append([x[0], bw, sample[0], sample[1], sample[2], sample[3]])
+    stacks.append([x_v[0], bw, sample[0], sample[1], sample[2], sample[3]])
     for i in range(4):
         stacks.append([sample[i*6+4+j] for j in range(6)])
     
-    print('bwxshape', bw.shape, x[0].shape)
+    print('bwxshape', bw.shape, x_v[0].shape)
     images = np.vstack([np.hstack(s) for s in stacks])
     plot(config, images, name)
 

@@ -40,7 +40,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## 0.7 - "WGAN API" (samples to come)
 
-* New loss function based on `wgan` :.  Fixes many classes of mode collapse!  Our implementation is discussed in <a href="#wgan">wgan implementation</a>
+* New loss function based on `wgan` :.  Fixes many classes of mode collapse!  See <a href="#wgan">wgan implementation</a>
 * Initial Public API Release
 * API example: `colorizer` - re-colorize an image!
 * API example: `inpainter` - remove a section of an image and have your GAN repaint it

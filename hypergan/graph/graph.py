@@ -34,6 +34,7 @@ class Graph:
             net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
             new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
             net = tf.reshape(net, new_shape)
+            
 
             nets = config['generator'](self.gan, net, original_z)
 
@@ -135,6 +136,16 @@ class Graph:
             return tf.one_hot(sample, size, dtype=dtype)
 
 
+    def create_z_encoding(self):
+        z_base_config = hc.Config(hc.lookup_functions(self.gan.config.z_encoder_base))
+        self.gan.graph.z_base = z_base_config.create(z_base_config, self.gan)
+        encoders = [self.gan.graph.z_base]
+        for i, encoder in enumerate(self.gan.config.z_encoders):
+            encoder = hc.Config(hc.lookup_functions(encoder))
+            encoders.append(encoder.create(encoder, self.gan))
+
+        return tf.concat(1, encoders)
+
     # Used for building the tensorflow graph with only G
     def create_generator(self, graph):
         x = graph.x
@@ -142,8 +153,11 @@ class Graph:
         f = graph.f
         config = self.gan.config
         set_ops_globals(config['dtype'], config['batch_size'])
-        z_dim = int(config['generator.z'])
-        z, encoded_z, z_mu, z_sigma = config['encoder'](self.gan)
+        z_dim = int(config['z_dimensions'])
+        
+        z = self.create_z_encoding()
+        
+
         categories = [self.random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
         if(len(categories) > 0):
             categories_t = [tf.concat(1, categories)]
@@ -167,7 +181,7 @@ class Graph:
         set_ops_globals(config['dtype'], config['batch_size'])
 
         batch_size = config["batch_size"]
-        z_dim = int(config['generator.z'])
+        z_dim = int(config['z_dimensions'])
         batch_norm = config['generator.regularizers.layer']
 
         g_losses = []
@@ -181,16 +195,13 @@ class Graph:
         else:
             categories_t = []
 
-        z, encoded_z, z_mu, z_sigma = config['encoder'](self.gan)
-
+        z = self.create_z_encoding()
         # create generator
         g = self.generator([y, z]+categories_t)
 
-        #encoded = generator([y, encoded_z]+categories_t, reuse=True)
-
         g_sample = g
 
-        d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer, d_real_lin, d_fake_lin = self.discriminator(x, f, encoded_z, g, z)
+        d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer, d_real_lin, d_fake_lin = self.discriminator(x, f, None, g, z)
 
         self.gan.graph.d_real = d_real_lin
         self.gan.graph.d_fake = d_fake_lin
@@ -255,7 +266,6 @@ class Graph:
         graph.hc_summary=summary
         graph.y=y
         graph.categories=categories_t
-        graph.encoded_z=encoded_z
         graph.joint_loss=joint_loss
 
         g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]

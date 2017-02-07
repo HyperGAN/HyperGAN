@@ -193,10 +193,6 @@ class Graph:
 
         d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer, d_real_lin, d_fake_lin = self.discriminator(x, f, encoded_z, g, z)
 
-        np_fake = np.array([0]*config['y_dims']+[1])
-        fake_symbol = tf.tile(tf.constant(np_fake, dtype=config['dtype']), [config['batch_size']])
-        fake_symbol = tf.reshape(fake_symbol, [config['batch_size'],config['y_dims']+1])
-
         d_real_lin = tf.reduce_mean(d_real_lin, axis=1)
         d_fake_lin = tf.reduce_mean(d_fake_lin, axis=1)
         d_loss = d_real_lin - d_fake_lin
@@ -269,7 +265,7 @@ class Graph:
 
         v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
         g_vars += v_vars
-        g_optimizer, d_optimizer = config['trainer.initializer'](config, d_vars, g_vars)
+        g_optimizer, d_optimizer = config['trainer.initializer'](self.gan, d_vars, g_vars)
         graph.d_optimizer=d_optimizer
         graph.g_optimizer=g_optimizer
 

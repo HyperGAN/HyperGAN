@@ -3,7 +3,7 @@ import numpy as np
 from hypergan.util.globals import *
 from .common import *
 
-def initialize(config, d_vars, g_vars):
+def initialize(gan, d_vars, g_vars):
     d_loss = get_tensor('d_loss')
     g_loss = get_tensor('g_loss')
     g_lr = np.float32(config['trainer.adam.generator.lr'])
@@ -14,7 +14,7 @@ def initialize(config, d_vars, g_vars):
     g_beta1 = np.float32(config['trainer.adam.generator.beta1'])
     g_beta2 = np.float32(config['trainer.adam.generator.beta2'])
     g_epsilon = np.float32(config['trainer.adam.generator.epsilon'])
-    set_tensor('d_vars', d_vars)
+    gan.graph.d_vars = d_vars
     g_optimizer = tf.train.AdamOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
     d_optimizer = tf.train.AdamOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
     return g_optimizer, d_optimizer
@@ -24,16 +24,16 @@ def train(gan):
     sess = gan.sess
     config = gan.config
     x_t = gan.graph.x
-    g_t = get_tensor('g')
-    d_log_t = get_tensor('d_log')
-    g_loss = get_tensor("g_loss")
-    d_loss = get_tensor("d_loss")
-    d_fake_loss = get_tensor('d_fake_loss')
-    d_real_loss = get_tensor('d_real_loss')
-    g_optimizer = get_tensor("g_optimizer")
-    d_optimizer = get_tensor("d_optimizer")
-    d_class_loss = get_tensor("d_class_loss")
-    d_vars = get_tensor('d_vars')
+    g_t = gan.graph.g
+    d_log_t = gan.graph.d_log
+    g_loss = gan.graph.g_loss
+    d_loss = gan.graph.d_loss
+    d_fake_loss = gan.graph.d_fake_loss
+    d_real_loss = gan.graph.d_real_loss
+    g_optimizer = gan.graph.g_optimizer
+    d_optimizer = gan.graph.d_optimizer
+    d_class_loss = gan.graph.d_class_loss
+    d_vars = gan.graph.d_vars
 
     _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
     # in WGAN paper, values are clipped.  This might not work, and is slow.

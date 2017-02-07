@@ -7,9 +7,9 @@ from hypergan.samplers.common import *
 def sample(gan, sample_file):
     sess = gan.sess
     config = gan.config
-    generator = get_tensor("g")[0]
-    y_t = get_tensor("y")
-    z_t = get_tensor("z")
+    generator = gan.graph.g[0]
+    y_t = gan.graph.y
+    z_t = gan.graph.z
 
     x = np.linspace(0,1, 4)
     y = np.linspace(0,1, 6)

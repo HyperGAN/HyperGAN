@@ -10,12 +10,12 @@ import json
 # For instance, it will generate 256x256, 128x128, and 64x64 images for each z
 def build_samples(gan):
     config = gan.config
-    generator = get_tensor("g")[0]
-    gs = get_tensor("gs")
-    y = get_tensor("y")
+    generator = gan.graph.g[0]
+    gs = gan.graph.gs
+    y = gan.graph.y
     x = gan.graph.x
-    xs = get_tensor("xs")
-    categories = get_tensor('categories')
+    xs = gan.graph.xs
+    categories = gan.graph.categories
     rand = np.random.randint(0,config['y_dims'], size=config['batch_size'])
     #rand = np.zeros_like(rand)
     random_one_hot = np.eye(config['y_dims'])[rand]
@@ -28,18 +28,20 @@ def build_samples(gan):
 def split_sample(n, sample, x_dims, channels):
     return [np.reshape(s, [x_dims[0],x_dims[1], channels]) for s in sample[0:n]]
 
-def sample_input(sess, config):
-    x = get_tensor("x")
-    xs = get_tensor("xs")
-    y = get_tensor("y")
-    encoded = get_tensor("x")# TODO: "encoded", reuse (and encoder) not working with prelu
+def sample_input(gan):
+    sess = gan.sess
+    config = gan.config
+    x = gan.graph.x
+    xs = gan.graph.xs
+    y = gan.graph.y
+    encoded = gan.graph.x
     sample, sample2, encoded, label = sess.run([x, xs[1], encoded, y])
     return sample[0], sample2[0], encoded[0], label[0]
 
 iteration=0
 def sample(gan, sample_file):
     global iteration
-    x, x2, encoded, label = sample_input(gan.sess, gan.config)
+    x, x2, encoded, label = sample_input(gan)
     prefix = os.path.expanduser("~/.hypergan/samples/"+config['model'])
     sample_file = prefix+"/input-"+str(iteration)+".png"
     plot(config, x, sample_file)

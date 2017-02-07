@@ -4,8 +4,8 @@ from .common import *
 TINY = 1e-12
 
 def initialize(config, d_vars, g_vars):
-    d_loss = get_tensor('d_loss')
-    g_loss = get_tensor('g_loss')
+    d_loss = gan.graph.d_loss
+    g_loss = gan.graph.g_loss
     g_lr = np.float32(config['trainer.adam.generator.lr'])
     g_beta1 = np.float32(config['trainer.adam.generator.beta1'])
     g_beta2 = np.float32(config['trainer.adam.generator.beta2'])
@@ -26,17 +26,17 @@ def train(gan):
     sess = gan.sess
     config = gan.config
     x_t = gan.graph.x
-    g_t = get_tensor('g')
-    g_loss = get_tensor("g_loss_sig")
-    d_loss = get_tensor("d_loss")
-    d_fake_loss = get_tensor('d_fake_loss')
-    d_real_loss = get_tensor('d_real_loss')
-    g_optimizer = get_tensor("g_optimizer")
-    d_optimizer = get_tensor("d_optimizer")
-    d_class_loss = get_tensor("d_class_loss")
-    g_class_loss = get_tensor("g_class_loss")
-    lr_value = get_tensor("lr_value")
-    lr = get_tensor("lr")
+    g_t = gan.graph.g
+    g_loss = gan.graph.g_loss_sig
+    d_loss = gan.graph.d_loss
+    d_fake_loss = gan.graph.d_fake_loss
+    d_real_loss = gan.graph.d_real_loss
+    g_optimizer = gan.graph.g_optimizer
+    d_optimizer = gan.graph.d_optimizer
+    d_class_loss = gan.graph.d_class_loss
+    g_class_loss = gan.graph.g_class_loss
+    lr_value = gan.graph.lr_value
+    lr = gan.graph.lr
 
     _, d_cost = sess.run([d_optimizer, d_loss], feed_dict={lr:lr_value})
     _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])

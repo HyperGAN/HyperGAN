@@ -22,11 +22,11 @@ def parse_args():
     return parser.parse_args()
 
 def sampler(name, sess, config):
-    generator = get_tensor("g")[0]
-    y_t = get_tensor("y")
-    z_t = get_tensor("z")
-    x_t = get_tensor('x')
-    fltr_x_t = get_tensor('xfiltered')
+    generator = gan.graph.g[0]
+    y_t = gan.graph.y
+    z_t = gan.graph.z
+    x_t = gan.graph.x
+    fltr_x_t = gan.graph.xfiltered
     x = sess.run([x_t])
     x = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
@@ -44,7 +44,7 @@ def sampler(name, sess, config):
     plot(config, images, name)
 
 def add_lowres(gan, net):
-    x = get_tensor('x')
+    x = gan.graph.x
     s = [int(x) for x in net.get_shape()]
     shape = [s[1], s[2]]
     if(shape[0]>32 or shape[1]>32):

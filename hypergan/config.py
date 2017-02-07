@@ -77,10 +77,6 @@ def selector(args):
         losses.append(wgan.config())
     selector.set("losses", [losses])
 
-    # Sampler configuration
-    selector.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).
-    selector.set("sampler.samples", 3) # number of samples to generate at the end of each epoch
-
     selector.set('categories', [[]])
     selector.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
     selector.set('category_loss', [False])

@@ -62,9 +62,6 @@ def selector(args):
     selector.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
     selector.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
 
-    # TODO: cleanup
-    selector.set("examples_per_epoch", 30000/4)
-
     # Discriminator configuration
     discriminators = []
     for i in range(1):
@@ -89,7 +86,6 @@ def selector(args):
     selector.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
 
     selector.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
-    selector.set("d_label_smooth", list(np.linspace(0.15, 0.35, num=100)))
 
     return selector
 

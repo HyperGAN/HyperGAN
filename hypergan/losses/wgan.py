@@ -4,13 +4,12 @@ from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
 import hyperchamber as hc
 
-
 def config():
     selector = hc.Selector()
     selector.set("reduce", [tf.reduce_mean])#reduce_sum, reduce_logexp work
 
     selector.set('create', create)
-    
+
     return selector.random_config()
 
 def create(config, gan):

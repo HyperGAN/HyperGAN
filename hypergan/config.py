@@ -38,6 +38,7 @@ def selector(args):
     selector.set('generator.densenet.size', 16)
     selector.set('generator.densenet.layers', 1)
 
+<<<<<<< 24e5238c28d4105ca706030f12ba9aace576775c
     # Trainer configuration
     #trainer = wgan_trainer # adam works well at 64x64 but doesn't scale
     trainer = adam_trainer # adam works well at 64x64 but doesn't scale
@@ -61,6 +62,9 @@ def selector(args):
     selector.set('trainer.slowdown.discriminator.slowdown', [5]) # Divides speed by this number when unhealthy(d_fake low)
     selector.set("trainer.sgd_adam.discriminator.lr", 3e-4) # d learning rate
     selector.set("trainer.sgd_adam.generator.lr", 1e-3) # g learning rate
+=======
+    selector.set("trainer", adam_trainer.config())
+>>>>>>> [refactor] trainers following the same pattern
 
     # Discriminator configuration
     discriminators = []

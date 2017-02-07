@@ -2,17 +2,26 @@ import tensorflow as tf
 import numpy as np
 from .common import *
 
-def initialize(config, d_vars, g_vars):
+def config():
+    selector = hc.Selector()
+    selector.set('create', create)
+    selector.set('run', run)
+
+    selector.set("discriminator_learn_rate", 1e-4)
+    selector.set("generator_learn_rate", 1e-4)
+    return selector.random_config()
+
+def create(config, d_vars, g_vars):
     d_loss = gan.graph.d_loss
     g_loss = gan.graph.g_loss
-    g_lr = np.float32(config['trainer.sgd_adam.generator.lr'])
-    d_lr = np.float32(config['trainer.sgd_adam.discriminator.lr'])
+    g_lr = np.float32(config.generator_learn_rate)
+    d_lr = np.float32(config.discriminator_learn_rate)
     g_optimizer = capped_optimizer(tf.train.AdamOptimizer, g_lr, g_loss, g_vars)
     d_optimizer = tf.train.GradientDescentOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
     return g_optimizer, d_optimizer
 
 iteration = 0
-def train(gan):
+def run(gan):
     sess = gan.sess
     config = gan.config
     x_t = gan.graph.x

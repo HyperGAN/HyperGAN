@@ -1,6 +1,4 @@
-from .common import *
-from . import adam_trainer
-from . import wgan_trainer
-from . import slowdown_trainer
-from . import sgd_adam_trainer
-from . import rmsprop_trainer
+from os.path import dirname, basename, isfile
+import glob
+modules = glob.glob(dirname(__file__)+"/*.py")
+__all__ = [ basename(f)[:-3] for f in modules if isfile(f)]

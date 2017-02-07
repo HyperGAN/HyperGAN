@@ -2,19 +2,27 @@ import tensorflow as tf
 import numpy as np
 from .common import *
 
-def initialize(gan, d_vars, g_vars):
-    config = gan.config
+def config():
+    selector = hc.Selector()
+    selector.set('create', create)
+    selector.set('run', run)
+
+    selector.set("discriminator_learn_rate", 1e-4)
+    selector.set("generator_learn_rate", 1e-4)
+    return selector.random_config()
+
+def create(config, d_vars, g_vars):
     d_loss = gan.graph.d_loss
     g_loss = gan.graph.g_loss
-    g_lr = np.float32(config['trainer.rmsprop.generator.lr'])
-    d_lr = np.float32(config['trainer.rmsprop.discriminator.lr'])
+    g_lr = np.float32(config.generator_learn_rate)
+    d_lr = np.float32(config.discriminator_learn_rate)
     gan.graph.d_vars = d_vars
     g_optimizer = tf.train.RMSPropOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
     d_optimizer = tf.train.RMSPropOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
     return g_optimizer, d_optimizer
 
 iteration = 0
-def train(gan):
+def run(gan):
     sess = gan.sess
     config = gan.config
     x_t = gan.graph.x

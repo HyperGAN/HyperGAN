@@ -81,12 +81,6 @@ def selector(args):
     selector.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
     selector.set('category_loss', [False])
 
-    # Loss function configuration
-    selector.set('g_class_loss', [False])
-    selector.set('g_class_lambda', list(np.linspace(0.01, .1, num=30)))
-
-    selector.set("g_target_prob", list(np.linspace(.65 /2., .85 /2., num=100)))
-
     return selector
 
 def random(args):

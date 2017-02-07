@@ -42,14 +42,15 @@ class Graph:
 
     def discriminator(self, x, f,z,g,gz):
         config = self.gan.config
+        graph = self.gan.graph
         batch_size = config['batch_size']*2
         single_batch_size = config['batch_size']
         channels = (config['channels'])
         # combine to one batch, per Ian's "Improved GAN"
         xs = [x]
         gs = g
-        set_tensor("xs", xs)
-        set_tensor("gs", gs)
+        graph.xs=xs
+        graph.gs=gs
         g = g[-1]
         for i in gs:
             resized = tf.image.resize_images(xs[-1],[int(xs[-1].get_shape()[1]//2),int(xs[-1].get_shape()[2]//2)], 1)
@@ -153,9 +154,9 @@ class Graph:
 
         args = [y, z]+categories_t
         g = self.generator(args)
-        set_tensor("g", g)
-        set_tensor("y", y)
-        set_tensor('categories', categories_t)
+        graph.g=g
+        graph.y=y
+        graph.categories=categories_t
 
     def create(self, graph):
         x = graph.x
@@ -249,19 +250,19 @@ class Graph:
 
         summary = [(s.get_shape(), s.name, s.dtype, summary_reduce(s)) for s in summary]
 
-        set_tensor("d_class_loss", tf.reduce_mean(d_class_loss))
-        set_tensor("d_fake_loss", tf.reduce_mean(d_fake_loss))
-        set_tensor("d_loss", d_loss)
-        set_tensor("d_log", -tf.log(tf.abs(d_loss+TINY)))
-        set_tensor("d_real_loss", tf.reduce_mean(d_real_loss))
-        set_tensor("f", f)
-        set_tensor("g", g_sample)
-        set_tensor("g_loss", g_loss)
-        set_tensor("hc_summary",summary)
-        set_tensor("y", y)
-        set_tensor('categories', categories_t)
-        set_tensor('encoded_z', encoded_z)
-        set_tensor('joint_loss', joint_loss)
+        graph.d_class_loss=tf.reduce_mean(d_class_loss)
+        graph.d_fake_loss=tf.reduce_mean(d_fake_loss)
+        graph.d_loss=d_loss
+        graph.d_log=-tf.log(tf.abs(d_loss+TINY))
+        graph.d_real_loss=tf.reduce_mean(d_real_loss)
+        graph.f=f
+        graph.g=g_sample
+        graph.g_loss=g_loss
+        graph.hc_summary=summary
+        graph.y=y
+        graph.categories=categories_t
+        graph.encoded_z=encoded_z
+        graph.joint_loss=joint_loss
 
         g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
         d_vars = [var for var in tf.trainable_variables() if 'd_' in var.name]
@@ -269,8 +270,8 @@ class Graph:
         v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
         g_vars += v_vars
         g_optimizer, d_optimizer = config['trainer.initializer'](config, d_vars, g_vars)
-        set_tensor("d_optimizer", d_optimizer)
-        set_tensor("g_optimizer", g_optimizer)
+        graph.d_optimizer=d_optimizer
+        graph.g_optimizer=g_optimizer
 
 def sigmoid_kl_with_logits(logits, targets):
    # broadcasts the same target value across the whole batch

@@ -21,13 +21,16 @@ def parse_args():
     parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
     return parser.parse_args()
 
-def sampler(name, sess, config):
-    generator = get_tensor("g")[0]
-    y_t = get_tensor("y")
-    z_t = get_tensor("z")
-    x_t = get_tensor('x')
-    mask_t = get_tensor('filter_mask')
-    fltr_x_t = get_tensor('xfiltered')
+def sampler(gan, name):
+    sess = gan.sess
+    config = gan.config
+    graph = gan.graph
+    generator = graph.g[0]
+    y_t = graph.y
+    z_t = graph.z
+    x_t = graph.x
+    mask_t = graph.mask
+    fltr_x_t = graph.xfiltered
     x = sess.run([x_t])
     x = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
@@ -47,8 +50,8 @@ def sampler(name, sess, config):
     plot(config, images, name)
 
 def add_inpaint(gan, net):
-    x = get_tensor('x')
-    mask = get_tensor('filter_mask')
+    x = gan.graph.x
+    mask = gan.graph.filter_mask
     s = [int(x) for x in net.get_shape()]
     shape = [s[1], s[2]]
     x = tf.image.resize_images(x, shape, 1)
@@ -62,7 +65,7 @@ def add_inpaint(gan, net):
 
 
 def add_original_x(gan, net):
-    x = get_tensor('x')
+    x = gan.graph.x
     mask = gan.graph.mask
 
     s = [int(x) for x in net.get_shape()]
@@ -131,12 +134,12 @@ mask = (1.0-mask)
 #mask = tf.random_uniform(shape, -1, 1)
 #mask = tf.greater(mask, 0)
 mask = tf.cast(mask, tf.float32)
-set_tensor('mask', mask)
+initial_graph['mask']=mask
 
 filter_mask = tf.random_uniform(shape, -1, 1)
 filter_mask = tf.greater(filter_mask, 0)
 filter_mask = tf.cast(filter_mask, tf.float32)
-set_tensor('filter_mask', filter_mask)
+initial_graph['filter_mask']=filter_mask
 
 initial_graph['mask'] = mask
 initial_graph['filter_mask'] = filter_mask

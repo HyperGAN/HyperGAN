@@ -23,12 +23,12 @@ def parse_args():
 
 x_v = None
 z_v = None
-def sampler(name, sess, config):
-    generator = get_tensor("g")[0]
-    y_t = get_tensor("y")
-    z_t = get_tensor("z")
-    x_t = get_tensor('x')
-    fltr_x_t = get_tensor('xfiltered')
+def sampler(gan, name):
+    generator = gan.graph.g[0]
+    y_t = gan.graph.y
+    z_t = gan.graph.z
+    x_t = gan.graph.x
+    fltr_x_t = gan.graph.xfiltered
     global x_v
     global z_v
     if(x_v == None):
@@ -47,7 +47,7 @@ def sampler(name, sess, config):
     plot(config, images, name)
 
 def add_bw(gan, net):
-    x = get_tensor('x')
+    x = gan.graph.x
     s = [int(x) for x in net.get_shape()]
     shape = [s[1], s[2]]
     x = tf.image.resize_images(x, shape, 1)
@@ -59,7 +59,7 @@ def add_bw(gan, net):
     return x
 
 def add_original_x(gan, net):
-    x = get_tensor('x')
+    x = gan.graph.x
     s = [int(x) for x in net.get_shape()]
     shape = [s[1], s[2]]
     x = tf.image.resize_images(x, shape, 1)

@@ -10,11 +10,11 @@ TINY=1e-12
 #
 # p is periodicity
 # amplitude is always amplitude of z (-1 to 1)
-def periodic_triangle_waveform(config, z, p):
+def periodic_triangle_waveform(gan, z, p):
   return 2.0 / np.pi * tf.asin(tf.sin(2*np.pi*z/p))
 
 # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
-def gaussian_from_uniform(config, z):
+def gaussian_from_uniform(gan, z):
   z_dim = config['generator.z']
   z = (z + 1) / 2
 
@@ -27,20 +27,20 @@ def gaussian_from_uniform(config, z):
 
   return ra, rb
 
-def encode_periodic_gaussian(config, x, y):
+def encode_periodic_gaussian(gan, x, y):
   z_dim = config['generator.z']
   z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
-  set_tensor("z", z)
+  gan.graph.z=z
 
-  zgaus = tf.concat(1, gaussian_from_uniform(config, z))
+  zgaus = tf.concat(1, gaussian_from_uniform(gan, z))
 
   zs = [z, zgaus]
 
   for i in range(4):
     p = 2 ** (i+1)
 
-    zi = periodic_triangle_waveform(config, z, p)
-    zigaus = tf.concat(1, gaussian_from_uniform(config, zi))
+    zi = periodic_triangle_waveform(gan, z, p)
+    zigaus = tf.concat(1, gaussian_from_uniform(gan, zi))
 
     zs.append(zi)
     zs.append(zigaus)
@@ -50,11 +50,11 @@ def encode_periodic_gaussian(config, x, y):
   encoded_z = tf.zeros_like(z)
   return z, encoded_z, None, None
 
-def encode_multimodal_gaussian(config, x, y):
+def encode_multimodal_gaussian(gan, x, y):
   # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
   z_dim = config['generator.z']
   z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
-  set_tensor("z", z)
+  gan.graph.z=z
   z = (z + 1) / 2
 
   za = tf.slice(z, [0,0], [config['batch_size'], z_dim//2])
@@ -84,11 +84,11 @@ def encode_multimodal_gaussian(config, x, y):
   return z, encoded_z, None, None
 
 
-def encode_gaussian(config, x, y):
+def encode_gaussian(gan, x, y):
   # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
   z_dim = config['generator.z']
   z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
-  set_tensor("z", z)
+  gan.graph.z=z
   z = (z + 1) / 2
 
   za = tf.slice(z, [0,0], [config['batch_size'], z_dim//2])
@@ -108,13 +108,13 @@ def encode_gaussian(config, x, y):
   encoded_z = tf.zeros_like(z)
   return z, encoded_z, None, None
 
-def encode(config, x, y):
+def encode(gan, x, y):
   z_dim = config['generator.z']
   #encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
   z_mu = None
   z_sigma = None
   z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
-  set_tensor("z", z)
+  gan.graph.z=z
 
   z2 = tf.square(z)
   z3 = tf.ones_like(z)

@@ -107,12 +107,6 @@ def block_conv(result, activation, batch_size,id,name, resize=None, output_chann
 
     if reshaped_z_proj is not None:
         result = tf.concat(3,[result, reshaped_z_proj])
-        #HACKS
-        #mask_noise = tf.random_uniform(result.get_shape(), 0, 1)
-        #set_tensor('mask_noise', mask_noise)
-        #mask = tf.greater(mask_noise, tf.zeros_like(mask_noise))
-        #result = result * mask_noise#* tf.cast(mask, tf.float32)
-        #result = tf.nn.dropout(result, dropout, seed=1)
 
     if(noise_shape):
       noise = tf.random_uniform(noise_shape,-1, 1,dtype=dtype)

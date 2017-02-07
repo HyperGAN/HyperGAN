@@ -1,8 +1,9 @@
 #todo: broken
-def get_zs(config, x,y):
-    return approximate_z(config, x, [y])
+def get_zs(gan, x,y):
+    return approximate_z(gan, x, [y])
 
-def approximate_z(config, x, y):
+def approximate_z(gan, x, y):
+    config = gan.config
     y = tf.concat(1, y)
     x_dims = config['x_dims']
     batch_size = config["batch_size"]
@@ -43,7 +44,7 @@ def approximate_z(config, x, y):
 
     eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
                            dtype=config['dtype'])
-    set_tensor('eps', eps)
+    gan.graph.eps=eps
 
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
 

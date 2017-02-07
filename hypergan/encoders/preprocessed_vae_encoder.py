@@ -36,7 +36,7 @@ def z_from_f(config, f, categories):
     eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
                            dtype=config['dtype'])
 
-    set_tensor('eps', eps)
+    gan.graph.eps=eps
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
     e_z = tf.random_normal([config['batch_size'], n_z], mu, tf.exp(sigma), dtype=config['dtype'])
 

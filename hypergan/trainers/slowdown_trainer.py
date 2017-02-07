@@ -1,9 +1,11 @@
+#TODO BROKEN, probably not needed
 import tensorflow as tf
 from hypergan.util.globals import *
 from .common import *
 TINY = 1e-12
 
-def initialize(config, d_vars, g_vars):
+def initialize(gan, d_vars, g_vars):
+    config = gan.config
     d_loss = gan.graph.d_loss
     g_loss = gan.graph.g_loss
     g_lr = np.float32(config['trainer.adam.generator.lr'])
@@ -11,9 +13,9 @@ def initialize(config, d_vars, g_vars):
     g_beta2 = np.float32(config['trainer.adam.generator.beta2'])
     g_epsilon = np.float32(config['trainer.adam.generator.epsilon'])
     d_lr = np.float32(config['trainer.rmsprop.discriminator.lr'])
-    set_tensor("lr_value", d_lr)
+    gan.graph.lr_value=d_lr
     d_lr = tf.get_variable('lr', [], trainable=False, initializer=tf.constant_initializer(d_lr,dtype=config['dtype']),dtype=config['dtype'])
-    set_tensor("lr", d_lr)
+    gan.graph.lr=d_lr
 
     #g_optimizer = tf.train.AdamOptimizer(g_lr, beta1=g_beta1, beta2=g_beta2, epsilon=g_epsilon).minimize(g_loss, var_list=g_vars)
     #d_optimizer = tf.train.AdamOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
@@ -57,7 +59,7 @@ def train(gan):
         if(slowdown > 1):
             slowdown=1
     new_lr = max_lr*slowdown
-    set_tensor("lr_value", new_lr)
+    gan.graph.lr_value=new_lr
 
     global iteration
     iteration+=1

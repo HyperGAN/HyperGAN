@@ -62,7 +62,7 @@ def generator(config, net, z):
             print("fltr is ", fltr, net)
             if(fltr is not None):
                 nois.append(fltr)
-                set_tensor('xfiltered', fltr)
+                gan.graph.xfiltered=fltr
 
 
         if i < depth - 1:

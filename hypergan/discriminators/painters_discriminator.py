@@ -71,8 +71,8 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       result = tf.nn.max_pool(result, [1, 3, 3, 1], [1, 2, 2, 1], padding='SAME')
 
 
-    set_tensor("xgs", xgs)
-    set_tensor("xgs_conv", xgs_conv)
+    gan.graph.xgs = xgs
+    gan.graph.xgs_conv = xgs_conv
 
     result = batch_norm(config['batch_size']*2, name=prefix+'expand_bn_end_'+str(i))(result)
     result = activation(result)

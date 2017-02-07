@@ -4,7 +4,8 @@ from hypergan.util.ops import *
 from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
 
-def encode(config, x,y):
+def encode(gan, x,y):
+    config = gan.config
     x_dims = config['x_dims']
     batch_size = config["batch_size"]
     noise_dims = int(x.get_shape()[1])-int(y.get_shape()[1])
@@ -39,7 +40,7 @@ def encode(config, x,y):
 
     eps = tf.random_normal((config['batch_size'], n_z), 0, 1, 
                            dtype=config['dtype'])
-    set_tensor('eps', eps)
+    gan.graph.eps=eps
 
     z = tf.add(mu, tf.mul(tf.sqrt(tf.exp(sigma)), eps))
 

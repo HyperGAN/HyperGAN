@@ -58,9 +58,6 @@ class Graph:
         xs.pop()
         gs.reverse()
 
-        # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
-        z = tf.concat(0, [z, gz])
-
         discriminators = []
         for i, discriminator in enumerate(config['discriminators']):
             discriminator = hc.lookup_functions(discriminator)
@@ -207,7 +204,7 @@ class Graph:
         self.gan.graph.d_fake = d_fake_lin
 
         for i, loss in enumerate(config.losses):
-            loss = hc.lookup_functions(loss)
+            loss = hc.Config(hc.lookup_functions(loss))
             [d_loss, g_loss] = loss.create(loss, self.gan)
             d_losses.append(d_loss)
             g_losses.append(g_loss)
@@ -256,10 +253,8 @@ class Graph:
         summary = [(s.get_shape(), s.name, s.dtype, summary_reduce(s)) for s in summary]
 
         graph.d_class_loss=tf.reduce_mean(d_class_loss)
-        graph.d_fake_loss=tf.reduce_mean(d_fake_loss)
         graph.d_loss=d_loss
         graph.d_log=-tf.log(tf.abs(d_loss+TINY))
-        graph.d_real_loss=tf.reduce_mean(d_real_loss)
         graph.f=f
         graph.g=g_sample
         graph.g_loss=g_loss
@@ -273,7 +268,8 @@ class Graph:
 
         v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
         g_vars += v_vars
-        g_optimizer, d_optimizer = config['trainer.initializer'](self.gan, d_vars, g_vars)
+        trainer = hc.Config(hc.lookup_functions(config['trainer']))
+        g_optimizer, d_optimizer = trainer.create(trainer, self.gan, d_vars, g_vars)
         graph.d_optimizer=d_optimizer
         graph.g_optimizer=g_optimizer
 

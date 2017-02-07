@@ -24,9 +24,9 @@ def config():
 
     return selector.random_config()
 
-def create(config, d_vars, g_vars):
-    d_loss = get_tensor('d_loss')
-    g_loss = get_tensor('g_loss')
+def create(config, gan, d_vars, g_vars):
+    d_loss = gan.graph.d_loss
+    g_loss = gan.graph.g_loss
     g_lr = np.float32(config.generator_learn_rate)
     d_lr = np.float32(config.discriminator_learn_rate)
 

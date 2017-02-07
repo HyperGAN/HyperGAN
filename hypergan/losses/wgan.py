@@ -12,8 +12,8 @@ def config():
     return selector.random_config()
 
 def create(config, gan):
-    d_real = self.gan.graph.d_real
-    d_fake = self.gan.graph.d_fake 
+    d_real = gan.graph.d_real
+    d_fake = gan.graph.d_fake 
 
     d_real = config.reduce(d_real, axis=1)
     d_fake = config.reduce(d_fake, axis=1)
@@ -21,6 +21,9 @@ def create(config, gan):
     g_loss = d_fake
     d_fake_loss = -d_fake
     d_real_loss = d_real
+
+    gan.graph.d_fake_loss=d_fake_loss
+    gan.graph.d_real_loss=d_real_loss
 
     return [d_loss, g_loss]
 

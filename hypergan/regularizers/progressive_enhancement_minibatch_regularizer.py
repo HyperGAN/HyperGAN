@@ -12,9 +12,9 @@ def mini_for(net, index):
   return net
 
 # This is openai's implementation of minibatch regularization
-def get_features(config,net):
-  xg = get_tensor('xgs_conv')
-  print('--',xg)
+def get_features(gan,net):
+  config = gan.config
+  xg = gan.graph.xgs_conv
   net = tf.concat(3, [mini_for(xg,-1), mini_for(xg, -2), mini_for(xg,-3)])
   net = tf.reshape(net, [config['batch_size']*2, -1])
   return get_minibatch_features(config, net, config['batch_size']*2,config['dtype'])

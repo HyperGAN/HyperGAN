@@ -4,8 +4,8 @@ from hypergan.util.globals import *
 from .common import *
 
 def initialize(gan, d_vars, g_vars):
-    d_loss = get_tensor('d_loss')
-    g_loss = get_tensor('g_loss')
+    d_loss = gan.graph.d_loss
+    g_loss = gan.graph.g_loss
     g_lr = np.float32(config['trainer.adam.generator.lr'])
     d_lr = np.float32(config['trainer.adam.discriminator.lr'])
     d_beta1 = np.float32(config['trainer.adam.discriminator.beta1'])

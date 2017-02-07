@@ -1,3 +1,10 @@
+import tensorflow as tf
+from hypergan.util.ops import *
+from hypergan.util.globals import *
+from hypergan.util.hc_tf import *
+import hyperchamber as hc
+
+
 def config():
     selector = hc.Selector()
     selector.set("reduce", [tf.reduce_mean])#reduce_sum, reduce_logexp work
@@ -7,12 +14,15 @@ def config():
     return selector.random_config()
 
 def create(config, gan):
-    d_real_lin = config.reduce(d_real_lin, axis=1)
-    d_fake_lin = config.reduce(d_fake_lin, axis=1)
-    d_loss = d_real_lin - d_fake_lin
-    g_loss = d_fake_lin
-    d_fake_loss = -d_fake_lin
-    d_real_loss = d_real_lin
+    d_real = self.gan.graph.d_real
+    d_fake = self.gan.graph.d_fake 
+
+    d_real = config.reduce(d_real, axis=1)
+    d_fake = config.reduce(d_fake, axis=1)
+    d_loss = d_real - d_fake
+    g_loss = d_fake
+    d_fake_loss = -d_fake
+    d_real_loss = d_real
 
     return [d_loss, g_loss]
 

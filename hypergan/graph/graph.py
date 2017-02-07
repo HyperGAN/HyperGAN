@@ -195,7 +195,8 @@ class Graph:
         self.gan.graph.d_real = d_real_lin
         self.gan.graph.d_fake = d_fake_lin
 
-        for loss in config.losses:
+        for i, loss in enumerate(config.losses):
+            loss = hc.lookup_functions(loss)
             [d_loss, g_loss] = loss.create(loss, self.gan)
             d_losses.append(d_loss)
             g_losses.append(g_loss)

@@ -74,7 +74,7 @@ def selector(args):
     losses = []
     for i in range(1):
         losses.append(wgan.config())
-    selector.set("losses", losses)
+    selector.set("losses", [losses])
 
     # Sampler configuration
     selector.set("sampler", progressive_enhancement_sampler.sample) # this is our sampling method.  Some other sampling ideas include cosine distance or adverarial encoding(not implemented but contributions welcome).

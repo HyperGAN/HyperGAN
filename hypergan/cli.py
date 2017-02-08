@@ -220,6 +220,11 @@ class CLI:
         config['x_dims']=[height,width]
         config['channels']=channels
 
+        if(int(config['y_dims']) > 1):
+            print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
+            config['losses'].append(hg.losses.supervised.config())
+        else:
+            print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
         self.config = config
         self.gan = GAN(config, graph, device=args.device)
         self.sess = self.gan.sess

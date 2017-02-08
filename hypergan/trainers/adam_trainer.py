@@ -9,12 +9,12 @@ def config():
     selector.set('create', create)
     selector.set('run', run)
 
-    selector.set('generator_learn_rate', 5e-5)
-    selector.set('generator_epsilon', 1e-8)
-    selector.set('generator_beta1', 0.9)
-    selector.set('generator_beta2', 0.999)
+    selector.set('discriminator_learn_rate', 1e-3)
+    selector.set('discriminator_epsilon', 1e-8)
+    selector.set('discriminator_beta1', 0.9)
+    selector.set('discriminator_beta2', 0.999)
 
-    selector.set('generator_learn_rate', 5e-5)
+    selector.set('generator_learn_rate', 1e-3)
     selector.set('generator_epsilon', 1e-8)
     selector.set('generator_beta1', 0.9)
     selector.set('generator_beta2', 0.999)
@@ -63,8 +63,13 @@ def run(gan):
         clip = [tf.assign(d,tf.clip_by_value(d, -0.1, 0.1))  for d in d_vars]
         sess.run(clip)
 
-    _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
-    print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_class, d_log ))
+    if(d_class_loss is not None):
+        _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
+        print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_class, d_log ))
+    else:
+        _, g_cost,d_fake,d_real = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss])
+        print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_log ))
+
 
     global iteration
     iteration+=1

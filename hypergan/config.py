@@ -26,30 +26,19 @@ def selector(args):
     selector.set('z_encoders', [[gaussian.config(), periodic_gaussian.config(), periodic_linear.config()]])
 
     # Generator configuration
-    selector.set("generator", [resize_conv.generator])
-    selector.set("generator.z_projection_depth", 512) # Used in the first layer - the linear projection of z
-    selector.set("generator.activation", [prelu("g_")]); # activation function used inside the generator
-    selector.set("generator.activation.end", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
-    selector.set("generator.fully_connected_layers", 0) # Experimental - This should probably stay 0
-    selector.set("generator.final_activation", [tf.nn.tanh]) #This should match the range of your input
-    selector.set("generator.resize_conv.depth_reduction", 2) # Divides our depth by this amount every time we go up in size
-    selector.set('generator.layer.noise', False) #Adds incremental noise each layer
-    selector.set('generator.layer_filter', None) #Add information to g
-    selector.set("generator.regularizers.l2.lambda", list(np.linspace(0.1, 1, num=30))) # the magnitude of the l2 regularizer(experimental)
-    selector.set("generator.regularizers.layer", [batch_norm_1]) # the magnitude of the l2 regularizer(experimental)
-    selector.set('generator.densenet.size', 16)
-    selector.set('generator.densenet.layers', 1)
+    selector.set("generator", [resize_conv.config()])
 
     selector.set("trainer", adam_trainer.config())
 
     # Discriminator configuration
     discriminators = []
     for i in range(1):
-        discriminators.append(pyramid_nostride_fc_discriminator.config(layers=5))
+        discriminators.append(pyramid_nostride_fc_discriminator.config(layers=6))
+        discriminators.append(pyramid_nostride_discriminator.config(layers=7))
     selector.set("discriminators", [discriminators])
 
     losses = []
-    for i in range(1):
+    for i in range(3):
         losses.append(wgan.config())
     selector.set("losses", [losses])
 

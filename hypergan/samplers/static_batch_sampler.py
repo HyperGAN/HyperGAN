@@ -12,7 +12,7 @@ def sample(gan, sample_file):
     global z, y
     generator = gan.graph.g[0]
     y_t = gan.graph.y
-    z_t = gan.graph.z
+    z_t = gan.graph.z_base
 
     x = np.linspace(0,1, 4)
 

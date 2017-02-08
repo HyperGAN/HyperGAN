@@ -24,23 +24,22 @@ z_v = None
 def sampler(gan, name):
     generator = gan.graph.g[0]
     y_t = gan.graph.y
-    z_t = gan.graph.z
+    z_t = gan.graph.z_base
     x_t = gan.graph.x
-    fltr_x_t = gan.graph.xfiltered
+    sess = gan.sess
+    config = gan.config
     global x_v
     global z_v
     if(x_v == None):
         x_v, z_v = sess.run([x_t, z_t])
         x_v = np.tile(x_v[0], [config['batch_size'],1,1,1])
 
-    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x_v, z_t: z_v})
-    bw = np.squeeze(np.tile(bw_x[0], [1,1,1,3]))
+    sample, = sess.run([generator], {x_t: x_v, z_t: z_v})
     stacks = []
-    stacks.append([x_v[0], bw, sample[0], sample[1], sample[2], sample[3]])
+    stacks.append([x_v[0], sample[0], sample[1], sample[2], sample[3], sample[4]])
     for i in range(4):
-        stacks.append([sample[i*6+4+j] for j in range(6)])
+        stacks.append([sample[i*6+5+j] for j in range(6)])
     
-    print('bwxshape', bw.shape, x_v[0].shape)
     images = np.vstack([np.hstack(s) for s in stacks])
     plot(config, images, name)
 

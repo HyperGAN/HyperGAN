@@ -2,6 +2,8 @@ import tensorflow as tf
 import numpy as np
 from hypergan.util.hc_tf import *
 
+#    selector.set('densenet.size', 16)
+#    selector.set('densenet.layers', 1)
 def generator(config, net, z):
     depth=0
     w=int(net.get_shape()[1])

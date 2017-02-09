@@ -325,10 +325,7 @@ The discriminators job is to tell if a piece of data is real or fake.  In hyperg
 
 You can combine multiple discriminators in a single GAN. 
 
-### pyramid_stride
-
-### pyramid_nostride
-
+### pyramid
 
 Progressive enhancement is enabled by default:
 

@@ -18,9 +18,13 @@ def config(resize=None, layers=5):
     selector.set('layer_filter.progressive_enhancement_enabled', True) #add information to D
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
     selector.set('resize', [resize])
+    selector.set('fc_layers', [2])
+    selector.set('fc_layer_size', [1024])
+
+    selector.set('strided', False) #TODO: true does not work
 
     selector.set('create', discriminator)
-    
+
     return selector.random_config()
 
 #TODO: arguments telescope, root_config/config confusing
@@ -92,8 +96,15 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     k=-1
     if batch_norm is not None:
         net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
-    net = final_activation(net)
     net = tf.reshape(net, [batch_size*2, -1])
+
+    for i in range(config.fc_layers):
+        net = activation(net)
+        net = linear(net, config.fc_layer_size, scope=prefix+"_fc_end"+str(i))
+        net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
+
+    net = final_activation(net)
+
 
     return net
 

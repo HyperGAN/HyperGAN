@@ -1,2 +1,5 @@
 flask
 hyperchamber>=0.2.7
+tensorflow-gpu
+scipy
+Pillow

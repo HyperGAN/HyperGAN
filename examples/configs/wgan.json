@@ -5,7 +5,7 @@
   "discriminators": [
     {
       "activation": "function:hypergan.util.ops.lrelu",
-      "add_noise": true,
+      "add_noise": false,
       "create": "function:hypergan.discriminators.pyramid_nostride_fc_discriminator.discriminator",
       "depth_increase": 2,
       "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
@@ -40,9 +40,10 @@
   "trainer": {
     "capped": false,
     "clipped_discriminator": true,
+    "clip_value": 0.01,
     "create": "function:hypergan.trainers.rmsprop_trainer.create",
-    "discriminator_learn_rate": 0.0005,
-    "generator_learn_rate": 0.0005,
+    "discriminator_learn_rate": 0.00005,
+    "generator_learn_rate": 0.00005,
     "run": "function:hypergan.trainers.rmsprop_trainer.run"
   },
   "z_dimensions": 40,

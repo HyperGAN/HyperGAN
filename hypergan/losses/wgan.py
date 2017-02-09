@@ -43,6 +43,8 @@ def create(config, gan):
 
 def linear_projection(net, axis=1):
     net = tf.squeeze(linear(net, 1, scope="d_wgan_lin_proj"))
+    net = layer_norm_1(int(net.get_shape()[0]), name='d_wgan_lin_proj_bn')(net)
+    net = tf.tanh(net)
     return net
 
 

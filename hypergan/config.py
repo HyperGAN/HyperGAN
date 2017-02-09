@@ -37,7 +37,7 @@ def selector(args):
     selector.set("discriminators", [discriminators])
 
     losses = []
-    for i in range(3):
+    for i in range(1):
         losses.append(wgan.config())
     selector.set("losses", [losses])
 

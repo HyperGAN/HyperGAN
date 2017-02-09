@@ -2,3 +2,4 @@ flask
 hyperchamber>=0.2
 tensorflow-gpu
 scipy
+Pillow

@@ -5,9 +5,12 @@ from hypergan.util.globals import *
 from hypergan.samplers.common import *
 from hypergan.samplers import grid_sampler
 import logging
+import json
 from logging.handlers import RotatingFileHandler
 
 app = Flask('gan')
+
+import base64
 
 def linspace(start, end):
     c = np.linspace(0,1, 64)
@@ -144,8 +147,22 @@ class GANWebServer:
         stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
         plot(self.config, np.vstack(stacks), sample_file)
 
+    def sample_base64(self, sample_file, x):
+        generator = get_tensor("g")[0]
+        y_t = get_tensor("y")
+        x_t = get_tensor("x")
 
-    def sample(self, type='batch', c=None, features=None, z_iterate=None, target_value=None, seed=None,should_send_file=True):
+        if x is not None:
+            print("x is not None")
+            sample = self.sess.run(generator, feed_dict={x_t:x})
+        else:
+            print("x is None")
+            sample = self.sess.run(generator, feed_dict={})
+
+        stacks = [base64.b64encode(s).decode('ascii') for s in sample]
+        return json.dumps(stacks)
+
+    def sample(self, type='batch', c=None, features=None, z_iterate=None, target_value=None, seed=None,should_send_file=True,x=None):
         print("Creating sample")
 
         #categories_feed = []
@@ -173,6 +190,8 @@ class GANWebServer:
             self.sample_grid(sample_file)
         elif(type == 'zero'):
             self.sample_zeros(sample_file)
+        elif(type == 'base64'):
+            return self.sample_base64(sample_file, x)
         print("Sample ended", sample_file)
         if(should_send_file):
             return send_file(sample_file, mimetype='image/png')
@@ -199,6 +218,7 @@ def gan_server(sess, config):
         z_iterate = request.args.get('z_iterate')
         target = request.args.get('target')
         seed = request.args.get('seed')
+        x = request.args.get('x')
         print('c is', c)
         if(c):
             c = c.split(',')
@@ -206,7 +226,7 @@ def gan_server(sess, config):
         if(z_iterate):
             z_iterate = z_iterate.split(',')
         print('c is now', c)
-        return gws.sample(c=c, type=type, z_iterate=z_iterate, target_value=target, seed=seed)
+        return gws.sample(c=c, type=type, z_iterate=z_iterate, target_value=target, seed=seed,x=x)
     handler = RotatingFileHandler('server.log', maxBytes=10000, backupCount=1)
     handler.setLevel(logging.INFO)
     app.logger.addHandler(handler)

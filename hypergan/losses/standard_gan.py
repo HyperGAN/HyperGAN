@@ -7,6 +7,7 @@ def config():
     selector = hc.Selector()
     selector.set("reduce", [linear_projection])#tf.reduce_mean, reduce_sum, reduce_logexp work
     selector.set("label_smooth", list(np.linspace(0.15, 0.35, num=100)))
+    selector.set('discriminator', None)
 
     selector.set('create', create)
 
@@ -15,6 +16,13 @@ def config():
 def create(config, gan):
     d_real = gan.graph.d_real
     d_fake = gan.graph.d_fake
+
+    if(config.discriminator == None):
+        d_real = gan.graph.d_real
+        d_fake = gan.graph.d_fake
+    else:
+        d_real = gan.graph.d_reals[config.discriminator]
+        d_fake = gan.graph.d_fakes[config.discriminator]
 
     with tf.variable_scope("d_linear", reuse=False):
         d_real = config.reduce(d_real, axis=1)

@@ -122,7 +122,7 @@ class Graph:
         f = graph.f
         config = self.gan.config
         set_ops_globals(config.dtype, config.batch_size)
-        z_dim = int(config.z_dimensions)
+        z_dim = int(config.z)
         
         z = self.create_z_encoding()
         
@@ -147,10 +147,10 @@ class Graph:
         config = self.gan.config
         # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
         # TODO refactor
-        set_ops_globals(config['dtype'], config['batch_size'])
+        set_ops_globals(config.dtype, config.batch_size)
 
-        batch_size = config["batch_size"]
-        z_dim = int(config['z_dimensions'])
+        batch_size = config.batch_size
+        z_dim = int(config.z)
 
         g_losses = []
         extra_g_loss = []

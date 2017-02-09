@@ -21,7 +21,7 @@ def selector(args):
     selector.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
 
     # Z encoder configuration
-    selector.set('z_dimensions', 40)
+    selector.set('z', 40)
     selector.set('z_encoder_base', hg.encoders.linear.config())
     selector.set('z_encoders', [[gaussian.config(), periodic_gaussian.config(), periodic_linear.config()]])
 

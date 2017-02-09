@@ -15,7 +15,7 @@ def sample(gan, sample_file):
     x = np.linspace(0,1, 4)
     y = np.linspace(0,1, 6)
 
-    z = np.random.uniform(-1, 1, [config['batch_size'], config['z_dimensions']])
+    z = np.random.uniform(-1, 1, [config['batch_size'], config.z])
 
     g=tf.get_default_graph()
     with g.as_default():

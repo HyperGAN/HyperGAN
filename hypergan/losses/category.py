@@ -1,13 +1,18 @@
-##TODO Make all this work again
-def todo():
-    if config['category_loss']:
+def config():
+    selector = hc.Selector()
+    selector.set('discriminator', None)
 
-        category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories',stddev=0.15)
-        category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
-        category_layer = config['generator.activation'](category_layer)
-        categories_l = categories_loss(categories, category_layer, config['batch_size'])
-        g_losses.append(-1*config['categories_lambda']*categories_l)
-        d_losses.append(-1*config['categories_lambda']*categories_l)
+    selector.set('create', create)
+
+    return selector.random_config()
+
+def create(config, gan):
+    category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories',stddev=0.15)
+    category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
+    category_layer = config['generator.activation'](category_layer)
+    categories_l = categories_loss(categories, category_layer, config['batch_size'])
+    g_losses.append(-1*config['categories_lambda']*categories_l)
+    d_losses.append(-1*config['categories_lambda']*categories_l)
 
 def split_categories(layer, batch_size, categories):
     start = 0

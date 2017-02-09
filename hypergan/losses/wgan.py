@@ -5,16 +5,21 @@ import hyperchamber as hc
 
 def config():
     selector = hc.Selector()
-    selector.set("reduce", [tf.reduce_mean,tf.reduce_sum,tf.reduce_logsumexp,linear_projection])
+    selector.set("reduce", [tf.reduce_mean,linear_projection])#,tf.reduce_sum,tf.reduce_logsumexp,
     selector.set('reverse', [True, False])
+    selector.set('discriminator', None)
 
     selector.set('create', create)
 
     return selector.random_config()
 
 def create(config, gan):
-    d_real = gan.graph.d_real
-    d_fake = gan.graph.d_fake
+    if(config.discriminator == None):
+        d_real = gan.graph.d_real
+        d_fake = gan.graph.d_fake
+    else:
+        d_real = gan.graph.d_reals[config.discriminator]
+        d_fake = gan.graph.d_fakes[config.discriminator]
 
     with tf.variable_scope("d_linear", reuse=False):
         d_real = config.reduce(d_real, axis=1)

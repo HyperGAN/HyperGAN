@@ -33,8 +33,7 @@ def selector(args):
     # Discriminator configuration
     discriminators = []
     for i in range(1):
-        discriminators.append(pyramid_nostride_fc_discriminator.config(layers=6))
-        discriminators.append(pyramid_nostride_discriminator.config(layers=7))
+        discriminators.append(pyramid_nostride_fc_discriminator.config(layers=5))
     selector.set("discriminators", [discriminators])
 
     losses = []

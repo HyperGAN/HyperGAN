@@ -47,15 +47,19 @@ class Graph:
         for i, discriminator in enumerate(config.discriminators):
             discriminator = hc.Config(hc.lookup_functions(discriminator))
             discriminators.append(discriminator.create(self.gan, discriminator, x, g, xs, gs,prefix="d_"+str(i)))
+
+        def split_d(net, i):
+            net = tf.slice(net, [single_batch_size*i, 0], [single_batch_size, -1])
+            return net
+
+        d_reals = [split_d(x, 0) for x in discriminators]
+        d_fakes = [split_d(x, 1) for x in discriminators]
         net = tf.concat(1, discriminators)
-        graph.dsss=net
 
-        d_real = tf.reshape(net, [batch_size, -1])
-        d_real = tf.slice(net, [0, 0], [single_batch_size, -1])
-        d_fake = tf.reshape(net, [batch_size, -1])
-        d_fake = tf.slice(net, [single_batch_size, 0], [single_batch_size, -1])
+        d_real = split_d(net, 0)
+        d_fake = split_d(net, 1)
 
-        return [d_real, d_fake]
+        return [d_real, d_fake, d_reals, d_fakes]
 
 
     def split_categories(layer, batch_size, categories):
@@ -165,10 +169,12 @@ class Graph:
 
         g_sample = g
 
-        d_real, d_fake = self.discriminator(x, f, None, g, z)
+        d_real, d_fake, d_reals, d_fakes = self.discriminator(x, f, None, g, z)
 
         self.gan.graph.d_real = d_real
         self.gan.graph.d_fake = d_fake
+        self.gan.graph.d_reals = d_reals
+        self.gan.graph.d_fakes = d_fakes
 
         for i, loss in enumerate(config.losses):
             loss = hc.Config(hc.lookup_functions(loss))

@@ -74,6 +74,8 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             xg = tf.concat(0, [x_filter_i, g_filter_i])
         else:
             xg = tf.concat(0, [xs[i], gs[i]])
+        if(config['add_noise']):
+            xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
 
         xgs.append(xg)
   

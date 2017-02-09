@@ -1,2 +1,2 @@
 flask
-hyperchamber>=0.2
+hyperchamber>=0.2.7

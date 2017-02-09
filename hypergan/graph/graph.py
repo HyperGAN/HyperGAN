@@ -12,39 +12,25 @@ class Graph:
 
     def generator(self, inputs, reuse=False):
         config = self.gan.config
-        x_dims = config['x_dims']
-        output_channels = config['channels']
-        activation = config['generator.activation']
-        batch_size = config['batch_size']
-        z_proj_dims = int(config['generator.z_projection_depth'])
-        batch_norm = config['generator.regularizers.layer']
+        x_dims = config.x_dims
+        output_channels = config.channels
+        batch_size = config.batch_size
 
         with(tf.variable_scope("generator", reuse=reuse)):
-            output_shape = x_dims[0]*x_dims[1]*config['channels']
-            primes = find_smallest_prime(x_dims[0], x_dims[1])
 
-            original_z = tf.concat(1, inputs)
-            layers = config['generator.fully_connected_layers']
-            net = original_z
-            for i in range(layers):
-                net = linear(net, net.get_shape()[-1], scope="g_fc_"+str(i))
-                net = batch_norm(batch_size, name='g_rp_bn'+str(i))(net)
-                net = activation(net)
+            z = tf.concat(1, inputs)
 
-            net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
-            new_shape = [config['batch_size'], primes[0],primes[1],z_proj_dims]
-            net = tf.reshape(net, new_shape)
-
-            nets = config['generator'](self.gan, net, original_z)
+            generator = hc.Config(hc.lookup_functions(config.generator))
+            nets = generator.create(generator, self.gan, z)
 
             return nets
 
     def discriminator(self, x, f,z,g,gz):
         config = self.gan.config
         graph = self.gan.graph
-        batch_size = config['batch_size']*2
-        single_batch_size = config['batch_size']
-        channels = (config['channels'])
+        batch_size = config.batch_size*2
+        single_batch_size = config.batch_size
+        channels = config.channels
         # combine to one batch, per Ian's "Improved GAN"
         xs = [x]
         gs = g
@@ -57,42 +43,19 @@ class Graph:
         xs.pop()
         gs.reverse()
 
-        # careful on order.  See https://arxiv.org/pdf/1606.00704v1.pdf
-        z = tf.concat(0, [z, gz])
-
         discriminators = []
-        for i, discriminator in enumerate(config['discriminators']):
-            discriminator = hc.lookup_functions(discriminator)
-            discriminators.append(discriminator['create'](self.gan, discriminator, x, g, xs, gs,prefix="d_"+str(i)))
+        for i, discriminator in enumerate(config.discriminators):
+            discriminator = hc.Config(hc.lookup_functions(discriminator))
+            discriminators.append(discriminator.create(self.gan, discriminator, x, g, xs, gs,prefix="d_"+str(i)))
         net = tf.concat(1, discriminators)
-
-        last_layer = net
-        last_layer = tf.reshape(last_layer, [batch_size, -1])
-        last_layer = tf.slice(last_layer, [single_batch_size, 0], [single_batch_size, -1])
-
+        graph.dsss=net
 
         d_real = tf.reshape(net, [batch_size, -1])
         d_real = tf.slice(net, [0, 0], [single_batch_size, -1])
         d_fake = tf.reshape(net, [batch_size, -1])
         d_fake = tf.slice(net, [single_batch_size, 0], [single_batch_size, -1])
-        if config['y_dims'] == 1:
-            dr_class=None
-            dr_logits=None
-            df_class=None
-            df_logits=None
 
-        else:
-            num_classes = config['y_dims']+1
-            net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
-            net = layer_norm_1(batch_size*2, name='d_bn_end')(net)
-            class_logits = tf.slice(net, [0,1], [single_batch_size*2,num_classes-1])
-            gan_logits = tf.squeeze(tf.slice(net, [0,0], [single_batch_size*2,1]))
-            dr_class=tf.slice(class_logits, [0, 0], [single_batch_size, num_classes-1])
-            dr_logits=tf.slice(gan_logits, [0], [single_batch_size])
-            df_class=tf.slice(class_logits, [single_batch_size, 0], [single_batch_size, num_classes-1])
-            df_logits=tf.slice(gan_logits, [single_batch_size], [single_batch_size]), 
-
-        return [dr_class,dr_logits,df_class,df_logits, last_layer, d_real, d_fake]
+        return [d_real, d_fake]
 
 
     def split_categories(layer, batch_size, categories):
@@ -135,16 +98,32 @@ class Graph:
             return tf.one_hot(sample, size, dtype=dtype)
 
 
+    def create_z_encoding(self):
+        z_base_config = hc.Config(hc.lookup_functions(self.gan.config.z_encoder_base))
+        self.gan.graph.z_base = z_base_config.create(z_base_config, self.gan)
+        encoders = [self.gan.graph.z_base]
+        for i, encoder in enumerate(self.gan.config.z_encoders):
+            encoder = hc.Config(hc.lookup_functions(encoder))
+            encoders.append(encoder.create(encoder, self.gan))
+
+        z_encoded = tf.concat(1, encoders)
+        self.gan.graph.z_encoded = z_encoded
+
+        return z_encoded
+
     # Used for building the tensorflow graph with only G
     def create_generator(self, graph):
         x = graph.x
         y = graph.y
         f = graph.f
         config = self.gan.config
-        set_ops_globals(config['dtype'], config['batch_size'])
-        z_dim = int(config['generator.z'])
-        z, encoded_z, z_mu, z_sigma = config['encoder'](self.gan)
-        categories = [self.random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
+        set_ops_globals(config.dtype, config.batch_size)
+        z_dim = int(config.z_dimensions)
+        
+        z = self.create_z_encoding()
+        
+
+        categories = [self.random_category(config.batch_size, size, config.dtype) for size in config.categories]
         if(len(categories) > 0):
             categories_t = [tf.concat(1, categories)]
         else:
@@ -167,8 +146,7 @@ class Graph:
         set_ops_globals(config['dtype'], config['batch_size'])
 
         batch_size = config["batch_size"]
-        z_dim = int(config['generator.z'])
-        batch_norm = config['generator.regularizers.layer']
+        z_dim = int(config['z_dimensions'])
 
         g_losses = []
         extra_g_loss = []
@@ -181,34 +159,24 @@ class Graph:
         else:
             categories_t = []
 
-        z, encoded_z, z_mu, z_sigma = config['encoder'](self.gan)
-
+        z = self.create_z_encoding()
         # create generator
         g = self.generator([y, z]+categories_t)
 
-        #encoded = generator([y, encoded_z]+categories_t, reuse=True)
-
         g_sample = g
 
-        d_real, d_real_sig, d_fake, d_fake_sig, d_last_layer, d_real_lin, d_fake_lin = self.discriminator(x, f, encoded_z, g, z)
+        d_real, d_fake = self.discriminator(x, f, None, g, z)
 
-        d_real_lin = tf.reduce_mean(d_real_lin, axis=1)
-        d_fake_lin = tf.reduce_mean(d_fake_lin, axis=1)
-        d_loss = d_real_lin - d_fake_lin
-        g_loss = d_fake_lin
-        d_fake_loss = -d_fake_lin
-        d_real_loss = d_real_lin
+        self.gan.graph.d_real = d_real
+        self.gan.graph.d_fake = d_fake
 
-        d_losses.append(d_loss)
-        g_losses.append(g_loss)
-
-        if(int(y.get_shape()[1]) > 1):
-            print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
-            d_class_loss = tf.nn.softmax_cross_entropy_with_logits(d_real,y)
-            d_losses.append(d_class_loss)
-        else:
-            d_class_loss = tf.zeros([config['batch_size'], 1])
-            print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
+        for i, loss in enumerate(config.losses):
+            loss = hc.Config(hc.lookup_functions(loss))
+            d_loss, g_loss = loss.create(loss, self.gan)
+            if(d_loss is not None):
+                d_losses.append(d_loss)
+            if(g_loss is not None):
+                g_losses.append(g_loss)
 
         categories_l = None
         if config['category_loss']:
@@ -230,8 +198,9 @@ class Graph:
         for extra in extra_g_loss:
             g_loss += extra
         d_loss = tf.reduce_mean(tf.add_n(d_losses))
-        for extra in d_reg_losses:
-            d_loss += extra
+        print('d_loss', d_loss)
+        #for extra in d_reg_losses:
+        #    d_loss += extra
         joint_loss = tf.reduce_mean(tf.add_n(g_losses + d_losses))
 
         summary = tf.all_variables()
@@ -245,18 +214,14 @@ class Graph:
 
         summary = [(s.get_shape(), s.name, s.dtype, summary_reduce(s)) for s in summary]
 
-        graph.d_class_loss=tf.reduce_mean(d_class_loss)
-        graph.d_fake_loss=tf.reduce_mean(d_fake_loss)
         graph.d_loss=d_loss
         graph.d_log=-tf.log(tf.abs(d_loss+TINY))
-        graph.d_real_loss=tf.reduce_mean(d_real_loss)
         graph.f=f
         graph.g=g_sample
         graph.g_loss=g_loss
         graph.hc_summary=summary
         graph.y=y
         graph.categories=categories_t
-        graph.encoded_z=encoded_z
         graph.joint_loss=joint_loss
 
         g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
@@ -264,16 +229,7 @@ class Graph:
 
         v_vars = [var for var in tf.trainable_variables() if 'v_' in var.name]
         g_vars += v_vars
-        g_optimizer, d_optimizer = config['trainer.initializer'](self.gan, d_vars, g_vars)
+        trainer = hc.Config(hc.lookup_functions(config.trainer))
+        g_optimizer, d_optimizer = trainer.create(trainer, self.gan, d_vars, g_vars)
         graph.d_optimizer=d_optimizer
         graph.g_optimizer=g_optimizer
-
-def sigmoid_kl_with_logits(logits, targets):
-   # broadcasts the same target value across the whole batch
-   # this is implemented so awkwardly because tensorflow lacks an x log x op
-   assert isinstance(targets, float)
-   if targets in [0., 1.]:
-     entropy = 0.
-   else:
-     entropy = - targets * np.log(targets) - (1. - targets) * np.log(1. - targets)
-     return tf.nn.sigmoid_cross_entropy_with_logits(logits, tf.ones_like(logits) * targets) - entropy

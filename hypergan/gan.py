@@ -40,7 +40,7 @@ class GAN:
         self.create_graph(graph_type, device)
 
     def sample_to_file(self, name, sampler=grid_sampler.sample):
-        return sampler(name, self.sess, self.config)
+        return sampler(self, name)
 
     def create_graph(self, graph_type, device):
         tf_graph = hg.graph.Graph(self)
@@ -62,7 +62,8 @@ class GAN:
             self.sess = tf.Session(config=tf.ConfigProto())
 
     def train(self):
-        return self.config['trainer.train'](self)
+        trainer = hc.Config(hc.lookup_functions(self.config.trainer))
+        return trainer.run(self)
 
     def save(self, save_file):
         saver = tf.train.Saver()

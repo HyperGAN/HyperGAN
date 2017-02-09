@@ -12,4 +12,4 @@ def config():
   return selector.random_config()
 
 def create(config, gan):
-  return tf.random_uniform([gan.config.batch_size, gan.config.z_dimensions],config.min, config.max,dtype=gan.config.dtype)
+  return tf.random_uniform([gan.config.batch_size, gan.config.z],config.min, config.max,dtype=gan.config.dtype)

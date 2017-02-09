@@ -5,7 +5,7 @@ TINY=1e-12
 
 # creates normal distribution https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 def gaussian_from_uniform(config, gan, z):
-  z_dim = gan.config.z_dimensions
+  z_dim = gan.config.z
   z = (z + 1) / 2
 
   za = tf.slice(z, [0,0], [gan.config.batch_size, z_dim//2])

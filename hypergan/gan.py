@@ -32,7 +32,7 @@ class GAN:
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
     def __init__(self, config, graph, device='/gpu:0', graph_type='full'):
         """ Initialized a new GAN."""
-        self.config=config
+        self.config=Config(config)
         self.device=device
         self.init_session(device)
         self.graph = Config(graph)

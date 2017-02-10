@@ -191,7 +191,8 @@ class CLI:
         channels = int(args.size.split("x")[2])
 
         config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
-        self.save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
+        self.save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+"/model.ckpt")
+        self.create_path(self.save_file)
 
         selector = hg.config.selector(args)
         print("[hypergan] Welcome.  This is one of ", selector.count_configs(), " possible configurations.")

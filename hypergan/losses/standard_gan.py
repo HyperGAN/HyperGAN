@@ -35,10 +35,14 @@ def create(config, gan):
     g_loss = tf.squeeze(g_loss)
     d_loss = tf.squeeze(d_loss)
 
+    gan.graph.d_fake_loss=tf.reduce_mean(d_fake)
+    gan.graph.d_real_loss=tf.reduce_mean(d_real)
     return [d_loss, g_loss]
 
 def linear_projection(net, axis=1):
-    net = linear(net, 1, scope="d_standard_gan_lin_proj")
+    net = linear(net, 1, scope="d_standard_gan_lin_proj", regularizer=tf.contrib.layers.l1_regularizer(0.01))
+    #net = layer_norm_1(int(net.get_shape()[0]), name='d_standard_gan_lin_proj_bn')(net)
+    #net = tf.tanh(net)
     return net
 
 def sigmoid_kl_with_logits(logits, targets):

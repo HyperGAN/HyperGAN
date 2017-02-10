@@ -12,20 +12,19 @@
       "layer_filter": null,
       "layer_filter.progressive_enhancement_enabled": true,
       "layers": 5,
-      "noise_stddev": 0.01,
+      "noise_stddev": 0.1,
       "regularizer": "function:hypergan.util.ops.layer_norm_1",
       "resize": null
     },
     {
       "activation": "function:hypergan.util.ops.lrelu",
       "add_noise": false,
-      "create": "function:hypergan.discriminators.pyramid_nostride_discriminator.discriminator",
-      "depth_increase": 1.7,
+      "create": "function:hypergan.discriminators.pyramid_nostride_fc_discriminator.discriminator",
+      "depth_increase": 2,
       "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
       "layer_filter": null,
       "layer_filter.progressive_enhancement_enabled": true,
-      "layers": 7,
-      "noise_stddev": 0.1,
+      "layers": 5,
       "regularizer": "function:hypergan.util.ops.layer_norm_1",
       "resize": null
     }

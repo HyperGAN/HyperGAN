@@ -12,7 +12,6 @@
       "layer_filter": null,
       "layer_filter.progressive_enhancement_enabled": true,
       "layers": 5,
-      "noise_stddev": 0.01,
       "regularizer": "function:hypergan.util.ops.layer_norm_1",
       "resize": null
     }

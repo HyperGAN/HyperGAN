@@ -33,7 +33,7 @@ class GANWebServer:
         return np.eye(self.config['y_dims'])[rand]
 
     def sample_batch(self, sample_file):
-        generator = get_tensor("g")[0]
+        generator = get_tensor("g")[-1]
         y_t = get_tensor("y")
         print("generator is ", generator)
 
@@ -148,7 +148,7 @@ class GANWebServer:
         plot(self.config, np.vstack(stacks), sample_file)
 
     def sample_base64(self, sample_file, x):
-        generator = get_tensor("g")[0]
+        generator = get_tensor("g")[-1]
         y_t = get_tensor("y")
         x_t = get_tensor("x")
 

@@ -1,5 +1,6 @@
 from flask import Flask, send_file, request
 import numpy as np
+from PIL import Image
 from hypergan.util import *
 from hypergan.util.globals import *
 from hypergan.samplers.common import *
@@ -11,6 +12,7 @@ from logging.handlers import RotatingFileHandler
 app = Flask('gan')
 
 import base64
+from io import BytesIO
 
 def linspace(start, end):
     c = np.linspace(0,1, 64)
@@ -154,6 +156,9 @@ class GANWebServer:
 
         if x is not None:
             print("x is not None")
+            image = Image.open(BytesIO(base64.b64decode(x)))
+            x = np.asarray(image)/127.5-1
+            x = np.tile(x, [self.config['batch_size'],1])
             sample = self.sess.run(generator, feed_dict={x_t:x})
         else:
             print("x is None")

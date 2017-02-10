@@ -120,6 +120,7 @@ class Graph:
         x = graph.x
         y = graph.y
         f = graph.f
+        set_tensor("x", x)
         config = self.gan.config
         set_ops_globals(config.dtype, config.batch_size)
         z_dim = int(config.z)

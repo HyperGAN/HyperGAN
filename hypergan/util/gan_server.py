@@ -1,15 +1,20 @@
 from flask import Flask, send_file, request
+from flask_cors import CORS, cross_origin
 import numpy as np
+from PIL import Image
 from hypergan.util import *
 from hypergan.samplers.common import *
 from hypergan.samplers import grid_sampler
 import logging
 import json
+import re
 from logging.handlers import RotatingFileHandler
 
 app = Flask('gan')
 
+CORS(app)
 import base64
+from io import BytesIO, StringIO
 
 def linspace(start, end):
     c = np.linspace(0,1, 64)
@@ -32,7 +37,7 @@ class GANWebServer:
         return np.eye(self.config['y_dims'])[rand]
 
     def sample_batch(self, sample_file):
-        generator = gan.graph.g[0]
+        generator = gan.graph.g[-1]
         y_t = gan.graph.y
         print("generator is ", generator)
 
@@ -59,17 +64,10 @@ class GANWebServer:
         # y_t:random_one_hot(see git log)
 
         sample = self.sess.run(generator, feed_dict={ z_t: z})
-        print("sample is ", sample)
-        print(sample.shape)
 
         stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
         plot(self.config, np.vstack(stacks), sample_file)
-       
-       #plot(self.config, sample, sample_file)
-
-
-
-
+     
     def sample_grid(self, sample_file):
         grid_sampler.sample(sample_file, self.sess, self.config)
 
@@ -147,12 +145,21 @@ class GANWebServer:
         plot(self.config, np.vstack(stacks), sample_file)
 
     def sample_base64(self, sample_file, x):
-        generator = get_tensor("g")[0]
+        generator = get_tensor("g")[-1]
         y_t = get_tensor("y")
         x_t = get_tensor("x")
 
         if x is not None:
-            print("x is not None")
+            print("LEN X", len(x))
+            x = base64.b64decode(bytes(re.sub('^data:image/.+;base64,', '', x), 'ascii'))
+            f = open("x.png", "wb")
+            f.write(x)
+            f.close()
+            x = Image.open('x.png')
+            x = np.asarray(x, dtype='uint8')
+            x = x/127.5-1
+            x = x.reshape([1, x.shape[0], x.shape[1], x.shape[2]])
+            x = np.tile(x, [self.config['batch_size'],1,1,1])
             sample = self.sess.run(generator, feed_dict={x_t:x})
         else:
             print("x is None")
@@ -210,6 +217,11 @@ def gan_sample(sess, config):
 
 def gan_server(sess, config):
     gws = GANWebServer(sess, config)
+    @app.route('/sample.json', methods=['POST', 'GET'])
+    def sampleJson():
+        x = request.json['x']
+        return gws.sample_base64('x.png', x)
+
     @app.route('/sample.png')
     def sample():
         c =request.args.get('c')

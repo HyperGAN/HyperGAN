@@ -18,9 +18,13 @@ def config(resize=None, layers=5):
     selector.set('layer_filter.progressive_enhancement_enabled', True) #add information to D
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
     selector.set('resize', [resize])
+    selector.set('fc_layers', [2])
+    selector.set('fc_layer_size', [1024])
+
+    selector.set('strided', False) #TODO: true does not work
 
     selector.set('create', discriminator)
-    
+
     return selector.random_config()
 
 #TODO: arguments telescope, root_config/config confusing
@@ -74,9 +78,9 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             xg = tf.concat(0, [x_filter_i, g_filter_i])
         else:
             xg = tf.concat(0, [xs[i], gs[i]])
+
         if(config['add_noise']):
             xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
-
         xgs.append(xg)
   
         if config['layer_filter.progressive_enhancement_enabled']:
@@ -87,8 +91,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
       net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None)
-      if i < depth - 1:
-        net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+      net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)
 
@@ -96,10 +99,14 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     if batch_norm is not None:
         net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
     net = tf.reshape(net, [batch_size*2, -1])
-    net = activation(net)
-    net = linear(net, 1024, scope=prefix+"_fc_end3")
-    net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end2')(net)
+
+    for i in range(config.fc_layers):
+        net = activation(net)
+        net = linear(net, config.fc_layer_size, scope=prefix+"_fc_end"+str(i))
+        net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
+
     net = final_activation(net)
+
 
     return net
 

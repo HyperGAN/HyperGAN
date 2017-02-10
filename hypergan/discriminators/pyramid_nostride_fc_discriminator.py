@@ -74,6 +74,8 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             xg = tf.concat(0, [x_filter_i, g_filter_i])
         else:
             xg = tf.concat(0, [xs[i], gs[i]])
+        if(config['add_noise']):
+            xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
 
         xgs.append(xg)
   
@@ -94,9 +96,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     if batch_norm is not None:
         net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
     net = tf.reshape(net, [batch_size*2, -1])
-    net = activation(net)
-    net = linear(net, 1024, scope=prefix+"_fc_end2")
-    net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
     net = activation(net)
     net = linear(net, 1024, scope=prefix+"_fc_end3")
     net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end2')(net)

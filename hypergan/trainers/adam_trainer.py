@@ -60,7 +60,7 @@ def run(gan):
 
     # in WGAN paper, values are clipped.  This might not work, and is slow.
     if(config.clipped_discriminator):
-        clip = [tf.assign(d,tf.clip_by_value(d, -0.1, 0.1))  for d in d_vars]
+        clip = [tf.assign(d,tf.clip_by_value(d, -config.clip_value, config.clip_value))  for d in d_vars]
         sess.run(clip)
 
     if(d_class_loss is not None):

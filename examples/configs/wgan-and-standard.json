@@ -1,0 +1,91 @@
+{
+  "categories": [],
+  "categories_lambda": 0.004818181818181819,
+  "category_loss": false,
+  "discriminators": [
+    {
+      "activation": "function:hypergan.util.ops.lrelu",
+      "add_noise": true,
+      "create": "function:hypergan.discriminators.pyramid_nostride_fc_discriminator.discriminator",
+      "depth_increase": 2,
+      "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
+      "layer_filter": null,
+      "layer_filter.progressive_enhancement_enabled": true,
+      "layers": 5,
+      "noise_stddev": 0.1,
+      "regularizer": "function:hypergan.util.ops.layer_norm_1",
+      "resize": null
+    },
+    {
+      "activation": "function:hypergan.util.ops.lrelu",
+      "add_noise": false,
+      "create": "function:hypergan.discriminators.pyramid_nostride_fc_discriminator.discriminator",
+      "depth_increase": 2,
+      "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
+      "layer_filter": null,
+      "layer_filter.progressive_enhancement_enabled": true,
+      "layers": 5,
+      "regularizer": "function:hypergan.util.ops.layer_norm_1",
+      "resize": null
+    }
+  ],
+  "dtype": {
+    "_type_enum": 1
+  },
+  "generator": {
+    "activation": "function:hypergan.generators.resize_conv.generator_prelu",
+    "create": "function:hypergan.generators.resize_conv.create",
+    "depth_reduction": 2,
+    "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
+    "layer_filter": null,
+    "layer_regularizer": "function:hypergan.util.ops.batch_norm_1",
+    "z_projection_depth": 512
+  },
+  "losses": [
+    {
+      "create": "function:hypergan.losses.standard_gan.create",
+      "reduce": "function:hypergan.losses.standard_gan.linear_projection",
+      "label_smooth": 0.2,
+      "discriminator": 0
+    },
+    {
+      "create": "function:hypergan.losses.wgan.create",
+      "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
+      "discriminator": 1,
+      "reverse": true
+    }
+  ],
+  "trainer": {
+    "capped": false,
+    "clipped_discriminator": false,
+    "create": "function:hypergan.trainers.adam_trainer.create",
+    "discriminator_beta1": 0.9,
+    "discriminator_beta2": 0.999,
+    "discriminator_epsilon": 1e-08,
+    "discriminator_learn_rate": 0.001,
+    "generator_beta1": 0.9,
+    "generator_beta2": 0.999,
+    "generator_epsilon": 1e-08,
+    "generator_learn_rate": 0.001,
+    "run": "function:hypergan.trainers.adam_trainer.run"
+  },
+  "z_dimensions": 40,
+  "z_encoder_base": {
+    "create": "function:hypergan.encoders.linear.create",
+    "max": 1,
+    "min": -1
+  },
+  "z_encoders": [
+    {
+      "create": "function:hypergan.encoders.gaussian.create"
+    },
+    {
+      "create": "function:hypergan.encoders.periodic_gaussian.create",
+      "p": 4
+    },
+    {
+      "create": "function:hypergan.encoders.periodic_linear.create",
+      "p": 4
+    }
+  ]
+}

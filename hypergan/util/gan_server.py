@@ -171,8 +171,8 @@ class GANWebServer:
             print("x is None")
             sample = self.sess.run(generator, feed_dict={})
 
-        stacks = [base64.b64encode(s).decode('ascii') for s in sample]
-        return json.dumps(stacks)
+        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
+        plot(self.config, np.vstack(stacks), sample_file)
 
     def sample(self, type='batch', c=None, features=None, z_iterate=None, target_value=None, seed=None,should_send_file=True,x=None):
         print("Creating sample")
@@ -203,7 +203,7 @@ class GANWebServer:
         elif(type == 'zero'):
             self.sample_zeros(sample_file)
         elif(type == 'base64'):
-            return self.sample_base64(sample_file, x)
+            self.sample_base64(sample_file, x)
         print("Sample ended", sample_file)
         if(should_send_file):
             return send_file(sample_file, mimetype='image/png')

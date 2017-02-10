@@ -223,6 +223,11 @@ def gan_sample(sess, config):
 
 def gan_server(sess, config):
     gws = GANWebServer(sess, config)
+    @app.route('/sample.json', methods=['POST', 'GET'])
+    def sampleJson():
+        x = request.form['x']
+        return gws.sample_base64('x.png', x)
+
     @app.route('/sample.png')
     def sample():
         c =request.args.get('c')

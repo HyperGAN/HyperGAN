@@ -1,5 +1,5 @@
 import hypergan
-from . import GAN
+from .gan import GAN
 from .graph import Graph
 from .config import selector
 import tensorflow as tf

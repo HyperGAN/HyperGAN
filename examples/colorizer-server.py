@@ -95,7 +95,7 @@ initial_graph = {
     'examples_per_epoch':examples_per_epoch
 }
 
-gan = hg.GAN(config, initial_graph,graph_type='generator')
+gan = hg.GAN(config, initial_graph,graph_type='generator', device=args.device)
 
 save_file = os.path.expanduser("~/.hypergan/builds/colorizer/generator.ckpt")
 gan.load_or_initialize_graph(save_file)

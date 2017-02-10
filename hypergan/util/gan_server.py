@@ -1,4 +1,5 @@
 from flask import Flask, send_file, request
+from flask_cors import CORS, cross_origin
 import numpy as np
 from PIL import Image
 from hypergan.util import *
@@ -7,12 +8,14 @@ from hypergan.samplers.common import *
 from hypergan.samplers import grid_sampler
 import logging
 import json
+import re
 from logging.handlers import RotatingFileHandler
 
 app = Flask('gan')
 
+CORS(app)
 import base64
-from io import BytesIO
+from io import BytesIO, StringIO
 
 def linspace(start, end):
     c = np.linspace(0,1, 64)
@@ -155,9 +158,13 @@ class GANWebServer:
         x_t = get_tensor("x")
 
         if x is not None:
-            print("x is not None")
-            image = Image.open(BytesIO(base64.b64decode(x)))
-            x = np.asarray(image)/127.5-1
+            x = base64.b64decode(re.sub('^data:image/.+;base64,', '', x))
+            f = open("x.png", "wb")
+            f.write(x)
+            f.close()
+            x = Image.open('x.png')
+            x = np.asarray(x, dtype='uint8')
+            x = x/127.5-1
             x = np.tile(x, [self.config['batch_size'],1])
             sample = self.sess.run(generator, feed_dict={x_t:x})
         else:

@@ -226,7 +226,8 @@ def gan_server(sess, config):
     @app.route('/sample.json', methods=['POST', 'GET'])
     def sampleJson():
         x = request.json['x']
-        return gws.sample_base64('x.png', x)
+        gws.sample_base64('x.png', x)
+        return send_file('x.png', mimetype='image/png')
 
     @app.route('/sample.png')
     def sample():

@@ -22,7 +22,7 @@ def selector(args):
 
     # Z encoder configuration
     selector.set('z', 40)
-    selector.set('z_encoder_base', hg.encoders.linear.config())
+    selector.set('z_encoder_base', hg.encoders.categories_encoder.config())#hg.encoders.linear.config())
     selector.set('z_encoders', [[gaussian.config(), periodic_gaussian.config(), periodic_linear.config()]])
 
     # Generator configuration
@@ -40,10 +40,6 @@ def selector(args):
     for i in range(1):
         losses.append(wgan.config())
     selector.set("losses", [losses])
-
-    selector.set('categories', [[]])
-    selector.set('categories_lambda', list(np.linspace(.001, .01, num=100)))
-    selector.set('category_loss', [False])
 
     return selector
 

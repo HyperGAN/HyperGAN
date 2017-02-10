@@ -79,6 +79,8 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         else:
             xg = tf.concat(0, [xs[i], gs[i]])
 
+        if(config['add_noise']):
+            xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
         xgs.append(xg)
   
         if config['layer_filter.progressive_enhancement_enabled']:

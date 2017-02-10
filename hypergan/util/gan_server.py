@@ -1,12 +1,20 @@
 from flask import Flask, send_file, request
+from flask_cors import CORS, cross_origin
 import numpy as np
+from PIL import Image
 from hypergan.util import *
 from hypergan.samplers.common import *
 from hypergan.samplers import grid_sampler
 import logging
+import json
+import re
 from logging.handlers import RotatingFileHandler
 
 app = Flask('gan')
+
+CORS(app)
+import base64
+from io import BytesIO, StringIO
 
 def linspace(start, end):
     c = np.linspace(0,1, 64)
@@ -29,7 +37,7 @@ class GANWebServer:
         return np.eye(self.config['y_dims'])[rand]
 
     def sample_batch(self, sample_file):
-        generator = gan.graph.g[0]
+        generator = gan.graph.g[-1]
         y_t = gan.graph.y
         print("generator is ", generator)
 
@@ -56,17 +64,10 @@ class GANWebServer:
         # y_t:random_one_hot(see git log)
 
         sample = self.sess.run(generator, feed_dict={ z_t: z})
-        print("sample is ", sample)
-        print(sample.shape)
 
         stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
         plot(self.config, np.vstack(stacks), sample_file)
-       
-       #plot(self.config, sample, sample_file)
-
-
-
-
+     
     def sample_grid(self, sample_file):
         grid_sampler.sample(sample_file, self.sess, self.config)
 
@@ -143,8 +144,31 @@ class GANWebServer:
         stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(8)]
         plot(self.config, np.vstack(stacks), sample_file)
 
+    def sample_base64(self, sample_file, x):
+        generator = get_tensor("g")[-1]
+        y_t = get_tensor("y")
+        x_t = get_tensor("x")
 
-    def sample(self, type='batch', c=None, features=None, z_iterate=None, target_value=None, seed=None,should_send_file=True):
+        if x is not None:
+            print("LEN X", len(x))
+            x = base64.b64decode(bytes(re.sub('^data:image/.+;base64,', '', x), 'ascii'))
+            f = open("x.png", "wb")
+            f.write(x)
+            f.close()
+            x = Image.open('x.png')
+            x = np.asarray(x, dtype='uint8')
+            x = x/127.5-1
+            x = x.reshape([1, x.shape[0], x.shape[1], x.shape[2]])
+            x = np.tile(x, [self.config['batch_size'],1,1,1])
+            sample = self.sess.run(generator, feed_dict={x_t:x})
+        else:
+            print("x is None")
+            sample = self.sess.run(generator, feed_dict={})
+
+        stacks = [base64.b64encode(s).decode('ascii') for s in sample]
+        return json.dumps(stacks)
+
+    def sample(self, type='batch', c=None, features=None, z_iterate=None, target_value=None, seed=None,should_send_file=True,x=None):
         print("Creating sample")
 
         #categories_feed = []
@@ -172,6 +196,8 @@ class GANWebServer:
             self.sample_grid(sample_file)
         elif(type == 'zero'):
             self.sample_zeros(sample_file)
+        elif(type == 'base64'):
+            return self.sample_base64(sample_file, x)
         print("Sample ended", sample_file)
         if(should_send_file):
             return send_file(sample_file, mimetype='image/png')
@@ -191,6 +217,11 @@ def gan_sample(sess, config):
 
 def gan_server(sess, config):
     gws = GANWebServer(sess, config)
+    @app.route('/sample.json', methods=['POST', 'GET'])
+    def sampleJson():
+        x = request.json['x']
+        return gws.sample_base64('x.png', x)
+
     @app.route('/sample.png')
     def sample():
         c =request.args.get('c')
@@ -198,6 +229,7 @@ def gan_server(sess, config):
         z_iterate = request.args.get('z_iterate')
         target = request.args.get('target')
         seed = request.args.get('seed')
+        x = request.args.get('x')
         print('c is', c)
         if(c):
             c = c.split(',')
@@ -205,7 +237,7 @@ def gan_server(sess, config):
         if(z_iterate):
             z_iterate = z_iterate.split(',')
         print('c is now', c)
-        return gws.sample(c=c, type=type, z_iterate=z_iterate, target_value=target, seed=seed)
+        return gws.sample(c=c, type=type, z_iterate=z_iterate, target_value=target, seed=seed,x=x)
     handler = RotatingFileHandler('server.log', maxBytes=10000, backupCount=1)
     handler.setLevel(logging.INFO)
     app.logger.addHandler(handler)

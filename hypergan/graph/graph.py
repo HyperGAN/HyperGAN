@@ -61,47 +61,6 @@ class Graph:
 
         return [d_real, d_fake, d_reals, d_fakes]
 
-
-    def split_categories(layer, batch_size, categories):
-        start = 0
-        ret = []
-        for category in categories:
-            count = int(category.get_shape()[1])
-            ret.append(tf.slice(layer, [0, start], [batch_size, count]))
-            start += count
-        return ret
-
-    def categories_loss(categories, layer, batch_size):
-        loss = 0
-        def split(layer):
-            start = 0
-            ret = []
-            for category in categories:
-                count = int(category.get_shape()[1])
-                ret.append(tf.slice(layer, [0, start], [batch_size, count]))
-                start += count
-            return ret
-
-        for category,layer_s in zip(categories, split(layer)):
-            size = int(category.get_shape()[1])
-            category_prior = tf.ones([batch_size, size])*np.float32(1./size)
-            logli_prior = tf.reduce_sum(tf.log(category_prior + TINY) * category, reduction_indices=1)
-            layer_softmax = tf.nn.softmax(layer_s)
-            logli = tf.reduce_sum(tf.log(layer_softmax+TINY)*category, reduction_indices=1)
-            disc_ent = tf.reduce_mean(-logli_prior)
-            disc_cross_ent =  tf.reduce_mean(-logli)
-
-            loss += disc_ent - disc_cross_ent
-        return loss
-
-    def random_category(self, batch_size, size, dtype):
-        prior = tf.ones([batch_size, size])*1./size
-        dist = tf.log(prior + TINY)
-        with tf.device('/cpu:0'):
-            sample=tf.multinomial(dist, num_samples=1)[:, 0]
-            return tf.one_hot(sample, size, dtype=dtype)
-
-
     def create_z_encoding(self):
         z_base_config = hc.Config(hc.lookup_functions(self.gan.config.z_encoder_base))
         self.gan.graph.z_base = z_base_config.create(z_base_config, self.gan)
@@ -120,25 +79,17 @@ class Graph:
         x = graph.x
         y = graph.y
         f = graph.f
+        set_tensor("x", x)
         config = self.gan.config
         set_ops_globals(config.dtype, config.batch_size)
         z_dim = int(config.z)
         
         z = self.create_z_encoding()
         
-
-        categories = [self.random_category(config.batch_size, size, config.dtype) for size in config.categories]
-        if(len(categories) > 0):
-            categories_t = [tf.concat(1, categories)]
-        else:
-            categories_t = []
-
-
-        args = [y, z]+categories_t
+        args = [y, z]
         g = self.generator(args)
         graph.g=g
         graph.y=y
-        graph.categories=categories_t
 
     def create(self, graph):
         x = graph.x
@@ -156,16 +107,9 @@ class Graph:
         extra_g_loss = []
         d_losses = []
 
-        #initialize with random categories
-        categories = [self.random_category(config['batch_size'], size, config['dtype']) for size in config['categories']]
-        if(len(categories) > 0):
-            categories_t = [tf.concat(1, categories)]
-        else:
-            categories_t = []
-
         z = self.create_z_encoding()
         # create generator
-        g = self.generator([y, z]+categories_t)
+        g = self.generator([y, z])
 
         g_sample = g
 
@@ -183,16 +127,6 @@ class Graph:
                 d_losses.append(d_loss)
             if(g_loss is not None):
                 g_losses.append(g_loss)
-
-        categories_l = None
-        if config['category_loss']:
-
-            category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories',stddev=0.15)
-            category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
-            category_layer = config['generator.activation'](category_layer)
-            categories_l = categories_loss(categories, category_layer, config['batch_size'])
-            g_losses.append(-1*config['categories_lambda']*categories_l)
-            d_losses.append(-1*config['categories_lambda']*categories_l)
 
         g_reg_losses = [var for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) if 'g_' in var.name]
 
@@ -227,7 +161,6 @@ class Graph:
         graph.g_loss=g_loss
         graph.hc_summary=summary
         graph.y=y
-        graph.categories=categories_t
         graph.joint_loss=joint_loss
 
         g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]

@@ -390,9 +390,9 @@ A single fully trained `GAN` consists of the following useful networks:
 
 HyperGAN is currently in open beta.
 
-## WGAN
+## Wasserstein GAN in Tensorflow
 
-Our implementation of WGAN is based off the paper.  Hypergan's loss function is now:
+Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can look like:
 
 ```python
  d_fake = tf.reduce_mean(d_fake,axis=1)
@@ -401,7 +401,7 @@ Our implementation of WGAN is based off the paper.  Hypergan's loss function is 
  g_loss = d_fake
 ```
 
-We do not perform value clipping.
+d_loss and g_loss can be reversed as well - just add a '-' sign.
 
 ## Papers
 

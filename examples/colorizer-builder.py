@@ -5,6 +5,8 @@ import hypergan as hg
 import hyperchamber as hc
 from hypergan.loaders import *
 from hypergan.samplers.common import *
+from hypergan.util.globals import *
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
@@ -19,52 +21,34 @@ def parse_args():
     parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
     return parser.parse_args()
 
-x_v = None
-z_v = None
-def sampler(gan, name):
-    generator = gan.graph.g[0]
-    y_t = gan.graph.y
-    z_t = gan.graph.z_base
-    x_t = gan.graph.x
-    sess = gan.sess
-    config = gan.config
-    global x_v
-    global z_v
-    if(x_v == None):
-        x_v, z_v = sess.run([x_t, z_t])
-        x_v = np.tile(x_v[0], [config['batch_size'],1,1,1])
+def sampler(name, sess, config):
+    generator = get_tensor("g")[0]
+    y_t = get_tensor("y")
+    z_t = get_tensor("z")
+    x_t = get_tensor('x')
+    fltr_x_t = get_tensor('xfiltered')
+    x = sess.run([x_t])
+    x = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
-    sample, = sess.run([generator], {x_t: x_v, z_t: z_v})
+    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x})
+    bw = np.squeeze(np.tile(bw_x[0], [1,1,1,3]))
     stacks = []
-    stacks.append([x_v[0], sample[0], sample[1], sample[2], sample[3], sample[4]])
+    stacks.append([x[0], bw, sample[0], sample[1], sample[2], sample[3]])
     for i in range(4):
-        stacks.append([sample[i*6+5+j] for j in range(6)])
+        stacks.append([sample[i*6+4+j] for j in range(6)])
     
+    print('bwxshape', bw.shape, x[0].shape)
     images = np.vstack([np.hstack(s) for s in stacks])
     plot(config, images, name)
 
 def add_bw(gan, net):
-    x = gan.graph.x
+    x = get_tensor('x')
     s = [int(x) for x in net.get_shape()]
     shape = [s[1], s[2]]
     x = tf.image.resize_images(x, shape, 1)
     print("Created bw ", x)
 
     x = tf.image.rgb_to_grayscale(x)
-    #x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
-
-    return x
-
-def add_original_x(gan, net):
-    x = gan.graph.x
-    s = [int(x) for x in net.get_shape()]
-    shape = [s[1], s[2]]
-    x = tf.image.resize_images(x, shape, 1)
-    print("Created bw ", x)
-
-    x = tf.image.rgb_to_grayscale(x)
-    #x = tf.nn.dropout(x, 0.005)
-    #x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
 
     return x
 
@@ -83,7 +67,6 @@ config = selector.load_or_create_config(config_filename, config)
 #TODO add this option to D
 #TODO add this option to G
 config['generator.layer_filter'] = add_bw
-config['discriminators'][0]['layer_filter'] = None#add_original_x
 
 # TODO refactor, shared in CLI
 config['dtype']=tf.float32
@@ -111,25 +94,18 @@ initial_graph = {
     'examples_per_epoch':examples_per_epoch
 }
 
-gan = hg.GAN(config, initial_graph)
+with tf.device(args.device):
+    gan = hg.GAN(config, initial_graph, graph_type='generator', device=args.device)
 
-save_file = os.path.expanduser("~/.hypergan/saves/colorizer.ckpt")
-gan.load_or_initialize_graph(save_file)
+    save_file = os.path.expanduser("~/.hypergan/saves/colorizer.ckpt")
+    gan.load_or_initialize_graph(save_file)
 
-tf.train.start_queue_runners(sess=gan.sess)
-for i in range(10000000):
-    d_loss, g_loss = gan.train()
+    tf.train.start_queue_runners(sess=gan.sess)
+    build_file = os.path.expanduser("~/.hypergan/builds/colorizer/generator.ckpt")
 
-    if i % args.save_every == 0 and i > 0:
-        print("Saving " + save_file)
-        gan.save(save_file)
+    saver = tf.train.Saver()
+    saver.save(gan.sess, build_file)
+    print("Saved generator to ", build_file)
 
-    if i % args.sample_every == 0 and i > 0:
-        print("Sampling "+str(i))
-        sample_file = "samples/"+str(i)+".png"
-        gan.sample_to_file(sample_file, sampler=sampler)
-        if args.use_hc_io:
-            hc.io.sample(config, [{"image":sample_file, "label": 'sample'}]) 
-
-tf.reset_default_graph()
-sess.close()
+    tf.reset_default_graph()
+    self.sess.close()

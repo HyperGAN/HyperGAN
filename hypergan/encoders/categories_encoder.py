@@ -3,6 +3,8 @@
 import tensorflow as tf
 from hypergan.util.ops import *
 
+import hyperchamber as hc
+
 def config():
   selector = hc.Selector()
   selector.set('create', create)
@@ -15,7 +17,7 @@ def create(config, gan):
     gan.graph.categories=categories
     return tf.concat(1, categories)
 
-def random_category(self, batch_size, size, dtype):
+def random_category(batch_size, size, dtype):
     prior = tf.ones([batch_size, size])*1./size
     dist = tf.log(prior + TINY)
     with tf.device('/cpu:0'):
@@ -25,7 +27,7 @@ def random_category(self, batch_size, size, dtype):
 def encode(config, x, y):
   z_dim = config['generator.z']
   encoded_z = tf.random_uniform([config['batch_size'], z_dim],-1, 1,dtype=config['dtype'])
-  categories = [self.random_category(config.batch_size, size, config.dtype) for size in config.categories]
+  categories = [random_category(config.batch_size, size, config.dtype) for size in config.categories]
   categories = tf.concat(1, categories)
   z_mu = None
   z_sigma = None

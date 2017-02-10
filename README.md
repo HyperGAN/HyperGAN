@@ -94,20 +94,18 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
 2. CPU mode is _extremely_ slow.  Never train with it!
-
+3. Python3
 
 <div id='qs-install'/>
 
 ## Install hypergan
 
 
-### Installing 0.6(Experimental):
-
 ```bash
-  pip install hypergan --upgrade
+  pip3 install hypergan --upgrade
 ```
 
-### Installing 0.5(Stable)
+### Installing a specific version
 ```bash
   pip install hypergan==0.5.8 --upgrade
 ```

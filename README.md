@@ -22,6 +22,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href="#cli-serving">Web Server</a>
 
 * <a href="#api">API</a>
+  * <a href="#api-gan">GAN object</a>
 
 * <a href="#datasets">Datasets</a>
  * <a href="#supervised-learning">Supervised learning</a>
@@ -226,7 +227,26 @@ To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on 
 ```python3
   import hypergan as hg
 ```
-API is currently under development.  The best reference are the examples in the `examples` directory.
+
+<div id="api-gan">
+## GAN object
+
+The GAN is the main object in hypergan.
+
+### Constructor
+
+```python
+GAN(config, initial_graph, graph_type='full', device='/gpu:0')
+```
+
+###  Properties
+
+gan.graph|Dictionary|Maps names to tensors
+gan.config|Dictionary|Maps names to options(from the json)
+
+# WIP ! 
+
+API is currently under development.  There is more functionality, the best reference are the examples in the `examples` directory.
 
 <div id="datasets"/>
 # Datasets

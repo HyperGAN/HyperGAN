@@ -8,6 +8,10 @@ from .loaders import *
 import hypergan as hg
 import time
 
+import fcntl
+import os
+import sys
+
 from hypergan.util.ops import *
 from hypergan.samplers import *
 
@@ -32,6 +36,7 @@ class CLI:
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
+        parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -125,6 +130,11 @@ class CLI:
     def train(self, args):
         sampled=False
         i=0
+        if(self.args.ipython):
+            fd = sys.stdin.fileno()
+            fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
         while(True):
             i+=1
             start_time = time.time()
@@ -132,9 +142,24 @@ class CLI:
               self.step()
             if(args.save_every != 0 and i % args.save_every == 0):
                 print(" |= Saving network")
-                saver = tf.train.Saver()
-                saver.save(self.sess, self.save_file)
+                self.save()
+            self.check_stdin()
             end_time = time.time()
+
+    def save():
+        saver = tf.train.Saver()
+        saver.save(self.sess, self.save_file)
+
+    def check_stdin(self):
+        try:
+            input = sys.stdin.read()
+            print("INPUT", input)
+            from IPython import embed
+            # Misc code
+            embed()
+
+        except:
+            return
 
     def setup_input_graph(self, format, directory, device, config, seconds=None,
             bitrate=None, crop=False, width=None, height=None, channels=3):

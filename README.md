@@ -241,10 +241,17 @@ The `GAN` object consists of:
 ### Constructor
 
 ```python
-GAN(config, initial_graph, graph_type='full', device='/gpu:0')
+hg.GAN(config, initial_graph, graph_type='full', device='/gpu:0')
 ```
 
 When a GAN constructor is called, the Tensorflow graph will be constructed.
+
+#### Arguments
+
+* config - The graph configuration.  See examples or the CLI tool for usage.
+* initial_graph - a Dictionary consisting of any variables used by the GAN
+* graph_type - Either 'full' or 'generator'
+* device - Tensorflow device id
 
 ###  Properties
 | property   | type       | description |

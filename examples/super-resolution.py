@@ -77,6 +77,7 @@ config['generator']['layer_filter'] = add_lowres
 # TODO refactor, shared in CLI
 config['dtype']=tf.float32
 config['batch_size'] = args.batch_size
+config['model']='super-resolution'
 x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
                         args.directory,
                         config['batch_size'], 

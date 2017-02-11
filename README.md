@@ -22,6 +22,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href="#cli-serving">Web Server</a>
 
 * <a href="#api">API</a>
+  * <a href="#api-examples">Examples</a>
   * <a href="#api-gan">GAN object</a>
 
 * <a href="#datasets">Datasets</a>
@@ -217,14 +218,16 @@ To create videos:
 
 To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on CPU</a>.
 
-
-
 <div id="api"/>
 # API
 
 ```python3
   import hypergan as hg
 ```
+
+<div id='api-examples'>
+## Examples
+API is currently under development.  There is more functionality, the best reference are the examples in the `examples` directory.
 
 <div id="api-gan">
 ## GAN object
@@ -234,7 +237,6 @@ The `GAN` object consists of:
 * The `config`(configuration) used
 * The `graph` - specific named Tensors in the Tensorflow graph
 * The tensorflow `sess`(session)
-
 
 ### Constructor
 
@@ -250,10 +252,6 @@ When a GAN constructor is called, the Tensorflow graph will be constructed.
 | gan.graph|Dictionary|Maps names to tensors |
 | gan.config|Dictionary|Maps names to options(from the json) |
 | gan.sess|tf.Session|The tensorflow session |
-
-# WIP ! 
-
-API is currently under development.  There is more functionality, the best reference are the examples in the `examples` directory.
 
 ### Methods
 

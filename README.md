@@ -245,10 +245,11 @@ GAN(config, initial_graph, graph_type='full', device='/gpu:0')
 When a GAN constructor is called, the Tensorflow graph will be constructed.
 
 ###  Properties
-
-gan.graph|Dictionary|Maps names to tensors
-gan.config|Dictionary|Maps names to options(from the json)
-gan.sess|tf.Session|The tensorflow session
+| property   | type       | description |
+|:----------:|:----------:|:---------------------:|
+| gan.graph|Dictionary|Maps names to tensors |
+| gan.config|Dictionary|Maps names to options(from the json) |
+| gan.sess|tf.Session|The tensorflow session |
 
 # WIP ! 
 

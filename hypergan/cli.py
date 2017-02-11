@@ -143,7 +143,8 @@ class CLI:
             if(args.save_every != 0 and i % args.save_every == 0):
                 print(" |= Saving network")
                 self.save()
-            self.check_stdin()
+            if args.ipython:
+                self.check_stdin()
             end_time = time.time()
 
     def save():

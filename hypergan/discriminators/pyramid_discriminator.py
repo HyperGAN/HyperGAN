@@ -66,8 +66,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     else:
         net = conv2d(net, 16, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
 
-    xgs = []
-    xgs_conv = []
     for i in range(depth):
       #TODO better name for `batch_norm`?
       if batch_norm is not None:
@@ -90,7 +88,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
 
         if(config['add_noise']):
             xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
-        xgs.append(xg)
   
         if config['layer_filter.progressive_enhancement_enabled']:
             net = tf.concat(3, [net, xg])

@@ -434,16 +434,17 @@ Experimental.
 
 # About
 
-Generative Adversarial Networks(2) consist of (at least) two neural networks that learn together over many epochs.
-The discriminator learns the difference between real and fake data.  The generator learns to create fake data.
+Generative Adversarial Networks consist of 2 learning systems that learn together.  HyperGAN implements these learning systems in Tensorflow with deep learning.
+
+The `discriminator` learns the difference between real and fake data.  The `generator` learns to create fake data.
 
 For a more in-depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
 
 A single fully trained `GAN` consists of the following useful networks:
 
 * `generator` - Generates content that fools the `discriminator`.  If using supervised learning mode, can generate data on a specific classification.
-* `discriminator` - Gives a value between 0 and 1 designating how `real` the input data is.
-* `classifier` - Only available with supervised learning mode.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
+* `discriminator` - The discriminator learns how to identify real data and how to detect fake data from the generator.
+* `classifier` - Only available when using supervised learning.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
 
 HyperGAN is currently in open beta.
 

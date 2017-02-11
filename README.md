@@ -22,6 +22,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href="#cli-serving">Web Server</a>
 
 * <a href="#api">API</a>
+  * <a href="#api-gan">GAN object</a>
 
 * <a href="#datasets">Datasets</a>
  * <a href="#supervised-learning">Supervised learning</a>
@@ -224,7 +225,62 @@ To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on 
 ```python3
   import hypergan as hg
 ```
-API is currently under development.  The best reference are the examples in the `examples` directory.
+
+<div id="api-gan">
+## GAN object
+
+The `GAN` object consists of:
+
+* The `config`(configuration) used
+* The `graph` - specific named Tensors in the Tensorflow graph
+* The tensorflow `sess`(session)
+
+
+### Constructor
+
+```python
+GAN(config, initial_graph, graph_type='full', device='/gpu:0')
+```
+
+When a GAN constructor is called, the Tensorflow graph will be constructed.
+
+###  Properties
+
+gan.graph|Dictionary|Maps names to tensors
+gan.config|Dictionary|Maps names to options(from the json)
+gan.sess|tf.Session|The tensorflow session
+
+
+### Methods
+
+#### save
+
+```python
+ gan.save(save_file)
+```
+
+save_file - a string designating the save path
+
+Saves the GAN
+
+#### sample_to_file
+
+```python
+ gan.sample_to_file(name, sampler=grid_sampler.sample)
+```
+
+* name - the name of the file to sample to
+* sampler - the sampler method to use
+
+Sample to a specified path.
+
+#### train
+
+```python
+ gan.train()
+```
+
+Steps the gan forward in training once.  Trains the D and G according to your specified `trainer`.
 
 <div id="datasets"/>
 # Datasets

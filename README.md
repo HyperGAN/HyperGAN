@@ -95,22 +95,20 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
 2. CPU mode is _extremely_ slow.  Never train with it!
-
+3. Python3
 
 <div id='qs-install'/>
 
 ## Install hypergan
 
 
-### Installing 0.6(Experimental):
-
 ```bash
-  pip install hypergan --upgrade
+  pip3 install hypergan --upgrade
 ```
 
-### Installing 0.5(Stable)
+### Installing a specific version
 ```bash
-  pip install hypergan==0.5.8 --upgrade
+  pip3 install hypergan==0.5.8 --upgrade
 ```
 
 <div id='qs-train'/>
@@ -231,7 +229,12 @@ To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on 
 <div id="api-gan">
 ## GAN object
 
-The GAN is the main object in hypergan.
+The `GAN` object consists of:
+
+* The `config`(configuration) used
+* The `graph` - specific named Tensors in the Tensorflow graph
+* The tensorflow `sess`(session)
+
 
 ### Constructor
 
@@ -239,14 +242,48 @@ The GAN is the main object in hypergan.
 GAN(config, initial_graph, graph_type='full', device='/gpu:0')
 ```
 
+When a GAN constructor is called, the Tensorflow graph will be constructed.
+
 ###  Properties
 
 gan.graph|Dictionary|Maps names to tensors
 gan.config|Dictionary|Maps names to options(from the json)
+gan.sess|tf.Session|The tensorflow session
 
 # WIP ! 
 
 API is currently under development.  There is more functionality, the best reference are the examples in the `examples` directory.
+
+### Methods
+
+#### save
+
+```python
+ gan.save(save_file)
+```
+
+save_file - a string designating the save path
+
+Saves the GAN
+
+#### sample_to_file
+
+```python
+ gan.sample_to_file(name, sampler=grid_sampler.sample)
+```
+
+* name - the name of the file to sample to
+* sampler - the sampler method to use
+
+Sample to a specified path.
+
+#### train
+
+```python
+ gan.train()
+```
+
+Steps the gan forward in training once.  Trains the D and G according to your specified `trainer`.
 
 <div id="datasets"/>
 # Datasets
@@ -397,16 +434,17 @@ Experimental.
 
 # About
 
-Generative Adversarial Networks(2) consist of (at least) two neural networks that learn together over many epochs.
-The discriminator learns the difference between real and fake data.  The generator learns to create fake data.
+Generative Adversarial Networks consist of 2 learning systems that learn together.  HyperGAN implements these learning systems in Tensorflow with deep learning.
+
+The `discriminator` learns the difference between real and fake data.  The `generator` learns to create fake data.
 
 For a more in-depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
 
 A single fully trained `GAN` consists of the following useful networks:
 
 * `generator` - Generates content that fools the `discriminator`.  If using supervised learning mode, can generate data on a specific classification.
-* `discriminator` - Gives a value between 0 and 1 designating how `real` the input data is.
-* `classifier` - Only available with supervised learning mode.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
+* `discriminator` - The discriminator learns how to identify real data and how to detect fake data from the generator.
+* `classifier` - Only available when using supervised learning.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
 
 HyperGAN is currently in open beta.
 

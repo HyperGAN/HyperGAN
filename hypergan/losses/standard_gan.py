@@ -39,8 +39,11 @@ def create(config, gan):
     gan.graph.d_real_loss=tf.reduce_mean(d_real)
     return [d_loss, g_loss]
 
+linear_projection_iterator=0
 def linear_projection(net, axis=1):
-    net = linear(net, 1, scope="d_standard_gan_lin_proj", regularizer=tf.contrib.layers.l1_regularizer(0.01))
+    global linear_projection_iteration
+    linear_projection_iteration+=1
+    net = linear(net, 1, scope="d_standard_gan_lin_proj"+str(linear_projection_iterator), regularizer=tf.contrib.layers.l1_regularizer(0.01))
     #net = layer_norm_1(int(net.get_shape()[0]), name='d_standard_gan_lin_proj_bn')(net)
     #net = tf.tanh(net)
     return net

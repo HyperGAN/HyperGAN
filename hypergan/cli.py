@@ -147,7 +147,7 @@ class CLI:
                 self.check_stdin()
             end_time = time.time()
 
-    def save():
+    def save(self):
         saver = tf.train.Saver()
         saver.save(self.sess, self.save_file)
 

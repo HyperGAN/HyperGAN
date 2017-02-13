@@ -53,7 +53,10 @@ def add_bw(gan, net):
     print("Created bw ", x)
 
     if gan.config.use_bw:
+        print( "USING BW")
         x = tf.image.rgb_to_grayscale(x)
+    else:
+        print( "NOT USING BW")
 
     #x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
 
@@ -86,7 +89,7 @@ config = selector.load_or_create_config(config_filename, config)
 
 #TODO add this option to D
 #TODO add this option to G
-config['generator.layer_filter'] = add_bw
+config['generator']['layer_filter'] = add_bw
 config['discriminators'][0]['layer_filter'] = None#add_original_x
 
 # TODO refactor, shared in CLI

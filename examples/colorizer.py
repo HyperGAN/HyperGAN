@@ -16,6 +16,8 @@ def parse_args():
     parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
     parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
     parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
+    parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
+    parser.add_argument('--use_bw', '-9', type=bool, default=True, help='black and white or not')
     parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
     return parser.parse_args()
 
@@ -50,7 +52,9 @@ def add_bw(gan, net):
     x = tf.image.resize_images(x, shape, 1)
     print("Created bw ", x)
 
-    x = tf.image.rgb_to_grayscale(x)
+    if gan.config.use_bw:
+        x = tf.image.rgb_to_grayscale(x)
+
     #x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
 
     return x
@@ -77,7 +81,7 @@ channels = int(args.size.split("x")[2])
 selector = hg.config.selector(args)
 
 config = selector.random_config()
-config_filename = os.path.expanduser('~/.hypergan/configs/colorizer.json')
+config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
 config = selector.load_or_create_config(config_filename, config)
 
 #TODO add this option to D
@@ -88,6 +92,7 @@ config['discriminators'][0]['layer_filter'] = None#add_original_x
 # TODO refactor, shared in CLI
 config['dtype']=tf.float32
 config['batch_size'] = args.batch_size
+config['use_bw']=args.use_bw
 x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
                         args.directory,
                         config['batch_size'], 
@@ -100,7 +105,7 @@ x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_d
 config['y_dims']=num_labels
 config['x_dims']=[height,width]
 config['channels']=channels
-config['model']='colorizer'
+config['model']=args.config
 config = hg.config.lookup_functions(config)
 
 initial_graph = {
@@ -113,7 +118,7 @@ initial_graph = {
 
 gan = hg.GAN(config, initial_graph)
 
-save_file = os.path.expanduser("~/.hypergan/saves/colorizer.ckpt")
+save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
 gan.load_or_initialize_graph(save_file)
 
 tf.train.start_queue_runners(sess=gan.sess)

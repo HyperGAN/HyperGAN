@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
     parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
     parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
-    parser.add_argument('--use_bw', '-9', type=bool, default=True, help='black and white or not')
+    parser.add_argument('--use_bw', '-9', dest='use_bw', action='store_true', help='black and white or not')
     parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
     return parser.parse_args()
 

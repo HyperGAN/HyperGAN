@@ -95,7 +95,7 @@ config = selector.load_or_create_config(config_filename, config)
 
 #TODO add this option to D
 #TODO add this option to G
-config['generator.layer_filter'] = add_inpaint
+config['generator']['layer_filter'] = add_inpaint
 config['discriminators'][0]['layer_filter'] = add_original_x
 
 # TODO refactor, shared in CLI

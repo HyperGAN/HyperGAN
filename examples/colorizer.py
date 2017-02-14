@@ -30,10 +30,11 @@ def sampler(gan, name):
     config = gan.config
     global x_v
     global z_v
+    x_v = None
     if(x_v == None):
         x_v, z_v = sess.run([x_t, z_t])
         x_v = np.tile(x_v[0], [config['batch_size'],1,1,1])
-    z_v = np.mgrid[-0.999:0.999:0.25, -0.999:0.999:0.5].reshape(2,-1).T
+    z_v = np.mgrid[-0.999:0.999:0.5, -0.999:0.999:0.25].reshape(2,-1).T
 
     sample, = sess.run([generator], {x_t: x_v, z_t: z_v})
     stacks = []

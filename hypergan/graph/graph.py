@@ -62,12 +62,13 @@ class Graph:
         return [d_real, d_fake, d_reals, d_fakes]
 
     def create_z_encoding(self):
-        z_base_config = hc.Config(hc.lookup_functions(self.gan.config.z_encoder_base))
-        self.gan.graph.z_base = z_base_config.create(z_base_config, self.gan)
-        encoders = [self.gan.graph.z_base]
-        for i, encoder in enumerate(self.gan.config.z_encoders):
+        self.gan.graph.z = []
+        encoders = []
+        for i, encoder in enumerate(self.gan.config.encoders):
             encoder = hc.Config(hc.lookup_functions(encoder))
-            encoders.append(encoder.create(encoder, self.gan))
+            zs, z_base = encoder.create(encoder, self.gan)
+            encoders.append(zs)
+            self.gan.graph.z.append(z_base)
 
         z_encoded = tf.concat(1, encoders)
         self.gan.graph.z_encoded = z_encoded

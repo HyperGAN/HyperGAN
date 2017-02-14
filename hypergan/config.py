@@ -22,11 +22,10 @@ def selector(args):
 
     # Z encoder configuration
     selector.set('z', 40)
-    selector.set('z_encoder_base', hg.encoders.linear.config())
-    selector.set('z_encoders', [[gaussian.config(), periodic_gaussian.config(), periodic_linear.config()]])
+    selector.set('encoders', [[linear_encoder.config()]])
 
     # Generator configuration
-    selector.set("generator", [resize_conv.config()])
+    selector.set("generator", [resize_conv_generator.config()])
 
     selector.set("trainer", adam_trainer.config())
 
@@ -38,7 +37,7 @@ def selector(args):
 
     losses = []
     for i in range(1):
-        losses.append(wgan.config())
+        losses.append(wgan_loss.config())
     selector.set("losses", [losses])
 
     return selector

@@ -26,7 +26,7 @@ z_v = None
 def sampler(gan, name):
     generator = gan.graph.g[0]
     y_t = gan.graph.y
-    z_t = gan.graph.z_base
+    z_t = gan.graph.z[0]
     x_t = gan.graph.x
     sess = gan.sess
     config = gan.config
@@ -35,12 +35,13 @@ def sampler(gan, name):
     if(x_v == None):
         x_v, z_v = sess.run([x_t, z_t])
         x_v = np.tile(x_v[0], [config['batch_size'],1,1,1])
+    z_v = np.mgrid[-0.999:0.999:0.25, -0.999:0.999:0.5].reshape(2,-1).T
 
     sample, = sess.run([generator], {x_t: x_v, z_t: z_v})
     stacks = []
-    stacks.append([x_v[0], sample[0], sample[1], sample[2], sample[3], sample[4]])
-    for i in range(4):
-        stacks.append([sample[i*6+5+j] for j in range(6)])
+    stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4], sample[5], sample[6], sample[7]])
+    for i in range(3):
+        stacks.append([sample[i*8+8+j] for j in range(8)])
     
     images = np.vstack([np.hstack(s) for s in stacks])
     plot(config, images, name)

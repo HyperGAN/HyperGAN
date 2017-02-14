@@ -4,7 +4,7 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import os
 
-def config(resize=None, layers=5):
+def config(resize=None, layers=7):
     selector = hc.Selector()
     selector.set("final_activation", [tf.nn.tanh])#prelu("d_")])
     selector.set("activation", [lrelu])#prelu("d_")])
@@ -18,7 +18,7 @@ def config(resize=None, layers=5):
     selector.set('layer_filter.progressive_enhancement_enabled', True) #add information to D
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
     selector.set('resize', [resize])
-    selector.set('fc_layers', [2])
+    selector.set('fc_layers', [0])
     selector.set('fc_layer_size', [1024])
 
     selector.set('strided', False) #TODO: true does not work

@@ -12,7 +12,7 @@ def sample(gan, sample_file):
     global z, y
     generator = gan.graph.g[0]
     y_t = gan.graph.y
-    z_t = gan.graph.z_base
+    z_t = gan.graph.z[0] # TODO support multiple z
 
     x = np.linspace(0,1, 4)
 

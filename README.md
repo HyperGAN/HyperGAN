@@ -15,7 +15,11 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 * <a href="#configuration">Configuration</a>
   * <a href="#configuration-usage">Usage</a>
-
+  * <a href="#configuration-architecture">Architecture</a>
+  * <a href="#configuration-encoders">Encoders</a>
+  * <a href="#configuration-discriminators">Discriminators</a>
+  * <a href="#configuration-generators">Generators</a>
+  
 * <a href="#cli">The pip package `hypergan`</a>
  * <a href="#cli-train">Training</a>
  * <a href="#cli-sample">Sampling</a>
@@ -172,6 +176,71 @@ Configurations are located in:
 ```
 
 Naming a configuration during training is recommended.  If your config is not named, a uuid will be used.
+
+## Architecture
+
+A hypergan configuration contains multiple encoders, multiple discriminators, multiple loss functions, and a single generator.
+
+
+## The Generator
+
+Hypergan assumes a single generator during training.
+
+TODO table of common options
+
+### Resize Conv
+
+The standard resize conv generator.
+
+### Dense resize conv
+
+experimental
+
+## Encoders
+
+Choose any number of encoders!
+
+TODO table of common options
+
+### Linear Encoder
+
+Standard DCGan uses this.
+
+### Category Encoder
+
+Uses categorical prior to choose 'one-of-many' options.  Can be paired with Categorical Loss.
+
+### Variational Encoder
+
+This doesn't exist yet...
+
+## Discriminators
+
+TODO common options
+
+### Pyramid Discriminator
+
+TODO table of options
+
+### Densenet Discriminator
+
+currently experimental
+
+## Loss Functions
+
+TODO common options
+
+### Standard GAN Loss
+
+TODO more options
+
+### WGAN Loss
+
+TODO table of options
+
+### Categorical loss
+
+TODO this doesn't work???
 
 <div id='#cli'/>
 # CLI

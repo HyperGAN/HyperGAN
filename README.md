@@ -16,9 +16,9 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * <a href="#configuration">Configuration</a>
   * <a href="#configuration-usage">Usage</a>
   * <a href="#configuration-architecture">Architecture</a>
+  * <a href="#configuration-generator">Generator</a>
   * <a href="#configuration-encoders">Encoders</a>
   * <a href="#configuration-discriminators">Discriminators</a>
-  * <a href="#configuration-generators">Generators</a>
   
 * <a href="#cli">The pip package `hypergan`</a>
  * <a href="#cli-train">Training</a>
@@ -177,11 +177,13 @@ Configurations are located in:
 
 Naming a configuration during training is recommended.  If your config is not named, a uuid will be used.
 
+
+<div id="configuration-architecture"></div>
 ## Architecture
 
 A hypergan configuration contains multiple encoders, multiple discriminators, multiple loss functions, and a single generator.
 
-
+<div id="configuration-generator"></div>
 ## The Generator
 
 Hypergan assumes a single generator during training.
@@ -196,6 +198,7 @@ The standard resize conv generator.
 
 experimental
 
+<div id="configuration-encoders"></div>
 ## Encoders
 
 Choose any number of encoders!
@@ -214,6 +217,7 @@ Uses categorical prior to choose 'one-of-many' options.  Can be paired with Cate
 
 This doesn't exist yet...
 
+<div id="configuration-discriminators"></div>
 ## Discriminators
 
 TODO common options

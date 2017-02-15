@@ -86,23 +86,19 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/legacy-0.1-2.png'/>
 
 
-<div id="samples"/>
-
-
 <div id='quickstart'/>
-
 # Quick start
 
-<div id='minreqs'/>
 
+<div id='minreqs'/>
 ## Minimum requirements
 
 1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
 2. CPU mode is _extremely_ slow.  Never train with it!
 3. Python3
 
-<div id='qs-install'/>
 
+<div id='qs-install'/>
 ## Install hypergan
 
 
@@ -110,13 +106,13 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   pip3 install hypergan --upgrade
 ```
 
+
 ### Installing a specific version
 ```bash
   pip3 install hypergan==0.5.8 --upgrade
 ```
 
 <div id='qs-train'/>
-
 ## Train
 
 ```bash
@@ -125,7 +121,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ```
 
 <div id='qs-increase'/>
-
 ### Increasing performance
 
 On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include this environment variable before training
@@ -146,6 +141,7 @@ cd hypergan
 python3 setup.py develop
 ```
 
+
 <div id='qs-runoncpu'/>
 ## Running on CPU
 
@@ -155,8 +151,8 @@ Make sure to include the following 2 arguments:
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 
-<div id='configuration'/>
 
+<div id='configuration'/>
 # Configuration
 
 Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
@@ -167,8 +163,8 @@ Configurations are located in:
   ~/.hypergan/configs/
 ```
 
-<div id='configuration-usage'/>
 
+<div id='configuration-usage'/>
 ## Usage
 
 ```bash
@@ -261,6 +257,7 @@ TODO this doesn't work???
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
 
+
 <div id='#cli-sampling'/>
 ## Sampling
 
@@ -279,6 +276,7 @@ To create videos:
 ```bash
   ffmpeg -i samples/%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
 ```
+
 
 <div id='#cli-serving'/>
 ## Web Server

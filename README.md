@@ -107,13 +107,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   pip3 install hypergan --upgrade
 ```
 
-### Installing a specific version
-```bash
-  pip3 install hypergan==0.5.8 --upgrade
-```
-
-<div id='qs-train'/>
-
 ## Train
 
 ```bash

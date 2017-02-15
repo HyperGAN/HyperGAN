@@ -520,6 +520,7 @@ A single fully trained `GAN` consists of the following useful networks:
 
 HyperGAN is currently in open beta.
 
+<div id="wgan"/>
 ## Wasserstein GAN in Tensorflow
 
 Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can look like:

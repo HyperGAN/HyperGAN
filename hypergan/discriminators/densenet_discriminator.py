@@ -1,8 +1,6 @@
 import tensorflow as tf
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
-import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import hyperchamber as hc
 
 def config(resize=None, layers=None, dense_layers=2, dense_size=16, batch_norm=layer_norm_1):
@@ -18,7 +16,6 @@ def config(resize=None, layers=None, dense_layers=2, dense_size=16, batch_norm=l
 
     selector.set('add_noise', [False]) #add noise to input
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-    selector.set('regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
     selector.set('resize', [resize])
 
     selector.set('create', discriminator)

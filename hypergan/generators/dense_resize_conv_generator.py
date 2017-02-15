@@ -2,6 +2,8 @@ import tensorflow as tf
 import numpy as np
 from hypergan.util.hc_tf import *
 
+#    selector.set('densenet.size', 16)
+#    selector.set('densenet.layers', 1)
 def generator(config, net, z):
     depth=0
     w=int(net.get_shape()[1])
@@ -62,7 +64,7 @@ def generator(config, net, z):
             print("fltr is ", fltr, net)
             if(fltr is not None):
                 nois.append(fltr)
-                set_tensor('xfiltered', fltr)
+                gan.graph.xfiltered=fltr
 
 
         if i < depth - 1:

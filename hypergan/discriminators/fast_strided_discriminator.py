@@ -1,9 +1,7 @@
 import tensorflow as tf
 import hyperchamber as hc
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 from hypergan.util.hc_tf import *
-import hypergan.regularizers.minibatch_regularizer as minibatch_regularizer
 import os
 
 def config(resize=None, layers=None):
@@ -18,7 +16,6 @@ def config(resize=None, layers=None):
 
     selector.set('add_noise', [True]) #add noise to input
     selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-    selector.set('regularizers', [[minibatch_regularizer.get_features]]) # these regularizers get applied at the end of D
     selector.set('resize', [resize])
 
     selector.set('create', discriminator)
@@ -73,12 +70,6 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     net = activation(net)
     net = tf.reshape(net, [batch_size*2, -1])
 
-    regularizers = []
-    for regularizer in config['regularizers']:
-        regs = regularizer(root_config, net, prefix)
-        regularizers += regs
-
- 
-    return tf.concat(1, [net]+regularizers)
+    return net
 
 

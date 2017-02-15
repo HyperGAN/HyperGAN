@@ -5,8 +5,6 @@ import hyperchamber as hc
 import hypergan as hg
 from hypergan.loaders import *
 from hypergan.samplers.common import *
-from hypergan.util.globals import *
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a super resolution enhancer!', add_help=True)
@@ -21,12 +19,14 @@ def parse_args():
     parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
     return parser.parse_args()
 
-def sampler(name, sess, config):
-    generator = get_tensor("g")[0]
-    y_t = get_tensor("y")
-    z_t = get_tensor("z")
-    x_t = get_tensor('x')
-    fltr_x_t = get_tensor('xfiltered')
+def sampler(gan, name):
+    generator = gan.graph.g[0]
+    sess = gan.sess
+    config = gan.config
+    y_t = gan.graph.y
+    z_t = gan.graph.z
+    x_t = gan.graph.x
+    fltr_x_t = gan.graph.xfiltered
     x = sess.run([x_t])
     x = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
@@ -44,15 +44,17 @@ def sampler(name, sess, config):
     plot(config, images, name)
 
 def add_lowres(gan, net):
-    x = get_tensor('x')
+    x = gan.graph.x
     s = [int(x) for x in net.get_shape()]
     shape = [s[1], s[2]]
-    if(shape[0]>32 or shape[1]>32):
-        return None
-
-    x = tf.image.resize_images(x, shape, 1)
-    print("Created bw ", x)
-
+    print('add_lowres', shape)
+    if(shape[0]>16 or shape[1]>16):
+        x = gan.graph.xfiltered
+        x = tf.image.resize_images(x, shape, 1)
+    else:
+        x = tf.image.resize_images(x, shape, 1)
+        gan.graph.xfiltered = x
+        print("set xfiltered", x, shape)
 
     return x
 
@@ -70,11 +72,12 @@ config = selector.load_or_create_config(config_filename, config)
 
 #TODO add this option to D
 #TODO add this option to G
-config['generator.layer_filter'] = add_lowres
+config['generator']['layer_filter'] = add_lowres
 
 # TODO refactor, shared in CLI
 config['dtype']=tf.float32
 config['batch_size'] = args.batch_size
+config['model']='super-resolution'
 x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
                         args.directory,
                         config['batch_size'], 

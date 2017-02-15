@@ -26,6 +26,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href="#cli-serving">Web Server</a>
 
 * <a href="#api">API</a>
+  * <a href="#api-examples">Examples</a>
   * <a href="#api-gan">GAN object</a>
 
 * <a href="#datasets">Datasets</a>
@@ -106,11 +107,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   pip3 install hypergan --upgrade
 ```
 
-
-### Installing a specific version
-```bash
-  pip3 install hypergan==0.5.8 --upgrade
-```
 
 <div id='qs-train'/>
 ## Train
@@ -288,14 +284,16 @@ To create videos:
 
 To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on CPU</a>.
 
-
-
 <div id="api"/>
 # API
 
 ```python3
   import hypergan as hg
 ```
+
+<div id='api-examples'>
+## Examples
+API is currently under development.  There is more functionality, the best reference are the examples in the `examples` directory.
 
 <div id="api-gan">
 ## GAN object
@@ -306,21 +304,27 @@ The `GAN` object consists of:
 * The `graph` - specific named Tensors in the Tensorflow graph
 * The tensorflow `sess`(session)
 
-
 ### Constructor
 
 ```python
-GAN(config, initial_graph, graph_type='full', device='/gpu:0')
+hg.GAN(config, initial_graph, graph_type='full', device='/gpu:0')
 ```
 
 When a GAN constructor is called, the Tensorflow graph will be constructed.
 
+#### Arguments
+
+* config - The graph configuration.  See examples or the CLI tool for usage.
+* initial_graph - a Dictionary consisting of any variables used by the GAN
+* graph_type - Either 'full' or 'generator'
+* device - Tensorflow device id
+
 ###  Properties
-
-gan.graph|Dictionary|Maps names to tensors
-gan.config|Dictionary|Maps names to options(from the json)
-gan.sess|tf.Session|The tensorflow session
-
+| property   | type       | description |
+|:----------:|:----------:|:---------------------:|
+| gan.graph|Dictionary|Maps names to tensors |
+| gan.config|Dictionary|Maps names to options(from the json) |
+| gan.sess|tf.Session|The tensorflow session |
 
 ### Methods
 
@@ -450,10 +454,7 @@ The discriminators job is to tell if a piece of data is real or fake.  In hyperg
 
 You can combine multiple discriminators in a single GAN. 
 
-### pyramid_stride
-
-### pyramid_nostride
-
+### pyramid
 
 Progressive enhancement is enabled by default:
 

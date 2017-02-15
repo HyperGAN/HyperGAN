@@ -1,17 +1,18 @@
 
 from hypergan.util.ops import *
-from hypergan.util.globals import *
 
 from hypergan.samplers.common import *
 
 #mask_noise = None
 z = None
 y = None
-def sample(sample_file, sess, config):
+def sample(gan, sample_file):
+    sess = gan.sess
+    config = gan.config
     global z, y
-    generator = get_tensor("g")[0]
-    y_t = get_tensor("y")
-    z_t = get_tensor("z")
+    generator = gan.graph.g[0]
+    y_t = gan.graph.y
+    z_t = gan.graph.z[0] # TODO support multiple z
 
     x = np.linspace(0,1, 4)
 

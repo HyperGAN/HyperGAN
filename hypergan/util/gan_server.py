@@ -3,7 +3,6 @@ from flask_cors import CORS, cross_origin
 import numpy as np
 from PIL import Image
 from hypergan.util import *
-from hypergan.util.globals import *
 from hypergan.samplers.common import *
 from hypergan.samplers import grid_sampler
 import logging
@@ -38,8 +37,8 @@ class GANWebServer:
         return np.eye(self.config['y_dims'])[rand]
 
     def sample_batch(self, sample_file):
-        generator = get_tensor("g")[-1]
-        y_t = get_tensor("y")
+        generator = gan.graph.g[-1]
+        y_t = gan.graph.y
         print("generator is ", generator)
 
         #TODO classes broken 
@@ -54,10 +53,10 @@ class GANWebServer:
        #plot(self.config, sample, sample_file)
 
     def sample_zeros(self, sample_file):
-        generator = get_tensor("g")[-1]
-        #categories_t = get_tensor("categories")[0]
-        y_t = get_tensor("y")
-        z_t = get_tensor('z')
+        generator = gan.graph.g[-1]
+        #categories_t = gan.graph.categories")[
+        y_t = gan.graph.y
+        z_t = gan.graph.z
         z = np.ones(z_t.get_shape())*2
         #categories = np.zeros(categories_t.get_shape())
         print("generator is ", generator)
@@ -68,18 +67,13 @@ class GANWebServer:
 
         stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
         plot(self.config, np.vstack(stacks), sample_file)
-       
-       #plot(self.config, sample, sample_file)
-
-
-
-
+     
     def sample_grid(self, sample_file):
         grid_sampler.sample(sample_file, self.sess, self.config)
 
     def sample_iterate_z(self, sample_file, z_iterate, target_value=1, seed=None):
-        generator = get_tensor("g")
-        z_t = get_tensor('z')
+        generator = gan.graph.g
+        z_t = gan.graph.z
         if(seed in self.seed_bank):
             print("Found z in bank")
             z = self.seed_bank[seed]
@@ -88,7 +82,7 @@ class GANWebServer:
             z = self.sess.run(z_t)
             self.seed_bank[seed] = z
             
-        y_t = get_tensor("y")
+        y_t = gan.graph.y
         size = np.shape(z)[1]
 
         #z = np.random.uniform(-1,1, np.shape(z))
@@ -108,11 +102,11 @@ class GANWebServer:
         plot(self.config, np.vstack(stacks), sample_file)
 
     def pick_best_f(self):
-        f_t = get_tensor("f")
-        d_fake_sigmoid_t = get_tensor("d_fake_sigmoid")
-        eps_t = get_tensor('eps')
-        z_t = get_tensor('z')
-        y_t = get_tensor("y")
+        f_t = gan.graph.f
+        d_fake_sigmoid_t = gan.graph.d_fake_sigmoid
+        eps_t = gan.graph.eps
+        z_t = gan.graph.z
+        y_t = gan.graph.y
         fs = []
         for i in range(1):
 
@@ -128,11 +122,11 @@ class GANWebServer:
 
 
     def sample_feature(self, sample_file):
-        encoded_z_t = get_tensor("encoded_z")
-        print_z_t = get_tensor("print_z")
-        generator = get_tensor("g")
-        f_t = get_tensor("f")
-        eps_t = get_tensor("eps")
+        encoded_z_t = gan.graph.encoded_z
+        print_z_t = gan.graph.print_z
+        generator = gan.graph.g
+        f_t = gan.graph.f
+        eps_t = gan.graph.eps
 
 
         [start_f, start_eps, start_z] = self.pick_best_f()

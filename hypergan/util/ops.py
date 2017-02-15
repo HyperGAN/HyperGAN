@@ -212,26 +212,20 @@ def lrelu(x, leak=0.2, name="lrelu"):
         return f1 * x + f2 * abs(x)
 
 # http://stackoverflow.com/questions/39975676/how-to-implement-prelu-activation-in-tensorflow
-prelu_count = 0
-def prelu(prefix):
-    def prelu_internal(_x):
-        global prelu_count
-        prelu_count += 1
-        name = (prefix+"prelu_"+str(prelu_count))
-        orig_shape = _x.get_shape()
-        _x = tf.reshape(_x, [config['batch_size'], -1])
+def prelu(prefix, i, _x):
+    name = (prefix+"prelu_"+str(i))
+    orig_shape = _x.get_shape()
+    _x = tf.reshape(_x, [config['batch_size'], -1])
 
-        #print("prelu for", _x.get_shape()[-1])
-        alphas = tf.get_variable(name, 
-                _x.get_shape()[-1],
-                initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
-                dtype=tf.float32)
-        pos = tf.nn.relu(_x)
-        neg = alphas * (_x - abs(_x)) * 0.5
+    #print("prelu for", _x.get_shape()[-1])
+    alphas = tf.get_variable(name, 
+            _x.get_shape()[-1],
+            initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
+            dtype=tf.float32)
+    pos = tf.nn.relu(_x)
+    neg = alphas * (_x - abs(_x)) * 0.5
 
-
-        return tf.reshape(pos + neg, orig_shape)
-    return prelu_internal
+    return tf.reshape(pos + neg, orig_shape)
 
 
 def sin_and_cos(x, name="ignored"):

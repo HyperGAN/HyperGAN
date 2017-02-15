@@ -3,11 +3,14 @@ import os
 import tensorflow as tf
 import hyperchamber as hc
 from hypergan.util.gan_server import *
-from hypergan.util.globals import *
 from . import GAN
 from .loaders import *
 import hypergan as hg
 import time
+
+import fcntl
+import os
+import sys
 
 from hypergan.util.ops import *
 from hypergan.samplers import *
@@ -33,6 +36,7 @@ class CLI:
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
+        parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -70,12 +74,13 @@ class CLI:
         else:
             raise "Cannot find sampler: '"+args.sampler+"'"
 
-        sample_list = sampler(sample_file, self.sess, self.config)
+        sample_list = sampler(self.gan, sample_file)
 
         return sample_list
 
     def step(self):
-        d_loss, g_loss = self.config['trainer.train'](self.sess, self.config)
+        trainer = hc.Config(hc.lookup_functions(self.config['trainer']))
+        d_loss, g_loss = trainer.run(self.gan)
 
         if(self.steps > 1 and (self.steps % self.args.sample_every == 0)):
             sample_file="samples/%06d.png" % (self.sampled)
@@ -125,6 +130,11 @@ class CLI:
     def train(self, args):
         sampled=False
         i=0
+        if(self.args.ipython):
+            fd = sys.stdin.fileno()
+            fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
         while(True):
             i+=1
             start_time = time.time()
@@ -132,9 +142,25 @@ class CLI:
               self.step()
             if(args.save_every != 0 and i % args.save_every == 0):
                 print(" |= Saving network")
-                saver = tf.train.Saver()
-                saver.save(self.sess, self.save_file)
+                self.save()
+            if args.ipython:
+                self.check_stdin()
             end_time = time.time()
+
+    def save(self):
+        saver = tf.train.Saver()
+        saver.save(self.sess, self.save_file)
+
+    def check_stdin(self):
+        try:
+            input = sys.stdin.read()
+            print("INPUT", input)
+            from IPython import embed
+            # Misc code
+            embed()
+
+        except:
+            return
 
     def setup_input_graph(self, format, directory, device, config, seconds=None,
             bitrate=None, crop=False, width=None, height=None, channels=3):
@@ -191,7 +217,8 @@ class CLI:
         channels = int(args.size.split("x")[2])
 
         config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
-        self.save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
+        self.save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+"/model.ckpt")
+        self.create_path(self.save_file)
 
         selector = hg.config.selector(args)
         print("[hypergan] Welcome.  This is one of ", selector.count_configs(), " possible configurations.")
@@ -220,6 +247,11 @@ class CLI:
         config['x_dims']=[height,width]
         config['channels']=channels
 
+        if(int(config['y_dims']) > 1):
+            print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
+            config['losses'].append(hg.losses.supervised.config())
+        else:
+            print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
         self.config = config
         self.gan = GAN(config, graph, device=args.device)
         self.sess = self.gan.sess

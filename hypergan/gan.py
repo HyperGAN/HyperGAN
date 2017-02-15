@@ -1,4 +1,3 @@
-from hypergan.util.globals import *
 from hypergan.util.ops import *
 
 from tensorflow.python.framework import ops
@@ -33,7 +32,7 @@ class GAN:
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
     def __init__(self, config, graph, device='/gpu:0', graph_type='full'):
         """ Initialized a new GAN."""
-        self.config=config
+        self.config=Config(config)
         self.device=device
         self.init_session(device)
         self.graph = Config(graph)
@@ -41,7 +40,7 @@ class GAN:
         self.create_graph(graph_type, device)
 
     def sample_to_file(self, name, sampler=grid_sampler.sample):
-        return sampler(name, self.sess, self.config)
+        return sampler(self, name)
 
     def create_graph(self, graph_type, device):
         tf_graph = hg.graph.Graph(self)
@@ -63,7 +62,8 @@ class GAN:
             self.sess = tf.Session(config=tf.ConfigProto())
 
     def train(self):
-        return self.config['trainer.train'](self.sess, self.config)
+        trainer = hc.Config(hc.lookup_functions(self.config.trainer))
+        return trainer.run(self)
 
     def save(self, save_file):
         saver = tf.train.Saver()

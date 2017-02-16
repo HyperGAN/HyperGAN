@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
     parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
     parser.add_argument('--use_bw', '-9', dest='use_bw', action='store_true', help='black and white or not')
-    parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
+    parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
     return parser.parse_args()
 
 x_v = None
@@ -52,16 +52,13 @@ def add_bw(gan, net):
     s = [int(x) for x in net.get_shape()]
     shape = [s[1], s[2]]
     x = tf.image.resize_images(x, shape, 1)
-    print("Created bw ", x)
-
-    if gan.config.use_bw:
-        print( "USING BW")
+    
+    if not gan.config.add_full_image:
+        print( "[colorizer] Adding black and white image", x)
         x = tf.image.rgb_to_grayscale(x)
     else:
-        print( "NOT USING BW")
-
-    #x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
-
+        print( "[colorizer] Adding full image", x)
+        
     return x
 
 def add_original_x(gan, net):

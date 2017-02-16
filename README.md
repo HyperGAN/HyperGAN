@@ -399,6 +399,21 @@ Note: This is currently broken
 
 ## Encoders
 
+### LinearEncoder
+
+This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
+
+#### Spherical
+
+#### Gaussian
+
+#### Periodic
+
+#### PeriodicGaussian
+
+#### PeriodicSpherical
+
+
 ### Vae
 
 For Vae-GANs

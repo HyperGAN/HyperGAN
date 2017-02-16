@@ -5,7 +5,7 @@ import hyperchamber as hc
 
 def config():
     selector = hc.Selector()
-    selector.set("reduce", [tf.reduce_mean,linear_projection])#,tf.reduce_sum,tf.reduce_logsumexp,
+    selector.set("reduce", [tf.reduce_mean])#,linear_projection,tf.reduce_sum,tf.reduce_logsumexp,
     selector.set('reverse', [True, False])
     selector.set('discriminator', None)
 

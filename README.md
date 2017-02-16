@@ -35,6 +35,10 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
  * <a href="#createdataset">Creating a Dataset</a>
  * <a href='#downloadabledatasets'>Downloadable Datasets</a>
  
+* <a href="#contributing">Contributing</a>
+  * <a href="#our-process">Our process</a>
+  * <a href="#branches">Branches</a>
+
 * <a href="#about">About</a>
   * <a href="#wgan">WGAN</a>
 
@@ -502,6 +506,42 @@ Default.
 
 Experimental.
 
+
+
+<div id="contributing"/>
+# Contributing
+
+Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab that have the label *Help Wanted*.
+
+<div id="our-process"/>
+
+HyperGAN uses semantic versioning.  http://semver.org/
+
+TLDR: *x.y.z*
+
+* _x_ is incremented on stable public releases.
+* _y_ is incremented on API breaking changes.  This includes configuration file changes and graph construction changes.
+* _z_ is incremented on non-API breaking changes.  *z* changes will be able to reload a saved graph.
+
+<div id="branches"/>
+
+The branches are:
+
+* `master` contains the best GAN we've found as default.  It aims to *just work* for most use cases.
+* `develop` contains the latest and can be in a broken state.
+
+*Bug fixes* and *showcases* can be merged into `master`
+
+*Configuration changes*, *new architectures*, and generally anything experimental belongs in `develop`.
+
+<div id="showcase"/>
+
+If you create something cool with this let us know!  Open a pull request and add your links, and screenshots here!
+
+In case you are interested, our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
+
+
+
 <div id='about'/>
 
 # About
@@ -549,14 +589,6 @@ d_loss and g_loss can be reversed as well - just add a '-' sign.
 * InfoGAN - https://github.com/openai/InfoGAN
 * Improved GAN - https://github.com/openai/improved-gan
 * Hyperchamber - https://github.com/255bits/hyperchamber
-
-# Contributing
-
-Contributions are welcome and appreciated.  To help out, just issue a pull request or file a bug report.
-
-If you create something cool with this let us know!
-
-In case you are interested, our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
 
 # Citation
 

@@ -6,7 +6,7 @@ def sample(gan, sample_file):
     config = gan.config
     generator = gan.graph.g[0]
     y_t = gan.graph.y
-    z_t = gan.graph.z
+    z_t = gan.graph.z[0]
 
     x = np.linspace(0,1, 4)
     y = np.linspace(0,1, 6)

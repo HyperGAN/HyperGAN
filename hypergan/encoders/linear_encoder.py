@@ -7,23 +7,32 @@ TINY=1e-12
 def config():
   selector = hc.Selector()
   selector.set('create', create)
+  selector.set('z', [20,40,80])
   selector.set('min', -1)
   selector.set('max', 1)
 
-  selector.set('projections', [[periodic, periodic_gaussian, gaussian]])
+  selector.set('projections', [[linear, periodic, periodic_gaussian, gaussian]])
   selector.set('periods', 4)
 
   return selector.random_config()
 
 def create(config, gan):
   zs = []
-  z_base = tf.random_uniform([gan.config.batch_size, gan.config.z],config.min, config.max,dtype=gan.config.dtype)
-  gan.graph.z.append(z_base)
-  zs.append(z_base)
+  z_base = tf.random_uniform([gan.config.batch_size, config.z],config.min, config.max,dtype=gan.config.dtype)
   for projection in config.projections:
       zs.append(projection(config, gan, z_base))
   zs = tf.concat(1, zs)
   return zs, z_base
+
+def linear(config, gan, net):
+  return net
+
+def sphere(config, gan, net):
+  net = gaussian(config, gan, net)
+  spherenet = tf.square(net)
+  spherenet = tf.reduce_sum(spherenet, 1)
+  lam = tf.sqrt(spherenet)
+  return net/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
 
 def periodic(config, gan, net):
   return periodic_triangle_waveform(net, config.periods)
@@ -34,7 +43,7 @@ def periodic_gaussian(config, gan, net):
 
 # creates normal distribution from uniform values https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 def gaussian(config, gan, z):
-  z_dim = gan.config.z
+  z_dim = config.z
   z = (z + 1) / 2
 
   za = tf.slice(z, [0,0], [gan.config.batch_size, z_dim//2])

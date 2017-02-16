@@ -182,13 +182,11 @@ A hypergan configuration contains multiple encoders, multiple discriminators, mu
 <div id="configuration-generator"></div>
 ## The Generator
 
-Hypergan assumes a single generator during training.
-
-TODO table of common options
+A generator is responsible for projecting an encoding (sometimes called *z space*) to an output (normally an image).  A single GAN object from HyperGAN has one generator.
 
 ### Resize Conv
 
-The standard resize conv generator.
+The standard resize conv generator.  
 
 ### Dense resize conv
 
@@ -514,6 +512,7 @@ Experimental.
 Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab that have the label *Help Wanted*.
 
 <div id="our-process"/>
+## Our process
 
 HyperGAN uses semantic versioning.  http://semver.org/
 
@@ -524,6 +523,7 @@ TLDR: *x.y.z*
 * _z_ is incremented on non-API breaking changes.  *z* changes will be able to reload a saved graph.
 
 <div id="branches"/>
+## Branches
 
 The branches are:
 
@@ -535,6 +535,7 @@ The branches are:
 *Configuration changes*, *new architectures*, and generally anything experimental belongs in `develop`.
 
 <div id="showcase"/>
+## Showcase
 
 If you create something cool with this let us know!  Open a pull request and add your links, and screenshots here!
 

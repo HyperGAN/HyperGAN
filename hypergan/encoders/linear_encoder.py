@@ -12,7 +12,7 @@ def config():
   selector.set('max', 1)
 
   selector.set('projections', [[linear, gaussian, sphere]])
-  selector.set('periods', 4)
+  selector.set('modes', 4)
 
   return selector.random_config()
 
@@ -31,8 +31,29 @@ def sphere(config, gan, net):
   net = gaussian(config, gan, net)
   spherenet = tf.square(net)
   spherenet = tf.reduce_sum(spherenet, 1)
-  lam = tf.sqrt(spherenet)
+  lam = tf.sqrt(spherenet+TINY)
   return net/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
+
+def modal(config, gan, net):
+  net = tf.round(net*(config.modes-1))/(config.modes-1)
+  return net
+
+def modal_gaussian(config, gan, net):
+  a = modal(config, gan, net)
+  b = gaussian(config, gan, net)
+  return a + b * 0.1
+
+def modal_sphere(config, gan, net):
+  net = gaussian(config, gan, net)
+  net = modal(config, gan, net)
+  spherenet = tf.square(net)
+  spherenet = tf.reduce_sum(spherenet, 1)
+  lam = tf.sqrt(spherenet+TINY)
+  return net/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
+
+def modal_sphere_gaussian(config, gan, net):
+  net = modal_sphere(config, gan, net)
+  return net + (gaussian(config, gan, net) * 0.01)
 
 # creates normal distribution from uniform values https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 def gaussian(config, gan, z):

@@ -198,8 +198,8 @@ Resize conv pseudo code looks like this
 |:----------:|:------------:|:----:|
 | create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
 | z_projection_depth | The output size of the linear layer before the resize-conv stack. | int > 0
-| activation |  | Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
-| final_activation | constructor | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
+| activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
+| final_activation | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
 | depth_reduction | Reduces the filter sizes on each convolution by this multiple. | f(net):net
 | layer_filter | On each resize of G, we call this method.  Anything returned from this method is added to the graph before the next convolution block.  See <a href='#configuration-layer-filters'>common layer filters</a> | f(net):net
 | layer_regularizer | This "regularizes" each layer of the generator with a type.  See <a href='#layer-regularizers'>layer regularizers</a>| f(name)(net):net

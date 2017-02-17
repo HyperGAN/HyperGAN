@@ -11,7 +11,7 @@ def config():
   selector.set('min', -1)
   selector.set('max', 1)
 
-  selector.set('projections', [[linear, periodic, periodic_gaussian, gaussian]])
+  selector.set('projections', [[linear, gaussian, sphere]])
   selector.set('periods', 4)
 
   return selector.random_config()
@@ -34,13 +34,6 @@ def sphere(config, gan, net):
   lam = tf.sqrt(spherenet)
   return net/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
 
-def periodic(config, gan, net):
-  return periodic_triangle_waveform(net, config.periods)
-
-def periodic_gaussian(config, gan, net):
-  net = periodic_triangle_waveform(net, config.periods)
-  return gaussian(config, gan, net)
-
 # creates normal distribution from uniform values https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 def gaussian(config, gan, z):
   z_dim = config.z
@@ -54,11 +47,3 @@ def gaussian(config, gan, z):
   rb = tf.sqrt(-2 * tf.log(za+TINY))*tf.sin(2*pi*zb)
 
   return tf.reshape(tf.concat(1, [ra, rb]), z.get_shape())
-
-# https://www.google.com/webhp?sourceid=chrome-instant&ion=1&espv=2&ie=UTF-8#q=2%2Fpi*arcsin(sin(2*pi*x%2Fy))
-#
-# p is periodicity
-# amplitude is always amplitude of z (-1 to 1)
-def periodic_triangle_waveform(z, p):
-  return 2.0 / np.pi * tf.asin(tf.sin(2*np.pi*z/p))
-

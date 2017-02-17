@@ -403,16 +403,17 @@ Note: This is currently broken
 
 This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
 
+#### Linear
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
+
 #### Spherical
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
 
 #### Gaussian
 
-#### Periodic
-
-#### PeriodicGaussian
-
-#### PeriodicSpherical
-
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
 
 ### Vae
 

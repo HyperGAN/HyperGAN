@@ -42,8 +42,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * <a href="#about">About</a>
   * <a href="#wgan">WGAN</a>
 
- 
-
 <div id="changelog"></div>
 
 ## Changelog
@@ -171,7 +169,7 @@ Configurations are located in:
   --config [name]
 ```
 
-Naming a configuration during training is recommended.  If your config is not named, a uuid will be used.
+Naming a configuration during training required.
 
 
 <div id="configuration-architecture"></div>
@@ -186,11 +184,25 @@ A generator is responsible for projecting an encoding (sometimes called *z space
 
 ### Resize Conv
 
-The standard resize conv generator.  
+Resize conv pseudo code looks like this
+```python
+ 1.  net = linear(z, z_projection_depth)
+ 2.  net = resize net to max(output width/height, double input width/height)
+ 3.  add layer filter if defined
+ 4.  convolution block
+ 5.  If at output size: 
+ 6.  Else add first 3 layers to progressive enhancement output and go to 2
+```
 
-### Dense resize conv
-
-experimental
+| attribute   | description | type
+|:----------:|:------------:|:----:|
+| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| z_projection_depth | The output size of the linear layer before the resize-conv stack. | int > 0
+| activation |  | Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
+| final_activation | constructor | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
+| depth_reduction | Reduces the filter sizes on each convolution by this multiple. | f(net):net
+| layer_filter | On each resize of G, we call this method.  Anything returned from this method is added to the graph before the next convolution block.  See <a href='#configuration-layer-filters'>common layer filters</a> | f(net):net
+| layer_regularizer | This "regularizes" each layer of the generator with a type.  See <a href='#layer-regularizers'>layer regularizers</a>| f(name)(net):net
 
 <div id="configuration-encoders"></div>
 ## Encoders
@@ -215,6 +227,10 @@ This doesn't exist yet...
 ## Discriminators
 
 TODO common options
+
+Progressive enhancement is enabled by default:
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
 
 ### Pyramid Discriminator
 
@@ -448,63 +464,6 @@ To see a detailed list, run
 
 * -s, --size, optional(default 64x64x3), the size of your data in the form 'width'x'height'x'channels'
 * -f, --format, optional(default png), file format of the images.  Only supports jpg and png for now.
-
-
-## Discriminators
-
-The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier.
-
-You can combine multiple discriminators in a single GAN. 
-
-### pyramid
-
-Progressive enhancement is enabled by default:
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
-
-Default.
-
-### densenet
-
-Progressive enhancement is enabled by default here too.
-
-### resnet
-
-Note: This is currently broken 
-
-## Encoders
-
-### Vae
-
-For Vae-GANs
-
-### RandomCombo
-
-Default
-
-### RandomNormal
-
-## Generators
-
-### resize-conv
-
-Standard resize-conv.
-
-### dense-resize-conv
-
-Default.  Inspired by densenet.
-
-## Trainers
-
-### Adam
-
-Default.
-
-### Slowdown
-
-Experimental.
-
-
 
 <div id="contributing"/>
 # Contributing

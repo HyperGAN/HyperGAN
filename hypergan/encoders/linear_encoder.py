@@ -47,3 +47,16 @@ def gaussian(config, gan, z):
   rb = tf.sqrt(-2 * tf.log(za+TINY))*tf.sin(2*pi*zb)
 
   return tf.reshape(tf.concat(axis=1, values=[ra, rb]), z.get_shape())
+
+
+def periodic(config, gan, net):
+  return periodic_triangle_waveform(net, config.periods)
+
+def periodic_gaussian(config, gan, net):
+  net = periodic_triangle_waveform(net, config.periods)
+  return gaussian(config, gan, net)
+
+
+def periodic_triangle_waveform(z, p):
+  return 2.0 / np.pi * tf.asin(tf.sin(2*np.pi*z/p))
+

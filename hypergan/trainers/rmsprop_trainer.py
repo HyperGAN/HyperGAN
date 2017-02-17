@@ -9,6 +9,8 @@ def config():
 
     selector.set("discriminator_learn_rate", 1e-4)
     selector.set("generator_learn_rate", 1e-4)
+
+    selector.set("clipped_discriminator", False)
     return selector.random_config()
 
 def create(config, gan, d_vars, g_vars):
@@ -38,8 +40,9 @@ def run(gan):
     d_vars = gan.graph.d_vars
 
     _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
-    #clip = [tf.assign(d,tf.clip_by_value(d, -0.1, 0.1))  for d in d_vars]
-    #sess.run(clip)
+    if config.clipped_discriminator:
+        clip = [tf.assign(d,tf.clip_by_value(d, -config.clipped_discriminator, config.clipped_discriminator))  for d in d_vars]
+        sess.run(clip)
 
     if(d_class_loss is not None):
         _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])

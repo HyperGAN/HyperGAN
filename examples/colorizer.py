@@ -97,6 +97,7 @@ config['batch_size'] = args.batch_size
 
 if args.add_full_image:
     config['add_full_image']=args.add_full_image
+    
 x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
                         args.directory,
                         config['batch_size'], 

@@ -121,7 +121,7 @@ def conv_cond_concat(x, y):
     """Concatenate conditioning vector on feature map axis."""
     x_shapes = x.get_shape()
     y_shapes = y.get_shape()
-    return tf.concat(3, [x, y*tf.ones([x_shapes[0], x_shapes[1], x_shapes[2], y_shapes[3]])])
+    return tf.concat(axis=3, values=[x, y*tf.ones([x_shapes[0], x_shapes[1], x_shapes[2], y_shapes[3]])])
 
 def conv2d(input_, output_dim,
            k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02, regularizer=None,
@@ -229,7 +229,7 @@ def prelu(prefix, i, _x):
 
 
 def sin_and_cos(x, name="ignored"):
-    return tf.concat(len(x.get_shape()) - 1, [tf.sin(x), tf.cos(x)])
+    return tf.concat(axis=len(x.get_shape()) - 1, values=[tf.sin(x), tf.cos(x)])
 
 def maxout(x, k = 2):
     shape = [int(e) for e in x.get_shape()]
@@ -259,7 +259,7 @@ def lrelu_sq(x):
     Concatenates lrelu and square
     """
     dim = len(x.get_shape()) - 1
-    return tf.concat(dim, [lrelu(x), tf.minimum(tf.abs(x), tf.square(x))])
+    return tf.concat(axis=dim, values=[lrelu(x), tf.minimum(tf.abs(x), tf.square(x))])
 
 def linear(input_, output_size, scope=None, mean=0., stddev=0.02, bias_start=0.0, with_w=False, regularizer=None):
     shape = input_.get_shape().as_list()
@@ -322,7 +322,7 @@ def avg_grads(tower_grads):
       grads.append(expanded_g)
 
     # Average over the 'tower' dimension.
-    grad = tf.concat(0, grads)
+    grad = tf.concat(axis=0, values=grads)
     grad = tf.reduce_mean(grad, 0)
 
     # Keep in mind that the Variables are redundant because they are shared
@@ -487,7 +487,7 @@ class batch_norm_cross(object):
                 ch1, ch1_mean, ch1_variance, self.beta1, self.gamma1, self.epsilon,
                 scale_after_normalization=True)
 
-            out = tf.concat(3, [ch0, ch1])
+            out = tf.concat(axis=3, values=[ch0, ch1])
 
             if needs_reshape:
                 out = tf.reshape(out, orig_shape)
@@ -534,18 +534,18 @@ def _phase_shift(I, r):
     print("RESHAPE", a, b,c,'--',a,b,r,r)
     X = tf.reshape(I, (bsize, a, b, r, r))
     X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
-    X = tf.split(1, a, X)  # a, [bsize, b, r, r]
-    X = tf.concat(2, [tf.squeeze(x) for x in X])  # bsize, b, a*r, r
-    X = tf.split(1, b, X)  # b, [bsize, a*r, r]
-    X = tf.concat(2, [tf.squeeze(x) for x in X])  #
+    X = tf.split(axis=1, num_or_size_splits=a, value=X)  # a, [bsize, b, r, r]
+    X = tf.concat(axis=2, values=[tf.squeeze(x) for x in X])  # bsize, b, a*r, r
+    X = tf.split(axis=1, num_or_size_splits=b, value=X)  # b, [bsize, a*r, r]
+    X = tf.concat(axis=2, values=[tf.squeeze(x) for x in X])  #
     bsize, a*r, b*r
     return tf.reshape(X, (bsize, a*r, b*r, 1))
 
 def PS(X, r, color=False):
   # Main OP that you can arbitrarily use in you tensorflow code
   if color:
-    Xc = tf.split(3, 3, X)
-    X = tf.concat(3, [_phase_shift(x, r) for x in Xc])
+    Xc = tf.split(axis=3, num_or_size_splits=3, value=X)
+    X = tf.concat(axis=3, values=[_phase_shift(x, r) for x in Xc])
   else:
     X = _phase_shift(X, r)
   return X

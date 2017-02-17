@@ -45,7 +45,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
 
         print("X XSXS SX", x.get_shape(), g.get_shape(), xs, config['resize'])
 
-    net = tf.concat(0, [x,g])
+    net = tf.concat(axis=0, values=[x,g])
     if(config['add_noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
     net = conv2d(net, 16, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1)
@@ -60,14 +60,14 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
       # Progressive enhancement
       # APPEND xs[i] and gs[i]
       if(i < len(xs) and i > 0):
-        xg = tf.concat(0, [xs[i], gs[i]])
+        xg = tf.concat(axis=0, values=[xs[i], gs[i]])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev']*(i+1), dtype=root_config['dtype'])
 
         xgs.append(xg)
   
         s = [int(x) for x in xg.get_shape()]
 
-        net = tf.concat(3, [net, xg])
+        net = tf.concat(axis=3, values=[net, xg])
       filter_size_w = 2
       filter_size_h = 2
       if i == depth-1:
@@ -96,7 +96,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
               if batch_norm is not None:
                 net_dense = batch_norm(batch_size*2, name=prefix+'_expand_bna_'+str(i*10+j))(net_dense)
           newnet = conv2d(net_dense, size_dense, name=prefix+'_expand_layear'+str(i*10+j), k_w=3, k_h=3, d_h=1, d_w=1)
-          net = tf.concat(3, [net, newnet])
+          net = tf.concat(axis=3, values=[net, newnet])
 
       net = activation(net)
       if batch_norm is not None:

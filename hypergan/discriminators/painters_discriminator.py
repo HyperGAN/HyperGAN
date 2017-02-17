@@ -55,12 +55,12 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
     for i in range(transitions):
       # APPEND xs[i] and gs[i]
       if(i < len(xs)-1):
-        xg = tf.concat(0, [xs[i], gs[i]])
+        xg = tf.concat(axis=0, values=[xs[i], gs[i]])
         xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['discriminator.noise_stddev'], dtype=config['dtype'])
 
         xgs.append(xg)
 
-        result = tf.concat(3, [result, xg])
+        result = tf.concat(axis=3, values=[result, xg])
       for j in range(layers):
         result = conv2d(result, 2**(3+i), name=prefix+"add_xg"+str(i)+"-"+str(j), k_w=3, k_h=3, d_h=1, d_w=1)
         result = batch_norm(config['batch_size']*2, name=prefix+'add_xg_bn_'+str(i)+"-"+str(j))(result)

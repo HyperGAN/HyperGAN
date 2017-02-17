@@ -21,7 +21,7 @@ def create(config, gan):
   z_base = tf.random_uniform([gan.config.batch_size, config.z],config.min, config.max,dtype=gan.config.dtype)
   for projection in config.projections:
       zs.append(projection(config, gan, z_base))
-  zs = tf.concat(1, zs)
+  zs = tf.concat(axis=1, values=zs)
   return zs, z_base
 
 def linear(config, gan, net):
@@ -46,4 +46,17 @@ def gaussian(config, gan, z):
   ra = tf.sqrt(-2 * tf.log(za+TINY))*tf.cos(2*pi*zb)
   rb = tf.sqrt(-2 * tf.log(za+TINY))*tf.sin(2*pi*zb)
 
-  return tf.reshape(tf.concat(1, [ra, rb]), z.get_shape())
+  return tf.reshape(tf.concat(axis=1, values=[ra, rb]), z.get_shape())
+
+
+def periodic(config, gan, net):
+  return periodic_triangle_waveform(net, config.periods)
+
+def periodic_gaussian(config, gan, net):
+  net = periodic_triangle_waveform(net, config.periods)
+  return gaussian(config, gan, net)
+
+
+def periodic_triangle_waveform(z, p):
+  return 2.0 / np.pi * tf.asin(tf.sin(2*np.pi*z/p))
+

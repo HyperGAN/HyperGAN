@@ -8,27 +8,27 @@ def build_reshape(output_size, nodes, method, batch_size, dtype):
     dims = output_size-node_size
     if(method == 'noise'):
         noise = tf.random_uniform([batch_size, dims],-1, 1, dtype=dtype)
-        result = tf.concat(1, nodes+[noise])
+        result = tf.concat(axis=1, values=nodes+[noise])
     elif(method == 'tiled'):
-        t_nodes = tf.concat(1, nodes)
+        t_nodes = tf.concat(axis=1, values=nodes)
         dims =  int(t_nodes.get_shape()[1])
         result= tf.tile(t_nodes,[1, output_size//dims])
         width = output_size - int(result.get_shape()[1])
         if(width > 0):
             #zeros = tf.zeros([batch_size, width])
             slice = tf.slice(result, [0,0],[batch_size,width])
-            result = tf.concat(1, [result, slice])
+            result = tf.concat(axis=1, values=[result, slice])
 
 
     elif(method == 'zeros'):
-        result = tf.concat(1, nodes)
+        result = tf.concat(axis=1, values=nodes)
         result = tf.pad(result, [[0, 0],[dims//2, dims//2]])
         width = output_size - int(result.get_shape()[1])
         if(width > 0):
             zeros = tf.zeros([batch_size, width],dtype=dtype)
-            result = tf.concat(1, [result, zeros])
+            result = tf.concat(axis=1, values=[result, zeros])
     elif(method == 'linear'):
-        result = tf.concat(1, [y, z])
+        result = tf.concat(axis=1, values=[y, z])
         result = linear(result, dims, 'g_input_proj')
 
     else:
@@ -105,11 +105,11 @@ def block_conv(result, activation, batch_size,id,name, resize=None, output_chann
         result = tf.image.resize_images(result, resize, 1)
 
     if reshaped_z_proj is not None:
-        result = tf.concat(3,[result, reshaped_z_proj])
+        result = tf.concat(axis=3,values=[result, reshaped_z_proj])
 
     if(noise_shape):
       noise = tf.random_uniform(noise_shape,-1, 1,dtype=dtype)
-      result = tf.concat(3, [result, noise])
+      result = tf.concat(axis=3, values=[result, noise])
     if(id=='conv'):
         result = conv2d(result, int(result.get_shape()[3]), name=name, k_w=filter, k_h=filter, d_h=stride, d_w=stride)
     elif(id=='identity'):
@@ -128,7 +128,7 @@ def dense_block(result, k, activation, batch_size, id, name):
         fltr = min(fltr, int(result.get_shape()[2]))
         result = conv2d(result, k, name=name+'conv', k_w=fltr, k_h=fltr, d_h=1, d_w=1)
 
-        return tf.concat(3,[identity, result])
+        return tf.concat(axis=3,values=[identity, result])
     elif(id=='transition'):
         result = batch_norm(batch_size, name=name+'bn')(result)
         result = activation(result)

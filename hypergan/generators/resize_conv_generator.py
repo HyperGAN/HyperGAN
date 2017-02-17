@@ -54,7 +54,7 @@ def create(config, gan, net):
     if(config.layer_filter):
         fltr = config.layer_filter(gan, net)
         if(fltr is not None):
-            net = tf.concat(3, [net, fltr]) # TODO: pass through gan object
+            net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
 
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
@@ -66,7 +66,7 @@ def create(config, gan, net):
         if(config.layer_filter):
             fltr = config.layer_filter(gan, net)
             if(fltr is not None):
-                net = tf.concat(3, [net, fltr]) # TODO: pass through gan object
+                net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
         fltr = 3
         if fltr > net.get_shape()[1]:
             fltr=int(net.get_shape()[1])

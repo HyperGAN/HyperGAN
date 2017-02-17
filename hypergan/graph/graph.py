@@ -18,7 +18,7 @@ class Graph:
 
         with(tf.variable_scope("generator", reuse=reuse)):
 
-            z = tf.concat(1, inputs)
+            z = tf.concat(axis=1, values=inputs)
 
             generator = hc.Config(hc.lookup_functions(config.generator))
             nets = generator.create(generator, self.gan, z)
@@ -54,7 +54,7 @@ class Graph:
 
         d_reals = [split_d(x, 0) for x in discriminators]
         d_fakes = [split_d(x, 1) for x in discriminators]
-        net = tf.concat(1, discriminators)
+        net = tf.concat(axis=1, values=discriminators)
 
         d_real = split_d(net, 0)
         d_fake = split_d(net, 1)
@@ -70,7 +70,7 @@ class Graph:
             encoders.append(zs)
             self.gan.graph.z.append(z_base)
 
-        z_encoded = tf.concat(1, encoders)
+        z_encoded = tf.concat(axis=1, values=encoders)
         self.gan.graph.z_encoded = z_encoded
 
         return z_encoded
@@ -142,7 +142,7 @@ class Graph:
         #    d_loss += extra
         joint_loss = tf.reduce_mean(tf.add_n(g_losses + d_losses))
 
-        summary = tf.all_variables()
+        summary = tf.global_variables()
         def summary_reduce(s):
             if(len(s.get_shape())==0):
                 return s

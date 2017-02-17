@@ -21,7 +21,6 @@ def selector(args):
     selector.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
 
     # Z encoder configuration
-    selector.set('z', 40)
     selector.set('encoders', [[linear_encoder.config()]])
 
     # Generator configuration

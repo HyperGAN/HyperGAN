@@ -15,6 +15,7 @@ def parse_args():
     parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
     parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
     parser.add_argument('--config', '-c', type=str, default='2d-test', help='config name')
+    parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
     return parser.parse_args()
 
 z_v = None
@@ -60,8 +61,15 @@ def circle(x):
     lam = tf.sqrt(spherenet)
     return x/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
 
-x = tf.random_normal([args.batch_size, 2])
-x = circle(x)
+def modes(x):
+    return tf.round(x*2)/2.0
+
+if args.distribution == 'circle':
+    x = tf.random_normal([args.batch_size, 2])
+    x = circle(x)
+elif args.distribution == 'modes':
+    x = tf.random_uniform([args.batch_size, 2], -1, 1)
+    x = modes(x)
 
 config['model']=args.config
 config['batch_size']=args.batch_size
@@ -100,15 +108,17 @@ with tf.device(args.device):
     gan = hg.GAN(config, initial_graph)
 
     gan.initialize_graph()
+    samples = 0
 
     tf.train.start_queue_runners(sess=gan.sess)
     for i in range(10000000):
         d_loss, g_loss = gan.train()
 
         if i % args.sample_every == 0 and i > 0:
-            print("Sampling "+str(i))
-            sample_file="samples/%06d.png" % (i)
+            print("Sampling "+str(samples))
+            sample_file="samples/%06d.png" % (samples)
             gan.sample_to_file(sample_file, sampler=sampler)
+            samples += 1
 
     tf.reset_default_graph()
     sess.close()

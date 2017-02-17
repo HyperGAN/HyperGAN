@@ -56,3 +56,7 @@ def periodic_gaussian(config, gan, net):
   net = periodic_triangle_waveform(net, config.periods)
   return gaussian(config, gan, net)
 
+
+def periodic_triangle_waveform(z, p):
+  return 2.0 / np.pi * tf.asin(tf.sin(2*np.pi*z/p))
+

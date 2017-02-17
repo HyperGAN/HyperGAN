@@ -19,7 +19,7 @@ class Graph:
         with(tf.variable_scope("generator", reuse=reuse)):
 
             if 'y' in self.gan.graph:
-                z = tf.concat(axis=1, values=[z, graph.y])
+                z = tf.concat(axis=1, values=[z, self.gan.graph.y])
 
             generator = hc.Config(hc.lookup_functions(config.generator))
             nets = generator.create(generator, self.gan, z)

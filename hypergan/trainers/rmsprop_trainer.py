@@ -8,6 +8,7 @@ def config():
     selector.set('create', create)
     selector.set('run', run)
 
+    selector.set('momentum', 0.1)
     selector.set("discriminator_learn_rate", 1e-4)
     selector.set("generator_learn_rate", 1e-4)
 
@@ -20,7 +21,7 @@ def create(config, gan, d_vars, g_vars):
     g_lr = np.float32(config.generator_learn_rate)
     d_lr = np.float32(config.discriminator_learn_rate)
     gan.graph.d_vars = d_vars
-    g_optimizer = tf.train.RMSPropOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
+    g_optimizer = tf.train.RMSPropOptimizer(g_lr, momentum=config.momentum).minimize(g_loss, var_list=g_vars)
     d_optimizer = tf.train.RMSPropOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
     return g_optimizer, d_optimizer
 

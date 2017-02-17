@@ -46,8 +46,10 @@ class GAN:
         tf_graph = hg.graph.Graph(self)
         graph = self.graph
         with tf.device(device):
-            graph.y=tf.cast(graph.y,tf.int64)
-            graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
+            if 'y' in graph:
+                # convert to one-hot
+                graph.y=tf.cast(graph.y,tf.int64)
+                graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
 
             if graph_type == 'full':
                 tf_graph.create(graph)
@@ -82,7 +84,10 @@ class GAN:
             else:
                 print("No checkpoint file found")
         else:
-            print(" |= Initializing new network")
-            with tf.device(self.device):
-                init = tf.global_variables_initializer()
-                self.sess.run(init)
+            self.initialize_graph()
+    
+    def initialize_graph(self):
+        print(" |= Initializing new network")
+        with tf.device(self.device):
+            init = tf.global_variables_initializer()
+            self.sess.run(init)

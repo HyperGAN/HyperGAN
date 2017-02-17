@@ -83,7 +83,6 @@ class Graph:
         set_tensor("x", x)
         config = self.gan.config
         set_ops_globals(config.dtype, config.batch_size)
-        z_dim = int(config.z)
         
         z = self.create_z_encoding()
         
@@ -102,7 +101,6 @@ class Graph:
         set_ops_globals(config.dtype, config.batch_size)
 
         batch_size = config.batch_size
-        z_dim = int(config.z)
 
         g_losses = []
         extra_g_loss = []

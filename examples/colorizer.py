@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
     parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
     parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
-    parser.add_argument('--use_bw', '-9', dest='use_bw', action='store_true', help='black and white or not')
+    parser.add_argument('--use_hc_io', '-9', dest='use_hc_io', action='store_true', help='experimental')
     parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
     return parser.parse_args()
 
@@ -94,7 +94,7 @@ config['discriminators'][0]['layer_filter'] = None#add_original_x
 # TODO refactor, shared in CLI
 config['dtype']=tf.float32
 config['batch_size'] = args.batch_size
-config['use_bw']=args.use_bw
+config['add_full_image']=args.add_full_image
 x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
                         args.directory,
                         config['batch_size'], 

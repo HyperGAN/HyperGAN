@@ -83,6 +83,7 @@ def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
 
 def custom_generator(config, gan, net):
     net = linear(net, 128, scope="g_lin_proj")
+    net = batch_norm_1('g_bn_1')(net)
     net = tf.tanh(net)
     net = linear(net, 2, scope="g_lin_proj2")
     return [net]

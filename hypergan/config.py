@@ -21,13 +21,12 @@ def selector(args):
     selector.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
 
     # Z encoder configuration
-    selector.set('z', 40)
     selector.set('encoders', [[linear_encoder.config()]])
 
     # Generator configuration
     selector.set("generator", [resize_conv_generator.config()])
 
-    selector.set("trainer", adam_trainer.config())
+    selector.set("trainer", rmsprop_trainer.config())
 
     # Discriminator configuration
     discriminators = []

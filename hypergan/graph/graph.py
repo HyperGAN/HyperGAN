@@ -10,7 +10,7 @@ class Graph:
     def __init__(self, gan):
         self.gan = gan
 
-    def generator(self, inputs, reuse=False):
+    def generator(self, z, reuse=False):
         config = self.gan.config
         x_dims = config.x_dims
         output_channels = config.channels
@@ -18,7 +18,8 @@ class Graph:
 
         with(tf.variable_scope("generator", reuse=reuse)):
 
-            z = tf.concat(axis=1, values=inputs)
+            if 'y' in self.gan.graph:
+                z = tf.concat(axis=1, values=[z, self.gan.graph.y])
 
             generator = hc.Config(hc.lookup_functions(config.generator))
             nets = generator.create(generator, self.gan, z)
@@ -37,11 +38,12 @@ class Graph:
         graph.xs=xs
         graph.gs=gs
         g = g[-1]
-        for i in gs:
-            resized = tf.image.resize_images(xs[-1],[int(xs[-1].get_shape()[1]//2),int(xs[-1].get_shape()[2]//2)], 1)
-            xs.append(resized)
-        xs.pop()
-        gs.reverse()
+        if len(gs) > 1:
+            for i in gs:
+                resized = tf.image.resize_images(xs[-1],[int(xs[-1].get_shape()[1]//2),int(xs[-1].get_shape()[2]//2)], 1)
+                xs.append(resized)
+            xs.pop()
+            gs.reverse()
 
         discriminators = []
         for i, discriminator in enumerate(config.discriminators):
@@ -78,7 +80,6 @@ class Graph:
     # Used for building the tensorflow graph with only G
     def create_generator(self, graph):
         x = graph.x
-        y = graph.y
         f = graph.f
         set_tensor("x", x)
         config = self.gan.config
@@ -86,14 +87,10 @@ class Graph:
         
         z = self.create_z_encoding()
         
-        args = [y, z]
-        g = self.generator(args)
-        graph.g=g
-        graph.y=y
+        graph.g = self.generator(args)
 
     def create(self, graph):
         x = graph.x
-        y = graph.y
         f = graph.f
         config = self.gan.config
         # This is a hack to set dtype across ops.py, since each tensorflow instruction needs a dtype argument
@@ -108,7 +105,7 @@ class Graph:
 
         z = self.create_z_encoding()
         # create generator
-        g = self.generator([y, z])
+        g = self.generator(z)
 
         g_sample = g
 
@@ -159,7 +156,6 @@ class Graph:
         graph.g=g_sample
         graph.g_loss=g_loss
         graph.hc_summary=summary
-        graph.y=y
         graph.joint_loss=joint_loss
 
         g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]

@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import hyperchamber as hc
 from .common import *
 
 def config():
@@ -7,8 +8,11 @@ def config():
     selector.set('create', create)
     selector.set('run', run)
 
+    selector.set('momentum', 0.1)
     selector.set("discriminator_learn_rate", 1e-4)
     selector.set("generator_learn_rate", 1e-4)
+
+    selector.set("clipped_discriminator", False)
     return selector.random_config()
 
 def create(config, gan, d_vars, g_vars):
@@ -17,7 +21,7 @@ def create(config, gan, d_vars, g_vars):
     g_lr = np.float32(config.generator_learn_rate)
     d_lr = np.float32(config.discriminator_learn_rate)
     gan.graph.d_vars = d_vars
-    g_optimizer = tf.train.RMSPropOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
+    g_optimizer = tf.train.RMSPropOptimizer(g_lr, momentum=config.momentum).minimize(g_loss, var_list=g_vars)
     d_optimizer = tf.train.RMSPropOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
     return g_optimizer, d_optimizer
 
@@ -38,8 +42,9 @@ def run(gan):
     d_vars = gan.graph.d_vars
 
     _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
-    #clip = [tf.assign(d,tf.clip_by_value(d, -0.1, 0.1))  for d in d_vars]
-    #sess.run(clip)
+    if config.clipped_discriminator:
+        clip = [tf.assign(d,tf.clip_by_value(d, -config.clipped_discriminator, config.clipped_discriminator))  for d in d_vars]
+        sess.run(clip)
 
     if(d_class_loss is not None):
         _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])

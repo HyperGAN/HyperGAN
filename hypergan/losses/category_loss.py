@@ -37,9 +37,9 @@ def categories_loss(categories, layer, batch_size):
     for category,layer_s in zip(categories, split(layer)):
         size = int(category.get_shape()[1])
         category_prior = tf.ones([batch_size, size])*np.float32(1./size)
-        logli_prior = tf.reduce_sum(tf.log(category_prior + TINY) * category, reduction_indices=1)
+        logli_prior = tf.reduce_sum(tf.log(category_prior + TINY) * category, axis=1)
         layer_softmax = tf.nn.softmax(layer_s)
-        logli = tf.reduce_sum(tf.log(layer_softmax+TINY)*category, reduction_indices=1)
+        logli = tf.reduce_sum(tf.log(layer_softmax+TINY)*category, axis=1)
         disc_ent = tf.reduce_mean(-logli_prior)
         disc_cross_ent =  tf.reduce_mean(-logli)
 

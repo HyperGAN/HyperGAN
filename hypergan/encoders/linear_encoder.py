@@ -21,7 +21,7 @@ def create(config, gan):
   z_base = tf.random_uniform([gan.config.batch_size, config.z],config.min, config.max,dtype=gan.config.dtype)
   for projection in config.projections:
       zs.append(projection(config, gan, z_base))
-  zs = tf.concat(1, zs)
+  zs = tf.concat(axis=1, values=zs)
   return zs, z_base
 
 def linear(config, gan, net):
@@ -46,4 +46,4 @@ def gaussian(config, gan, z):
   ra = tf.sqrt(-2 * tf.log(za+TINY))*tf.cos(2*pi*zb)
   rb = tf.sqrt(-2 * tf.log(za+TINY))*tf.sin(2*pi*zb)
 
-  return tf.reshape(tf.concat(1, [ra, rb]), z.get_shape())
+  return tf.reshape(tf.concat(axis=1, values=[ra, rb]), z.get_shape())

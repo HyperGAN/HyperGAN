@@ -107,7 +107,7 @@ class CLI:
             size = mul(shape)
             return [v.name, size/1024./1024.]
 
-        sizes = [get_size(i) for i in tf.all_variables()]
+        sizes = [get_size(i) for i in tf.global_variables()]
         sizes = sorted(sizes, key=lambda s: s[1])
         print("[hypergan] Top 5 largest variables:", sizes[-5:])
         size = sum([s[1] for s in sizes])

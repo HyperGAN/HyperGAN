@@ -30,7 +30,7 @@ def create(config, gan):
         d_fake = config.reduce(d_fake, axis=1)
 
     zeros = tf.zeros_like(d_fake, dtype=gan.config.dtype)
-    g_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake, zeros)
+    g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)
     d_loss = sigmoid_kl_with_logits(d_real, 1.-config.label_smooth)
     g_loss = tf.squeeze(g_loss)
     d_loss = tf.squeeze(d_loss)
@@ -56,4 +56,4 @@ def sigmoid_kl_with_logits(logits, targets):
      entropy = 0.
    else:
      entropy = - targets * np.log(targets) - (1. - targets) * np.log(1. - targets)
-     return tf.nn.sigmoid_cross_entropy_with_logits(logits, tf.ones_like(logits) * targets) - entropy
+     return tf.nn.sigmoid_cross_entropy_with_logits(logits=logits, labels=tf.ones_like(logits) * targets) - entropy

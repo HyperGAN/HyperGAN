@@ -52,11 +52,11 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     batch_size = int(x.get_shape()[0])
     # TODO: This is standard optimization from improved GAN, cross-d feature
     if config['layer_filter']:
-        g_filter = tf.concat(3, [g, config['layer_filter'](gan, x)])
-        x_filter = tf.concat(3, [x, config['layer_filter'](gan, x)])
-        net = tf.concat(0, [x_filter,g_filter] )
+        g_filter = tf.concat(axis=3, values=[g, config['layer_filter'](gan, x)])
+        x_filter = tf.concat(axis=3, values=[x, config['layer_filter'](gan, x)])
+        net = tf.concat(axis=0, values=[x_filter,g_filter] )
     else:
-        net = tf.concat(0, [x,g])
+        net = tf.concat(axis=0, values=[x,g])
     if(config['add_noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
         
@@ -80,17 +80,17 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         else:
             index = i
         if config['layer_filter']:
-            x_filter_i = tf.concat(3, [xs[index], config['layer_filter'](gan, xs[i])])
-            g_filter_i = tf.concat(3, [gs[index], config['layer_filter'](gan, xs[i])])
-            xg = tf.concat(0, [x_filter_i, g_filter_i])
+            x_filter_i = tf.concat(axis=3, values=[xs[index], config['layer_filter'](gan, xs[i])])
+            g_filter_i = tf.concat(axis=3, values=[gs[index], config['layer_filter'](gan, xs[i])])
+            xg = tf.concat(axis=0, values=[x_filter_i, g_filter_i])
         else:
-            xg = tf.concat(0, [xs[index], gs[index]])
+            xg = tf.concat(axis=0, values=[xs[index], gs[index]])
 
         if(config['add_noise']):
             xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
   
         if config['layer_filter.progressive_enhancement_enabled']:
-            net = tf.concat(3, [net, xg])
+            net = tf.concat(axis=3, values=[net, xg])
     
       filter_size_w = 2
       filter_size_h = 2

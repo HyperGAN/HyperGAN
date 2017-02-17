@@ -26,7 +26,7 @@ def generator(config, net, z):
     if(config['generator.layer_filter']):
         fltr = config['generator.layer_filter'](None, net)
         if(fltr is not None):
-            net = tf.concat(3, [net, fltr]) # TODO: pass through gan object
+            net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
 
 
     z_proj = None
@@ -74,9 +74,9 @@ def generator(config, net, z):
                 #nv = tf.random_uniform([s2[0],s2[1],s2[2],s2[3]//4],-1.0, 1.0,dtype=config['dtype'])
                 #if j == 0:
                 #    nois.append(nv)
-                net = tf.concat(3, [net, net2] + nois)
+                net = tf.concat(axis=3, values=[net, net2] + nois)
         else:
-            net = tf.concat(3, [net] + nois)
+            net = tf.concat(axis=3, values=[net] + nois)
 
         #first3 = block_conv(net, activation, batch_size, 'identity', 'g_layers2_'+str(i), output_channels=config['channels'], filter=3, batch_norm=batch_norm, noise_shape=noise, resize=[resized_wh[0], resized_wh[1]])
         #last3 = block_conv(net, activation, batch_size, 'identity', 'g_layers3_'+str(i), output_channels=config['channels'], filter=3, batch_norm=batch_norm, noise_shape=noise, resize=[resized_wh[0], resized_wh[1]])

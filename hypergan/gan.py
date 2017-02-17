@@ -84,5 +84,5 @@ class GAN:
         else:
             print(" |= Initializing new network")
             with tf.device(self.device):
-                init = tf.initialize_all_variables()
+                init = tf.global_variables_initializer()
                 self.sess.run(init)

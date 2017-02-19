@@ -44,12 +44,27 @@ def sampler(gan, name):
     plt.xlim([-4, 4])
     plt.ylim([-4, 4])
     plt.ylabel("z")
-    plt.xlabel("s = "+str(similarity))
+#    plt.xlabel("s = "+str(similarity))
     plt.savefig(name)
 
 def no_regularizer(amt):
     return None
  
+def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
+    net = tf.concat(axis=0, values=[x,g])
+    net = linear(net, 128, scope=prefix+'lin1')
+    net = tf.nn.relu(net)
+    net = linear(net, 128, scope=prefix+'lin2')
+    return net
+
+def custom_generator(config, gan, net):
+    net = linear(net, 128, scope="g_lin_proj")
+    net = tf.nn.relu(net)
+    net = linear(net, 2, scope="g_lin_proj3")
+    net = tf.tanh(net)
+    return [net]
+
+
 def custom_discriminator_config(regularizer=no_regularizer, regularizer_lambda=0.0001):
     return { 
             'create': custom_discriminator, 
@@ -123,28 +138,6 @@ config['model']=args.config
 config['batch_size']=args.batch_size
 config['dtype']=tf.float32
 config = hg.config.lookup_functions(config)
-
-def custom_discriminator_config():
-    return { 'create': custom_discriminator }
-
-def custom_generator_config():
-    return { 'create': custom_generator }
-
-def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
-    net = tf.concat(axis=0, values=[x,g])
-    net = linear(net, 128, scope=prefix+'lin1')
-    net = tf.nn.relu(net)
-    net = linear(net, 128, scope=prefix+'lin2')
-    net = tf.tanh(net)
-    return net
-
-def custom_generator(config, gan, net):
-    net = linear(net, 128, scope="g_lin_proj")
-    net = tf.nn.relu(net)
-    net = batch_norm_1(config.batch_size, name='g_bn_3')(net)
-    net = linear(net, 2, scope="g_lin_proj3")
-    net = tf.tanh(net)
-    return [net]
 
 initial_graph = {
     'x':x,

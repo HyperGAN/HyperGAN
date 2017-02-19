@@ -64,21 +64,6 @@ def custom_generator_config(regularizer=no_regularizer, regularizer_lambda=0.000
             'regularizer_lambda': regularizer_lambda
     }
 
-def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
-    net = tf.concat(axis=0, values=[x,g])
-    net = linear(net, 128, scope=prefix+'lin1', regularizer=config.regularizer(config.regularizer_lambda))
-    net = tf.tanh(net)
-    net = linear(net, 128, scope=prefix+'lin2', regularizer=config.regularizer(config.regularizer_lambda))
-    return net
-
-def custom_generator(config, gan, net):
-    net = linear(net, 128, scope="g_lin_proj", regularizer=config.regularizer(config.regularizer_lambda))
-    net = batch_norm_1('g_bn_1')(net)
-    net = tf.tanh(net)
-    net = linear(net, 2, scope="g_lin_proj2", regularizer=config.regularizer(config.regularizer_lambda))
-    return [net]
-
-
 args = parse_args()
 
 selector = hg.config.selector(args)

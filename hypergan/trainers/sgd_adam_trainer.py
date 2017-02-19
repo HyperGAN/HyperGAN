@@ -35,6 +35,7 @@ def run(gan):
     d_optimizer = gan.graph.d_optimizer
     d_class_loss = gan.graph.d_class_loss
     d_vars = gan.graph.d_vars
+    g_cost = None
 
     _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
 

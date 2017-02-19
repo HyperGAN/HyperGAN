@@ -44,24 +44,24 @@ def sampler(gan, name):
     plt.xlim([-4, 4])
     plt.ylim([-4, 4])
     plt.ylabel("z")
-    plt.xlabel("z")
+    plt.xlabel("s = "+str(similarity))
     plt.savefig(name)
 
 def no_regularizer(amt):
     return None
  
-def custom_discriminator_config():
+def custom_discriminator_config(regularizer=no_regularizer, regularizer_lambda=0.0001):
     return { 
             'create': custom_discriminator, 
-            'regularizer': no_regularizer,#tf.contrib.layers.l2_regularizer, 
-            'regularizer_lambda': 0.0001
+            'regularizer': regularizer,
+            'regularizer_lambda': regularizer_lambda
     }
 
-def custom_generator_config():
+def custom_generator_config(regularizer=no_regularizer, regularizer_lambda=0.0001):
     return { 
-            'create': custom_generator ,
-            'regularizer': no_regularizer,#tf.contrib.layers.l2_regularizer, tf.contrib.layers.l2_regularizer, 
-            'regularizer_lambda': 0.0001 
+            'create': custom_generator,
+            'regularizer': regularizer,
+            'regularizer_lambda': regularizer_lambda
     }
 
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
@@ -86,13 +86,30 @@ selector = hg.config.selector(args)
 config = selector.random_config()
 config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
 
+trainers = []
+trainers.append(hg.trainers.adam_trainer.config())
+
+rms_opts = {
+    'g_momentum': [0,1e-6],
+    'd_momentum': [0,1e-6],
+    'd_decay': [0.9,0.99,0.999,0.995],
+    'g_decay': [0.9,0.99,0.999,0.995],
+    'clipped_gradients': [False, 1e-4],
+    'clipped_d_weights': [False, 1e-2],
+    'discriminator_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3],
+    'generator_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3]
+}
+trainers.append(hg.trainers.rmsprop_trainer.config(*rms_opts))
+
 custom_config = {
     'model': args.config,
     'batch_size': args.batch_size,
-#    'trainer': hg.trainers.adam_trainer.config(),
+    'trainer': trainers,
     'generator': custom_generator_config(),
     'discriminators': [custom_discriminator_config()]
 }
+
+custom_config = hg.config.selector(custom_config).random_config()
 
 for key,value in custom_config.items():
     config[key]=value

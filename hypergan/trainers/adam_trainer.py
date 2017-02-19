@@ -19,7 +19,7 @@ def config():
     selector.set('generator_beta1', 0.9)
     selector.set('generator_beta2', 0.999)
 
-    selector.set('capped', False)
+    selector.set('clipped_gradient', False)
     selector.set('clipped_discriminator', False)
 
     return selector.random_config()
@@ -31,8 +31,8 @@ def create(config, gan, d_vars, g_vars):
     d_lr = np.float32(config.discriminator_learn_rate)
 
     gan.graph.d_vars = d_vars
-    g_optimizer = tf.train.AdamOptimizer(g_lr, beta1=config.discriminator.beta1, beta2=config.discriminator_beta2)
-    d_optimizer = tf.train.AdamOptimizer(d_lr, beta1=config.discriminator.beta1, beta2=config.discriminator_beta2)
+    g_optimizer = tf.train.AdamOptimizer(g_lr, beta1=config.discriminator_beta1, beta2=config.discriminator_beta2)
+    d_optimizer = tf.train.AdamOptimizer(d_lr, beta1=config.discriminator_beta1, beta2=config.discriminator_beta2)
     if(config.clipped_gradient):
         g_optimizer = capped_optimizer(g_optimizer, config.clipped_gradient, g_loss, g_vars)
         d_optimizer = capped_optimizer(d_optimizer, config.clipped_gradient, d_loss, d_vars)

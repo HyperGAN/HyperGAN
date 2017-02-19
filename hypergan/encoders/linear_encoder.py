@@ -48,7 +48,6 @@ def gaussian(config, gan, net):
   ra = tf.sqrt(-2 * tf.log(za+TINY))*tf.cos(2*pi*zb)
   rb = tf.sqrt(-2 * tf.log(za+TINY))*tf.sin(2*pi*zb)
 
-  print(net, ra, rb)
   return tf.reshape(tf.concat(axis=1, values=[ra, rb]), net.get_shape())
 
 
@@ -68,7 +67,6 @@ def periodic_triangle_waveform(z, p):
 
 def config(z=[20,40,80],mini=-1,maxi=1,projections=[[linear, gaussian, sphere]],
         modes=4):
-  print("LINENC", z)
   selector = hc.Selector()
   selector.set('create', create)
   selector.set('z', z)
@@ -82,7 +80,6 @@ def config(z=[20,40,80],mini=-1,maxi=1,projections=[[linear, gaussian, sphere]],
 
 def create(config, gan):
   zs = []
-  print("--", config)
   z_base = tf.random_uniform([gan.config.batch_size, config.z],config.min, config.max,dtype=gan.config.dtype)
   for projection in config.projections:
       zs.append(projection(config, gan, z_base))

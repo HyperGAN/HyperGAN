@@ -42,8 +42,7 @@ def create(config, gan):
 linear_projection_iterator=0
 def linear_projection(net, axis=1):
     global linear_projection_iterator
-    linear_projection_iterator+=1
-    net = linear(net, 1, scope="d_standard_gan_lin_proj"+str(linear_projection_iterator), regularizer=tf.contrib.layers.l1_regularizer(0.01))
+    net = linear(net, 1, scope="d_standard_gan_lin_proj"+str(linear_projection_iterator))
     #net = layer_norm_1(int(net.get_shape()[0]), name='d_standard_gan_lin_proj_bn')(net)
     #net = tf.tanh(net)
     return net

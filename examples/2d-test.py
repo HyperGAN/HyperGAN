@@ -117,11 +117,43 @@ elif args.distribution == 'modes':
     x = tf.random_uniform([args.batch_size, 2], -1, 1)
     x = modes(x)
 
+config['model']=args.config
+config['batch_size']=args.batch_size
+config['dtype']=tf.float32
+config = hg.config.lookup_functions(config)
+
+def custom_discriminator_config():
+    return { 'create': custom_discriminator }
+
+def custom_generator_config():
+    return { 'create': custom_generator }
+
+def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
+    net = tf.concat(axis=0, values=[x,g])
+    net = linear(net, 128, scope=prefix+'lin1')
+    net = tf.nn.relu(net)
+    net = linear(net, 128, scope=prefix+'lin2')
+    net = tf.tanh(net)
+    return net
+
+def custom_generator(config, gan, net):
+    net = linear(net, 128, scope="g_lin_proj")
+    net = tf.nn.relu(net)
+    net = batch_norm_1(config.batch_size, name='g_bn_3')(net)
+    net = linear(net, 2, scope="g_lin_proj3")
+    net = tf.tanh(net)
+    return [net]
+
 initial_graph = {
     'x':x,
     'num_labels':1,
 }
 
+config['generator']= custom_generator_config()
+config['discriminators']= [
+        custom_discriminator_config(), 
+        custom_discriminator_config()
+        ]
 
 with tf.device(args.device):
     gan = hg.GAN(config, initial_graph)

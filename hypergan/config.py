@@ -26,7 +26,7 @@ def selector(args):
     # Generator configuration
     selector.set("generator", [resize_conv_generator.config()])
 
-    selector.set("trainer", rmsprop_trainer.config())
+    selector.set("trainer", adam_trainer.config())
 
     # Discriminator configuration
     discriminators = []

@@ -24,8 +24,15 @@ def create(config, gan, d_vars, g_vars):
     g_lr = np.float32(config.generator_learn_rate)
     d_lr = np.float32(config.discriminator_learn_rate)
     gan.graph.d_vars = d_vars
-    g_optimizer = tf.train.RMSPropOptimizer(g_lr, decay=config.d_decay, momentum=config.g_momentum).minimize(g_loss, var_list=g_vars)
-    d_optimizer = tf.train.RMSPropOptimizer(d_lr, decay=config.g_decay, momentum=config.d_momentum).minimize(d_loss, var_list=d_vars)
+
+    g_optimizer = tf.train.RMSPropOptimizer(g_lr, decay=config.d_decay, momentum=config.g_momentum)
+    d_optimizer = tf.train.RMSPropOptimizer(d_lr, decay=config.g_decay, momentum=config.d_momentum)
+    if(config.clipped_gradient):
+        g_optimizer = capped_optimizer(g_optimizer, config.clipped_gradient, g_loss, g_vars)
+        d_optimizer = capped_optimizer(d_optimizer, config.clipped_gradient, d_loss, d_vars)
+    else:
+        g_optimizer = g_optimizer.minimize(g_loss, var_list=g_vars)
+        d_optimizer = d_optimizer.minimize(d_loss, var_list=d_vars)
     return g_optimizer, d_optimizer
 
 iteration = 0

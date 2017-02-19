@@ -31,12 +31,14 @@ def create(config, gan, d_vars, g_vars):
     d_lr = np.float32(config.discriminator_learn_rate)
 
     gan.graph.d_vars = d_vars
-    if(config.capped):
-        g_optimizer = capped_optimizer(tf.train.AdamOptimizer, g_lr, g_loss, g_vars)
-        d_optimizer = capped_optimizer(tf.train.AdamOptimizer, d_lr, d_loss, d_vars)
+    g_optimizer = tf.train.AdamOptimizer(g_lr, beta1=config.discriminator.beta1, beta2=config.discriminator_beta2)
+    d_optimizer = tf.train.AdamOptimizer(d_lr, beta1=config.discriminator.beta1, beta2=config.discriminator_beta2)
+    if(config.clipped_gradient):
+        g_optimizer = capped_optimizer(g_optimizer, config.clipped_gradient, g_loss, g_vars)
+        d_optimizer = capped_optimizer(d_optimizer, config.clipped_gradient, d_loss, d_vars)
     else:
-        g_optimizer = tf.train.AdamOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
-        d_optimizer = tf.train.AdamOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
+        g_optimizer = g_optimizer.minimize(g_loss, var_list=g_vars)
+        d_optimizer = d_optimizer.minimize(d_loss, var_list=d_vars)
 
     return g_optimizer, d_optimizer
 
@@ -63,12 +65,15 @@ def run(gan):
         clip = [tf.assign(d,tf.clip_by_value(d, -config.clip_value, config.clip_value))  for d in d_vars]
         sess.run(clip)
 
+    global iteration
     if(d_class_loss is not None):
         _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
-        print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_class, d_log ))
+        if iteration % 100 == 0:
+            print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_class, d_log ))
     else:
         _, g_cost,d_fake,d_real = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss])
-        print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_log ))
+        if iteration % 100 == 0:
+            print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_log ))
 
 
     global iteration

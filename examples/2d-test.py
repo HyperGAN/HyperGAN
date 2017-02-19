@@ -46,14 +46,60 @@ def sampler(gan, name):
     plt.ylabel("z")
     plt.xlabel("z")
     plt.savefig(name)
+
+def no_regularizer(amt):
+    return None
  
+def custom_discriminator_config():
+    return { 
+            'create': custom_discriminator, 
+            'regularizer': no_regularizer,#tf.contrib.layers.l2_regularizer, 
+            'regularizer_lambda': 0.0001
+    }
+
+def custom_generator_config():
+    return { 
+            'create': custom_generator ,
+            'regularizer': no_regularizer,#tf.contrib.layers.l2_regularizer, tf.contrib.layers.l2_regularizer, 
+            'regularizer_lambda': 0.0001 
+    }
+
+def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
+    net = tf.concat(axis=0, values=[x,g])
+    net = linear(net, 128, scope=prefix+'lin1', regularizer=config.regularizer(config.regularizer_lambda))
+    net = tf.tanh(net)
+    net = linear(net, 128, scope=prefix+'lin2', regularizer=config.regularizer(config.regularizer_lambda))
+    return net
+
+def custom_generator(config, gan, net):
+    net = linear(net, 128, scope="g_lin_proj", regularizer=config.regularizer(config.regularizer_lambda))
+    net = batch_norm_1('g_bn_1')(net)
+    net = tf.tanh(net)
+    net = linear(net, 2, scope="g_lin_proj2", regularizer=config.regularizer(config.regularizer_lambda))
+    return [net]
+
+
 args = parse_args()
 
 selector = hg.config.selector(args)
 
 config = selector.random_config()
 config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
+
+custom_config = {
+    'model': args.config,
+    'batch_size': args.batch_size,
+#    'trainer': hg.trainers.adam_trainer.config(),
+    'generator': custom_generator_config(),
+    'discriminators': [custom_discriminator_config()]
+}
+
+for key,value in custom_config.items():
+    config[key]=value
+
 config = selector.load_or_create_config(config_filename, config)
+config = hg.config.lookup_functions(config)
+config['dtype']=tf.float32
 
 def circle(x):
     spherenet = tf.square(x)
@@ -71,41 +117,15 @@ elif args.distribution == 'modes':
     x = tf.random_uniform([args.batch_size, 2], -1, 1)
     x = modes(x)
 
-config['model']=args.config
-config['batch_size']=args.batch_size
-config['dtype']=tf.float32
-config = hg.config.lookup_functions(config)
-
-def custom_discriminator_config():
-    return { 'create': custom_discriminator }
-
-def custom_generator_config():
-    return { 'create': custom_generator }
-
-def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
-    net = tf.concat(axis=0, values=[x,g])
-    net = linear(net, 128, scope=prefix+'lin1')
-    net = tf.tanh(net)
-    net = linear(net, 128, scope=prefix+'lin2')
-    return net
-
-def custom_generator(config, gan, net):
-    net = linear(net, 128, scope="g_lin_proj")
-    net = batch_norm_1('g_bn_1')(net)
-    net = tf.tanh(net)
-    net = linear(net, 2, scope="g_lin_proj2")
-    return [net]
-
 initial_graph = {
     'x':x,
     'num_labels':1,
 }
 
-config['generator']= custom_generator_config()
-config['discriminators']= [custom_discriminator_config()]
 
 with tf.device(args.device):
     gan = hg.GAN(config, initial_graph)
+    print("CONFIG", gan.config)
 
     gan.initialize_graph()
     samples = 0

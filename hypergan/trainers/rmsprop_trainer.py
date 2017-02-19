@@ -30,9 +30,9 @@ def create(config, gan, d_vars, g_vars):
 
     g_optimizer = tf.train.RMSPropOptimizer(g_lr, decay=config.g_decay, momentum=config.g_momentum)
     d_optimizer = tf.train.RMSPropOptimizer(d_lr, decay=config.d_decay, momentum=config.d_momentum)
-    if(config.clipped_gradient):
-        g_optimizer = capped_optimizer(g_optimizer, config.clipped_gradient, g_loss, g_vars)
-        d_optimizer = capped_optimizer(d_optimizer, config.clipped_gradient, d_loss, d_vars)
+    if(config.clipped_gradients):
+        g_optimizer = capped_optimizer(g_optimizer, config.clipped_gradients, g_loss, g_vars)
+        d_optimizer = capped_optimizer(d_optimizer, config.clipped_gradients, d_loss, d_vars)
     else:
         g_optimizer = g_optimizer.minimize(g_loss, var_list=g_vars)
         d_optimizer = d_optimizer.minimize(d_loss, var_list=d_vars)
@@ -57,7 +57,7 @@ def run(gan):
 
     _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
     if config.clipped_d_weights:
-        clip = [tf.assign(d,tf.clip_by_value(d, -config.clipped_discriminator, config.clipped_discriminator))  for d in d_vars]
+        clip = [tf.assign(d,tf.clip_by_value(d, -config.clipped_d_weights, config.clipped_d_weights))  for d in d_vars]
         sess.run(clip)
 
     global iteration

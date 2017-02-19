@@ -6,41 +6,16 @@ import hypergan as hg
 import hyperchamber as hc
 import matplotlib.pyplot as plt
 from hypergan.loaders import *
-from hypergan.samplers.common import *
 from hypergan.util.hc_tf import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a 2d test!', add_help=True)
-    parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
+    parser.add_argument('--batch_size', '-b', type=int, default=32, help='Examples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
     parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
     parser.add_argument('--config', '-c', type=str, default='2d-test', help='config name')
     parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
     return parser.parse_args()
-
-z_v = None
-def sampler(gan, name):
-    generator = gan.graph.g[0]
-    z_t = gan.graph.z[0]
-    x_t = gan.graph.x
-    sess = gan.sess
-    config = gan.config
-    x_v = sess.run(x_t)
-    global z_v
-    if z_v == None:
-        z_v = sess.run(z_t)
-
-    sample = sess.run(generator , {x_t: x_v, z_t: z_v})
-    plt.clf()
-    plt.figure(figsize=(4,4))
-    plt.scatter(*zip(*x_v), c='b')
-    plt.scatter(*zip(*sample), c='r')
-    plt.xlim([-4, 4])
-    plt.ylim([-4, 4])
-    plt.ylabel("z")
-    plt.xlabel("z")
-    plt.savefig(name)
 
 def no_regularizer(amt):
     return None

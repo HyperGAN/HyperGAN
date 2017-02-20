@@ -38,7 +38,7 @@ def sampler(gan, name):
     
     images = np.vstack([np.hstack(s) for s in stacks])
     plt.clf()
-    plt.figure(figsize=(8,8))
+    plt.figure(figsize=(5,5))
     plt.scatter(*zip(*x_v), c='b')
     plt.scatter(*zip(*sample), c='r')
     plt.xlim([-4, 4])

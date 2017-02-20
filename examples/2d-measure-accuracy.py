@@ -151,24 +151,23 @@ def train():
         z_0 = gan.sess.run(gan.graph.z[0])
 
         gan.initialize_graph()
-        samples = 0
 
         ax_sum = 0
         ag_sum = 0
         dlog = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(1000):
+        for i in range(100000):
             d_loss, g_loss = gan.train()
 
-            ax, ag, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
-
-            ax_sum += ax
-            ag_sum += ag
-            dlog = dl
+            if(i > 99500):
+                ax, ag, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
+                ax_sum += ax
+                ag_sum += ag
+                dlog = dl
 
         with open("results.csv", "a") as myfile:
-            myfile.write(config_name+","+ str(ax_sum+ag_sum)+","+str(dlog)+"\n")
+            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(dlog)+"\n")
         tf.reset_default_graph()
         gan.sess.close()
 

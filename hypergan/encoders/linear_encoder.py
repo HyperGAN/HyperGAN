@@ -19,6 +19,11 @@ def modal(config, gan, net):
   net = tf.round(net*(config.modes))/(config.modes)
   return net
 
+def binary(config, gan, net):
+  net = tf.greater(net, 0)
+  net = tf.cast(net, tf.float32)
+  return net
+
 def modal_gaussian(config, gan, net):
   a = modal(config, gan, net)
   b = gaussian(config, gan, net)

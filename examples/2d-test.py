@@ -38,7 +38,7 @@ def sampler(gan, name):
     
     images = np.vstack([np.hstack(s) for s in stacks])
     plt.clf()
-    plt.figure(figsize=(4,4))
+    plt.figure(figsize=(8,8))
     plt.scatter(*zip(*x_v), c='b')
     plt.scatter(*zip(*sample), c='r')
     plt.xlim([-4, 4])
@@ -133,6 +133,21 @@ if args.distribution == 'circle':
 elif args.distribution == 'modes':
     x = tf.random_uniform([args.batch_size, 2], -1, 1)
     x = modes(x)
+elif args.distribution == 'sin':
+    x = tf.random_uniform((1, args.batch_size), -10.5, 10.5 )
+    x = tf.transpose(x)
+    r_data = tf.random_normal((args.batch_size,1), mean=0, stddev=0.1)
+    xy = tf.sin(0.75*x)*7.0+x*0.5+r_data*1.0
+    x = tf.concat([xy,x], 1)
+
+elif args.distribution == 'arch':
+    offset1 = tf.random_uniform((1, args.batch_size), -10, 10 )
+    xa = tf.random_uniform((1, 1), 1, 4 )
+    xb = tf.random_uniform((1, 1), 1, 4 )
+    x1 = tf.random_uniform((1, args.batch_size), -1, 1 )
+    xcos = tf.cos(x1*np.pi + offset1)*xa
+    xsin = tf.sin(x1*np.pi + offset1)*xb
+    x = tf.transpose(tf.concat([xcos,xsin], 0))
 
 config['model']=args.config
 config['batch_size']=args.batch_size

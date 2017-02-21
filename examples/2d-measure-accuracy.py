@@ -20,33 +20,31 @@ def parse_args():
 def no_regularizer(amt):
     return None
  
-def custom_discriminator_config(regularizer=no_regularizer, regularizer_lambda=0.0001):
+def custom_discriminator_config():
     return { 
-            'create': custom_discriminator, 
-            'regularizer': regularizer,
-            'regularizer_lambda': regularizer_lambda
+            'create': custom_discriminator 
     }
 
-def custom_generator_config(regularizer=no_regularizer, regularizer_lambda=0.0001):
+def custom_generator_config():
     return { 
-            'create': custom_generator,
-            'regularizer': regularizer,
-            'regularizer_lambda': regularizer_lambda
+            'create': custom_generator
     }
 
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
-    net = linear(net, 128, scope=prefix+'lin1', regularizer=config.regularizer(config.regularizer_lambda))
-    net = tf.tanh(net)
-    net = linear(net, 128, scope=prefix+'lin2', regularizer=config.regularizer(config.regularizer_lambda))
+    net = linear(net, 128, scope=prefix+'lin1')
+    net = tf.nn.relu(net)
+    net = linear(net, 128, scope=prefix+'lin2')
     return net
 
 def custom_generator(config, gan, net):
-    net = linear(net, 128, scope="g_lin_proj", regularizer=config.regularizer(config.regularizer_lambda))
-    net = batch_norm_1('g_bn_1')(net)
+    net = linear(net, 128, scope="g_lin_proj")
+    net = batch_norm_1(gan.config.batch_size, name='g_bn_1')(net)
+    net = tf.nn.relu(net)
+    net = linear(net, 2, scope="g_lin_proj3")
     net = tf.tanh(net)
-    net = linear(net, 2, scope="g_lin_proj2", regularizer=config.regularizer(config.regularizer_lambda))
     return [net]
+
 
 def batch_accuracy(a, b):
     "Each point of a is measured against the closest point on b.  Distance differences are added together."
@@ -78,23 +76,32 @@ def train():
     trainers.append(hg.trainers.adam_trainer.config())
 
     rms_opts = {
-        'g_momentum': [0,1e-6],
-        'd_momentum': [0,1e-6],
-        'd_decay': [0.9,0.99,0.999,0.995],
-        'g_decay': [0.9,0.99,0.999,0.995],
-        'clipped_gradients': [False, 1e-4],
-        'clipped_d_weights': [False, 1e-2],
-        'd_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3],
-        'g_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3]
+        'g_momentum': [0,1e-6,1e-5,1e-1],
+        'd_momentum': [0,1e-6,1e-5,1e-1],
+        'd_decay': [0.99,0.999,0.995,0.9999,1],
+        'g_decay': [0.99,0.999,0.995,0.9999,1],
+        'clipped_gradients': [False, 1e-4, 1e-3, 1e-2],
+        'clipped_d_weights': [False, 1e-2, 1e-1, 1e-3],
+        'd_learn_rate': [4e-4, 1e-3],
+        'g_learn_rate': [4e-4, 1e-3]
     }
     trainers.append(hg.trainers.rmsprop_trainer.config(**rms_opts))
 
     encoders = []
+
+    projections = []
+    projections.append([hg.encoders.linear_encoder.modal])
+    projections.append([hg.encoders.linear_encoder.binary, hg.encoders.linear_encoder.sphere])
+    projections.append([hg.encoders.linear_encoder.sphere, hg.encoders.linear_encoder.linear])
+    projections.append([hg.encoders.linear_encoder.binary])
     encoder_opts = {
-            'z': 2,
+            'z': [2,4,8,16,32],
             'modes': 2,
-            'projections': [[hg.encoders.linear_encoder.modal]]
+            'projections': projections
             }
+
+    losses = []
+    losses.append([hg.losses.wgan_loss.config()])
     encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
     custom_config = {
         'model': args.config,
@@ -102,6 +109,7 @@ def train():
         'trainer': trainers,
         'generator': custom_generator_config(),
         'discriminators': [[custom_discriminator_config()]],
+        'losses': losses,
         'encoders': encoders
     }
 
@@ -134,6 +142,20 @@ def train():
     elif args.distribution == 'modes':
         x = tf.random_uniform([args.batch_size, 2], -1, 1)
         x = modes(x)
+    elif args.distribution == 'sin':
+        x = tf.random_uniform((1, args.batch_size), -10.5, 10.5 )
+        x = tf.transpose(x)
+        r_data = tf.random_normal((args.batch_size,1), mean=0, stddev=0.1)
+        xy = tf.sin(0.75*x)*7.0+x*0.5+r_data*1.0
+        x = tf.concat([xy,x], 1)/16.0
+    elif args.distribution == 'arch':
+        offset1 = tf.random_uniform((1, args.batch_size), -10, 10 )
+        xa = tf.random_uniform((1, 1), 1, 4 )
+        xb = tf.random_uniform((1, 1), 1, 4 )
+        x1 = tf.random_uniform((1, args.batch_size), -1, 1 )
+        xcos = tf.cos(x1*np.pi + offset1)*xa
+        xsin = tf.sin(x1*np.pi + offset1)*xb
+        x = tf.transpose(tf.concat([xcos,xsin], 0))/16.0
 
     initial_graph = {
             'x':x,
@@ -155,19 +177,20 @@ def train():
         ax_sum = 0
         ag_sum = 0
         dlog = 0
+        last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(100000):
+        for i in range(50000):
             d_loss, g_loss = gan.train()
 
-            if(i > 99500):
+            if(i > 40000):
                 ax, ag, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
         with open("results.csv", "a") as myfile:
-            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(dlog)+"\n")
+            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(last_i)+"\n")
         tf.reset_default_graph()
         gan.sess.close()
 

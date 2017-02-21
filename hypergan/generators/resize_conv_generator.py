@@ -77,9 +77,10 @@ def create(config, gan, net):
             first3 = net
         else:
             first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1,3])
-        if config.layer_regularizer:
-            first3 = config.layer_regularizer(gan.config.batch_size, name='g_bn_first3_'+str(i))(first3)
-        first3 = config.final_activation(first3)
+        if config.final_activation:
+            if config.layer_regularizer:
+                first3 = config.layer_regularizer(gan.config.batch_size, name='g_bn_first3_'+str(i))(first3)
+            first3 = config.final_activation(first3)
         nets.append(first3)
         size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])
         print("[generator] layer", net, size)

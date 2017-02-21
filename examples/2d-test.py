@@ -41,10 +41,9 @@ def sampler(gan, name):
     plt.figure(figsize=(5,5))
     plt.scatter(*zip(*x_v), c='b')
     plt.scatter(*zip(*sample), c='r')
-    plt.xlim([-4, 4])
-    plt.ylim([-4, 4])
+    plt.xlim([-2, 2])
+    plt.ylim([-2, 2])
     plt.ylabel("z")
-#    plt.xlabel("s = "+str(similarity))
     plt.savefig(name)
 
 def no_regularizer(amt):
@@ -59,6 +58,7 @@ def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
 
 def custom_generator(config, gan, net):
     net = linear(net, 128, scope="g_lin_proj")
+    net = batch_norm_1(gan.config.batch_size, name='g_bn_1')(net)
     net = tf.nn.relu(net)
     net = linear(net, 2, scope="g_lin_proj3")
     net = tf.tanh(net)
@@ -138,7 +138,7 @@ elif args.distribution == 'sin':
     x = tf.transpose(x)
     r_data = tf.random_normal((args.batch_size,1), mean=0, stddev=0.1)
     xy = tf.sin(0.75*x)*7.0+x*0.5+r_data*1.0
-    x = tf.concat([xy,x], 1)
+    x = tf.concat([xy,x], 1)/16.0
 
 elif args.distribution == 'arch':
     offset1 = tf.random_uniform((1, args.batch_size), -10, 10 )
@@ -147,7 +147,7 @@ elif args.distribution == 'arch':
     x1 = tf.random_uniform((1, args.batch_size), -1, 1 )
     xcos = tf.cos(x1*np.pi + offset1)*xa
     xsin = tf.sin(x1*np.pi + offset1)*xb
-    x = tf.transpose(tf.concat([xcos,xsin], 0))
+    x = tf.transpose(tf.concat([xcos,xsin], 0))/16.0
 
 config['model']=args.config
 config['batch_size']=args.batch_size

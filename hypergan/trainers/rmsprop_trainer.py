@@ -28,7 +28,6 @@ def create(config, gan, d_vars, g_vars):
     d_lr = np.float32(config.discriminator_learn_rate)
     gan.graph.d_vars = d_vars
 
-    print(config)
     g_optimizer = tf.train.RMSPropOptimizer(g_lr, decay=config.g_decay, momentum=config.g_momentum)
     d_optimizer = tf.train.RMSPropOptimizer(d_lr, decay=config.d_decay, momentum=config.d_momentum)
     if(config.clipped_gradients):

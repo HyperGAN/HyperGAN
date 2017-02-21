@@ -134,7 +134,6 @@ class Graph:
         for extra in extra_g_loss:
             g_loss += extra
         d_loss = tf.reduce_mean(tf.add_n(d_losses))
-        print('d_loss', d_loss)
         #for extra in d_reg_losses:
         #    d_loss += extra
         joint_loss = tf.reduce_mean(tf.add_n(g_losses + d_losses))

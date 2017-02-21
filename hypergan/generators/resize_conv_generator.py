@@ -48,8 +48,6 @@ def create(config, gan, net):
 
     s = [int(x) for x in net.get_shape()]
 
-
-    print("NET IS", net)
     net = block_conv(net, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3, sigmoid_gate=z)
     if(config.layer_filter):
         fltr = config.layer_filter(gan, net)

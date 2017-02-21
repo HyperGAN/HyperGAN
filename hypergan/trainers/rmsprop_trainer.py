@@ -41,6 +41,7 @@ def create(config, gan, d_vars, g_vars):
     return g_optimizer, d_optimizer
 
 iteration = 0
+clip = None
 def run(gan):
     sess = gan.sess
     config = gan.config
@@ -58,7 +59,9 @@ def run(gan):
 
     _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
     if config.clipped_d_weights:
-        clip = [tf.assign(d,tf.clip_by_value(d, -config.clipped_d_weights, config.clipped_d_weights))  for d in d_vars]
+        global clip
+        if(clip == None):
+            clip = [tf.assign(d,tf.clip_by_value(d, -config.clipped_d_weights, config.clipped_d_weights))  for d in d_vars]
         sess.run(clip)
 
     global iteration

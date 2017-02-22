@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from hypergan.loaders import *
 from hypergan.util.hc_tf import *
 
+import math
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a 2d test!', add_help=True)
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Examples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
@@ -195,17 +197,18 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(2000):
+        for i in range(1000):
             d_loss, g_loss = gan.train()
 
-            if(i > 1000):
+            if(i > 500):
                 ax, ag, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
         with open("results.csv", "a") as myfile:
-            myfile.write(config_name+","+str(int(ax_sum))+","+str(int(ag_sum))+","+ str(int(ax_sum+ag_sum))+","+str(int(ax_sum*ag_sum))+","+str(dlog)+","+str(last_i)+"\n")
+            if not any(isinf, [axsum, agsum, ax_sum*ag_sum]):
+                myfile.write(config_name+","+str(int(ax_sum))+","+str(int(ag_sum))+","+ str(int(ax_sum+ag_sum))+","+str(int(ax_sum*ag_sum))+","+str(dlog)+","+str(last_i)+"\n")
         tf.reset_default_graph()
         gan.sess.close()
 

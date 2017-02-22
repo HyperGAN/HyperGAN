@@ -197,10 +197,14 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(5000):
+        for i in range(10000):
             d_loss, g_loss = gan.train()
 
-            if(i > 4000):
+            if(np.abs(d_loss) > 1000 or np.abs(g_loss) > 1000):
+                ax_sum = ag_sum = 100000.00
+                break
+
+            if(i > 9000):
                 ax, ag, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 ax_sum += ax
                 ag_sum += ag

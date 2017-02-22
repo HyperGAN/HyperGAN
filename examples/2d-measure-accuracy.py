@@ -73,30 +73,45 @@ def train():
     config_filename = os.path.expanduser('~/.hypergan/configs/'+config_name+'.json')
 
     trainers = []
-    trainers.append(hg.trainers.adam_trainer.config())
 
     rms_opts = {
-        'g_momentum': [0,1e-6,1e-5,1e-1],
-        'd_momentum': [0,1e-6,1e-5,1e-1],
-        'd_decay': [0.99,0.999,0.995,0.9999,1],
-        'g_decay': [0.99,0.999,0.995,0.9999,1],
-        'clipped_gradients': [False, 1e-4, 1e-3, 1e-2],
-        'clipped_d_weights': [False, 1e-2, 1e-1, 1e-3],
-        'd_learn_rate': [4e-4, 1e-3],
-        'g_learn_rate': [4e-4, 1e-3]
+        'g_momentum': [0,0.1,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
+        'd_momentum': [0,0.1,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
+        'd_decay': [0.8, 0.9, 0.99,0.999,0.995,0.9999,1],
+        'g_decay': [0.8, 0.9, 0.99,0.999,0.995,0.9999,1],
+        'clipped_gradients': [False, 1e-2],
+        'clipped_d_weights': [False, 1e-2],
+        'd_learn_rate': [1e-3,1e-4,5e-4,1e-6,4e-4, 5e-5],
+        'g_learn_rate': [1e-3,1e-4,5e-4,1e-6,4e-4, 5e-5]
     }
     trainers.append(hg.trainers.rmsprop_trainer.config(**rms_opts))
 
+    adam_opts = {}
+
+    adam_opts = {
+        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
+        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
+        'd_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
+        'd_beta2': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
+        'g_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
+        'g_beta2': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
+        'd_epsilon': [1e-8, 1, 0.1, 0.5],
+        'g_epsilon': [1e-8, 1, 0.1, 0.5],
+        'd_clipped_weights': [False, 0.01],
+        'clipped_gradients': [False, 0.01]
+    }
+
+    trainers.append(hg.trainers.adam_trainer.config(**adam_opts))
     encoders = []
 
     projections = []
     projections.append([hg.encoders.linear_encoder.modal])
+    projections.append([hg.encoders.linear_encoder.modal, hg.encoders.linear_encoder.sphere, hg.encoders.linear_encoder.linear])
     projections.append([hg.encoders.linear_encoder.binary, hg.encoders.linear_encoder.sphere])
     projections.append([hg.encoders.linear_encoder.sphere, hg.encoders.linear_encoder.linear])
-    projections.append([hg.encoders.linear_encoder.binary])
     encoder_opts = {
             'z': [2,4,8,16,32],
-            'modes': 2,
+            'modes': [2, 4, 8, 16],
             'projections': projections
             }
 
@@ -180,17 +195,17 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(50000):
+        for i in range(2000):
             d_loss, g_loss = gan.train()
 
-            if(i > 40000):
+            if(i > 1000):
                 ax, ag, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
         with open("results.csv", "a") as myfile:
-            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(last_i)+"\n")
+            myfile.write(config_name+","+str(int(ax_sum))+","+str(int(ag_sum))+","+ str(int(ax_sum+ag_sum))+","+str(int(ax_sum*ag_sum))+","+str(dlog)+","+str(last_i)+"\n")
         tf.reset_default_graph()
         gan.sess.close()
 

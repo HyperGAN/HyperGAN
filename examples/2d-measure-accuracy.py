@@ -207,7 +207,7 @@ def train():
                 dlog = dl
 
         with open("results.csv", "a") as myfile:
-            if not any(isinf, [axsum, agsum, ax_sum*ag_sum]):
+            if not math.isinf(ax_sum*ag_sum):
                 myfile.write(config_name+","+str(int(ax_sum))+","+str(int(ag_sum))+","+ str(int(ax_sum+ag_sum))+","+str(int(ax_sum*ag_sum))+","+str(dlog)+","+str(last_i)+"\n")
         tf.reset_default_graph()
         gan.sess.close()

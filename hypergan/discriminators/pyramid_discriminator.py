@@ -107,15 +107,18 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     k=-1
 
     net = tf.reshape(net, [batch_size*2, -1])
-    if final_activation:
+
+    if final_activation or config.fc_layers > 0:
         if batch_norm is not None:
             net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
 
-        for i in range(config.fc_layers):
-            net = activation(net)
-            net = linear(net, config.fc_layer_size, scope=prefix+"_fc_end"+str(i))
+    for i in range(config.fc_layers):
+        net = activation(net)
+        net = linear(net, config.fc_layer_size, scope=prefix+"_fc_end"+str(i))
+        if final_activation or i < config.fc_layers - 1:
             net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
 
+    if final_activation:
         net = final_activation(net)
 
 

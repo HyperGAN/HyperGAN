@@ -63,7 +63,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
-      net = conv2d(net, max(int(int(net.get_shape()[3])*depth_increase*2),16), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None)
+      net = conv2d(net, max(int(int(net.get_shape()[3])*depth_increase*2),32), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None)
       dims = int(net.get_shape()[3])//2
       loss_terms = tf.slice(net, [0,0,0,dims],[-1,-1,-1,dims])
       net = tf.slice(net, [0,0,0,0],[-1,-1,-1,dims])

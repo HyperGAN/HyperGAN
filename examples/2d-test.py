@@ -13,6 +13,7 @@ def parse_args():
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
     parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
+    parser.add_argument('--steps', '-s', type=int, default=10000000, help='number of steps to run for.  defaults to a lot')
     parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
     parser.add_argument('--config', '-c', type=str, default='2d-test', help='config name')
     parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
@@ -173,7 +174,8 @@ with tf.device(args.device):
     samples = 0
 
     tf.train.start_queue_runners(sess=gan.sess)
-    for i in range(10000000):
+    steps = args.steps
+    for i in range(steps):
         d_loss, g_loss = gan.train()
 
         if i % args.sample_every == 0 and i > 0:

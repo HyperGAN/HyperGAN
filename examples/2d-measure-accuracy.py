@@ -186,6 +186,10 @@ def train():
 
         accuracy_x_to_g=batch_accuracy(gan.graph.x, gan.graph.g[0])
         accuracy_g_to_x=batch_accuracy(gan.graph.g[0], gan.graph.x)
+        s = [int(g) for g in gan.graph.g[0].get_shape()]
+        slice1 = tf.slice(gan.graph.g[0], [0,0], [s[0]//2, -1])
+        slice2 = tf.slice(gan.graph.g[0], [s[0]//2,0], [s[0]//2, -1])
+        accuracy_g_to_g=batch_accuracy(slice1, slice2)
         x_0 = gan.sess.run(gan.graph.x)
         z_0 = gan.sess.run(gan.graph.z[0])
 
@@ -193,6 +197,7 @@ def train():
 
         ax_sum = 0
         ag_sum = 0
+        diversity = 0.00001
         dlog = 0
         last_i = 0
 
@@ -205,13 +210,14 @@ def train():
                 break
 
             if(i > 9000):
-                ax, ag, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
+                ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
+                diversity += agg
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
         with open("results.csv", "a") as myfile:
-            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(last_i)+"\n")
+            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+"\n")
         tf.reset_default_graph()
         gan.sess.close()
 

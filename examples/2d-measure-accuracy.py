@@ -24,7 +24,8 @@ def no_regularizer(amt):
  
 def custom_discriminator_config():
     return { 
-            'create': custom_discriminator 
+            'create': custom_discriminator ,
+            'noise': [1e-2, False]
     }
 
 def custom_generator_config():
@@ -34,6 +35,8 @@ def custom_generator_config():
 
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
+    if(config['noise']):
+        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
     net = linear(net, 128, scope=prefix+'lin1')
     net = tf.nn.relu(net)
     net = linear(net, 128, scope=prefix+'lin2')
@@ -107,18 +110,20 @@ def train():
     encoders = []
 
     projections = []
-    projections.append([hg.encoders.linear_encoder.modal])
+    projections.append([hg.encoders.linear_encoder.modal, hg.encoders.linear_encoder.linear])
     projections.append([hg.encoders.linear_encoder.modal, hg.encoders.linear_encoder.sphere, hg.encoders.linear_encoder.linear])
     projections.append([hg.encoders.linear_encoder.binary, hg.encoders.linear_encoder.sphere])
     projections.append([hg.encoders.linear_encoder.sphere, hg.encoders.linear_encoder.linear])
+    projections.append([hg.encoders.linear_encoder.modal, hg.encoders.linear_encoder.sphere])
+    projections.append([hg.encoders.linear_encoder.sphere, hg.encoders.linear_encoder.linear, hg.encoders.linear_encoder.gaussian])
     encoder_opts = {
-            'z': [2,4,8,16,32],
-            'modes': [2, 4, 8, 16],
+            'z': [16],
+            'modes': [2,4,8,16],
             'projections': projections
             }
 
     losses = []
-    losses.append([hg.losses.wgan_loss.config()])
+    losses.append([hg.losses.lamb_gan_loss.config()])
     encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
     custom_config = {
         'model': args.config,

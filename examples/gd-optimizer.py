@@ -6,6 +6,7 @@ import hyperchamber as hc
 from hypergan.loaders import *
 from hypergan.samplers.common import *
 from hypergan.generators import *
+from hypergan.util.ops import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
@@ -86,7 +87,14 @@ def optimize_g(g, d, config, initial_graph):
     return gan
 
 def create_random_generator():
-    return resize_conv_generator.config()
+    return resize_conv_generator.config(
+            z_projection_depth=[1024,512,256,128],
+            activation=[tf.nn.relu,tf.tanh,lrelu,resize_conv_generator.generator_prelu],
+            final_activation=[None,tf.nn.tanh],
+            depth_reduction=[2,1.5,2.1],
+            layer_filter=None,
+            layer_regularizer=[layer_norm_1,batch_norm_1]
+    )
 
 def run_gan(gan, steps):
     gan.initialize_graph()
@@ -114,13 +122,14 @@ gan1 = optimize_g(g1, d1, config, initial_graph)
 d_log1 = run_gan(gan1, args.steps)
 
 while True:
-
-   
     g2 = create_random_generator()
     gan2 = optimize_g(g2, d1, config, initial_graph)
     d_log2 = run_gan(gan2, args.steps)
     if d_log2 < d_log1 or np.isnan(d_log1):
         g1 = g2
         d_log1 = d_log2
+
     print("d_log1 %02f d_log2 %02f" % (d_log1, d_log2))
+    print("Best G: ", g1)
+    selector.save("best_gd.json", g1)
 

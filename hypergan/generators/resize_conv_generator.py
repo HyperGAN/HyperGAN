@@ -10,16 +10,22 @@ def generator_prelu(net):
     generator_prelus+=1
     return prelu('g_', generator_prelus, net) # Only ever 1 generator
 
-def config():
+def config(
+        z_projection_depth=512,
+        activation=tf.nn.relu,
+        final_activation=tf.nn.tanh,
+        depth_reduction=2,
+        layer_filter=None,
+        layer_regularizer=batch_norm_1
+    ):
     selector = hc.Selector()
 
     selector.set('create', create)
-    selector.set("z_projection_depth", 512) # Used in the first layer - the linear projection of z
-    selector.set("activation", [generator_prelu]); # activation function used inside the generator
-    selector.set("final_activation", [tf.nn.tanh]); # Last layer of G.  Should match the range of your input - typically -1 to 1
-    selector.set("depth_reduction", 2) # Divides our depth by this amount every time we go up in size
-    selector.set('layer_filter', None) #Add information to g
-
+    selector.set("z_projection_depth", z_projection_depth) # Used in the first layer - the linear projection of z
+    selector.set("activation", activation); # activation function used inside the generator
+    selector.set("final_activation", final_activation); # Last layer of G.  Should match the range of your input - typically -1 to 1
+    selector.set("depth_reduction", depth_reduction) # Divides our depth by this amount every time we go up in size
+    selector.set('layer_filter', layer_filter) #Add information to g
     selector.set('layer_regularizer', batch_norm_1)
 
     return selector.random_config()

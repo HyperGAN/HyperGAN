@@ -187,5 +187,21 @@ with tf.device(args.device):
             gan.sample_to_file(sample_file, sampler=sampler)
             samples += 1
 
+    #g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
+    #init = tf.initialize_variables(g_vars)
+    #gan.sess.run(init)
+    #
+    #for i in range(steps):
+    #    d_loss, g_loss = gan.train()
+
+    #    if i % args.sample_every == 0 and i > 0:
+    #        print("Sampling "+str(samples))
+    #        sample_file="samples/%06d.png" % (samples)
+    #        gan.sample_to_file(sample_file, sampler=sampler)
+    #        samples += 1
+
+
+
+
     tf.reset_default_graph()
-    sess.close()
+    gan.sess.close()

@@ -129,6 +129,7 @@ def train():
         'reverse': [True, False]
     }
     losses.append([hg.losses.wgan_loss.config(**loss_opts)])
+    losses.append([hg.losses.lamb_gan_loss.config(**loss_opts)])
     encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
     custom_config = {
         'model': args.config,
@@ -212,14 +213,19 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(10000):
+        for i in range(20000):
             d_loss, g_loss = gan.train()
 
             if(np.abs(d_loss) > 1000 or np.abs(g_loss) > 1000):
                 ax_sum = ag_sum = 100000.00
                 break
 
-            if(i > 9000):
+            if(i % 10000 == 0 and i != 0):
+                g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
+                init = tf.initialize_variables(g_vars)
+                gan.sess.run(init)
+
+            if(i > 19000):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax

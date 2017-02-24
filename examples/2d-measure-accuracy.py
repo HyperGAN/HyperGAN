@@ -123,7 +123,12 @@ def train():
             }
 
     losses = []
-    losses.append([hg.losses.lamb_gan_loss.config()])
+
+    loss_opts = {
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.echo,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
+        'reverse': [True, False]
+    }
+    losses.append([hg.losses.wgan_loss.config(**loss_opts)])
     encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
     custom_config = {
         'model': args.config,

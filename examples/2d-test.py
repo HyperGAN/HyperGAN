@@ -20,13 +20,16 @@ def parse_args():
     return parser.parse_args()
 
 z_v = None
+x_v = None
 def sampler(gan, name):
     generator = gan.graph.g[0]
     z_t = gan.graph.z[0]
     x_t = gan.graph.x
     sess = gan.sess
     config = gan.config
-    x_v = sess.run(x_t)
+    global x_v
+    if x_v == None:
+        x_v = sess.run(x_t)
     global z_v
     if z_v == None:
         z_v = sess.run(z_t)
@@ -184,5 +187,21 @@ with tf.device(args.device):
             gan.sample_to_file(sample_file, sampler=sampler)
             samples += 1
 
+    #g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
+    #init = tf.initialize_variables(g_vars)
+    #gan.sess.run(init)
+    #
+    #for i in range(steps):
+    #    d_loss, g_loss = gan.train()
+
+    #    if i % args.sample_every == 0 and i > 0:
+    #        print("Sampling "+str(samples))
+    #        sample_file="samples/%06d.png" % (samples)
+    #        gan.sample_to_file(sample_file, sampler=sampler)
+    #        samples += 1
+
+
+
+
     tf.reset_default_graph()
-    sess.close()
+    gan.sess.close()

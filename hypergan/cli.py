@@ -154,6 +154,8 @@ class CLI:
     def check_stdin(self):
         try:
             input = sys.stdin.read()
+            if input[0]=="y":
+                return
             print("INPUT", input)
             from IPython import embed
             # Misc code

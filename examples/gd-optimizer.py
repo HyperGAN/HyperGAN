@@ -37,18 +37,34 @@ config = selector.load_or_create_config(config_filename, config)
 config['dtype']=tf.float32
 config['batch_size'] = args.batch_size
 
-def optimize_g(g, d, config, initial_graph,namespace):
+x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
+                            args.directory,
+                            config['batch_size'], 
+                            channels=channels, 
+                            format=args.format,
+                            crop=args.crop,
+                            width=width,
+                            height=height)
+initial_graph = {
+    'x':x,
+    'y':y,
+    'f':f,
+    'num_labels':num_labels,
+    'examples_per_epoch':examples_per_epoch
+}
+
+
+config['y_dims']=num_labels
+config['x_dims']=[height,width]
+config['channels']=channels
+config['model']=args.config
+print(config)
+config = hg.config.lookup_functions(config)
+
+def optimize_g(g, d, config, initial_graph):
     config['generator']=g
     config['discriminators']=[d]
 
-    gan = hg.GAN(config, initial_graph, namespace=namespace)
-    return gan
-
-def create_random_generator():
-    return resize_conv_generator.config()
-
-g1 = create_random_generator()
-while True:
     x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
                                 args.directory,
                                 config['batch_size'], 
@@ -66,44 +82,45 @@ while True:
     }
 
 
-    config['y_dims']=num_labels
-    config['x_dims']=[height,width]
-    config['channels']=channels
-    config['model']=args.config
-    print(config)
-    config = hg.config.lookup_functions(config)
+    gan = hg.GAN(config, initial_graph)
+    return gan
+
+def create_random_generator():
+    return resize_conv_generator.config()
+
+def run_gan(gan, steps):
+    gan.initialize_graph()
+
+    coord = tf.train.Coordinator()
+    threads=tf.train.start_queue_runners(sess=gan.sess, coord=coord)
+    for i in range(steps):
+        gan.train()
+
+    d_log = gan.sess.run(gan.graph.d_log)
+
+    coord.request_stop()
+    coord.join(threads)
+    tf.reset_default_graph()
+    gan.sess.close()
+
+    return d_log
 
 
 
+g1 = create_random_generator()
+d1 = config['discriminators'][0]
+gan1 = optimize_g(g1, d1, config, initial_graph)
+#optimize_d()
+d_log1 = run_gan(gan1, args.steps)
+
+while True:
+
+   
     g2 = create_random_generator()
-    d1 = config['discriminators'][0]
-    gan1 = optimize_g(g1, d1, config, initial_graph, '1')
-    gan2 = optimize_g(g2, d1, config, initial_graph, '2')
-    #optimize_d()
-
-    gan1.initialize_graph()
-    gan2.initialize_graph()
-
-    coord1 = tf.train.Coordinator()
-    coord2 = tf.train.Coordinator()
-    threads1=tf.train.start_queue_runners(sess=gan1.sess, coord=coord1)
-    threads2=tf.train.start_queue_runners(sess=gan2.sess, coord=coord2)
-    for i in range(args.steps):
-        gan1.train()
-        gan2.train()
-
-    d_log1 = gan1.sess.run(gan1.graph.d_log)
-    d_log2 = gan2.sess.run(gan2.graph.d_log)
-
+    gan2 = optimize_g(g2, d1, config, initial_graph)
+    d_log2 = run_gan(gan2, args.steps)
     if d_log2 < d_log1 or np.isnan(d_log1):
         g1 = g2
-
+        d_log1 = d_log2
     print("d_log1 %02f d_log2 %02f" % (d_log1, d_log2))
 
-    coord1.request_stop()
-    coord1.join(threads1)
-    coord2.request_stop()
-    coord2.join(threads2)
-    tf.reset_default_graph()
-    gan1.sess.close()
-    gan2.sess.close()

@@ -20,13 +20,16 @@ def parse_args():
     return parser.parse_args()
 
 z_v = None
+x_v = None
 def sampler(gan, name):
     generator = gan.graph.g[0]
     z_t = gan.graph.z[0]
     x_t = gan.graph.x
     sess = gan.sess
     config = gan.config
-    x_v = sess.run(x_t)
+    global x_v
+    if x_v == None:
+        x_v = sess.run(x_t)
     global z_v
     if z_v == None:
         z_v = sess.run(z_t)

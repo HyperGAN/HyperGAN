@@ -93,7 +93,9 @@ def create_random_generator():
             final_activation=[None,tf.nn.tanh],
             depth_reduction=[2,1.5,2.1],
             layer_filter=None,
-            layer_regularizer=[layer_norm_1,batch_norm_1]
+            layer_regularizer=[layer_norm_1,batch_norm_1],
+            block=[resize_conv_generator.standard_block, resize_conv_generator.inception_block, resize_conv_generator.dense_block],
+            resize_image_type=[1]
     )
 
 def run_gan(gan, steps):

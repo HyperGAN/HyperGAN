@@ -9,7 +9,6 @@ TINY = 1e-12
 class Graph:
     def __init__(self, gan):
         self.gan = gan
-        self.namespace = gan.namespace
 
     def generator(self, z, reuse=False):
         config = self.gan.config
@@ -17,7 +16,7 @@ class Graph:
         output_channels = config.channels
         batch_size = config.batch_size
 
-        with(tf.variable_scope(self.namespace+"generator", reuse=reuse)):
+        with(tf.variable_scope("generator", reuse=reuse)):
 
             if 'y' in self.gan.graph:
                 z = tf.concat(axis=1, values=[z, self.gan.graph.y])
@@ -49,7 +48,7 @@ class Graph:
         discriminators = []
         for i, discriminator in enumerate(config.discriminators):
             discriminator = hc.Config(hc.lookup_functions(discriminator))
-            with(tf.variable_scope(self.namespace+"discriminator")):
+            with(tf.variable_scope("discriminator")):
                 discriminators.append(discriminator.create(self.gan, discriminator, x, g, xs, gs,prefix="d_"+str(i)))
 
         def split_d(net, i):

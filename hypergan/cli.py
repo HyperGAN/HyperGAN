@@ -35,6 +35,8 @@ class CLI:
         parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
+        parser.add_argument('--reset_every', type=int, default=None, help='Resets G every n training steps.')
+        parser.add_argument('--max_resets', type=int, default=1, help='Will only reset G graph this many times.')
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
 
@@ -135,11 +137,22 @@ class CLI:
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
+        reset_count=0
         while(True):
             i+=1
             start_time = time.time()
             with tf.device(args.device):
               self.step()
+
+            if args.reset_every is not None \
+                and i % args.reset_every == 0 \
+                and i > 0 \
+                and args.max_resets > reset_count:
+                print("Resetting G")
+                reset_count+=1
+                g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
+                init = tf.initialize_variables(g_vars)
+                self.gan.sess.run(init)
             if(args.save_every != 0 and i % args.save_every == 0):
                 print(" |= Saving network")
                 self.save()

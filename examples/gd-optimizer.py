@@ -95,7 +95,7 @@ while True:
     d_log1 = gan1.sess.run(gan1.graph.d_log)
     d_log2 = gan2.sess.run(gan2.graph.d_log)
 
-    if d_log2 < d_log1:
+    if d_log2 < d_log1 or np.isnan(d_log1):
         g1 = g2
 
     print("d_log1 %02f d_log2 %02f" % (d_log1, d_log2))

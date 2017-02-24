@@ -24,10 +24,11 @@ def create(config, gan):
         d_real = gan.graph.d_reals[config.discriminator]
         d_fake = gan.graph.d_fakes[config.discriminator]
 
-    with tf.variable_scope("d_linear", reuse=False):
-        d_real = config.reduce(d_real, axis=1)
-    with tf.variable_scope("d_linear", reuse=True):
-        d_fake = config.reduce(d_fake, axis=1)
+    net = tf.concat([d_real, d_fake], 0)
+    net = config.reduce(net, axis=1)
+    s = [int(x) for x in net.get_shape()]
+    d_real = tf.slice(net, [0,0], [s[0]//2,-1])
+    d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
     zeros = tf.zeros_like(d_fake, dtype=gan.config.dtype)
     g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)

@@ -88,7 +88,18 @@ def optimize_d(g, d, config, initial_graph):
     return gan
 
 def create_random_discriminator():
-    return pyramid_discriminator.config(layers=[5,6,7])
+    return pyramid_discriminator.config(
+            activation=[tf.nn.relu, lrelu, tf.nn.relu6, tf.nn.elu],
+            depth_increase=[1.5,1.7,2,2.1],
+            final_activation=[tf.nn.relu, tf.tanh, None],
+            layer_regularizer=[batch_norm_1, layer_norm_1, None],
+            layers=[4,5,6,7],
+            fc_layer_size=[1024,512,2048],
+            fc_layers=[0,1,2],
+            noise=[False, 1e-2],
+            progressive_enhancement=[True, False],
+            strided=[True, False]
+        )
 
 def run_gan(gan, steps):
     d_class_loss = 0

@@ -4,27 +4,34 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import os
 
-def config(resize=None, layers=7):
+def config(
+        activation=lrelu,
+        depth_increase=2,
+        final_activation=tf.nn.tanh,
+        layer_regularizer=layer_norm_1,
+        layers=7,
+        resize=None,
+        noise=None,
+        layer_filter=None,
+        progressive_enhancement=True,
+        fc_layers=0,
+        fc_layer_size=1024,
+        strided=False
+        ):
     selector = hc.Selector()
-    selector.set("final_activation", [tf.nn.tanh])#prelu("d_")])
     selector.set("activation", [lrelu])#prelu("d_")])
-    selector.set('regularizer', [layer_norm_1]) # Size of fully connected layers
-
+    selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
+    selector.set("final_activation", final_activation)
     selector.set("layers", layers) #Layers in D
-    selector.set("depth_increase", [2])# Size increase of D's features on each layer
-
-    selector.set('add_noise', [False]) #add noise to input
-    selector.set('layer_filter', [None]) #add information to D
-    selector.set('layer_filter.progressive_enhancement_enabled', True) #add information to D
-    selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-    selector.set('resize', [resize])
-    selector.set('fc_layers', [0])
-    selector.set('fc_layer_size', [1024])
-
-    selector.set('strided', False) #TODO: true does not work
-
     selector.set('create', discriminator)
-
+    selector.set('fc_layer_size', fc_layer_size)
+    selector.set('fc_layers', fc_layers)
+    selector.set('layer_filter', layer_filter) #add information to D
+    selector.set('layer_regularizer', layer_regularizer) # Size of fully connected layers
+    selector.set('noise', noise) #add noise to input
+    selector.set('progressive_enhancement', progressive_enhancement)
+    selector.set('resize', resize)
+    selector.set('strided', strided) #TODO: true does not work
     return selector.random_config()
 
 #TODO: arguments telescope, root_config/config confusing
@@ -33,7 +40,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     final_activation = config['final_activation']
     depth_increase = config['depth_increase']
     depth = config['layers']
-    batch_norm = config['regularizer']
+    batch_norm = config['layer_regularizer']
     strided = config.strided
 
     # TODO: cross-d feature
@@ -57,8 +64,8 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         net = tf.concat(axis=0, values=[x_filter,g_filter] )
     else:
         net = tf.concat(axis=0, values=[x,g])
-    if(config['add_noise']):
-        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
+    if(config['noise']):
+        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
         
 
     if strided:
@@ -86,10 +93,10 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         else:
             xg = tf.concat(axis=0, values=[xs[index], gs[index]])
 
-        if(config['add_noise']):
-            xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
+        if(config['noise']):
+            xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
   
-        if config['layer_filter.progressive_enhancement_enabled']:
+        if config['progressive_enhancement']:
             net = tf.concat(axis=3, values=[net, xg])
     
       filter_size_w = 2
@@ -116,7 +123,8 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         net = activation(net)
         net = linear(net, config.fc_layer_size, scope=prefix+"_fc_end"+str(i))
         if final_activation or i < config.fc_layers - 1:
-            net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
+            if batch_norm is not None:
+                net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
 
     if final_activation:
         net = final_activation(net)

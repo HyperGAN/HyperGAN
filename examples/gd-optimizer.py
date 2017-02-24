@@ -97,14 +97,15 @@ def create_random_generator():
     )
 
 def run_gan(gan, steps):
+    d_log = 0
     gan.initialize_graph()
 
     coord = tf.train.Coordinator()
     threads=tf.train.start_queue_runners(sess=gan.sess, coord=coord)
     for i in range(steps):
         gan.train()
-
-    d_log = gan.sess.run(gan.graph.d_log)
+        if i > steps // 2:
+            d_log += gan.sess.run(gan.graph.d_log)
 
     coord.request_stop()
     coord.join(threads)

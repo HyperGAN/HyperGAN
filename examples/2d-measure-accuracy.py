@@ -122,7 +122,7 @@ def train():
     losses = []
 
     loss_opts = {
-        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.echo,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
         'reverse': [True, False]
     }
     losses.append([hg.losses.wgan_loss.config(**loss_opts)])

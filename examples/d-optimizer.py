@@ -127,7 +127,8 @@ else:
     raise "Need class loss.  Try adding some classes to your dataset."
 
 g1 = config['generator']
-d1 = create_random_discriminator()
+#d1 = create_random_discriminator()
+d1 = selector.load('best_d.json')
 gan1 = optimize_d(g1, d1, config, initial_graph)
 d_class_loss1 = run_gan(gan1, args.steps)
 

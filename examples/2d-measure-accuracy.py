@@ -220,10 +220,10 @@ def train():
                 ax_sum = ag_sum = 100000.00
                 break
 
-            if(i % 10000 == 0 and i != 0):
-                g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
-                init = tf.initialize_variables(g_vars)
-                gan.sess.run(init)
+            #if(i % 10000 == 0 and i != 0):
+            #    g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
+            #    init = tf.initialize_variables(g_vars)
+            #    gan.sess.run(init)
 
             if(i > 19000):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})

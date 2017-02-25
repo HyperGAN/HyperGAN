@@ -53,7 +53,8 @@ def config(
         layer_filter=None,
         layer_regularizer=batch_norm_1,
         block=[standard_block],
-        resize_image_type=1
+        resize_image_type=1,
+        sigmoid_gate=False
         ):
     selector = hc.Selector()
 
@@ -66,6 +67,7 @@ def config(
     selector.set('layer_regularizer', batch_norm_1)
     selector.set('block', block)
     selector.set('resize_image_type', resize_image_type)
+    selector.set('sigmoid_gate', sigmoid_gate)
 
     return selector.random_config()
 
@@ -115,7 +117,13 @@ def create(config, gan, net):
             fltr=int(net.get_shape()[1])
         if fltr > net.get_shape()[2]:
             fltr=int(net.get_shape()[2])
-        net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=z)
+
+        if config.sigmoid_gate:
+            sigmoid_gate = z
+        else:
+            sigmoid_gate = None
+
+        net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
         print("OUTPUT SIZE", net)
         if(i == depth-1):
             first3 = net

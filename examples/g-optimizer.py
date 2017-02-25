@@ -90,7 +90,7 @@ def create_random_generator():
     return resize_conv_generator.config(
             z_projection_depth=[1024,512,256,128],
             activation=[tf.nn.relu,tf.tanh,lrelu,resize_conv_generator.generator_prelu],
-            final_activation=[None,tf.nn.tanh],
+            final_activation=[None,tf.nn.tanh,resize_conv_generator.minmax],
             depth_reduction=[2,1.5,2.1],
             layer_filter=None,
             layer_regularizer=[layer_norm_1,batch_norm_1],

@@ -140,3 +140,7 @@ def create(config, gan, net):
     return nets
 
     
+def minmax(net):
+    net = tf.minimum(net, 1)
+    net = tf.maximum(net, -1)
+    return net

@@ -24,8 +24,7 @@ def no_regularizer(amt):
  
 def custom_discriminator_config():
     return { 
-            'create': custom_discriminator ,
-            'noise': [1e-2, False]
+            'create': custom_discriminator 
     }
 
 def custom_generator_config():
@@ -35,8 +34,6 @@ def custom_generator_config():
 
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
-    if(config['noise']):
-        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
     net = linear(net, 128, scope=prefix+'lin1')
     net = tf.nn.relu(net)
     net = linear(net, 128, scope=prefix+'lin2')

@@ -3,42 +3,6 @@ import numpy as np
 import hyperchamber as hc
 from hypergan.util.hc_tf import *
 
-def standard_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
-
-def inception_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    print("OUTPUT CHANLLL", output_channels)
-    if output_channels == 3:
-        return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
-    size = int(net.get_shape()[-1])
-    if(batch_norm is not None):
-        net = batch_norm(batch_size, name=name+'bn')(net)
-
-    net = activation(net)
-    s = net.get_shape()
-    if(sigmoid_gate is not None):
-        mask = linear(sigmoid_gate, s[1]*s[2]*s[3], scope=name+"lin_proj_mask")
-        mask = tf.reshape(mask, net.get_shape())
-        net *= tf.nn.sigmoid(mask)
-
-    if output_channels == 3:
-        return conv2d(net, output_channels, name=name, k_w=filter, k_h=filter, d_h=1, d_w=1)
-
-    net1 = conv2d(net, output_channels//3, name=name+'1', k_w=1, k_h=1, d_h=1, d_w=1)
-    net2 = conv2d(net1, output_channels//3, name=name+'2', k_w=filter, k_h=filter, d_h=1, d_w=1)
-    net3 = conv2d(net2, output_channels//3, name=name+'3', k_w=filter, k_h=filter, d_h=1, d_w=1)
-    net = tf.concat(axis=3, values=[net1, net2, net3])
-    return net
-
-def dense_block(net,config,  activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    if output_channels == 3:
-        return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
-
-    net1 = block_conv(net, activation, batch_size, 'identity', name, output_channels=max(output_channels-16, 16), filter=filter, batch_norm=config.layer_regularizer)
-    net2 = block_conv(net, activation, batch_size, 'identity', name+'2', output_channels=16, filter=filter, batch_norm=config.layer_regularizer)
-    net = tf.concat(axis=3, values=[net1, net2])
-    return net
-
 generator_prelus=0
 def generator_prelu(net):
     global generator_prelus # hack
@@ -52,7 +16,7 @@ def config(
         depth_reduction=2,
         layer_filter=None,
         layer_regularizer=batch_norm_1,
-        block=[standard_block],
+        layer=[standard_layer],
         resize_image_type=1,
         sigmoid_gate=False
         ):
@@ -65,7 +29,7 @@ def config(
     selector.set("depth_reduction", depth_reduction) # Divides our depth by this amount every time we go up in size
     selector.set('layer_filter', layer_filter) #Add information to g
     selector.set('layer_regularizer', batch_norm_1)
-    selector.set('block', block)
+    selector.set('layer', layer)
     selector.set('resize_image_type', resize_image_type)
     selector.set('sigmoid_gate', sigmoid_gate)
 
@@ -95,7 +59,7 @@ def create(config, gan, net):
 
     s = [int(x) for x in net.get_shape()]
 
-    net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3)
+    net = config.layer(net, gan, config, i=0, prefix='g_')
     if(config.layer_filter):
         fltr = config.layer_filter(gan, net)
         if(fltr is not None):
@@ -123,8 +87,7 @@ def create(config, gan, net):
         else:
             sigmoid_gate = None
 
-        net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
-        print("OUTPUT SIZE", net)
+        net = config.layer(net, gan, config, i=i+1, prefix='g_layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
         if(i == depth-1):
             first3 = net
         else:

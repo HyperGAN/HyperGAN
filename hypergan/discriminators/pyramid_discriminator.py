@@ -8,6 +8,7 @@ def config(
         activation=lrelu,
         depth_increase=2,
         final_activation=tf.nn.tanh,
+        first_conv_size=[16,8],
         layer_regularizer=layer_norm_1,
         layers=7,
         resize=None,
@@ -16,14 +17,20 @@ def config(
         progressive_enhancement=True,
         fc_layers=0,
         fc_layer_size=1024,
-        strided=False
+        strided=False,
+        create=None
         ):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
     selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
     selector.set("final_activation", final_activation)
+    selector.set("first_conv_size", first_conv_size)
     selector.set("layers", layers) #Layers in D
-    selector.set('create', discriminator)
+    if create is None:
+        selector.set('create', discriminator)
+    else:
+        selector.set('create', create)
+
     selector.set('fc_layer_size', fc_layer_size)
     selector.set('fc_layers', fc_layers)
     selector.set('layer_filter', layer_filter) #add information to D
@@ -69,9 +76,9 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         
 
     if strided:
-        net = conv2d(net, 64, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
+        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
     else:
-        net = conv2d(net, 16, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
+        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
 
     for i in range(depth):
       #TODO better name for `batch_norm`?

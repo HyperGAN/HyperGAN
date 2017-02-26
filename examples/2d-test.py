@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from hypergan.loaders import *
 from hypergan.samplers.common import *
 from hypergan.util.hc_tf import *
+from hypergan.generators import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a 2d test!', add_help=True)
@@ -19,6 +20,7 @@ def parse_args():
     parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
     return parser.parse_args()
 
+# TODO share this code with 2d-measure-accuracy
 z_v = None
 x_v = None
 def sampler(gan, name):
@@ -83,6 +85,29 @@ def custom_generator_config(regularizer=no_regularizer, regularizer_lambda=0.000
             'regularizer_lambda': regularizer_lambda
     }
 
+def d_pyramid_create(gan, config, x, g, xs, gs, prefix='d_'):
+    with tf.variable_scope("d_input_projection", reuse=False):
+        x = linear(x, 8*8, scope=prefix+'input_projection')
+        x = tf.reshape(x, [gan.config.batch_size, 8, 8, 1])
+    with tf.variable_scope("d_input_projection", reuse=True):
+        g = linear(g, 8*8, scope=prefix+'input_projection')
+        g = tf.reshape(g, [gan.config.batch_size, 8, 8, 1])
+    return hg.discriminators.pyramid_discriminator.discriminator(gan, config, x, g, xs, gs, prefix)
+
+def g_resize_conv_create(config, gan, net):
+    gan.config.x_dims = [8,8]
+    gan.config.channels = 1
+    gs = resize_conv_generator.create(config,gan,net)
+    filter = [1,4,8,1]
+    stride = [1,4,8,1]
+    gs[0] = tf.nn.avg_pool(gs[0], ksize=filter, strides=stride, padding='SAME')
+    #gs[0] = linear(tf.reshape(gs[0], [gan.config.batch_size, -1]), 2, scope="g_2d_lin")
+    gs[0] = tf.reshape(gs[0], [gan.config.batch_size, 2])
+    return gs
+
+
+# TODO end shared code
+
 args = parse_args()
 
 selector = hg.config.selector(args)
@@ -92,6 +117,8 @@ config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
 
 trainers = []
 trainers.append(hg.trainers.adam_trainer.config())
+
+# TODO remove 2d test random searching.  2d-measure-accuracy does that
 
 rms_opts = {
     'g_momentum': [0,1e-6],
@@ -121,6 +148,8 @@ for key,value in custom_config.items():
 config = selector.load_or_create_config(config_filename, config)
 config = hg.config.lookup_functions(config)
 config['dtype']=tf.float32
+
+# TODO this is shared with 2d-measure accuracy
 
 def circle(x):
     spherenet = tf.square(x)
@@ -153,6 +182,8 @@ elif args.distribution == 'arch':
     xsin = tf.sin(x1*np.pi + offset1)*xb
     x = tf.transpose(tf.concat([xcos,xsin], 0))/16.0
 
+# TODO end shared code
+
 config['model']=args.config
 config['batch_size']=args.batch_size
 config['dtype']=tf.float32
@@ -162,12 +193,6 @@ initial_graph = {
     'x':x,
     'num_labels':1,
 }
-
-config['generator']= custom_generator_config()
-config['discriminators']= [
-        custom_discriminator_config(), 
-        custom_discriminator_config()
-        ]
 
 with tf.device(args.device):
     gan = hg.GAN(config, initial_graph)

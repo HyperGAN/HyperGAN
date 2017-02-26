@@ -54,11 +54,16 @@ def config(
         layer_regularizer=batch_norm_1,
         block=[standard_block],
         resize_image_type=1,
-        sigmoid_gate=False
+        sigmoid_gate=False,
+        create_method=None
         ):
     selector = hc.Selector()
+    
+    if create_method is None:
+       selector.set('create', create)
+    else:
+        selector.set('create', create_method)
 
-    selector.set('create', create)
     selector.set("z_projection_depth", z_projection_depth) # Used in the first layer - the linear projection of z
     selector.set("activation", activation); # activation function used inside the generator
     selector.set("final_activation", final_activation); # Last layer of G.  Should match the range of your input - typically -1 to 1

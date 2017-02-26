@@ -8,15 +8,17 @@ from hypergan.losses import wgan_loss, standard_gan_loss
 def config(
         reduce=tf.reduce_mean, 
         reverse=False,
-        discriminator=None
+        discriminator=None,
+        label_smooth=list(np.linspace(0.15, 0.35, num=10)),
+        alpha=[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]
     ):
     selector = hc.Selector()
     selector.set("reduce", reduce)
     selector.set('reverse', reverse)
     selector.set('discriminator', discriminator)
-    selector.set("label_smooth", list(np.linspace(0.15, 0.35, num=100)))
+    selector.set("label_smooth", label_smooth)
     selector.set('create', create)
-    selector.set('alpha', [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9])
+    selector.set('alpha', alpha)
 
     return selector.random_config()
 

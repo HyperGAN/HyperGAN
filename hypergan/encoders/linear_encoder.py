@@ -70,13 +70,13 @@ def periodic_triangle_waveform(z, p):
 
 
 
-def config(z=[20,40,80],mini=-1,maxi=1,projections=[[linear, gaussian, sphere]],
+def config(z=[20,40,80],min=-1,max=1,projections=[[linear, gaussian, sphere]],
         modes=4):
   selector = hc.Selector()
   selector.set('create', create)
   selector.set('z', z)
-  selector.set('min', mini)
-  selector.set('max', maxi)
+  selector.set('min', min)
+  selector.set('max', max)
 
   selector.set('projections', projections)
   selector.set('modes', modes)

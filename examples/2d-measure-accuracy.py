@@ -7,6 +7,7 @@ import hyperchamber as hc
 import matplotlib.pyplot as plt
 from hypergan.loaders import *
 from hypergan.util.hc_tf import *
+from hypergan.generators import *
 
 import math
 
@@ -48,6 +49,55 @@ def custom_generator(config, gan, net):
     return [net]
 
 
+def d_pyramid_search_config():
+    return hg.discriminators.pyramid_discriminator.config(
+	    activation=[tf.nn.relu, lrelu, tf.nn.relu6, tf.nn.elu],
+            depth_increase=[1.5,1.7,2,2.1],
+            final_activation=[tf.nn.relu, tf.tanh, None],
+            layer_regularizer=[batch_norm_1, layer_norm_1, None],
+            layers=[2,1],
+            fc_layer_size=[32,16,8,4,2],
+            fc_layers=[0,1,2],
+            first_conv_size=[4,8,2,1],
+            noise=[False, 1e-2],
+            progressive_enhancement=[False],
+            strided=[True, False],
+            create=d_pyramid_create
+    )
+
+def g_resize_conv_search_config():
+    return resize_conv_generator.config(
+            z_projection_depth=[8,16,32],
+            activation=[tf.nn.relu,tf.tanh,lrelu,resize_conv_generator.generator_prelu],
+            final_activation=[None,tf.nn.tanh,resize_conv_generator.minmax],
+            depth_reduction=[2,1.5,2.1],
+            layer_filter=None,
+            layer_regularizer=[layer_norm_1,batch_norm_1],
+            block=[resize_conv_generator.standard_block, resize_conv_generator.inception_block, resize_conv_generator.dense_block],
+            resize_image_type=[1],
+            create_method=g_resize_conv_create
+    )
+
+def g_resize_conv_create(config, gan, net):
+    gan.config.x_dims = [8,8]
+    gan.config.channels = 1
+    gs = resize_conv_generator.create(config,gan,net)
+    filter = [1,4,8,1]
+    stride = [1,4,8,1]
+    gs[0] = tf.nn.avg_pool(gs[0], ksize=filter, strides=stride, padding='SAME')
+    #gs[0] = linear(tf.reshape(gs[0], [gan.config.batch_size, -1]), 2, scope="g_2d_lin")
+    gs[0] = tf.reshape(gs[0], [gan.config.batch_size, 2])
+    return gs
+
+def d_pyramid_create(gan, config, x, g, xs, gs, prefix='d_'):
+    with tf.variable_scope("d_input_projection", reuse=False):
+        x = linear(x, 8*8, scope=prefix+'input_projection')
+        x = tf.reshape(x, [gan.config.batch_size, 8, 8, 1])
+    with tf.variable_scope("d_input_projection", reuse=True):
+        g = linear(g, 8*8, scope=prefix+'input_projection')
+        g = tf.reshape(g, [gan.config.batch_size, 8, 8, 1])
+    return hg.discriminators.pyramid_discriminator.discriminator(gan, config, x, g, xs, gs, prefix)
+
 def batch_accuracy(a, b):
     "Each point of a is measured against the closest point on b.  Distance differences are added together."
     tiled_a = a
@@ -86,7 +136,19 @@ def train():
         'd_learn_rate': [1e-3,1e-4,5e-4,1e-6,4e-4, 5e-5],
         'g_learn_rate': [1e-3,1e-4,5e-4,1e-6,4e-4, 5e-5]
     }
-    trainers.append(hg.trainers.rmsprop_trainer.config(**rms_opts))
+
+    stable_rms_opts = {
+        "clipped_d_weights": 0.01,
+        "clipped_gradients": False,
+        "d_decay": 0.995,
+        "d_momentum": 1e-05,
+        "d_learn_rate": 0.001,
+        "g_decay": 0.995,
+        "g_momentum": 1e-06,
+        "g_learn_rate": 0.0005,
+    }
+
+    #trainers.append(hg.trainers.rmsprop_trainer.config(**stable_rms_opts))
 
     adam_opts = {}
 
@@ -104,6 +166,7 @@ def train():
     }
 
     trainers.append(hg.trainers.adam_trainer.config(**adam_opts))
+
     encoders = []
 
     projections = []
@@ -119,21 +182,44 @@ def train():
             'projections': projections
             }
 
+    stable_encoder_opts = {
+      "max": 1,
+      "min": -1,
+      "modes": 8,
+      "projections": [[
+        "function:hypergan.encoders.linear_encoder.modal",
+        "function:hypergan.encoders.linear_encoder.sphere",
+        "function:hypergan.encoders.linear_encoder.linear"
+      ]],
+      "z": 16
+    }
+
     losses = []
 
     loss_opts = {
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
         'reverse': [True, False]
     }
-    losses.append([hg.losses.wgan_loss.config(**loss_opts)])
-    losses.append([hg.losses.lamb_gan_loss.config(**loss_opts)])
-    encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
+    stable_loss_opts = {
+      "alpha": 0.2,
+      "discriminator": None,
+      "label_smooth": 0.3378787878787879,
+      "reduce": "function:tensorflow.python.ops.math_ops.reduce_sum",
+      "reverse": False
+    }
+    #losses.append([hg.losses.wgan_loss.config(**loss_opts)])
+    #losses.append([hg.losses.lamb_gan_loss.config(**loss_opts)])
+    losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
+
+
+    #encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
+    encoders.append([hg.encoders.linear_encoder.config(**stable_encoder_opts)])
     custom_config = {
         'model': args.config,
         'batch_size': args.batch_size,
         'trainer': trainers,
-        'generator': custom_generator_config(),
-        'discriminators': [[custom_discriminator_config()]],
+        'generator': g_resize_conv_search_config(),
+        'discriminators': [[d_pyramid_search_config()]],
         'losses': losses,
         'encoders': encoders
     }
@@ -187,6 +273,7 @@ def train():
             'num_labels':1,
             }
 
+    print("Starting training for: "+config_filename)
     selector.save(config_filename, config)
 
     with tf.device(args.device):

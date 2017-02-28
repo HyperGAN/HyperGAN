@@ -140,15 +140,14 @@ def train():
     stable_rms_opts = {
         "clipped_d_weights": 0.01,
         "clipped_gradients": False,
-        "d_decay": 0.995,
-        "d_momentum": 1e-05,
+        "d_decay": 0.995, "d_momentum": 1e-05,
         "d_learn_rate": 0.001,
         "g_decay": 0.995,
         "g_momentum": 1e-06,
         "g_learn_rate": 0.0005,
     }
 
-    #trainers.append(hg.trainers.rmsprop_trainer.config(**stable_rms_opts))
+    trainers.append(hg.trainers.rmsprop_trainer.config(**rms_opts))
 
     adam_opts = {}
 
@@ -196,7 +195,25 @@ def train():
 
     losses = []
 
-    loss_opts = {
+    lamb_loss_opts = {
+        'reverse':[True, False],
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
+        'labels': [
+            [-1, 1, 0],
+            [0, 1, 1],
+            [0, -1, -1],
+            [1, -1, 0],
+            [0, -1, 1],
+            [0, 1, -1],
+            [0, 0.5, -0.5],
+            [0.5, -0.5, 0],
+            [0.5, 0, -0.5]
+        ],
+        'alpha':[0,1e-3,1e-2,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.99,0.999],
+        'beta':[0,1e-3,1e-2,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.99,0.999]
+
+    }
+    lsgan_loss_opts = {
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
         'labels': [
             [-1, 1, 0],
@@ -218,9 +235,9 @@ def train():
       "reverse": False
     }
     #losses.append([hg.losses.wgan_loss.config(**loss_opts)])
-    #losses.append([hg.losses.lamb_gan_loss.config(**loss_opts)])
+    losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
-    losses.append([hg.losses.lsgan_loss.config(**loss_opts)])
+    losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
 
     #encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])

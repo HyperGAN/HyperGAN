@@ -25,10 +25,11 @@ def create(config, gan):
         d_real = gan.graph.d_reals[config.discriminator]
         d_fake = gan.graph.d_fakes[config.discriminator]
 
-    with tf.variable_scope("d_linear", reuse=False):
-        d_real = config.reduce(d_real, axis=1)
-    with tf.variable_scope("d_linear", reuse=True):
-        d_fake = config.reduce(d_fake, axis=1)
+    net = tf.concat([d_real, d_fake], 0)
+    net = config.reduce(net, axis=1)
+    s = [int(x) for x in net.get_shape()]
+    d_real = tf.slice(net, [0,0], [s[0]//2,-1])
+    d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
     a,b,c = config.labels
     d_loss = tf.square(d_real - b)+tf.square(d_fake - a)
@@ -43,7 +44,7 @@ def create(config, gan):
     return [d_loss, g_loss]
 
 def linear_projection(net, axis=1):
-    net = tf.squeeze(linear(net, 1, scope="d_wgan_lin_proj"))
+    net = linear(net, 1, scope="d_lsgan_lin_proj")
     #net = layer_norm_1(int(net.get_shape()[0]), name='d_wgan_lin_proj_bn')(net)
     #net = tf.tanh(net)
     return net

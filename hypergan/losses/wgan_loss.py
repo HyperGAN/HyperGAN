@@ -28,6 +28,7 @@ def create(config, gan):
     net = tf.concat([d_real, d_fake], 0)
     net = config.reduce(net, axis=1)
     s = [int(x) for x in net.get_shape()]
+    net = tf.reshape(net, [s[0], -1])
     d_real = tf.slice(net, [0,0], [s[0]//2,-1])
     d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 

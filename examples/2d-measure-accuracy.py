@@ -198,7 +198,17 @@ def train():
 
     loss_opts = {
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
-        'reverse': [True, False]
+        'labels': [
+            [-1, 1, 0],
+            [0, 1, 1],
+            [0, -1, -1],
+            [1, -1, 0],
+            [0, -1, 1],
+            [0, 1, -1],
+            [0, 0.5, -0.5],
+            [0.5, -0.5, 0],
+            [0.5, 0, -0.5]
+        ]
     }
     stable_loss_opts = {
       "alpha": 0.2,
@@ -209,7 +219,8 @@ def train():
     }
     #losses.append([hg.losses.wgan_loss.config(**loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**loss_opts)])
-    losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
+    #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
+    losses.append([hg.losses.lsgan_loss.config(**loss_opts)])
 
 
     #encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
@@ -218,8 +229,8 @@ def train():
         'model': args.config,
         'batch_size': args.batch_size,
         'trainer': trainers,
-        'generator': g_resize_conv_search_config(),
-        'discriminators': [[d_pyramid_search_config()]],
+        'generator': custom_generator_config(),
+        'discriminators': [[custom_discriminator_config()]],
         'losses': losses,
         'encoders': encoders
     }

@@ -31,7 +31,6 @@ def create(config, gan):
     d_real = tf.slice(net, [0,0], [s[0]//2,-1])
     d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
-
     if(config.reverse):
         d_loss = d_real - d_fake
         g_loss = d_fake
@@ -48,7 +47,7 @@ def create(config, gan):
     return [d_loss, g_loss]
 
 def linear_projection(net, axis=1):
-    net = tf.squeeze(linear(net, 1, scope="d_wgan_lin_proj"))
+    net = linear(net, 1, scope="d_wgan_lin_proj")
     #net = layer_norm_1(int(net.get_shape()[0]), name='d_wgan_lin_proj_bn')(net)
     #net = tf.tanh(net)
     return net

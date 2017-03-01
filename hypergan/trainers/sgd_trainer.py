@@ -3,24 +3,21 @@ import numpy as np
 import hyperchamber as hc
 from .common import *
 
-def config():
+def config(
+        d_learn_rate=1e-3,
+        g_learn_rate=1e-3,
+        d_clipped_weights=False,
+        clipped_gradients=False
+    ):
     selector = hc.Selector()
 
     selector.set('create', create)
     selector.set('run', run)
 
-    selector.set('discriminator_learn_rate', 1e-3)
-    selector.set('discriminator_epsilon', 1e-8)
-    selector.set('discriminator_beta1', 0.9)
-    selector.set('discriminator_beta2', 0.999)
-
-    selector.set('generator_learn_rate', 1e-3)
-    selector.set('generator_epsilon', 1e-8)
-    selector.set('generator_beta1', 0.9)
-    selector.set('generator_beta2', 0.999)
-
-    selector.set('capped', False)
-    selector.set('clipped_discriminator', False)
+    selector.set('d_learn_rate', d_learn_rate)
+    selector.set('g_learn_rate', g_learn_rate)
+    selector.set('clipped_gradients', clipped_gradients)
+    selector.set('d_clipped_weights', d_clipped_weights)
 
     return selector.random_config()
 
@@ -31,8 +28,17 @@ def create(config, gan, d_vars, g_vars):
     d_lr = np.float32(config.discriminator_learn_rate)
 
     gan.graph.d_vars = d_vars
-    g_optimizer = tf.train.GradientDescentOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
-    d_optimizer = tf.train.GradientDescentOptimizer(d_lr).minimize(d_loss, var_list=d_vars)
+    g_optimizer = tf.train.GradientDescentOptimizer(g_lr)
+    d_optimizer = tf.train.GradientDescentOptimizer(d_lr)
+
+    if(config.clipped_gradients):
+        g_optimizer = capped_optimizer(g_optimizer, config.clipped_gradients, g_loss, g_vars)
+        d_optimizer = capped_optimizer(d_optimizer, config.clipped_gradients, d_loss, d_vars)
+    else:
+        g_optimizer = g_optimizer.minimize(g_loss, var_list=g_vars)
+        d_optimizer = d_optimizer.minimize(d_loss, var_list=d_vars)
+
+    gan.graph.clip = [tf.assign(d,tf.clip_by_value(d, -config.d_clipped_weights, config.d_clipped_weights))  for d in d_vars]
 
     return g_optimizer, d_optimizer
 
@@ -55,9 +61,8 @@ def run(gan):
     _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
 
     # in WGAN paper, values are clipped.  This might not work, and is slow.
-    if(config.clipped_discriminator):
-        clip = [tf.assign(d,tf.clip_by_value(d, -config.clip_value, config.clip_value))  for d in d_vars]
-        sess.run(clip)
+    if(config.d_clipped_weights):
+        sess.run(gan.graph.clip)
 
     if(d_class_loss is not None):
         _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])

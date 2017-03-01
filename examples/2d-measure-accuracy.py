@@ -228,16 +228,23 @@ def train():
         ]
     }
     stable_loss_opts = {
-      "alpha": 0.2,
+      "alpha": 0.5,
+      "beta": [0.5, 0.8],
       "discriminator": None,
-      "label_smooth": 0.3378787878787879,
-      "reduce": "function:tensorflow.python.ops.math_ops.reduce_sum",
-      "reverse": False
+      "label_smooth": 0.26111111111111107,
+      "labels": [[
+        0,
+        -1,
+        -1
+      ]],
+      "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
+      "reverse": True
     }
     #losses.append([hg.losses.wgan_loss.config(**loss_opts)])
-    losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
+    #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
+    losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
-    losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
+    #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
 
     #encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])

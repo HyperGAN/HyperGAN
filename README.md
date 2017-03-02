@@ -3,7 +3,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 # Table of contents
 
-* [Changelog](Changelog)
+* [Changelog](#changelog)
 * <a href="#quickstart">Quick start</a>
   * <a href="#minreqs">Minimum Requirements</a>
   * <a href="#qs-install">Install</a>

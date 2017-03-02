@@ -42,20 +42,26 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * <a href="#contributing">Contributing</a>
   * <a href="#our-process">Our process</a>
   * <a href="#branches">Branches</a>
+  * <a href="#showcase">Showcase</a>
+  * <a href="#notable-configurations">Notable Configurations</a>
 
 * <a href="#about">About</a>
-  
+
 
 <div id="changelog"></div>
 
 ## Changelog
 
-## 0.8 - Kitchen sink
+## 0.8 ~ "GAN API"
 
-* New configuration format.  New composable pieces and refactored api.
+* Tensorflow 1.0 support
+* New configuration format and refactored api.
 * New loss function based on least squared GAN.  See <a href="#lsgan">lsgan implementation</a>.
+* API example `2d-test` - tests a trainer/encoder/loss combination against a known distribution.
+* API example `2d-measure` - measure and report the above test by randomly combining options.
+* And more
 
-## 0.7 - "WGAN API"
+## 0.7 ~ "WGAN API"
 
 * New loss function based on `wgan` :.  Fixes many classes of mode collapse!  See <a href="#wgan">wgan implementation</a>
 * Initial Public API Release
@@ -66,12 +72,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## 0.6 ~ "MultiGAN"
 
-* 3 new encoders
-* New discriminator: `densenet` - based loosely on https://arxiv.org/abs/1608.06993
-* Updated discriminator: `pyramid_no_stride` - `conv` and `avg_pool` together
-* New generator: `dense_resize_conv` - original type of generator that seems to work well
-* Updated generator: `resize_conv` - standard resize-conv generator.  This works much better than `deconv`, which is not supported.
-* Several quality of life improvements
+* New encoders
 * Support for multiple discriminators
 * Support for discriminators on different image resolutions
 
@@ -157,7 +158,7 @@ Make sure to include the following 2 arguments:
 ```bash
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
-
+Don't train on CPU!  It's too slow.
 
 <div id='configuration'/>
 # Configuration
@@ -179,6 +180,8 @@ Configurations are located in:
 ```
 
 Naming a configuration during training required.
+
+During beta, the best source of configuration documentation is the source code.  When in doubt, use a configuration in the <a href='#notable-configurations'>notable configurations</a> section.
 
 
 <div id="configuration-architecture"></div>
@@ -228,10 +231,6 @@ Standard DCGan uses this.
 
 Uses categorical prior to choose 'one-of-many' options.  Can be paired with Categorical Loss.
 
-### Variational Encoder
-
-This doesn't exist yet...
-
 <div id="configuration-discriminators"></div>
 ## Discriminators
 
@@ -245,25 +244,43 @@ Progressive enhancement is enabled by default:
 
 TODO table of options
 
-### Densenet Discriminator
-
-currently experimental
-
-## Loss Functions
+## Losses
 
 TODO common options
 
+<div id="wgan"/>
+## Wasserstein GAN in Tensorflow
+
+Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can look like:
+
+```python
+ d_fake = tf.reduce_mean(d_fake,axis=1)
+ d_real = tf.reduce_mean(d_real,axis=1)
+ d_loss = d_real - d_fake
+ g_loss = d_fake
+```
+
+d_loss and g_loss can be reversed as well - just add a '-' sign.
+
+
+<div id="lsgan"/>
+## LS-GAN in Tensorflow
+
+```python
+ d_loss = (d_real-b)**2 - (d_fake-a)**2
+ g_loss = (d_fake-c)**2
+```
+
+a, b, and c are all hyperparameters.
+
+
 ### Standard GAN Loss
 
-TODO more options
-
-### WGAN Loss
-
-TODO table of options
+Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` for details.
 
 ### Categorical loss
 
-TODO this doesn't work???
+This is currently untested.
 
 <div id='#cli'/>
 # CLI
@@ -546,6 +563,13 @@ If you create something cool with this let us know!  Open a pull request and add
 
 In case you are interested, our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
 
+<div id="notable-configurations"/>
+## Notable Configurations
+
+from      |   link   |   input dimensions   | description
+-----------------------------------------------------------
+HyperGAN  |  TODO    |   64x64x3            | ls-gan dcgan
+
 
 
 <div id='about'/>
@@ -565,31 +589,6 @@ A single fully trained `GAN` consists of the following useful networks:
 * `classifier` - Only available when using supervised learning.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
 
 HyperGAN is currently in open beta.
-
-<div id="wgan"/>
-## Wasserstein GAN in Tensorflow
-
-Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can look like:
-
-```python
- d_fake = tf.reduce_mean(d_fake,axis=1)
- d_real = tf.reduce_mean(d_real,axis=1)
- d_loss = d_real - d_fake
- g_loss = d_fake
-```
-
-d_loss and g_loss can be reversed as well - just add a '-' sign.
-
-
-<div id="lsgan"/>
-## LS-GAN in Tensorflow
-
-```python
- d_loss = (d_real-b)**2 - (d_fake-a)**2
- g_loss = (d_fake-c)**2
-```
-
-a, b, and c are all hyperparameters.
 
 ## Discriminators
 

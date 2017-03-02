@@ -4,41 +4,44 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 # Table of contents
 
 * [Changelog](#changelog)
-* <a href="#quickstart">Quick start</a>
-  * <a href="#minreqs">Minimum Requirements</a>
-  * <a href="#qs-install">Install</a>
-  * <a href="#qs-train">Train</a>
-  * <a href="#qs-increase">Increasing Performance</a>
-  * <a href="#qs-devmode">Development Mode</a>
-  * <a href="#qs-runoncpu">Running on CPU</a>
-* <a href="#configuration">Configuration</a>
-  * <a href="#configuration-usage">Usage</a>
-  * <a href="#configuration-architecture">Architecture</a>
-  * <a href="#configuration-generator">Generator</a>
-  * <a href="#configuration-encoders">Encoders</a>
-  * <a href="#configuration-discriminators">Discriminators</a>
-  * <a href='#api-losses'>Losses</a>
-   * <a href="#wgan">WGAN</a>
-   * <a href="#lsgan">LS-GAN</a>
-   * <a href="#standard-gan">Standard GAN/Improved GAN</a>
-* <a href="#cli">The pip package `hypergan`</a>
- * <a href="#cli-train">Training</a>
- * <a href="#cli-sample">Sampling</a>
- * <a href="#cli-serving">Web Server</a>
-* <a href="#api">API</a>
-  * <a href="#api-examples">Examples</a>
-  * <a href="#api-gan">GAN object</a>
-* <a href="#datasets">Datasets</a>
- * <a href="#supervised-learning">Supervised learning</a>
- * <a href="#unsupervised-learning">Unsupervised learning</a>
- * <a href="#createdataset">Creating a Dataset</a>
- * <a href='#downloadabledatasets'>Downloadable Datasets</a>
-* <a href="#contributing">Contributing</a>
-  * <a href="#our-process">Our process</a>
-  * <a href="#branches">Branches</a>
-  * <a href="#showcase">Showcase</a>
-  * <a href="#notable-configurations">Notable Configurations</a>
-* <a href="#about">About</a>
+* [Quick start](#quick-start)
+  * [Minimum Requirements](#minimum-requirements)
+  * [Install](#install)
+  * [Train](#train)
+  * [Increasing Performance](#increasing-performance)
+  * [Development Mode](#development-mode)
+  * [Running on CPU](#running-on-cpu)
+* [Configuration](#configuration)
+  * [Usage](#usage)
+  * [Architecture](#architecture)
+  * [Generator](#generator)
+  * [Encoders](#encoders)
+  * [Discriminators](#discriminators)
+  * [Losses](#losses)
+   * [WGAN](#wgan)
+   * [LS-GAN](#ls-gan)
+   * [Standard GAN and Improved GAN](#standard-gan-and-improved-gan)
+* [The pip package hypergan](#the-pip-package-hypergan)
+ * [Training](#training)
+ * [Sampling](#sampling)
+ * [Web Server](#web-server)
+* [API](API)
+  * [Examples](#examples)
+  * [GAN object](#gan-object)
+* [Datasets](#datasets)
+ * [Supervised learning](#supervised-learning)
+ * [Unsupervised learning](#unsupervised-learning)
+ * [Creating a Dataset](#creating-a-dataset)
+ * [Downloadable Datasets](#downloadable-datasets)
+* [Contributing](#contributing)
+  * [Our process](#our-process)
+  * [Branches](#branches)
+  * [Showcase](#showcase)
+  * [Notable Configurations](#notable-configurations)
+* [About](#about)
+* [Sources](#sources)
+* [Papers](#papers)
+* [Citation](#citation)
 
 # Changelog
 
@@ -89,11 +92,9 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/legacy-0.1-2.png'/>
 
 
-<div id='quickstart'/>
 # Quick start
 
 
-<div id='minreqs'/>
 ## Minimum requirements
 
 1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
@@ -101,7 +102,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 3. Python3
 
 
-<div id='qs-install'/>
 ## Install hypergan
 
 
@@ -110,7 +110,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ```
 
 
-<div id='qs-train'/>
 ## Train
 
 ```bash
@@ -118,7 +117,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   hypergan train [folder] -s 32x32x3 -f png -b 32
 ```
 
-<div id='qs-increase'/>
 ### Increasing performance
 
 On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include this environment variable before training
@@ -128,7 +126,6 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
 ```
 
 
-<div id='qs-devmode'/>
 ## Development mode
 
 If you wish to modify hypergan
@@ -140,7 +137,6 @@ python3 setup.py develop
 ```
 
 
-<div id='qs-runoncpu'/>
 ## Running on CPU
 
 Make sure to include the following 2 arguments:
@@ -150,7 +146,6 @@ CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 Don't train on CPU!  It's too slow.
 
-<div id='configuration'/>
 # Configuration
 
 Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
@@ -162,7 +157,6 @@ Configurations are located in:
 ```
 
 
-<div id='configuration-usage'/>
 ## Usage
 
 ```bash
@@ -174,12 +168,10 @@ Naming a configuration during training required.
 During beta, the best source of configuration documentation is the source code.  When in doubt, use a configuration in the <a href='#notable-configurations'>notable configurations</a> section.
 
 
-<div id="configuration-architecture"></div>
 ## Architecture
 
 A hypergan configuration contains multiple encoders, multiple discriminators, multiple loss functions, and a single generator.
 
-<div id="configuration-generator"></div>
 ## The Generator
 
 A generator is responsible for projecting an encoding (sometimes called *z space*) to an output (normally an image).  A single GAN object from HyperGAN has one generator.
@@ -206,7 +198,6 @@ Resize conv pseudo code looks like this
 | layer_filter | On each resize of G, we call this method.  Anything returned from this method is added to the graph before the next convolution block.  See <a href='#configuration-layer-filters'>common layer filters</a> | f(net):net
 | layer_regularizer | This "regularizes" each layer of the generator with a type.  See <a href='#layer-regularizers'>layer regularizers</a>| f(name)(net):net
 
-<div id="configuration-encoders"></div>
 ## Encoders
 
 
@@ -243,7 +234,6 @@ On/Off
 
 Uses categorical prior to choose 'one-of-many' options.  Can be paired with Categorical Loss.
 
-<div id="configuration-discriminators"></div>
 
 ## Discriminators
 
@@ -262,7 +252,6 @@ If true, each layer of the discriminator gets a resized version of X and additio
 
 ## Losses
 
-<div id="wgan"/>
 ## Wasserstein GAN in Tensorflow
 
 Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can look like:
@@ -277,7 +266,6 @@ Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can 
 d_loss and g_loss can be reversed as well - just add a '-' sign.
 
 
-<div id="lsgan"/>
 ## LS-GAN in Tensorflow
 
 ```python
@@ -296,14 +284,12 @@ Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` f
 
 This is currently untested.
 
-<div id='#cli'/>
 # CLI
 
 ```bash
  hypergan -h
 ```
 
-<div id='#cli-train'/>
 ## Training
 
 ```bash
@@ -312,7 +298,6 @@ This is currently untested.
 ```
 
 
-<div id='#cli-sampling'/>
 ## Sampling
 
 ```bash
@@ -332,7 +317,6 @@ To create videos:
 ```
 
 
-<div id='#cli-serving'/>
 ## Web Server
 
 ```bash
@@ -342,14 +326,12 @@ To create videos:
 
 To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on CPU</a>.
 
-<div id="api"/>
 # API
 
 ```python3
   import hypergan as hg
 ```
 
-<div id='api-examples'>
 ## Examples
 API is currently under development.  The best reference are the examples in the `examples` directory.
 
@@ -389,7 +371,6 @@ Constant inpainting
 Applies a constant mask over part of the image.  An easier problem than general inpainting.
 
 
-<div id="api-gan">
 ## GAN object
 
 The `GAN` object consists of:
@@ -451,7 +432,6 @@ Sample to a specified path.
 
 Steps the gan forward in training once.  Trains the D and G according to your specified `trainer`.
 
-<div id="datasets"/>
 # Datasets
 
 To build a new network you need a dataset.  Your data should be structured like:
@@ -460,10 +440,8 @@ To build a new network you need a dataset.  Your data should be structured like:
   [folder]/[directory]/*.png
 ```
 
-<div id="createdataset"/>
 ## Creating a Dataset
 
-<div id='supervised-learning'/>
 
 ## Supervised learning
 
@@ -477,7 +455,6 @@ Example:  Dataset setup for classification of apple and orange images:
  /dataset/oranges
 ```
 
-<div id='unsupervised-learning'/>
 
 ## Unsupervised learning
 
@@ -488,7 +465,6 @@ You can still build a GAN if your dataset is unlabelled.  Just make sure your fo
 ```
 where all files are in 1 directory.
 
-<div id='downloadabledatasets'/>
 
 ## Downloadable datasets
 
@@ -541,13 +517,11 @@ To see a detailed list, run
 * -s, --size, optional(default 64x64x3), the size of your data in the form 'width'x'height'x'channels'
 * -f, --format, optional(default png), file format of the images.  Only supports jpg and png for now.
 
-<div id="contributing"/>
 # Contributing
 
 Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab that have the label *Help Wanted*.
 
 
-<div id="our-process"/>
 ## Our process
 
 HyperGAN uses semantic versioning.  http://semver.org/
@@ -558,7 +532,6 @@ TLDR: *x.y.z*
 * _y_ is incremented on API breaking changes.  This includes configuration file changes and graph construction changes.
 * _z_ is incremented on non-API breaking changes.  *z* changes will be able to reload a saved graph.
 
-<div id="branches"/>
 ## Branches
 
 The branches are:
@@ -570,19 +543,16 @@ The branches are:
 
 *Configuration changes*, *new architectures*, and generally anything experimental belongs in `develop`.
 
-<div id="showcase"/>
 ## Showcase
 
 If you create something cool with this let us know!  Open a pull request and add your links, and screenshots here!
 
 In case you are interested, our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
 
-<div id="notable-configurations"/>
 ## Notable Configurations
 
 Notable configurations are stored in `example/configs` Feel free to submit additional ones.
 
-<div id='about'/>
 
 # About
 
@@ -601,7 +571,6 @@ A single fully trained `GAN` consists of the following useful networks:
 HyperGAN is currently in open beta.
 
 
-<div id='papers'/>
 ## Papers
 
 * GAN - https://arxiv.org/abs/1406.2661
@@ -612,7 +581,6 @@ HyperGAN is currently in open beta.
 * WGAN - https://arxiv.org/abs/1701.07875
 * LS-GAN - https://arxiv.org/pdf/1611.04076v2.pdf
 
-<div id='sources'/>
 ## Sources
 
 * DCGAN - https://github.com/carpedm20/DCGAN-tensorflow
@@ -620,7 +588,6 @@ HyperGAN is currently in open beta.
 * Improved GAN - https://github.com/openai/improved-gan
 * Hyperchamber - https://github.com/255bits/hyperchamber
 
-<div id='citation'/>
 # Citation
 
 If you wish to cite this project, do so like this:

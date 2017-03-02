@@ -165,6 +165,16 @@ def train():
     }
 
     trainers.append(hg.trainers.adam_trainer.config(**adam_opts))
+    
+    sgd_opts = {
+        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
+        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
+        'd_clipped_weights': [False, 0.01],
+        'clipped_gradients': [False, 0.01]
+    }
+
+    trainers.append(hg.trainers.sgd_trainer.config(**sgd_opts))
+
 
     encoders = []
 
@@ -241,10 +251,10 @@ def train():
       "reverse": True
     }
     #losses.append([hg.losses.wgan_loss.config(**loss_opts)])
-    #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
-    losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
+    losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
-    #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
+    #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
+    losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
 
     #encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
@@ -332,19 +342,27 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(20000):
+        for i in range(500000):
             d_loss, g_loss = gan.train()
 
-            if(np.abs(d_loss) > 1000 or np.abs(g_loss) > 1000):
+            if(np.abs(d_loss) > 100 or np.abs(g_loss) > 100):
                 ax_sum = ag_sum = 100000.00
                 break
+
+            if i % 1000 == 0 and i != 0: 
+                ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
+                print("ERROR", ax, ag)
+                if np.abs(ax) > 50.0 or np.abs(ag) > 50.0:
+                    ax_sum = ag_sum = 100000.00
+                    break
+
 
             #if(i % 10000 == 0 and i != 0):
             #    g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 19000):
+            if(i > 490000):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax

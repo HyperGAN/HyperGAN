@@ -210,34 +210,58 @@ Resize conv pseudo code looks like this
 <div id="configuration-encoders"></div>
 ## Encoders
 
-Choose any number of encoders!
 
-TODO table of common options
+You can combine multiple encoders into a single GAN.
 
 ### Linear Encoder
 
-Standard DCGan uses this.
+This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
+
+### Linear Encoder Projections
+
+#### Linear
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
+
+#### Spherical
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
+
+#### Gaussian
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
+
+#### Modal
+
+One of many
+
+#### Binary
+
+On/Off
+
 
 ### Category Encoder
 
 Uses categorical prior to choose 'one-of-many' options.  Can be paired with Categorical Loss.
 
 <div id="configuration-discriminators"></div>
+
 ## Discriminators
 
-TODO common options
-
-Progressive enhancement is enabled by default:
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
+You can combine multiple discriminators in a single GAN.  This type of ensembling can be useful, but by default only 1 is enabled.
 
 ### Pyramid Discriminator
 
-TODO table of options
+The default discriminator.
+
+
+### progressive enhancement
+
+If true, each layer of the discriminator gets a resized version of X and additional outputs from G.
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
 
 ## Losses
-
-TODO common options
 
 <div id="wgan"/>
 ## Wasserstein GAN in Tensorflow
@@ -576,44 +600,6 @@ A single fully trained `GAN` consists of the following useful networks:
 * `classifier` - Only available when using supervised learning.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
 
 HyperGAN is currently in open beta.
-
-## Discriminators
-
-The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier by adding an additional loss.
-
-You can combine multiple discriminators in a single GAN.  This type of ensembling can be useful, but by default only 1 is enabled.
-
-### progressive enhancement
-
-If true, each layer of the discriminator gets a resized version of X and additional outputs from G.
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
-
-## Encoders
-
-### LinearEncoder
-
-This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
-
-#### Linear
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
-
-#### Spherical
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
-
-#### Gaussian
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
-
-#### Modal
-
-One of many
-
-#### Binary
-
-On/Off
 
 
 ## Papers

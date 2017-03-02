@@ -557,11 +557,7 @@ In case you are interested, our pivotal board is here: https://www.pivotaltracke
 <div id="notable-configurations"/>
 ## Notable Configurations
 
-from      |   link   |   input dimensions   | description
------------------------------------------------------------
-HyperGAN  |  TODO    |   64x64x3            | ls-gan dcgan
-
-
+Notable configurations are stored in `example/configs` Feel free to submit additional ones.
 
 <div id='about'/>
 

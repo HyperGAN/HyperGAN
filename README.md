@@ -3,44 +3,58 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 # Table of contents
 
-* <a href="#changelog">Changelog</a>
+* [Changelog](#changelog)
+* [Quick start](#quick-start)
+  * [Minimum Requirements](#minimum-requirements)
+  * [Install](#install)
+  * [Train](#train)
+  * [Increasing Performance](#increasing-performance)
+  * [Development Mode](#development-mode)
+  * [Running on CPU](#running-on-cpu)
+* [Configuration](#configuration)
+  * [Usage](#usage)
+  * [Architecture](#architecture)
+  * [Generator](#generator)
+  * [Encoders](#encoders)
+  * [Discriminators](#discriminators)
+  * [Losses](#losses)
+   * [WGAN](#wgan)
+   * [LS-GAN](#ls-gan)
+   * [Standard GAN and Improved GAN](#standard-gan-and-improved-gan)
+* [The pip package hypergan](#the-pip-package-hypergan)
+ * [Training](#training)
+ * [Sampling](#sampling)
+ * [Web Server](#web-server)
+* [API](API)
+  * [Examples](#examples)
+  * [GAN object](#gan-object)
+* [Datasets](#datasets)
+ * [Supervised learning](#supervised-learning)
+ * [Unsupervised learning](#unsupervised-learning)
+ * [Creating a Dataset](#creating-a-dataset)
+ * [Downloadable Datasets](#downloadable-datasets)
+* [Contributing](#contributing)
+  * [Our process](#our-process)
+  * [Branches](#branches)
+  * [Showcase](#showcase)
+  * [Notable Configurations](#notable-configurations)
+* [About](#about)
+* [Sources](#sources)
+* [Papers](#papers)
+* [Citation](#citation)
 
-* <a href="#quickstart">Quick start</a>
-  * <a href="#minreqs">Minimum Requirements</a>
-  * <a href="#qs-install">Install</a>
-  * <a href="#qs-train">Train</a>
-  * <a href="#qs-increase">Increasing Performance</a>
-  * <a href="#qs-devmode">Development Mode</a>
-  * <a href="#qs-runoncpu">Running on CPU</a>
+# Changelog
 
-* <a href="#configuration">Configuration</a>
-  * <a href="#configuration-usage">Usage</a>
+## 0.8 ~ "GAN API"
 
-* <a href="#cli">The pip package `hypergan`</a>
- * <a href="#cli-train">Training</a>
- * <a href="#cli-sample">Sampling</a>
- * <a href="#cli-serving">Web Server</a>
+* Tensorflow 1.0 support
+* New configuration format and refactored api.
+* New loss function based on least squared GAN.  See <a href="#lsgan">lsgan implementation</a>.
+* API example `2d-test` - tests a trainer/encoder/loss combination against a known distribution.
+* API example `2d-measure` - measure and report the above test by randomly combining options.
+* And more
 
-* <a href="#api">API</a>
-  * <a href="#api-examples">Examples</a>
-  * <a href="#api-gan">GAN object</a>
-
-* <a href="#datasets">Datasets</a>
- * <a href="#supervised-learning">Supervised learning</a>
- * <a href="#unsupervised-learning">Unsupervised learning</a>
- * <a href="#createdataset">Creating a Dataset</a>
- * <a href='#downloadabledatasets'>Downloadable Datasets</a>
- 
-* <a href="#about">About</a>
-  * <a href="#wgan">WGAN</a>
-
- 
-
-<div id="changelog"></div>
-
-## Changelog
-
-## 0.7 - "WGAN API" (samples to come)
+## 0.7 ~ "WGAN API"
 
 * New loss function based on `wgan` :.  Fixes many classes of mode collapse!  See <a href="#wgan">wgan implementation</a>
 * Initial Public API Release
@@ -51,12 +65,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 ## 0.6 ~ "MultiGAN"
 
-* 3 new encoders
-* New discriminator: `densenet` - based loosely on https://arxiv.org/abs/1608.06993
-* Updated discriminator: `pyramid_no_stride` - `conv` and `avg_pool` together
-* New generator: `dense_resize_conv` - original type of generator that seems to work well
-* Updated generator: `resize_conv` - standard resize-conv generator.  This works much better than `deconv`, which is not supported.
-* Several quality of life improvements
+* New encoders
 * Support for multiple discriminators
 * Support for discriminators on different image resolutions
 
@@ -83,14 +92,8 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/legacy-0.1-2.png'/>
 
 
-<div id="samples"/>
-
-
-<div id='quickstart'/>
-
 # Quick start
 
-<div id='minreqs'/>
 
 ## Minimum requirements
 
@@ -98,7 +101,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 2. CPU mode is _extremely_ slow.  Never train with it!
 3. Python3
 
-<div id='qs-install'/>
 
 ## Install hypergan
 
@@ -107,14 +109,13 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   pip3 install hypergan --upgrade
 ```
 
+
 ## Train
 
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32
 ```
-
-<div id='qs-increase'/>
 
 ### Increasing performance
 
@@ -125,7 +126,6 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
 ```
 
 
-<div id='qs-devmode'/>
 ## Development mode
 
 If you wish to modify hypergan
@@ -136,7 +136,7 @@ cd hypergan
 python3 setup.py develop
 ```
 
-<div id='qs-runoncpu'/>
+
 ## Running on CPU
 
 Make sure to include the following 2 arguments:
@@ -144,8 +144,7 @@ Make sure to include the following 2 arguments:
 ```bash
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
-
-<div id='configuration'/>
+Don't train on CPU!  It's too slow.
 
 # Configuration
 
@@ -157,7 +156,6 @@ Configurations are located in:
   ~/.hypergan/configs/
 ```
 
-<div id='configuration-usage'/>
 
 ## Usage
 
@@ -165,16 +163,133 @@ Configurations are located in:
   --config [name]
 ```
 
-Naming a configuration during training is recommended.  If your config is not named, a uuid will be used.
+Naming a configuration during training required.
 
-<div id='#cli'/>
+During beta, the best source of configuration documentation is the source code.  When in doubt, use a configuration in the <a href='#notable-configurations'>notable configurations</a> section.
+
+
+## Architecture
+
+A hypergan configuration contains multiple encoders, multiple discriminators, multiple loss functions, and a single generator.
+
+## The Generator
+
+A generator is responsible for projecting an encoding (sometimes called *z space*) to an output (normally an image).  A single GAN object from HyperGAN has one generator.
+
+### Resize Conv
+
+Resize conv pseudo code looks like this
+```python
+ 1.  net = linear(z, z_projection_depth)
+ 2.  net = resize net to max(output width/height, double input width/height)
+ 3.  add layer filter if defined
+ 4.  convolution block
+ 5.  If at output size: 
+ 6.  Else add first 3 layers to progressive enhancement output and go to 2
+```
+
+| attribute   | description | type
+|:----------:|:------------:|:----:|
+| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| z_projection_depth | The output size of the linear layer before the resize-conv stack. | int > 0
+| activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
+| final_activation | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
+| depth_reduction | Reduces the filter sizes on each convolution by this multiple. | f(net):net
+| layer_filter | On each resize of G, we call this method.  Anything returned from this method is added to the graph before the next convolution block.  See <a href='#configuration-layer-filters'>common layer filters</a> | f(net):net
+| layer_regularizer | This "regularizes" each layer of the generator with a type.  See <a href='#layer-regularizers'>layer regularizers</a>| f(name)(net):net
+
+## Encoders
+
+
+You can combine multiple encoders into a single GAN.
+
+### Linear Encoder
+
+This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
+
+### Linear Encoder Projections
+
+#### Linear
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
+
+#### Spherical
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
+
+#### Gaussian
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
+
+#### Modal
+
+One of many
+
+#### Binary
+
+On/Off
+
+
+### Category Encoder
+
+Uses categorical prior to choose 'one-of-many' options.  Can be paired with Categorical Loss.
+
+
+## Discriminators
+
+You can combine multiple discriminators in a single GAN.  This type of ensembling can be useful, but by default only 1 is enabled.
+
+### Pyramid Discriminator
+
+The default discriminator.
+
+
+### progressive enhancement
+
+If true, each layer of the discriminator gets a resized version of X and additional outputs from G.
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
+
+## Losses
+
+## Wasserstein GAN in Tensorflow
+
+Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can look like:
+
+```python
+ d_fake = tf.reduce_mean(d_fake,axis=1)
+ d_real = tf.reduce_mean(d_real,axis=1)
+ d_loss = d_real - d_fake
+ g_loss = d_fake
+```
+
+d_loss and g_loss can be reversed as well - just add a '-' sign.
+
+
+## LS-GAN in Tensorflow
+
+```python
+ d_loss = (d_real-b)**2 - (d_fake-a)**2
+ g_loss = (d_fake-c)**2
+```
+
+a, b, and c are all hyperparameters.
+
+
+### Standard GAN Loss
+
+Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` for details.
+
+### Categorical loss
+
+This is currently untested.
+
 # CLI
 
 ```bash
  hypergan -h
 ```
 
-<div id='#cli-train'/>
 ## Training
 
 ```bash
@@ -182,7 +297,7 @@ Naming a configuration during training is recommended.  If your config is not na
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
 
-<div id='#cli-sampling'/>
+
 ## Sampling
 
 ```bash
@@ -201,7 +316,7 @@ To create videos:
   ffmpeg -i samples/%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
 ```
 
-<div id='#cli-serving'/>
+
 ## Web Server
 
 ```bash
@@ -211,14 +326,12 @@ To create videos:
 
 To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on CPU</a>.
 
-<div id="api"/>
 # API
 
 ```python3
   import hypergan as hg
 ```
 
-<div id='api-examples'>
 ## Examples
 API is currently under development.  The best reference are the examples in the `examples` directory.
 
@@ -258,7 +371,6 @@ Constant inpainting
 Applies a constant mask over part of the image.  An easier problem than general inpainting.
 
 
-<div id="api-gan">
 ## GAN object
 
 The `GAN` object consists of:
@@ -320,7 +432,6 @@ Sample to a specified path.
 
 Steps the gan forward in training once.  Trains the D and G according to your specified `trainer`.
 
-<div id="datasets"/>
 # Datasets
 
 To build a new network you need a dataset.  Your data should be structured like:
@@ -329,10 +440,8 @@ To build a new network you need a dataset.  Your data should be structured like:
   [folder]/[directory]/*.png
 ```
 
-<div id="createdataset"/>
 ## Creating a Dataset
 
-<div id='supervised-learning'/>
 
 ## Supervised learning
 
@@ -346,7 +455,6 @@ Example:  Dataset setup for classification of apple and orange images:
  /dataset/oranges
 ```
 
-<div id='unsupervised-learning'/>
 
 ## Unsupervised learning
 
@@ -357,7 +465,6 @@ You can still build a GAN if your dataset is unlabelled.  Just make sure your fo
 ```
 where all files are in 1 directory.
 
-<div id='downloadabledatasets'/>
 
 ## Downloadable datasets
 
@@ -410,78 +517,42 @@ To see a detailed list, run
 * -s, --size, optional(default 64x64x3), the size of your data in the form 'width'x'height'x'channels'
 * -f, --format, optional(default png), file format of the images.  Only supports jpg and png for now.
 
+# Contributing
 
-## Discriminators
+Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab that have the label *Help Wanted*.
 
-The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier.
 
-You can combine multiple discriminators in a single GAN. 
+## Our process
 
-### pyramid
+HyperGAN uses semantic versioning.  http://semver.org/
 
-Progressive enhancement is enabled by default:
+TLDR: *x.y.z*
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
+* _x_ is incremented on stable public releases.
+* _y_ is incremented on API breaking changes.  This includes configuration file changes and graph construction changes.
+* _z_ is incremented on non-API breaking changes.  *z* changes will be able to reload a saved graph.
 
-Default.
+## Branches
 
-### densenet
+The branches are:
 
-Progressive enhancement is enabled by default here too.
+* `master` contains the best GAN we've found as default.  It aims to *just work* for most use cases.
+* `develop` contains the latest and can be in a broken state.
 
-### resnet
+*Bug fixes* and *showcases* can be merged into `master`
 
-Note: This is currently broken 
+*Configuration changes*, *new architectures*, and generally anything experimental belongs in `develop`.
 
-## Encoders
+## Showcase
 
-### LinearEncoder
+If you create something cool with this let us know!  Open a pull request and add your links, and screenshots here!
 
-This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
+In case you are interested, our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
 
-#### Linear
+## Notable Configurations
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
+Notable configurations are stored in `example/configs` Feel free to submit additional ones.
 
-#### Spherical
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
-
-#### Gaussian
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
-
-### Vae
-
-For Vae-GANs
-
-### RandomCombo
-
-Default
-
-### RandomNormal
-
-## Generators
-
-### resize-conv
-
-Standard resize-conv.
-
-### dense-resize-conv
-
-Default.  Inspired by densenet.
-
-## Trainers
-
-### Adam
-
-Default.
-
-### Slowdown
-
-Experimental.
-
-<div id='about'/>
 
 # About
 
@@ -499,18 +570,6 @@ A single fully trained `GAN` consists of the following useful networks:
 
 HyperGAN is currently in open beta.
 
-## Wasserstein GAN in Tensorflow
-
-Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can look like:
-
-```python
- d_fake = tf.reduce_mean(d_fake,axis=1)
- d_real = tf.reduce_mean(d_real,axis=1)
- d_loss = d_real - d_fake
- g_loss = d_fake
-```
-
-d_loss and g_loss can be reversed as well - just add a '-' sign.
 
 ## Papers
 
@@ -520,6 +579,7 @@ d_loss and g_loss can be reversed as well - just add a '-' sign.
 * Improved GAN - https://arxiv.org/abs/1606.03498
 * Adversarial Inference - https://arxiv.org/abs/1606.00704
 * WGAN - https://arxiv.org/abs/1701.07875
+* LS-GAN - https://arxiv.org/pdf/1611.04076v2.pdf
 
 ## Sources
 
@@ -527,14 +587,6 @@ d_loss and g_loss can be reversed as well - just add a '-' sign.
 * InfoGAN - https://github.com/openai/InfoGAN
 * Improved GAN - https://github.com/openai/improved-gan
 * Hyperchamber - https://github.com/255bits/hyperchamber
-
-# Contributing
-
-Contributions are welcome and appreciated.  To help out, just issue a pull request or file a bug report.
-
-If you create something cool with this let us know!
-
-In case you are interested, our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
 
 # Citation
 

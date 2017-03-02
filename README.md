@@ -3,7 +3,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 
 # Table of contents
 
-* <a href="#changelog">Changelog</a>
+* [Changelog](Changelog)
 * <a href="#quickstart">Quick start</a>
   * <a href="#minreqs">Minimum Requirements</a>
   * <a href="#qs-install">Install</a>
@@ -40,7 +40,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#notable-configurations">Notable Configurations</a>
 * <a href="#about">About</a>
 
-<div id="changelog"></div>
 # Changelog
 
 ## 0.8 ~ "GAN API"

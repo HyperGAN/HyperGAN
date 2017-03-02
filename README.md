@@ -4,7 +4,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 # Table of contents
 
 * <a href="#changelog">Changelog</a>
-
 * <a href="#quickstart">Quick start</a>
   * <a href="#minreqs">Minimum Requirements</a>
   * <a href="#qs-install">Install</a>
@@ -12,7 +11,6 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#qs-increase">Increasing Performance</a>
   * <a href="#qs-devmode">Development Mode</a>
   * <a href="#qs-runoncpu">Running on CPU</a>
-
 * <a href="#configuration">Configuration</a>
   * <a href="#configuration-usage">Usage</a>
   * <a href="#configuration-architecture">Architecture</a>
@@ -23,33 +21,26 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
    * <a href="#wgan">WGAN</a>
    * <a href="#lsgan">LS-GAN</a>
    * <a href="#standard-gan">Standard GAN/Improved GAN</a>
-   
 * <a href="#cli">The pip package `hypergan`</a>
  * <a href="#cli-train">Training</a>
  * <a href="#cli-sample">Sampling</a>
  * <a href="#cli-serving">Web Server</a>
-
 * <a href="#api">API</a>
   * <a href="#api-examples">Examples</a>
   * <a href="#api-gan">GAN object</a>
-  
 * <a href="#datasets">Datasets</a>
  * <a href="#supervised-learning">Supervised learning</a>
  * <a href="#unsupervised-learning">Unsupervised learning</a>
  * <a href="#createdataset">Creating a Dataset</a>
  * <a href='#downloadabledatasets'>Downloadable Datasets</a>
- 
 * <a href="#contributing">Contributing</a>
   * <a href="#our-process">Our process</a>
   * <a href="#branches">Branches</a>
   * <a href="#showcase">Showcase</a>
   * <a href="#notable-configurations">Notable Configurations</a>
-
 * <a href="#about">About</a>
 
-
 <div id="changelog"></div>
-
 ## Changelog
 
 ## 0.8 ~ "GAN API"

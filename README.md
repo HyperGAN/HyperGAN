@@ -19,7 +19,11 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#configuration-generator">Generator</a>
   * <a href="#configuration-encoders">Encoders</a>
   * <a href="#configuration-discriminators">Discriminators</a>
-  
+  * <a href='#api-losses'>Losses</a>
+   * <a href="#wgan">WGAN</a>
+   * <a href="#lsgan">LS-GAN</a>
+   * <a href="#standard-gan">Standard GAN/Improved GAN</a>
+   
 * <a href="#cli">The pip package `hypergan`</a>
  * <a href="#cli-train">Training</a>
  * <a href="#cli-sample">Sampling</a>
@@ -28,7 +32,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * <a href="#api">API</a>
   * <a href="#api-examples">Examples</a>
   * <a href="#api-gan">GAN object</a>
-
+  
 * <a href="#datasets">Datasets</a>
  * <a href="#supervised-learning">Supervised learning</a>
  * <a href="#unsupervised-learning">Unsupervised learning</a>
@@ -40,13 +44,18 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
   * <a href="#branches">Branches</a>
 
 * <a href="#about">About</a>
-  * <a href="#wgan">WGAN</a>
+  
 
 <div id="changelog"></div>
 
 ## Changelog
 
-## 0.7 - "WGAN API" (samples to come)
+## 0.8 - Kitchen sink
+
+* New configuration format.  New composable pieces and refactored api.
+* New loss function based on least squared GAN.  See <a href="#lsgan">lsgan implementation</a>.
+
+## 0.7 - "WGAN API"
 
 * New loss function based on `wgan` :.  Fixes many classes of mode collapse!  See <a href="#wgan">wgan implementation</a>
 * Initial Public API Release

@@ -47,8 +47,11 @@ def create(config, gan):
 
     return [d_loss, g_loss]
 
+linear_projection_iterator=0
 def linear_projection(net, axis=1):
-    net = linear(net, 1, scope="d_wgan_lin_proj")
+    global linear_projection_iterator
+    net = linear(net, 1, scope="d_wgan_lin_proj"+str(linear_projection_iterator))
+    linear_projection_iterator+=1
     #net = layer_norm_1(int(net.get_shape()[0]), name='d_wgan_lin_proj_bn')(net)
     #net = tf.tanh(net)
     return net

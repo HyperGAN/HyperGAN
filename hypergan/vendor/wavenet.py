@@ -92,9 +92,9 @@ class WaveNet(object):
         transformed = tf.nn.conv2d(out, weights_dense, strides=[1] * 4,
                                    padding="SAME", name="dense")
         layer = 'layer{}'.format(layer_index)
-        tf.histogram_summary(layer + '_filter', weights_filter)
-        tf.histogram_summary(layer + '_gate', weights_gate)
-        tf.histogram_summary(layer + '_dense', weights_dense)
+        tf.summary.histogram(layer + '_filter', weights_filter)
+        tf.summary.histogram(layer + '_gate', weights_gate)
+        tf.summary.histogram(layer + '_dense', weights_dense)
 
         return transformed, input_batch + transformed
 
@@ -149,8 +149,8 @@ class WaveNet(object):
                 [1, 1, int(self.channels / 2), self.channels], stddev=0.3,
                 name="postprocess2"))
 
-            tf.histogram_summary('postprocess1_weights', w1)
-            tf.histogram_summary('postprocess2_weights', w2)
+            tf.summary.histogram('postprocess1_weights', w1)
+            tf.summary.histogram('postprocess2_weights', w2)
 
             # We skip connections from the outputs of each layer, adding them
             # all up here.
@@ -200,10 +200,10 @@ class WaveNet(object):
 
                 prediction = tf.reshape(raw_output, [-1, self.channels])
                 loss = tf.nn.softmax_cross_entropy_with_logits(
-                    prediction,
-                    tf.reshape(shifted, [-1, self.channels]))
+                    logits=prediction,
+                    labels=tf.reshape(shifted, [-1, self.channels]))
                 reduced_loss = tf.reduce_mean(loss)
 
-                tf.scalar_summary('loss', reduced_loss)
+                tf.summary.scalar('loss', reduced_loss)
 
         return reduced_loss

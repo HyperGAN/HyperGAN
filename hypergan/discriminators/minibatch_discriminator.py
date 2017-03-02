@@ -18,7 +18,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         d_fake = gan.graph.d_fakes[config.discriminator]
 
 
-    net = tf.concat(0, [d_real, d_fake])
+    net = tf.concat(axis=0, values=[d_real, d_fake])
 
     n_kernels = int(config.kernels)
     dim_per_kernel = int(config.kernel_dims)

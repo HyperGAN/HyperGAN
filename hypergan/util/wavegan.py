@@ -72,7 +72,7 @@ def generator(config, inputs, reuse=False):
     batch_size=config['batch_size']
 
     with(tf.variable_scope("generator", reuse=reuse)):
-        original_z = tf.concat(1, inputs)
+        original_z = tf.concat(axis=1, values=inputs)
         prime=1
         proj_size=prime*125
         dims = 128
@@ -85,7 +85,7 @@ def generator(config, inputs, reuse=False):
         size=int(result.get_shape()[3])
         sc_layers = config['g_skip_connections_layers']
         for i in range(widenings):
-            result = tf.concat(3, [result, tf.random_uniform([batch_size, int(result.get_shape()[1]), int(result.get_shape()[2]), 2], -1, 1)])
+            result = tf.concat(axis=3, values=[result, tf.random_uniform([batch_size, int(result.get_shape()[1]), int(result.get_shape()[2]), 2], -1, 1)])
             if(i==widenings-1):
                 #result = block_deconv_1d(result, activation, batch_size, 'deconv', 'g_layers_a'+str(i), output_channels=config['channels']*2, stride=stride)
                 result = residual_block_deconv_1d(result, activation, batch_size, 'deconv', 'g_layers_a'+str(i), output_channels=(config['channels']+5)*2, stride=stride)
@@ -178,7 +178,7 @@ def dense_block_1d(result, k, activation, batch_size, id, name):
         result = activation(result)
         result = conv2d(result, k, name=name+'conv', k_w=3, k_h=1, d_h=1, d_w=1)
 
-        return tf.concat(3,[identity, result])
+        return tf.concat(axis=3,values=[identity, result])
     elif(id=='transition'):
         result = batch_norm(batch_size, name=name+'bn')(result)
         result = activation(result)

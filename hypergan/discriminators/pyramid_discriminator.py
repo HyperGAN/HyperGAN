@@ -4,27 +4,41 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import os
 
-def config(resize=None, layers=7):
+def config(
+        activation=lrelu,
+        depth_increase=2,
+        final_activation=tf.nn.tanh,
+        first_conv_size=[16,8],
+        layer_regularizer=layer_norm_1,
+        layers=7,
+        resize=None,
+        noise=None,
+        layer_filter=None,
+        progressive_enhancement=True,
+        fc_layers=0,
+        fc_layer_size=1024,
+        strided=False,
+        create=None
+        ):
     selector = hc.Selector()
-    selector.set("final_activation", [tf.nn.tanh])#prelu("d_")])
     selector.set("activation", [lrelu])#prelu("d_")])
-    selector.set('regularizer', [layer_norm_1]) # Size of fully connected layers
-
+    selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
+    selector.set("final_activation", final_activation)
+    selector.set("first_conv_size", first_conv_size)
     selector.set("layers", layers) #Layers in D
-    selector.set("depth_increase", [2])# Size increase of D's features on each layer
+    if create is None:
+        selector.set('create', discriminator)
+    else:
+        selector.set('create', create)
 
-    selector.set('add_noise', [False]) #add noise to input
-    selector.set('layer_filter', [None]) #add information to D
-    selector.set('layer_filter.progressive_enhancement_enabled', True) #add information to D
-    selector.set('noise_stddev', [1e-1]) #the amount of noise to add - always centered at 0
-    selector.set('resize', [resize])
-    selector.set('fc_layers', [0])
-    selector.set('fc_layer_size', [1024])
-
-    selector.set('strided', False) #TODO: true does not work
-
-    selector.set('create', discriminator)
-
+    selector.set('fc_layer_size', fc_layer_size)
+    selector.set('fc_layers', fc_layers)
+    selector.set('layer_filter', layer_filter) #add information to D
+    selector.set('layer_regularizer', layer_regularizer) # Size of fully connected layers
+    selector.set('noise', noise) #add noise to input
+    selector.set('progressive_enhancement', progressive_enhancement)
+    selector.set('resize', resize)
+    selector.set('strided', strided) #TODO: true does not work
     return selector.random_config()
 
 #TODO: arguments telescope, root_config/config confusing
@@ -33,7 +47,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     final_activation = config['final_activation']
     depth_increase = config['depth_increase']
     depth = config['layers']
-    batch_norm = config['regularizer']
+    batch_norm = config['layer_regularizer']
     strided = config.strided
 
     # TODO: cross-d feature
@@ -52,19 +66,19 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     batch_size = int(x.get_shape()[0])
     # TODO: This is standard optimization from improved GAN, cross-d feature
     if config['layer_filter']:
-        g_filter = tf.concat(3, [g, config['layer_filter'](gan, x)])
-        x_filter = tf.concat(3, [x, config['layer_filter'](gan, x)])
-        net = tf.concat(0, [x_filter,g_filter] )
+        g_filter = tf.concat(axis=3, values=[g, config['layer_filter'](gan, x)])
+        x_filter = tf.concat(axis=3, values=[x, config['layer_filter'](gan, x)])
+        net = tf.concat(axis=0, values=[x_filter,g_filter] )
     else:
-        net = tf.concat(0, [x,g])
-    if(config['add_noise']):
-        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
+        net = tf.concat(axis=0, values=[x,g])
+    if(config['noise']):
+        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
         
 
     if strided:
-        net = conv2d(net, 64, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
+        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
     else:
-        net = conv2d(net, 16, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
+        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
 
     for i in range(depth):
       #TODO better name for `batch_norm`?
@@ -80,17 +94,17 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         else:
             index = i
         if config['layer_filter']:
-            x_filter_i = tf.concat(3, [xs[index], config['layer_filter'](gan, xs[i])])
-            g_filter_i = tf.concat(3, [gs[index], config['layer_filter'](gan, xs[i])])
-            xg = tf.concat(0, [x_filter_i, g_filter_i])
+            x_filter_i = tf.concat(axis=3, values=[xs[index], config['layer_filter'](gan, xs[i])])
+            g_filter_i = tf.concat(axis=3, values=[gs[index], config['layer_filter'](gan, xs[i])])
+            xg = tf.concat(axis=0, values=[x_filter_i, g_filter_i])
         else:
-            xg = tf.concat(0, [xs[index], gs[index]])
+            xg = tf.concat(axis=0, values=[xs[index], gs[index]])
 
-        if(config['add_noise']):
-            xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=gan.config.dtype)
+        if(config['noise']):
+            xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
   
-        if config['layer_filter.progressive_enhancement_enabled']:
-            net = tf.concat(3, [net, xg])
+        if config['progressive_enhancement']:
+            net = tf.concat(axis=3, values=[net, xg])
     
       filter_size_w = 2
       filter_size_h = 2
@@ -105,16 +119,22 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       print('[discriminator] layer', net)
 
     k=-1
-    if batch_norm is not None:
-        net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
+
     net = tf.reshape(net, [batch_size*2, -1])
+
+    if final_activation or config.fc_layers > 0:
+        if batch_norm is not None:
+            net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
 
     for i in range(config.fc_layers):
         net = activation(net)
         net = linear(net, config.fc_layer_size, scope=prefix+"_fc_end"+str(i))
-        net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
+        if final_activation or i < config.fc_layers - 1:
+            if batch_norm is not None:
+                net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
 
-    net = final_activation(net)
+    if final_activation:
+        net = final_activation(net)
 
 
     return net

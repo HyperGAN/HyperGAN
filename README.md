@@ -311,7 +311,43 @@ To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on 
 
 <div id='api-examples'>
 ## Examples
-API is currently under development.  There is more functionality, the best reference are the examples in the `examples` directory.
+API is currently under development.  The best reference are the examples in the `examples` directory.
+
+Examples
+--------
+
+2d test
+=======
+
+Runs a 2d toy problem for a given configuration.  Can be sampled to show how a given configuration learns.
+
+![](https://j.gifs.com/NxRKnD.gif)
+
+2d measure accuracy
+===================
+
+Applies a batch accuracy (nearest neighbor) measurement to the 2d toy problem.
+
+Colorizer 
+=========
+
+Colorizer feeds a black and white version of the input into the generator.
+
+Inpainting
+==========
+
+Hides a random part of the image from the discriminator and the generator.
+
+Super Resolution
+================
+
+Provides a low resolution image to the generator.
+
+Constant inpainting
+===================
+
+Applies a constant mask over part of the image.  An easier problem than general inpainting.
+
 
 <div id="api-gan">
 ## GAN object
@@ -469,6 +505,48 @@ To see a detailed list, run
 # Contributing
 
 Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab that have the label *Help Wanted*.
+
+## Discriminators
+
+The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier.
+
+You can combine multiple discriminators in a single GAN. 
+
+### pyramid
+
+Progressive enhancement is enabled by default:
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
+
+Default.
+
+### densenet
+
+Progressive enhancement is enabled by default here too.
+
+### resnet
+
+Note: This is currently broken 
+
+## Encoders
+
+### LinearEncoder
+
+This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
+
+#### Linear
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
+
+#### Spherical
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
+
+#### Gaussian
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
+
+### Vae
 
 <div id="our-process"/>
 ## Our process

@@ -21,7 +21,7 @@ def create(config, gan):
     net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
     net = batch_norm(batch_size, name='d_bn_end')(net)
 
-    d_class_loss = tf.nn.softmax_cross_entropy_with_logits(net,gan.graph.y)
+    d_class_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net,labels=gan.graph.y)
 
     gan.graph.d_class_loss=tf.reduce_mean(d_class_loss)
 

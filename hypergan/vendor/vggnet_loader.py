@@ -71,7 +71,7 @@ def reshape_input(img):
   r = tf.fill([224, 224], 103.939)
   g = tf.fill([224, 224], 116.779)
   b = tf.fill([224, 224], 123.68)
-  offset = tf.transpose(tf.pack([r,g,b]), [2, 1, 0])
+  offset = tf.transpose(tf.stack([r,g,b]), [2, 1, 0])
 
   reshaped_image -= offset
 

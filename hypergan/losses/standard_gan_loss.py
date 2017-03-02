@@ -24,13 +24,14 @@ def create(config, gan):
         d_real = gan.graph.d_reals[config.discriminator]
         d_fake = gan.graph.d_fakes[config.discriminator]
 
-    with tf.variable_scope("d_linear", reuse=False):
-        d_real = config.reduce(d_real, axis=1)
-    with tf.variable_scope("d_linear", reuse=True):
-        d_fake = config.reduce(d_fake, axis=1)
+    net = tf.concat([d_real, d_fake], 0)
+    net = config.reduce(net, axis=1)
+    s = [int(x) for x in net.get_shape()]
+    d_real = tf.slice(net, [0,0], [s[0]//2,-1])
+    d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
     zeros = tf.zeros_like(d_fake, dtype=gan.config.dtype)
-    g_loss = tf.nn.sigmoid_cross_entropy_with_logits(d_fake, zeros)
+    g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)
     d_loss = sigmoid_kl_with_logits(d_real, 1.-config.label_smooth)
     g_loss = tf.squeeze(g_loss)
     d_loss = tf.squeeze(d_loss)
@@ -41,9 +42,8 @@ def create(config, gan):
 
 linear_projection_iterator=0
 def linear_projection(net, axis=1):
-    global linear_projection_iteration
-    linear_projection_iteration+=1
-    net = linear(net, 1, scope="d_standard_gan_lin_proj"+str(linear_projection_iterator), regularizer=tf.contrib.layers.l1_regularizer(0.01))
+    global linear_projection_iterator
+    net = linear(net, 1, scope="d_standard_gan_lin_proj"+str(linear_projection_iterator))
     #net = layer_norm_1(int(net.get_shape()[0]), name='d_standard_gan_lin_proj_bn')(net)
     #net = tf.tanh(net)
     return net
@@ -56,4 +56,4 @@ def sigmoid_kl_with_logits(logits, targets):
      entropy = 0.
    else:
      entropy = - targets * np.log(targets) - (1. - targets) * np.log(1. - targets)
-     return tf.nn.sigmoid_cross_entropy_with_logits(logits, tf.ones_like(logits) * targets) - entropy
+     return tf.nn.sigmoid_cross_entropy_with_logits(logits=logits, labels=tf.ones_like(logits) * targets) - entropy

@@ -43,7 +43,7 @@ def discriminator(root_config, config, x, g, xs, gs, prefix='d_'):
 
     batch_size = int(x.get_shape()[0])
 
-    net = tf.concat(0, [x,g])
+    net = tf.concat(axis=0, values=[x,g])
     if(config['add_noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
     net = conv2d(net, 64, name=prefix+'_expand', k_w=7, k_h=7, d_h=7, d_w=7)

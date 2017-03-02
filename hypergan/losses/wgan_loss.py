@@ -3,11 +3,15 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import hyperchamber as hc
 
-def config():
+def config(
+        reduce=tf.reduce_mean, 
+        reverse=False,
+        discriminator=None
+    ):
     selector = hc.Selector()
-    selector.set("reduce", [tf.reduce_mean,linear_projection])#,tf.reduce_sum,tf.reduce_logsumexp,
-    selector.set('reverse', [True, False])
-    selector.set('discriminator', None)
+    selector.set("reduce", reduce)
+    selector.set('reverse', reverse)
+    selector.set('discriminator', discriminator)
 
     selector.set('create', create)
 
@@ -47,4 +51,6 @@ def linear_projection(net, axis=1):
     #net = tf.tanh(net)
     return net
 
+def echo(net, axis=1):
+    return net
 

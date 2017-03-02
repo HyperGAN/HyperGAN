@@ -506,47 +506,6 @@ To see a detailed list, run
 
 Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab that have the label *Help Wanted*.
 
-## Discriminators
-
-The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier.
-
-You can combine multiple discriminators in a single GAN. 
-
-### pyramid
-
-Progressive enhancement is enabled by default:
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
-
-Default.
-
-### densenet
-
-Progressive enhancement is enabled by default here too.
-
-### resnet
-
-Note: This is currently broken 
-
-## Encoders
-
-### LinearEncoder
-
-This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
-
-#### Linear
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
-
-#### Spherical
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
-
-#### Gaussian
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
-
-### Vae
 
 <div id="our-process"/>
 ## Our process
@@ -612,6 +571,56 @@ Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can 
 
 d_loss and g_loss can be reversed as well - just add a '-' sign.
 
+
+<div id="lsgan"/>
+## LS-GAN in Tensorflow
+
+```python
+ d_loss = (d_real-b)**2 - (d_fake-a)**2
+ g_loss = (d_fake-c)**2
+```
+
+a, b, and c are all hyperparameters.
+
+## Discriminators
+
+The discriminators job is to tell if a piece of data is real or fake.  In hypergan, a discriminator can also be a classifier by adding an additional loss.
+
+You can combine multiple discriminators in a single GAN.  This type of ensembling can be useful, but by default only 1 is enabled.
+
+### progressive enhancement
+
+If true, each layer of the discriminator gets a resized version of X and additional outputs from G.
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/progressive-enhancement.png'/>
+
+## Encoders
+
+### LinearEncoder
+
+This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
+
+#### Linear
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
+
+#### Spherical
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
+
+#### Gaussian
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
+
+#### Modal
+
+One of many
+
+#### Binary
+
+On/Off
+
+
 ## Papers
 
 * GAN - https://arxiv.org/abs/1406.2661
@@ -620,6 +629,7 @@ d_loss and g_loss can be reversed as well - just add a '-' sign.
 * Improved GAN - https://arxiv.org/abs/1606.03498
 * Adversarial Inference - https://arxiv.org/abs/1606.00704
 * WGAN - https://arxiv.org/abs/1701.07875
+* LS-GAN - https://arxiv.org/pdf/1611.04076v2.pdf
 
 ## Sources
 

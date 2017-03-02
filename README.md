@@ -41,7 +41,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 * <a href="#about">About</a>
 
 <div id="changelog"></div>
-## Changelog
+# Changelog
 
 ## 0.8 ~ "GAN API"
 
@@ -602,6 +602,7 @@ A single fully trained `GAN` consists of the following useful networks:
 HyperGAN is currently in open beta.
 
 
+<div id='papers'/>
 ## Papers
 
 * GAN - https://arxiv.org/abs/1406.2661
@@ -612,6 +613,7 @@ HyperGAN is currently in open beta.
 * WGAN - https://arxiv.org/abs/1701.07875
 * LS-GAN - https://arxiv.org/pdf/1611.04076v2.pdf
 
+<div id='sources'/>
 ## Sources
 
 * DCGAN - https://github.com/carpedm20/DCGAN-tensorflow
@@ -619,6 +621,7 @@ HyperGAN is currently in open beta.
 * Improved GAN - https://github.com/openai/improved-gan
 * Hyperchamber - https://github.com/255bits/hyperchamber
 
+<div id='citation'/>
 # Citation
 
 If you wish to cite this project, do so like this:

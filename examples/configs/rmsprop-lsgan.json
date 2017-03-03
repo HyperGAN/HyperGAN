@@ -1,0 +1,71 @@
+{
+  "batch_size": 512,
+ "discriminators": [
+    {
+      "activation": "function:hypergan.util.ops.lrelu",
+      "create": "function:hypergan.discriminators.pyramid_discriminator.discriminator",
+      "depth_increase": 2,
+      "fc_layer_size": 2048,
+      "fc_layers": 0,
+			"first_conv_size":	16,
+      "final_activation": null,
+      "layer_filter": null,
+      "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
+      "layers": 7,
+      "noise": false,
+      "progressive_enhancement": true,
+      "resize": null,
+      "strided": false
+    }
+  ],
+
+  "dtype": {
+    "_type_enum": 1
+  },
+  "encoders": [
+    {
+      "create": "function:hypergan.encoders.linear_encoder.create",
+      "max": 1,
+      "min": -1,
+      "modes": 8,
+      "projections": [
+        "function:hypergan.encoders.linear_encoder.modal",
+        "function:hypergan.encoders.linear_encoder.linear",
+        "function:hypergan.encoders.linear_encoder.sphere"
+      ],
+      "z": 32
+    }
+  ],
+  "generator": {
+    "activation": "function:hypergan.generators.resize_conv_generator.generator_prelu",
+    "block": "function:hypergan.generators.resize_conv_generator.standard_block",
+    "create": "function:hypergan.generators.resize_conv_generator.create",
+    "depth_reduction": 1.5,
+    "final_activation": "function:hypergan.generators.resize_conv_generator.minmax",
+    "layer_filter": null,
+    "layer_regularizer": "function:hypergan.util.ops.batch_norm_1",
+    "resize_image_type": 1,
+    "z_projection_depth": 368
+  },
+
+  "losses": [{
+		"create" : "function:hypergan.losses.lsgan_loss.create",
+		"discriminator" : null,
+		"labels" : [0,-1,-1],
+		"reduce": "function:hypergan.losses.wgan_loss.linear_projection"
+	}
+  ],
+  "model": "2d-test",
+  "trainer": {
+    "clipped_gradients": false,
+		"clipped_d_weights":0.01,
+		"d_decay":0.995,
+		"d_momentum":0.00001,
+		"discriminator_learn_rate":0.0005,
+		"g_decay":0.999,
+		"g_momentum":0.01,
+		"generator_learn_rate":0.0004,
+    "create": "function:hypergan.trainers.rmsprop_trainer.create",
+    "run": "function:hypergan.trainers.rmsprop_trainer.run"
+  }
+}

@@ -28,3 +28,7 @@ Combines wgan with standard gan as two separate discriminators.  No value clippi
 Combines multiple wgan discriminators with multiple losses.
 
 > This shows that you can have multiple discriminators/losses with wgan powering each.
+
+## rmsprop-lsgan.json
+
+Uses LSGan Loss with RMSprop.  Based on 256x256 - smaller networks may want to reduce the `layers` of the discriminator and the `z_projection_depth` of the generator.

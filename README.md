@@ -21,6 +21,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
    * [WGAN](#wgan)
    * [LS-GAN](#ls-gan)
    * [Standard GAN and Improved GAN](#standard-gan-and-improved-gan)
+   * [Category](#categorical)
 * [The pip package hypergan](#the-pip-package-hypergan)
  * [Training](#training)
  * [Sampling](#sampling)
@@ -276,7 +277,7 @@ d_loss and g_loss can be reversed as well - just add a '-' sign.
 a, b, and c are all hyperparameters.
 
 
-### Standard GAN Loss
+### Standard GAN and Improved GAN
 
 Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` for details.
 
@@ -284,7 +285,7 @@ Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` f
 
 This is currently untested.
 
-# CLI
+# The pip package hypergan
 
 ```bash
  hypergan -h
@@ -296,8 +297,6 @@ This is currently untested.
   # Train a 256x256 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
-
-
 ## Sampling
 
 ```bash

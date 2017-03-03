@@ -24,14 +24,14 @@
   },
   "encoders": [
     {
-      "create": "function:hypergan.encoders.linear_encoder.create",
+      "create": "function:hypergan.encoders.uniform_encoder.create",
       "max": 1,
       "min": -1,
       "modes": 8,
       "projections": [
-        "function:hypergan.encoders.linear_encoder.modal",
-        "function:hypergan.encoders.linear_encoder.linear",
-        "function:hypergan.encoders.linear_encoder.sphere"
+        "function:hypergan.encoders.uniform_encoder.modal",
+        "function:hypergan.encoders.uniform_encoder.identity",
+        "function:hypergan.encoders.uniform_encoder.sphere"
       ],
       "z": 32
     }
@@ -61,10 +61,10 @@
 		"clipped_d_weights":0.01,
 		"d_decay":0.995,
 		"d_momentum":0.00001,
-		"discriminator_learn_rate":0.0005,
+		"d_learn_rate":0.0005,
 		"g_decay":0.999,
 		"g_momentum":0.01,
-		"generator_learn_rate":0.0004,
+		"g_learn_rate":0.0004,
     "create": "function:hypergan.trainers.rmsprop_trainer.create",
     "run": "function:hypergan.trainers.rmsprop_trainer.run"
   }

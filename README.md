@@ -23,6 +23,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
    * [Standard GAN and Improved GAN](#standard-gan-and-improved-gan)
    * [Categories](#categorical-loss)
    * [Supervised](#supervised-loss)
+  * [Trainers](#trainers)
 * [The pip package hypergan](#the-pip-package-hypergan)
  * [Training](#training)
  * [Sampling](#sampling)
@@ -167,9 +168,6 @@ Configurations are located in:
 
 Naming a configuration during training required.
 
-During beta, the best source of configuration documentation is the source code.  When in doubt, use a configuration in the <a href='#notable-configurations'>notable configurations</a> section.
-
-
 ## Architecture
 
 A hypergan configuration contains multiple encoders, multiple discriminators, multiple loss functions, and a single generator.
@@ -307,6 +305,10 @@ Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` f
 
 Supervised loss is for labeled datasets.  This uses a standard softmax loss function on the outputs of the discriminator.
 
+### Categorical loss
+
+This is currently untested.
+
 ### Loss configuration
 
 | attribute   | description | type
@@ -319,9 +321,45 @@ Supervised loss is for labeled datasets.  This uses a standard softmax loss func
 | reduce | Reduces the output before applying loss | f(net):net
 | reverse | Reverses the loss terms, if applicable | boolean
 
-### Categorical loss
 
-This is currently untested.
+## Trainers
+
+### RMSProp
+
+Uses RMSProp on G and D
+
+
+
+### Adam
+
+Uses Adam on G and D
+
+### SGD
+
+Uses SGD on G and D
+
+
+### Configuration
+
+| attribute   | description | type
+|:----------:|:------------:|:----:|
+| create | Called during graph creation | f(config, gan, net):net
+| run | Steps forward once in training. | f(gan):[d_cost, g_cost]
+| g_learn_rate | Learning rate for the generator | float >= 0
+| g_beta1 | (adam) | float >= 0
+| g_beta2 | (adam)  | float >= 0
+| g_epsilon | (adam)  | float >= 0
+| g_decay | (rmsprop)  | float >= 0
+| g_momentum | (rmsprop)  | float >= 0
+| d_learn_rate | Learning rate for the discriminator | float >= 0
+| d_beta1 | (adam) | float >= 0
+| d_beta2 | (adam)  | float >= 0
+| d_epsilon | (adam)  | float >= 0
+| d_decay | (rmsprop)  | float >= 0
+| d_momentum | (rmsprop)  | float >= 0
+| clipped_gradients | If set, gradients will be clipped to this value. | float > 0 or None
+| d_clipped_weights | If set, the discriminator will be clipped by value. |float > 0 or None
+
 
 # The pip package hypergan
 

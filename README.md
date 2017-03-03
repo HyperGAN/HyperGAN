@@ -291,7 +291,6 @@ Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can 
 d_loss and g_loss can be reversed as well - just add a '-' sign.
 
 
-### Configuration
 ## LS-GAN in Tensorflow
 
 ```python
@@ -311,7 +310,7 @@ Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` f
 Supervised loss is for labeled datasets.  This uses a standard softmax loss function on the outputs of the discriminator.
 
 
-#### Configuration
+### Loss configuration
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|

@@ -24,8 +24,8 @@ def config(
 def create(config, gan, d_vars, g_vars):
     d_loss = gan.graph.d_loss
     g_loss = gan.graph.g_loss
-    g_lr = np.float32(config.generator_learn_rate)
-    d_lr = np.float32(config.discriminator_learn_rate)
+    g_lr = np.float32(config.g_learn_rate)
+    d_lr = np.float32(config.d_learn_rate)
 
     gan.graph.d_vars = d_vars
     g_optimizer = tf.train.GradientDescentOptimizer(g_lr)

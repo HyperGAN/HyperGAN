@@ -127,8 +127,8 @@ rms_opts = {
     'g_decay': [0.9,0.99,0.999,0.995],
     'clipped_gradients': [False, 1e-4],
     'clipped_d_weights': [False, 1e-2],
-    'discriminator_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3],
-    'generator_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3]
+    'd_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3],
+    'g_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3]
 }
 trainers.append(hg.trainers.rmsprop_trainer.config(*rms_opts))
 

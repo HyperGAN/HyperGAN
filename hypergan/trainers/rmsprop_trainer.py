@@ -15,8 +15,8 @@ def config(g_momentum=0, d_momentum=0, g_decay=0.999, d_decay=0.999,
     selector.set('g_decay', g_decay)
     selector.set('d_decay', d_decay)
     selector.set('clipped_gradients', clipped_gradients)
-    selector.set("discriminator_learn_rate", d_learn_rate)
-    selector.set("generator_learn_rate", g_learn_rate)
+    selector.set("d_learn_rate", d_learn_rate)
+    selector.set("g_learn_rate", g_learn_rate)
 
     selector.set("clipped_d_weights", clipped_d_weights)
     return selector.random_config()
@@ -24,8 +24,8 @@ def config(g_momentum=0, d_momentum=0, g_decay=0.999, d_decay=0.999,
 def create(config, gan, d_vars, g_vars):
     d_loss = gan.graph.d_loss
     g_loss = gan.graph.g_loss
-    g_lr = np.float32(config.generator_learn_rate)
-    d_lr = np.float32(config.discriminator_learn_rate)
+    g_lr = np.float32(config.g_learn_rate)
+    d_lr = np.float32(config.d_learn_rate)
     gan.graph.d_vars = d_vars
 
     g_optimizer = tf.train.RMSPropOptimizer(g_lr, decay=config.g_decay, momentum=config.g_momentum)

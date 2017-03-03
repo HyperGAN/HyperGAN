@@ -7,8 +7,8 @@ def config():
     selector.set('create', create)
     selector.set('run', run)
 
-    selector.set("discriminator_learn_rate", 1e-3)
-    selector.set("generator_learn_rate", 1e-3)
+    selector.set("d_learn_rate", 1e-3)
+    selector.set("g_learn_rate", 1e-3)
 
     selector.set("clipped_discriminator", False)
     return selector.random_config()
@@ -16,8 +16,8 @@ def config():
 def create(config, gan, d_vars, g_vars):
     d_loss = gan.graph.d_loss
     g_loss = gan.graph.g_loss
-    g_lr = np.float32(config.generator_learn_rate)
-    d_lr = np.float32(config.discriminator_learn_rate)
+    g_lr = np.float32(config.g_learn_rate)
+    d_lr = np.float32(config.d_learn_rate)
     gan.graph.d_vars = d_vars
     g_optimizer = tf.train.AdamOptimizer(g_lr).minimize(g_loss, var_list=g_vars)
     d_optimizer = tf.train.RMSPropOptimizer(d_lr).minimize(d_loss, var_list=d_vars)

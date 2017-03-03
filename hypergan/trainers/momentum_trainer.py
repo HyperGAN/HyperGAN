@@ -9,12 +9,12 @@ def config():
     selector.set('create', create)
     selector.set('run', run)
 
-    selector.set('discriminator_learn_rate', 1e-3)
+    selector.set('d_learn_rate', 1e-3)
     selector.set('discriminator_epsilon', 1e-8)
     selector.set('discriminator_beta1', 0.9)
     selector.set('discriminator_beta2', 0.999)
 
-    selector.set('generator_learn_rate', 1e-3)
+    selector.set('g_learn_rate', 1e-3)
     selector.set('generator_epsilon', 1e-8)
     selector.set('generator_beta1', 0.9)
     selector.set('generator_beta2', 0.999)
@@ -27,8 +27,8 @@ def config():
 def create(config, gan, d_vars, g_vars):
     d_loss = gan.graph.d_loss
     g_loss = gan.graph.g_loss
-    g_lr = np.float32(config.generator_learn_rate)
-    d_lr = np.float32(config.discriminator_learn_rate)
+    g_lr = np.float32(config.g_learn_rate)
+    d_lr = np.float32(config.d_learn_rate)
 
     gan.graph.d_vars = d_vars
     if(config.capped):

@@ -1,7 +1,4 @@
 {
-  "categories": [],
-  "categories_lambda": 0.004818181818181819,
-  "category_loss": false,
   "discriminators": [
     {
       "activation": "function:hypergan.util.ops.lrelu",

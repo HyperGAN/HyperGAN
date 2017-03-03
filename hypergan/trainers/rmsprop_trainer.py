@@ -3,9 +3,14 @@ import numpy as np
 import hyperchamber as hc
 from .common import *
 
-def config(g_momentum=0, d_momentum=0, g_decay=0.999, d_decay=0.999, 
-        d_learn_rate=1e-4, g_learn_rate=1e-4, clipped_gradients=False,
-        clipped_d_weights=False):
+def config(g_momentum=0.01, 
+           d_momentum=0.00001, 
+           g_decay=0.999, 
+           d_decay=0.995, 
+           d_learn_rate=0.0005, 
+           g_learn_rate=0.0004, 
+           clipped_gradients=False,
+           clipped_d_weights=0.01):
     selector = hc.Selector()
     selector.set('create', create)
     selector.set('run', run)

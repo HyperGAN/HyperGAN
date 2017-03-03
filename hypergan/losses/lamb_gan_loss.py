@@ -6,13 +6,13 @@ import hyperchamber as hc
 from hypergan.losses import wgan_loss, standard_gan_loss, lsgan_loss
 
 def config(
-        reduce=tf.reduce_mean, 
+        reduce=wgan_loss.linear_projection, 
         reverse=False,
         discriminator=None,
         label_smooth=list(np.linspace(0.15, 0.35, num=10)),
-        alpha=0.6,
+        alpha=0.001,
         beta=0.2,
-        labels=[[1,0,-1]]
+        labels=[[0.5,0,-0.5]]
     ):
     selector = hc.Selector()
     selector.set("reduce", reduce)

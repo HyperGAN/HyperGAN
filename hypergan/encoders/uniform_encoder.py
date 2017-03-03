@@ -66,7 +66,7 @@ def periodic_gaussian(config, gan, net):
 def periodic_triangle_waveform(z, p):
   return 2.0 / np.pi * tf.asin(tf.sin(2*np.pi*z/p))
 
-def config(z=[20,40,80],min=-1,max=1,projections=[[identity, gaussian, sphere]],
+def config(z=[16,32,64],min=-1,max=1,projections=[[identity, modal, sphere]],
         modes=4):
   selector = hc.Selector()
   selector.set('create', create)

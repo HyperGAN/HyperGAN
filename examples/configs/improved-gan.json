@@ -11,7 +11,7 @@
       "layer_filter": null,
       "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
       "layers": 5,
-      "noise": false,
+      "noise": 1e-2,
       "progressive_enhancement": true,
       "resize": null,
       "strided": false
@@ -25,7 +25,7 @@
     "block": "function:hypergan.generators.resize_conv_generator.standard_block",
     "create": "function:hypergan.generators.resize_conv_generator.create",
     "depth_reduction": 2,
-    "final_activation": "function:hypergan.generators.resize_conv_generator.minmax",
+    "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
     "layer_filter": null,
     "layer_regularizer": "function:hypergan.util.ops.batch_norm_1",
     "resize_image_type": 1,

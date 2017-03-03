@@ -206,27 +206,38 @@ You can combine multiple encoders into a single GAN.
 
 ### Linear Encoder
 
+| attribute   | description | type
+|:----------:|:------------:|:----:|
+| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| z | The dimensions of random uniform noise inputs | int > 0
+| min | Lower bound of the random uniform noise | int > 0
+| max | Upper bound of the random uniform noise | int > min
+| projections | See more about projections below | [f(config, gan, net):net, ...]
+
+
+### Projections
+
 This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
 
-### Linear Encoder Projections
+Some projection types are listed below.
 
-#### Linear
+#### "linear" projection
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
 
-#### Spherical
+#### "sphere" projection
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
 
-#### Gaussian
+#### "gaussian" projection
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
 
-#### Modal
+#### "modal" projection
 
 One of many
 
-#### Binary
+#### "binary" projection
 
 On/Off
 

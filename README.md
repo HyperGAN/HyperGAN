@@ -364,7 +364,47 @@ To create videos:
   hypergan serve [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
 
+Serve starts a flask server.  You can then access:
+
+[http://localhost:5000/sample.png?type=batch](http://localhost:5000/sample.png?type=batch)
+
 To prevent the GPU from allocating space, see <a href='#qs-runoncpu'>Running on CPU</a>.
+
+## hypergan build
+
+Build takes the same arguments as train and builds a generator.  It's required for serve.
+
+Building does 2 things:
+
+* Loads the training model, which include the discriminator
+* Saves into a ckpt model containing only the generator
+
+## Saves
+
+Saves are stored in `~/.hypergan/saves/`
+
+They can be large.
+
+## Formats
+
+```bash
+--format <type>
+```
+
+Type can be one of:
+* jpg
+* png
+
+## Arguments
+
+To see a detailed list, run 
+```bash
+  hypergan -h
+```
+
+* -s, --size, optional(default 64x64x3), the size of your data in the form 'width'x'height'x'channels'
+* -f, --format, optional(default png), file format of the images.  Only supports jpg and png for now.
+
 
 # API
 
@@ -511,51 +551,6 @@ where all files are in 1 directory.
 * CelebA aligned faces http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
 * MS Coco http://mscoco.org/
 * ImageNet http://image-net.org/
-
-# Building
-
-## hypergan build
-
-Build takes the same arguments as train and builds a generator.  It's required for serve.
-
-Building does 2 things:
-
-* Loads the training model, which include the discriminator
-* Saves into a ckpt model containing only the generator
-
-# Server mode
-
-## hypergan serve
-
-Serve starts a flask server.  You can then access:
-
-[http://localhost:5000/sample.png?type=batch](http://localhost:5000/sample.png?type=batch)
-
-## Saves
-
-Saves are stored in `~/.hypergan/saves/`
-
-They can be large.
-
-## Formats
-
-```bash
---format <type>
-```
-
-Type can be one of:
-* jpg
-* png
-
-## Arguments
-
-To see a detailed list, run 
-```bash
-  hypergan -h
-```
-
-* -s, --size, optional(default 64x64x3), the size of your data in the form 'width'x'height'x'channels'
-* -f, --format, optional(default png), file format of the images.  Only supports jpg and png for now.
 
 # Contributing
 

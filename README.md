@@ -58,7 +58,7 @@ _Logos generated with [examples/colorizer](#examples)_
 
 * Tensorflow 1.0 support
 * New configuration format and refactored api.
-* New loss function based on least squared GAN.  See <a href="#lsgan">lsgan implementation</a>.
+* New loss function based on least squared GAN.  See <a href="#ls-gan">lsgan implementation</a>.
 * API example `2d-test` - tests a trainer/encoder/loss combination against a known distribution.
 * API example `2d-measure` - measure and report the above test by randomly combining options.
 * And more

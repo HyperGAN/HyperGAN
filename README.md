@@ -191,7 +191,7 @@ Resize conv pseudo code looks like this
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
-| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| create | Called during graph creation | f(config, gan, net):net
 | z_projection_depth | The output size of the linear layer before the resize-conv stack. | int > 0
 | activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
 | final_activation | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
@@ -207,7 +207,7 @@ You can combine multiple encoders into a single GAN.
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
-| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| create | Called during graph creation | f(config, gan, net):net
 | z | The dimensions of random uniform noise inputs | int > 0
 | min | Lower bound of the random uniform noise | int > 0
 | max | Upper bound of the random uniform noise | int > min
@@ -255,7 +255,7 @@ You can combine multiple discriminators in a single GAN.  This type of ensemblin
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
-| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| create | Called during graph creation | f(config, gan, net):net
 | activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
 | depth_increase | Increases the filter sizes on each convolution by this multiple. | float > 0
 | final_activation | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
@@ -284,8 +284,6 @@ If true, each layer of the discriminator gets a resized version of X and additio
 Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can look like:
 
 ```python
- d_fake = tf.reduce_mean(d_fake,axis=1)
- d_real = tf.reduce_mean(d_real,axis=1)
  d_loss = d_real - d_fake
  g_loss = d_fake
 ```
@@ -297,7 +295,7 @@ d_loss and g_loss can be reversed as well - just add a '-' sign.
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
-| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| create | Called during graph creation | f(config, gan, net):net
 | reverse | Reverses the loss terms | boolean
 | discriminator |  Set to restrict this loss to a single discriminator(defaults to all) | int >= 0 or None
 | reduce | Reduces the output before applying loss | f(net):net
@@ -315,7 +313,7 @@ a, b, and c are all hyperparameters.
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
-| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| create | Called during graph creation | f(config, gan, net):net
 | discriminator |  Set to restrict this loss to a single discriminator(defaults to all) | int >= 0 or None
 | reduce | Reduces the output before applying loss | f(net):net
 | labels | A triplet of values containing (a,b,c) terms. | [a,b,c] floats
@@ -330,21 +328,24 @@ Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` f
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
-| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| create | Called during graph creation | f(config, gan, net):net
 | discriminator |  Set to restrict this loss to a single discriminator(defaults to all) | int >= 0 or None
 | reduce | Reduces the output before applying loss | f(net):net
 | label_smooth | Label smoothing from Improved GAN. | float > 0
 
 ### Supervised loss
 
+Supervised loss is for labeled datasets.  This uses a standard softmax loss function on the outputs of the discriminator.
+
+
+#### Configuration
+
 | attribute   | description | type
 |:----------:|:------------:|:----:|
-| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| create | Called during graph creation | f(config, gan, net):net
 | reduce | Reduces the output before applying loss | f(net):net
 | batch_norm | batch_norm_1, layer_norm_1, or None | f(batch_size, name)(net):net
 
-
-This is currently untested.
 
 ### Categorical loss
 

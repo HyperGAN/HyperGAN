@@ -179,12 +179,12 @@ def train():
     encoders = []
 
     projections = []
-    projections.append([hg.encoders.linear_encoder.modal, hg.encoders.linear_encoder.linear])
-    projections.append([hg.encoders.linear_encoder.modal, hg.encoders.linear_encoder.sphere, hg.encoders.linear_encoder.linear])
-    projections.append([hg.encoders.linear_encoder.binary, hg.encoders.linear_encoder.sphere])
-    projections.append([hg.encoders.linear_encoder.sphere, hg.encoders.linear_encoder.linear])
-    projections.append([hg.encoders.linear_encoder.modal, hg.encoders.linear_encoder.sphere])
-    projections.append([hg.encoders.linear_encoder.sphere, hg.encoders.linear_encoder.linear, hg.encoders.linear_encoder.gaussian])
+    projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.linear])
+    projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.linear])
+    projections.append([hg.encoders.uniform_encoder.binary, hg.encoders.uniform_encoder.sphere])
+    projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.linear])
+    projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere])
+    projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.linear, hg.encoders.uniform_encoder.gaussian])
     encoder_opts = {
             'z': [16],
             'modes': [2,4,8,16],
@@ -196,9 +196,9 @@ def train():
       "min": -1,
       "modes": 8,
       "projections": [[
-        "function:hypergan.encoders.linear_encoder.modal",
-        "function:hypergan.encoders.linear_encoder.sphere",
-        "function:hypergan.encoders.linear_encoder.linear"
+        "function:hypergan.encoders.uniform_encoder.modal",
+        "function:hypergan.encoders.uniform_encoder.sphere",
+        "function:hypergan.encoders.uniform_encoder.linear"
       ]],
       "z": 16
     }
@@ -257,8 +257,8 @@ def train():
     losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
 
-    #encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
-    encoders.append([hg.encoders.linear_encoder.config(**stable_encoder_opts)])
+    #encoders.append([hg.encoders.uniform_encoder.config(**encoder_opts)])
+    encoders.append([hg.encoders.uniform_encoder.config(**stable_encoder_opts)])
     custom_config = {
         'model': args.config,
         'batch_size': args.batch_size,

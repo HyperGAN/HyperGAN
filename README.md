@@ -5,7 +5,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 ![hypergan logo 2](https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/hypergan-logo2.jpg)
 ![hypergan logo 4](https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/hypergan-logo4.jpg)
 
-_Logos generated with [examples/colorizer](#colorizer)_
+_Logos generated with [examples/colorizer](#examples)_
 
 # Table of contents
 

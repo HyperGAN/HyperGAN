@@ -1,4 +1,3 @@
-from hypergan.util.globals import *
 from hypergan.util.ops import *
 
 from tensorflow.python.framework import ops
@@ -33,7 +32,7 @@ class GAN:
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
     def __init__(self, config, graph, device='/gpu:0', graph_type='full'):
         """ Initialized a new GAN."""
-        self.config=config
+        self.config=Config(config)
         self.device=device
         self.init_session(device)
         self.graph = Config(graph)
@@ -41,14 +40,16 @@ class GAN:
         self.create_graph(graph_type, device)
 
     def sample_to_file(self, name, sampler=grid_sampler.sample):
-        return sampler(name, self.sess, self.config)
+        return sampler(self, name)
 
     def create_graph(self, graph_type, device):
         tf_graph = hg.graph.Graph(self)
         graph = self.graph
         with tf.device(device):
-            graph.y=tf.cast(graph.y,tf.int64)
-            graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
+            if 'y' in graph:
+                # convert to one-hot
+                graph.y=tf.cast(graph.y,tf.int64)
+                graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
 
             if graph_type == 'full':
                 tf_graph.create(graph)
@@ -63,7 +64,8 @@ class GAN:
             self.sess = tf.Session(config=tf.ConfigProto())
 
     def train(self):
-        return self.config['trainer.train'](self.sess, self.config)
+        trainer = hc.Config(hc.lookup_functions(self.config.trainer))
+        return trainer.run(self)
 
     def save(self, save_file):
         saver = tf.train.Saver()
@@ -73,7 +75,9 @@ class GAN:
         save_file = os.path.expanduser(save_file)
         if os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ):
             print(" |= Loading network from "+ save_file)
-            ckpt = tf.train.get_checkpoint_state(os.path.expanduser('~/.hypergan/saves/'))
+            dir = os.path.dirname(save_file)
+            print(" |= Loading checkpoint from "+ dir)
+            ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
             if ckpt and ckpt.model_checkpoint_path:
                 saver = tf.train.Saver()
                 saver.restore(self.sess, save_file)
@@ -82,7 +86,10 @@ class GAN:
             else:
                 print("No checkpoint file found")
         else:
-            print(" |= Initializing new network")
-            with tf.device(self.device):
-                init = tf.initialize_all_variables()
-                self.sess.run(init)
+            self.initialize_graph()
+    
+    def initialize_graph(self):
+        print(" |= Initializing new network")
+        with tf.device(self.device):
+            init = tf.global_variables_initializer()
+            self.sess.run(init)

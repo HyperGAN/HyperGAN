@@ -67,7 +67,7 @@ config = selector.load_or_create_config(config_filename, config)
 
 #TODO add this option to D
 #TODO add this option to G
-config['generator.layer_filter'] = add_bw
+config['generator']['layer_filter'] = add_bw
 
 # TODO refactor, shared in CLI
 config['dtype']=tf.float32

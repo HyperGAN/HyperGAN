@@ -1,5 +1,6 @@
 flask
-hyperchamber>=0.2
-tensorflow-gpu
+flask-cors
+hyperchamber>=0.2.7
+tensorflow-gpu>=1.0
 scipy
 Pillow

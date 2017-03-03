@@ -1,0 +1,71 @@
+{
+  "discriminators": [
+    {
+      "activation": "function:hypergan.util.ops.lrelu",
+      "create": "function:hypergan.discriminators.pyramid_discriminator.discriminator",
+      "depth_increase": 2,
+      "fc_layer_size": 2048,
+      "fc_layers": 0,
+			"first_conv_size":	16,
+      "final_activation": null,
+      "layer_filter": null,
+      "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
+      "layers": 5,
+      "noise": false,
+      "progressive_enhancement": true,
+      "resize": null,
+      "strided": false
+    }
+  ],
+ 
+  "dtype": {
+    "_type_enum": 1
+  },
+  "generator": {
+    "activation": "function:hypergan.generators.resize_conv_generator.generator_prelu",
+    "block": "function:hypergan.generators.resize_conv_generator.standard_block",
+    "create": "function:hypergan.generators.resize_conv_generator.create",
+    "depth_reduction": 2,
+    "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
+    "layer_filter": null,
+    "layer_regularizer": "function:hypergan.util.ops.batch_norm_1",
+    "resize_image_type": 1,
+    "z_projection_depth": 512
+  },
+
+  "losses": [
+    {
+      "create": "function:hypergan.losses.wgan.create",
+      "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
+      "discriminator": null,
+      "reverse": true
+    }
+  ],
+  "trainer": {
+    "clipped_gradients": false,
+    "clipped_d_weights": 1e-2,
+    "create": "function:hypergan.trainers.rmsprop_trainer.create",
+    "d_learn_rate": 0.00005,
+    "g_learn_rate": 0.00005,
+		"d_decay":0.995,
+		"d_momentum":0.00001,
+		"d_learn_rate":0.0005,
+		"g_decay":0.999,
+		"g_momentum":0.01,
+    "run": "function:hypergan.trainers.rmsprop_trainer.run"
+  },
+  "encoders": [
+    {
+      "create": "function:hypergan.encoders.uniform_encoder.create",
+      "max": 1,
+      "min": -1,
+      "modes": 8,
+      "projections": [
+        "function:hypergan.encoders.uniform_encoder.modal",
+        "function:hypergan.encoders.uniform_encoder.identity",
+        "function:hypergan.encoders.uniform_encoder.sphere"
+      ],
+      "z": 32
+    }
+  ]
+}

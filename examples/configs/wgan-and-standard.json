@@ -1,0 +1,90 @@
+{
+ "discriminators": [
+    {
+      "activation": "function:hypergan.util.ops.lrelu",
+      "create": "function:hypergan.discriminators.pyramid_discriminator.discriminator",
+      "depth_increase": 2,
+      "fc_layer_size": 2048,
+      "fc_layers": 0,
+			"first_conv_size":	16,
+      "final_activation": null,
+      "layer_filter": null,
+      "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
+      "layers": 5,
+      "noise": 1e-2,
+      "progressive_enhancement": true,
+      "resize": null,
+      "strided": false
+    },
+    {
+      "activation": "function:hypergan.util.ops.lrelu",
+      "create": "function:hypergan.discriminators.pyramid_discriminator.discriminator",
+      "depth_increase": 2,
+      "fc_layer_size": 2048,
+      "fc_layers": 0,
+			"first_conv_size":	16,
+      "final_activation": null,
+      "layer_filter": null,
+      "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
+      "layers": 5,
+      "noise": false,
+      "progressive_enhancement": true,
+      "resize": null,
+      "strided": false
+    }
+  ],
+  "dtype": {
+    "_type_enum": 1
+  },
+  "generator": {
+    "activation": "function:hypergan.generators.resize_conv_generator.generator_prelu",
+    "block": "function:hypergan.generators.resize_conv_generator.standard_block",
+    "create": "function:hypergan.generators.resize_conv_generator.create",
+    "depth_reduction": 2,
+    "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
+    "layer_filter": null,
+    "layer_regularizer": "function:hypergan.util.ops.batch_norm_1",
+    "resize_image_type": 1,
+    "z_projection_depth": 512
+  },
+  "losses": [
+    {
+      "create": "function:hypergan.losses.standard_gan.create",
+      "reduce": "function:hypergan.losses.standard_gan.linear_projection",
+      "label_smooth": 0.2,
+      "discriminator": 0
+    },
+    {
+      "create": "function:hypergan.losses.wgan.create",
+      "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
+      "discriminator": 1,
+      "reverse": true
+    }
+  ],
+  "trainer": {
+    "clipped_gradients": false,
+    "clipped_d_weights": false,
+    "create": "function:hypergan.trainers.adam_trainer.create",
+    "d_beta1": 0.9,
+    "d_beta2": 0.999,
+    "d_epsilon": 1e-08,
+    "d_learn_rate": 0.001,
+    "g_beta1": 0.9,
+    "g_beta2": 0.999,
+    "g_epsilon": 1e-08,
+    "g_learn_rate": 0.001,
+    "run": "function:hypergan.trainers.adam_trainer.run"
+  },
+  "encoders": [
+    {
+      "create": "function:hypergan.encoders.uniform_encoder.create",
+      "max": 1,
+      "min": -1,
+      "modes": 8,
+      "projections": [
+        "function:hypergan.encoders.uniform_encoder.identity"
+      ],
+      "z": 32
+    }
+  ]
+}

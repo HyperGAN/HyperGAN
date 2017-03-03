@@ -292,14 +292,6 @@ d_loss and g_loss can be reversed as well - just add a '-' sign.
 
 
 ### Configuration
-
-| attribute   | description | type
-|:----------:|:------------:|:----:|
-| create | Called during graph creation | f(config, gan, net):net
-| reverse | Reverses the loss terms | boolean
-| discriminator |  Set to restrict this loss to a single discriminator(defaults to all) | int >= 0 or None
-| reduce | Reduces the output before applying loss | f(net):net
-
 ## LS-GAN in Tensorflow
 
 ```python
@@ -309,29 +301,10 @@ d_loss and g_loss can be reversed as well - just add a '-' sign.
 
 a, b, and c are all hyperparameters.
 
-### Configuration
-
-| attribute   | description | type
-|:----------:|:------------:|:----:|
-| create | Called during graph creation | f(config, gan, net):net
-| discriminator |  Set to restrict this loss to a single discriminator(defaults to all) | int >= 0 or None
-| reduce | Reduces the output before applying loss | f(net):net
-| labels | A triplet of values containing (a,b,c) terms. | [a,b,c] floats
-
-
 ### Standard GAN and Improved GAN
 
 Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` for details.
 
-
-### Configuration
-
-| attribute   | description | type
-|:----------:|:------------:|:----:|
-| create | Called during graph creation | f(config, gan, net):net
-| discriminator |  Set to restrict this loss to a single discriminator(defaults to all) | int >= 0 or None
-| reduce | Reduces the output before applying loss | f(net):net
-| label_smooth | Label smoothing from Improved GAN. | float > 0
 
 ### Supervised loss
 
@@ -342,10 +315,13 @@ Supervised loss is for labeled datasets.  This uses a standard softmax loss func
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
-| create | Called during graph creation | f(config, gan, net):net
-| reduce | Reduces the output before applying loss | f(net):net
 | batch_norm | batch_norm_1, layer_norm_1, or None | f(batch_size, name)(net):net
-
+| create | Called during graph creation | f(config, gan, net):net
+| discriminator |  Set to restrict this loss to a single discriminator(defaults to all) | int >= 0 or None
+| label_smooth | improved gan - Label smoothing. | float > 0
+| labels | lsgan - A triplet of values containing (a,b,c) terms. | [a,b,c] floats
+| reduce | Reduces the output before applying loss | f(net):net
+| reverse | Reverses the loss terms, if applicable | boolean
 
 ### Categorical loss
 

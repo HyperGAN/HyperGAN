@@ -13,7 +13,6 @@ from hypergan.discriminators import *
 from hypergan.encoders import *
 from hypergan.generators import *
 from hypergan.loaders import *
-from hypergan.regularizers import *
 from hypergan.samplers import *
 from hypergan.trainers import *
 from hypergan.util import *

@@ -3,8 +3,12 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import hyperchamber as hc
 
+def linear_projection(net, axis=1):
+    net = linear(net, 1, scope="d_lsgan_lin_proj")
+    return net
+
 def config(
-        reduce=tf.reduce_mean, 
+        reduce=linear_projection, 
         discriminator=None,
         labels=[[0,-1,-1]] # a,b,c in the paper
     ):
@@ -43,12 +47,6 @@ def create(config, gan):
     gan.graph.d_real_loss=tf.reduce_mean(d_real_loss)
 
     return [d_loss, g_loss]
-
-def linear_projection(net, axis=1):
-    net = linear(net, 1, scope="d_lsgan_lin_proj")
-    #net = layer_norm_1(int(net.get_shape()[0]), name='d_wgan_lin_proj_bn')(net)
-    #net = tf.tanh(net)
-    return net
 
 def echo(net, axis=1):
     return net

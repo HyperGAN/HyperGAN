@@ -9,6 +9,7 @@ def config(
         depth_increase=2,
         final_activation=tf.nn.tanh,
         first_conv_size=[16,8],
+        first_strided_conv_size=[64,32],
         layer_regularizer=layer_norm_1,
         layers=7,
         resize=None,
@@ -25,6 +26,7 @@ def config(
     selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
     selector.set("final_activation", final_activation)
     selector.set("first_conv_size", first_conv_size)
+    selector.set("first_strided_conv_size", first_conv_size)
     selector.set("layers", layers) #Layers in D
     if create is None:
         selector.set('create', discriminator)
@@ -76,7 +78,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         
 
     if strided:
-        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
+        net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
     else:
         net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
 

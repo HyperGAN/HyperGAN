@@ -321,7 +321,6 @@ This is currently untested.
 | reduce | Reduces the output before applying loss | f(net):net
 | reverse | Reverses the loss terms, if applicable | boolean
 
-
 ## Trainers
 
 ### RMSProp

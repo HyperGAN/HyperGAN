@@ -7,7 +7,6 @@ def standard_block(net, config, activation, batch_size,id,name, resize=None, out
     return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
 
 def inception_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    print("OUTPUT CHANLLL", output_channels)
     if output_channels == 3:
         return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
     size = int(net.get_shape()[-1])
@@ -47,7 +46,7 @@ def generator_prelu(net):
 
 def config(
         z_projection_depth=512,
-        activation=tf.nn.relu,
+        activation=generator_prelu,
         final_activation=tf.nn.tanh,
         depth_reduction=2,
         layer_filter=None,
@@ -129,7 +128,6 @@ def create(config, gan, net):
             sigmoid_gate = None
 
         net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
-        print("OUTPUT SIZE", net)
         if(i == depth-1):
             first3 = net
         else:

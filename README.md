@@ -21,7 +21,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
    * [WGAN](#wgan)
    * [LS-GAN](#ls-gan)
    * [Standard GAN and Improved GAN](#standard-gan-and-improved-gan)
-   * [Category](#categorical)
+   * [Categories](#categorical-loss)
    * [Supervised](#supervised-loss)
 * [The pip package hypergan](#the-pip-package-hypergan)
  * [Training](#training)
@@ -104,7 +104,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
 3. Python3
 
 
-## Install hypergan
+## Install
 
 
 ```bash
@@ -174,7 +174,7 @@ During beta, the best source of configuration documentation is the source code. 
 
 A hypergan configuration contains multiple encoders, multiple discriminators, multiple loss functions, and a single generator.
 
-## The Generator
+## Generator
 
 A generator is responsible for projecting an encoding (sometimes called *z space*) to an output (normally an image).  A single GAN object from HyperGAN has one generator.
 
@@ -269,9 +269,6 @@ You can combine multiple discriminators in a single GAN.  This type of ensemblin
 | progressive_enhancement | If true, enable [progressive enhancement](#progressive-enhancement) | boolean
 
 
-The default discriminator.
-
-
 ### progressive enhancement
 
 If true, each layer of the discriminator gets a resized version of X and additional outputs from G.
@@ -280,7 +277,7 @@ If true, each layer of the discriminator gets a resized version of X and additio
 
 ## Losses
 
-## Wasserstein GAN in Tensorflow
+## WGAN
 
 Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can look like:
 
@@ -292,7 +289,7 @@ Our implementation of WGAN is based off the paper.  WGAN loss in Tensorflow can 
 d_loss and g_loss can be reversed as well - just add a '-' sign.
 
 
-## LS-GAN in Tensorflow
+## LS-GAN
 
 ```python
  d_loss = (d_real-b)**2 - (d_fake-a)**2

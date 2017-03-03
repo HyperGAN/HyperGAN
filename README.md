@@ -54,9 +54,7 @@ _Logos generated with [examples/colorizer](#examples)_
 
 # Changelog
 
-## 0.8 ~ "GAN API"
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/face-manifold-0.8-64x64.png'/>
+## 0.8 ~ "LSGAN / 2d test"
 
 * Tensorflow 1.0 support
 * New configuration format and refactored api.
@@ -64,6 +62,9 @@ _Logos generated with [examples/colorizer](#examples)_
 * API example `2d-test` - tests a trainer/encoder/loss combination against a known distribution.
 * API example `2d-measure` - measure and report the above test by randomly combining options.
 * And more
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/face-manifold-0.8-64x64.png'/>
+
 
 ## 0.7 ~ "WGAN API"
 

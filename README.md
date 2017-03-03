@@ -57,6 +57,8 @@ _Logos generated with [examples/colorizer](colorizer)_
 
 ## 0.8 ~ "GAN API"
 
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/face-manifold-0.8-64x64.png'/>
+
 * Tensorflow 1.0 support
 * New configuration format and refactored api.
 * New loss function based on least squared GAN.  See <a href="#lsgan">lsgan implementation</a>.

@@ -140,15 +140,14 @@ def train():
     stable_rms_opts = {
         "clipped_d_weights": 0.01,
         "clipped_gradients": False,
-        "d_decay": 0.995,
-        "d_momentum": 1e-05,
+        "d_decay": 0.995, "d_momentum": 1e-05,
         "d_learn_rate": 0.001,
         "g_decay": 0.995,
         "g_momentum": 1e-06,
         "g_learn_rate": 0.0005,
     }
 
-    #trainers.append(hg.trainers.rmsprop_trainer.config(**stable_rms_opts))
+    trainers.append(hg.trainers.rmsprop_trainer.config(**rms_opts))
 
     adam_opts = {}
 
@@ -166,6 +165,16 @@ def train():
     }
 
     trainers.append(hg.trainers.adam_trainer.config(**adam_opts))
+    
+    sgd_opts = {
+        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
+        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
+        'd_clipped_weights': [False, 0.01],
+        'clipped_gradients': [False, 0.01]
+    }
+
+    trainers.append(hg.trainers.sgd_trainer.config(**sgd_opts))
+
 
     encoders = []
 
@@ -196,20 +205,56 @@ def train():
 
     losses = []
 
-    loss_opts = {
+    lamb_loss_opts = {
+        'reverse':[True, False],
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
-        'reverse': [True, False]
+        'labels': [
+            [-1, 1, 0],
+            [0, 1, 1],
+            [0, -1, -1],
+            [1, -1, 0],
+            [0, -1, 1],
+            [0, 1, -1],
+            [0, 0.5, -0.5],
+            [0.5, -0.5, 0],
+            [0.5, 0, -0.5]
+        ],
+        'alpha':[0,1e-3,1e-2,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.99,0.999],
+        'beta':[0,1e-3,1e-2,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.99,0.999]
+
+    }
+    lsgan_loss_opts = {
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
+        'labels': [
+            [-1, 1, 0],
+            [0, 1, 1],
+            [0, -1, -1],
+            [1, -1, 0],
+            [0, -1, 1],
+            [0, 1, -1],
+            [0, 0.5, -0.5],
+            [0.5, -0.5, 0],
+            [0.5, 0, -0.5]
+        ]
     }
     stable_loss_opts = {
-      "alpha": 0.2,
+      "alpha": 0.5,
+      "beta": [0.5, 0.8],
       "discriminator": None,
-      "label_smooth": 0.3378787878787879,
-      "reduce": "function:tensorflow.python.ops.math_ops.reduce_sum",
-      "reverse": False
+      "label_smooth": 0.26111111111111107,
+      "labels": [[
+        0,
+        -1,
+        -1
+      ]],
+      "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
+      "reverse": True
     }
     #losses.append([hg.losses.wgan_loss.config(**loss_opts)])
-    #losses.append([hg.losses.lamb_gan_loss.config(**loss_opts)])
-    losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
+    losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
+    #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
+    #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
+    losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
 
     #encoders.append([hg.encoders.linear_encoder.config(**encoder_opts)])
@@ -218,8 +263,8 @@ def train():
         'model': args.config,
         'batch_size': args.batch_size,
         'trainer': trainers,
-        'generator': g_resize_conv_search_config(),
-        'discriminators': [[d_pyramid_search_config()]],
+        'generator': custom_generator_config(),
+        'discriminators': [[custom_discriminator_config()]],
         'losses': losses,
         'encoders': encoders
     }
@@ -297,19 +342,27 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(20000):
+        for i in range(500000):
             d_loss, g_loss = gan.train()
 
-            if(np.abs(d_loss) > 1000 or np.abs(g_loss) > 1000):
+            if(np.abs(d_loss) > 100 or np.abs(g_loss) > 100):
                 ax_sum = ag_sum = 100000.00
                 break
+
+            if i % 1000 == 0 and i != 0: 
+                ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
+                print("ERROR", ax, ag)
+                if np.abs(ax) > 50.0 or np.abs(ag) > 50.0:
+                    ax_sum = ag_sum = 100000.00
+                    break
+
 
             #if(i % 10000 == 0 and i != 0):
             #    g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 19000):
+            if(i > 490000):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax

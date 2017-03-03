@@ -121,9 +121,9 @@ class Graph:
             loss = hc.Config(hc.lookup_functions(loss))
             d_loss, g_loss = loss.create(loss, self.gan)
             if(d_loss is not None):
-                d_losses.append(d_loss)
+                d_losses.append(tf.squeeze(d_loss))
             if(g_loss is not None):
-                g_losses.append(g_loss)
+                g_losses.append(tf.squeeze(g_loss))
 
         g_reg_losses = [var for var in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) if 'g_' in var.name]
 

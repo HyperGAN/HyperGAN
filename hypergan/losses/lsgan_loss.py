@@ -5,15 +5,15 @@ import hyperchamber as hc
 
 def config(
         reduce=tf.reduce_mean, 
-        reverse=False,
-        discriminator=None
+        discriminator=None,
+        labels=[[0,-1,-1]] # a,b,c in the paper
     ):
     selector = hc.Selector()
     selector.set("reduce", reduce)
-    selector.set('reverse', reverse)
     selector.set('discriminator', discriminator)
 
     selector.set('create', create)
+    selector.set('labels', labels)
 
     return selector.random_config()
 
@@ -32,12 +32,9 @@ def create(config, gan):
     d_real = tf.slice(net, [0,0], [s[0]//2,-1])
     d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
-    if(config.reverse):
-        d_loss = d_real - d_fake
-        g_loss = d_fake
-    else:
-        d_loss = -d_real + d_fake
-        g_loss = -d_fake
+    a,b,c = config.labels
+    d_loss = tf.square(d_real - b)+tf.square(d_fake - a)
+    g_loss = tf.square(d_fake - c)
 
     d_fake_loss = -d_fake
     d_real_loss = d_real
@@ -47,11 +44,8 @@ def create(config, gan):
 
     return [d_loss, g_loss]
 
-linear_projection_iterator=0
 def linear_projection(net, axis=1):
-    global linear_projection_iterator
-    net = linear(net, 1, scope="d_wgan_lin_proj"+str(linear_projection_iterator))
-    linear_projection_iterator+=1
+    net = linear(net, 1, scope="d_lsgan_lin_proj")
     #net = layer_norm_1(int(net.get_shape()[0]), name='d_wgan_lin_proj_bn')(net)
     #net = tf.tanh(net)
     return net

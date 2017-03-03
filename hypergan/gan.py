@@ -75,7 +75,9 @@ class GAN:
         save_file = os.path.expanduser(save_file)
         if os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ):
             print(" |= Loading network from "+ save_file)
-            ckpt = tf.train.get_checkpoint_state(os.path.expanduser('~/.hypergan/saves/'))
+            dir = os.path.dirname(save_file)
+            print(" |= Loading checkpoint from "+ dir)
+            ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
             if ckpt and ckpt.model_checkpoint_path:
                 saver = tf.train.Saver()
                 saver.restore(self.sess, save_file)

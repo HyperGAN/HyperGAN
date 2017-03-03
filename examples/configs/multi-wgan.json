@@ -1,45 +1,50 @@
 {
-  "categories": [],
-  "categories_lambda": 0.004818181818181819,
-  "category_loss": false,
   "discriminators": [
     {
       "activation": "function:hypergan.util.ops.lrelu",
-      "add_noise": false,
-      "create": "function:hypergan.discriminators.pyramid_nostride_fc_discriminator.discriminator",
+      "create": "function:hypergan.discriminators.pyramid_discriminator.discriminator",
       "depth_increase": 2,
-      "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
+      "fc_layer_size": 2048,
+      "fc_layers": 0,
+			"first_conv_size":	16,
+      "final_activation": null,
       "layer_filter": null,
-      "layer_filter.progressive_enhancement_enabled": true,
+      "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
       "layers": 5,
-      "noise_stddev": 0.1,
-      "regularizer": "function:hypergan.util.ops.layer_norm_1",
-      "resize": null
+      "noise": false,
+      "progressive_enhancement": true,
+      "resize": null,
+      "strided": false
     },
     {
       "activation": "function:hypergan.util.ops.lrelu",
-      "add_noise": false,
-      "create": "function:hypergan.discriminators.pyramid_nostride_discriminator.discriminator",
-      "depth_increase": 1.7,
-      "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
+      "create": "function:hypergan.discriminators.pyramid_discriminator.discriminator",
+      "depth_increase": 2,
+      "fc_layer_size": 2048,
+      "fc_layers": 0,
+			"first_conv_size":	16,
+      "final_activation": null,
       "layer_filter": null,
-      "layer_filter.progressive_enhancement_enabled": true,
+      "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
       "layers": 7,
-      "noise_stddev": 0.1,
-      "regularizer": "function:hypergan.util.ops.layer_norm_1",
-      "resize": null
+      "noise": false,
+      "progressive_enhancement": true,
+      "resize": null,
+      "strided": false
     }
   ],
   "dtype": {
     "_type_enum": 1
   },
   "generator": {
-    "activation": "function:hypergan.generators.resize_conv.generator_prelu",
-    "create": "function:hypergan.generators.resize_conv.create",
+    "activation": "function:hypergan.generators.resize_conv_generator.generator_prelu",
+    "block": "function:hypergan.generators.resize_conv_generator.standard_block",
+    "create": "function:hypergan.generators.resize_conv_generator.create",
     "depth_reduction": 2,
     "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
     "layer_filter": null,
     "layer_regularizer": "function:hypergan.util.ops.batch_norm_1",
+    "resize_image_type": 1,
     "z_projection_depth": 512
   },
   "losses": [
@@ -60,33 +65,27 @@
     "capped": false,
     "clipped_discriminator": false,
     "create": "function:hypergan.trainers.adam_trainer.create",
-    "discriminator_beta1": 0.9,
-    "discriminator_beta2": 0.999,
-    "discriminator_epsilon": 1e-08,
-    "discriminator_learn_rate": 0.001,
-    "generator_beta1": 0.9,
-    "generator_beta2": 0.999,
-    "generator_epsilon": 1e-08,
-    "generator_learn_rate": 0.001,
+    "d_beta1": 0.9,
+    "d_beta2": 0.999,
+    "d_epsilon": 1e-08,
+    "d_learn_rate": 0.001,
+    "g_beta1": 0.9,
+    "g_beta2": 0.999,
+    "g_epsilon": 1e-08,
+    "g_learn_rate": 0.001,
     "run": "function:hypergan.trainers.adam_trainer.run"
   },
-  "z_dimensions": 40,
-  "z_encoder_base": {
-    "create": "function:hypergan.encoders.linear.create",
-    "max": 1,
-    "min": -1
-  },
-  "z_encoders": [
+  "encoders": [
     {
-      "create": "function:hypergan.encoders.gaussian.create"
-    },
-    {
-      "create": "function:hypergan.encoders.periodic_gaussian.create",
-      "p": 4
-    },
-    {
-      "create": "function:hypergan.encoders.periodic_linear.create",
-      "p": 4
+      "create": "function:hypergan.encoders.uniform_encoder.create",
+      "max": 1,
+      "min": -1,
+      "modes": 8,
+      "projections": [
+        "function:hypergan.encoders.uniform_encoder.identity"
+      ],
+      "z": 32
     }
   ]
+
 }

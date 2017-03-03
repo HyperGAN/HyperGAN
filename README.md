@@ -195,12 +195,11 @@ Resize conv pseudo code looks like this
 | z_projection_depth | The output size of the linear layer before the resize-conv stack. | int > 0
 | activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
 | final_activation | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
-| depth_reduction | Reduces the filter sizes on each convolution by this multiple. | f(net):net
+| depth_reduction | Reduces the filter sizes on each convolution by this multiple. | float > 0
 | layer_filter | On each resize of G, we call this method.  Anything returned from this method is added to the graph before the next convolution block.  See <a href='#configuration-layer-filters'>common layer filters</a> | f(net):net
 | layer_regularizer | This "regularizes" each layer of the generator with a type.  See <a href='#layer-regularizers'>layer regularizers</a>| f(name)(net):net
 
 ## Encoders
-
 
 You can combine multiple encoders into a single GAN.
 
@@ -213,6 +212,7 @@ You can combine multiple encoders into a single GAN.
 | min | Lower bound of the random uniform noise | int > 0
 | max | Upper bound of the random uniform noise | int > min
 | projections | See more about projections below | [f(config, gan, net):net, ...]
+| modes | If using modes, the number of modes to have per dimension | int > 0
 
 
 ### Projections
@@ -252,6 +252,21 @@ Uses categorical prior to choose 'one-of-many' options.  Can be paired with Cate
 You can combine multiple discriminators in a single GAN.  This type of ensembling can be useful, but by default only 1 is enabled.
 
 ### Pyramid Discriminator
+
+| attribute   | description | type
+|:----------:|:------------:|:----:|
+| create | a method that will be called at the beginning of graph creation | f(config, gan, net):net
+| activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
+| depth_increase | Increases the filter sizes on each convolution by this multiple. | float > 0
+| final_activation | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
+| layers | The number of convolution layers | int > 0
+| layer_filter | Append information to each layer of the discriminator | f(config, net):net
+| layer_regularizer | batch_norm_1, layer_norm_1, or None | f(batch_size, name)(net):net
+| fc_layer_size | The size of the linear layers at the end of this network(if any). | int > 0
+| fc_layers | fully connected layers at the end of the discriminator(standard dcgan is 0) | int >= 0
+| noise | Instance noise.  Can be added to the input X | float >= 0
+| progressive_enhancement | If true, enable [progressive enhancement](#progressive-enhancement) | boolean
+
 
 The default discriminator.
 

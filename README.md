@@ -211,7 +211,7 @@ Resize conv pseudo code looks like this
 
 You can combine multiple encoders into a single GAN.
 
-### Linear Encoder
+### Uniform Encoder
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
@@ -229,7 +229,7 @@ This encoder takes a random uniform value and outputs it as many possible types.
 
 Some projection types are listed below.
 
-#### "linear" projection
+#### "identity" projection
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
 

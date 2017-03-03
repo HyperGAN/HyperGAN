@@ -5,7 +5,7 @@ import numpy as np
 TINY=1e-12
 
 
-def linear(config, gan, net):
+def identity(config, gan, net):
   return net
 
 def sphere(config, gan, net):
@@ -63,14 +63,10 @@ def periodic_gaussian(config, gan, net):
   net = periodic_triangle_waveform(net, config.periods)
   return gaussian(config, gan, net)
 
-
 def periodic_triangle_waveform(z, p):
   return 2.0 / np.pi * tf.asin(tf.sin(2*np.pi*z/p))
 
-
-
-
-def config(z=[20,40,80],min=-1,max=1,projections=[[linear, gaussian, sphere]],
+def config(z=[20,40,80],min=-1,max=1,projections=[[identity, gaussian, sphere]],
         modes=4):
   selector = hc.Selector()
   selector.set('create', create)

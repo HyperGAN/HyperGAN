@@ -22,6 +22,7 @@ A versatile GAN(generative adversarial network) implementation focused on scalab
    * [LS-GAN](#ls-gan)
    * [Standard GAN and Improved GAN](#standard-gan-and-improved-gan)
    * [Category](#categorical)
+   * [Supervised](#supervised-loss)
 * [The pip package hypergan](#the-pip-package-hypergan)
  * [Training](#training)
  * [Sampling](#sampling)
@@ -308,7 +309,6 @@ Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` f
 ### Supervised loss
 
 Supervised loss is for labeled datasets.  This uses a standard softmax loss function on the outputs of the discriminator.
-
 
 ### Loss configuration
 

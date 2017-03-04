@@ -207,7 +207,7 @@ Resize conv pseudo code looks like this
 | layer_filter | On each resize of G, we call this method.  Anything returned from this method is added to the graph before the next convolution block.  See <a href='#configuration-layer-filters'>common layer filters</a> | f(net):net
 | layer_regularizer | This "regularizes" each layer of the generator with a type.  See <a href='#layer-regularizers'>layer regularizers</a>| f(name)(net):net
 | block | This is called at each layer of the generator, after the resize. | f(...) see source code
-| resize_image_type | Defaults to '1'(BILINEAR).  See [tf.resize_images](https://www.tensorflow.org/api_docs/python/tf/image/resize_images) for types | enum(int)
+| resize_image_type | See [tf.resize_images](https://www.tensorflow.org/api_docs/python/tf/image/resize_images) for values | enum(int)
 
 ## Encoders
 

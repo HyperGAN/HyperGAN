@@ -217,7 +217,7 @@ You can combine multiple encoders into a single GAN.
 |:----------:|:------------:|:----:|
 | create | Called during graph creation | f(config, gan, net):net
 | z | The dimensions of random uniform noise inputs | int > 0
-| min | Lower bound of the random uniform noise | int > 0
+| min | Lower bound of the random uniform noise | int
 | max | Upper bound of the random uniform noise | int > min
 | projections | See more about projections below | [f(config, gan, net):net, ...]
 | modes | If using modes, the number of modes to have per dimension | int > 0

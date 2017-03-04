@@ -190,10 +190,10 @@ A generator is responsible for projecting an encoding (sometimes called *z space
 Resize conv pseudo code looks like this
 ```python
  1.  net = linear(z, z_projection_depth)
- 2.  net = resize net to max(output width/height, double input width/height)
+ 2.  net = resize net to min(output size, double input size)
  3.  add layer filter if defined
  4.  convolution block
- 5.  If at output size: 
+ 5.  If at output size: return
  6.  Else add first 3 layers to progressive enhancement output and go to 2
 ```
 

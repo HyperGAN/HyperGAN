@@ -268,7 +268,7 @@ You can combine multiple discriminators in a single GAN.  This type of ensemblin
 | create | Called during graph creation | f(config, gan, net):net
 | activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
 | depth_increase | Increases the filter sizes on each convolution by this multiple. | float > 0
-| final_activation | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
+| final_activation | Final activation to use.  None is common here, and is required for several loss functions. | f(net):net
 | layers | The number of convolution layers | int > 0
 | layer_filter | Append information to each layer of the discriminator | f(config, net):net
 | layer_regularizer | batch_norm_1, layer_norm_1, or None | f(batch_size, name)(net):net

@@ -11,7 +11,7 @@
       "final_activation": null,
       "layer_filter": null,
       "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
-      "layers": 5,
+      "layers": 6,
       "noise": false,
       "progressive_enhancement": true,
       "resize": null,

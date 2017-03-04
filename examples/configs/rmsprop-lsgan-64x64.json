@@ -1,5 +1,5 @@
 {
-  "batch_size": 512,
+  "batch_size": 32,
  "discriminators": [
     {
       "activation": "function:hypergan.util.ops.lrelu",
@@ -55,7 +55,7 @@
 		"reduce": "function:hypergan.losses.wgan_loss.linear_projection"
 	}
   ],
-  "model": "2d-test",
+  "model": "rmsprop-lsgan-64x64",
   "trainer": {
     "clipped_gradients": false,
 		"clipped_d_weights":0.01,

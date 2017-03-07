@@ -40,7 +40,13 @@ class Graph:
         g = g[-1]
         if len(gs) > 1:
             for i in gs:
-                resized = tf.image.resize_images(xs[-1],[int(xs[-1].get_shape()[1]//2),int(xs[-1].get_shape()[2]//2)], 1)
+                s = [int(elem) for elem in xs[-1].get_shape()]
+                if len(s) < 4:
+                    print("Disabling progressive enhancement, input size too small")
+                    break
+                maxh = max(s[2]//2, 1)
+                maxw = max(s[1]//2, 1)
+                resized = tf.image.resize_images(xs[-1],[maxw,maxh], 1)
                 xs.append(resized)
             xs.pop()
             gs.reverse()

@@ -61,6 +61,7 @@ _Logos generated with [examples/colorizer](#examples)_
 * New loss function based on least squared GAN.  See <a href="#ls-gan">lsgan implementation</a>.
 * API example `2d-test` - tests a trainer/encoder/loss combination against a known distribution.
 * API example `2d-measure` - measure and report the above test by randomly combining options.
+* Updated default configuration.
 * And more
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/face-manifold-0.8-64x64.png'/>

@@ -231,7 +231,8 @@ with tf.device(args.device):
     gan = hg.GAN(config, initial_graph)
     gan.graph.wordvecs_z = wordvecs
 
-    gan.load_or_initialize_graph(save_file)
+    with tf.device('/cpu:0'):
+        gan.load_or_initialize_graph(save_file)
     tf.train.start_queue_runners(sess=gan.sess)
     samples = 0
 

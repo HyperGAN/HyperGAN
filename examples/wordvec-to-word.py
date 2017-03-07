@@ -120,16 +120,16 @@ def g_resize_conv_create(config, gan, net):
     #filter = [1,64,4,1]
     #stride = [1,64,4,1]
     #gs[-1] = tf.nn.avg_pool(gs[-1], ksize=filter, strides=stride, padding='SAME')
-    gs[-1] = linear(tf.reshape(gs[-1], [gan.config.batch_size, -1]), 16, scope="g_2d_lin")
-    if config.final_activation:
-        if config.layer_regularizer:
-            gs[-1] = config.layer_regularizer(gan.config.batch_size, name='g_bn_first3_')(gs[-1])
-        gs[-1] = config.final_activation(gs[-1])
+    #gs[-1] = linear(tf.reshape(gs[-1], [gan.config.batch_size, -1]), 16, scope="g_2d_lin")
+    #if config.final_activation:
+    #    if config.layer_regularizer:
+    #        gs[-1] = config.layer_regularizer(gan.config.batch_size, name='g_bn_first3_')(gs[-1])
+    #    gs[-1] = config.final_activation(gs[-1])
 
 
     #gs[-1] = tf.slice(gs[-1], [0,16,1,0], [-1, 16, 1, 1])
-    #gs[-1] = tf.image.resize_images(gs[-1], [16,1], 1)
-    #gs[-1] = tf.reshape(gs[-1], [gan.config.batch_size, 16])
+    gs[-1] = tf.image.resize_images(gs[-1], [16,1], 1)
+    gs[-1] = tf.reshape(gs[-1], [gan.config.batch_size, 16])
     return gs
 
 def d_pyramid_create(gan, config, x, g, xs, gs, prefix='d_'):

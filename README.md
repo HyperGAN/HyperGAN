@@ -61,6 +61,7 @@ _Logos generated with [examples/colorizer](#examples)_
 * New loss function based on least squared GAN.  See <a href="#ls-gan">lsgan implementation</a>.
 * API example `2d-test` - tests a trainer/encoder/loss combination against a known distribution.
 * API example `2d-measure` - measure and report the above test by randomly combining options.
+* Updated default configuration.
 * And more
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/face-manifold-0.8-64x64.png'/>
@@ -160,7 +161,10 @@ Don't train on CPU!  It's too slow.
 
 # Configuration
 
-Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
+Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  Here's an example of the default configuration running on examples/2d-test.
+
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/default-config.gif'/>
+
 
 Configurations are located in:
 
@@ -616,7 +620,7 @@ TLDR: *x.y.z*
 
 The branches are:
 
-* `master` contains the best GAN we've found as default.  It aims to *just work* for most use cases.
+* `master` contains the best GAN we've found as default.  It aims to *just work* for most use cases(YMMV).
 * `develop` contains the latest and can be in a broken state.
 
 *Bug fixes* and *showcases* can be merged into `master`

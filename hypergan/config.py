@@ -25,7 +25,7 @@ def selector(args):
     # Generator configuration
     selector.set("generator", [resize_conv_generator.config()])
 
-    selector.set("trainer", adam_trainer.config())
+    selector.set("trainer", rmsprop_trainer.config())
 
     # Discriminator configuration
     discriminators = []
@@ -35,7 +35,7 @@ def selector(args):
 
     losses = []
     for i in range(1):
-        losses.append(wgan_loss.config())
+        losses.append(lsgan_loss.config())
     selector.set("losses", [losses])
 
     return selector

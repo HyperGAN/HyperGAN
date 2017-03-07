@@ -115,39 +115,19 @@ selector = hg.config.selector(args)
 config = selector.random_config()
 config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
 
-trainers = []
-trainers.append(hg.trainers.adam_trainer.config())
-
-# TODO remove 2d test random searching.  2d-measure-accuracy does that
-
-rms_opts = {
-    'g_momentum': [0,1e-6],
-    'd_momentum': [0,1e-6],
-    'd_decay': [0.9,0.99,0.999,0.995],
-    'g_decay': [0.9,0.99,0.999,0.995],
-    'clipped_gradients': [False, 1e-4],
-    'clipped_d_weights': [False, 1e-2],
-    'd_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3],
-    'g_learn_rate': [1e-4, 1e-5, 2e-4, 1e-3]
-}
-trainers.append(hg.trainers.rmsprop_trainer.config(*rms_opts))
+config = selector.load_or_create_config(config_filename, config)
+config = hg.config.lookup_functions(config)
+config['dtype']=tf.float32
 
 custom_config = {
     'model': args.config,
     'batch_size': args.batch_size,
-    'trainer': trainers,
     'generator': custom_generator_config(),
     'discriminators': [custom_discriminator_config()]
 }
 
-custom_config = hg.config.selector(custom_config).random_config()
-
 for key,value in custom_config.items():
     config[key]=value
-
-config = selector.load_or_create_config(config_filename, config)
-config = hg.config.lookup_functions(config)
-config['dtype']=tf.float32
 
 # TODO this is shared with 2d-measure accuracy
 

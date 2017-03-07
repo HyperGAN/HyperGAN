@@ -179,12 +179,12 @@ def train():
     encoders = []
 
     projections = []
-    projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.linear])
-    projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.linear])
+    projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.identity])
+    projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity])
     projections.append([hg.encoders.uniform_encoder.binary, hg.encoders.uniform_encoder.sphere])
-    projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.linear])
+    projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity])
     projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere])
-    projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.linear, hg.encoders.uniform_encoder.gaussian])
+    projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity, hg.encoders.uniform_encoder.gaussian])
     encoder_opts = {
             'z': [16],
             'modes': [2,4,8,16],
@@ -198,7 +198,7 @@ def train():
       "projections": [[
         "function:hypergan.encoders.uniform_encoder.modal",
         "function:hypergan.encoders.uniform_encoder.sphere",
-        "function:hypergan.encoders.uniform_encoder.linear"
+        "function:hypergan.encoders.uniform_encoder.identity"
       ]],
       "z": 16
     }

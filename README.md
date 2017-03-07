@@ -58,9 +58,10 @@ _Logos generated with [examples/colorizer](#examples)_
 
 * Tensorflow 1.0 support
 * New configuration format and refactored api.
-* New loss function based on least squared GAN.  See <a href="#lsgan">lsgan implementation</a>.
+* New loss function based on least squared GAN.  See <a href="#ls-gan">lsgan implementation</a>.
 * API example `2d-test` - tests a trainer/encoder/loss combination against a known distribution.
 * API example `2d-measure` - measure and report the above test by randomly combining options.
+* Updated default configuration.
 * And more
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/face-manifold-0.8-64x64.png'/>
@@ -190,10 +191,10 @@ A generator is responsible for projecting an encoding (sometimes called *z space
 Resize conv pseudo code looks like this
 ```python
  1.  net = linear(z, z_projection_depth)
- 2.  net = resize net to max(output width/height, double input width/height)
+ 2.  net = resize net to min(output size, double input size)
  3.  add layer filter if defined
  4.  convolution block
- 5.  If at output size: 
+ 5.  If at output size: return
  6.  Else add first 3 layers to progressive enhancement output and go to 2
 ```
 
@@ -202,22 +203,24 @@ Resize conv pseudo code looks like this
 | create | Called during graph creation | f(config, gan, net):net
 | z_projection_depth | The output size of the linear layer before the resize-conv stack. | int > 0
 | activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
-| final_activation | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
+| final_activation | Final activation to use.  This is usually set to tanh to squash the output range. See <a href="#configuration-activations">activations</a>.| f(net):net
 | depth_reduction | Reduces the filter sizes on each convolution by this multiple. | float > 0
 | layer_filter | On each resize of G, we call this method.  Anything returned from this method is added to the graph before the next convolution block.  See <a href='#configuration-layer-filters'>common layer filters</a> | f(net):net
 | layer_regularizer | This "regularizes" each layer of the generator with a type.  See <a href='#layer-regularizers'>layer regularizers</a>| f(name)(net):net
+| block | This is called at each layer of the generator, after the resize. | f(...) see source code
+| resize_image_type | See [tf.resize_images](https://www.tensorflow.org/api_docs/python/tf/image/resize_images) for values | enum(int)
 
 ## Encoders
 
 You can combine multiple encoders into a single GAN.
 
-### Linear Encoder
+### Uniform Encoder
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
 | create | Called during graph creation | f(config, gan, net):net
 | z | The dimensions of random uniform noise inputs | int > 0
-| min | Lower bound of the random uniform noise | int > 0
+| min | Lower bound of the random uniform noise | int
 | max | Upper bound of the random uniform noise | int > min
 | projections | See more about projections below | [f(config, gan, net):net, ...]
 | modes | If using modes, the number of modes to have per dimension | int > 0
@@ -229,7 +232,7 @@ This encoder takes a random uniform value and outputs it as many possible types.
 
 Some projection types are listed below.
 
-#### "linear" projection
+#### "identity" projection
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
 
@@ -266,7 +269,7 @@ You can combine multiple discriminators in a single GAN.  This type of ensemblin
 | create | Called during graph creation | f(config, gan, net):net
 | activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
 | depth_increase | Increases the filter sizes on each convolution by this multiple. | float > 0
-| final_activation | Final activation to use.  This is usually set to tanh to squash the output range. | f(net):net
+| final_activation | Final activation to use.  None is common here, and is required for several loss functions. | f(net):net
 | layers | The number of convolution layers | int > 0
 | layer_filter | Append information to each layer of the discriminator | f(config, net):net
 | layer_regularizer | batch_norm_1, layer_norm_1, or None | f(batch_size, name)(net):net

@@ -161,10 +161,7 @@ Don't train on CPU!  It's too slow.
 
 # Configuration
 
-Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  Here's an example of the default configuration running on examples/2d-test.
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/default-config.gif'/>
-
+Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.
 
 Configurations are located in:
 

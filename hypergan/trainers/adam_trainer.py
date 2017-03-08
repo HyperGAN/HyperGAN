@@ -57,6 +57,7 @@ def create(config, gan, d_vars, g_vars):
 
 iteration = 0
 def run(gan):
+    global iteration
     sess = gan.sess
     config = gan.config
     x_t = gan.graph.x
@@ -77,7 +78,6 @@ def run(gan):
     if(config.d_clipped_weights):
         sess.run(gan.graph.clip)
 
-    global iteration
     if(d_class_loss is not None):
         _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss])
         if iteration % 100 == 0:
@@ -87,7 +87,6 @@ def run(gan):
         if iteration % 100 == 0:
             print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_log ))
 
-    global iteration
     iteration+=1
 
     return d_cost, g_cost

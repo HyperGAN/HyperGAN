@@ -234,15 +234,15 @@ Some projection types are listed below.
 
 #### "identity" projection
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-linear.png'/>
 
 #### "sphere" projection
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-sphere.png'/>
 
 #### "gaussian" projection
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-gaussian.png'/>
 
 #### "modal" projection
 

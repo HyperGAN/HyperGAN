@@ -42,7 +42,7 @@ iteration=0
 def sample(gan, sample_file):
     global iteration
     x, x2, encoded, label = sample_input(gan)
-    prefix = os.path.expanduser("~/.hypergan/samples/"+config['model'])
+    prefix = os.path.expanduser("samples")
     sample_file = prefix+"/input-"+str(iteration)+".png"
     plot(config, x, sample_file)
     sample2_file = prefix+"/input-2-"+str(iteration)+".png"

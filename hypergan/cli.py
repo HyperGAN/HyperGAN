@@ -74,7 +74,7 @@ class CLI:
         elif(self.args.sampler == "progressive"):
             sampler = progressive_enhancement_sampler.sample
         else:
-            raise "Cannot find sampler: '"+args.sampler+"'"
+            raise "Cannot find sampler: '"+self.args.sampler+"'"
 
         sample_list = sampler(self.gan, sample_file)
 

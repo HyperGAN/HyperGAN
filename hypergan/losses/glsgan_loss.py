@@ -4,15 +4,46 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import hyperchamber as hc
 
+def l1_distance(gan):
+    print("L1", gan.graph.x, gan.graph.gs[-1])
+    net = tf.abs(gan.graph.x - gan.graph.gs[-1])
+    net = tf.reshape(net, [int(net.get_shape()[0]), -1])
+    net = tf.reduce_mean(net, axis=1)
+    return net 
+def l2_distance(gan):
+    print("L2")
+    net = tf.square(gan.graph.x - gan.graph.gs[-1])
+    net = tf.reshape(net, [int(net.get_shape()[0]), -1])
+    net = tf.reduce_mean(net, axis=1)
+    return net
+
+def deltanet(gan):
+    x = tf.reshape(gan.graph.x, [int(gan.graph.x.get_shape()[0]), -1])
+    g = tf.reshape(gan.graph.gs[-1], [int(gan.graph.gs[-1].get_shape()[0]), -1])
+    net = tf.concat([x, g],1)
+    prefix='d_'
+    net = tf.reshape(net, [int(net.get_shape()[0]), -1])
+    net = linear(net, 128, scope=prefix+'lin1')
+    net = layer_norm_1(int(net.get_shape()[0]), name=prefix+'_lin1_bn')(net)
+    net = tf.nn.relu(net)
+    net = linear(net, 1, scope=prefix+'lin2')
+    net = layer_norm_1(int(net.get_shape()[0]), name=prefix+'_lin2_bn')(net)
+    net = tf.nn.tanh(net)
+    net = tf.reshape(net, [int(net.get_shape()[0]), 1])
+    print("DELTA")
+    return net
+
 def config(
         reduce=tf.reduce_mean, 
-        discriminator=None
+        discriminator=None,
+        lamb=1,
+        delta=l1_distance
     ):
     selector = hc.Selector()
     selector.set("reduce", reduce)
     selector.set('discriminator', discriminator)
 
-    selector.set('lamb', 1)
+    selector.set('lamb', lamb)
     selector.set('delta', delta)
     selector.set('create', create)
 
@@ -34,10 +65,13 @@ def create(config, gan):
     d_real = tf.slice(net, [0,0], [s[0]//2,-1])
     d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
-    #d_loss = d_real + config.lamb * config.delta(gan.graph.x, gan.graph.gs[-1])
-    d_loss = d_real + 1*(delta(orignet)+d_real-d_fake)
+    delta = config.delta(gan)
+    print("delta is ", delta, d_real)
+    delta = tf.reshape(delta,[int(delta.get_shape()[0]),1])
+    d_loss = d_real + config.lamb*(delta+d_real-d_fake)
     g_loss = d_fake
 
+    print("d is ", delta, d_loss)
     d_fake_loss = -d_fake
     d_real_loss = d_real
 
@@ -55,14 +89,4 @@ def linear_projection(net, axis=1):
     net = tf.tanh(net)
     return net
 
-def delta(net):
-    prefix='d_'
-    net = tf.reshape(net, [int(net.get_shape()[0]), -1])
-    net = linear(net, 2048, scope=prefix+'lin1')
-    net = layer_norm_1(int(net.get_shape()[0]), name=prefix+'_lin1_bn')(net)
-    net = tf.nn.relu(net)
-    net = linear(net, 1, scope=prefix+'lin2')
-    net = layer_norm_1(int(net.get_shape()[0]), name=prefix+'_lin2_bn')(net)
-    net = tf.nn.tanh(net)
-    return net
 

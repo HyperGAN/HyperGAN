@@ -131,7 +131,7 @@ def create(config, gan, net):
         if(i == depth-1):
             first3 = net
         else:
-            first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1,3])
+            first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
         if config.final_activation:
             if config.layer_regularizer:
                 first3 = config.layer_regularizer(gan.config.batch_size, name='g_bn_first3_'+str(i))(first3)

@@ -472,7 +472,7 @@ def train():
                 g = np.maximum(0, g)
                 g = np.minimum(len(lookup_keys)-1, g)
                 ox_val = [lookup[obj] for obj in list(x_val[0])]
-                print("X:")
+                print("X:"+str(i))
                 print("".join(ox_val))
                 print("G:")
                 for i, g0 in enumerate(g):

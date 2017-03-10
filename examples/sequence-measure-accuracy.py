@@ -13,7 +13,7 @@ from hypergan.generators import *
 import math
 
 def get_vocabulary():
-    lookup_keys = list("0123456789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ:!;,'~@%$&")
+    lookup_keys = list("0123456789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ:!;,()@%$&")
     lookup_values = np.arange(len(lookup_keys), dtype=np.float32)
 
     lookup = {}
@@ -51,13 +51,14 @@ def custom_generator_config():
 
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
-    net = linear(net, 128, scope=prefix+'lin1')
+    net = linear(net, 256, scope=prefix+'lin1')
+    net = layer_norm_1(int(net.get_shape()[0]))(net)
     net = tf.nn.relu(net)
-    net = linear(net, 128, scope=prefix+'lin2')
+    net = linear(net, 256, scope=prefix+'lin2')
     return net
 
 def custom_generator(config, gan, net):
-    net = linear(net, 128, scope="g_lin_proj")
+    net = linear(net, 256, scope="g_lin_proj")
     net = batch_norm_1(gan.config.batch_size, name='g_bn_1')(net)
     net = tf.nn.relu(net)
     net = linear(net, 64, scope="g_lin_proj3")

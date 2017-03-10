@@ -63,7 +63,7 @@ def custom_generator(config, gan, net):
     net = linear(net, 256, scope="g_lin_proj")
     net = batch_norm_1(gan.config.batch_size, name='g_bn_1')(net)
     net = tf.nn.relu(net)
-    net = linear(net, 64, scope="g_lin_proj3")
+    net = linear(net, 256, scope="g_lin_proj3")
     net = tf.tanh(net)
     return [net]
 
@@ -98,23 +98,18 @@ def g_resize_conv_search_config():
     )
 
 def g_resize_conv_create(config, gan, net):
-    gan.config.x_dims = [8,8]
+    gan.config.x_dims = [256,1]
     gan.config.channels = 1
     gs = resize_conv_generator.create(config,gan,net)
     filter = [1,4,8,1]
     stride = [1,4,8,1]
-    gs[0] = tf.nn.avg_pool(gs[0], ksize=filter, strides=stride, padding='SAME')
+    #gs[0] = tf.nn.avg_pool(gs[0], ksize=filter, strides=stride, padding='SAME')
     #gs[0] = linear(tf.reshape(gs[0], [gan.config.batch_size, -1]), 2, scope="g_2d_lin")
-    gs[0] = tf.reshape(gs[0], [gan.config.batch_size, 2])
+    gs[-1] = tf.reshape(gs[-1], [gan.config.batch_size, -1])
+    print("GS0", gs[-1], gs)
     return gs
 
 def d_pyramid_create(gan, config, x, g, xs, gs, prefix='d_'):
-    with tf.variable_scope("d_input_projection", reuse=False):
-        x = linear(x, 8*8, scope=prefix+'input_projection')
-        x = tf.reshape(x, [gan.config.batch_size, 8, 8, 1])
-    with tf.variable_scope("d_input_projection", reuse=True):
-        g = linear(g, 8*8, scope=prefix+'input_projection')
-        g = tf.reshape(g, [gan.config.batch_size, 8, 8, 1])
     return hg.discriminators.pyramid_discriminator.discriminator(gan, config, x, g, xs, gs, prefix)
 
 def batch_accuracy(a, b):
@@ -333,11 +328,11 @@ def train():
         table = tf.contrib.lookup.string_to_index_table_from_tensor(
             mapping = lookup_keys, default_value = 0)
         
-        x = tf.string_join([x, tf.constant(" " * 64)]) 
-        x = tf.substr(x, [0], [64])
+        x = tf.string_join([x, tf.constant(" " * 256)]) 
+        x = tf.substr(x, [0], [256])
         x = tf.string_split(x,delimiter='')
         x = tf.sparse_tensor_to_dense(x, default_value=' ')
-        x = tf.reshape(x, [64])
+        x = tf.reshape(x, [256])
         print("X___",x.get_shape())
         x = table.lookup(x)
         x = tf.cast(x, dtype=tf.float32)
@@ -386,13 +381,10 @@ def train():
         #        [512, 64])
 
         #---/ working manual input ---
-        
-
-        
 
     initial_graph = {
             'x':x,
-            'num_labels':1,
+            'num_labels':1
             }
 
     print("Starting training for: "+config_filename)
@@ -407,6 +399,7 @@ def train():
         accuracy_x_to_g=batch_accuracy(gan.graph.x, gan.graph.g[0])
         accuracy_g_to_x=batch_accuracy(gan.graph.g[0], gan.graph.x)
         s = [int(g) for g in gan.graph.g[0].get_shape()]
+        gan.graph.g[0] = tf.reshape(gan.graph.g[0], [int(gan.graph.g[0].get_shape()[0]), -1])
         slice1 = tf.slice(gan.graph.g[0], [0,0], [s[0]//2, -1])
         slice2 = tf.slice(gan.graph.g[0], [s[0]//2,0], [s[0]//2, -1])
         accuracy_g_to_g=batch_accuracy(slice1, slice2)

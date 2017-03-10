@@ -81,9 +81,11 @@ def create(config, gan, net):
     z_proj_dims = config.z_projection_depth
     primes = find_smallest_prime(x_dims[0], x_dims[1])
     # project z
-    net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
-    new_shape = [gan.config.batch_size, primes[0],primes[1],z_proj_dims]
+    net = linear(net, z_proj_dims*4, scope="g_lin_proj")
+    new_shape = [gan.config.batch_size, 4,1,z_proj_dims]
     net = tf.reshape(net, new_shape)
+
+    print('---', net)
 
     depth=0
     w=int(net.get_shape()[1])
@@ -111,7 +113,10 @@ def create(config, gan, net):
         if(i == depth-1):
             output_channels=gan.config.channels
         resized_wh=[s[1]*2, s[2]*2]
+        resized_wh[1]=1
         net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
+
+        print('---', net)
         if(config.layer_filter):
             fltr = config.layer_filter(gan, net)
             if(fltr is not None):

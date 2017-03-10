@@ -64,8 +64,7 @@ _Logos generated with [examples/colorizer](#examples)_
 * Updated default configuration.
 * And more
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/face-manifold-0.8-64x64.png'/>
-_Still training, larger samples to come._
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0.8.png'/>
 
 ## 0.7 ~ "WGAN API"
 

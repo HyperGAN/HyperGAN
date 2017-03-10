@@ -12,6 +12,18 @@ from hypergan.generators import *
 
 import math
 
+def get_vocabulary():
+    lookup_keys = list("0123456789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ:!;,'~@%$&")
+    lookup_values = np.arange(len(lookup_keys), dtype=np.float32)
+
+    lookup = {}
+
+    for i, key in enumerate(lookup_keys):
+        lookup[key]=lookup_values[i]
+
+    return lookup_keys, lookup
+
+
 def sample_char(v):
     v = v.encode('ascii', errors='ignore')
     print(v)
@@ -20,7 +32,7 @@ def parse_args():
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Examples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
     parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-    parser.add_argument('--config', '-c', type=str, default='2d-test', help='config name')
+    parser.add_argument('--config', '-c', type=str, default=None, help='config name')
     parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
     return parser.parse_args()
 
@@ -123,7 +135,7 @@ args = parse_args()
 
 def train():
     selector = hg.config.selector(args)
-    config_name="2d-measure-accuracy-"+str(uuid.uuid4())
+    config_name=args.config or "2d-measure-accuracy-"+str(uuid.uuid4())
 
     config = selector.random_config()
     config_filename = os.path.expanduser('~/.hypergan/configs/'+config_name+'.json')
@@ -177,7 +189,7 @@ def train():
         'clipped_gradients': [False, 0.01]
     }
 
-    trainers.append(hg.trainers.sgd_trainer.config(**sgd_opts))
+    #trainers.append(hg.trainers.sgd_trainer.config(**sgd_opts))
 
 
     encoders = []
@@ -242,6 +254,7 @@ def train():
         ]
     }
 
+
     wgan_loss_opts = {
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
         'discriminator': None,
@@ -261,12 +274,12 @@ def train():
       "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
       "reverse": True
     }
-    #losses.append([hg.losses.wgan_loss.config(**loss_opts)])
-    losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
+    losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
+    #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
-    losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
+    #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
 
 
     #encoders.append([hg.encoders.uniform_encoder.config(**encoder_opts)])
@@ -292,8 +305,10 @@ def train():
         config[key]=value
 
     
+    config = selector.load_or_create_config(config_filename, config)
     config['dtype']=tf.float32
     config = hg.config.lookup_functions(config)
+    print(config)
 
     def circle(x):
         spherenet = tf.square(x)
@@ -305,22 +320,72 @@ def train():
         return tf.round(x*2)/2.0
 
     if args.distribution == 'text':
-        x = tf.constant("replicate this line")
-        x=tf.decode_raw(x,tf.uint8)
-        x=tf.cast(x, tf.float32)
-        x=x / 255.0 * 2 - 1
-        x = tf.concat(axis=0, values=[x, tf.zeros([64], dtype=tf.float32)])
+        x = tf.constant("replicate this line 2")
+        reader = tf.TextLineReader()
+        filename_queue = tf.train.string_input_producer(["chargan.txt"])
+        key, line = reader.read(filename_queue)
+        x = line
+        lookup_keys, lookup = get_vocabulary()
 
-        x = tf.slice(x, [0], [64])
+        table = tf.contrib.lookup.string_to_index_table_from_tensor(
+            mapping = lookup_keys, default_value = 0)
+        
+        x = tf.string_join([x, tf.constant(" " * 64)]) 
+        x = tf.substr(x, [0], [64])
+        x = tf.string_split(x,delimiter='')
+        x = tf.sparse_tensor_to_dense(x, default_value=' ')
+        x = tf.reshape(x, [64])
+        print("X___",x.get_shape())
+        x = table.lookup(x)
+        x = tf.cast(x, dtype=tf.float32)
+
+        x -= len(lookup_keys)/2.0
+        x /= len(lookup_keys)/2.0
+        x = tf.reshape(x, [1, int(x.get_shape()[0])])
+        x = tf.tile(x, [512, 1])
         num_preprocess_threads = 8
         x = tf.train.shuffle_batch(
           [x],
           batch_size=config.batch_size,
           num_threads=num_preprocess_threads,
-          capacity= 1000,
-          min_after_dequeue=10)
+          capacity= 512000,
+          min_after_dequeue=51200,
+          enqueue_many=True)
 
-        x
+        #x=tf.decode_raw(x,tf.uint8)
+        #x=tf.cast(x,tf.int32)
+        #x = table.lookup(x)
+        #x = tf.reshape(x, [64])
+        #print("X IS ", x)
+        #x = "replicate this line"
+
+
+        #x=tf.cast(x, tf.float32)
+        #x=x / 255.0 * 2 - 1
+
+        #x = tf.constant("replicate this line")
+
+
+        #--- working manual input ---
+        #lookup_keys, lookup = get_vocabulary()
+
+        #input_default = 'reproduce this line                                             '
+        #input_default = [lookup[obj] for obj in list(input_default)]
+        #
+        #input_default = tf.constant(input_default)
+        #input_default -= len(lookup_keys)/2.0
+        #input_default /= len(lookup_keys)/2.0
+        #input_default = tf.reshape(input_default, [1, 64])
+        #input_default = tf.tile(input_default, [512, 1])
+
+        #x = tf.placeholder_with_default(
+        #        input_default, 
+        #        [512, 64])
+
+        #---/ working manual input ---
+        
+
+        
 
     initial_graph = {
             'x':x,
@@ -332,6 +397,8 @@ def train():
 
     with tf.device(args.device):
         gan = hg.GAN(config, initial_graph)
+        with gan.sess.as_default():
+            table.init.run()
         tf.train.start_queue_runners(sess=gan.sess)
 
         accuracy_x_to_g=batch_accuracy(gan.graph.x, gan.graph.g[0])
@@ -352,17 +419,22 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(100000):
+
+        limit = 10000
+        if args.config:
+            limit = 10000000
+        for i in range(limit):
             d_loss, g_loss = gan.train()
 
-            if(np.abs(d_loss) > 100 or np.abs(g_loss) > 100):
+            if(np.abs(d_loss) > 100 or np.abs(g_loss) > 100) and args.config is None:
+                print("D_LOSS G_LOSS BREAK")
                 ax_sum = ag_sum = 100000.00
                 break
 
             if i % 1000 == 0 and i != 0: 
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
-                print("ERROR", ax, ag)
-                if np.abs(ax) > 50.0 or np.abs(ag) > 50.0:
+                if np.abs(ax) > 3000.0 or np.abs(ag) > 3000.0 and args.config is None:
+                    print("ABS AX AG BREAK")
                     ax_sum = ag_sum = 100000.00
                     break
 
@@ -372,50 +444,41 @@ def train():
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 90000):
+            if(i > 9000 and args.config is None):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
-            if i % 100 == 0 and i > 0:
+            if i % 1000 == 0 and i > 0:
                 g, x_val = gan.sess.run([gan.graph.gs[0], gan.graph.x])
-                asciig = np.round((g+1)*127.5)
-                asciix = np.round((x_val+1)*127.5)
-                asciig = np.reshape(asciig, [-1])
-                asciix = np.reshape(asciix, [-1])
-                print(asciix)
-                #asciix = asciix[0]
-                #asciig = asciig[0]
-                s = ""
-                x = ""
-                for item in asciix:
-                    try:
-                        x+=chr(item)
-                    except:
-                        x+="|"
-                for item in asciig:
-                    try:
-                        s+=chr(item)
-                    except:
-                        s+="|"
-
-
-                print("G IS")
-                print(asciig)
-                n=64
-                printable = set(string.printable)
-                [sample_char(s[i:i+n]) for i in range(0, n*4, n)]
-                print("X IS")
-                n=64
-                [sample_char(x[i:i+n]) for i in range(0, n*4, n)]
+                lookup_keys, lookup = get_vocabulary()
+                lookup =  {i[1]:i[0] for i in lookup.items()} # reverse hash
+                g *= len(lookup_keys)/2.0
+                g += len(lookup_keys)/2.0
+                x_val *= len(lookup_keys)/2.0
+                x_val += len(lookup_keys)/2.0
+                g = np.round(g)
+                x_val = np.round(x_val)
+                
+                g = np.maximum(0, g)
+                g = np.minimum(len(lookup_keys)-1, g)
+                og = [lookup[obj] for obj in list(g[0])]
+                ox_val = [lookup[obj] for obj in list(x_val[0])]
+                print("".join(ox_val))
+                print("".join(og))
+                g = [lookup[obj] for obj in list(g[1])]
+                x_val = [lookup[obj] for obj in list(x_val[1])]
+                print("".join(x_val))
+                print("".join(g))
 
 
 
 
-        with open("sequence-results.csv", "a") as myfile:
-            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+"\n")
+        if args.config is None:
+            with open("sequence-results-10k.csv", "a") as myfile:
+                myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+"\n")
         tf.reset_default_graph()
         gan.sess.close()
 

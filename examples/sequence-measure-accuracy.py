@@ -34,6 +34,8 @@ def parse_args():
     parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
     parser.add_argument('--config', '-c', type=str, default=None, help='config name')
     parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
+    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
+    parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
     return parser.parse_args()
 
 def no_regularizer(amt):
@@ -411,7 +413,12 @@ def train():
         x_0 = gan.sess.run(gan.graph.x)
         z_0 = gan.sess.run(gan.graph.z[0])
 
-        gan.initialize_graph()
+        if args.config is not None:
+            save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
+            gan.load_or_initialize_graph(save_file)
+        else:
+            save_file = None
+            gan.initialize_graph()
 
         ax_sum = 0
         ag_sum = 0
@@ -445,14 +452,14 @@ def train():
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 90000 and args.config is None):
+            if(i > 9000 and args.config is None):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
-            if i % 1000 == 0 and i > 0:
+            if i % args.sample_every == 0 and i > 0:
                 g, x_val = gan.sess.run([gan.graph.gs[0], gan.graph.x])
                 lookup_keys, lookup = get_vocabulary()
                 lookup =  {i[1]:i[0] for i in lookup.items()} # reverse hash
@@ -462,7 +469,6 @@ def train():
                 x_val += len(lookup_keys)/2.0
                 g = np.round(g)
                 x_val = np.round(x_val)
-                
                 g = np.maximum(0, g)
                 g = np.minimum(len(lookup_keys)-1, g)
                 ox_val = [lookup[obj] for obj in list(x_val[0])]
@@ -476,7 +482,10 @@ def train():
                     og = [lookup[obj] for obj in list(g0)]
                     print("".join(og))
 
-
+            if i % args.save_every == 0 and i > 0 and args.config is not None:
+                print("Saving " + save_file)
+                with tf.device('/cpu:0'):
+                    gan.save(save_file)
 
 
         if args.config is None:

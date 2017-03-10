@@ -408,7 +408,8 @@ def train():
 
         if args.config is not None:
             save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
-            gan.load_or_initialize_graph(save_file)
+            with tf.device('/cpu:0'):
+                gan.load_or_initialize_graph(save_file)
         else:
             save_file = None
             gan.initialize_graph()

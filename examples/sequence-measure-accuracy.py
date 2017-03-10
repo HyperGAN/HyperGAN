@@ -420,7 +420,7 @@ def train():
 
         tf.train.start_queue_runners(sess=gan.sess)
 
-        limit = 10000
+        limit = 100000
         if args.config:
             limit = 10000000
         for i in range(limit):
@@ -444,7 +444,7 @@ def train():
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 9000 and args.config is None):
+            if(i > 90000 and args.config is None):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax

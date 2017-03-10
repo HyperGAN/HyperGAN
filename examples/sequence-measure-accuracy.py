@@ -13,7 +13,7 @@ from hypergan.generators import *
 import math
 
 def get_vocabulary():
-    lookup_keys = list("0123456789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ:!;,()?%$&")
+    lookup_keys = list("0123456789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ:!;,()?%$-")
     lookup_values = np.arange(len(lookup_keys), dtype=np.float32)
 
     lookup = {}
@@ -434,8 +434,8 @@ def train():
 
             if i % 1000 == 0 and i != 0: 
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
-                if np.abs(ax) > 3000.0 or np.abs(ag) > 3000.0 and args.config is None:
-                    print("ABS AX AG BREAK")
+                if (np.abs(ax) > 3000.0 or np.abs(ag) > 3000.0) and args.config is None:
+                    print("ABS AX AG BREAK", np.abs(ax), np.abs(ag), args.config)
                     ax_sum = ag_sum = 100000.00
                     break
 
@@ -465,14 +465,16 @@ def train():
                 
                 g = np.maximum(0, g)
                 g = np.minimum(len(lookup_keys)-1, g)
-                og = [lookup[obj] for obj in list(g[0])]
                 ox_val = [lookup[obj] for obj in list(x_val[0])]
+                print("X:")
                 print("".join(ox_val))
-                print("".join(og))
-                g = [lookup[obj] for obj in list(g[1])]
-                x_val = [lookup[obj] for obj in list(x_val[1])]
-                print("".join(x_val))
-                print("".join(g))
+                print("G:")
+                for i, g0 in enumerate(g):
+                    if i > 16:
+                        break
+
+                    og = [lookup[obj] for obj in list(g0)]
+                    print("".join(og))
 
 
 

@@ -475,8 +475,8 @@ def train():
                 print("X:"+str(i))
                 print("".join(ox_val))
                 print("G:")
-                for i, g0 in enumerate(g):
-                    if i > 16:
+                for j, g0 in enumerate(g):
+                    if j > 16:
                         break
 
                     og = [lookup[obj] for obj in list(g0)]

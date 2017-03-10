@@ -13,7 +13,7 @@ from hypergan.generators import *
 import math
 
 def get_vocabulary():
-    lookup_keys = list("\"0123456789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ:!;,()?.$-'")
+    lookup_keys = list("~#0123456789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ:!;,()?.\"&/-'")
     lookup_values = np.arange(len(lookup_keys), dtype=np.float32)
 
     lookup = {}

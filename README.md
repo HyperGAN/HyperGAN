@@ -64,8 +64,7 @@ _Logos generated with [examples/colorizer](#examples)_
 * Updated default configuration.
 * And more
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/face-manifold-0.8-64x64.png'/>
-_Still training, larger samples to come._
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0.8.png'/>
 
 ## 0.7 ~ "WGAN API"
 
@@ -161,7 +160,7 @@ Don't train on CPU!  It's too slow.
 
 # Configuration
 
-Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.  By default, configurations are randomly generated using [Hyperchamber](https://github.com/255BITS/hyperchamber).
+Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.
 
 Configurations are located in:
 
@@ -234,15 +233,15 @@ Some projection types are listed below.
 
 #### "identity" projection
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-linear.png'/>
 
 #### "sphere" projection
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-sphere.png'/>
 
 #### "gaussian" projection
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-gaussian.png'/>
 
 #### "modal" projection
 
@@ -617,7 +616,7 @@ TLDR: *x.y.z*
 
 The branches are:
 
-* `master` contains the best GAN we've found as default.  It aims to *just work* for most use cases.
+* `master` contains the best GAN we've found as default.  It aims to *just work* for most use cases(YMMV).
 * `develop` contains the latest and can be in a broken state.
 
 *Bug fixes* and *showcases* can be merged into `master`

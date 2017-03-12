@@ -12,6 +12,18 @@ from hypergan.generators import *
 
 import math
 
+def text_plot(size, filename, data, x):
+    plt.clf()
+    plt.figure(figsize=(2,2))
+    data = np.squeeze(data)
+    plt.plot(x)
+    plt.plot(data)
+    plt.xlim([0, size])
+    plt.ylim([-2, 2.])
+    plt.ylabel("Amplitude")
+    plt.xlabel("Time")
+    plt.savefig(filename)
+
 def get_vocabulary():
     lookup_keys = list("~#0123456789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ:!;,()?.\"&/-'")
     lookup_values = np.arange(len(lookup_keys), dtype=np.float32)
@@ -455,6 +467,7 @@ def train():
 
             if i % args.sample_every == 0 and i > 0:
                 g, x_val = gan.sess.run([gan.graph.gs[0], gan.graph.x])
+                text_plot(64, "samples/"+str(i)+".png", g[0], x_val[1])
                 lookup_keys, lookup = get_vocabulary()
                 lookup =  {i[1]:i[0] for i in lookup.items()} # reverse hash
                 g *= len(lookup_keys)/2.0

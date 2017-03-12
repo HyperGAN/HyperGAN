@@ -466,8 +466,10 @@ def train():
                 dlog = dl
 
             if i % args.sample_every == 0 and i > 0:
-                g, x_val = gan.sess.run([gan.graph.gs[0], gan.graph.x])
-                text_plot(64, "samples/"+str(i)+".png", g[0], x_val[1])
+                g, x_val = gan.sess.run([gan.graph.gs[0], gan.graph.x], {gan.graph.z[0]:z_0})
+                sample_file="samples/%06d.png" % (samples)
+                text_plot(64, sample_file, g[0], x_0[0])
+                samples+=1
                 lookup_keys, lookup = get_vocabulary()
                 lookup =  {i[1]:i[0] for i in lookup.items()} # reverse hash
                 g *= len(lookup_keys)/2.0

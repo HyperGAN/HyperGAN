@@ -25,7 +25,7 @@ def text_plot(size, filename, data, x):
     plt.savefig(filename)
 
 def get_vocabulary():
-    lookup_keys = list("~#0123456789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ:!;,()?.\"&/-'")
+    lookup_keys = list("~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.")
     lookup_values = np.arange(len(lookup_keys), dtype=np.float32)
 
     lookup = {}
@@ -75,7 +75,7 @@ def custom_generator(config, gan, net):
     net = linear(net, 256, scope="g_lin_proj")
     net = batch_norm_1(gan.config.batch_size, name='g_bn_1')(net)
     net = tf.nn.relu(net)
-    net = linear(net, 256, scope="g_lin_proj3")
+    net = linear(net, 64, scope="g_lin_proj3")
     net = tf.tanh(net)
     return [net]
 
@@ -110,7 +110,7 @@ def g_resize_conv_search_config():
     )
 
 def g_resize_conv_create(config, gan, net):
-    gan.config.x_dims = [256,1]
+    gan.config.x_dims = [64,1]
     gan.config.channels = 1
     gs = resize_conv_generator.create(config,gan,net)
     filter = [1,4,8,1]
@@ -340,11 +340,11 @@ def train():
         table = tf.contrib.lookup.string_to_index_table_from_tensor(
             mapping = lookup_keys, default_value = 0)
         
-        x = tf.string_join([x, tf.constant(" " * 256)]) 
-        x = tf.substr(x, [0], [256])
+        x = tf.string_join([x, tf.constant(" " * 64)]) 
+        x = tf.substr(x, [0], [64])
         x = tf.string_split(x,delimiter='')
         x = tf.sparse_tensor_to_dense(x, default_value=' ')
-        x = tf.reshape(x, [256])
+        x = tf.reshape(x, [64])
         print("X___",x.get_shape())
         x = table.lookup(x)
         x = tf.cast(x, dtype=tf.float32)

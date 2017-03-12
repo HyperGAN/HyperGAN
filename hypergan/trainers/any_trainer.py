@@ -69,7 +69,7 @@ def create(config, gan, d_vars, g_vars):
 
     gan.graph.d_vars = d_vars
     g_defk = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(config.g_trainer).args and k.startswith("d_")}
-    d_defk = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(config.d_trainer).args}
+    d_defk = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(config.d_trainer).args and k.startswith("g_")}
     g_optimizer = config.g_trainer(g_lr, **g_defk)
     d_optimizer = config.d_trainer(d_lr, **d_defk)
     if(config.clipped_gradients):

@@ -51,8 +51,10 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     depth = config['layers']
     batch_norm = config['layer_regularizer']
     strided = config.strided
-    x = tf.reshape(x, [gan.config.batch_size, -1, 1, 1])
-    g = tf.reshape(g, [gan.config.batch_size, -1, 1, 1])
+    print('x,g',x,g)
+    
+    x = tf.reshape(x, [gan.config.batch_size, gan.config.x_dims[0], gan.config.x_dims[1], gan.config.channels])
+    g = tf.reshape(g, [gan.config.batch_size, gan.config.x_dims[0], gan.config.x_dims[1], gan.config.channels])
 
     # TODO: cross-d feature
     if(config['resize']):
@@ -76,10 +78,10 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     else:
         net = tf.concat(axis=0, values=[x,g])
     if(config['noise']):
-        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
+        net += tf.truncated_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
         
     filterw=3
-    filterh=1
+    filterh=min(3, int(net.get_shape()[2]))
 
     if strided:
         net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)

@@ -75,7 +75,7 @@ def custom_generator(config, gan, net):
     net = linear(net, 256, scope="g_lin_proj")
     net = batch_norm_1(gan.config.batch_size, name='g_bn_1')(net)
     net = tf.nn.relu(net)
-    net = linear(net, 64, scope="g_lin_proj3")
+    net = linear(net, 32, scope="g_lin_proj3")
     net = tf.tanh(net)
     return [net]
 
@@ -110,7 +110,7 @@ def g_resize_conv_search_config():
     )
 
 def g_resize_conv_create(config, gan, net):
-    gan.config.x_dims = [64,1]
+    gan.config.x_dims = [32,1]
     gan.config.channels = 1
     gs = resize_conv_generator.create(config,gan,net)
     filter = [1,4,8,1]
@@ -340,11 +340,11 @@ def train():
         table = tf.contrib.lookup.string_to_index_table_from_tensor(
             mapping = lookup_keys, default_value = 0)
         
-        x = tf.string_join([x, tf.constant(" " * 64)]) 
-        x = tf.substr(x, [0], [64])
+        x = tf.string_join([x, tf.constant(" " * 32)]) 
+        x = tf.substr(x, [0], [32])
         x = tf.string_split(x,delimiter='')
         x = tf.sparse_tensor_to_dense(x, default_value=' ')
-        x = tf.reshape(x, [64])
+        x = tf.reshape(x, [32])
         print("X___",x.get_shape())
         x = table.lookup(x)
         x = tf.cast(x, dtype=tf.float32)
@@ -431,10 +431,11 @@ def train():
         diversity = 0.00001
         dlog = 0
         last_i = 0
+        samples = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
 
-        limit = 100000
+        limit = 10000
         if args.config:
             limit = 10000000
         for i in range(limit):
@@ -447,7 +448,7 @@ def train():
 
             if i % 1000 == 0 and i != 0: 
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
-                if (np.abs(ax) > 3000.0 or np.abs(ag) > 3000.0) and args.config is None:
+                if (np.abs(ax) > 5000.0 or np.abs(ag) > 5000.0) and args.config is None:
                     print("ABS AX AG BREAK", np.abs(ax), np.abs(ag), args.config)
                     ax_sum = ag_sum = 100000.00
                     break

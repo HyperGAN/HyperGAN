@@ -76,7 +76,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     if(config['noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
 
-
     for i in range(depth):
       #TODO better name for `batch_norm`?
       if i != 0:

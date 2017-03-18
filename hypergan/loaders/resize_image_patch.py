@@ -9,7 +9,6 @@ from tensorflow.python.ops import array_ops
 
 import tensorflow as tf
 
-
 # In[2]:
 
 def crop_to_bounding_box(image, offset_height, offset_width, target_height,
@@ -56,8 +55,8 @@ def crop_to_bounding_box(image, offset_height, offset_width, target_height,
       raise ValueError('height must be >= target + offset.')
 
   cropped = array_ops.slice(image,
-                            array_ops.pack([offset_height, offset_width, 0]),
-                            array_ops.pack([target_height, target_width, -1]))
+                            array_ops.stack([offset_height, offset_width, 0]),
+                            array_ops.stack([target_height, target_width, -1]))
 
   return cropped
 
@@ -115,7 +114,7 @@ def pad_to_bounding_box(image, offset_height, offset_width, target_height,
   if (dynamic_shape or offset_width or offset_height or
       after_padding_width or after_padding_height):
     paddings = array_ops.reshape(
-      array_ops.pack([offset_height, after_padding_height,
+      array_ops.stack([offset_height, after_padding_height,
                       offset_width, after_padding_width,
                       0, 0]),
       [3, 2])
@@ -219,7 +218,7 @@ def _ImageDimensions(images, dynamic_shape=False):
   # should make it simpler to switch dimensions in the future (e.g. if we ever
   # want to switch height and width.)
   if dynamic_shape:
-    return array_ops.unpack(array_ops.shape(images))
+    return array_ops.unstack(array_ops.shape(images))
   else:
     return images.get_shape().as_list()
 

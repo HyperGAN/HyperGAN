@@ -78,7 +78,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         
 
     if strided:
-        net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None,gain=config.orthogonal_initializer_gain)
+        net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=7, k_h=7, d_h=7, d_w=7,regularizer=None,gain=config.orthogonal_initializer_gain)
     else:
         net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None,gain=config.orthogonal_initializer_gain)
 
@@ -112,11 +112,11 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
-      if strided:
-          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
-      else:
-          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
-          net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+      #if strided:
+      #    net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2, regularizer=None)
+      #else:
+      net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+      net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)
     

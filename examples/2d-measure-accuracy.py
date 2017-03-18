@@ -133,14 +133,14 @@ def train():
     trainers = []
 
     rms_opts = {
-        'g_momentum': [0,0.1,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
-        'd_momentum': [0,0.1,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
+        'g_momentum': [0,0.1,0.002,0.005,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
+        'd_momentum': [0,0.1,0.002,0.005,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
         'd_decay': [0.8, 0.9, 0.99,0.999,0.995,0.9999,1],
         'g_decay': [0.8, 0.9, 0.99,0.999,0.995,0.9999,1],
         'clipped_gradients': [False, 1e-2],
         'clipped_d_weights': [False, 1e-2],
-        'd_learn_rate': [1e-3,1e-4,5e-4,1e-6,4e-4, 5e-5],
-        'g_learn_rate': [1e-3,1e-4,5e-4,1e-6,4e-4, 5e-5]
+        'd_learn_rate': [1e-2,1e-3,5e-3,1e-4,5e-4,1e-6,4e-4, 5e-5],
+        'g_learn_rate': [1e-2,1e-3,5e-3,1e-4,5e-4,1e-6,4e-4, 5e-5]
     }
 
     stable_rms_opts = {
@@ -158,8 +158,8 @@ def train():
     adam_opts = {}
 
     adam_opts = {
-        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
-        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
+        'd_learn_rate': [1e-2, 5e-3,1e-3,2e-3,1e-4,5e-4,1e-2,1e-6],
+        'g_learn_rate':[1e-2, 5e-3,1e-3,2e-3,1e-4,5e-4,1e-2,1e-6],
         'd_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
         'd_beta2': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
         'g_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
@@ -177,29 +177,33 @@ def train():
     tftrainers = [
             tf.train.AdamOptimizer,
             tf.train.RMSPropOptimizer,
-
+            tf.train.GradientDescentOptimizer,
+            tf.train.AdadeltaOptimizer,
+            tf.train.ProximalGradientDescentOptimizer,
+            tf.train.ProximalAdagradOptimizer,
+            tf.train.AdagradOptimizer
     ]
     # TODO FtrlOptimizer
     # TODO ProximalAdagradOptimizer
     # TODO ProximalGradientDescentOptimizer
 
     any_opts = {
-        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
-        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
-        'd_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
-        'd_beta2': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
-        'g_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
-        'g_beta2': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
-        'd_epsilon': [1e-8, 1, 0.1, 0.5],
-        'g_epsilon': [1e-8, 1, 0.1, 0.5],
+        'd_learn_rate': [2e-2,5e-3,1e-3,1e-4,5e-4,1e-2,1e-6, 5e-6],
+        'g_learn_rate': [2e-2,5e-3,1e-3,1e-4,5e-4,1e-2,1e-6, 5e-6],
+        'd_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.001,0.2, 1e-8],
+        'd_beta2': [0.9, 0.99, 0.999, 0.1, 0.01, 0.001,0.2, 1e-8],
+        'g_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.001,0.2, 1e-8],
+        'g_beta2': [0.9, 0.99, 0.999, 0.1, 0.01, 0.001,0.2, 1e-8],
+        'd_epsilon': [1e-8, 1, 0.1, 0.5,0.9],
+        'g_epsilon': [1e-8, 1, 0.1, 0.5,0.9],
         'g_momentum': [0,0.1,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
         'd_momentum': [0,0.1,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
         'd_decay': [0.8, 0.9, 0.99,0.999,0.995,0.9999,1],
         'g_decay': [0.8, 0.9, 0.99,0.999,0.995,0.9999,1],
-        'd_rho': [0.99,0.9,0.95,0.1,0.01,0],
-        'g_rho': [0.99,0.9,0.95,0.1,0.01,0],
-        'd_initial_accumulator_value': [0.99,0.9,0.95,0.1,0.01],
-        'g_initial_accumulator_value': [0.99,0.9,0.95,0.1,0.01],
+        'd_rho': [0.99,0.9,0.95,0.5,0.1,0.01,0],
+        'g_rho': [0.99,0.9,0.95,0.5,0.1,0.01,0],
+        'd_initial_accumulator_value': [0.99,0.9,0.95,0.8,0.2,0.1,0.01],
+        'g_initial_accumulator_value': [0.99,0.9,0.95,0.8,0.2,0.1,0.01],
         'd_clipped_weights': [False, 0.01],
         'clipped_gradients': [False, 0.01],
         'd_trainer':tftrainers,
@@ -390,19 +394,19 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(10000):
+        for i in range(100000):
             d_loss, g_loss = gan.train()
 
             if(np.abs(d_loss) > 100 or np.abs(g_loss) > 100):
                 ax_sum = ag_sum = 100000.00
                 break
 
-            if i % 1000 == 0 and i != 0: 
+            if i % 1000 == 0 and i > 10000: 
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 print("ERROR", ax, ag)
-                #if np.abs(ax) > 50.0 or np.abs(ag) > 50.0:
-                #    ax_sum = ag_sum = 100000.00
-                #    break
+                if np.abs(ax) > 50.0 or np.abs(ag) > 50.0:
+                    ax_sum = ag_sum = 100000.00
+                    break
 
 
             #if(i % 10000 == 0 and i != 0):
@@ -410,14 +414,14 @@ def train():
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 9000):
+            if(i > 90000):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
-        with open("results-10k.csv", "a") as myfile:
+        with open("results-100k.csv", "a") as myfile:
             myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+"\n")
         tf.reset_default_graph()
         gan.sess.close()

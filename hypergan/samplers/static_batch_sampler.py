@@ -24,9 +24,10 @@ def sample(gan, sample_file):
     g=tf.get_default_graph()
     with g.as_default():
         tf.set_random_seed(1)
-        sample = sess.run(generator, feed_dict={z_t: z, y_t: y})
+        generator = gan.graph.class_mappings[0](gan.graph.x)
+        sample, sample_x = sess.run([generator,gan.graph.x], feed_dict={z_t: z, y_t: y})
         #plot(self.config, sample, sample_file)
-        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
+        stacks = [np.hstack(np.hstack([sample_x[x*8:x*8+8],sample[x*8:x*8+8]])) for x in range(4)]
         plot(config, np.vstack(stacks), sample_file)
 
     return [{'image':sample_file, 'label':'grid'}]

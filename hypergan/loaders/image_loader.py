@@ -78,7 +78,54 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
   # Generate a batch of images and labels by building up a queue of examples.
   x,y,f= _get_data(float_image, label, features, min_queue_examples, batch_size)
 
+  #xs = build_xs(directory, format,channels,crop,height,width,batch_size)
+
   return x, y,f, total_labels, num_examples_per_epoch
+
+
+def build_xs(directory, format,channels,crop,height,width,batch_size):
+  xs = []
+  classes = sorted(glob.glob(directory+"/*"))
+  for directory in classes:
+      filenames = glob.glob(directory+"/**/*."+format)
+      filenames = tf.convert_to_tensor(filenames, dtype=tf.string)
+
+      input_queue = tf.train.slice_input_producer([filenames])
+
+      # Read examples from files in the filename queue.
+      value = tf.read_file(input_queue[0])
+
+      if(format == 'jpg'):
+          img = tf.image.decode_jpeg(value, channels=channels)
+      elif(format == 'png'):
+          img = tf.image.decode_png(value, channels=channels)
+      else:
+          print("[loader] Failed to load format", format)
+      img = tf.cast(img, tf.float32)
+
+
+      # Image processing for evaluation.
+      # Crop the central [height, width] of the image.
+      if(crop):
+          resized_image = hypergan.loaders.resize_image_patch.resize_image_with_crop_or_pad(img,
+                                                             height, width, dynamic_shape=True)
+      else:
+          #TODO, does this add extra time if no resize happens?
+          resized_image = tf.image.resize_images(img, [height, width], 1)
+
+      tf.Tensor.set_shape(resized_image, [height,width,channels])
+      float_image = resized_image / 127.5 - 1.
+
+      x= tf.train.shuffle_batch(
+          [float_image],
+          batch_size=batch_size,
+          num_threads=4,
+          capacity= 1000,
+          min_after_dequeue=100)
+      xs.append(x)
+
+  return xs
+
 
 
 def _get_features(image):

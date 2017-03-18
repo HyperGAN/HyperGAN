@@ -400,9 +400,9 @@ def train():
             if i % 1000 == 0 and i != 0: 
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 print("ERROR", ax, ag)
-                #if np.abs(ax) > 50.0 or np.abs(ag) > 50.0:
-                #    ax_sum = ag_sum = 100000.00
-                #    break
+                if np.abs(ax) > 50.0 or np.abs(ag) > 50.0:
+                    ax_sum = ag_sum = 100000.00
+                    break
 
 
             #if(i % 10000 == 0 and i != 0):

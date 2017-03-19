@@ -110,7 +110,7 @@ def create(config, gan, net, input=None):
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
         layers = int(net.get_shape()[3])//depth_reduction
-        resized_wh=[s[1]*4, s[2]*4]
+        resized_wh=[x_dims[0], x_dims[1]]
         net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
         if(config.layer_filter):
             fltr = config.layer_filter(gan, net)

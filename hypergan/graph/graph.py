@@ -3,7 +3,7 @@ from hypergan.util.hc_tf import *
 import tensorflow as tf
 import hypergan.util.wavegan as wavegan
 import hyperchamber as hc
-from hypergan.generators import class_mapping_generator
+#from hypergan.generators import class_mapping_generator
 
 TINY = 1e-12
 
@@ -25,7 +25,7 @@ class Graph:
             generator = hc.Config(hc.lookup_functions(config.generator))
             nets = generator.create(generator, self.gan, z)
 
-            class_mapping_generator.create(class_mapping_generator.config(), self.gan)
+            #class_mapping_generator.create(class_mapping_generator.config(), self.gan)
 
             return nets
 

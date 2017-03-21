@@ -147,7 +147,7 @@ def train():
         "g_learn_rate": 0.0005,
     }
 
-    trainers.append(hg.trainers.rmsprop_trainer.config(**rms_opts))
+    #trainers.append(hg.trainers.rmsprop_trainer.config(**rms_opts))
 
     adam_opts = {}
 
@@ -164,7 +164,48 @@ def train():
         'clipped_gradients': [False, 0.01]
     }
 
-    trainers.append(hg.trainers.adam_trainer.config(**adam_opts))
+    #trainers.append(hg.trainers.adam_trainer.config(**adam_opts))
+
+    any_opts = {}
+
+    tftrainers = [
+            tf.train.AdadeltaOptimizer,
+            tf.train.AdagradOptimizer,
+            tf.train.AdamOptimizer,
+            tf.train.GradientDescentOptimizer,
+            tf.train.RMSPropOptimizer,
+
+    ]
+    # TODO FtrlOptimizer
+    # TODO ProximalAdagradOptimizer
+    # TODO ProximalGradientDescentOptimizer
+
+    any_opts = {
+        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
+        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
+        'd_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
+        'd_beta2': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
+        'g_beta1': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
+        'g_beta2': [0.9, 0.99, 0.999, 0.1, 0.01, 0.2, 1e-8],
+        'd_epsilon': [1e-8, 1, 0.1, 0.5],
+        'g_epsilon': [1e-8, 1, 0.1, 0.5],
+        'g_momentum': [0,0.1,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
+        'd_momentum': [0,0.1,0.01,1e-6,1e-5,1e-1,0.9,0.999, 0.5],
+        'd_decay': [0.8, 0.9, 0.99,0.999,0.995,0.9999,1],
+        'g_decay': [0.8, 0.9, 0.99,0.999,0.995,0.9999,1],
+        'd_rho': [0.99,0.9,0.95,0.1,0.01,0],
+        'g_rho': [0.99,0.9,0.95,0.1,0.01,0],
+        'd_initial_accumulator_value': [0.99,0.9,0.95,0.1,0.01,0],
+        'g_initial_accumulator_value': [0.99,0.9,0.95,0.1,0.01,0],
+        'd_clipped_weights': [False, 0.01],
+        'clipped_gradients': [False, 0.01],
+        'd_trainer':tftrainers,
+        'g_trainer':tftrainers
+    }
+
+    trainers.append(hg.trainers.any_trainer.config(**any_opts))
+    
+
     
     sgd_opts = {
         'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
@@ -173,7 +214,7 @@ def train():
         'clipped_gradients': [False, 0.01]
     }
 
-    trainers.append(hg.trainers.sgd_trainer.config(**sgd_opts))
+    #trainers.append(hg.trainers.sgd_trainer.config(**sgd_opts))
 
 
     encoders = []

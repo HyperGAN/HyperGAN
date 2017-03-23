@@ -75,18 +75,14 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         net = tf.concat(axis=0, values=[x,g])
     if(config['noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
-        
 
-    if strided:
-        net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
-    else:
-        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
 
     for i in range(depth):
       #TODO better name for `batch_norm`?
-      if batch_norm is not None:
-          net = batch_norm(batch_size*2, name=prefix+'_expand_bn_'+str(i))(net)
-      net = activation(net)
+      if i != 0:
+          if batch_norm is not None:
+              net = batch_norm(batch_size*2, name=prefix+'_expand_bn_'+str(i))(net)
+          net = activation(net)
     
       #TODO: cross-d, overwritable
       # APPEND xs[i] and gs[i]
@@ -100,7 +96,8 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             g_filter_i = tf.concat(axis=3, values=[gs[index], config['layer_filter'](gan, xs[i])])
             xg = tf.concat(axis=0, values=[x_filter_i, g_filter_i])
         else:
-            xg = tf.concat(axis=0, values=[xs[index], gs[index]])
+            if(config['progressive_enhancement']):
+                xg = tf.concat(axis=0, values=[xs[index], gs[index]])
 
         if(config['noise']):
             xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
@@ -112,14 +109,22 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
+      depth = int(int(net.get_shape()[3])*depth_increase)
+      if i ==0:
+          depth = config.first_conv_size
       if strided:
-          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
+          net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
       else:
-          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None)
+          net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
           net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)
-
+    
+    for i in range(config.extra_layers):
+        output_features = int(int(net.get_shape()[3]))
+        net = activation(net)
+        net = conv2d(net, output_features//4, name=prefix+'_extra_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+        print('[extra discriminator] layer', net)
     k=-1
 
     net = tf.reshape(net, [batch_size*2, -1])
@@ -137,7 +142,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
 
     if final_activation:
         net = final_activation(net)
-
 
     return net
 

@@ -285,6 +285,10 @@ def train():
             [0.5, 0, -0.5]
         ]
     }
+    standard_loss_opts= {
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
+	'label_smooth': list(np.linspace(0, 1, num=20))
+    }
     stable_loss_opts = {
       "alpha": 0.5,
       "beta": [0.5, 0.8],
@@ -298,12 +302,11 @@ def train():
       "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
       "reverse": True
     }
-    losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
-    #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
-    #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
-    #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
-    losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
+    #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
+    #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
+    losses.append([hg.losses.standard_gan_loss.config(**standard_loss_opts)])
+    #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
     #encoders.append([hg.encoders.uniform_encoder.config(**encoder_opts)])
     encoders.append([hg.encoders.uniform_encoder.config(**stable_encoder_opts)])

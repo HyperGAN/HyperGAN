@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
 from hypergan.util.hc_tf import *
-from common import *
+from hypergan.generators.common import *
 
 def config(
         z_projection_depth=512,

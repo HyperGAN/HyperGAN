@@ -81,21 +81,40 @@ def create(config, gan, net, input=None):
     x_dims = gan.config.x_dims
     z_proj_dims = config.z_projection_depth
     primes = config.initial_size
+    activation = config.activation
     # project z
-    net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", gain=config.orthogonal_initializer_gain)
-    new_shape = [gan.config.batch_size, primes[0],primes[1],z_proj_dims]
+    net = linear(net, config.sld_depth, scope="g_lin_proj", gain=config.orthogonal_initializer_gain)
+    new_shape = [gan.config.batch_size, 1,1,config.sld_depth]
     net = tf.reshape(net, new_shape)
+    for i in range(config.sld_layers):
+      net = activation(net)
+      net = conv2d(net, int(int(net.get_shape()[3])*config.depth_increase), name='g__pre_'+str(i), k_w=1, k_h=1, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+      print('net is ', net)
+    depth = int(net.get_shape()[3])//primes[0]//primes[1]
+    new_shape = [gan.config.batch_size, primes[0],primes[1],depth]
+    net = tf.reshape(net, new_shape)
+    for i in range(config.mid_layers):
+      net = activation(net)
+      net = conv2d(net, z_proj_dims, name='g__pre_end'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+      print('net is ', net)
+    net = activation(net)
+    net = conv2d(net, z_proj_dims, name='g__pre_end', k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+    print('net is ', net)
 
     i=0
     depth=0
 
     nets=[]
-    activation = config.activation
     batch_size = gan.config.batch_size
 
+    if(config.layer_filter):
+        fltr = config.layer_filter(gan, net)
+        if(fltr is not None):
+            net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
     for j in range(config.ld_layers):
         name='g_layers_ld_'+str(j)
         net = config.block(net, config, activation, batch_size, 'identity', name, output_channels=int(net.get_shape()[3]), filter=3)
+
         print("[ld generator layer]", net)
     s = [int(x) for x in net.get_shape()]
     net = tf.image.resize_images(net, x_dims, config.resize_image_type)
@@ -114,8 +133,6 @@ def create(config, gan, net, input=None):
     else:
         sigmoid_gate = None
 
-    #noise = tf.random_normal(net.get_shape(), mean=0, stddev=0.001)
-    #net = tf.concat([net,noise], 3)
     if input is not None:
         print("INPUT IS", input)
         net = tf.concat([net,input], 3)
@@ -128,8 +145,7 @@ def create(config, gan, net, input=None):
     #net = block_conv(net, activation, batch_size, 'identity', name, output_channels=gan.config.channels, filter=3, gain=config.orthogonal_initializer_gain)
     first3 = net
     if config.final_activation:
-        if config.layer_regularizer:
-            first3 = config.layer_regularizer(gan.config.batch_size, name='g_bn_first3_'+str(i))(first3)
+        first3 = batch_norm_1(gan.config.batch_size, name='g_bn_first3_'+str(i))(first3)
         first3 = config.final_activation(first3)
     nets.append(first3)
     size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])

@@ -120,12 +120,21 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
           net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
       net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
+
+      if i == 2:
+        for i in range(config.mid_layers):
+            output_features = int(int(net.get_shape()[3]))
+            net = activation(net)
+            net = conv2d(net, output_features, name=prefix+'_extra_layer'+str(i), k_w=1, k_h=1, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+            print('[mid discriminator] layer', net)
+ 
+
       print('[discriminator] layer', net)
     
     for i in range(config.extra_layers):
         output_features = int(int(net.get_shape()[3]))
         net = activation(net)
-        net = conv2d(net, output_features//2, name=prefix+'_extra_layer'+str(i), k_w=1, k_h=1, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+        net = conv2d(net, output_features//2, name=prefix+'_extra_layes2r'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
         print('[extra discriminator] layer', net)
     k=-1
 
@@ -146,6 +155,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         net = final_activation(net)
 
 
+    net = batch_norm_1(gan.config.batch_size, name=prefix+'_bn_first')(net)
     return net
 
 

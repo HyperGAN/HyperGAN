@@ -4,7 +4,7 @@ import hyperchamber as hc
 from hypergan.util.hc_tf import *
 
 def standard_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, gain=config.orthogonal_initializer_gain, batch_norm=config.layer_regularizer)
+    return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer, gain=config.orthogonal_initializer_gain)
 
 def inception_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
     if output_channels == 3:

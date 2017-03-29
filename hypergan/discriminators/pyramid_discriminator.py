@@ -76,6 +76,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     if(config['noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
 
+
     for i in range(depth):
       #TODO better name for `batch_norm`?
       if i != 0:
@@ -114,7 +115,9 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       if strided:
           net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
       else:
+
           net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+
           net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)
@@ -123,6 +126,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         output_features = int(int(net.get_shape()[3]))
         net = activation(net)
         net = conv2d(net, output_features//4, name=prefix+'_extra_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+
         print('[extra discriminator] layer', net)
     k=-1
 

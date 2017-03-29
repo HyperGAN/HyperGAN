@@ -91,7 +91,7 @@ def _get_data(image, label, features, min_queue_examples, batch_size):
       [image, label, features],
       batch_size=batch_size,
       num_threads=num_preprocess_threads,
-      capacity= 1000,
-      min_after_dequeue=10)
+      capacity= batch_size*10,
+      min_after_dequeue=batch_size)
   return images, tf.reshape(label_batch, [batch_size]), f_b
 

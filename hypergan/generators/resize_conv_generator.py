@@ -4,7 +4,7 @@ import hyperchamber as hc
 from hypergan.util.hc_tf import *
 
 def standard_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, gain=config.orthogonal_initializer_gain, batch_norm=config.layer_regularizer)
+    return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
 
 def inception_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
     if output_channels == 3:
@@ -81,7 +81,7 @@ def create(config, gan, net):
     z_proj_dims = config.z_projection_depth
     primes = find_smallest_prime(x_dims[0], x_dims[1])
     # project z
-    net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", gain=config.orthogonal_initializer_gain)
+    net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
     new_shape = [gan.config.batch_size, primes[0],primes[1],z_proj_dims]
     net = tf.reshape(net, new_shape)
 
@@ -106,9 +106,6 @@ def create(config, gan, net):
             net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
 
     for i in range(depth):
-        if i == 1:
-            for j in range(config.extra_layers):
-                net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_init'+str(j), output_channels=int(net.get_shape()[3]), filter=3)
         s = [int(x) for x in net.get_shape()]
         layers = int(net.get_shape()[3])//depth_reduction
         if(i == depth-1):

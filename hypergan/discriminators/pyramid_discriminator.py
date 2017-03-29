@@ -78,9 +78,9 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         
 
     if strided:
-        net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None,gain=config.orthogonal_initializer_gain)
+        net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
     else:
-        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None,gain=config.orthogonal_initializer_gain)
+        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
 
     for i in range(depth):
       #TODO better name for `batch_norm`?
@@ -115,16 +115,11 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       if strided:
           net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
       else:
-          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None)
           net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)
-    
-    output_features = int(int(net.get_shape()[3]))
-    for i in range(config.extra_layers):
-        net = activation(net)
-        net = conv2d(net, output_features, name=prefix+'_extra_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
-        print('[extra discriminator] layer', net)
+
     k=-1
 
     net = tf.reshape(net, [batch_size*2, -1])

@@ -37,18 +37,12 @@ def custom_generator_config():
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
     net = linear(net, 128, scope=prefix+'linone')
-    for i in range(0):
-        net = tf.nn.crelu(net)
-        net = linear(net, 128, scope=prefix+'lin'+str(i))
     net = tf.nn.crelu(net)
     net = linear(net, 128, scope=prefix+'linend')
     return net
 
 def custom_generator(config, gan, net):
     net = linear(net, 128, scope="g_lin_proj")
-    for i in range(0):
-        net = tf.nn.crelu(net)
-        net = linear(net, 128, scope='g_lin'+str(i))
     net = tf.nn.crelu(net)
     net = linear(net, 2, scope="g_lin_proj3")
     net = tf.tanh(net)

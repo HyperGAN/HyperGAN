@@ -74,6 +74,8 @@ def create(config, gan, net):
         if(i == depth-1):
             layers=gan.config.channels
         resized_wh=[s[1]*2, s[2]*2]
+        if(resized_wh[0] > x_dims[0]):
+            resized_wh=x_dims
         net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
         if(config.layer_filter):
             fltr = config.layer_filter(gan, net)

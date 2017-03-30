@@ -38,7 +38,7 @@ class GAN:
         #TODO rename me.  Graph should refer to our {name => Tensor} collection
         self.create_graph(graph_type, device)
 
-    def sample_to_file(self, name, sampler=grid_sampler.sample):
+    def sample_to_file(self, name, sampler=static_batch_sampler.sample):
         return sampler(self, name)
 
     def create_graph(self, graph_type, device):
@@ -62,9 +62,9 @@ class GAN:
         with tf.device(device):
             self.sess = tf.Session(config=tf.ConfigProto())
 
-    def train(self):
+    def train(self, feed_dict={}):
         trainer = hc.Config(hc.lookup_functions(self.config.trainer))
-        return trainer.run(self)
+        return trainer.run(self, feed_dict)
 
     def save(self, save_file):
         saver = tf.train.Saver()

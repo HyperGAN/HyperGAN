@@ -90,11 +90,11 @@ def residual_block(result, activation, batch_size,id,name):
     return left+right
 
 #TODO move this somewhere?  Used by graph creation
-def block_conv(result, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None, gain=1.0):
+def block_conv(result, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None, gain=1.0):
     size = int(result.get_shape()[-1])
     result = activation(result)
     if(batch_norm is not None):
-        result = batch_norm(batch_size, name=name+'bn')(result)
+        result = batch_norm(batch_size, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=name+'bn')(result)
     s = result.get_shape()
     if(sigmoid_gate is not None):
         mask = linear(sigmoid_gate, s[1]*s[2]*s[3], scope=name+"lin_proj_mask")

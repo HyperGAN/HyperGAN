@@ -1,5 +1,6 @@
 # Loads an image with the tensorflow input pipeline
 import glob
+import os
 import tensorflow as tf
 import hypergan.loaders.resize_image_patch
 import hypergan.vendor.inception_loader as inception_loader
@@ -15,7 +16,7 @@ def build_labels(dirs):
   return labels,next_id
 def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=False, preprocess=False):
   filenames = glob.glob(directory+"/**/*."+format)
-  labels,total_labels = build_labels(sorted(glob.glob(directory+"/*")))
+  labels,total_labels = build_labels(sorted(filter(os.path.isdir, glob.glob(directory+"/*"))))
   num_examples_per_epoch = 30000//4
   print("[loader] ImageLoader found", len(filenames), "images with", total_labels, "different class labels")
   assert len(filenames)!=0, "No images found in "+directory

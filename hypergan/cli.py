@@ -82,7 +82,7 @@ class CLI:
 
     def step(self):
         trainer = hc.Config(hc.lookup_functions(self.config['trainer']))
-        d_loss, g_loss = trainer.run(self.gan)
+        d_loss, g_loss = trainer.run(self.gan, {})
 
         if(self.steps > 1 and (self.steps % self.args.sample_every == 0)):
             sample_file="samples/%06d.png" % (self.sampled)

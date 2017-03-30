@@ -15,7 +15,7 @@ def set_ops_globals(dtype, batch_size):
 rng = np.random.RandomState([2016, 6, 1])
 
 class layer_norm_1(object):
-    def __init__(self, batch_size, name="layer_norm"):
+    def __init__(self, batch_size,  epsilon=1e-5, momentum = 0.1, name="layer_norm"):
         self.name = name
     def __call__(self, x, train=True):
         return tf.contrib.layers.layer_norm(x, scope=self.name, center=True, scale=True)

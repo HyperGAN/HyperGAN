@@ -14,7 +14,12 @@ def config(
         block=[standard_block],
         resize_image_type=1,
         sigmoid_gate=False,
-        create_method=None
+        create_method=None,
+	block_repeat_count=[2],
+	batch_norm_momentum=[0.001],
+	batch_norm_epsilon=[0.0001],
+	orthogonal_initializer_gain=1
+
         ):
     selector = hc.Selector()
     
@@ -30,9 +35,13 @@ def config(
     selector.set('layer_filter', layer_filter) #Add information to g
     selector.set('layer_regularizer', batch_norm_1)
     selector.set('block', block)
+    selector.set('block_repeat_count', block_repeat_count)
     selector.set('resize_image_type', resize_image_type)
     selector.set('sigmoid_gate', sigmoid_gate)
 
+    selector.set('orthogonal_initializer_gain', orthogonal_initializer_gain)
+    selector.set('batch_norm_momentum', batch_norm_momentum)
+    selector.set('batch_norm_epsilon', batch_norm_epsilon)
     return selector.random_config()
 
 def create(config, gan, net):
@@ -66,9 +75,6 @@ def create(config, gan, net):
             net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
 
     for i in range(depth):
-        if i == 1:
-            for j in range(config.extra_layers):
-                net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_init'+str(j), output_channels=int(net.get_shape()[3]), filter=3)
         s = [int(x) for x in net.get_shape()]
         layers = int(net.get_shape()[3])//depth_reduction
         if(i == depth-1):
@@ -99,7 +105,7 @@ def create(config, gan, net):
             first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
         if config.final_activation:
             if config.layer_regularizer:
-                first3 = config.layer_regularizer(gan.config.batch_size, name='g_bn_first3_'+str(i))(first3)
+                first3 = config.layer_regularizer(gan.config.batch_size, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name='g_bn_first3_'+str(i))(first3)
             first3 = config.final_activation(first3)
         nets.append(first3)
         size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])

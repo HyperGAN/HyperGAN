@@ -39,6 +39,7 @@ class CLI:
         parser.add_argument('--max_resets', type=int, default=1, help='Will only reset G graph this many times.')
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
+        parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -138,7 +139,7 @@ class CLI:
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         reset_count=0
-        while(True):
+        while(i < self.args.steps or self.args.steps == -1):
             i+=1
             start_time = time.time()
             with tf.device(args.device):

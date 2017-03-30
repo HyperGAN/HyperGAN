@@ -33,7 +33,7 @@ def config(
     selector.set("final_activation", final_activation); # Last layer of G.  Should match the range of your input - typically -1 to 1
     selector.set("depth_reduction", depth_reduction) # Divides our depth by this amount every time we go up in size
     selector.set('layer_filter', layer_filter) #Add information to g
-    selector.set('layer_regularizer', batch_norm_1)
+    selector.set('layer_regularizer', layer_regularizer)
     selector.set('block', block)
     selector.set('block_repeat_count', block_repeat_count)
     selector.set('resize_image_type', resize_image_type)

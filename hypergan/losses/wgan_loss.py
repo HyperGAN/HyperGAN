@@ -3,17 +3,42 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import hyperchamber as hc
 
+
+class wgan_loss(graph_component, loss):
+    def defaults():
+        return {
+                "reduce": reduce,
+                'reverse': reverse,
+                'discriminator': discriminator,
+                'create': create
+        }
+
+    def build(self):
+        net = tf.concat([d_real, d_fake], 0)
+        net = config.reduce(net, axis=1)
+        s = [int(x) for x in net.get_shape()]
+        net = tf.reshape(net, [s[0], -1])
+        d_real = tf.slice(net, [0,0], [s[0]//2,-1])
+        d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
+
+        d_fake_loss = -d_fake
+        d_real_loss = d_real
+
+        gan.graph.d_fake_loss=tf.reduce_mean(d_fake_loss)
+        gan.graph.d_real_loss=tf.reduce_mean(d_real_loss)
+
+        return self
+
+    def minimize():
+        #todo:
+        # is there a way to get rid of graph variables?
+
 def config(
         reduce=tf.reduce_mean, 
         reverse=False,
         discriminator=None
     ):
     selector = hc.Selector()
-    selector.set("reduce", reduce)
-    selector.set('reverse', reverse)
-    selector.set('discriminator', discriminator)
-
-    selector.set('create', create)
 
     return selector.random_config()
 
@@ -24,14 +49,6 @@ def create(config, gan):
     else:
         d_real = gan.graph.d_reals[config.discriminator]
         d_fake = gan.graph.d_fakes[config.discriminator]
-
-    net = tf.concat([d_real, d_fake], 0)
-    net = config.reduce(net, axis=1)
-    s = [int(x) for x in net.get_shape()]
-    net = tf.reshape(net, [s[0], -1])
-    d_real = tf.slice(net, [0,0], [s[0]//2,-1])
-    d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
-
     if(config.reverse):
         d_loss = d_real - d_fake
         g_loss = d_fake

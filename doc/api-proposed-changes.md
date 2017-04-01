@@ -2,10 +2,10 @@
 
 # Better abstractions
 
-# example scripts
+## Exmaples
+### discogan
 
-# discogan
-
+```python
 xa = hg.input.ImageDirectory("path/to/horses")
 xa = hg.input.ImageDirectory("path/to/zebras")
 
@@ -28,9 +28,13 @@ gan=GAN(
 
 gan.train_for(10000)
 
+```
+This could also be a implemented in HG CLI as --align 0,1
+
 # stackgan
 
 
+```python
 options1 = {
   encoder:standard_encoder,
   output_resolution: [64,64,3]
@@ -57,11 +61,7 @@ gan2 = GAN(
 
 gan2.train_for(10000)
 
-
-# Component API
-
-Is there a standard way that would let us integrate with things like Keras?
-
+```
 
 # Internal APi
 
@@ -71,9 +71,11 @@ should be considered a target platform as well.
 
 This would involve parsing the config file and constructing a Backend that serves the config.
 
+```python
 backend.conv()
 backend.activation()
 backend.linear()
+backend.layer_regularizer()
 backend...
-
+```
 It could potentially be huge in scope, if you consider all the emerging research.  And we don't want to have to 'green light' functions for HG devs to use.  There is hopefully tooling we can leverage here.

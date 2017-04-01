@@ -37,13 +37,13 @@ options1 = {
   encoder:standard_encoder,
   output_resolution: [64,64,3]
 }
-g1 = Generator(options1).build()
+g1 = Generator(options1)
 
 options2 = {
   encoder: g1,
   output_resolution: [256,256,3]
 }
-g2 = Generator(options2).build()
+g2 = Generator(options2)
 
 gan1=GAN(
   generator=g1

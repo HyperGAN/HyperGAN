@@ -1,6 +1,6 @@
 # API v2 - Better abstractions
 
-## Exmaples
+## Examples
 ### discogan
 
 ```python

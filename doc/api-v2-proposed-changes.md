@@ -1,6 +1,4 @@
-#API v2
-
-# Better abstractions
+# API v2 - Better abstractions
 
 ## Exmaples
 ### discogan
@@ -13,13 +11,13 @@ options1 = {
   encoder:xa,
   input: xb
 }
-g1 = Generator(options1).build()
+g1 = Generator(options1)
 
 options2 = {
   encoder: xb,
   input: xa
 }
-g2 = Generator(options2).build()
+g2 = Generator(options2)
 
 gan=GAN(
   generator=[g1,g2],
@@ -63,7 +61,7 @@ gan2.train_for(10000)
 
 ```
 
-# Internal APi
+# Internal API
 
 
 One future goal of hypergan is platform agnostic behavior.  Mobile and desktop can be targeted with pbgraph, and treated as runtimes.  Both the discriminator and the generator could prove to be useful.  Javascript

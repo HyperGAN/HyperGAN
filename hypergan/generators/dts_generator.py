@@ -86,15 +86,16 @@ def create(config, gan, net):
             resized_wh=x_dims
         #net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
 
-        if(i == depth-1):
-            layers=gan.config.channels
 
         output_shape = [int(net.get_shape()[0]), int(resized_wh[0]), int(resized_wh[1]), int(layers)]
 
         shape = layers*4#int(net.get_shape()[3])
         net = config.block(net, config, activation, batch_size, 'identity', 'g_layersh_'+str(i), output_channels=shape, filter=3, sigmoid_gate=sigmoid_gate)
         net = tf.depth_to_space(net, 2)
-        #net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_condense_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
+
+        if(i == depth-1):
+            layers=gan.config.channels
+        net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_condense_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
 
 
         if(config.layer_filter):

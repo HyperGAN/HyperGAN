@@ -27,22 +27,22 @@ def sampler(gan, name):
     y_t = graph.y
     z_t = graph.z
     x_t = graph.x
-    mask_t = graph.mask
-    fltr_x_t = graph.xfiltered
+    mask_t = graph.filter_mask
+    print("MaSKT IS ", mask_t)
     x = sess.run([x_t])
     x = np.tile(x[0][0], [config['batch_size'],1,1,1])
 
     s = [int(x) for x in mask_t.get_shape()]
     mask = np.zeros([s[0], s[1]//2, s[2]//2, s[3]])
     constants = (1,1)
-    mask = np.pad(mask, ((0,0),(s[1]//4,s[1]//4),(s[2]//4,s[2]//4),(0,0)),'constant', constant_values=constants)
+    mask = np.pad(mask, ((0,0), (s[1]//4,s[1]//4),(s[2]//4,s[2]//4), (0,0)),'constant', constant_values=constants)
     print("Set up mask")
 
-    sample, bw_x = sess.run([generator, fltr_x_t], {x_t: x, mask_t: mask})
+    sample = sess.run(generator, {x_t: x, mask_t: mask})
     stacks = []
-    stacks.append([x[0], bw_x[0], sample[0], sample[1], sample[2], sample[3]])
+    stacks.append([x[0], sample[0], sample[1], sample[2], sample[3], sample[4]])
     for i in range(4):
-        stacks.append([sample[i*6+4+j] for j in range(6)])
+        stacks.append([sample[i*6+6+j] for j in range(6)])
     
     images = np.vstack([np.hstack(s) for s in stacks])
     plot(config, images, name)
@@ -61,20 +61,6 @@ def add_inpaint(gan, net):
 
     return x
 
-
-def add_original_x(gan, net):
-    x = gan.graph.x
-    mask = gan.graph.mask
-
-    s = [int(x) for x in net.get_shape()]
-    shape = [s[1], s[2]]
-    mask = tf.image.resize_images(mask, shape, 1)
-
-    x = tf.image.resize_images(x, shape, 1)
-    #xx += tf.random_normal(xx.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
-    x = x*mask
-    return x
-
 args = parse_args()
 
 width = int(args.size.split("x")[0])
@@ -87,13 +73,8 @@ config = selector.random_config()
 config_filename = os.path.expanduser('~/.hypergan/configs/inpainting.json')
 config = selector.load_or_create_config(config_filename, config)
 
-#TODO add this option to D
-#TODO add this option to G
 config['generator']['layer_filter'] = add_inpaint
-config['generator']['progressive_enhancement_enabled'] = False
-config['discriminators'][0]['layer_filter'] = add_original_x
 
-# TODO refactor, shared in CLI
 config['dtype']=tf.float32
 config['batch_size'] = args.batch_size
 x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
@@ -121,26 +102,12 @@ initial_graph = {
 
 
 shape = [config['batch_size'], config['x_dims'][0], config['x_dims'][1], config['channels']]
-mask = tf.ones([shape[1], shape[2], shape[3]])
-scaling = 0.6
-mask = tf.image.central_crop(mask, scaling)
-print(mask.get_shape())
-left = (shape[1]*scaling)//2 * 0.75
-top = (shape[2]*scaling)//2 * 0.75
-mask = tf.image.pad_to_bounding_box(mask, int(top), int(left), shape[1], shape[2])
-mask = (1.0-mask)
-#mask = tf.random_uniform(shape, -1, 1)
-#mask = tf.greater(mask, 0)
-mask = tf.cast(mask, tf.float32)
-initial_graph['mask']=mask
 
 filter_mask = tf.random_uniform(shape, -1, 1)
 filter_mask = tf.greater(filter_mask, 0)
 filter_mask = tf.cast(filter_mask, tf.float32)
 initial_graph['filter_mask']=filter_mask
 
-initial_graph['mask'] = mask
-initial_graph['filter_mask'] = filter_mask
 gan = hg.GAN(config, initial_graph)
 
 save_file = os.path.expanduser("~/.hypergan/saves/inpainting.ckpt")

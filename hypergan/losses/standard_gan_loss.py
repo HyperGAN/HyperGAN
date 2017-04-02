@@ -3,10 +3,10 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import hyperchamber as hc
 
-def config():
+def config(label_smooth=0.15, reduce=tf.reduce_mean):
     selector = hc.Selector()
-    selector.set("reduce", [linear_projection])#tf.reduce_mean, reduce_sum, reduce_logexp work
-    selector.set("label_smooth", list(np.linspace(0.15, 0.35, num=100)))
+    selector.set("reduce", reduce)
+    selector.set("label_smooth", label_smooth)
     selector.set('discriminator', None)
 
     selector.set('create', create)
@@ -26,7 +26,9 @@ def create(config, gan):
 
     net = tf.concat([d_real, d_fake], 0)
     net = config.reduce(net, axis=1)
+    net = tf.reshape(net, [gan.config.batch_size * 2, -1])
     s = [int(x) for x in net.get_shape()]
+    print("S IS ", s)
     d_real = tf.slice(net, [0,0], [s[0]//2,-1])
     d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 

@@ -15,7 +15,7 @@ def set_ops_globals(dtype, batch_size):
 rng = np.random.RandomState([2016, 6, 1])
 
 class layer_norm_1(object):
-    def __init__(self, batch_size, name="layer_norm"):
+    def __init__(self, batch_size,  epsilon=1e-5, momentum = 0.1, name="layer_norm"):
         self.name = name
     def __call__(self, x, train=True):
         return tf.contrib.layers.layer_norm(x, scope=self.name, center=True, scale=True)
@@ -125,12 +125,14 @@ def conv_cond_concat(x, y):
 
 def conv2d(input_, output_dim,
            k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02, regularizer=None,
-           name="conv2d"):
+           name="conv2d", gain=1.0):
+    initializer = tf.orthogonal_initializer(gain)
     with tf.variable_scope(name):
         if regularizer:
             regularizer=tf.contrib.layers.l2_regularizer(regularizer)
-        w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],dtype=config['dtype'], regularizer=regularizer,
-                            initializer=tf.truncated_normal_initializer(stddev=stddev, dtype=config['dtype']))
+        with tf.device("/cpu:0"):
+            w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],dtype=config['dtype'], regularizer=regularizer,
+                                initializer=initializer)
         conv = tf.nn.conv2d(input_, w, strides=[1, d_h, d_w, 1], padding='SAME')
 
         biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0, dtype=config['dtype']), dtype=config['dtype'])
@@ -261,13 +263,16 @@ def lrelu_sq(x):
     dim = len(x.get_shape()) - 1
     return tf.concat(axis=dim, values=[lrelu(x), tf.minimum(tf.abs(x), tf.square(x))])
 
-def linear(input_, output_size, scope=None, mean=0., stddev=0.02, bias_start=0.0, with_w=False, regularizer=None):
+def linear(input_, output_size, scope=None, mean=0., stddev=0.02, bias_start=0.0, with_w=False, regularizer=None, gain=1.0):
     shape = input_.get_shape().as_list()
 
+    initializer = tf.orthogonal_initializer(1.0)
+    #initializer = tf.constant_initializer(1)
     with tf.variable_scope(scope or "Linear"):
-        matrix = tf.get_variable("Matrix", [shape[1], output_size], dtype=config['dtype'],
-                                 initializer=tf.random_normal_initializer(mean=mean, stddev=stddev, dtype=config['dtype']), regularizer=regularizer
-                                )
+        with tf.device('/cpu:0'):
+            matrix = tf.get_variable("Matrix", [shape[1], output_size], dtype=config['dtype'],
+                                     initializer=initializer, regularizer=regularizer
+                                    )
         bias = tf.get_variable("bias", [output_size],dtype=config['dtype'],
             initializer=tf.constant_initializer(bias_start,dtype=config['dtype']))
         if with_w:

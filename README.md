@@ -64,8 +64,7 @@ _Logos generated with [examples/colorizer](#examples)_
 * Updated default configuration.
 * And more
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/face-manifold-0.8-64x64.png'/>
-_Still training, larger samples to come._
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0.8.png'/>
 
 ## 0.7 ~ "WGAN API"
 
@@ -234,15 +233,15 @@ Some projection types are listed below.
 
 #### "identity" projection
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-linear.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-linear.png'/>
 
 #### "sphere" projection
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-sphere.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-sphere.png'/>
 
 #### "gaussian" projection
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/sphere/doc/encoder-linear-gaussian.png'/>
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-gaussian.png'/>
 
 #### "modal" projection
 

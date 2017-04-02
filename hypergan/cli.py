@@ -31,7 +31,7 @@ class CLI:
         parser.add_argument('--config', '-c', type=str, default=None, help='The name of the config.  This is used for loading/saving the model and configuration.')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-        parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
+        parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
@@ -39,6 +39,7 @@ class CLI:
         parser.add_argument('--max_resets', type=int, default=1, help='Will only reset G graph this many times.')
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
+        parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -74,7 +75,7 @@ class CLI:
         elif(self.args.sampler == "progressive"):
             sampler = progressive_enhancement_sampler.sample
         else:
-            raise "Cannot find sampler: '"+args.sampler+"'"
+            raise "Cannot find sampler: '"+self.args.sampler+"'"
 
         sample_list = sampler(self.gan, sample_file)
 
@@ -82,7 +83,7 @@ class CLI:
 
     def step(self):
         trainer = hc.Config(hc.lookup_functions(self.config['trainer']))
-        d_loss, g_loss = trainer.run(self.gan)
+        d_loss, g_loss = trainer.run(self.gan, {})
 
         if(self.steps > 1 and (self.steps % self.args.sample_every == 0)):
             sample_file="samples/%06d.png" % (self.sampled)
@@ -138,7 +139,7 @@ class CLI:
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         reset_count=0
-        while(True):
+        while(i < self.args.steps or self.args.steps == -1):
             i+=1
             start_time = time.time()
             with tf.device(args.device):

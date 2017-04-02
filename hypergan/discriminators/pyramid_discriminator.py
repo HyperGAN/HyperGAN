@@ -16,10 +16,15 @@ def config(
         noise=None,
         layer_filter=None,
         progressive_enhancement=True,
+	orthogonal_initializer_gain=1.0,
         fc_layers=0,
         fc_layer_size=1024,
+	extra_layers=4,
+	extra_layers_reduction=2,
         strided=False,
-        create=None
+        create=None,
+	batch_norm_momentum=[0.001],
+	batch_norm_epsilon=[0.0001]
         ):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
@@ -35,12 +40,18 @@ def config(
 
     selector.set('fc_layer_size', fc_layer_size)
     selector.set('fc_layers', fc_layers)
+    selector.set('extra_layers', extra_layers)
+    selector.set('extra_layers_reduction', extra_layers_reduction)
     selector.set('layer_filter', layer_filter) #add information to D
     selector.set('layer_regularizer', layer_regularizer) # Size of fully connected layers
+    selector.set('orthogonal_initializer_gain', orthogonal_initializer_gain)
     selector.set('noise', noise) #add noise to input
     selector.set('progressive_enhancement', progressive_enhancement)
     selector.set('resize', resize)
     selector.set('strided', strided) #TODO: true does not work
+
+    selector.set('batch_norm_momentum', batch_norm_momentum)
+    selector.set('batch_norm_epsilon', batch_norm_epsilon)
     return selector.random_config()
 
 #TODO: arguments telescope, root_config/config confusing
@@ -78,21 +89,15 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     else:
         net = tf.concat(axis=0, values=[x,g])
     if(config['noise']):
-        net += tf.truncated_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
-        
-    filterw=3
-    filterh=min(3, int(net.get_shape()[2]))
+        net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
 
-    if strided:
-        net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
-    else:
-        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=filterw, k_h=filterh, d_h=1, d_w=1,regularizer=None)
-
+    xg = None
     for i in range(depth):
       #TODO better name for `batch_norm`?
-      if batch_norm is not None:
-          net = batch_norm(batch_size*2, name=prefix+'_expand_bn_'+str(i))(net)
-      net = activation(net)
+      if i != 0:
+          if batch_norm is not None:
+              net = batch_norm(batch_size*2, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'_expand_bn_'+str(i))(net)
+          net = activation(net)
     
       #TODO: cross-d, overwritable
       # APPEND xs[i] and gs[i]
@@ -106,14 +111,11 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             g_filter_i = tf.concat(axis=3, values=[gs[index], config['layer_filter'](gan, xs[i])])
             xg = tf.concat(axis=0, values=[x_filter_i, g_filter_i])
         else:
-            s = [int(val) for val in gs[index].get_shape()]
-            new_size =[s[1], s[2]]
-            x_append = tf.image.resize_images(x, new_size, 1)
-            print("index is" ,index, len(gs), new_size, gs[index], x_append)
-            g_mod = gs[index]
-            xg = tf.concat(axis=0, values=[x_append, g_mod])
 
-        if(config['noise']):
+            if(config['progressive_enhancement']):
+                xg = tf.concat(axis=0, values=[xs[index], gs[index]])
+
+        if(config['noise'] and xg is not None):
             xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
   
         print("prog enh?_", config.progressive_enhancement)
@@ -125,32 +127,39 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
+      depth = int(int(net.get_shape()[3])*depth_increase)
+      if i ==0:
+          depth = config.first_conv_size
       if strided:
-          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
+          net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
       else:
-          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=filterw, k_h=filterh, d_h=1, d_w=1, regularizer=None)
+          net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
           net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)
-
+    
+    for i in range(config.extra_layers):
+        output_features = int(int(net.get_shape()[3]))
+        net = activation(net)
+        net = conv2d(net, output_features//config.extra_layers_reduction, name=prefix+'_extra_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+        print('[extra discriminator] layer', net)
     k=-1
 
     net = tf.reshape(net, [batch_size*2, -1])
 
     if final_activation or config.fc_layers > 0:
         if batch_norm is not None:
-            net = batch_norm(batch_size*2, name=prefix+'_expand_bn_end_'+str(i))(net)
+            net = batch_norm(batch_size*2, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'_expand_bn_end_'+str(i))(net)
 
     for i in range(config.fc_layers):
         net = activation(net)
         net = linear(net, config.fc_layer_size, scope=prefix+"_fc_end"+str(i))
         if final_activation or i < config.fc_layers - 1:
             if batch_norm is not None:
-                net = batch_norm(batch_size*2, name=prefix+'_fc_bn_end_'+str(i))(net)
+                net = batch_norm(batch_size*2, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'_fc_bn_end_'+str(i))(net)
 
     if final_activation:
         net = final_activation(net)
-
 
     return net
 

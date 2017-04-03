@@ -46,7 +46,8 @@ def create(config, gan):
         d_fake = gan.graph.d_fakes[config.discriminator]
 
     z_d = tf.reshape(d_real, [gan.config.batch_size, -1])
-    z_g= tf.random_uniform([gan.config.batch_size, 2],-1, 1,dtype=gan.config.dtype)
+    z_g= tf.reshape(d_fake, [gan.config.batch_size, -1])#tf.random_uniform([gan.config.batch_size, 2],-1, 1,dtype=gan.config.dtype)
+    #TODO This is wrong
     z_g2= tf.random_uniform([gan.config.batch_size, 2],-1, 1,dtype=gan.config.dtype)
     g_z_d = g(gan, z_d)
     g_z_g = g(gan, z_g)

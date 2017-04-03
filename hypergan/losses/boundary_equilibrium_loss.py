@@ -27,13 +27,23 @@ def g(gan, z):
         nets = generator.create(generator, gan, z)
         return nets[0]
 
-def autoencode(gan, z):
+def encode(gan, x):
+    for i, discriminator in enumerate(gan.config.discriminators):
+        discriminator = hc.Config(hc.lookup_functions(discriminator))
+        with(tf.variable_scope("discriminator", reuse=True)):
+            ds = discriminator.create(gan, discriminator, x, x, gan.graph.xs, gan.graph.gs,prefix="d_"+str(i))
+            print('--', ds)
+            bs = gan.config.batch_size
+            net = ds
+            return tf.slice(net, [0,0],[bs, -1])
+
+
     #TODO g() not defined
     #TODO encode() not defined
     return g(gan, z)
 
-def loss(gan, g_or_x):
-    return g_or_x - autoencode(gan, g_or_x)
+def loss(gan, z):
+    return gan.graph.x - g(gan, z)
 
 def create(config, gan):
     x = gan.graph.x
@@ -48,12 +58,13 @@ def create(config, gan):
     z_d = tf.reshape(d_real, [gan.config.batch_size, -1])
     z_g= tf.reshape(d_fake, [gan.config.batch_size, -1])#tf.random_uniform([gan.config.batch_size, 2],-1, 1,dtype=gan.config.dtype)
     #TODO This is wrong
-    z_g2= tf.random_uniform([gan.config.batch_size, 2],-1, 1,dtype=gan.config.dtype)
+    z_g2= encode(gan, g(gan, tf.random_uniform([gan.config.batch_size, 2],-1, 1,dtype=gan.config.dtype)))
     g_z_d = g(gan, z_d)
     g_z_g = g(gan, z_g)
     l_z_d = loss(gan, z_d)
     l_z_g = loss(gan, z_g)
     l_z_g2 = loss(gan, z_g2)
+
 
     #TODO not verified
     loss_shape = l_z_d.get_shape()

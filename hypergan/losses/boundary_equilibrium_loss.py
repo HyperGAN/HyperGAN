@@ -8,6 +8,7 @@ def config(
         reverse=False,
         discriminator=None,
         k_lambda=0.01,
+        labels=[[0,-1,-1]],
         initial_k=0
         ):
     selector = hc.Selector()
@@ -19,6 +20,10 @@ def config(
     selector.set('k_lambda', k_lambda)
     selector.set('initial_k', initial_k)
 
+    selector.set('labels', labels)
+    selector.set('type', ['wgan', 'lsgan'])
+    selector.set('use_k', [True, False])
+
     return selector.random_config()
 
 def g(gan, z):
@@ -29,27 +34,21 @@ def g(gan, z):
         nets = generator.create(generator, gan, z)
         return nets[0]
 
-def encode(gan, x):
+def loss(gan, x, reuse=True):
     for i, discriminator in enumerate(gan.config.discriminators):
         discriminator = hc.Config(hc.lookup_functions(discriminator))
-        with(tf.variable_scope("discriminator", reuse=True)):
+        with(tf.variable_scope("discriminator", reuse=reuse)):
             ds = discriminator.create(gan, discriminator, x, x, gan.graph.xs, gan.graph.gs,prefix="d_"+str(i))
-            print('--', ds)
             bs = gan.config.batch_size
             net = ds
-            return tf.slice(net, [0,0],[bs, -1])
+            net = tf.slice(net, [0,0],[bs, -1])
+            print('net is', net)
+            return tf.reduce_mean(net, axis=1)
 
-
-    #TODO g() not defined
-    #TODO encode() not defined
-    return g(gan, z)
-
-def loss(gan, z):
-    return gan.graph.x - g(gan, encode(gan, z))
 
 def create(config, gan):
+    a,b,c = config.labels
     x = gan.graph.x
-    l_x = loss(gan, x)
     if(config.discriminator == None):
         d_real = gan.graph.d_real
         d_fake = gan.graph.d_fake
@@ -57,32 +56,41 @@ def create(config, gan):
         d_real = gan.graph.d_reals[config.discriminator]
         d_fake = gan.graph.d_fakes[config.discriminator]
 
-    z_d = tf.reshape(d_real, [gan.config.batch_size, -1])
-    z_g= tf.reshape(d_fake, [gan.config.batch_size, -1])#tf.random_uniform([gan.config.batch_size, 2],-1, 1,dtype=gan.config.dtype)
-    #TODO This is wrong
-    g2= g(gan, tf.random_uniform([gan.config.batch_size, 2],-1, 1,dtype=gan.config.dtype))
-    g_z_d = g(gan, z_d)
-    g_z_g = g(gan, z_g)
-    l_z_d = loss(gan, x)
-    l_z_g = loss(gan, g_z_g)
-    l_z_g2 = loss(gan, g2)
+    l_x = d_real#loss(gan, x)
+    print("}XL", l_x)
+    gan.graph.k = tf.get_variable('k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=tf.float32)
+    if config.use_k:
+        l_g_zd = gan.graph.k*d_fake#loss(gan, g_zd)*gan.graph.k
+    else:
+        l_g_zd = d_fake#loss(gan, g_zd)*gan.graph.k
+        
+    if config.type == 'wgan':
+        d_loss = l_x-l_g_zd
+    else:
+        if config.use_k:
+            d_loss = tf.square(l_x - b)+gan.graph.k*tf.square(d_fake - a)
+        else:
+            d_loss = tf.square(l_x - b)+tf.square(d_fake - a)
+    d_loss = tf.reduce_mean(d_loss, axis=1)
 
+    if config.type == 'wgan':
+        g_loss = d_fake
+    else:
+        g_loss = tf.square(d_fake - c)
+    g_loss = tf.reduce_mean(g_loss, axis=1)
 
     #TODO not verified
-    loss_shape = l_z_d.get_shape()
-    gan.graph.k=tf.get_variable('k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=tf.float32)
-    d_loss = l_z_d-gan.graph.k*l_z_g
-    g_loss = l_z_g2
+    loss_shape = g_loss.get_shape()
 
-    d_loss = tf.squeeze(d_loss)
-    g_loss = tf.squeeze(g_loss)
     gamma =  g_loss / d_loss
-    print("++", gamma)
-    gamma_l_x = gamma*l_x
-    k_loss = (gamma_l_x - l_z_g2)
-    gan.graph.k += gan.graph.k + config.reduce(tf.reshape(config.k_lambda * k_loss, [-1]))
-    measure = l_z_d + tf.abs(k_loss)
-    gan.graph.measure = config.reduce(tf.reshape(measure, [-1]))
+    if config.use_k:
+        gamma_l_x = gamma*tf.reduce_mean(l_x, axis=1)
+    else:
+        gamma_l_x = tf.reduce_mean(l_x, axis=1)
+    k_loss = tf.reduce_mean(gamma_l_x - g_loss, axis=0)
+    gan.graph.update_k = tf.assign(gan.graph.k, gan.graph.k + config.k_lambda * k_loss)
+    measure = tf.reduce_mean(tf.reduce_mean(l_x + tf.abs(k_loss),axis=1), axis=0)
+    gan.graph.measure = measure
 
     #TODO the paper says argmin(d_loss) and argmin(g_loss).  Is `argmin` a hyperparam?
 

@@ -23,10 +23,17 @@ def parse_args():
 def no_regularizer(amt):
     return None
  
+def l2_distance(a,b):
+    return tf.square(a-b)
+
+def l1_distance(a,b):
+    return a-b
+
 def custom_discriminator_config():
-    return { 
-            'create': custom_discriminator 
-    }
+    selector = hc.Selector()
+    selector.set('create', custom_discriminator)
+    selector.set('distance',[l2_distance, l1_distance])
+    return selector.random_config()
 
 def custom_generator_config():
     return { 
@@ -41,9 +48,14 @@ def custom_encoder_config():
 
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
+    original = net
     net = linear(net, 128, scope=prefix+'linone')
     net = tf.nn.crelu(net)
     net = linear(net, 2, scope=prefix+'linend')
+    
+    # works.  hyperparam? 
+    net = config.distance(original,net)
+    #net = original-net
     return net
 
 def custom_generator(config, gan, net):
@@ -175,6 +187,9 @@ def train():
     any_opts = {}
 
     tftrainers = [
+            tf.train.AdadeltaOptimizer,
+            tf.train.AdagradOptimizer,
+            tf.train.GradientDescentOptimizer,
             tf.train.AdamOptimizer,
             tf.train.RMSPropOptimizer,
 
@@ -406,15 +421,15 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(10000):
+        for i in range(5000):
             d_loss, g_loss = gan.train()
 
-            if i % 1000 == 0 and i != 0: 
+            if i % 500 == 0 and i != 0 and i > 500: 
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 print("ERROR", ax, ag)
-                #if np.abs(ax) > 50.0 or np.abs(ag) > 50.0:
-                #    ax_sum = ag_sum = 100000.00
-                #    break
+                if np.abs(ax) > 200.0 or np.abs(ag) > 200.0:
+                    ax_sum = ag_sum = 100000.00
+                    break
 
 
             #if(i % 10000 == 0 and i != 0):
@@ -422,14 +437,14 @@ def train():
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 9000):
+            if(i > 2000):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
-        with open("results-10k.csv", "a") as myfile:
+        with open("results-began.csv", "a") as myfile:
             print("Writing result")
             measure = gan.sess.run(gan.graph.measure)
             myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+','+str(measure)+"\n")

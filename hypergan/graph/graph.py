@@ -111,7 +111,8 @@ class Graph:
 
         g_sample = g
 
-        d_real, d_fake, d_reals, d_fakes = self.discriminator(x, f, None, g, z)
+        with(tf.variable_scope("discriminator", reuse=False)):
+            d_real, d_fake, d_reals, d_fakes = self.discriminator(x, f, None, g, z)
 
         self.gan.graph.d_real = d_real
         self.gan.graph.d_fake = d_fake

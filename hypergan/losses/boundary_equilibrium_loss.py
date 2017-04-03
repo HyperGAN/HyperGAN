@@ -52,14 +52,15 @@ def create(config, gan):
     z_g2= tf.random_uniform([gan.config.batch_size, 2],-1, 1,dtype=gan.config.dtype)
     g_z_d = g(gan, z_d)
     g_z_g = g(gan, z_g)
+    l_z_d = loss(gan, z_d)
     l_z_g = loss(gan, z_g)
     l_z_g2 = loss(gan, z_g2)
     k_loss = gamma_l_x - l_z_g
 
     #TODO not verified
-    loss_shape = loss(gan, z_d).get_shape()
+    loss_shape = l_z_d.get_shape()
     gan.graph.k=tf.get_variable('k', loss_shape, initializer=tf.constant_initializer(0))
-    d_loss = loss(gan, z_d)-gan.graph.k*g_z_g
+    d_loss = l_z_d-gan.graph.k*l_z_g
     g_loss = l_z_g2
 
     k_lambda = g_loss / d_loss #TODO too many values, needs reduce

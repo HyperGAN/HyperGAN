@@ -7,15 +7,15 @@ def config(
         reduce=tf.reduce_mean, 
         reverse=False,
         discriminator=None,
-        gamma=0.001
-    ):
+        k_lambda=0.01
+        ):
     selector = hc.Selector()
     selector.set("reduce", reduce)
     selector.set('reverse', reverse)
     selector.set('discriminator', discriminator)
-    selector.set('gamma', gamma)
 
     selector.set('create', create)
+    selector.set('k_lambda', k_lambda)
 
     return selector.random_config()
 
@@ -37,9 +37,7 @@ def loss(gan, g_or_x):
 
 def create(config, gan):
     x = gan.graph.x
-    gamma = config.gamma
     l_x = loss(gan, x)
-    gamma_l_x = gamma*l_x
     if(config.discriminator == None):
         d_real = gan.graph.d_real
         d_fake = gan.graph.d_fake
@@ -55,7 +53,6 @@ def create(config, gan):
     l_z_d = loss(gan, z_d)
     l_z_g = loss(gan, z_g)
     l_z_g2 = loss(gan, z_g2)
-    k_loss = gamma_l_x - l_z_g
 
     #TODO not verified
     loss_shape = l_z_d.get_shape()
@@ -63,8 +60,10 @@ def create(config, gan):
     d_loss = l_z_d-gan.graph.k*l_z_g
     g_loss = l_z_g2
 
-    k_lambda = g_loss / d_loss #TODO too many values, needs reduce
-    gan.graph.k += gan.graph.k + k_lambda * k_loss
+    gamma =  g_loss / d_loss
+    gamma_l_x = gamma*l_x
+    k_loss = (gamma_l_x - l_z_g)
+    gan.graph.k += gan.graph.k + config.k_lambda * k_loss
     gan.graph.measure = l_x + tf.abs(k_loss)
 
     #TODO the paper says argmin(d_loss) and argmin(g_loss).  Is `argmin` a hyperparam?

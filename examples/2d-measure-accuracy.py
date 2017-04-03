@@ -301,7 +301,7 @@ def train():
       "reverse": True
     }
     began_loss_opts = {
-        'gamma':[0.1, 0.01, 0.001, 1e-4, 1e-5],
+        'k_lambda':[0.1, 0.01, 0.001, 1e-4, 1e-5],
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin]
 
             }

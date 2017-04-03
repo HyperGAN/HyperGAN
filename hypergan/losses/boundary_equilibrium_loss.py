@@ -29,12 +29,21 @@ def loss(gan, g_or_x):
 
 def create(config, gan):
     gamma = config.gamma
+    l_x = loss(gan, x)
+    gamma_l_x = gamma*l_x
+    g_z_d = g(z_d)
+    g_z_g = g(z_g)
+    l_g_z_g = loss(gan, g_z_g)
+    k_loss = gamma_l_x - l_g_z_g
     #TODO not verified
     loss_shape = loss(gan, x).get_shape()
     gan.graph.k=tf.get_variable('k', loss_shape, initializer=tf.constant_initializer(0))
-    d_loss = loss(gan, x)-gan.graph.k*loss(gan, g(z_d))
-    g_loss = loss(gan, g(z_g))
-    gan.graph.k += gan.graph.k + k_lambda * (gamma*loss(gan, x) - loss(gan, g(z_g)))
+    d_loss = loss(gan, x)-gan.graph.k*loss(gan, g_z_d)
+    g_loss = loss(gan, g_z_g)
+
+    k_lambda = g_loss / d_loss #TODO too many values, needs reduce
+    gan.graph.k += gan.graph.k + k_lambda * k_loss
+    gan.graph.measure = l_x + tf.abs(k_loss)
 
     #TODO the paper says argmin(d_loss) and argmin(g_loss).  Is `argmin` a hyperparam?
 

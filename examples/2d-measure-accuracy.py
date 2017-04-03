@@ -32,6 +32,11 @@ def custom_generator_config():
     return { 
             'create': custom_generator
     }
+def custom_encoder_config():
+    return { 
+            'create': custom_encoder
+    }
+
 
 
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
@@ -47,6 +52,15 @@ def custom_generator(config, gan, net):
     net = linear(net, 2, scope="g_lin_proj3")
     net = tf.tanh(net)
     return [net]
+
+def custom_encoder(config, gan):
+    net = gan.graph.x
+    net = linear(net, 128, scope="g_lin_proj")
+    net = tf.nn.crelu(net)
+    net = linear(net, 2, scope="g_lin_proj3")
+    net = tf.tanh(net)
+    return [net, net]
+
 
 
 def d_pyramid_search_config():
@@ -200,7 +214,7 @@ def train():
         'g_trainer':tftrainers
     }
 
-    trainers.append(hg.trainers.any_trainer.config(**any_opts))
+    trainers.append(hg.trainers.joint_trainer.config(**any_opts))
     
 
     
@@ -296,20 +310,28 @@ def train():
       "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
       "reverse": True
     }
-    losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
+    began_loss_opts = {
+        'gamma':[0.1, 0.01, 0.001, 1e-4, 1e-5],
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp]
+
+            }
+    #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
+    #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
-    losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
+    #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
+    losses.append([hg.losses.boundary_equilibrium_loss.config(**began_loss_opts)])
 
 
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
-    losses.append([hg.losses.standard_gan_loss.config(**standard_loss_opts)])
+    #losses.append([hg.losses.standard_gan_loss.config(**standard_loss_opts)])
     #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
     #encoders.append([hg.encoders.uniform_encoder.config(**encoder_opts)])
-    encoders.append([hg.encoders.uniform_encoder.config(**stable_encoder_opts)])
+    #encoders.append([hg.encoders.uniform_encoder.config(**stable_encoder_opts)])
+    encoders.append([custom_encoder_config()])
     custom_config = {
         'model': args.config,
         'batch_size': args.batch_size,

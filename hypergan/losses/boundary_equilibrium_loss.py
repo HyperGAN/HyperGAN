@@ -6,13 +6,14 @@ import hyperchamber as hc
 def config(
         reduce=tf.reduce_mean, 
         reverse=False,
-        discriminator=None
+        discriminator=None,
+        gamma=0.001
     ):
     selector = hc.Selector()
     selector.set("reduce", reduce)
     selector.set('reverse', reverse)
     selector.set('discriminator', discriminator)
-    selector.set('gamma', 0.001)
+    selector.set('gamma', gamma)
 
     selector.set('create', create)
 
@@ -27,9 +28,9 @@ def loss(gan, g_or_x):
     return g_or_x - autoencode(gan, g_or_x)
 
 def create(config, gan):
-    net = config.reduce(net, axis=1)
     gamma = config.gamma
     #TODO not verified
+    loss_shape = loss(gan, x).get_shape()
     gan.graph.k=tf.get_variable('k', loss_shape, initializer=tf.constant_initializer(0))
     d_loss = loss(gan, x)-gan.graph.k*loss(gan, g(z_d))
     g_loss = loss(gan, g(z_g))

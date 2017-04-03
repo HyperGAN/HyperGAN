@@ -99,11 +99,11 @@ def run(gan, feed_dict):
 
     if(d_class_loss is not None):
         _, g_cost = sess.run([g_optimizer, g_loss], feed_dict)
-        if iteration % 10 == 0:
+        if iteration % 100 == 0:
             print("%2d: g cost %.2f" % (iteration, g_cost))
     else:
         _, g_cost= sess.run([g_optimizer, g_loss], feed_dict)
-        if iteration % 10 == 0:
+        if iteration % 100 == 0:
             print("%2d: g cost %.2f" % (iteration, g_cost))
 
     iteration+=1

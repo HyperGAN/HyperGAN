@@ -43,7 +43,7 @@ def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
     net = linear(net, 128, scope=prefix+'linone')
     net = tf.nn.crelu(net)
-    net = linear(net, 128, scope=prefix+'linend')
+    net = linear(net, 2, scope=prefix+'linend')
     return net
 
 def custom_generator(config, gan, net):
@@ -240,11 +240,9 @@ def train():
       "min": -1,
       "modes": 8,
       "projections": [[
-        "function:hypergan.encoders.uniform_encoder.modal",
-        "function:hypergan.encoders.uniform_encoder.sphere",
         "function:hypergan.encoders.uniform_encoder.identity"
       ]],
-      "z": 16
+      "z": 2
     }
 
     losses = []
@@ -409,10 +407,6 @@ def train():
         tf.train.start_queue_runners(sess=gan.sess)
         for i in range(10000):
             d_loss, g_loss = gan.train()
-
-            if(np.abs(d_loss) > 100 or np.abs(g_loss) > 100):
-                ax_sum = ag_sum = 100000.00
-                break
 
             if i % 1000 == 0 and i != 0: 
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})

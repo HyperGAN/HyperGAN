@@ -41,7 +41,7 @@ def sampler(gan, name):
     sample, = sess.run([generator], {x_t: x_v, z_t: z_v})
     stacks = []
     stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4], sample[5], sample[6], sample[7]])
-    for i in range(3):
+    for i in range(1):
         stacks.append([sample[i*8+8+j] for j in range(8)])
     
     images = np.vstack([np.hstack(s) for s in stacks])

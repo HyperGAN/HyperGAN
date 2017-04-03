@@ -67,11 +67,12 @@ class Graph:
     def create_z_encoding(self):
         self.gan.graph.z = []
         encoders = []
-        for i, encoder in enumerate(self.gan.config.encoders):
-            encoder = hc.Config(hc.lookup_functions(encoder))
-            zs, z_base = encoder.create(encoder, self.gan)
-            encoders.append(zs)
-            self.gan.graph.z.append(z_base)
+        with(tf.variable_scope("encoder", reuse=False)):
+            for i, encoder in enumerate(self.gan.config.encoders):
+                encoder = hc.Config(hc.lookup_functions(encoder))
+                zs, z_base = encoder.create(encoder, self.gan)
+                encoders.append(zs)
+                self.gan.graph.z.append(z_base)
 
         z_encoded = tf.concat(axis=1, values=encoders)
         self.gan.graph.z_encoded = z_encoded

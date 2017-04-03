@@ -53,14 +53,6 @@ def custom_generator(config, gan, net):
     net = tf.tanh(net)
     return [net]
 
-def custom_encoder(config, gan):
-    net = gan.graph.x
-    net = linear(net, 128, scope="g_lin_proj")
-    net = tf.nn.crelu(net)
-    net = linear(net, 2, scope="g_lin_proj3")
-    net = tf.tanh(net)
-    return [net, net]
-
 
 
 def d_pyramid_search_config():
@@ -312,7 +304,7 @@ def train():
     }
     began_loss_opts = {
         'gamma':[0.1, 0.01, 0.001, 1e-4, 1e-5],
-        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp]
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin]
 
             }
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
@@ -330,8 +322,8 @@ def train():
     #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
     #encoders.append([hg.encoders.uniform_encoder.config(**encoder_opts)])
-    #encoders.append([hg.encoders.uniform_encoder.config(**stable_encoder_opts)])
-    encoders.append([custom_encoder_config()])
+    encoders.append([hg.encoders.uniform_encoder.config(**stable_encoder_opts)])
+    #encoders.append([custom_encoder_config()])
     custom_config = {
         'model': args.config,
         'batch_size': args.batch_size,

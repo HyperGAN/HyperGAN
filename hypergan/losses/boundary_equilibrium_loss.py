@@ -19,27 +19,47 @@ def config(
 
     return selector.random_config()
 
-def autoencode(gan, x):
+def g(gan, z):
+    #reuse variables
+    with(tf.variable_scope("generator", reuse=True)):
+        # call generator
+        generator = hc.Config(hc.lookup_functions(gan.config.generator))
+        nets = generator.create(generator, gan, z)
+        return nets[0]
+
+def autoencode(gan, z):
     #TODO g() not defined
     #TODO encode() not defined
-    return g(encode(x))
+    return g(gan, z)
 
 def loss(gan, g_or_x):
     return g_or_x - autoencode(gan, g_or_x)
 
 def create(config, gan):
+    x = gan.graph.x
     gamma = config.gamma
     l_x = loss(gan, x)
     gamma_l_x = gamma*l_x
-    g_z_d = g(z_d)
-    g_z_g = g(z_g)
-    l_g_z_g = loss(gan, g_z_g)
+    if(config.discriminator == None):
+        d_real = gan.graph.d_real
+        d_fake = gan.graph.d_fake
+    else:
+        d_real = gan.graph.d_reals[config.discriminator]
+        d_fake = gan.graph.d_fakes[config.discriminator]
+
+    z_d = tf.reshape(d_real, [gan.config.batch_size, -1])
+    z_g = # TODO: encode random z
+    z_g2 = # TODO: encode random z
+    g_z_d = g(gan, z_d)
+    g_z_g = g(gan, z_g)
+    g_z_g2 = loss(gan, z_g_2)
     k_loss = gamma_l_x - l_g_z_g
+
     #TODO not verified
-    loss_shape = loss(gan, x).get_shape()
+    loss_shape = loss(gan, z_d).get_shape()
     gan.graph.k=tf.get_variable('k', loss_shape, initializer=tf.constant_initializer(0))
-    d_loss = loss(gan, x)-gan.graph.k*loss(gan, g_z_d)
-    g_loss = loss(gan, g_z_g)
+    d_loss = loss(gan, z_d)-gan.graph.k*g_z_g
+    g_loss = g_z_g2
 
     k_lambda = g_loss / d_loss #TODO too many values, needs reduce
     gan.graph.k += gan.graph.k + k_lambda * k_loss

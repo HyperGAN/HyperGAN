@@ -302,6 +302,7 @@ def train():
     }
     began_loss_opts = {
         'k_lambda':[0.1, 0.01, 0.001, 1e-4, 1e-5],
+        'initial_k':[1,0,0.5,0.1,1e-2,1e-3],
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin]
 
             }
@@ -429,7 +430,9 @@ def train():
                 dlog = dl
 
         with open("results-10k.csv", "a") as myfile:
-            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+"\n")
+            print("Writing result")
+            measure = gan.sess.run(gan.graph.measure)
+            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+','+str(measure)+"\n")
         tf.reset_default_graph()
         gan.sess.close()
 

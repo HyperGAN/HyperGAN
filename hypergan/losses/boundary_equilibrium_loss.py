@@ -68,15 +68,18 @@ def create(config, gan):
 
     #TODO not verified
     loss_shape = l_z_d.get_shape()
-    gan.graph.k=tf.get_variable('k', loss_shape, initializer=tf.constant_initializer(0))
+    gan.graph.k=tf.get_variable('k', [1], initializer=tf.constant_initializer(0), dtype=tf.float32)
     d_loss = l_z_d-gan.graph.k*l_z_g
     g_loss = l_z_g2
 
+    d_loss = tf.squeeze(d_loss)
+    g_loss = tf.squeeze(g_loss)
     gamma =  g_loss / d_loss
+    print("++", gamma)
     gamma_l_x = gamma*l_x
-    k_loss = (gamma_l_x - l_z_g)
-    gan.graph.k += gan.graph.k + config.k_lambda * k_loss
-    gan.graph.measure = l_x + tf.abs(k_loss)
+    k_loss = (gamma_l_x - l_z_g2)
+    gan.graph.k += gan.graph.k + config.reduce(tf.reshape(config.k_lambda * k_loss, [-1]))
+    gan.graph.measure = l_z_d + tf.abs(k_loss)
 
     #TODO the paper says argmin(d_loss) and argmin(g_loss).  Is `argmin` a hyperparam?
 

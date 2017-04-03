@@ -98,13 +98,13 @@ def run(gan, feed_dict):
         sess.run(gan.graph.clip)
 
     if(d_class_loss is not None):
-        _, g_cost = sess.run([g_optimizer, g_loss], feed_dict)
+        _, g_cost,k = sess.run([g_optimizer, g_loss,gan.graph.k], feed_dict)
         if iteration % 100 == 0:
-            print("%2d: g cost %.2f" % (iteration, g_cost))
+            print("%2d: g cost %.2f %.6f k" % (iteration, g_cost, g_k))
     else:
-        _, g_cost= sess.run([g_optimizer, g_loss], feed_dict)
+        _, g_cost, g_k= sess.run([g_optimizer, g_loss, gan.graph.k], feed_dict)
         if iteration % 100 == 0:
-            print("%2d: g cost %.2f" % (iteration, g_cost))
+            print("%2d: g cost %.2f %.6f k" % (iteration, g_cost, g_k))
 
     iteration+=1
 

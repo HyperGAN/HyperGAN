@@ -318,7 +318,7 @@ def train():
     began_loss_opts = {
         'k_lambda':[0.1, 0.01, 0.001, 1e-4, 1e-5],
         'initial_k':[1,0,0.5,0.1,1e-2,1e-3],
-        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin]
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin],
         'labels': [
             [-1, 1, 0],
             [0, 1, 1],

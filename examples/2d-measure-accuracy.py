@@ -425,7 +425,7 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(5000):
+        for i in range(10000):
             d_loss, g_loss = gan.train()
 
             if i % 500 == 0 and i != 0 and i > 500: 
@@ -441,17 +441,17 @@ def train():
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 2000):
+            if(i > 9000):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
-        with open("results-began.csv", "a") as myfile:
+        with open("results-wgan-improved.csv", "a") as myfile:
             print("Writing result")
-            measure = gan.sess.run(gan.graph.measure)
-            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+','+str(measure)+"\n")
+            #measure = gan.sess.run(gan.graph.measure)
+            myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+"\n")
         tf.reset_default_graph()
         gan.sess.close()
 

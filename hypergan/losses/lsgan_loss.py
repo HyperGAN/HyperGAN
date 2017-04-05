@@ -1,6 +1,7 @@
 import tensorflow as tf
 from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
+from hypergan.losses.common import *
 import hyperchamber as hc
 
 def linear_projection(net, axis=1):
@@ -10,11 +11,13 @@ def linear_projection(net, axis=1):
 def config(
         reduce=linear_projection, 
         discriminator=None,
+        gradient_penalty=False,
         labels=[[0,-1,-1]] # a,b,c in the paper
     ):
     selector = hc.Selector()
     selector.set("reduce", reduce)
     selector.set('discriminator', discriminator)
+    selector.set('gradient_penalty',gradient_penalty)
 
     selector.set('create', create)
     selector.set('labels', labels)
@@ -39,6 +42,9 @@ def create(config, gan):
     a,b,c = config.labels
     d_loss = tf.square(d_real - b)+tf.square(d_fake - a)
     g_loss = tf.square(d_fake - c)
+
+    if config.gradient_penalty:
+        d_loss += gradient_penalty(gan, config.gradient_penalty)
 
     d_fake_loss = -d_fake
     d_real_loss = d_real

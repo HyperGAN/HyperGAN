@@ -215,13 +215,14 @@ def train():
         'g_rho': [0.99,0.9,0.95,0.1,0.01,0],
         'd_initial_accumulator_value': [0.99,0.9,0.95,0.1,0.01],
         'g_initial_accumulator_value': [0.99,0.9,0.95,0.1,0.01],
-        'd_clipped_weights': [False, 0.01],
-        'clipped_gradients': [False, 0.01],
+        'd_clipped_weights': False,
+        'clipped_gradients': False,
         'd_trainer':tftrainers,
         'g_trainer':tftrainers
     }
 
     trainers.append(hg.trainers.joint_trainer.config(**any_opts))
+    #trainers.append(hg.trainers.alternating_trainer.config(**any_opts))
     
 
     
@@ -264,7 +265,8 @@ def train():
 
     wgan_loss_opts = {
         'reverse':[True, False],
-        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp]
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
+        'gradient_penalty': [1, 0.1, 0.01, 0.001, 0.0001, 1e-5]
     }
     lamb_loss_opts = {
         'reverse':[True, False],
@@ -296,7 +298,8 @@ def train():
             [0, 0.5, -0.5],
             [0.5, -0.5, 0],
             [0.5, 0, -0.5]
-        ]
+        ],
+        'gradient_penalty': [False, 1, 0.1, 0.01, 0.001, 0.0001, 1e-5]
     }
     standard_loss_opts= {
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
@@ -318,7 +321,8 @@ def train():
     began_loss_opts = {
         'k_lambda':[0.1, 0.01, 0.001, 1e-4, 1e-5],
         'initial_k':[1,0,0.5,0.1,1e-2,1e-3],
-        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin]
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin],
+        'gradient_penalty': [False, 1, 0.1, 0.01, 0.001, 0.0001, 1e-5]
 
             }
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])

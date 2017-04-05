@@ -2,6 +2,7 @@ import tensorflow as tf
 from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import hyperchamber as hc
+from hypergan.losses.common import *
 
 def config(
         reduce=tf.reduce_mean, 
@@ -9,7 +10,8 @@ def config(
         discriminator=None,
         k_lambda=0.01,
         labels=[[0,-1,-1]],
-        initial_k=0
+        initial_k=0,
+        gradient_penalty=False
         ):
     selector = hc.Selector()
     selector.set("reduce", reduce)
@@ -19,6 +21,7 @@ def config(
     selector.set('create', create)
     selector.set('k_lambda', k_lambda)
     selector.set('initial_k', initial_k)
+    selector.set('gradient_penalty',gradient_penalty)
 
     selector.set('labels', labels)
     selector.set('type', ['wgan', 'lsgan'])
@@ -72,6 +75,9 @@ def create(config, gan):
         else:
             d_loss = tf.square(l_x - b)+tf.square(d_fake - a)
     d_loss = tf.reduce_mean(d_loss, axis=1)
+
+    if config.gradient_penalty:
+        d_loss += gradient_penalty(gan, config.gradient_penalty)
 
     if config.type == 'wgan':
         g_loss = d_fake

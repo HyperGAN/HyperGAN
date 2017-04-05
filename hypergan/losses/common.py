@@ -14,11 +14,13 @@ def D(gan, net, reuse=None):
 
 def gradient_penalty(gan, gradient_penalty):
     x = gan.graph.x
-    g = gan.graph.gs[-1]
-    uniform_noise = tf.random_uniform(shape=[gan.config.batch_size, 1],minval=0.,maxval=1.)
+    g = gan.graph.gs[0]
+    shape = [1 for t in g.get_shape()]
+    shape[0] = gan.config.batch_size
+    uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
     interpolates = x + (1 - uniform_noise)*g
     gradients = tf.gradients(D(gan, interpolates), [interpolates])[0]
     penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
     penalty = tf.reduce_mean(tf.square(penalty-1.))
-    return gradient_penalty * penalty
+    return float(gradient_penalty) * penalty
 

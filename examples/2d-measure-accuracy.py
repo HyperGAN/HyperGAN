@@ -269,7 +269,7 @@ def train():
     wgan_loss_opts = {
         'reverse':[True, False],
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
-        'gradient_penalty': [1, 0.1, 0.01, 0.001, 0.0001, 1e-5]
+        'gradient_penalty': list(np.arange(1, 100))
     }
     lamb_loss_opts = {
         'reverse':[True, False],

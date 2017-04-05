@@ -54,7 +54,7 @@ def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = linear(net, 2, scope=prefix+'linend')
     
     # works.  hyperparam? 
-    net = config.distance(original,net)
+    #net = config.distance(original,net)
     #net = original-net
     return net
 
@@ -221,8 +221,8 @@ def train():
         'g_trainer':tftrainers
     }
 
-    trainers.append(hg.trainers.joint_trainer.config(**any_opts))
-    #trainers.append(hg.trainers.alternating_trainer.config(**any_opts))
+    #trainers.append(hg.trainers.joint_trainer.config(**any_opts))
+    trainers.append(hg.trainers.alternating_trainer.config(**any_opts))
     
 
     
@@ -326,12 +326,12 @@ def train():
 
             }
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
-    #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
+    losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
-    losses.append([hg.losses.boundary_equilibrium_loss.config(**began_loss_opts)])
+    #losses.append([hg.losses.boundary_equilibrium_loss.config(**began_loss_opts)])
 
 
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])

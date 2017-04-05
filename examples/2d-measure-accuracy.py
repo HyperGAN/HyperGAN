@@ -256,9 +256,12 @@ def train():
       "min": -1,
       "modes": 8,
       "projections": [[
-        "function:hypergan.encoders.uniform_encoder.identity"
+        "function:hypergan.encoders.uniform_encoder.identity",
+        "function:hypergan.encoders.uniform_encoder.modal",
+         "function:hypergan.encoders.uniform_encoder.sphere"
+
       ]],
-      "z": 2
+      "z": 16
     }
 
     losses = []
@@ -425,7 +428,7 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(10000):
+        for i in range(100000):
             d_loss, g_loss = gan.train()
 
             if i % 500 == 0 and i != 0 and i > 500: 
@@ -441,7 +444,7 @@ def train():
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 9000):
+            if(i > 95000):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax

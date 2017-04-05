@@ -69,7 +69,7 @@ def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = linear(net, 2, scope=prefix+'linend')
     
     # works.  hyperparam? 
-    net = config.distance(original,net)
+    #net = config.distance(original,net)
     #net = original-net
     return net
 

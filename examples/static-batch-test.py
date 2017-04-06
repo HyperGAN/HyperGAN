@@ -17,7 +17,6 @@ def parse_args():
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
     parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
     parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
-    parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
     parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
     parser.add_argument('--config', '-c', type=str, default='stable', help='config name')
     parser.add_argument('--use_hc_io', '-9', dest='use_hc_io', action='store_true', help='experimental')
@@ -119,6 +118,19 @@ gan.initialize_graph()
 tf.train.start_queue_runners(sess=gan.sess)
 static_x, static_z = gan.sess.run([gan.graph.x, gan.graph.z[0]])
 
+def batch_diversity(net):
+    bs = int(net.get_shape()[0])
+    avg = tf.reduce_mean(net, axis=0)
+
+    s = [int(x) for x in avg.get_shape()]
+    avg = tf.reshape(avg, [1, s[0], s[1], s[2]])
+
+    tile = [1 for x in net.get_shape()]
+    tile[0] = bs
+    avg = tf.tile(avg, tile)
+    net -= avg
+    return tf.reduce_sum(tf.abs(net))
+
 def accuracy(a, b):
     "Each point of a is measured against the closest point on b.  Distance differences are added together."
     difference = tf.abs(a-b)
@@ -128,25 +140,37 @@ def accuracy(a, b):
 
 
 accuracy_x_to_g=accuracy(static_x, gan.graph.g[0])
+diversity_g = batch_diversity(gan.graph.g[0])
+diversity_x = batch_diversity(gan.graph.x)
+diversity_diff = tf.abs(diversity_x - diversity_g)
 ax_sum = 0
+dd_sum = 0
+dx_sum = 0
 
-for i in range(10000):
+for i in range(6000):
     d_loss, g_loss = gan.train({gan.graph.x: static_x, gan.graph.z[0]: static_z})
+    if(np.abs(g_loss) > 10000):
+        print("OVERFLOW");
+        ax_sum=10000000.00
+        dd_sum=10000000.00
+        dx_sum=10000000.00
+        break
 
-    if i % 100 == 0 and i != 0 and i > 1000: 
-        ax = gan.sess.run(accuracy_x_to_g, {gan.graph.x: static_x, gan.graph.z[0]: static_z})
-        print("ERROR", ax)
-        if np.abs(ax) > 500.0:
+    if i % 100 == 0 and i != 0 and i > 400: 
+        ax, dg, dx, dd = gan.sess.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
+        print("ERROR", ax, dg, dx, dd)
+        if np.abs(ax) > 800.0 or np.abs(dg) < 20000 or np.isnan(d_loss):
             ax_sum =100000.00
             break
 
-    if(i > 9000):
-        ax = gan.sess.run(accuracy_x_to_g, {gan.graph.x: static_x, gan.graph.z[0]: static_z})
+    if(i > 5900):
+        ax, dg, dx, dd = gan.sess.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
         ax_sum += ax
+        dd_sum += dd
         
 
-with open("results-static-batch.csv", "a") as myfile:
-    myfile.write(config_name+","+str(ax_sum)+"\n")
+with open("results-static-batch-lsgan.csv", "a") as myfile:
+    myfile.write(config_name+","+str(ax_sum)+","+str(dx_sum)+","+str(dd_sum)+"\n")
  
 tf.reset_default_graph()
 gan.sess.close()

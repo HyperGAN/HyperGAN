@@ -97,6 +97,7 @@ def create(config, gan):
     gan.graph.update_k = tf.assign(gan.graph.k, gan.graph.k + config.k_lambda * k_loss)
     measure = tf.reduce_mean(tf.reduce_mean(l_x + tf.abs(k_loss),axis=1), axis=0)
     gan.graph.measure = measure
+    gan.graph.gamma = tf.reduce_mean(gamma, axis=0)
 
     #TODO the paper says argmin(d_loss) and argmin(g_loss).  Is `argmin` a hyperparam?
 

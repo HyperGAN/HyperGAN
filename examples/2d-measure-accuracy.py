@@ -54,7 +54,7 @@ def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = linear(net, 2, scope=prefix+'linend')
     
     # works.  hyperparam? 
-    #net = config.distance(original,net)
+    net = config.distance(original,net)
     #net = original-net
     return net
 
@@ -221,8 +221,8 @@ def train():
         'g_trainer':tftrainers
     }
 
-    #trainers.append(hg.trainers.joint_trainer.config(**any_opts))
-    trainers.append(hg.trainers.alternating_trainer.config(**any_opts))
+    trainers.append(hg.trainers.joint_trainer.config(**any_opts))
+    #trainers.append(hg.trainers.alternating_trainer.config(**any_opts))
     
 
     
@@ -325,16 +325,16 @@ def train():
         'k_lambda':[0.1, 0.01, 0.001, 1e-4, 1e-5],
         'initial_k':[1,0,0.5,0.1,1e-2,1e-3],
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin],
-        'gradient_penalty': [False, 1, 0.1, 0.01, 0.001, 0.0001, 1e-5]
+        'gradient_penalty': [False, 10, 100, 1, 0.1, 0.01]
 
             }
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
-    losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
+    #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
-    #losses.append([hg.losses.boundary_equilibrium_loss.config(**began_loss_opts)])
+    losses.append([hg.losses.boundary_equilibrium_loss.config(**began_loss_opts)])
 
 
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
@@ -434,8 +434,13 @@ def train():
             if i % 500 == 0 and i != 0 and i > 500: 
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 print("ERROR", ax, ag)
-                if np.abs(ax) > 200.0 or np.abs(ag) > 200.0:
+                if np.isnan(g_loss) or np.abs(g_loss) > 50000:
                     ax_sum = ag_sum = 100000.00
+                    print("BEARK")
+                    break
+
+            if i % 5000 == 0 and i > 20000:
+                if np.abs(ax) > 300.0 or np.abs(ag) > 300.0:
                     break
 
 
@@ -451,7 +456,7 @@ def train():
                 ag_sum += ag
                 dlog = dl
 
-        with open("results-wgan-improved.csv", "a") as myfile:
+        with open("results-began-improved.csv", "a") as myfile:
             print("Writing result")
             #measure = gan.sess.run(gan.graph.measure)
             myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+"\n")

@@ -105,14 +105,9 @@ def run(gan, feed_dict):
 
     _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
 
-    if(d_class_loss is not None):
-        _, g_cost,k, measure = sess.run([g_optimizer, g_loss,gan.graph.update_k], feed_dict)
-        if iteration % 100 == 0:
-            print("%2d: g cost %.2f d_loss %.2f %.6f k %.2f m" % (iteration,g_cost,  d_cost,g_k, measure))
-    else:
-        _, g_cost, g_k, measure= sess.run([g_optimizer, g_loss, gan.graph.update_k, gan.graph.measure], feed_dict)
-        if iteration % 100 == 0:
-            print("%2d: g cost %.2f d_loss %.2f  %.6f k %.2f m" % (iteration,g_cost , d_cost,g_k, measure))
+    _, g_cost, g_k, measure, gamma= sess.run([g_optimizer, g_loss, gan.graph.update_k, gan.graph.measure, gan.graph.gamma], feed_dict)
+    if iteration % 100 == 0:
+        print("%2d: g cost %.2f d_loss %.2f k %.2f m %.2f gamma %.2f" % (iteration,g_cost , d_cost,g_k, measure, gamma))
 
     iteration+=1
 

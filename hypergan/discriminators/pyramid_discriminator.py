@@ -108,7 +108,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             xg = tf.concat(axis=0, values=[x_filter_i, g_filter_i])
         else:
             if(config['progressive_enhancement']):
-                xg = tf.concat(axis=0, values=[xs[index], gs[index]])
+                xg = tf.concat(axis=0, values=[xs[i], gs[i]])
 
         if(config['noise'] and xg is not None):
             xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)

@@ -74,6 +74,8 @@ class CLI:
             sampler = static_batch_sampler.sample
         elif(self.args.sampler == "progressive"):
             sampler = progressive_enhancement_sampler.sample
+        elif(self.args.sampler == "began"):
+            sampler = began_sampler.sample
         else:
             raise "Cannot find sampler: '"+self.args.sampler+"'"
 

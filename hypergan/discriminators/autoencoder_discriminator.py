@@ -5,6 +5,13 @@ from hypergan.util.hc_tf import *
 import os
 import hypergan
 
+def l2_distance(a,b):
+    return tf.square(a-b)
+
+def l1_distance(a,b):
+    return a-b
+
+
 def config(
         activation=lrelu,
         depth_increase=2,
@@ -69,7 +76,11 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     with tf.variable_scope("autoencoder", reuse=True):
         rg = generator.create(generator, gan, netg, prefix=prefix)[-1]
 
-    error = tf.concat([tf.square(x - rx), tf.square(g - rg)], axis=0)
+    gan.graph.dx = rx
+    gan.graph.dg = rg
+
+    
+    error = tf.concat([config.distance(x, rx), config.distance(g,rg)], axis=0)
     error = tf.reshape(error, [gan.config.batch_size*2, -1])
 
     return error

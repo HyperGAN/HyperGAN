@@ -11,8 +11,8 @@ def config(
         k_lambda=0.01,
         labels=[[0,-1,-1]],
         initial_k=0,
-        gradient_penalty=False
-        ):
+        gradient_penalty=False,
+        use_k=[True, False]):
     selector = hc.Selector()
     selector.set("reduce", reduce)
     selector.set('reverse', reverse)
@@ -25,7 +25,7 @@ def config(
 
     selector.set('labels', labels)
     selector.set('type', ['wgan', 'lsgan'])
-    selector.set('use_k', [True, False])
+    selector.set('use_k', use_k)
 
     return selector.random_config()
 
@@ -59,6 +59,14 @@ def create(config, gan):
         d_real = gan.graph.d_reals[config.discriminator]
         d_fake = gan.graph.d_fakes[config.discriminator]
 
+    net = tf.concat([d_real, d_fake], 0)
+    net = config.reduce(net, axis=1)
+    s = [int(x) for x in net.get_shape()]
+    net = tf.reshape(net, [s[0], -1])
+    d_real = tf.slice(net, [0,0], [s[0]//2,-1])
+    d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
+
+
     l_x = d_real#loss(gan, x)
     print("}XL", l_x)
     gan.graph.k = tf.get_variable('k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=tf.float32)
@@ -74,7 +82,6 @@ def create(config, gan):
             d_loss = tf.square(l_x - b)+gan.graph.k*tf.square(d_fake - a)
         else:
             d_loss = tf.square(l_x - b)+tf.square(d_fake - a)
-    d_loss = tf.reduce_mean(d_loss, axis=1)
 
     if config.gradient_penalty:
         d_loss += gradient_penalty(gan, config.gradient_penalty)
@@ -83,21 +90,20 @@ def create(config, gan):
         g_loss = d_fake
     else:
         g_loss = tf.square(d_fake - c)
-    g_loss = tf.reduce_mean(g_loss, axis=1)
 
     #TODO not verified
     loss_shape = g_loss.get_shape()
 
     df = tf.reduce_mean(d_real, axis=1)
     dg = tf.reduce_mean(d_fake, axis=1)
-    gamma =  g_loss / d_loss
+    gamma =  d_fake / d_real
     if config.use_k:
-        gamma_l_x = gamma*tf.reduce_mean(l_x, axis=1)
+        gamma_l_x = gamma*l_x
     else:
-        gamma_l_x = tf.reduce_mean(l_x, axis=1)
+        gamma_l_x = l_x
     k_loss = tf.reduce_mean(gamma_l_x - g_loss, axis=0)
     gan.graph.update_k = tf.assign(gan.graph.k, gan.graph.k + config.k_lambda * k_loss)
-    measure = tf.reduce_mean(tf.reduce_mean(l_x + tf.abs(k_loss),axis=1), axis=0)
+    measure = tf.reduce_mean(l_x + tf.abs(k_loss), axis=0)
     gan.graph.measure = measure
     gan.graph.gamma = tf.reduce_mean(gamma, axis=0)
 

@@ -88,6 +88,8 @@ def create(config, gan):
     #TODO not verified
     loss_shape = g_loss.get_shape()
 
+    df = tf.reduce_mean(d_real, axis=1)
+    dg = tf.reduce_mean(d_fake, axis=1)
     gamma =  g_loss / d_loss
     if config.use_k:
         gamma_l_x = gamma*tf.reduce_mean(l_x, axis=1)

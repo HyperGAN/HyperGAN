@@ -96,7 +96,12 @@ def create(config, gan):
 
     df = tf.reduce_mean(d_real, axis=1)
     dg = tf.reduce_mean(d_fake, axis=1)
-    gamma =  d_fake / d_real
+
+    if config.type == 'wgan':
+        gamma =  d_fake / d_real
+    else:
+        gamma = (d_real - c)/(d_fake - c)
+
     if config.use_k:
         gamma_l_x = gamma*l_x
     else:

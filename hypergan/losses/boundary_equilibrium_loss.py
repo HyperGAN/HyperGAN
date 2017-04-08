@@ -13,7 +13,8 @@ def config(
         labels=[[0,-1,-1]],
         initial_k=0,
         gradient_penalty=False,
-        use_k=[True, False]):
+        use_k=[True],
+        gamma=0.75):
     selector = hc.Selector()
     selector.set("reduce", reduce)
     selector.set('reverse', reverse)
@@ -27,6 +28,7 @@ def config(
     selector.set('labels', labels)
     selector.set('type', ['wgan', 'lsgan'])
     selector.set('use_k', use_k)
+    selector.set('gamma', gamma)
 
     return selector.random_config()
 

@@ -324,8 +324,10 @@ def train():
     began_loss_opts = {
         'k_lambda':[0.1, 0.01, 0.001, 1e-4, 1e-5],
         'initial_k':[1,0,0.5,0.1,1e-2,1e-3],
-        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin],
-        'gradient_penalty': [False, 10, 100, 1, 0.1, 0.01]
+        'reduce': [tf.reduce_mean,tf.reduce_logsumexp, tf.reduce_min],
+        'gradient_penalty': [False, 10],
+        'use_k': True,
+        'gamma':list(np.linspace(0, 1, num=1000))
 
             }
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
@@ -431,16 +433,12 @@ def train():
         for i in range(100000):
             d_loss, g_loss = gan.train()
 
-            if i % 500 == 0 and i != 0 and i > 500: 
+            if i % 500 == 0 and i != 0 and i > 2000: 
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 print("ERROR", ax, ag)
-                if np.isnan(g_loss) or np.abs(g_loss) > 50000:
+                if np.isnan(g_loss) or np.abs(g_loss) > 50000 or ax > 450:
                     ax_sum = ag_sum = 100000.00
                     print("BEARK")
-                    break
-
-            if i % 5000 == 0 and i > 20000:
-                if np.abs(ax) > 300.0 or np.abs(ag) > 300.0:
                     break
 
 

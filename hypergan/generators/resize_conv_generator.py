@@ -77,7 +77,9 @@ def create(config, gan, net, prefix="g_"):
 
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
-        layers = int(net.get_shape()[3])//depth_reduction
+        
+        #layers = int(net.get_shape()[3])//depth_reduction
+        layers = int(net.get_shape()[3])-depth_reduction
         if(i == depth-1):
             layers=gan.config.channels
         resized_wh=[s[1]*2, s[2]*2]

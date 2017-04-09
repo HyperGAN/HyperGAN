@@ -120,7 +120,11 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
-      depth = int(int(net.get_shape()[3])*depth_increase)
+      if config.foundation == 'additive':
+          depth = int(int(net.get_shape()[3])+depth_increase)
+      else:
+          depth = int(int(net.get_shape()[3])*depth_increase)
+
       if i ==0:
           depth = config.first_conv_size
       if strided:

@@ -86,10 +86,10 @@ def create(config, gan):
     gamma = config.gamma * tf.ones_like(d_fake)
 
     if config.use_k:
-        gamma_l_x = gamma*d_real
+        gamma_d_real = gamma*d_real
     else:
-        gamma_l_x = d_real
-    k_loss = tf.reduce_mean(gamma_l_x - d_fake, axis=0)
+        gamma_d_real = d_real
+    k_loss = tf.reduce_mean(gamma_d_real - d_fake, axis=0)
     gan.graph.update_k = tf.assign(gan.graph.k, minmaxzero(gan.graph.k + config.k_lambda * k_loss))
     measure = tf.reduce_mean(l_x + tf.abs(k_loss), axis=0)
     gan.graph.measure = measure

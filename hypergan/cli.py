@@ -32,6 +32,7 @@ class CLI:
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
+        parser.add_argument('--align', dest='align', action='store_true', help='Align classes.')
         parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
@@ -192,8 +193,37 @@ class CLI:
                 width=width, 
                 height=height, 
                 channels=channels)
+        if self.args.align:
+            xb = self.setup_input_loader(format, 
+                    directory, 
+                    device, 
+                    config, 
+                    seconds=seconds,
+                    bitrate=bitrate, 
+                    crop=crop, 
+                    width=width, 
+                    height=height, 
+                    channels=channels,
+                    filterX=1)
+            xa = self.setup_input_loader(format, 
+                    directory, 
+                    device, 
+                    config, 
+                    seconds=seconds,
+                    bitrate=bitrate, 
+                    crop=crop, 
+                    width=width, 
+                    height=height, 
+                    channels=channels,
+                    filterX=0
+                    )
+        else:
+            xa = None
+            xb = None
         return {
                 'x':x,
+                'xa':xa,
+                'xb':xb,
                 'y':y,
                 'f':f,
                 'num_labels':num_labels,
@@ -201,7 +231,7 @@ class CLI:
             }
 
     def setup_input_loader(self, format, directory, device, config, seconds=None,
-            bitrate=None, crop=False, width=None, height=None, channels=3):
+            bitrate=None, crop=False, width=None, height=None, channels=3,filterX=None):
         with tf.device('/cpu:0'):
             #TODO mp3 braken
             if(format == 'mp3'):
@@ -220,7 +250,7 @@ class CLI:
                         format=format,
                         crop=crop,
                         width=width,
-                        height=height)
+                        height=height,filterX=filterX)
 
     def run(self):
         parser = self.get_parser()

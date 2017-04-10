@@ -52,28 +52,21 @@ def loss(gan, x, reuse=True):
             return tf.reduce_mean(net, axis=1)
 
 
-def create(config, gan):
-    a,b,c = config.labels
-    x = gan.graph.x
-    if(config.discriminator == None):
-        d_real = gan.graph.d_real
-        d_fake = gan.graph.d_fake
-    else:
-        d_real = gan.graph.d_reals[config.discriminator]
-        d_fake = gan.graph.d_fakes[config.discriminator]
-
+# boundary equilibrium gan
+def began(config, d_real, d_fake, prefix=''):
     d_fake = config.reduce(d_fake, axis=1)
     d_real = config.reduce(d_real, axis=1)
 
-    gan.graph.k = tf.get_variable('k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=tf.float32)
+    gan.graph.k = tf.get_variable(prefix+'k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=config.dtype)
+
     if config.type == 'wgan':
         l_x = d_real
         l_dg =-d_fake
-        l_g = d_fake
+        g_loss = d_fake
     else:
         l_x = tf.square(d_real-b)
         l_dg = tf.square(d_fake - a)
-        l_g = tf.square(d_fake - c)
+        g_loss = tf.square(d_fake - c)
 
     if config.use_k:
         d_loss = l_x+gan.graph.k*l_dg
@@ -92,9 +85,23 @@ def create(config, gan):
     k_loss = tf.reduce_mean(gamma_d_real - d_fake, axis=0)
     gan.graph.update_k = tf.assign(gan.graph.k, minmaxzero(gan.graph.k + config.k_lambda * k_loss))
     measure = tf.reduce_mean(l_x + tf.abs(k_loss), axis=0)
+ 
+    return [measure, d_loss, g_loss]
+
+
+def create(config, gan):
+    a,b,c = config.labels
+    x = gan.graph.x
+    if(config.discriminator == None):
+        d_real = gan.graph.d_real
+        d_fake = gan.graph.d_fake
+    else:
+        d_real = gan.graph.d_reals[config.discriminator]
+        d_fake = gan.graph.d_fakes[config.discriminator]
+    measure, d_fake, d_real = began(config, d_real, d_fake)
     gan.graph.measure = measure
 
-    gan.graph.gamma = tf.reduce_mean(gamma, axis=0)
+    gan.graph.gamma = config.gamma
 
 
-    return [d_loss, l_g]
+    return [d_loss, g_loss]

@@ -54,6 +54,7 @@ def loss(gan, x, reuse=True):
 
 # boundary equilibrium gan
 def began(config, d_real, d_fake, prefix=''):
+    a,b,c = config.labels
     d_fake = config.reduce(d_fake, axis=1)
     d_real = config.reduce(d_real, axis=1)
 
@@ -83,14 +84,13 @@ def began(config, d_real, d_fake, prefix=''):
     else:
         gamma_d_real = d_real
     k_loss = tf.reduce_mean(gamma_d_real - d_fake, axis=0)
-    gan.graph.update_k = tf.assign(k, minmaxzero(k + config.k_lambda * k_loss))
+    update_k = tf.assign(k, minmaxzero(k + config.k_lambda * k_loss))
     measure = tf.reduce_mean(l_x + tf.abs(k_loss), axis=0)
  
-    return [k, measure, d_loss, g_loss]
+    return [k, update_k, measure, d_loss, g_loss]
 
 
 def create(config, gan):
-    a,b,c = config.labels
     x = gan.graph.x
     if(config.discriminator == None):
         d_real = gan.graph.d_real
@@ -98,9 +98,10 @@ def create(config, gan):
     else:
         d_real = gan.graph.d_reals[config.discriminator]
         d_fake = gan.graph.d_fakes[config.discriminator]
-    k, measure, d_fake, d_real = began(config, d_real, d_fake)
+    k, update_k, measure, d_loss, g_loss = began(config, d_real, d_fake)
     gan.graph.measure = measure
     gan.graph.k = k
+    gan.graph.update_k = update_k
 
     gan.graph.gamma = config.gamma
 

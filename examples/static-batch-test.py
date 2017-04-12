@@ -56,7 +56,7 @@ def generator_config():
             z_projection_depth=[32,64,128,256,512],
             activation=[tf.nn.relu,tf.tanh,lrelu,resize_conv_generator.generator_prelu, tf.nn.crelu],
             final_activation=[None,tf.nn.tanh,resize_conv_generator.minmax],
-            depth_reduction=[2,1.5,2,1],
+            depth_reduction=[64,32,24,16,128],
             layer_filter=None,
             layer_regularizer=[layer_norm_1,batch_norm_1,None],
 	    block_repeat_count=[1,2,3],
@@ -68,9 +68,9 @@ def generator_config():
     )
 
 def discriminator_config():
-    return hg.discriminators.pyramid_discriminator.config(
+    return hg.discriminators.autoencoder_discriminator.config(
 	    activation=[tf.nn.relu, lrelu, tf.nn.relu6, tf.nn.elu],
-            depth_increase=[1.5,1.7,2,2.1],
+            depth_increase=[64,32,16,128],
             final_activation=[tf.nn.relu, tf.tanh, tf.nn.crelu],
             layer_regularizer=[batch_norm_1, layer_norm_1, None],
 	    batch_norm_momentum=[0.1,0.01,0.001,0.0001,1e-5,0],
@@ -83,8 +83,10 @@ def discriminator_config():
             first_conv_size=[8,12,16],
             noise=[False, 1e-2],
             progressive_enhancement=[False, True],
+			foundation= "additive",
 	    orthogonal_initializer_gain= list(np.linspace(0.1, 2, num=50)),
-            strided=[True, False]
+        distance=[hg.discriminators.autoencoder_discriminator.l1_distance, hg.discriminators.autoencoder_discriminator.l2_distance],
+            strided=[True]
     )
 
 

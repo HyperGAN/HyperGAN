@@ -18,6 +18,7 @@ def config(
         final_activation=None,
         first_conv_size=16,
         first_strided_conv_size=64,
+        distance=l1_distance,
         layer_regularizer=layer_norm_1,
         layers=5,
         resize=None,
@@ -30,6 +31,7 @@ def config(
         extra_layers=4,
         extra_layers_reduction=2,
         strided=False,
+        foundation='additive',
         create=None,
         batch_norm_momentum=[0.001],
         batch_norm_epsilon=[0.0001]
@@ -40,6 +42,7 @@ def config(
     selector.set("final_activation", final_activation)
     selector.set("first_conv_size", first_conv_size)
     selector.set("first_strided_conv_size", first_conv_size)
+    selector.set('foundation', foundation)
     selector.set("layers", layers) #Layers in D
     if create is None:
         selector.set('create', discriminator)
@@ -57,6 +60,7 @@ def config(
     selector.set('progressive_enhancement', progressive_enhancement)
     selector.set('resize', resize)
     selector.set('strided', strided) #TODO: true does not work
+    selector.set('distance', distance) #TODO: true does not work
 
     selector.set('batch_norm_momentum', batch_norm_momentum)
     selector.set('batch_norm_epsilon', batch_norm_epsilon)

@@ -53,7 +53,7 @@ def loss(gan, x, reuse=True):
 
 
 # boundary equilibrium gan
-def began(config, d_real, d_fake, prefix=''):
+def began(gan, config, d_real, d_fake, prefix=''):
     a,b,c = config.labels
     d_fake = config.reduce(d_fake, axis=1)
     d_real = config.reduce(d_real, axis=1)
@@ -98,7 +98,7 @@ def create(config, gan):
     else:
         d_real = gan.graph.d_reals[config.discriminator]
         d_fake = gan.graph.d_fakes[config.discriminator]
-    k, update_k, measure, d_loss, g_loss = began(config, d_real, d_fake)
+    k, update_k, measure, d_loss, g_loss = began(gan, config, d_real, d_fake)
     gan.graph.measure = measure
     gan.graph.k = k
     gan.graph.update_k = update_k

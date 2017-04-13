@@ -323,9 +323,28 @@ def train():
     }
     began_loss_opts = {
         'k_lambda':[0.1, 0.01, 0.001, 1e-4, 1e-5],
-        'initial_k':[1,0,0.5,0.1,1e-2,1e-3],
+        'initial_k':[0],
         'reduce': [tf.reduce_mean,tf.reduce_logsumexp, tf.reduce_min],
-        'gradient_penalty': [False, 10],
+        'labels': [
+            [-1, 1, 0],
+            [0, 1, 1],
+            [0, -1, -1],
+            [1, -1, 0],
+            [0, -1, 1],
+            [0, 1, -1],
+            [0, 0.5, -0.5],
+            [0.5, -0.5, 0],
+            [0.5, 0, -0.5],
+            [-0.5, 0.5, 0.5],
+            [0.5, 0.5, 0],
+            [-0.5, -0.5, 0.5],
+            [-1, 1, 1],
+            [1, -1, -1],
+            [0, 1, 1],
+            [0, -1, -1]
+        ],
+
+        'gradient_penalty': [False],
         'use_k': True,
         'gamma':list(np.linspace(0, 1, num=1000))
 

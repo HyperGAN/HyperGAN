@@ -50,7 +50,7 @@ def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
     original = net
     net = linear(net, 128, scope=prefix+'linone')
-    net = tf.nn.crelu(net)
+    net = tf.nn.relu(net)
     net = linear(net, 2, scope=prefix+'linend')
     
     # works.  hyperparam? 
@@ -60,7 +60,7 @@ def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
 
 def custom_generator(config, gan, net):
     net = linear(net, 128, scope="g_lin_proj")
-    net = tf.nn.crelu(net)
+    net = tf.nn.relu(net)
     net = linear(net, 2, scope="g_lin_proj3")
     net = tf.tanh(net)
     return [net]
@@ -323,8 +323,9 @@ def train():
     }
     began_loss_opts = {
         'k_lambda':[0.1, 0.01, 0.001, 1e-4, 1e-5],
+
         'initial_k':[0],
-        'reduce': [tf.reduce_mean,tf.reduce_logsumexp, tf.reduce_min],
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin],
         'labels': [
             [-1, 1, 0],
             [0, 1, 1],
@@ -343,12 +344,11 @@ def train():
             [0, 1, 1],
             [0, -1, -1]
         ],
-
         'gradient_penalty': [False],
         'use_k': True,
         'gamma':list(np.linspace(0, 1, num=1000))
+    }
 
-            }
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])

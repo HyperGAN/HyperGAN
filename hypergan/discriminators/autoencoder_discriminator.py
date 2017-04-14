@@ -5,6 +5,8 @@ from hypergan.util.hc_tf import *
 import os
 import hypergan
 
+import hypergan.discriminators.minibatch_discriminator as minibatch
+
 def l2_distance(a,b):
     return tf.square(a-b)
 
@@ -33,6 +35,7 @@ def config(
         strided=False,
         foundation='additive',
         create=None,
+        minibatch=False,
         batch_norm_momentum=[0.001],
         batch_norm_epsilon=[0.0001]
         ):
@@ -61,6 +64,7 @@ def config(
     selector.set('resize', resize)
     selector.set('strided', strided) #TODO: true does not work
     selector.set('distance', distance) #TODO: true does not work
+    selector.set('minibatch', minibatch)
 
     selector.set('batch_norm_momentum', batch_norm_momentum)
     selector.set('batch_norm_epsilon', batch_norm_epsilon)
@@ -76,6 +80,13 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         netx  = tf.slice(net, [0,0], [s[0]//2,-1])
         netg  = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
+        if config.minibatch:
+            mini = net
+            #mini = tf.slice(net, [0, 300], [-1, 100])
+            mini = minibatch.get_minibatch_features(mini, int(mini.get_shape()[0]), gan.config.dtype, prefix, 25, 100)
+        else:
+            mini = []
+
         rx = generator.create(generator, gan, netx, prefix=prefix)[-1]
     with tf.variable_scope("autoencoder", reuse=True):
         rg = generator.create(generator, gan, netg, prefix=prefix)[-1]
@@ -86,6 +97,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     
     error = tf.concat([config.distance(x, rx), config.distance(g,rg)], axis=0)
     error = tf.reshape(error, [gan.config.batch_size*2, -1])
+    error = tf.concat([error]+mini, axis=1)
 
     return error
 

@@ -123,7 +123,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
 
       if i ==0:
           depth = config.first_conv_size
-      net = config.block(config, net, depth, '_layer_'+str(i)+'_')
+      net = config.block(config, net, depth, prefix+'_layer_'+str(i)+'_')
 
     print('[discriminator] layer', net)
     

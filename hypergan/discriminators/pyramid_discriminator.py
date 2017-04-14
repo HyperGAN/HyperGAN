@@ -62,6 +62,10 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     depth = config['layers']
     batch_norm = config['layer_regularizer']
     strided = config.strided
+    print('x,g',x,g)
+    
+    x = tf.reshape(x, [gan.config.batch_size, gan.config.x_dims[0], gan.config.x_dims[1], gan.config.channels])
+    g = tf.reshape(g, [gan.config.batch_size, gan.config.x_dims[0], gan.config.x_dims[1], gan.config.channels])
 
     # TODO: cross-d feature
     if(config['resize']):
@@ -107,13 +111,16 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             g_filter_i = tf.concat(axis=3, values=[gs[index], config['layer_filter'](gan, xs[i])])
             xg = tf.concat(axis=0, values=[x_filter_i, g_filter_i])
         else:
+
             if(config['progressive_enhancement']):
                 xg = tf.concat(axis=0, values=[xs[index], gs[index]])
 
         if(config['noise'] and xg is not None):
             xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
   
+        print("prog enh?_", config.progressive_enhancement)
         if config['progressive_enhancement']:
+            print("adding xg")
             net = tf.concat(axis=3, values=[net, xg])
     
       filter_size_w = 2
@@ -126,9 +133,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       if strided:
           net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
       else:
-
           net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
-
           net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
 
       print('[discriminator] layer', net)

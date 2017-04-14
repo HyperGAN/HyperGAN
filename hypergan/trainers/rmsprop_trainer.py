@@ -62,11 +62,15 @@ def run(gan):
     d_vars = gan.graph.d_vars
 
     _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
+    #d_cost, d_log = sess.run([d_loss, d_log_t])
+    #print("pr1 %2d: gd_loss %.2f d_log %.2f" % (iteration,d_cost, d_log ))
     if config.clipped_d_weights:
         global clip
         if(clip == None):
             clip = [tf.assign(d,tf.clip_by_value(d, -config.clipped_d_weights, config.clipped_d_weights))  for d in d_vars]
+        print('clipping')
         sess.run(clip)
+    #d_cost, d_log = sess.run([d_loss, d_log_t])
 
     global iteration
     if(d_class_loss is not None):
@@ -74,6 +78,8 @@ def run(gan):
         if iteration % 100 == 0:
             print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_class, d_log ))
     else:
+        #g_cost,d_fake,d_real = sess.run([g_loss, d_fake_loss, d_real_loss])
+        #print("pre %2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_log ))
         _, g_cost,d_fake,d_real = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss])
         if iteration % 100 == 0:
             print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_log ))

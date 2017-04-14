@@ -4,6 +4,7 @@ import hyperchamber as hc
 from hypergan.util.hc_tf import *
 from hypergan.generators.common import *
 
+
 def config(
         z_projection_depth=512,
         activation=generator_prelu,
@@ -49,10 +50,13 @@ def create(config, gan, net):
     x_dims = gan.config.x_dims
     z_proj_dims = config.z_projection_depth
     primes = find_smallest_prime(x_dims[0], x_dims[1])
+    print("PRIMES", primes)
     # project z
     net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", gain=config.orthogonal_initializer_gain)
     new_shape = [gan.config.batch_size, primes[0],primes[1],z_proj_dims]
     net = tf.reshape(net, new_shape)
+
+    print('---', net)
 
     depth=0
     w=int(net.get_shape()[1])
@@ -76,13 +80,15 @@ def create(config, gan, net):
 
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
-        layers = int(net.get_shape()[3])//depth_reduction
+        output_channels = int(net.get_shape()[3])//depth_reduction
         if(i == depth-1):
-            layers=gan.config.channels
+            output_channels=gan.config.channels
         resized_wh=[s[1]*2, s[2]*2]
         if(resized_wh[0] > x_dims[0]):
             resized_wh=x_dims
         net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
+
+        print('---', net)
         if(config.layer_filter):
             fltr = config.layer_filter(gan, net)
             if(fltr is not None):
@@ -98,7 +104,7 @@ def create(config, gan, net):
         else:
             sigmoid_gate = None
 
-        net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
+        net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=output_channels, filter=3, sigmoid_gate=sigmoid_gate)
         if(i == depth-1):
             first3 = net
         else:

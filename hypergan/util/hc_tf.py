@@ -37,6 +37,10 @@ def build_reshape(output_size, nodes, method, batch_size, dtype):
 
 #TODO can live elsewhere
 def find_smallest_prime(x, y):
+    if(y == 1):
+        for i in range(3,x-1):
+            if(x % (i) == 0):
+                return i,1
     for i in range(3,x-1):
         for j in range(1, y-1):
             if(x % (i) == 0 and y % (j) == 0 and x // i == y // j):

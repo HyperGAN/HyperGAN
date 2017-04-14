@@ -2,6 +2,7 @@ import tensorflow as tf
 import hyperchamber as hc
 from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
+from hypergan.discriminators.common import *
 import os
 
 def config(
@@ -108,7 +109,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             xg = tf.concat(axis=0, values=[x_filter_i, g_filter_i])
         else:
             if(config['progressive_enhancement']):
-                xg = tf.concat(axis=0, values=[xs[index], gs[index]])
+                xg = tf.concat(axis=0, values=[xs[i], gs[i]])
 
         if(config['noise'] and xg is not None):
             xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
@@ -116,22 +117,16 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         if config['progressive_enhancement']:
             net = tf.concat(axis=3, values=[net, xg])
     
-      filter_size_w = 2
-      filter_size_h = 2
-      filter = [1,filter_size_w,filter_size_h,1]
-      stride = [1,filter_size_w,filter_size_h,1]
-      depth = int(int(net.get_shape()[3])*depth_increase)
+      if config.foundation == 'additive':
+          depth = int(int(net.get_shape()[3])+depth_increase)
+      else:
+          depth = int(int(net.get_shape()[3])*depth_increase)
+
       if i ==0:
           depth = config.first_conv_size
-      if strided:
-          net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
-      else:
+      net = config.block(config, net, depth, prefix+'_layer_'+str(i)+'_')
 
-          net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
-
-          net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
-
-      print('[discriminator] layer', net)
+    print('[discriminator] layer', net)
     
     for i in range(config.extra_layers):
         output_features = int(int(net.get_shape()[3]))

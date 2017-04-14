@@ -1,17 +1,20 @@
 import tensorflow as tf
 from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
+from hypergan.losses.common import *
 import hyperchamber as hc
 
 def config(
         reduce=tf.reduce_mean, 
         reverse=False,
-        discriminator=None
+        discriminator=None,
+        gradient_penalty=False
     ):
     selector = hc.Selector()
     selector.set("reduce", reduce)
     selector.set('reverse', reverse)
     selector.set('discriminator', discriminator)
+    selector.set('gradient_penalty',gradient_penalty)
 
     selector.set('create', create)
 
@@ -38,6 +41,9 @@ def create(config, gan):
     else:
         d_loss = -d_real + d_fake
         g_loss = -d_fake
+
+    if config.gradient_penalty:
+        d_loss += gradient_penalty(gan, config.gradient_penalty)
 
     d_fake_loss = -d_fake
     d_real_loss = d_real

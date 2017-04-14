@@ -5,12 +5,20 @@ from hypergan.util.hc_tf import *
 import os
 import hypergan
 
+def l2_distance(a,b):
+    return tf.square(a-b)
+
+def l1_distance(a,b):
+    return a-b
+
+
 def config(
         activation=lrelu,
         depth_increase=2,
         final_activation=None,
         first_conv_size=16,
         first_strided_conv_size=64,
+        distance=l1_distance,
         layer_regularizer=layer_norm_1,
         layers=5,
         resize=None,
@@ -23,6 +31,7 @@ def config(
         extra_layers=4,
         extra_layers_reduction=2,
         strided=False,
+        foundation='additive',
         create=None,
         batch_norm_momentum=[0.001],
         batch_norm_epsilon=[0.0001]
@@ -33,6 +42,7 @@ def config(
     selector.set("final_activation", final_activation)
     selector.set("first_conv_size", first_conv_size)
     selector.set("first_strided_conv_size", first_conv_size)
+    selector.set('foundation', foundation)
     selector.set("layers", layers) #Layers in D
     if create is None:
         selector.set('create', discriminator)
@@ -50,6 +60,7 @@ def config(
     selector.set('progressive_enhancement', progressive_enhancement)
     selector.set('resize', resize)
     selector.set('strided', strided) #TODO: true does not work
+    selector.set('distance', distance) #TODO: true does not work
 
     selector.set('batch_norm_momentum', batch_norm_momentum)
     selector.set('batch_norm_epsilon', batch_norm_epsilon)
@@ -69,7 +80,11 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     with tf.variable_scope("autoencoder", reuse=True):
         rg = generator.create(generator, gan, netg, prefix=prefix)[-1]
 
-    error = tf.concat([tf.square(x - rx), tf.square(g - rg)], axis=0)
+    gan.graph.dx = rx
+    gan.graph.dg = rg
+
+    
+    error = tf.concat([config.distance(x, rx), config.distance(g,rg)], axis=0)
     error = tf.reshape(error, [gan.config.batch_size*2, -1])
 
     return error

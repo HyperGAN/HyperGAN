@@ -44,8 +44,7 @@ def config(
     selector.set('batch_norm_epsilon', batch_norm_epsilon)
     return selector.random_config()
 
-def create(config, gan, net, prefix="g_"):
-    print("CREATING g from", net)
+def create(config, gan, net, prefix='g_'):
     z = net
     x_dims = gan.config.x_dims
     z_proj_dims = config.z_projection_depth
@@ -75,17 +74,28 @@ def create(config, gan, net, prefix="g_"):
         if(fltr is not None):
             net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
 
+    if config.sigmoid_gate:
+        sigmoid_gate = z
+    else:
+        sigmoid_gate = None
     for i in range(depth):
         s = [int(x) for x in net.get_shape()]
-        
-        #layers = int(net.get_shape()[3])//depth_reduction
-        layers = int(net.get_shape()[3])-depth_reduction
-        if(i == depth-1):
-            layers=gan.config.channels
+        layers = int(net.get_shape()[3])//depth_reduction
         resized_wh=[s[1]*2, s[2]*2]
         if(resized_wh[0] > x_dims[0]):
             resized_wh=x_dims
-        net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
+        #net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
+
+
+        output_shape = [int(net.get_shape()[0]), int(resized_wh[0]), int(resized_wh[1]), int(layers)]
+
+        if(i == depth-1):
+            layers=gan.config.channels
+        shape = layers*4#int(net.get_shape()[3])
+        net = config.block(net, config, activation, batch_size, 'identity', prefix+'layersh_'+str(i), output_channels=shape, filter=3, sigmoid_gate=sigmoid_gate)
+        net = tf.depth_to_space(net, 2)
+
+
         if(config.layer_filter):
             fltr = config.layer_filter(gan, net)
             if(fltr is not None):
@@ -96,10 +106,6 @@ def create(config, gan, net, prefix="g_"):
         if fltr > net.get_shape()[2]:
             fltr=int(net.get_shape()[2])
 
-        if config.sigmoid_gate:
-            sigmoid_gate = z
-        else:
-            sigmoid_gate = None
 
         net = config.block(net, config, activation, batch_size, 'identity', prefix+'layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
         if(i == depth-1):
@@ -120,9 +126,4 @@ def create(config, gan, net, prefix="g_"):
 def minmax(net):
     net = tf.minimum(net, 1)
     net = tf.maximum(net, -1)
-    return net
-
-def minmaxzero(net):
-    net = tf.minimum(net, 1)
-    net = tf.maximum(net, 0)
     return net

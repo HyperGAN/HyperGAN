@@ -74,7 +74,11 @@ def config(
 def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = hypergan.discriminators.pyramid_discriminator.discriminator(gan, config, x, g, xs, gs, prefix)
     with tf.variable_scope("autoencoder", reuse=False):
-        generator = hc.Config(hc.lookup_functions(gan.config.generator))
+        gconfig = gan.config.generator
+        if "encoder_layer_regularizer" in gconfig:
+            print("overwriting layer regularizer for encoder with ", gconfig['encoder_layer_regularizer'])
+            gconfig['layer_regularizer'] = gconfig['encoder_layer_regularizer']
+        generator = hc.Config(hc.lookup_functions(gconfig))
 
         s = [int(x) for x in net.get_shape()]
         netx  = tf.slice(net, [0,0], [s[0]//2,-1])

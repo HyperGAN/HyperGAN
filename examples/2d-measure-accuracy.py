@@ -191,7 +191,6 @@ def train():
             tf.train.AdagradOptimizer,
             tf.train.GradientDescentOptimizer,
             tf.train.AdamOptimizer,
-            tf.train.RMSPropOptimizer,
 
     ]
     # TODO FtrlOptimizer
@@ -221,16 +220,16 @@ def train():
         'g_trainer':tftrainers
     }
 
-    trainers.append(hg.trainers.joint_trainer.config(**any_opts))
+    trainers.append(hg.trainers.proportional_control_trainer.config(**any_opts))
     #trainers.append(hg.trainers.alternating_trainer.config(**any_opts))
     
 
     
     sgd_opts = {
-        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
-        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
-        'd_clipped_weights': [False, 0.01],
-        'clipped_gradients': [False, 0.01]
+        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6,2e-6,2e-4,1e-5,5e-5],
+        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6,2e-6,2e-4,1e-5,5e-5],
+        'd_clipped_weights': False,
+        'clipped_gradients': False
     }
 
     #trainers.append(hg.trainers.sgd_trainer.config(**sgd_opts))
@@ -355,7 +354,28 @@ def train():
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
-    losses.append([hg.losses.boundary_equilibrium_loss.config(**began_loss_opts)])
+    #losses.append([hg.losses.boundary_equilibrium_loss.config(**began_loss_opts)])
+
+    stable_loss = [{
+        "create": "function:hypergan.losses.boundary_equilibrium_loss.create",
+        "discriminator": None,
+        "gamma": 0.4,
+        "gradient_penalty": False,
+        "initial_k": 0.01,
+        "k_lambda": 0.002,
+        "labels": [
+            0.5,
+            -0.5,
+            -0.5
+        ],
+        "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
+        "reverse": False,
+        "type": "lsgan",
+        "use_k": True
+    }]
+
+
+    losses.append(stable_loss)
 
 
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
@@ -453,9 +473,10 @@ def train():
             d_loss, g_loss = gan.train()
 
             if i % 500 == 0 and i != 0 and i > 2000: 
-                ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
-                print("ERROR", ax, ag)
-                if np.isnan(g_loss) or np.abs(g_loss) > 50000 or ax > 450:
+                k, ax, ag, agg, dl = gan.sess.run([gan.graph.k, accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
+
+                print("ERROR", ax, ag, k)
+                if math.isclose(k, 0.0) or math.isclose(k, 1.0) or np.isnan(g_loss) or np.abs(g_loss) > 50000 or ax > 450:
                     ax_sum = ag_sum = 100000.00
                     print("BEARK")
                     break
@@ -473,7 +494,7 @@ def train():
                 ag_sum += ag
                 dlog = dl
 
-        with open("results-began-improved.csv", "a") as myfile:
+        with open("results.csv", "a") as myfile:
             print("Writing result")
             #measure = gan.sess.run(gan.graph.measure)
             myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+"\n")

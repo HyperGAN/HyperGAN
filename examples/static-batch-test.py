@@ -1,6 +1,7 @@
 import argparse
 import os
 import uuid
+import random
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
@@ -19,6 +20,7 @@ def parse_args():
     parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
     parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
     parser.add_argument('--config', '-c', type=str, default='stable', help='config name')
+    parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
     parser.add_argument('--use_hc_io', '-9', dest='use_hc_io', action='store_true', help='experimental')
     parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
     return parser.parse_args()
@@ -32,7 +34,14 @@ channels = int(args.size.split("x")[2])
 selector = hg.config.selector(args)
 
 config = selector.random_config()
-config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
+config_file = args.config
+
+if args.config_list is not None:
+    lines = tuple(open(args.config_list, 'r'))
+    config_file = random.choice(lines).strip()
+    print("config list chosen", config_file)
+
+config_filename = os.path.expanduser('~/.hypergan/configs/'+config_file+'.json')
 config = selector.load_or_create_config(config_filename, config)
 
 # TODO refactor, shared in CLI
@@ -70,6 +79,10 @@ def generator_config():
 def discriminator_config():
     return hg.discriminators.autoencoder_discriminator.config(
 	    activation=[tf.nn.relu, lrelu, tf.nn.relu6, tf.nn.elu],
+        block=[hg.discriminators.common.repeating_block,
+               hg.discriminators.common.standard_block,
+               hg.discriminators.common.strided_block
+               ],
             depth_increase=[64,32,16,128],
             final_activation=[tf.nn.relu, tf.tanh, tf.nn.crelu],
             layer_regularizer=[batch_norm_1, layer_norm_1, None],
@@ -149,7 +162,7 @@ ax_sum = 0
 dd_sum = 0
 dx_sum = 0
 
-for i in range(6000):
+for i in range(12000):
     d_loss, g_loss = gan.train({gan.graph.x: static_x, gan.graph.z[0]: static_z})
     if(np.abs(g_loss) > 10000):
         print("OVERFLOW");
@@ -159,20 +172,22 @@ for i in range(6000):
         break
 
     if i % 100 == 0 and i != 0 and i > 400: 
-        ax, dg, dx, dd = gan.sess.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
-        print("ERROR", ax, dg, dx, dd)
-        if np.abs(ax) > 800.0 or np.abs(dg) < 20000 or np.isnan(d_loss):
+        k, ax, dg, dx, dd = gan.sess.run([gan.graph.k, accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
+        print("ERROR", ax, dg, dx, dd, k)
+        if math.isclose(k, 0.0) or np.abs(ax) > 800.0 or np.abs(dg) < 20000 or np.isnan(d_loss):
             ax_sum =100000.00
             break
 
-    if(i > 5900):
+    if(i > 11400):
         ax, dg, dx, dd = gan.sess.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
         ax_sum += ax
+        dg_sum += dg
+        dx_sum += dx
         dd_sum += dd
         
 
-with open("results-static-batch-lsgan.csv", "a") as myfile:
-    myfile.write(config_name+","+str(ax_sum)+","+str(dx_sum)+","+str(dd_sum)+"\n")
+with open("results-static-batch", "a") as myfile:
+    myfile.write(config_name+","+str(ax_sum)+","+str(dx_sum)+","+str(dg_sum)+","+str(dd_sum)+","+str(dx_sum + dg_sum)+"\n")
  
 tf.reset_default_graph()
 gan.sess.close()

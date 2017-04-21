@@ -4,6 +4,7 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import os
 import hypergan
+from hypergan.discriminators.common import *
 
 import hypergan.discriminators.minibatch_discriminator as minibatch
 
@@ -16,6 +17,7 @@ def l1_distance(a,b):
 
 def config(
         activation=lrelu,
+        block=standard_block,
         depth_increase=2,
         final_activation=None,
         first_conv_size=16,
@@ -41,6 +43,7 @@ def config(
         ):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
+    selector.set("block", block)#prelu("d_")])
     selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
     selector.set("final_activation", final_activation)
     selector.set("first_conv_size", first_conv_size)

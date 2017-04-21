@@ -161,6 +161,7 @@ diversity_diff = tf.abs(diversity_x - diversity_g)
 ax_sum = 0
 dd_sum = 0
 dx_sum = 0
+dg_sum = 0
 
 for i in range(12000):
     d_loss, g_loss = gan.train({gan.graph.x: static_x, gan.graph.z[0]: static_z})
@@ -169,6 +170,7 @@ for i in range(12000):
         ax_sum=10000000.00
         dd_sum=10000000.00
         dx_sum=10000000.00
+        dg_sum=10000000.00
         break
 
     if i % 100 == 0 and i != 0 and i > 400: 

@@ -125,17 +125,17 @@ def conv_cond_concat(x, y):
 
 def conv2d(input_, output_dim,
            k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02, regularizer=None,
-           name="conv2d", gain=1.0):
+           name="conv2d", gain=1.0, dtype=tf.float32):
     initializer = tf.orthogonal_initializer(gain)
     with tf.variable_scope(name):
         if regularizer:
             regularizer=tf.contrib.layers.l2_regularizer(regularizer)
         with tf.device("/cpu:0"):
-            w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],dtype=config['dtype'], regularizer=regularizer,
+            w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],dtype=dtype, regularizer=regularizer,
                                 initializer=initializer)
         conv = tf.nn.conv2d(input_, w, strides=[1, d_h, d_w, 1], padding='SAME')
 
-        biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0, dtype=config['dtype']), dtype=config['dtype'])
+        biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0, dtype=dtype), dtype=dtype)
         conv = tf.nn.bias_add(conv, biases)
 
         return conv

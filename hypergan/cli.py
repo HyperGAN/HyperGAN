@@ -194,7 +194,7 @@ class CLI:
                 height=height, 
                 channels=channels)
         if self.args.align:
-            xb = self.setup_input_loader(format, 
+            xa,_,_,_,_ = self.setup_input_loader(format, 
                     directory, 
                     device, 
                     config, 
@@ -205,7 +205,7 @@ class CLI:
                     height=height, 
                     channels=channels,
                     filterX=1)
-            xa = self.setup_input_loader(format, 
+            xb,_,_,_,_ = self.setup_input_loader(format, 
                     directory, 
                     device, 
                     config, 
@@ -295,7 +295,7 @@ class CLI:
         config['x_dims']=[height,width]
         config['channels']=channels
 
-        if(int(config['y_dims']) > 1):
+        if(int(config['y_dims']) > 1 and not args.align):
             print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
             config['losses'].append(hg.losses.supervised_loss.config())
         else:

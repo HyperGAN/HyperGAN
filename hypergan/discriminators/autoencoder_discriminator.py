@@ -101,7 +101,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     gan.graph.dx = rx
     gan.graph.dg = rg
 
-    
     error = tf.concat([config.distance(x, rx), config.distance(g,rg)], axis=0)
     error = tf.reshape(error, [gan.config.batch_size*2, -1])
     error = tf.concat([error]+mini, axis=1)

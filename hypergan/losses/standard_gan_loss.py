@@ -3,11 +3,14 @@ from hypergan.util.ops import *
 from hypergan.util.hc_tf import *
 import hyperchamber as hc
 
-def config(label_smooth=0.15, reduce=tf.reduce_mean):
+def config(
+	label_smooth=0.15, 
+	reduce=tf.reduce_mean, 
+	discriminator=None):
     selector = hc.Selector()
     selector.set("reduce", reduce)
     selector.set("label_smooth", label_smooth)
-    selector.set('discriminator', None)
+    selector.set('discriminator', discriminator)
 
     selector.set('create', create)
 

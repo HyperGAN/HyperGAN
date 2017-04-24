@@ -44,13 +44,13 @@ def config(
     selector.set('batch_norm_epsilon', batch_norm_epsilon)
     return selector.random_config()
 
-def create(config, gan, net):
+def create(config, gan, net, prefix='g_'):
     z = net
     x_dims = gan.config.x_dims
     z_proj_dims = config.z_projection_depth
     primes = find_smallest_prime(x_dims[0], x_dims[1])
     # project z
-    net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", gain=config.orthogonal_initializer_gain)
+    net = linear(net, z_proj_dims*primes[0]*primes[1], scope=prefix+"lin_proj", gain=config.orthogonal_initializer_gain)
     new_shape = [gan.config.batch_size, primes[0],primes[1],z_proj_dims]
     net = tf.reshape(net, new_shape)
 
@@ -68,7 +68,7 @@ def create(config, gan, net):
 
     s = [int(x) for x in net.get_shape()]
 
-    net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3)
+    net = config.block(net, config, activation, batch_size, 'identity', prefix+'layers_init', output_channels=int(net.get_shape()[3]), filter=3)
     if(config.layer_filter):
         fltr = config.layer_filter(gan, net)
         if(fltr is not None):
@@ -89,13 +89,11 @@ def create(config, gan, net):
 
         output_shape = [int(net.get_shape()[0]), int(resized_wh[0]), int(resized_wh[1]), int(layers)]
 
-        shape = layers*4#int(net.get_shape()[3])
-        net = config.block(net, config, activation, batch_size, 'identity', 'g_layersh_'+str(i), output_channels=shape, filter=3, sigmoid_gate=sigmoid_gate)
-        net = tf.depth_to_space(net, 2)
-
         if(i == depth-1):
             layers=gan.config.channels
-        net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_condense_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
+        shape = layers*4#int(net.get_shape()[3])
+        net = config.block(net, config, activation, batch_size, 'identity', prefix+'layersh_'+str(i), output_channels=shape, filter=3, sigmoid_gate=sigmoid_gate)
+        net = tf.depth_to_space(net, 2)
 
 
         if(config.layer_filter):
@@ -109,14 +107,14 @@ def create(config, gan, net):
             fltr=int(net.get_shape()[2])
 
 
-        net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
+        net = config.block(net, config, activation, batch_size, 'identity', prefix+'layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
         if(i == depth-1):
             first3 = net
         else:
             first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
         if config.final_activation:
             if config.layer_regularizer:
-                first3 = config.layer_regularizer(gan.config.batch_size, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name='g_bn_first3_'+str(i))(first3)
+                first3 = config.layer_regularizer(gan.config.batch_size, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'bn_first3_'+str(i))(first3)
             first3 = config.final_activation(first3)
         nets.append(first3)
         size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])

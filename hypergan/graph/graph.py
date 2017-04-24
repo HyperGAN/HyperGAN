@@ -67,11 +67,12 @@ class Graph:
     def create_z_encoding(self):
         self.gan.graph.z = []
         encoders = []
-        for i, encoder in enumerate(self.gan.config.encoders):
-            encoder = hc.Config(hc.lookup_functions(encoder))
-            zs, z_base = encoder.create(encoder, self.gan)
-            encoders.append(zs)
-            self.gan.graph.z.append(z_base)
+        with(tf.variable_scope("encoder", reuse=False)):
+            for i, encoder in enumerate(self.gan.config.encoders):
+                encoder = hc.Config(hc.lookup_functions(encoder))
+                zs, z_base = encoder.create(encoder, self.gan)
+                encoders.append(zs)
+                self.gan.graph.z.append(z_base)
 
         z_encoded = tf.concat(axis=1, values=encoders)
         self.gan.graph.z_encoded = z_encoded
@@ -110,7 +111,8 @@ class Graph:
 
         g_sample = g
 
-        d_real, d_fake, d_reals, d_fakes = self.discriminator(x, f, None, g, z)
+        with(tf.variable_scope("discriminator", reuse=False)):
+            d_real, d_fake, d_reals, d_fakes = self.discriminator(x, f, None, g, z)
 
         self.gan.graph.d_real = d_real
         self.gan.graph.d_fake = d_fake

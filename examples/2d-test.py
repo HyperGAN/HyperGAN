@@ -54,17 +54,28 @@ def sampler(gan, name):
 
 def no_regularizer(amt):
     return None
- 
+
+def l2_distance(a,b):
+    return tf.square(a-b)
+
+def l1_distance(a,b):
+    return a-b
+
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
+    original = net
     net = linear(net, 128, scope=prefix+'linone')
-    net = tf.nn.crelu(net)
-    net = linear(net, 128, scope=prefix+'linend')
+    net = tf.nn.relu(net)
+    net = linear(net, 2, scope=prefix+'linend')
+    
+    # works.  hyperparam? 
+    net = config.distance(original,net)
+    #net = original-net
     return net
 
 def custom_generator(config, gan, net):
     net = linear(net, 128, scope="g_lin_proj")
-    net = tf.nn.crelu(net)
+    net = tf.nn.relu(net)
     net = linear(net, 2, scope="g_lin_proj3")
     net = tf.tanh(net)
     return [net]
@@ -120,9 +131,9 @@ config['dtype']=tf.float32
 
 custom_config = {
     'model': args.config,
-    'batch_size': args.batch_size,
-    'generator': custom_generator_config(),
-    'discriminators': [custom_discriminator_config()]
+    'batch_size': args.batch_size
+    #'generator': custom_generator_config(),
+    #'discriminators': [custom_discriminator_config()]
 }
 
 for key,value in custom_config.items():

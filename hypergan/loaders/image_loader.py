@@ -14,16 +14,21 @@ def build_labels(dirs):
     labels[dir.split('/')[-1]]=next_id
     next_id+=1
   return labels,next_id
-def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=False, preprocess=False):
-  filenames = glob.glob(directory+"/**/*."+format)
-  labels,total_labels = build_labels(sorted(filter(os.path.isdir, glob.glob(directory+"/*"))))
+def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=False, preprocess=False, filterX=None):
+  directories = glob.glob(directory+"/*")
+  labels,total_labels = build_labels(sorted(filter(os.path.isdir, directories)))
   num_examples_per_epoch = 30000//4
-  print("[loader] ImageLoader found", len(filenames), "images with", total_labels, "different class labels")
-  assert len(filenames)!=0, "No images found in "+directory
 
   # Create a queue that produces the filenames to read.
+  if filterX is not None:
+    print(directories, filterX, directories[filterX])
+    print("Filtering files by "+directories[filterX])
+    filenames = glob.glob(directories[filterX]+"/*."+format)
+  else:
+    filenames = glob.glob(directory+"/**/*."+format)
+  print("[loader] ImageLoader found", len(filenames), "images with", total_labels, "different class labels")
   classes = [labels[f.split('/')[-2]] for f in filenames]
-
+  assert len(filenames)!=0, "No images found in "+directory
   filenames = tf.convert_to_tensor(filenames, dtype=tf.string)
   classes = tf.convert_to_tensor(classes, dtype=tf.int32)
 

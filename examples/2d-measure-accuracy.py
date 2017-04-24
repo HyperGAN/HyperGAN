@@ -23,30 +23,48 @@ def parse_args():
 def no_regularizer(amt):
     return None
  
+def l2_distance(a,b):
+    return tf.square(a-b)
+
+def l1_distance(a,b):
+    return a-b
+
 def custom_discriminator_config():
-    return { 
-            'create': custom_discriminator 
-    }
+    selector = hc.Selector()
+    selector.set('create', custom_discriminator)
+    selector.set('distance',[l2_distance, l1_distance])
+    return selector.random_config()
 
 def custom_generator_config():
     return { 
             'create': custom_generator
     }
+def custom_encoder_config():
+    return { 
+            'create': custom_encoder
+    }
+
 
 
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
+    original = net
     net = linear(net, 128, scope=prefix+'linone')
-    net = tf.nn.crelu(net)
-    net = linear(net, 128, scope=prefix+'linend')
+    net = tf.nn.relu(net)
+    net = linear(net, 2, scope=prefix+'linend')
+    
+    # works.  hyperparam? 
+    net = config.distance(original,net)
+    #net = original-net
     return net
 
 def custom_generator(config, gan, net):
     net = linear(net, 128, scope="g_lin_proj")
-    net = tf.nn.crelu(net)
+    net = tf.nn.relu(net)
     net = linear(net, 2, scope="g_lin_proj3")
     net = tf.tanh(net)
     return [net]
+
 
 
 def d_pyramid_search_config():
@@ -169,8 +187,10 @@ def train():
     any_opts = {}
 
     tftrainers = [
+            tf.train.AdadeltaOptimizer,
+            tf.train.AdagradOptimizer,
+            tf.train.GradientDescentOptimizer,
             tf.train.AdamOptimizer,
-            tf.train.RMSPropOptimizer,
 
     ]
     # TODO FtrlOptimizer
@@ -194,21 +214,22 @@ def train():
         'g_rho': [0.99,0.9,0.95,0.1,0.01,0],
         'd_initial_accumulator_value': [0.99,0.9,0.95,0.1,0.01],
         'g_initial_accumulator_value': [0.99,0.9,0.95,0.1,0.01],
-        'd_clipped_weights': [False, 0.01],
-        'clipped_gradients': [False, 0.01],
+        'd_clipped_weights': False,
+        'clipped_gradients': False,
         'd_trainer':tftrainers,
         'g_trainer':tftrainers
     }
 
-    trainers.append(hg.trainers.any_trainer.config(**any_opts))
+    trainers.append(hg.trainers.proportional_control_trainer.config(**any_opts))
+    #trainers.append(hg.trainers.alternating_trainer.config(**any_opts))
     
 
     
     sgd_opts = {
-        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
-        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],
-        'd_clipped_weights': [False, 0.01],
-        'clipped_gradients': [False, 0.01]
+        'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6,2e-6,2e-4,1e-5,5e-5],
+        'g_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6,2e-6,2e-4,1e-5,5e-5],
+        'd_clipped_weights': False,
+        'clipped_gradients': False
     }
 
     #trainers.append(hg.trainers.sgd_trainer.config(**sgd_opts))
@@ -234,9 +255,10 @@ def train():
       "min": -1,
       "modes": 8,
       "projections": [[
+        "function:hypergan.encoders.uniform_encoder.identity",
         "function:hypergan.encoders.uniform_encoder.modal",
-        "function:hypergan.encoders.uniform_encoder.sphere",
-        "function:hypergan.encoders.uniform_encoder.identity"
+         "function:hypergan.encoders.uniform_encoder.sphere"
+
       ]],
       "z": 16
     }
@@ -245,7 +267,8 @@ def train():
 
     wgan_loss_opts = {
         'reverse':[True, False],
-        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp]
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
+        'gradient_penalty': list(np.arange(1, 100))
     }
     lamb_loss_opts = {
         'reverse':[True, False],
@@ -277,7 +300,8 @@ def train():
             [0, 0.5, -0.5],
             [0.5, -0.5, 0],
             [0.5, 0, -0.5]
-        ]
+        ],
+        'gradient_penalty': [False, 1, 0.1, 0.01, 0.001, 0.0001, 1e-5]
     }
     standard_loss_opts= {
         'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
@@ -296,20 +320,72 @@ def train():
       "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
       "reverse": True
     }
-    losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
+    began_loss_opts = {
+        'k_lambda':[0.1, 0.01, 0.001, 1e-4, 1e-5],
+
+        'initial_k':[0],
+        'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp, tf.argmin],
+        'labels': [
+            [-1, 1, 0],
+            [0, 1, 1],
+            [0, -1, -1],
+            [1, -1, 0],
+            [0, -1, 1],
+            [0, 1, -1],
+            [0, 0.5, -0.5],
+            [0.5, -0.5, 0],
+            [0.5, 0, -0.5],
+            [-0.5, 0.5, 0.5],
+            [0.5, 0.5, 0],
+            [-0.5, -0.5, 0.5],
+            [-1, 1, 1],
+            [1, -1, -1],
+            [0, 1, 1],
+            [0, -1, -1]
+        ],
+        'gradient_penalty': [False],
+        'use_k': True,
+        'gamma':list(np.linspace(0, 1, num=1000))
+    }
+
+    #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
+    #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**stable_loss_opts)])
-    losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
+    #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
+    #losses.append([hg.losses.boundary_equilibrium_loss.config(**began_loss_opts)])
+
+    stable_loss = [{
+        "create": "function:hypergan.losses.boundary_equilibrium_loss.create",
+        "discriminator": None,
+        "gamma": 0.4,
+        "gradient_penalty": False,
+        "initial_k": 0.01,
+        "k_lambda": 0.002,
+        "labels": [
+            0.5,
+            -0.5,
+            -0.5
+        ],
+        "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
+        "reverse": False,
+        "type": "lsgan",
+        "use_k": True
+    }]
+
+
+    losses.append(stable_loss)
 
 
     #losses.append([hg.losses.wgan_loss.config(**wgan_loss_opts)])
     #losses.append([hg.losses.lamb_gan_loss.config(**lamb_loss_opts)])
-    losses.append([hg.losses.standard_gan_loss.config(**standard_loss_opts)])
+    #losses.append([hg.losses.standard_gan_loss.config(**standard_loss_opts)])
     #losses.append([hg.losses.lsgan_loss.config(**lsgan_loss_opts)])
 
     #encoders.append([hg.encoders.uniform_encoder.config(**encoder_opts)])
     encoders.append([hg.encoders.uniform_encoder.config(**stable_encoder_opts)])
+    #encoders.append([custom_encoder_config()])
     custom_config = {
         'model': args.config,
         'batch_size': args.batch_size,
@@ -393,18 +469,16 @@ def train():
         last_i = 0
 
         tf.train.start_queue_runners(sess=gan.sess)
-        for i in range(10000):
+        for i in range(100000):
             d_loss, g_loss = gan.train()
 
-            if(np.abs(d_loss) > 100 or np.abs(g_loss) > 100):
-                ax_sum = ag_sum = 100000.00
-                break
+            if i % 500 == 0 and i != 0 and i > 2000: 
+                k, ax, ag, agg, dl = gan.sess.run([gan.graph.k, accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
 
-            if i % 1000 == 0 and i != 0: 
-                ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
-                print("ERROR", ax, ag)
-                if np.abs(ax) > 50.0 or np.abs(ag) > 50.0:
+                print("ERROR", ax, ag, k)
+                if math.isclose(k, 0.0) or math.isclose(k, 1.0) or np.isnan(g_loss) or np.abs(g_loss) > 50000 or ax > 450:
                     ax_sum = ag_sum = 100000.00
+                    print("BEARK")
                     break
 
 
@@ -413,14 +487,16 @@ def train():
             #    init = tf.initialize_variables(g_vars)
             #    gan.sess.run(init)
 
-            if(i > 9000):
+            if(i > 95000):
                 ax, ag, agg, dl = gan.sess.run([accuracy_x_to_g, accuracy_g_to_x, accuracy_g_to_g, gan.graph.d_log], {gan.graph.x: x_0, gan.graph.z[0]: z_0})
                 diversity += agg
                 ax_sum += ax
                 ag_sum += ag
                 dlog = dl
 
-        with open("results-10k.csv", "a") as myfile:
+        with open("results.csv", "a") as myfile:
+            print("Writing result")
+            #measure = gan.sess.run(gan.graph.measure)
             myfile.write(config_name+","+str(ax_sum)+","+str(ag_sum)+","+ str(ax_sum+ag_sum)+","+str(ax_sum*ag_sum)+","+str(dlog)+","+str(diversity)+","+str(ax_sum*ag_sum*(1/diversity))+","+str(last_i)+"\n")
         tf.reset_default_graph()
         gan.sess.close()

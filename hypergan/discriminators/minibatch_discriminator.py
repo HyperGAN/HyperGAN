@@ -26,7 +26,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     return minis
 
 # This is openai's implementation of minibatch regularization
-def get_minibatch_features(h, batch_size,dtype, prefix, n_kernels, dims_per_kernel):
+def get_minibatch_features(h, batch_size,dtype, prefix, n_kernels, dim_per_kernel):
     single_batch_size = batch_size//2
     print("[discriminator] minibatch from", h, "to", n_kernels*dim_per_kernel)
     x = linear(h, n_kernels * dim_per_kernel, scope=prefix+"h")

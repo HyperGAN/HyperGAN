@@ -90,32 +90,32 @@ def began(gan, config, d_real, d_fake, prefix=''):
     else:
         gamma_d_real = d_real
     k_loss = tf.reduce_mean(gamma_d_real - d_fake, axis=0)
-    update_k = tf.assign(k, minmaxzero(k + config.k_lambda * k_loss))
+    update_k = tf.assign(k, k + config.k_lambda * k_loss)
     measure = tf.reduce_mean(l_x) + tf.abs(k_loss)
 
     d_loss = tf.reduce_mean(d_loss)
     g_loss = tf.reduce_mean(g_loss)
 
-    if 'softmax' in config:
-        #d_r = gan.graph.encoder_xb
-        #d_f = gan.graph.encoder_g
-        d_r = gan.graph.encode_xab
-        d_f = gan.graph.encode_gab
+    #if 'softmax' in config:
+    #    #d_r = gan.graph.encoder_xb
+    #    #d_f = gan.graph.encoder_g
+    #    d_r = gan.graph.encode_xab
+    #    d_f = gan.graph.encode_gab
 
-        ln_zb = tf.reduce_sum(tf.exp(-d_r))+tf.reduce_sum(tf.exp(-d_f))
-        ln_zb = tf.log(ln_zb)
+    #    ln_zb = tf.reduce_sum(tf.exp(-d_r))+tf.reduce_sum(tf.exp(-d_f))
+    #    ln_zb = tf.log(ln_zb)
 
-        d_loss += tf.reduce_mean(d_r) + ln_zb
-        g_loss += tf.reduce_mean(d_f) + tf.reduce_mean(d_r) + ln_zb
-     
-        d_r = gan.graph.encode_xba
-        d_f = gan.graph.encode_gba
+    #    d_loss += tf.reduce_mean(d_r) + ln_zb
+    #    g_loss += tf.reduce_mean(d_f) + tf.reduce_mean(d_r) + ln_zb
+    # 
+    #    d_r = gan.graph.encode_xba
+    #    d_f = gan.graph.encode_gba
 
-        ln_zb = tf.reduce_sum(tf.exp(-d_r))+tf.reduce_sum(tf.exp(-d_f))
-        ln_zb = tf.log(ln_zb)
+    #    ln_zb = tf.reduce_sum(tf.exp(-d_r))+tf.reduce_sum(tf.exp(-d_f))
+    #    ln_zb = tf.log(ln_zb)
 
-        d_loss += tf.reduce_mean(d_r) + ln_zb
-        g_loss += tf.reduce_mean(d_f) + tf.reduce_mean(d_r) + ln_zb
+    #    d_loss += tf.reduce_mean(d_r) + ln_zb
+    #    g_loss += tf.reduce_mean(d_f) + tf.reduce_mean(d_r) + ln_zb
  
     return [k, update_k, measure, d_loss, g_loss]
 

@@ -68,14 +68,12 @@ def sample(gan, sample_file):
     sample_tensor(sess,gan.graph.rxa, feed_dict, autoencoded_xb_file)
     samples = []
     samples.append({'image':x_file, 'label':'xa'})
-    samples.append({'image':xb_file, 'label':'xb'})
-    samples.append({'image':ga_file, 'label':'ga'})
-    samples.append({'image':gb_file, 'label':'gb'})
-    samples.append({'image':autoencoded_x_file, 'label':'gba'})
     samples.append({'image':autoencoded_hg_file, 'label':'gab'})
     samples.append({'image':autoencoded_g_file, 'label':'gabba'})
+    samples.append({'image':xb_file, 'label':'xb'})
+    samples.append({'image':autoencoded_x_file, 'label':'gba'})
     samples.append({'image':autoencoded_hx_file, 'label':'gbaab'})
-    samples.append({'image':autoencoded_gb_file, 'label':'rxa'})
-    samples.append({'image':autoencoded_xb_file, 'label':'rgabba'})
+    samples.append({'image':ga_file, 'label':'ga'})
+    samples.append({'image':gb_file, 'label':'gb'})
 
     return samples

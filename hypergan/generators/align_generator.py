@@ -52,12 +52,14 @@ def create(config, gan, net, prefix="g_"):
         gan.graph.gab = create_g_pyramid(config, gan, gan.graph.xa, prefix="g_ab_")
         gan.graph.gba = create_g_pyramid(config, gan, gan.graph.xb, prefix="g_ba_")
 
-        gan.graph.ga = create_g_pyramid_from_z(config, gan, gan.graph.z_encoded, prefix="g_ba_", reuse=True)
-        gan.graph.gb = create_g_pyramid_from_z(config, gan, gan.graph.z_encoded, prefix="g_ab_", reuse=True)
+        if('include_gs' in config):
+            gan.graph.ga = create_g_pyramid_from_z(config, gan, gan.graph.z_encoded, prefix="g_ba_", reuse=True)
+            gan.graph.gb = create_g_pyramid_from_z(config, gan, gan.graph.z_encoded, prefix="g_ab_", reuse=True)
+
         gan.graph.gabba = create_g_pyramid(config, gan, gan.graph.gab, prefix="g_ba_", reuse=True)
         gan.graph.gbaab = create_g_pyramid(config, gan, gan.graph.gba, prefix="g_ab_", reuse=True)
-        gan.graph.gagb = create_g_pyramid(config, gan, gan.graph.ga, prefix="g_ab_", reuse=True)
-        gan.graph.gbga = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_ba_", reuse=True)
+        #gan.graph.gagb = create_g_pyramid(config, gan, gan.graph.ga, prefix="g_ab_", reuse=True)
+        #gan.graph.gbga = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_ba_", reuse=True)
     else:
         gan.graph.gab = create_g(config, gan, gan.graph.xa, prefix="g_ab_")[0]
         gan.graph.gba = create_g(config, gan, gan.graph.xb, prefix="g_ba_")[0]
@@ -82,6 +84,9 @@ def create_g_pyramid(config, gan, x, prefix="g_", reuse=False):
     with tf.variable_scope("autoencoder", reuse=reuse):
         dconfig = gan.config.discriminators[0]
         dconfig = hc.Config(hc.lookup_functions(dconfig))
+
+        if('align_regularizer' in dconfig):
+            dconfig['layer_regularizer'] = config['layer_regularizer']
         g = x
         net = hypergan.discriminators.pyramid_discriminator.discriminator(gan, dconfig, x, g, [x], [g], prefix)
         s = [int(x) for x in net.get_shape()]

@@ -65,6 +65,7 @@ def config(
     selector.set('noise', noise) #add noise to input
     selector.set('progressive_enhancement', progressive_enhancement)
     selector.set('resize', resize)
+
     selector.set('strided', strided) #TODO: true does not work
     selector.set('distance', distance) #TODO: true does not work
     selector.set('minibatch', minibatch)

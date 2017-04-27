@@ -70,20 +70,19 @@ def config(
     selector.set('batch_norm_epsilon', batch_norm_epsilon)
     return selector.random_config()
 
-def autoencode(gan, config, x, rx, prefix):
+def autoencode(gan, config, x, rx, prefix, reuse=False):
     gconfig = gan.config.generator_autoencode
-    if "decoder_layer_regularizer" in gconfig:
-        print("overwriting layer regularizer for decoder with ", gconfig['decoder_layer_regularizer'])
-        gconfig['layer_regularizer'] = gconfig['decoder_layer_regularizer']
+    if('align_regularizer' in config):
+        gconfig['layer_regularizer'] = config['layer_regularizer']
     generator = hc.Config(hc.lookup_functions(gconfig))
 
-    with tf.variable_scope(prefix+"autoencode", reuse=False):
+    with tf.variable_scope(prefix+"autoencode", reuse=reuse):
         net = hypergan.discriminators.pyramid_discriminator.discriminator(gan, config, x, rx, [], [], prefix)
         s = [int(x) for x in net.get_shape()]
         netx  = tf.slice(net, [0,0], [s[0]//2,-1])
         netg  = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
-    with tf.variable_scope("autoencoder2", reuse=False):
+    with tf.variable_scope("autoencoder2", reuse=reuse):
         rx = generator.create(generator, gan, netx, prefix=prefix)[-1]
     with tf.variable_scope("autoencoder2", reuse=True):
         rg = generator.create(generator, gan, netg, prefix=prefix)[-1]
@@ -101,50 +100,59 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
     gba = gan.graph.gba
     #mini = []
 
-    # fix sampling.
-    # fix rgba, rgab
-    # share weights on rgabba ?
+    autoencode(gan, config, xa, gan.graph.ga, prefix=prefix+"a")
+    autoencode(gan, config, xb, gan.graph.gb, prefix=prefix+"b")
 
-    #rxa, rgabba = autoencode(gan, config, xa, gan.graph.gabba, prefix=prefix+"rxa_")
-    #rxb, rgbaab = autoencode(gan, config, xb, gan.graph.gbaab, prefix=prefix+"rxb_")
+    if 'include_gaab' in config:
+        rxa, rgabba = autoencode(gan, config, xa, gan.graph.gabba, prefix=prefix+"a", reuse=True)
+        rxb, rgbaab = autoencode(gan, config, xb, gan.graph.gbaab, prefix=prefix+"b", reuse=True)
 
-    rxa, rgba = autoencode(gan, config, xa, gan.graph.gba, prefix=prefix+"rxa_")
-    rxb, rgab = autoencode(gan, config, xb, gan.graph.gab, prefix=prefix+"rxb_")
+    if 'include_gba' in config:
+        rxa, rgba = autoencode(gan, config, xa, gan.graph.gba, prefix=prefix+"a", reuse=True)
+        rxb, rgab = autoencode(gan, config, xb, gan.graph.gab, prefix=prefix+"b", reuse=True)
 
-    #rgba, rgab = autoencode(gan, config, gan.graph.gba, gan.graph.gab, prefix=prefix+"rgfirst_")
+    if('include_gs' in config):
+        rxa, rga = autoencode(gan, config, xa, gan.graph.ga, prefix=prefix+"a", reuse=True)
+        rxb, rgb = autoencode(gan, config, xb, gan.graph.gb, prefix=prefix+"b", reuse=True)
 
-    #rxa2, rgba = autoencode(gan, config, xa, gan.graph.gba, prefix=prefix+"rgfirst_")
-    #rxb2, rgab = autoencode(gan, config, xb, gan.graph.gab, prefix=prefix+"rg2_")
-
-    rxa2, rga = autoencode(gan, config, xa, gan.graph.ga, prefix=prefix+"rgfirst_")
-    rxb2, rgb = autoencode(gan, config, xb, gan.graph.gb, prefix=prefix+"rg2_")
-
-    gan.graph.hx = rxa
-    gan.graph.hg = gba
+    #gan.graph.hx = rxa
+    #gan.graph.hg = gba
 
     gan.graph.rxa = rxa#rgabba
-    gan.graph.rgb = rgb#rgbaab
+
+    print("GAAAA", gan.graph.ga)
 
     # TODO: concat?
-    error = tf.concat([
+    error = [
         config.distance(xa, rxa),
         config.distance(xb, rxb),
-        config.distance(xa, rxa2),
-        config.distance(xb, rxb2),
-        config.distance(gan.graph.gab, rgab),
-        config.distance(gan.graph.gba, rgba),
-        config.distance(gan.graph.ga, rga),
-        config.distance(gan.graph.gb, rgb),
+        ]
+    if('include_gs' in config):
+        error += [
+            config.distance(gan.graph.ga, rga),
+            config.distance(gan.graph.gb, rgb),
+        ]
+
+    if 'include_gba' in config:
+        #config.distance(xa, rgba),
+        #config.distance(xb, rgab),
+        error += [
+            config.distance(gan.graph.gab, rgab),
+            config.distance(gan.graph.gba, rgba),
+        ]
+
+
+    if 'include_gaab' in config:
+        error += [
+            config.distance(gan.graph.gabba, rgabba),
+            config.distance(gan.graph.gbaab, rgbaab),
+        ]
+        #config.distance(xa, gan.graph.gabba),
+        #config.distance(xb, gan.graph.gbaab)
         #config.distance(xa, rgabba),
         #config.distance(xb, rgbaab),
-        #config.distance(xa, rgab),
         #config.distance(xb, rgba),
-        #config.distance(rxa, rgabba),
-        #config.distance(rxb, rgbaab)
-
-        #config.distance(gan.graph.gabba, xa),
-        #config.distance(gan.graph.gbaab, xb)
-        ], axis=0)
+    error = tf.concat(error, axis=1)
      
     error = tf.reshape(error, [gan.config.batch_size*2, -1])
     #error = tf.concat([error]+mini, axis=1)

@@ -56,24 +56,28 @@ def sample(gan, sample_file):
     feed_dict = {z_t: z, y_t: y, x_t: x, xb_t: xb}
     sample_tensor(sess,generator, feed_dict, sample_file)
     print(x_t)
+    print("GAAAA", gan.graph.ga)
     sample_tensor(sess,gan.graph.xa, feed_dict, x_file)
     sample_tensor(sess,gan.graph.xb, feed_dict, xb_file)
-    sample_tensor(sess,gan.graph.ga, feed_dict, ga_file)
-    sample_tensor(sess,gan.graph.gb, feed_dict, gb_file)
     sample_tensor(sess,gan.graph.gba, feed_dict, autoencoded_x_file)
     sample_tensor(sess,gan.graph.gab, feed_dict, autoencoded_hg_file)
     sample_tensor(sess,gan.graph.gabba, feed_dict, autoencoded_g_file)
     sample_tensor(sess,gan.graph.gbaab, feed_dict, autoencoded_hx_file)
     sample_tensor(sess,gan.graph.hx, feed_dict, autoencoded_gb_file)
-    sample_tensor(sess,gan.graph.rxa, feed_dict, autoencoded_xb_file)
     samples = []
     samples.append({'image':x_file, 'label':'xa'})
-    samples.append({'image':autoencoded_hg_file, 'label':'gab'})
-    samples.append({'image':autoencoded_g_file, 'label':'gabba'})
     samples.append({'image':xb_file, 'label':'xb'})
+
+    samples.append({'image':autoencoded_hg_file, 'label':'gab'})
     samples.append({'image':autoencoded_x_file, 'label':'gba'})
+    samples.append({'image':autoencoded_g_file, 'label':'gabba'})
     samples.append({'image':autoencoded_hx_file, 'label':'gbaab'})
-    samples.append({'image':ga_file, 'label':'ga'})
-    samples.append({'image':gb_file, 'label':'gb'})
+    if('include_gs' in gan.config.generator):
+        sample_tensor(sess,gan.graph.ga, feed_dict, ga_file)
+        sample_tensor(sess,gan.graph.gb, feed_dict, gb_file)
+        samples.append({'image':ga_file, 'label':'ga'})
+        samples.append({'image':gb_file, 'label':'gb'})
+    #samples.append({'image':autoencoded_gb_file, 'label':'rxa'})
+    #samples.append({'image':autoencoded_xb_file, 'label':'rgabba'})
 
     return samples

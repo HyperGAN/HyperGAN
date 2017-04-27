@@ -123,17 +123,22 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
     print("GAAAA", gan.graph.ga)
 
     errorg = []
-    errorx = [
-        config.distance(xa, rxa),
-        config.distance(xb, rxb),
-        ]
+    errorx = []
     if('include_gs' in config):
+        errorx += [
+            config.distance(xa, rxa),
+            config.distance(xb, rxb),
+        ]
         errorg += [
             config.distance(gan.graph.ga, rga),
             config.distance(gan.graph.gb, rgb),
         ]
 
     if 'include_gba' in config:
+        errorx += [
+            config.distance(xa, rxa),
+            config.distance(xb, rxb),
+            ]
         #config.distance(xa, rgba),
         #config.distance(xb, rgab),
         errorg += [
@@ -143,9 +148,13 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
 
 
     if 'include_gaab' in config:
+        errorx += [
+            config.distance(xa, rxa),
+            config.distance(xb, rxb),
+            ]
         errorg += [
-            config.distance(gan.graph.gabba, rgabba),
-            config.distance(gan.graph.gbaab, rgbaab),
+            config.distance(gan.graph.ga, rgabba),
+            config.distance(gan.graph.gb, rgbaab),
         ]
         #config.distance(xa, gan.graph.gabba),
         #config.distance(xb, gan.graph.gbaab)

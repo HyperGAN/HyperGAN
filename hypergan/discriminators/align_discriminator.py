@@ -122,13 +122,13 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
 
     print("GAAAA", gan.graph.ga)
 
-    # TODO: concat?
-    error = [
+    errorg = []
+    errorx = [
         config.distance(xa, rxa),
         config.distance(xb, rxb),
         ]
     if('include_gs' in config):
-        error += [
+        errorg += [
             config.distance(gan.graph.ga, rga),
             config.distance(gan.graph.gb, rgb),
         ]
@@ -136,14 +136,14 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
     if 'include_gba' in config:
         #config.distance(xa, rgba),
         #config.distance(xb, rgab),
-        error += [
+        errorg += [
             config.distance(gan.graph.gab, rgab),
             config.distance(gan.graph.gba, rgba),
         ]
 
 
     if 'include_gaab' in config:
-        error += [
+        errorg += [
             config.distance(gan.graph.gabba, rgabba),
             config.distance(gan.graph.gbaab, rgbaab),
         ]
@@ -152,7 +152,9 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
         #config.distance(xa, rgabba),
         #config.distance(xb, rgbaab),
         #config.distance(xb, rgba),
-    error = tf.concat(error, axis=1)
+    errorx = tf.concat(errorx, axis=1)
+    errorg = tf.concat(errorg, axis=1)
+    error = tf.concat([errorx, errorg], axis=0)
      
     error = tf.reshape(error, [gan.config.batch_size*2, -1])
     #error = tf.concat([error]+mini, axis=1)

@@ -96,13 +96,13 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
     autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix+"a")
     autoencode(gan, config, gan.graph.xb, gan.graph.gb, prefix=prefix+"b")
 
-    rxa, rga = autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix+"a2")
-    rxb, rgb = autoencode(gan, config, gan.graph.xb, gan.graph.gb, prefix=prefix+"b2")
-    rxabba, rgabba = autoencode(gan, config, gan.graph.xabba, gan.graph.gabba, prefix=prefix+"a3")
-    rxbaab, rgbaab = autoencode(gan, config, gan.graph.xbaab, gan.graph.gbaab, prefix=prefix+"b3")
+    rxa, rga = autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix+"a", reuse=True)
+    rxb, rgb = autoencode(gan, config, gan.graph.xb, gan.graph.gb, prefix=prefix+"b", reuse=True)
+    rxabba, rgabba = autoencode(gan, config, gan.graph.xabba, gan.graph.gabba, prefix=prefix+"a", reuse=True)
+    rxbaab, rgbaab = autoencode(gan, config, gan.graph.xbaab, gan.graph.gbaab, prefix=prefix+"b", reuse=True)
 
-    rxba, rgba = autoencode(gan, config, gan.graph.xba, gan.graph.gba, prefix=prefix+"a4")
-    rxab, rgab = autoencode(gan, config, gan.graph.xab, gan.graph.gab, prefix=prefix+"b4")
+    rxba, rgba = autoencode(gan, config, gan.graph.xba, gan.graph.gba, prefix=prefix+"a", reuse=True)
+    rxab, rgab = autoencode(gan, config, gan.graph.xab, gan.graph.gab, prefix=prefix+"b", reuse=True)
 
     errorg = []
     errorx = []

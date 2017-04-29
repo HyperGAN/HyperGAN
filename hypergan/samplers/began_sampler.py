@@ -72,11 +72,10 @@ def sample(gan, sample_file):
     samples.append({'image':autoencoded_x_file, 'label':'gba'})
     samples.append({'image':autoencoded_g_file, 'label':'gabba'})
     samples.append({'image':autoencoded_hx_file, 'label':'gbaab'})
-    if('include_gs' in gan.config.generator):
-        sample_tensor(sess,gan.graph.ga, feed_dict, ga_file)
-        sample_tensor(sess,gan.graph.gb, feed_dict, gb_file)
-        samples.append({'image':ga_file, 'label':'ga'})
-        samples.append({'image':gb_file, 'label':'gb'})
+    sample_tensor(sess,gan.graph.ga, feed_dict, ga_file)
+    sample_tensor(sess,gan.graph.gb, feed_dict, gb_file)
+    samples.append({'image':ga_file, 'label':'ga'})
+    samples.append({'image':gb_file, 'label':'gb'})
     #samples.append({'image':autoencoded_gb_file, 'label':'rxa'})
     #samples.append({'image':autoencoded_xb_file, 'label':'rgabba'})
 

@@ -93,41 +93,25 @@ def autoencode(gan, config, x, rx, prefix, reuse=False):
 
 def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
 
-    xa = gan.graph.xa
-    xb = gan.graph.xb
+    autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix+"a")
+    autoencode(gan, config, gan.graph.xb, gan.graph.gb, prefix=prefix+"b")
 
-    gab = gan.graph.gab
-    gba = gan.graph.gba
-    #mini = []
+    rxa, rga = autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix+"a2")
+    rxb, rgb = autoencode(gan, config, gan.graph.xb, gan.graph.gb, prefix=prefix+"b2")
+    rxabba, rgabba = autoencode(gan, config, gan.graph.xabba, gan.graph.gabba, prefix=prefix+"a3")
+    rxbaab, rgbaab = autoencode(gan, config, gan.graph.xbaab, gan.graph.gbaab, prefix=prefix+"b3")
 
-    autoencode(gan, config, xa, gan.graph.ga, prefix=prefix+"a")
-    autoencode(gan, config, xb, gan.graph.gb, prefix=prefix+"b")
-
-    if 'include_gaab' in config:
-        rxa, rgabba = autoencode(gan, config, xa, gan.graph.gabba, prefix=prefix+"a", reuse=True)
-        rxb, rgbaab = autoencode(gan, config, xb, gan.graph.gbaab, prefix=prefix+"b", reuse=True)
-
-    if 'include_gba' in config:
-        rxa, rgba = autoencode(gan, config, xa, gan.graph.gba, prefix=prefix+"a", reuse=True)
-        rxb, rgab = autoencode(gan, config, xb, gan.graph.gab, prefix=prefix+"b", reuse=True)
-
-    if('include_gs' in config):
-        rxa, rga = autoencode(gan, config, xa, gan.graph.ga, prefix=prefix+"a", reuse=True)
-        rxb, rgb = autoencode(gan, config, xb, gan.graph.gb, prefix=prefix+"b", reuse=True)
-
-    #gan.graph.hx = rxa
-    #gan.graph.hg = gba
-
-    gan.graph.rxa = rxa#rgabba
-
-    print("GAAAA", gan.graph.ga)
+    rxba, rgba = autoencode(gan, config, gan.graph.xba, gan.graph.gba, prefix=prefix+"a4")
+    rxab, rgab = autoencode(gan, config, gan.graph.xab, gan.graph.gab, prefix=prefix+"b4")
 
     errorg = []
     errorx = []
+
+
     if('include_gs' in config):
         errorx += [
-            config.distance(xa, rxa),
-            config.distance(xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb)
         ]
         errorg += [
             config.distance(gan.graph.ga, rga),
@@ -136,8 +120,8 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
 
     if 'include_gba' in config:
         errorx += [
-            config.distance(xa, rxa),
-            config.distance(xb, rxb),
+            config.distance(gan.graph.xba, rxba),
+            config.distance(gan.graph.xab, rxab),
             ]
         #config.distance(xa, rgba),
         #config.distance(xb, rgab),
@@ -149,18 +133,28 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
 
     if 'include_gaab' in config:
         errorx += [
-            config.distance(xa, rxa),
-            config.distance(xb, rxb),
+            config.distance(gan.graph.xabba, rxabba),
+            config.distance(gan.graph.xbaab, rxbaab),
             ]
         errorg += [
-            config.distance(gan.graph.ga, rgabba),
-            config.distance(gan.graph.gb, rgbaab),
+            config.distance(gan.graph.gabba, rgabba),
+            config.distance(gan.graph.gbaab, rgbaab),
         ]
         #config.distance(xa, gan.graph.gabba),
         #config.distance(xb, gan.graph.gbaab)
         #config.distance(xa, rgabba),
         #config.distance(xb, rgbaab),
         #config.distance(xb, rgba),
+
+    if 'include_cross_distance' in config:
+        errorx += [
+            config.distance(rxa, rxabba),
+            config.distance(rxb, rxbaab),
+            ]
+        errorg += [
+            config.distance(rga, rgabba),
+            config.distance(rgb, rgbaab),
+        ]
     errorx = tf.concat(errorx, axis=1)
     errorg = tf.concat(errorg, axis=1)
     error = tf.concat([errorx, errorg], axis=0)

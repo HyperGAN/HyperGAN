@@ -49,27 +49,41 @@ def create(config, gan, net, prefix="g_"):
 
     # TODO Chain together gab(gba) as gabba
     if('pyramid' in config):
-        gan.graph.gab = create_g_pyramid(config, gan, gan.graph.xa, prefix="g_ab_")
-        gan.graph.gba = create_g_pyramid(config, gan, gan.graph.xb, prefix="g_ba_")
 
-        gan.graph.ga = create_g_pyramid_from_z(config, gan, gan.graph.z_encoded, prefix="g_ba_", reuse=True)
-        gan.graph.gb = create_g_pyramid_from_z(config, gan, gan.graph.z_encoded, prefix="g_ab_", reuse=True)
+        z_encoded_a = recode(config, gan, gan.graph.z_encoded,prefix='g_za')
+        z_encoded_b = recode(config, gan, gan.graph.z_encoded,prefix='g_zb')
+        z_encoded = gan.graph.z_encoded
 
-        gan.graph.gabba = create_g_pyramid(config, gan, gan.graph.gab, prefix="g_ba_", reuse=True)
-        gan.graph.gbaab = create_g_pyramid(config, gan, gan.graph.gba, prefix="g_ab_", reuse=True)
-        #gan.graph.gagb = create_g_pyramid(config, gan, gan.graph.ga, prefix="g_ab_", reuse=True)
-        #gan.graph.gbga = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_ba_", reuse=True)
+        gan.graph.xab = create_g_pyramid(config, gan, gan.graph.xa, prefix="g_ab_")
+        gan.graph.xba = create_g_pyramid(config, gan, gan.graph.xb, prefix="g_ba_")
+
+        gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_ba5_")
+        gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_ab5_")
+
+        gan.graph.gab = create_g_pyramid(config, gan, gan.graph.ga, prefix="g_ab4_")
+        gan.graph.gba = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_ba4_")
+
+        gan.graph.gabba = create_g_pyramid(config, gan, gan.graph.gab, prefix="g_ba3_")
+        gan.graph.gbaab = create_g_pyramid(config, gan, gan.graph.gba, prefix="g_ab3_")
+
+        gan.graph.xabba = create_g_pyramid(config, gan, gan.graph.xba, prefix="g_ab2_")
+        gan.graph.xbaab = create_g_pyramid(config, gan, gan.graph.xab, prefix="g_ba2_")
     else:
-        gan.graph.gab = create_g(config, gan, gan.graph.xa, prefix="g_ab_")[0]
-        gan.graph.gba = create_g(config, gan, gan.graph.xb, prefix="g_ba_")[0]
+        gan.graph.xab = create_g(config, gan, gan.graph.xa, prefix="g_ab_")[0]
+        gan.graph.xba = create_g(config, gan, gan.graph.xb, prefix="g_ba_")[0]
         #gan.graph.gabba = create_g(config, gan, gan.graph.gba, prefix="g_abba_")[0]
         #gan.graph.gbaab = create_g(config, gan, gan.graph.gab, prefix="g_babb_")[0]
-        gan.graph.gabba = create_g(config, gan, gan.graph.gab, prefix="g_ba_", reuse=True)[0]
-        gan.graph.gbaab = create_g(config, gan, gan.graph.gba, prefix="g_ab_", reuse=True)[0]
+        gan.graph.xabba = create_g(config, gan, gan.graph.xab, prefix="g_ba_", reuse=True)[0]
+        gan.graph.xbaab = create_g(config, gan, gan.graph.xba, prefix="g_ab_", reuse=True)[0]
 
 
     return [gan.graph.gab, gan.graph.gba, gan.graph.gabba, gan.graph.gbaab]
 
+def recode(config, gan, z, prefix="g_"):
+    with tf.variable_scope("recode", reuse=False):
+        net = linear(z, int(z.get_shape()[1]), scope=prefix+"lin_pro_z", gain=config.orthogonal_initializer_gain)
+        net = config.final_activation(net)
+        return net
 def create_g_pyramid_from_z(config, gan, z, prefix="g_", reuse=False):
     with tf.variable_scope("autoencoder", reuse=reuse):
         gconfig = gan.config.generator_autoencode

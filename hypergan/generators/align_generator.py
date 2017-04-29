@@ -57,20 +57,20 @@ def create(config, gan, net, prefix="g_"):
         gan.graph.xab = create_g_pyramid(config, gan, gan.graph.xa, prefix="g_ab_")
         gan.graph.xba = create_g_pyramid(config, gan, gan.graph.xb, prefix="g_ba_")
 
-        gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_ba5_")
-        gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_ab5_")
+        gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_b_")
+        gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_a_")
 
-        gan.graph.gab = create_g_pyramid(config, gan, gan.graph.ga, prefix="g_ab4_")
-        gan.graph.gba = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_ba4_")
+        gan.graph.gab = create_g_pyramid(config, gan, gan.graph.ga, prefix="g_ab_", reuse=True)
+        gan.graph.gba = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_ba_", reuse=True)
 
-        gan.graph.gabba = create_g_pyramid(config, gan, gan.graph.gab, prefix="g_ba3_")
-        gan.graph.gbaab = create_g_pyramid(config, gan, gan.graph.gba, prefix="g_ab3_")
+        gan.graph.gabba = create_g_pyramid(config, gan, gan.graph.gab, prefix="g_ba_", reuse=True)
+        gan.graph.gbaab = create_g_pyramid(config, gan, gan.graph.gba, prefix="g_ab_", reuse=True)
 
-        gan.graph.xabba = create_g_pyramid(config, gan, gan.graph.xba, prefix="g_ab2_")
-        gan.graph.xbaab = create_g_pyramid(config, gan, gan.graph.xab, prefix="g_ba2_")
+        gan.graph.xabba = create_g_pyramid(config, gan, gan.graph.xba, prefix="g_ab_", reuse=True)
+        gan.graph.xbaab = create_g_pyramid(config, gan, gan.graph.xab, prefix="g_ba_", reuse=True)
     else:
-        gan.graph.xab = create_g(config, gan, gan.graph.xa, prefix="g_ab_")[0]
-        gan.graph.xba = create_g(config, gan, gan.graph.xb, prefix="g_ba_")[0]
+        gan.graph.xab = create_g(config, gan, gan.graph.xa, prefix="g_ab_", reuse=True)[0]
+        gan.graph.xba = create_g(config, gan, gan.graph.xb, prefix="g_ba_", reuse=True)[0]
         #gan.graph.gabba = create_g(config, gan, gan.graph.gba, prefix="g_abba_")[0]
         #gan.graph.gbaab = create_g(config, gan, gan.graph.gab, prefix="g_babb_")[0]
         gan.graph.xabba = create_g(config, gan, gan.graph.xab, prefix="g_ba_", reuse=True)[0]

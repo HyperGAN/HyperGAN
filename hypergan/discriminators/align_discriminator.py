@@ -123,8 +123,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
             config.distance(gan.graph.xba, rxba),
             config.distance(gan.graph.xab, rxab),
             ]
-        #config.distance(xa, rgba),
-        #config.distance(xb, rgab),
         errorg += [
             config.distance(gan.graph.gab, rgab),
             config.distance(gan.graph.gba, rgba),
@@ -140,11 +138,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
             config.distance(gan.graph.gabba, rgabba),
             config.distance(gan.graph.gbaab, rgbaab),
         ]
-        #config.distance(xa, gan.graph.gabba),
-        #config.distance(xb, gan.graph.gbaab)
-        #config.distance(xa, rgabba),
-        #config.distance(xb, rgbaab),
-        #config.distance(xb, rgba),
 
     if 'include_cross_distance' in config:
         errorx += [

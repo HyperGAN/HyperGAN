@@ -57,8 +57,8 @@ def create(config, gan, net, prefix="g_"):
         gan.graph.xab = create_g_pyramid(config, gan, gan.graph.xa, prefix="g_ab_")
         gan.graph.xba = create_g_pyramid(config, gan, gan.graph.xb, prefix="g_ba_")
 
-        gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_b_")
-        gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_a_")
+        gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_ba_", reuse=True)
+        gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_ab_", reuse=True)
 
         gan.graph.gab = create_g_pyramid(config, gan, gan.graph.ga, prefix="g_ab_", reuse=True)
         gan.graph.gba = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_ba_", reuse=True)

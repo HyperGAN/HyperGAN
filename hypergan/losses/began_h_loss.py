@@ -96,14 +96,14 @@ def began(gan, config, d_real, d_fake, prefix=''):
     d_loss = tf.reduce_mean(d_loss)
     g_loss = tf.reduce_mean(g_loss)
 
-    dist = tf.square(gan.graph.gb - gan.graph.gbaab)
-    dist = tf.reshape(dist, [int(dist.get_shape()[0]), -1])
-    dist = tf.reduce_mean(dist)
+    ##dist = tf.square(gan.graph.gb - gan.graph.gbaab)
+    ##dist = tf.reshape(dist, [int(dist.get_shape()[0]), -1])
+    ##dist = tf.reduce_mean(dist)
 
-    lam = 0.01
-    if 'dist' in config:
+    #lam = 0.01
+    #if 'dist' in config:
       #d_loss += lam*dist
-      g_loss += lam*dist
+      #g_loss += lam*dist
     #if 'softmax' in config:
     #    #d_r = gan.graph.encoder_xb
     #    #d_f = gan.graph.encoder_g

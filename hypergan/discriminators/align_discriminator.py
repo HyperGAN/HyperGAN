@@ -120,10 +120,14 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
 
     if 'include_gba' in config:
         errorx += [
-            config.distance(gan.graph.xba, rxba),
-            config.distance(gan.graph.xab, rxab),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb)
             ]
         errorg += [
+            config.distance(gan.graph.xba, rxba),
+            config.distance(gan.graph.xab, rxab),
             config.distance(gan.graph.gab, rgab),
             config.distance(gan.graph.gba, rgba),
         ]
@@ -131,20 +135,28 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
 
     if 'include_gaab' in config:
         errorx += [
-            config.distance(gan.graph.xabba, rxabba),
-            config.distance(gan.graph.xbaab, rxbaab),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb)
             ]
         errorg += [
+            config.distance(gan.graph.xabba, rxabba),
+            config.distance(gan.graph.xbaab, rxbaab),
             config.distance(gan.graph.gabba, rgabba),
             config.distance(gan.graph.gbaab, rgbaab),
         ]
 
     if 'include_cross_distance' in config:
         errorx += [
-            config.distance(rxa, rxabba),
-            config.distance(rxb, rxbaab),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb)
             ]
         errorg += [
+            config.distance(rxa, rxabba),
+            config.distance(rxb, rxbaab),
             config.distance(rga, rgabba),
             config.distance(rgb, rgbaab),
         ]

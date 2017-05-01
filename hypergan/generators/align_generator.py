@@ -54,20 +54,24 @@ def create(config, gan, net, prefix="g_"):
         z_encoded_b = recode(config, gan, gan.graph.z_encoded,prefix='g_zb')
         z_encoded = gan.graph.z_encoded
 
-        gan.graph.xab = create_g_pyramid(config, gan, gan.graph.xa, prefix="g_ab_")
-        gan.graph.xba = create_g_pyramid(config, gan, gan.graph.xb, prefix="g_ba_")
+        gan.graph.xab = create_g_pyramid(config, gan, gan.graph.xa, id=1, prefix="g_")
+        gan.graph.xba = create_g_pyramid(config, gan, gan.graph.xb, id=0, prefix="g_", reuse=True)
 
-        gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_ba_", reuse=True)
-        gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_ab_", reuse=True)
+        if 'separate_g' in config:
+            gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_a")
+            gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_b")
+        else:
+            gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, id=0, prefix="g_", reuse=True)
+            gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded, id=1, prefix="g_", reuse=True)
 
-        gan.graph.gab = create_g_pyramid(config, gan, gan.graph.ga, prefix="g_ab_", reuse=True)
-        gan.graph.gba = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_ba_", reuse=True)
+        gan.graph.gab = create_g_pyramid(config, gan, gan.graph.ga, prefix="g_", id=1, reuse=True)
+        gan.graph.gba = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_", id=0, reuse=True)
 
-        gan.graph.gabba = create_g_pyramid(config, gan, gan.graph.gab, prefix="g_ba_", reuse=True)
-        gan.graph.gbaab = create_g_pyramid(config, gan, gan.graph.gba, prefix="g_ab_", reuse=True)
+        gan.graph.gabba = create_g_pyramid(config, gan, gan.graph.gab, prefix="g_", id=0, reuse=True)
+        gan.graph.gbaab = create_g_pyramid(config, gan, gan.graph.gba, prefix="g_", id=1, reuse=True)
 
-        gan.graph.xbaab = create_g_pyramid(config, gan, gan.graph.xba, prefix="g_ab_", reuse=True)
-        gan.graph.xabba = create_g_pyramid(config, gan, gan.graph.xab, prefix="g_ba_", reuse=True)
+        gan.graph.xbaab = create_g_pyramid(config, gan, gan.graph.xba, prefix="g_", id=1, reuse=True)
+        gan.graph.xabba = create_g_pyramid(config, gan, gan.graph.xab, prefix="g_", id=0, reuse=True)
     else:
         gan.graph.xab = create_g(config, gan, gan.graph.xa, prefix="g_ab_", reuse=True)[0]
         gan.graph.xba = create_g(config, gan, gan.graph.xb, prefix="g_ba_", reuse=True)[0]
@@ -84,16 +88,21 @@ def recode(config, gan, z, prefix="g_"):
         net = linear(z, int(z.get_shape()[1]), scope=prefix+"lin_pro_z", gain=config.orthogonal_initializer_gain)
         net = config.final_activation(net)
         return net
-def create_g_pyramid_from_z(config, gan, z, prefix="g_", reuse=False):
+def create_g_pyramid_from_z(config, gan, z, prefix="g_", id=0, reuse=False):
     with tf.variable_scope("autoencoder", reuse=reuse):
         gconfig = gan.config.generator_autoencode
         generator = hc.Config(hc.lookup_functions(gconfig))
+        bs = int(z.get_shape()[0])
+        const = tf.constant(id, shape=[bs], dtype=gan.config.dtype)
+        const = tf.tile(const, [bs])
+        const = tf.reshape(const, [bs, -1])
+        z = tf.concat([z, const], 1)
         rx = generator.create(generator, gan, z, prefix=prefix)[-1]
     
     return rx
 
 
-def create_g_pyramid(config, gan, x, prefix="g_", reuse=False):
+def create_g_pyramid(config, gan, x, prefix="g_", id=0, reuse=False):
     with tf.variable_scope("autoencoder", reuse=reuse):
         dconfig = gan.config.discriminators[0]
         dconfig = hc.Config(hc.lookup_functions(dconfig))
@@ -106,7 +115,7 @@ def create_g_pyramid(config, gan, x, prefix="g_", reuse=False):
         netx  = tf.slice(net, [0,0], [s[0]//2,-1])
         #netg  = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
-    return create_g_pyramid_from_z(config, gan, netx, prefix, reuse)
+    return create_g_pyramid_from_z(config, gan, netx, prefix, id, reuse)
 
 def create_g(config, gan, net, prefix="g_", reuse=False):
     with tf.variable_scope("autoencoder", reuse=reuse):

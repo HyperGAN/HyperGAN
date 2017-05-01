@@ -70,11 +70,17 @@ def config(
     selector.set('batch_norm_epsilon', batch_norm_epsilon)
     return selector.random_config()
 
-def autoencode(gan, config, x, rx, prefix, reuse=False):
+def autoencode(gan, config, x, rx, prefix, id=0, reuse=False):
     gconfig = gan.config.generator_autoencode
     if('align_regularizer' in config):
         gconfig['layer_regularizer'] = config['layer_regularizer']
     generator = hc.Config(hc.lookup_functions(gconfig))
+    
+    s = [int(q) for q in x.get_shape()]
+    info_shape = [s[0],s[1],s[2],1]
+    info = tf.ones(shape=info_shape)*id
+    x = tf.concat([x,info],axis=3)
+    rx = tf.concat([rx,info],axis=3)
 
     with tf.variable_scope(prefix+"autoencode", reuse=reuse):
         net = hypergan.discriminators.pyramid_discriminator.discriminator(gan, config, x, rx, [], [], prefix)
@@ -93,16 +99,15 @@ def autoencode(gan, config, x, rx, prefix, reuse=False):
 
 def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
 
-    autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix+"a")
-    autoencode(gan, config, gan.graph.xb, gan.graph.gb, prefix=prefix+"b")
+    autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix)
 
-    rxa, rga = autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix+"a", reuse=True)
-    rxb, rgb = autoencode(gan, config, gan.graph.xb, gan.graph.gb, prefix=prefix+"b", reuse=True)
-    rxabba, rgabba = autoencode(gan, config, gan.graph.xabba, gan.graph.gabba, prefix=prefix+"a", reuse=True)
-    rxbaab, rgbaab = autoencode(gan, config, gan.graph.xbaab, gan.graph.gbaab, prefix=prefix+"b", reuse=True)
+    rxa, rga = autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix, id=0, reuse=True)
+    rxb, rgb = autoencode(gan, config, gan.graph.xb, gan.graph.gb, prefix=prefix, id=1, reuse=True)
+    rxabba, rgabba = autoencode(gan, config, gan.graph.xabba, gan.graph.gabba, id=0, prefix=prefix, reuse=True)
+    rxbaab, rgbaab = autoencode(gan, config, gan.graph.xbaab, gan.graph.gbaab, id=1, prefix=prefix, reuse=True)
 
-    rxba, rgba = autoencode(gan, config, gan.graph.xba, gan.graph.gba, prefix=prefix+"a", reuse=True)
-    rxab, rgab = autoencode(gan, config, gan.graph.xab, gan.graph.gab, prefix=prefix+"b", reuse=True)
+    rxba, rgba = autoencode(gan, config, gan.graph.xba, gan.graph.gba, id=0, prefix=prefix, reuse=True)
+    rxab, rgab = autoencode(gan, config, gan.graph.xab, gan.graph.gab, id=1, prefix=prefix, reuse=True)
 
     errorg = []
     errorx = []
@@ -159,6 +164,20 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
             config.distance(rxb, rxbaab),
             config.distance(rga, rgabba),
             config.distance(rgb, rgbaab),
+        ]
+
+    if 'include_cross_distance2' in config:
+        errorx += [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb)
+            ]
+        errorg += [
+            config.distance(gan.graph.xa, rxabba),
+            config.distance(gan.graph.xb, rxbaab),
+            config.distance(gan.graph.ga, rgabba),
+            config.distance(gan.graph.gb, rgbaab),
         ]
     errorx = tf.concat(errorx, axis=1)
     errorg = tf.concat(errorg, axis=1)

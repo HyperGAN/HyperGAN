@@ -79,6 +79,9 @@ def autoencode(gan, config, x, rx, prefix, id=0, reuse=False):
     s = [int(q) for q in x.get_shape()]
     info_shape = [s[0],s[1],s[2],1]
     info = tf.ones(shape=info_shape)*id
+    #const = tf.one_hot([id], 2)
+    #const = tf.reshape(const,[1, 1, 1, 2])
+    #const = tf.tile(const, info_shape)
     x = tf.concat([x,info],axis=3)
     rx = tf.concat([rx,info],axis=3)
 
@@ -103,11 +106,15 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
 
     rxa, rga = autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix, id=0, reuse=True)
     rxb, rgb = autoencode(gan, config, gan.graph.xb, gan.graph.gb, prefix=prefix, id=1, reuse=True)
-    rxabba, rgabba = autoencode(gan, config, gan.graph.xabba, gan.graph.gabba, id=0, prefix=prefix, reuse=True)
-    rxbaab, rgbaab = autoencode(gan, config, gan.graph.xbaab, gan.graph.gbaab, id=1, prefix=prefix, reuse=True)
+    _, rgabba = autoencode(gan, config, gan.graph.xa, gan.graph.gabba, id=0, prefix=prefix, reuse=True)
+    _, rgbaab = autoencode(gan, config, gan.graph.xb, gan.graph.gbaab, id=1, prefix=prefix, reuse=True)
+    _, rxabba = autoencode(gan, config, gan.graph.xa, gan.graph.xabba, id=0, prefix=prefix, reuse=True)
+    _, rxbaab = autoencode(gan, config, gan.graph.xb, gan.graph.xbaab, id=1, prefix=prefix, reuse=True)
 
-    rxba, rgba = autoencode(gan, config, gan.graph.xba, gan.graph.gba, id=0, prefix=prefix, reuse=True)
-    rxab, rgab = autoencode(gan, config, gan.graph.xab, gan.graph.gab, id=1, prefix=prefix, reuse=True)
+    _, rgba = autoencode(gan, config, gan.graph.xa, gan.graph.gba, id=0, prefix=prefix, reuse=True)
+    _, rgab = autoencode(gan, config, gan.graph.xb, gan.graph.gab, id=1, prefix=prefix, reuse=True)
+    _, rxab = autoencode(gan, config, gan.graph.xb, gan.graph.xab, id=1, prefix=prefix, reuse=True)
+    _, rxba = autoencode(gan, config, gan.graph.xa, gan.graph.xba, id=0, prefix=prefix, reuse=True)
 
     errorg = []
     errorx = []
@@ -116,7 +123,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
     if('include_gs' in config):
         errorx += [
             config.distance(gan.graph.xa, rxa),
-            config.distance(gan.graph.xb, rxb)
+            config.distance(gan.graph.xb, rxb),
         ]
         errorg += [
             config.distance(gan.graph.ga, rga),
@@ -128,7 +135,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
             config.distance(gan.graph.xa, rxa),
             config.distance(gan.graph.xb, rxb),
             config.distance(gan.graph.xa, rxa),
-            config.distance(gan.graph.xb, rxb)
+            config.distance(gan.graph.xb, rxb),
             ]
         errorg += [
             config.distance(gan.graph.xba, rxba),
@@ -179,6 +186,136 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
             config.distance(gan.graph.ga, rgabba),
             config.distance(gan.graph.gb, rgbaab),
         ]
+    if 'include_base_distance' in config:
+        errorx += [
+            l1_distance(gan.graph.xa, rxabba),
+            l1_distance(gan.graph.xb, rxbaab),
+            ]
+        errorg += [
+            l1_distance(gan.graph.ga, rgabba),
+            l1_distance(gan.graph.gb, rgbaab),
+        ]
+    if 'include_l2base_distance' in config:
+        errorx += [
+            l2_distance(gan.graph.xa, gan.graph.xabba),
+            l2_distance(gan.graph.xb, gan.graph.xbaab),
+            l2_distance(rxa, rxabba),
+            l2_distance(rxb, rxbaab),
+            ]
+        errorg += [
+            l2_distance(gan.graph.ga, gan.graph.gabba),
+            l2_distance(gan.graph.gb, gan.graph.gbaab),
+            l2_distance(rga, rgabba),
+            l2_distance(rgb, rgbaab),
+        ]
+
+    if 'include_xabasg' in config:
+        errorx = [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+                ]
+        errorg = [
+            config.distance(gan.graph.xba, rxba),
+            config.distance(gan.graph.xab, rxab),
+            config.distance(gan.graph.xabba, rxabba),
+            config.distance(gan.graph.xbaab, rxbaab),
+            config.distance(gan.graph.xabba, rxabba),
+            config.distance(gan.graph.xbaab, rxbaab),
+            config.distance(gan.graph.xa, rxabba),
+            config.distance(gan.graph.xb, rxbaab),
+                ]
+    if 'include_gxabasg' in config:
+        errorx = [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+                ]
+        errorg = [
+            config.distance(gan.graph.xba, rxba),
+            config.distance(gan.graph.xab, rxab),
+            config.distance(gan.graph.xabba, rxabba),
+            config.distance(gan.graph.xbaab, rxbaab),
+            config.distance(gan.graph.ga, rga),
+            config.distance(gan.graph.gb, rgb),
+            config.distance(gan.graph.gba, rgba),
+            config.distance(gan.graph.gab, rgab),
+            config.distance(gan.graph.gabba, rgabba),
+            config.distance(gan.graph.gbaab, rgbaab),
+            config.distance(gan.graph.ga, rgabba),
+            config.distance(gan.graph.gb, rgbaab),
+            config.distance(gan.graph.xa, rxabba),
+            config.distance(gan.graph.xb, rxbaab),
+                ]
+
+    if 'include_gxabasg2' in config:
+        errorx = [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+                ]
+        errorg = [
+            config.distance(gan.graph.xabba, rxabba),
+            config.distance(gan.graph.xbaab, rxbaab),
+            config.distance(gan.graph.gabba, rgabba),
+            config.distance(gan.graph.gbaab, rgbaab),
+            config.distance(gan.graph.ga, rgabba),
+            config.distance(gan.graph.gb, rgbaab),
+            config.distance(gan.graph.xa, rxabba),
+            config.distance(gan.graph.xb, rxbaab),
+                ]
+    if 'include_sparse' in config:
+        errorx = [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+                ]
+        errorg = [
+            config.distance(gan.graph.ga, rgabba),
+            config.distance(gan.graph.gb, rgbaab),
+            config.distance(gan.graph.xa, rxabba),
+            config.distance(gan.graph.xb, rxbaab),
+                ]
+
+
+    if('include_crisscross' in config):
+        errorx = [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxabba),
+            config.distance(gan.graph.xb, rxbaab),
+        ]
+        errorg = [
+            config.distance(gan.graph.xabba, rxabba),
+            config.distance(gan.graph.xbaab, rxbaab),
+            config.distance(gan.graph.xabba, rxa),
+            config.distance(gan.graph.xbaab, rxb),
+        ]
+ 
+    print("ERROR G", errorg)
+
     errorx = tf.concat(errorx, axis=1)
     errorg = tf.concat(errorg, axis=1)
     error = tf.concat([errorx, errorg], axis=0)

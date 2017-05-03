@@ -51,6 +51,9 @@ def loss(gan, x, reuse=True):
             print('net is', net)
             return tf.reduce_mean(net, axis=1)
 
+def dist(x1, x2):
+    bs = int(x1.get_shape()[0])
+    return tf.reshape(tf.square(x1 - x2), [bs, -1])
 
 # boundary equilibrium gan
 def began(gan, config, d_real, d_fake, prefix=''):
@@ -96,11 +99,17 @@ def began(gan, config, d_real, d_fake, prefix=''):
     d_loss = tf.reduce_mean(d_loss)
     g_loss = tf.reduce_mean(g_loss)
 
-    ##dist = tf.square(gan.graph.gb - gan.graph.gbaab)
-    ##dist = tf.reshape(dist, [int(dist.get_shape()[0]), -1])
-    ##dist = tf.reduce_mean(dist)
 
-    #lam = 0.01
+    if 'include_distance' in config:
+        reconstruction = tf.add_n([
+            dist(gan.graph.ga, gan.graph.gabba),
+            dist(gan.graph.gb, gan.graph.gbaab),
+            dist(gan.graph.xa, gan.graph.xabba),
+            dist(gan.graph.xb, gan.graph.xbaab)
+            ])
+        g_loss += tf.reduce_mean(reconstruction)
+        print("- - - -- - Reconstruction loss added.")
+
     #if 'dist' in config:
       #d_loss += lam*dist
       #g_loss += lam*dist

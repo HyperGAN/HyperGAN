@@ -13,7 +13,7 @@ def sample_tensor(sess,generator, feed_dict, sample_file):
         tf.set_random_seed(1)
         sample = sess.run(generator, feed_dict=feed_dict)
         #plot(self.config, sample, sample_file)
-        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
+        stacks = [np.hstack(sample[x*5:x*5+5]) for x in range(1)]
         plot(config, np.vstack(stacks), sample_file)
 
 

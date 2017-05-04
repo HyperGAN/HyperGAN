@@ -102,8 +102,6 @@ def began(gan, config, d_real, d_fake, prefix=''):
 
     if 'include_distance' in config:
         reconstruction = tf.add_n([
-            dist(gan.graph.ga, gan.graph.gabba),
-            dist(gan.graph.gb, gan.graph.gbaab),
             dist(gan.graph.xa, gan.graph.xabba),
             dist(gan.graph.xb, gan.graph.xbaab)
             ])

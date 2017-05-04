@@ -313,8 +313,60 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
             config.distance(gan.graph.xabba, rxa),
             config.distance(gan.graph.xbaab, rxb),
         ]
- 
+    if('include_crisscrossg' in config):
+        errorx = [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            config.distance(gan.graph.xa, rxabba),
+            config.distance(gan.graph.xb, rxbaab),
+            config.distance(gan.graph.ga, rga),
+            config.distance(gan.graph.gb, rgb),
+            config.distance(gan.graph.ga, rgabba),
+            config.distance(gan.graph.gb, rgbaab),
+        ]
+        errorg = [
+            config.distance(gan.graph.xabba, rxabba),
+            config.distance(gan.graph.xbaab, rxbaab),
+            config.distance(gan.graph.xabba, rxa),
+            config.distance(gan.graph.xbaab, rxb),
+            config.distance(gan.graph.gabba, rgabba),
+            config.distance(gan.graph.gbaab, rgbaab),
+            config.distance(gan.graph.gabba, rga),
+            config.distance(gan.graph.gbaab, rgb),
+        ]
     print("ERROR G", errorg)
+
+    if 'include_reconstruction_ae' in config:
+        errorx = [
+            config.distance(rxa, rxabba),
+            config.distance(rxb, rxbaab),
+        ]
+        errorg = [
+            config.distance(rga, rgabba),
+            config.distance(rgb, rgbaab),
+        ]
+
+    if 'include_xabba' in config:
+        errorx = [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+        ]
+        errorg = [
+            config.distance(gan.graph.xa, gan.graph.xabba),
+            config.distance(gan.graph.xb, gan.graph.xbaab),
+        ]
+
+
+    if 'include_rxabba' in config:
+        errorx = [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+        ]
+        errorg = [
+            config.distance(gan.graph.xa, rxabba),
+            config.distance(gan.graph.xb, rxbaab),
+        ]
+
 
     errorx = tf.concat(errorx, axis=1)
     errorg = tf.concat(errorg, axis=1)

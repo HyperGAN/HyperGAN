@@ -91,7 +91,9 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
 
     xg = None
+
     for i in range(depth):
+      filters = int(net.get_shape()[3])
       #TODO better name for `batch_norm`?
       if i != 0:
           if batch_norm is not None:
@@ -120,7 +122,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             net = tf.concat(axis=3, values=[net, xg])
     
       if config.foundation == 'additive':
-          depth = int(int(net.get_shape()[3])+depth_increase)
+          depth = int(filters+depth_increase)
       else:
           depth = int(int(net.get_shape()[3])*depth_increase)
 

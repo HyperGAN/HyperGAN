@@ -76,6 +76,34 @@ def create(config, gan, net, prefix="g_"):
         gan.graph.xbaab = create_g_pyramid(config, gan, gan.graph.xba, prefix="g_", id=1, reuse=True)
         gan.graph.xabba = create_g_pyramid(config, gan, gan.graph.xab, prefix="g_", id=0, reuse=True)
 
+    elif 'shared-pyramid2' in config:
+        z_encoded = gan.graph.z_encoded
+        z_encoded2 = gan.graph.z_encoded
+        if 'unique_z' in config:
+            z_encoded2 = gan.graph.z_encoded2
+
+        gan.graph.xab = create_g_pyramid_2(config, gan, gan.graph.xa, id=1, prefix="g_")
+        gan.graph.xba = create_g_pyramid_2(config, gan, gan.graph.x, id=0, prefix="g_", reuse=True)
+
+        if 'separate_g' in config:
+            gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_a")
+            gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded2, prefix="g_b")
+        else:
+            #gan.graph.gb = create_g_pyramid(config, gan, tf.zeros_like(gan.graph.xa), z=z_encoded, id=1, prefix="g_", reuse=True)
+            #gan.graph.ga = create_g_pyramid(config, gan, tf.zeros_like(gan.graph.xb), z=z_encoded2, id=0, prefix="g_", reuse=True)
+            gan.graph.ga = create_g_pyramid_from_z_2(config, gan, z_encoded, id=0, prefix="g_", reuse=True)
+            gan.graph.gb = create_g_pyramid_from_z_2(config, gan, z_encoded2, id=1, prefix="g_", reuse=True)
+
+        gan.graph.gab = create_g_pyramid_2(config, gan, gan.graph.ga,prefix="g_", id=1, reuse=True)
+        gan.graph.gba = create_g_pyramid_2(config, gan, gan.graph.gb, prefix="g_", id=0, reuse=True)
+
+        gan.graph.gabba = create_g_pyramid_2(config, gan, gan.graph.gab, prefix="g_", id=0, reuse=True)
+        gan.graph.gbaab = create_g_pyramid_2(config, gan, gan.graph.gba, prefix="g_", id=1, reuse=True)
+
+        gan.graph.xbaab = create_g_pyramid_2(config, gan, gan.graph.xba, prefix="g_", id=1, reuse=True)
+        gan.graph.xabba = create_g_pyramid_2(config, gan, gan.graph.xab, prefix="g_", id=0, reuse=True)
+
+
     elif('pyramid' in config):
 
         z_encoded = gan.graph.z_encoded
@@ -240,3 +268,46 @@ def minmaxzero(net):
     net = tf.minimum(net, 1)
     net = tf.maximum(net, 0)
     return net
+
+
+
+def create_g_pyramid_from_z_2(config, gan, z, prefix="g_", id=0, reuse=False):
+    with tf.variable_scope("autoencoder", reuse=reuse):
+        gconfig = gan.config.generator_autoencode
+        generator = hc.Config(hc.lookup_functions(gconfig))
+        bs = int(z.get_shape()[0])
+        if id == 0:
+            const = tf.one_hot([0], int(gan.graph.y.get_shape()))
+            const = tf.reshape(const,[1, -1])
+            const = tf.tile(const, [bs, 1])
+        else:
+            const = gan.graph.y
+        z = tf.concat([z, const], 1)
+        print("z is ", z)
+        rx = generator.create(generator, gan, z, prefix=prefix)[-1]
+    
+    return rx
+
+
+def create_g_pyramid_2(config, gan, x, z=None, prefix="g_", id=0, reuse=False):
+    with tf.variable_scope("autoencoder", reuse=reuse):
+        dconfig = gan.config.discriminators[0]
+        dconfig = hc.Config(hc.lookup_functions(dconfig))
+
+        if('align_regularizer' in dconfig):
+            dconfig['layer_regularizer'] = config['layer_regularizer']
+        g = x
+        net = hypergan.discriminators.pyramid_discriminator.discriminator(gan, dconfig, x, g, [x], [g], prefix)
+        print("NET is ", net)
+        s = [int(x) for x in net.get_shape()]
+        netx  = tf.slice(net, [0,0], [s[0]//2,-1])
+
+        print("NETX is ", netx, z)
+        if z is not None:
+            netx = tf.concat([netx, z], axis=1)
+
+        print("NETX is ", netx)
+
+    return create_g_pyramid_from_z_2(config, gan, netx, prefix, id, reuse)
+
+

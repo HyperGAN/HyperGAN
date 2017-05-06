@@ -116,6 +116,24 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
     _, rxab = autoencode(gan, config, gan.graph.xb, gan.graph.xab, id=1, prefix=prefix, reuse=True)
     _, rxba = autoencode(gan, config, gan.graph.xa, gan.graph.xba, id=0, prefix=prefix, reuse=True)
 
+    gan.graph.rxa = rxa
+    gan.graph.rxb = rxb
+
+    gan.graph.rga = rga
+    gan.graph.rgb = rgb
+
+    gan.graph.rxab = rxab
+    gan.graph.rxba = rxba
+
+    gan.graph.rgab = rxab
+    gan.graph.rgba = rxba
+
+    gan.graph.rxabba = rxabba
+    gan.graph.rxbaab = rxbaab
+
+    gan.graph.rgabba = rgabba
+    gan.graph.rgbaab = rgbaab
+
     errorg = []
     errorx = []
 
@@ -143,6 +161,17 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
             config.distance(gan.graph.gab, rgab),
             config.distance(gan.graph.gba, rgba),
         ]
+
+    if 'include_xba' in config:
+        errorx += [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+            ]
+        errorg += [
+            config.distance(gan.graph.xba, rxba),
+            config.distance(gan.graph.xab, rxab),
+        ]
+
 
 
     if 'include_gaab' in config:

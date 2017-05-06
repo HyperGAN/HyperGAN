@@ -100,6 +100,21 @@ def began(gan, config, d_real, d_fake, prefix=''):
     g_loss = tf.reduce_mean(g_loss)
 
 
+    if 'include_recdistance' in config:
+        reconstruction = tf.add_n([
+            dist(gan.graph.rxa, gan.graph.rxabba),
+            dist(gan.graph.rxb, gan.graph.rxbaab)
+            ])
+        g_loss += tf.reduce_mean(reconstruction)
+
+    if 'include_recdistance2' in config:
+        reconstruction = tf.add_n([
+            dist(gan.graph.xa, gan.graph.rxabba),
+            dist(gan.graph.xb, gan.graph.rxbaab)
+            ])
+        g_loss += tf.reduce_mean(reconstruction)
+
+
     if 'include_distance' in config:
         reconstruction = tf.add_n([
             dist(gan.graph.xa, gan.graph.xabba),

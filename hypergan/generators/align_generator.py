@@ -276,13 +276,13 @@ def create_g_pyramid_from_z_2(config, gan, z, prefix="g_", id=0, reuse=False):
         gconfig = gan.config.generator_autoencode
         generator = hc.Config(hc.lookup_functions(gconfig))
         bs = int(z.get_shape()[0])
-        if id == 0:
-            const = tf.one_hot([0], int(gan.graph.y.get_shape()))
-            const = tf.reshape(const,[1, -1])
-            const = tf.tile(const, [bs, 1])
+        const = tf.one_hot([0], int(gan.graph.y.get_shape()[-1]))
+        const = tf.reshape(const,[1, -1])
+        first_softmax = tf.tile(const, [bs, 1])
+        if id == 1:
+            z = tf.concat([z, gan.graph.y, first_softmax], 1)
         else:
-            const = gan.graph.y
-        z = tf.concat([z, const], 1)
+            z = tf.concat([z, first_softmax, gan.graph.y], 1)
         print("z is ", z)
         rx = generator.create(generator, gan, z, prefix=prefix)[-1]
     

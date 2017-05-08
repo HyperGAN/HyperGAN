@@ -32,7 +32,7 @@ def sample(gan, sample_file):
     z_t = gan.graph.z[0] # TODO support multiple z
     x_t = gan.graph.xa
     xb_t = gan.graph.xb
-    gb_t = gan.graph.gb
+    gb_t = gan.graph.gab
 
     if x is None:
         x = gan.sess.run(x_t)
@@ -73,7 +73,7 @@ def sample(gan, sample_file):
     samples.append({'image':autoencoded_g_file, 'label':'xabba'})
     samples.append({'image':autoencoded_hx_file, 'label':'xbaab'})
     sample_tensor(sess,gan.graph.ga, feed_dict, ga_file)
-    sample_tensor(sess,gan.graph.gb, feed_dict, gb_file)
+    sample_tensor(sess,gan.graph.gab, feed_dict, gb_file)
     samples.append({'image':ga_file, 'label':'ga'})
     samples.append({'image':gb_file, 'label':'gb'})
     #samples.append({'image':autoencoded_gb_file, 'label':'rxa'})

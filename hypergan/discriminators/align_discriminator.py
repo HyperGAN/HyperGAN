@@ -101,7 +101,6 @@ def autoencode(gan, config, x, rx, prefix, id=0, reuse=False):
 
 
 def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
-
     autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix)
 
     rxa, rga = autoencode(gan, config, gan.graph.xa, gan.graph.ga, prefix=prefix, id=0, reuse=True)
@@ -137,6 +136,21 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
     errorg = []
     errorx = []
 
+    if('include_ae' in config):
+        errorx += [
+            config.distance(gan.graph.xa, gan.graph.xabba),
+            config.distance(gan.graph.ga, gan.graph.gabba),
+            config.distance(gan.graph.xb, gan.graph.xbaab),
+            config.distance(gan.graph.gb, gan.graph.gbaab),
+        ]
+        errorg += [
+            config.distance(gan.graph.xa, gan.graph.xabba),
+            config.distance(gan.graph.ga, gan.graph.gabba),
+            config.distance(gan.graph.xb, gan.graph.xbaab),
+            config.distance(gan.graph.gb, gan.graph.gbaab),
+        ]
+
+
 
     if('include_gs' in config):
         errorx += [
@@ -146,6 +160,24 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
         errorg += [
             config.distance(gan.graph.ga, rga),
             config.distance(gan.graph.gb, rgb),
+        ]
+
+    if('include_ga' in config):
+        errorx += [
+            config.distance(gan.graph.xa, rxa),
+        ]
+        errorg += [
+            config.distance(gan.graph.ga, rga),
+        ]
+
+    if('include_encoded' in config):
+        errorx += [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+        ]
+        errorg += [
+            config.distance(gan.graph.xa, rxabba),
+            config.distance(gan.graph.xb, rxbaab),
         ]
 
     if 'include_gba' in config:
@@ -385,8 +417,19 @@ def discriminator(gan, config, x, g, xs, gs, prefix="d_"):
             config.distance(gan.graph.xb, gan.graph.xbaab),
         ]
 
-
     if 'include_rxabba' in config:
+        errorx = [
+            config.distance(gan.graph.xa, rxa),
+            config.distance(gan.graph.xb, rxb),
+        ]
+        errorg = [
+            config.distance(rxa, rxabba),
+            config.distance(rxb, rxbaab),
+        ]
+
+
+
+    if 'include_rxabba2' in config:
         errorx = [
             config.distance(gan.graph.xa, rxa),
             config.distance(gan.graph.xb, rxb),

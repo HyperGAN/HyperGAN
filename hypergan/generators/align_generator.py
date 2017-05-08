@@ -39,51 +39,20 @@ def config(
 
 
 def create(config, gan, net, prefix="g_"):
-    # 1 create xab(xa), xba(xb) v
-    # 2 add xa, xb to g : remove z, encode(x) as z v
-    # 3 add distance(xba(xab(xa)), xa)
-    # 4 add distance(xab(xba(xb)), xb)
-    # 4 add distance(xab(xa), xb)
-    # 5 add distance(xba(xb), xa))
+    gan.graph.x = gan.graph.xb
 
     z_encoded = gan.graph.z_encoded
 
     # TODO Chain together gab(gba) as gabba
     if 'shared-pyramid' in config:
-        z_encoded = gan.graph.z_encoded
-        z_encoded2 = gan.graph.z_encoded
-        if 'unique_z' in config:
-            z_encoded2 = gan.graph.z_encoded2
 
-        gan.graph.xab = create_g_pyramid(config, gan, gan.graph.xa, id=1, prefix="g_")
-        gan.graph.xba = create_g_pyramid(config, gan, gan.graph.xb, id=0, prefix="g_", reuse=True)
-
-        if 'separate_g' in config:
-            gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_a")
-            gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded2, prefix="g_b")
-        else:
-            #gan.graph.gb = create_g_pyramid(config, gan, tf.zeros_like(gan.graph.xa), z=z_encoded, id=1, prefix="g_", reuse=True)
-            #gan.graph.ga = create_g_pyramid(config, gan, tf.zeros_like(gan.graph.xb), z=z_encoded2, id=0, prefix="g_", reuse=True)
-            gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, id=0, prefix="g_", reuse=True)
-            gan.graph.gb = create_g_pyramid_from_z(config, gan, z_encoded2, id=1, prefix="g_", reuse=True)
-
-        gan.graph.gab = create_g_pyramid(config, gan, gan.graph.ga,prefix="g_", id=1, reuse=True)
-        gan.graph.gba = create_g_pyramid(config, gan, gan.graph.gb, prefix="g_", id=0, reuse=True)
-
-        gan.graph.gabba = create_g_pyramid(config, gan, gan.graph.gab, prefix="g_", id=0, reuse=True)
-        gan.graph.gbaab = create_g_pyramid(config, gan, gan.graph.gba, prefix="g_", id=1, reuse=True)
-
-        gan.graph.xbaab = create_g_pyramid(config, gan, gan.graph.xba, prefix="g_", id=1, reuse=True)
-        gan.graph.xabba = create_g_pyramid(config, gan, gan.graph.xab, prefix="g_", id=0, reuse=True)
-
-    elif 'shared-pyramid2' in config:
         z_encoded = gan.graph.z_encoded
         z_encoded2 = gan.graph.z_encoded
         if 'unique_z' in config:
             z_encoded2 = gan.graph.z_encoded2
 
         gan.graph.xab = create_g_pyramid_2(config, gan, gan.graph.xa, id=1, prefix="g_")
-        gan.graph.xba = create_g_pyramid_2(config, gan, gan.graph.x, id=0, prefix="g_", reuse=True)
+        gan.graph.xba = create_g_pyramid_2(config, gan, gan.graph.xb, id=0, prefix="g_", reuse=True)
 
         if 'separate_g' in config:
             gan.graph.ga = create_g_pyramid_from_z(config, gan, z_encoded, prefix="g_a")
@@ -280,9 +249,9 @@ def create_g_pyramid_from_z_2(config, gan, z, prefix="g_", id=0, reuse=False):
         const = tf.reshape(const,[1, -1])
         first_softmax = tf.tile(const, [bs, 1])
         if id == 1:
-            z = tf.concat([z, gan.graph.y, first_softmax], 1)
+            z = tf.concat([z, gan.graph.y], 1)
         else:
-            z = tf.concat([z, first_softmax, gan.graph.y], 1)
+            z = tf.concat([z, first_softmax], 1)
         print("z is ", z)
         rx = generator.create(generator, gan, z, prefix=prefix)[-1]
     

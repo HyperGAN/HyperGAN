@@ -65,7 +65,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     depth = config['layers']
     batch_norm = config['layer_regularizer']
     strided = config.strided
-
     # TODO: cross-d feature
     if(config['resize']):
         # shave off layers >= resize 

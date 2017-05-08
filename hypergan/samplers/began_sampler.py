@@ -49,8 +49,8 @@ def sample(gan, sample_file):
     autoencoded_g_file = sample_file+'autog.png'
     autoencoded_hx_file = sample_file+'autohx.png'
     autoencoded_hg_file = sample_file+'autohg.png'
-    autoencoded_gb_file = sample_file+'autogg.png'
-    autoencoded_xb_file = sample_file+'autoxb.png'
+    autoencoded_rxabba_file = sample_file+'autorxabba.png'
+    autoencoded_rxbaab_file = sample_file+'autorxbaab.png'
     ga_file = sample_file+'ga.png'
     gb_file = sample_file+'gb.png'
     feed_dict = {z_t: z, y_t: y, x_t: x, xb_t: xb}
@@ -63,7 +63,8 @@ def sample(gan, sample_file):
     sample_tensor(sess,gan.graph.xab, feed_dict, autoencoded_hg_file)
     sample_tensor(sess,gan.graph.xabba, feed_dict, autoencoded_g_file)
     sample_tensor(sess,gan.graph.xbaab, feed_dict, autoencoded_hx_file)
-    sample_tensor(sess,gan.graph.hx, feed_dict, autoencoded_gb_file)
+    sample_tensor(sess,gan.graph.rxabba, feed_dict, autoencoded_rxabba_file)
+    sample_tensor(sess,gan.graph.rxbaab, feed_dict, autoencoded_rxbaab_file)
     samples = []
     samples.append({'image':x_file, 'label':'xa'})
     samples.append({'image':xb_file, 'label':'xb'})
@@ -72,6 +73,8 @@ def sample(gan, sample_file):
     samples.append({'image':autoencoded_x_file, 'label':'xba'})
     samples.append({'image':autoencoded_g_file, 'label':'xabba'})
     samples.append({'image':autoencoded_hx_file, 'label':'xbaab'})
+    samples.append({'image':autoencoded_rxabba_file, 'label':'rxabba'})
+    samples.append({'image':autoencoded_rxbaab_file, 'label':'rxbaab'})
     sample_tensor(sess,gan.graph.ga, feed_dict, ga_file)
     sample_tensor(sess,gan.graph.gab, feed_dict, gb_file)
     samples.append({'image':ga_file, 'label':'ga'})

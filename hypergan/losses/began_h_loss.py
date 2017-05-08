@@ -93,7 +93,7 @@ def began(gan, config, d_real, d_fake, prefix=''):
     else:
         gamma_d_real = d_real
     k_loss = tf.reduce_mean(gamma_d_real - d_fake, axis=0)
-    update_k = tf.assign(k, k + config.k_lambda * k_loss)
+    update_k = tf.assign(k, k + minmaxzero(config.k_lambda * k_loss))
     measure = tf.reduce_mean(l_x) + tf.abs(k_loss)
 
     d_loss = tf.reduce_mean(d_loss)

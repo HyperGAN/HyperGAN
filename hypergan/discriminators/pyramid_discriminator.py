@@ -123,7 +123,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       if config.foundation == 'additive':
           depth = int(filters+depth_increase)
       else:
-          depth = int(int(net.get_shape()[3])*depth_increase)
+          depth = int(filters*depth_increase)
 
       if i ==0:
           depth = config.first_conv_size

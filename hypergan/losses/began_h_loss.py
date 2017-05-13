@@ -53,7 +53,7 @@ def loss(gan, x, reuse=True):
 
 def dist(x1, x2):
     bs = int(x1.get_shape()[0])
-    return tf.reshape(tf.square(x1 - x2), [bs, -1])
+    return tf.reshape(tf.abs(x1 - x2), [bs, -1])
 
 # boundary equilibrium gan
 def began(gan, config, d_real, d_fake, prefix=''):
@@ -102,24 +102,26 @@ def began(gan, config, d_real, d_fake, prefix=''):
 
     if 'include_recdistance' in config:
         reconstruction = tf.add_n([
-            dist(gan.graph.rxa, gan.graph.rxabba),
-            dist(gan.graph.rxb, gan.graph.rxbaab)
+            dist(gan.graph.rxabba, gan.graph.rxa),
+            dist(gan.graph.rxbaab, gan.graph.rxb)
             ])
+        reconstruction *= config.alignment_lambda
         g_loss += tf.reduce_mean(reconstruction)
 
     if 'include_recdistance2' in config:
         reconstruction = tf.add_n([
-            dist(gan.graph.xa, gan.graph.rxabba),
-            dist(gan.graph.xb, gan.graph.rxbaab)
+            dist(gan.graph.rxabba, gan.graph.xa),
+            dist(gan.graph.rxbaab, gan.graph.xb)
             ])
+        reconstruction *= config.alignment_lambda
         g_loss += tf.reduce_mean(reconstruction)
-
 
     if 'include_distance' in config:
         reconstruction = tf.add_n([
-            dist(gan.graph.xa, gan.graph.xabba),
-            dist(gan.graph.xb, gan.graph.xbaab)
+            dist(gan.graph.xabba, gan.graph.xa),
+            dist(gan.graph.xbaab, gan.graph.xb)
             ])
+        reconstruction *= config.alignment_lambda
         g_loss += tf.reduce_mean(reconstruction)
         print("- - - -- - Reconstruction loss added.")
 

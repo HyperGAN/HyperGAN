@@ -82,6 +82,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         if "decoder_layer_regularizer" in gconfig:
             print("overwriting layer regularizer for decoder with ", gconfig['decoder_layer_regularizer'])
             gconfig['layer_regularizer'] = gconfig['decoder_layer_regularizer']
+        gconfig['layer_filter'] = None
         generator = hc.Config(hc.lookup_functions(gconfig))
 
         s = [int(x) for x in net.get_shape()]
@@ -99,8 +100,8 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     with tf.variable_scope("autoencoder", reuse=True):
         rg = generator.create(generator, gan, netg, prefix=prefix)[-1]
 
-    gan.graph.dx = rx
-    gan.graph.dg = rg
+    gan.graph.rx = rx
+    gan.graph.rg = rg
 
     error = tf.concat([config.distance(x, rx), config.distance(g,rg)], axis=0)
     error = tf.reshape(error, [gan.config.batch_size*2, -1])

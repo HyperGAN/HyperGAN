@@ -11,10 +11,10 @@ def repeating_block(net, config, activation, batch_size,id,name, resize=None, ou
         print("[generator] repeating block ", net)
     return net
 
-def standard_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
+def standard_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
     return block_conv(net, config, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
 
-def inception_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
+def inception_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
     if output_channels == 3:
         return block_conv(net, config, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
     size = int(net.get_shape()[-1])
@@ -37,7 +37,7 @@ def inception_block(net, config, activation, batch_size,id,name, resize=None, ou
     net = tf.concat(axis=3, values=[net1, net2, net3])
     return net
 
-def dense_block(net,config,  activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
+def dense_block(net,config,  activation, batch_size,id,name, resize=None, output_channels=None, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
     if output_channels == 3:
         return block_conv(net, config, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
 

@@ -82,7 +82,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         if "decoder_layer_regularizer" in gconfig:
             print("overwriting layer regularizer for decoder with ", gconfig['decoder_layer_regularizer'])
             gconfig['layer_regularizer'] = gconfig['decoder_layer_regularizer']
-        gconfig['layer_filter'] = None
+        #gconfig['layer_filter'] = None
         generator = hc.Config(hc.lookup_functions(gconfig))
 
         s = [int(x) for x in net.get_shape()]

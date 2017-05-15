@@ -25,5 +25,5 @@ def create(config, gan):
 
     gan.graph.d_class_loss=tf.reduce_mean(d_class_loss)
 
-    return [d_class_loss, None]
+    return [tf.reduce_mean(d_class_loss), None]
 

@@ -48,7 +48,7 @@ def sampler(gan, name):
     stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4]])
     for i in range(bs//width-1):
         stacks.append([sample[i*width+width+j] for j in range(width)])
-    stacks.append([rx[1], rg[1], rg[2], rg[3], rg[4], rg[5], rg[6], rg[7]])
+    stacks.append([rx[1], rg[1], rg[2], rg[3], rg[4]])
     for i in range(bs//width-1):
         stacks.append([sample[i*width+width+j] for j in range(width)])
 

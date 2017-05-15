@@ -43,12 +43,14 @@ def sampler(gan, name):
 
     sample, rx, rg = sess.run([generator, rx_t, rg_t], {x_t: x_v, z_t: z_v})
     stacks = []
-    stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4], sample[5], sample[6], sample[7]])
-    for i in range(0):
-        stacks.append([sample[i*8+8+j] for j in range(8)])
+    bs = config.batch_size
+    width = 5
+    stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4])
+    for i in range(bs/width-1):
+        stacks.append([sample[i*width+width+j] for j in range(width)])
     stacks.append([rx[1], rg[1], rg[2], rg[3], rg[4], rg[5], rg[6], rg[7]])
-    for i in range(0):
-        stacks.append([rg[i*8+8+j] for j in range(8)])
+    for i in range(bs/width-1):
+        stacks.append([sample[i*width+width+j] for j in range(width)])
 
 
     

@@ -80,18 +80,6 @@ class Graph:
         z_encoded = tf.concat(axis=1, values=encoders)
         self.gan.graph.z_encoded = z_encoded
 
-        encoders = []
-        with(tf.variable_scope("encoder2", reuse=False)):
-            for i, encoder in enumerate(self.gan.config.encoders):
-                encoder = hc.Config(hc.lookup_functions(encoder))
-                zs, z_base = encoder.create(encoder, self.gan)
-                encoders.append(zs)
-                self.gan.graph.z.append(z_base)
-
-        z_encoded = tf.concat(axis=1, values=encoders)
-        self.gan.graph.z_encoded2 = z_encoded
-
-
         return z_encoded
 
     # Used for building the tensorflow graph with only G

@@ -33,7 +33,7 @@ class ResizeConvGenerator:
 
         selector.set("z_projection_depth", z_projection_depth) # Used in the first layer - the linear projection of z
         selector.set("activation", activation); # activation function used inside the generator
-        selector.set("final_activation", final_activation); # Last layer of G.  Should match the range of your input - typically -1 to 1
+        selector.set("final_activation", final_activation) # Last layer of G.  Should match the range of your input - typically -1 to 1
         selector.set("depth_reduction", depth_reduction) # Divides our depth by this amount every time we go up in size
         selector.set('layer_filter', layer_filter) #Add information to g
         selector.set('layer_regularizer', layer_regularizer)
@@ -49,78 +49,66 @@ class ResizeConvGenerator:
         self.prefix = prefix
 
     def create(config, gan, net):
+        depth = 0
+        primes = [4, 4]
+        nets = []
         ops = gan.ops(self.prefix, *config)
-
-        z = net
-        x_dims = gan.config.x_dims
+        batch_size = gan.config.batch_size
         z_proj_dims = config.z_projection_depth
-        primes = find_smallest_prime(x_dims[0], x_dims[1])
-        # project z
-        net = ops.linear(net, z_proj_dims*primes[0]*primes[1])
-        new_shape = [gan.config.batch_size, primes[0],primes[1],z_proj_dims]
-        net = ops.reshape(net, new_shape)
-
+        new_shape = [batch_size, primes[0], primes[1], z_proj_dims]
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
 
-        depth = 0
-        w = ops.shape(net)[1]
-        target_w = int(gan.config.x_dims[0])
+        net = ops.linear(net, z_proj_dims*primes[0]*primes[1])
+        net = ops.reshape(net, new_shape)
 
-        while(w<target_w):
+        w = ops.shape(net)[1]
+        target_w = int(ops.shape(gan.graph.x)[0])
+
+        while w < target_w:
             w*=2
             depth += 1
 
-        nets=[]
-        batch_size = gan.config.batch_size
         depth_reduction = np.float32(config.depth_reduction)
 
         s = ops.shape(net)
 
-        #TODO refactor blocks
-        net = config.block(net, config, activation, batch_size, 'identity', prefix+'layers_init', output_channels=int(net.get_shape()[3]), filter=3)
-        if(config.layer_filter):
-            fltr = config.layer_filter(gan, net)
-            if(fltr is not None):
-                net = ops.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
+        net = config.block(net, config, output_channels=ops.shape(net)[3])
+        net = self.layer_filter(gan, config, net)
 
         for i in range(depth):
             s = ops.shape(net)
+            is_last_iteration = (i == depth-1)
 
-            layers = s[3]-depth_reduction
-            if(i == depth-1):
-                layers=gan.config.channels
-            resized_wh=[s[1]*2, s[2]*2]
-            if(resized_wh[0] > x_dims[0]):
-                resized_wh=x_dims
-            net = ops.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
-            if(config.layer_filter):
-                fltr = config.layer_filter(gan, net)
-                if(fltr is not None):
-                    net = ops.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
-            fltr = 3
-            if fltr > ops.shape(net)[1]:
-                fltr = ops.shape(net)[1]
-            if fltr > ops.shape(net)[2]:
-                fltr = ops.shape(net)[2]
+            reduced_layers = s[3]-depth_reduction
+            layers = gan.config.channels if is_last_iteration else reduced_layers
+            resize = [min(s[1]*2, x_dims[0]), min(s[2]*2, x_dims[1])]
 
-            if config.sigmoid_gate:
-                sigmoid_gate = z
-            else:
-                sigmoid_gate = None
+            net = ops.resize_images(net, resized_wh, config.resize_image_type)
+            net = self.layer_filter(gan, config, net)
+            net = config.block(net, config, output_channels=layers)
 
-            net = config.block(net, config, activation, batch_size, 'identity', prefix+'layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
-            if(i == depth-1):
-                first3 = net
-            else:
-                first3 = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
+            sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
+            first3 = net if is_last_iteration else sliced
 
-            if config.layer_regularizer:
-                first3 = config.layer_regularizer(gan.config.batch_size, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'bn_first3_'+str(i))(first3)
+            first3 = ops.layer_regularizer(config.layer_regularizer, config.batch_norm_momentum, config.batch_norm_epsilon, first3)
+
             first3 = final_activation(first3)
 
             nets.append(first3)
-            size = ops.shape(net)[1]*ops.shape(net)[2]*ops.shape(net)[3]
+            size = resize[1]*resize[2]*resize[3]
             print("[generator] layer", net, size)
 
         return nets
+
+    def layer_filter(gan, config, net):
+        if config.layer_filter:
+            fltr = config.layer_filter(gan, net)
+            if fltr is not None:
+                net = ops.concat(axis=3, values=[net, fltr])
+        return net
+
+    def layer_regularizer(gan, config, net):
+        if config.layer_regularizer:
+            net = config.layer_regularizer(gan.config.batch_size, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'bn_first3_'+str(i))(net)
+        return net

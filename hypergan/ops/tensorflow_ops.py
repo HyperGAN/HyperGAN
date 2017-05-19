@@ -1,4 +1,6 @@
-class TensorflowBackend:
+import tensorflow as tf
+
+class TensorflowOps:
     def __init__(self, dtype="float32", initializer='orthogonal', orthogonal_gain=1.0, random_stddev=0.02):
         self.dtype = self.parse_dtype(dtype)
         self.scope_count = 0
@@ -24,9 +26,9 @@ class TensorflowBackend:
     def parse_dtype(self, dtype):
         if dtype == 'float32':
             return tf.float32
-        elif dtype == 'float16'
+        elif dtype == 'float16':
             return tf.float16
-        else
+        else:
             raise "dtype not defined: "+name
 
     def conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim):
@@ -93,7 +95,7 @@ class TensorflowBackend:
     def shape(net):
         return [int(x) for x in net.get_shape()]
 
-    def lookup(symbol):
+    def lookup(self, symbol):
         if symbol == 'tanh':
             return tf.nn.tanh
         if symbol == 'sigmoid':

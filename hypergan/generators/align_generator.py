@@ -15,7 +15,13 @@ def config(
         block=[standard_block],
         resize_image_type=1,
         sigmoid_gate=False,
-        create_method=None
+        create_method=None,
+	block_repeat_count=[2],
+	batch_norm_momentum=[0.001],
+	batch_norm_epsilon=[0.0001],
+	orthogonal_initializer_gain=1,
+    pyramid=True,
+    shared_pyramid=False
         ):
     selector = hc.Selector()
     
@@ -29,12 +35,20 @@ def config(
     selector.set("final_activation", final_activation); # Last layer of G.  Should match the range of your input - typically -1 to 1
     selector.set("depth_reduction", depth_reduction) # Divides our depth by this amount every time we go up in size
     selector.set('layer_filter', layer_filter) #Add information to g
+    selector.set('block_repeat_count', block_repeat_count)
+    selector.set('batch_norm_momentum', batch_norm_momentum)
+    selector.set('batch_norm_epsilon', batch_norm_epsilon)
     selector.set('layer_regularizer', batch_norm_1)
     selector.set('block', block)
     selector.set('resize_image_type', resize_image_type)
     selector.set('sigmoid_gate', sigmoid_gate)
     selector.set('extra_layers', 5)
+    selector.set('orthogonal_initializer_gain', orthogonal_initializer_gain)
 
+    if(pyramid):
+        selector.set('pyramid', pyramid)
+    if(shared_pyramid):
+        selector.set('shared-pyramid', pyramid)
     return selector.random_config()
 
 

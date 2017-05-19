@@ -5,6 +5,7 @@ from hypergan.util.hc_tf import *
 import os
 import hypergan
 
+from hypergan.discriminators.common import *
 import hypergan.discriminators.minibatch_discriminator as minibatch
 
 def l2_distance(a,b):
@@ -13,9 +14,10 @@ def l2_distance(a,b):
 def l1_distance(a,b):
     return a-b
 
-
 def config(
         activation=lrelu,
+        block=standard_block,
+	block_repeat_count=[2],
         depth_increase=2,
         final_activation=None,
         first_conv_size=16,
@@ -37,10 +39,20 @@ def config(
         create=None,
         minibatch=False,
         batch_norm_momentum=[0.001],
-        batch_norm_epsilon=[0.0001]
+        batch_norm_epsilon=[0.0001],
+        include_ae=False,
+        include_gs=False,
+        include_xabba=False,
+        include_gaab=False,
+        include_ga=False,
+        include_cross_distance=False,
+        include_cross_distance2=False,
+        include_encoded=False
         ):
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
+    selector.set("block", block)#prelu("d_")])
+    selector.set('block_repeat_count', block_repeat_count)
     selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
     selector.set("final_activation", final_activation)
     selector.set("first_conv_size", first_conv_size)
@@ -68,6 +80,22 @@ def config(
 
     selector.set('batch_norm_momentum', batch_norm_momentum)
     selector.set('batch_norm_epsilon', batch_norm_epsilon)
+    if include_ae:
+        selector.set('include_ae', True)
+    if include_gs:
+        selector.set('include_gs', True)
+    if include_xabba:
+        selector.set('include_xabba', True)
+    if include_gaab:
+        selector.set('include_gaab', True)
+    if include_ga:
+        selector.set('include_ga', True)
+    if include_cross_distance:
+        selector.set('include_cross_distance', True)
+    if include_cross_distance2:
+        selector.set('include_cross_distance2', True)
+    if include_encoded:
+        selector.set('include_encoded', True)
     return selector.random_config()
 
 def autoencode(gan, config, x, rx, prefix, id=0, reuse=False):

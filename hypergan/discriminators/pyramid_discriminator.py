@@ -8,6 +8,7 @@ import os
 def config(
         activation=lrelu,
         block=standard_block,
+	block_repeat_count=[2],
         depth_increase=2,
         final_activation=None,
         first_conv_size=16,
@@ -31,6 +32,7 @@ def config(
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
     selector.set("block", block)#prelu("d_")])
+    selector.set('block_repeat_count', block_repeat_count)
     selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
     selector.set("final_activation", final_activation)
     selector.set("first_conv_size", first_conv_size)

@@ -36,14 +36,14 @@ def config(
 
     return selector.random_config()
 
-def create(config, gan, net, input=None):
+def create(config, gan, net, input=None, prefix="g_"):
     z = net
     x_dims = gan.config.x_dims
     z_proj_dims = config.z_projection_depth
     primes = [x_dims[0],x_dims[1]]
     # project z
     print("Z_PRO", z_proj_dims, primes)
-    net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj", gain=config.orthogonal_initializer_gain)
+    net = linear(net, z_proj_dims*primes[0]*primes[1], scope=prefix+"lin_proj", gain=config.orthogonal_initializer_gain)
     new_shape = [gan.config.batch_size, primes[0],primes[1],z_proj_dims]
     print("____", new_shape, net)
     net = tf.reshape(net, new_shape)
@@ -85,17 +85,17 @@ def create(config, gan, net, input=None):
         print("INPUT IS", input)
         #net = tf.concat([net,input], 3)
         #net = tf.concat([net,original_z], 3)
-        name= 'g_layers_end'
+        name= prefix+'layers_end'
         output_channels = (gan.config.channels+(i+1))
         #net = tf.reshape(net, [gan.config.batch_size, primes[0], primes[1], -1])
         if i == config.depth-1:
             output_channels = gan.config.channels
-        net = config.block(net, config, activation, batch_size, 'identity', 'g_laendyers_'+str(i), output_channels=output_channels, filter=3, sigmoid_gate=sigmoid_gate)
+        net = config.block(net, config, activation, batch_size, 'identity', prefix+'laendyers_'+str(i), output_channels=output_channels, filter=3, sigmoid_gate=sigmoid_gate)
         #net = tf.reshape(net, [gan.config.batch_size, primes[0]*4, primes[1]*4, -1])
         first3 = net
         if config.final_activation:
             if config.layer_regularizer:
-                first3 = config.layer_regularizer(gan.config.batch_size, name='g_bn_first3_'+str(i))(first3)
+                first3 = config.layer_regularizer(gan.config.batch_size, name=prefix+'bn_first3_'+str(i))(first3)
             first3 = config.final_activation(first3)
         nets.append(first3)
         size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])

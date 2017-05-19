@@ -141,7 +141,8 @@ config['discriminators']=[discriminator_config()]
 config['encoders']=[{"create": hg.encoders.match_discriminator_encoder.create}]
 
 loss_selector = hg.config.selector(loss_options)
-loss_config = selector.random_config()
+loss_config = loss_selector.random_config()
+config['losses'][0].update(loss_config)
 
 config_name="alignment-"+str(uuid.uuid4())
 config_filename = os.path.expanduser('~/.hypergan/configs/'+config_name+'.json')
@@ -225,32 +226,33 @@ for i in range(40000):
         print("OVERFLOW");
         break
 
-    if i % 100 == 0 and i != 0 and i > 200: 
+    if i % 100 == 0 and i != 0: 
         if 'k' in gan.graph:
             k = gan.sess.run([gan.graph.k], {gan.graph.xa: exa, gan.graph.z[0]: static_z})
             print("K", k, "d_loss", d_loss)
             if math.isclose(k[0], 0.0) or np.isnan(d_loss):
-                sums = [0]
+                sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                 names = ["error k or dloss"]
-                #break
+                break
+        if i > 500:
             diversities_v = gan.sess.run([v for _, v in diversities_items])
             accuracies_v = gan.sess.run([v for _, v in accuracies_items])
             print("D", diversities_v)
-            for i, v in enumerate(diversities_v):
-                sums[i] += v 
-                name = diversities_items[i][0]
+            for k, v in enumerate(diversities_v):
+                sums[k] += v 
+                name = diversities_items[k][0]
                 names.append(name)
                 if(np.abs(v) < 20000):
-                    sums = [0]
+                    sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                     names = ["error diversity "+name]
                     break
 
-            for i, v in enumerate(accuracies_v):
-                sums[i+len(diversities_items) ] += v 
-                name = accuracies_items[i][0]
+            for k, v in enumerate(accuracies_v):
+                sums[k+len(diversities_items) ] += v 
+                name = accuracies_items[k][0]
                 names.append(name)
-                if(np.abs(v) < 20000):
-                    sums = [0]
+                if(np.abs(v) > 800):
+                    sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                     names = ["error accuracy "+name]
                     break
             print(sums)

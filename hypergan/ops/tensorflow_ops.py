@@ -83,16 +83,16 @@ class TensorflowOps:
     def reshape(self, net, shape):
         return tf.reshape(net, shape)
 
-    def concat(values=[], axis=0):
+    def concat(self, values=[], axis=0):
         return tf.concat(values=values, axis=axis)
 
-    def resize_images(net, dims, op_type):
+    def resize_images(self, net, dims, op_type):
         return tf.image.resize_images(net, dims, op_type)
 
-    def slice(net, x, y):
+    def slice(self, net, x, y):
         return tf.slice(net, x, y)
 
-    def shape(net):
+    def shape(self, net):
         return [int(x) for x in net.get_shape()]
 
     def lookup(self, symbol):

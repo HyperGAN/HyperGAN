@@ -123,49 +123,6 @@ def conv_cond_concat(x, y):
     y_shapes = y.get_shape()
     return tf.concat(axis=3, values=[x, y*tf.ones([x_shapes[0], x_shapes[1], x_shapes[2], y_shapes[3]])])
 
-def conv2d(input_, output_dim,
-           k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02, regularizer=None,
-           name="conv2d", gain=1.0):
-    initializer = tf.orthogonal_initializer(gain)
-    with tf.variable_scope(name):
-        if regularizer:
-            regularizer=tf.contrib.layers.l2_regularizer(regularizer)
-        with tf.device("/cpu:0"):
-            w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],dtype=config['dtype'], regularizer=regularizer,
-                                initializer=initializer)
-        conv = tf.nn.conv2d(input_, w, strides=[1, d_h, d_w, 1], padding='SAME')
-
-        biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0, dtype=config['dtype']), dtype=config['dtype'])
-        conv = tf.nn.bias_add(conv, biases)
-
-        return conv
-
-def deconv2d(input_, output_shape,
-             k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02,
-             name="deconv2d", with_w=False,
-             init_bias=0.):
-    with tf.variable_scope(name):
-        # filter : [height, width, output_channels, in_channels]
-        w = tf.get_variable('w', [k_h, k_w, output_shape[-1], input_.get_shape()[-1]], dtype=config['dtype'],
-                            initializer=tf.random_normal_initializer(stddev=stddev, dtype=config['dtype']))
-
-        try:
-            deconv = tf.nn.conv2d_transpose(input_, w, output_shape=output_shape,
-                                strides=[1, d_h, d_w, 1])
-
-        # Support for versions of TensorFlow before 0.7.0
-        except AttributeError:
-            deconv = tf.nn.deconv2d(input_, w, output_shape=output_shape,
-                                strides=[1, d_h, d_w, 1])
-
-        biases = tf.get_variable('biases', [output_shape[-1]], dtype=config['dtype'],initializer=tf.constant_initializer(init_bias, dtype=config['dtype']))
-        deconv = tf.reshape(tf.nn.bias_add(deconv, biases), deconv.get_shape())
-
-        if with_w:
-            return deconv, w, biases
-        else:
-            return deconv
-
 def special_deconv2d(input_, output_shape,
              k_h=6, k_w=6, d_h=2, d_w=2, stddev=0.02,
              name="deconv2d", with_w=False,
@@ -262,24 +219,6 @@ def lrelu_sq(x):
     """
     dim = len(x.get_shape()) - 1
     return tf.concat(axis=dim, values=[lrelu(x), tf.minimum(tf.abs(x), tf.square(x))])
-
-def linear(input_, output_size, scope=None, mean=0., stddev=0.02, bias_start=0.0, with_w=False, regularizer=None, gain=1.0):
-    shape = input_.get_shape().as_list()
-
-    initializer = tf.orthogonal_initializer(1.0)
-    #initializer = tf.constant_initializer(1)
-    with tf.variable_scope(scope or "Linear"):
-        with tf.device('/cpu:0'):
-            matrix = tf.get_variable("Matrix", [shape[1], output_size], dtype=config['dtype'],
-                                     initializer=initializer, regularizer=regularizer
-                                    )
-        bias = tf.get_variable("bias", [output_size],dtype=config['dtype'],
-            initializer=tf.constant_initializer(bias_start,dtype=config['dtype']))
-        if with_w:
-            # import ipdb; ipdb.set_trace()
-            return tf.matmul(input_, matrix) + bias, matrix, bias
-        else:
-            return tf.matmul(input_, matrix) + bias
 
 @contextmanager
 def variables_on_cpu():

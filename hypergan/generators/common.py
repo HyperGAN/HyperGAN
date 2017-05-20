@@ -52,4 +52,12 @@ def generator_prelu(net):
     generator_prelus+=1
     return prelu('g_', generator_prelus, net) # Only ever 1 generator
 
+def minmax(net):
+    net = tf.minimum(net, 1)
+    net = tf.maximum(net, -1)
+    return net
 
+def minmaxzero(net):
+    net = tf.minimum(net, 1)
+    net = tf.maximum(net, 0)
+    return net

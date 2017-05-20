@@ -25,8 +25,10 @@ def sample(gan, sample_file):
     with g.as_default():
         tf.set_random_seed(1)
         sample = sess.run(generator, feed_dict={z_t: z, y_t: y})
+        width = 8
+        bs = gan.config.batch_size
         #plot(self.config, sample, sample_file)
-        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
+        stacks = [np.hstack(sample[x*width:x*width+width]) for x in range(bs//width)]
         plot(config, np.vstack(stacks), sample_file)
 
     return [{'image':sample_file, 'label':'grid'}]

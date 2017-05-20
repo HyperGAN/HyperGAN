@@ -1,7 +1,7 @@
 import tensorflow as tf
 import hyperchamber as hc
 from hypergan.generators.resize_conv_generator import ResizeConvGenerator
-from hypergan.ops.tensorflow_ops import TensorflowOps
+from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 

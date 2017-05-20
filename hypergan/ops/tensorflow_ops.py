@@ -29,13 +29,13 @@ class TensorflowOps:
         elif dtype == 'float16':
             return tf.float16
         else:
-            raise "dtype not defined: "+name
+            raise Exception("dtype not defined: "+dtype)
 
     def conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim):
         initializer = self.initializer()
         with tf.variable_scope(name):
             with tf.device("/cpu:0"):
-                w = tf.get_variable('w', [filter_h, filter_w, net.get_shape()[-1], output_dim],dtype=self.dtype, regularizer=regularizer,
+                w = tf.get_variable('w', [filter_h, filter_w, net.get_shape()[-1], output_dim],dtype=self.dtype,
                                     initializer=initializer)
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding='SAME')
             biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0, dtype=self.dtype), dtype=self.dtype)
@@ -46,15 +46,15 @@ class TensorflowOps:
         initializer = self.initializer()
         with tf.variable_scope(self.generate_scope()):
             # filter : [height, width, output_channels, in_channels]
-            w = tf.get_variable('w', [filter_h, filter_w, output_shape[-1], input_.get_shape()[-1]], dtype=self.dtype, initializer=initializer)
+            w = tf.get_variable('w', [filter_h, filter_w, output_shape[-1], net.get_shape()[-1]], dtype=self.dtype, initializer=initializer)
 
             try:
-                deconv = tf.nn.conv2d_transpose(input_, w, output_shape=output_shape,
+                deconv = tf.nn.conv2d_transpose(net, w, output_shape=output_shape,
                                     strides=[1, stride_h, stride_w, 1])
 
             # Support for versions of TensorFlow before 0.7.0
             except AttributeError:
-                deconv = tf.nn.deconv2d(input_, w, output_shape=output_shape,
+                deconv = tf.nn.deconv2d(net, w, output_shape=output_shape,
                                     strides=[1, stride_h, stride_w, 1])
 
             biases = tf.get_variable('biases', [output_shape[-1]], dtype=self.dtype,initializer=tf.constant_initializer(init_bias, dtype=self.dtype))
@@ -65,19 +65,17 @@ class TensorflowOps:
 
     def linear(self, net, output_dim):
         initializer = self.initializer()
+        shape = self.shape(net)
+        initial_bias = 0
         #initializer = tf.constant_initializer(1)
         with tf.variable_scope(self.generate_scope()):
           with tf.device('/cpu:0'):
-            matrix = tf.get_variable("Matrix", [shape[1], output_size], dtype=config['dtype'],
-                                       initializer=initializer, regularizer=regularizer
+            matrix = tf.get_variable("Matrix", [shape[1], output_dim], dtype=self.dtype,
+                                       initializer=initializer,
                                     )
-          bias = tf.get_variable("bias", [output_size],dtype=config['dtype'],
-              initializer=tf.constant_initializer(bias_start,dtype=config['dtype']))
-          if with_w:
-              # import ipdb; ipdb.set_trace()
-            return tf.matmul(input_, matrix) + bias, matrix, bias
-          else:
-            return tf.matmul(input_, matrix) + bias
+          bias = tf.get_variable("bias", [output_dim],dtype=self.dtype,
+              initializer=tf.constant_initializer(initial_bias, dtype=self.dtype))
+        return tf.matmul(net, matrix) + bias
 
 
     def reshape(self, net, shape):

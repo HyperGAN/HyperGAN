@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import inspect
 import hyperchamber as hc
 from hypergan.util.hc_tf import *
 from hypergan.generators.common import *
@@ -42,14 +43,21 @@ class ResizeConvGenerator:
         self.config = selector.random_config()
         self.prefix = prefix
 
-    def create(config, gan, net):
+    def create(self, gan, net):
         depth = 0
         primes = [4, 4]
         nets = []
-        ops = gan.ops(self.prefix, *config)
+        config = self.config
+        print("gan", gan)
+        x_dims = gan.config.x_dims
+        print("X_DIMS", x_dims)
+        gconfig = {k[2:]: v for k, v in gan.config.items() if k[2:] in inspect.getargspec(gan.ops).args}
+        print("CONFIG", config)
+        ops = gan.ops(*dict(gconfig))
         batch_size = gan.config.batch_size
         z_proj_dims = config.z_projection_depth
         new_shape = [batch_size, primes[0], primes[1], z_proj_dims]
+
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
 

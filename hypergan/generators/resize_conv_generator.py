@@ -73,16 +73,16 @@ class ResizeConvGenerator:
 
         depth_reduction = np.float32(config.depth_reduction)
 
-        s = ops.shape(net)
+        shape = ops.shape(net)
 
-        net = config.block(net, config, output_channels=ops.shape(net)[3])
+        net = config.block(ops, net, config, output_channels=shape[3])
         net = self.layer_filter(gan, config, net)
 
         for i in range(depth):
             s = ops.shape(net)
             is_last_iteration = (i == depth-1)
 
-            reduced_layers = s[3]-depth_reduction
+            reduced_layers = shape[3]-depth_reduction
             layers = gan.config.channels if is_last_iteration else reduced_layers
             resize = [min(s[1]*2, x_dims[0]), min(s[2]*2, x_dims[1])]
 

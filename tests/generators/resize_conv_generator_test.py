@@ -23,11 +23,15 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
                 'x_dims': [32,32],
                 "z_projection_depth": 128
             })
+            graph = hc.Config({
+                'x': tf.constant(1., shape=[32,32,32])
+            })
             gan = {
                 'config': config,
+                'graph': graph,
                 'ops': TensorflowOps,
             }
-            net = tf.constant(1., shape=[2,2])
+            net = tf.constant(1., shape=[32,2])
             nets = generator.create(hc.Config(gan), net)
             self.assertEqual(len(nets), 4)
 

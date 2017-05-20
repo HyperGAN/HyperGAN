@@ -121,14 +121,14 @@ def generator_autoencode_config():
     )
 
 def loss_options():
-    return {
-        alignment_lambda: list(np.linspace(0.001, 10, num=100)),
-        include_recdistance:[True, False],
-        include_recdistance2:[True, False],
-        include_grecdistance:[True, False],
-        include_grecdistance2:[True, False],
-        include_distance:[True, False]
-    }
+    selector = hc.Selector()
+    selector.set("alignment_lambda", list(np.linspace(0.001, 10, num=100)))
+    selector.set("include_recdistance",[True, False]),
+    selector.set("include_recdistance2",[True, False]),
+    selector.set("include_grecdistance",[True, False]),
+    selector.set("include_grecdistance2",[True, False]),
+    selector.set("include_distance",[True, False])
+    return selector.random_config()
 
 config['y_dims']=num_labels
 config['x_dims']=[height,width]
@@ -140,8 +140,7 @@ config['generator_autoencode']=generator_autoencode_config()
 config['discriminators']=[discriminator_config()]
 config['encoders']=[{"create": hg.encoders.match_discriminator_encoder.create}]
 
-loss_selector = hg.config.selector(loss_options)
-loss_config = loss_selector.random_config()
+loss_config = loss_options()
 config['losses'][0].update(loss_config)
 
 config_name="alignment-"+str(uuid.uuid4())
@@ -247,8 +246,10 @@ for i in range(40000):
                     sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                     names = ["error diversity "+name]
                     broken = True
+                    print("break from diversity")
                     break
 
+            print("A", accuracies_v)
             for k, v in enumerate(accuracies_v):
                 sums[k+len(diversities_items) ] += v 
                 name = accuracies_items[k][0]
@@ -257,6 +258,7 @@ for i in range(40000):
                     sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                     names = ["error accuracy "+name]
                     broken = True
+                    print("break from accuracy")
                     break
             print(sums)
 

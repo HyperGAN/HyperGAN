@@ -238,6 +238,7 @@ for i in range(40000):
             diversities_v = gan.sess.run([v for _, v in diversities_items])
             accuracies_v = gan.sess.run([v for _, v in accuracies_items])
             print("D", diversities_v)
+            broken = False
             for k, v in enumerate(diversities_v):
                 sums[k] += v 
                 name = diversities_items[k][0]
@@ -245,6 +246,7 @@ for i in range(40000):
                 if(np.abs(v) < 20000):
                     sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                     names = ["error diversity "+name]
+                    broken = True
                     break
 
             for k, v in enumerate(accuracies_v):
@@ -254,9 +256,12 @@ for i in range(40000):
                 if(np.abs(v) > 800):
                     sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                     names = ["error accuracy "+name]
+                    broken = True
                     break
             print(sums)
 
+            if(broken):
+                break
 
         
 

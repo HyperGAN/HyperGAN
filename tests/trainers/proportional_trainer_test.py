@@ -14,5 +14,9 @@ class ProportionalControlTrainerTest(tf.test.TestCase):
         with self.test_session():
             self.assertEqual(trainer.config.d_learn_rate, 1e-3)
 
+    def testStep(self):
+        with self.test_session():
+            self.assertEqual(trainer.step(), [1, 1])
+
 if __name__ == "__main__":
     tf.test.main()

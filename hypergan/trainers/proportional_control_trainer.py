@@ -29,7 +29,7 @@ class ProportionalControlTrainer(BaseTrainer):
             g_trainer=tf.train.AdamOptimizer,
             d_clipped_weights=False,
             clipped_gradients=False
-        ):
+            ):
         BaseTrainer.__init__(self)
         selector = hc.Selector()
 
@@ -64,7 +64,7 @@ class ProportionalControlTrainer(BaseTrainer):
         self.config = selector.random_config()
         self.iteration = 0
 
-    def create(config, gan, d_vars, g_vars):
+    def _create(config, gan, d_vars, g_vars):
         d_loss = gan.graph.d_loss
         g_loss = gan.graph.g_loss
         g_lr = np.float32(config.g_learn_rate)
@@ -87,8 +87,7 @@ class ProportionalControlTrainer(BaseTrainer):
         return g_optimizer, d_optimizer
 
 
-    def run(gan, feed_dict):
-        global iteration
+    def _step(gan, feed_dict):
         sess = gan.sess
         config = gan.config
         x_t = gan.graph.x
@@ -108,10 +107,10 @@ class ProportionalControlTrainer(BaseTrainer):
         _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
 
         _, g_cost, g_k, measure= sess.run([g_optimizer, g_loss, gan.graph.update_k, gan.graph.measure], feed_dict)
-        if iteration % 100 == 0:
-            print("%2d: g cost %.2f d_loss %.2f k %.2f m %.2f gamma %.2f" % (iteration,g_cost , d_cost,g_k, measure, gan.graph.gamma))
+        if self.iteration % 100 == 0:
+            print("%2d: g cost %.2f d_loss %.2f k %.2f m %.2f gamma %.2f" % (self.iteration,g_cost , d_cost,g_k, measure, gan.graph.gamma))
 
-        iteration+=1
+        self.iteration+=1
 
         return d_cost, g_cost
 

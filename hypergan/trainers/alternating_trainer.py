@@ -4,7 +4,9 @@ import hyperchamber as hc
 import inspect
 from .common import *
 
-class AlternatingTrainer:
+from hypergan.trainers.base_trainer import BaseTrainer
+
+class AlternatingTrainer(BaseTrainer):
 
     def __init__(self,
             d_learn_rate=1e-3,
@@ -28,6 +30,7 @@ class AlternatingTrainer:
             d_clipped_weights=False,
             clipped_gradients=False
         ):
+        BaseTrainer.__init__(self)
         selector = hc.Selector()
 
         selector.set('d_learn_rate', d_learn_rate)
@@ -84,7 +87,6 @@ class AlternatingTrainer:
         return g_optimizer, d_optimizer
 
     def run(gan, feed_dict):
-        global iteration
         sess = gan.sess
         config = gan.config
         x_t = gan.graph.x
@@ -107,13 +109,13 @@ class AlternatingTrainer:
 
         if(d_class_loss is not None):
             _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict)
-            if iteration % 100 == 0:
-                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_class, d_log ))
+            if self.iteration % 100 == 0:
+                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (self.iteration, g_cost,d_cost, d_real, d_class, d_log ))
         else:
             _, g_cost,d_fake,d_real = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss], feed_dict)
-            if iteration % 100 == 0:
-                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_log ))
+            if self.iteration % 100 == 0:
+                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (self.iteration, g_cost,d_cost, d_real, d_log ))
 
-        iteration+=1
+        self.iteration+=1
 
         return d_cost, g_cost

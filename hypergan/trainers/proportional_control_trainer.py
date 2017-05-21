@@ -4,7 +4,9 @@ import hyperchamber as hc
 import inspect
 from .common import *
 
-class ProportionalControlTrainer:
+from hypergan.trainers.base_trainer import BaseTrainer
+
+class ProportionalControlTrainer(BaseTrainer):
 
     def __init__(self,
             d_learn_rate=1e-3,
@@ -28,6 +30,7 @@ class ProportionalControlTrainer:
             d_clipped_weights=False,
             clipped_gradients=False
         ):
+        BaseTrainer.__init__(self)
         selector = hc.Selector()
 
         selector.set('d_learn_rate', d_learn_rate)

@@ -2,7 +2,6 @@ import tensorflow as tf
 import numpy as np
 import inspect
 import hyperchamber as hc
-from hypergan.util.hc_tf import *
 from hypergan.generators.common import *
 
 class ResizeConvGenerator:
@@ -14,7 +13,7 @@ class ResizeConvGenerator:
             final_activation=tf.nn.tanh,
             depth_reduction=2,
             layer_filter=None,
-            layer_regularizer=batch_norm_1,
+            layer_regularizer='batch_norm',
             block=[standard_block],
             resize_image_type=1,
             sigmoid_gate=False,

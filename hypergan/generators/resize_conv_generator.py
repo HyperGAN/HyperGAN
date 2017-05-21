@@ -5,12 +5,11 @@ import hyperchamber as hc
 from hypergan.generators.common import *
 
 class ResizeConvGenerator:
-
     def __init__(self,
             prefix = 'g_',
             z_projection_depth=512,
-            activation=generator_prelu,
-            final_activation=tf.nn.tanh,
+            activation='lrelu',
+            final_activation='tanh',
             depth_reduction=2,
             layer_filter=None,
             layer_regularizer='batch_norm',
@@ -47,11 +46,8 @@ class ResizeConvGenerator:
         primes = [4, 4]
         nets = []
         config = self.config
-        print("gan", gan)
         x_dims = gan.config.x_dims
-        print("X_DIMS", x_dims)
         gconfig = {k[2:]: v for k, v in gan.config.items() if k[2:] in inspect.getargspec(gan.ops).args}
-        print("CONFIG", config)
         ops = gan.ops(*dict(gconfig))
         batch_size = gan.config.batch_size
         z_proj_dims = config.z_projection_depth
@@ -60,8 +56,10 @@ class ResizeConvGenerator:
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
 
+        print('net', net)
         net = ops.linear(net, z_proj_dims*primes[0]*primes[1])
         net = ops.reshape(net, new_shape)
+        print('net', net)
 
         w = ops.shape(net)[1]
         target_w = int(ops.shape(gan.graph.x)[0])
@@ -74,7 +72,7 @@ class ResizeConvGenerator:
 
         shape = ops.shape(net)
 
-        net = config.block(ops, net, config, output_channels=shape[3])
+        net = config.block(ops, net, config, shape[3])
         net = self.layer_filter(gan, config, net)
 
         for i in range(depth):
@@ -85,9 +83,9 @@ class ResizeConvGenerator:
             layers = gan.config.channels if is_last_iteration else reduced_layers
             resize = [min(s[1]*2, x_dims[0]), min(s[2]*2, x_dims[1])]
 
-            net = ops.resize_images(net, resized_wh, config.resize_image_type)
+            net = ops.resize_images(net, resize, config.resize_image_type)
             net = self.layer_filter(gan, config, net)
-            net = config.block(net, config, output_channels=layers)
+            net = config.block(ops, net, config, layers)
 
             sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
             first3 = net if is_last_iteration else sliced
@@ -102,14 +100,9 @@ class ResizeConvGenerator:
 
         return nets
 
-    def layer_filter(gan, config, net):
+    def layer_filter(self, gan, config, net):
         if config.layer_filter:
             fltr = config.layer_filter(gan, net)
             if fltr is not None:
                 net = ops.concat(axis=3, values=[net, fltr])
-        return net
-
-    def layer_regularizer(gan, config, net):
-        if config.layer_regularizer:
-            net = config.layer_regularizer(gan.config.batch_size, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'bn_first3_'+str(i))(net)
         return net

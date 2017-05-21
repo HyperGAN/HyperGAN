@@ -1,4 +1,5 @@
 import tensorflow as tf
+import types
 
 class TensorflowOps:
     def __init__(self, dtype="float32", initializer='orthogonal', orthogonal_gain=1.0, random_stddev=0.02):
@@ -8,6 +9,10 @@ class TensorflowOps:
             self.initializer = self.orthogonal_initializer(orthogonal_gain)
         else:
             self.initializer = self.random_initializer(random_stddev)
+
+    def assert_tensor(self, net):
+        if type(net) != tf.Tensor:
+            raise Exception("Expected a Tensor but received", net)
 
     def random_initializer(self, stddev):
         def _build():
@@ -31,9 +36,10 @@ class TensorflowOps:
         else:
             raise Exception("dtype not defined: "+dtype)
 
-    def conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim):
+    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
+        self.assert_tensor(net)
         initializer = self.initializer()
-        with tf.variable_scope(name):
+        with tf.variable_scope(self.generate_scope()):
             with tf.device("/cpu:0"):
                 w = tf.get_variable('w', [filter_h, filter_w, net.get_shape()[-1], output_dim],dtype=self.dtype,
                                     initializer=initializer)
@@ -43,6 +49,7 @@ class TensorflowOps:
             return conv
 
     def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_shape):
+        self.assert_tensor(net)
         initializer = self.initializer()
         with tf.variable_scope(self.generate_scope()):
             # filter : [height, width, output_channels, in_channels]
@@ -62,8 +69,16 @@ class TensorflowOps:
 
             return deconv
 
+    def layer_regularizer(self, net, symbol, momentum, epsilon):
+        self.assert_tensor(net)
+        batch_size = self.shape(net)[0]
+        op = self.lookup(symbol)
+        if op:
+            net = config.layer_regularizer(batch_size, momentum=momentum, epsilon=epsilon)(net)
+        return net
 
     def linear(self, net, output_dim):
+        self.assert_tensor(net)
         initializer = self.initializer()
         shape = self.shape(net)
         initial_bias = 0
@@ -77,26 +92,33 @@ class TensorflowOps:
               initializer=tf.constant_initializer(initial_bias, dtype=self.dtype))
         return tf.matmul(net, matrix) + bias
 
-
     def reshape(self, net, shape):
+        self.assert_tensor(net)
         return tf.reshape(net, shape)
 
     def concat(self, values=[], axis=0):
         return tf.concat(values=values, axis=axis)
 
     def resize_images(self, net, dims, op_type):
+        self.assert_tensor(net)
         return tf.image.resize_images(net, dims, op_type)
 
     def slice(self, net, x, y):
+        self.assert_tensor(net)
         return tf.slice(net, x, y)
 
     def shape(self, net):
+        self.assert_tensor(net)
         return [int(x) for x in net.get_shape()]
 
     def lookup(self, symbol):
+        if type(symbol) == types.FunctionType:
+            return symbol
         if symbol == 'tanh':
             return tf.nn.tanh
         if symbol == 'sigmoid':
             return tf.nn.sigmoid
         #TODO if symbol starts with function:
+
+        print("lookup failed", symbol)
         return None

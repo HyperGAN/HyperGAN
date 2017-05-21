@@ -34,7 +34,7 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
             }
             net = tf.constant(1., shape=[32,2])
             nets = generator.create(hc.Config(gan), net)
-            self.assertEqual(len(nets), 4)
+            self.assertEqual(len(nets), 3)
 
 if __name__ == "__main__":
     tf.test.main()

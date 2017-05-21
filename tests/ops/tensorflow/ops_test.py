@@ -35,19 +35,24 @@ class TensorflowOpsTest(tf.test.TestCase):
 
     def testLinear(self):
         with self.test_session():
-            self.assertEqual(0,1)
+            net = ops.linear(tf.constant(1., shape=[1, 3]), 3)
+            self.assertEqual(ops.shape(net)[1], 3)
 
     def testConv2d(self):
         with self.test_session():
-            self.assertEqual(0,1)
+            net = ops.conv2d(tf.constant(1., shape=[1, 3, 3, 3]), 3, 3, 1, 1, 3)
+            self.assertEqual(ops.shape(net)[1], 3)
 
     def testDeconv2d(self):
         with self.test_session():
-            self.assertEqual(0,1)
+            net = ops.deconv2d(tf.constant(1., shape=[1, 3, 3, 3]), 3, 3, 1, 1, 3)
+            self.assertEqual(ops.shape(net)[1], 3)
 
     def testGenerateScope(self):
         with self.test_session():
-            self.assertEqual(0,1)
+            ops = TensorflowOps()
+            self.assertEqual(ops.generate_scope(), "1")
+            self.assertEqual(ops.generate_scope(), "2")
 
 if __name__ == "__main__":
     tf.test.main()

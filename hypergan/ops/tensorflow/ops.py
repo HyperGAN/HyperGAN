@@ -49,9 +49,12 @@ class TensorflowOps:
             conv = tf.nn.bias_add(conv, biases)
             return conv
 
-    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_shape):
+    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         self.assert_tensor(net)
         initializer = self.initializer()
+        shape = self.shape(net)
+        output_shape = [shape[0], shape[1]*stride_h, shape[2]*stride_w, output_dim]
+        init_bias = 0.
         with tf.variable_scope(self.generate_scope()):
             # filter : [height, width, output_channels, in_channels]
             w = tf.get_variable('w', [filter_h, filter_w, output_shape[-1], net.get_shape()[-1]], dtype=self.dtype, initializer=initializer)
@@ -82,7 +85,6 @@ class TensorflowOps:
         initializer = self.initializer()
         shape = self.shape(net)
         initial_bias = 0
-        #initializer = tf.constant_initializer(1)
         with tf.variable_scope(self.generate_scope()):
           with tf.device('/cpu:0'):
             matrix = tf.get_variable("Matrix", [shape[1], output_dim], dtype=self.dtype,

@@ -6,7 +6,7 @@ from .common import *
 
 class ProportionalControlTrainer:
 
-    def __init__(
+    def __init__(self,
             d_learn_rate=1e-3,
             d_epsilon=1e-8,
             d_beta1=0.9,
@@ -29,9 +29,6 @@ class ProportionalControlTrainer:
             clipped_gradients=False
         ):
         selector = hc.Selector()
-
-        selector.set('create', create)
-        selector.set('run', run)
 
         selector.set('d_learn_rate', d_learn_rate)
         selector.set('d_epsilon', d_epsilon)
@@ -62,6 +59,7 @@ class ProportionalControlTrainer:
         selector.set('g_initial_accumulator_value', g_initial_accumulator_value)
 
         self.config = selector.random_config()
+        self.iteration = 0
 
     def create(config, gan, d_vars, g_vars):
         d_loss = gan.graph.d_loss
@@ -86,7 +84,6 @@ class ProportionalControlTrainer:
         return g_optimizer, d_optimizer
 
 
-    iteration = 0
     def run(gan, feed_dict):
         global iteration
         sess = gan.sess

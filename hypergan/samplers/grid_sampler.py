@@ -1,4 +1,3 @@
-from hypergan.util.ops import *
 from hypergan.samplers.common import *
 
 def sample(gan, sample_file):

@@ -1,18 +1,3 @@
-from hyperchamber import Config
-
-import copy
-
-import hyperchamber as hc
-
-import hypergan as hg
-
-from hypergan.discriminators import *
-from hypergan.encoders import *
-from hypergan.generators import *
-from hypergan.loaders import *
-from hypergan.samplers import *
-from hypergan.trainers import *
-
 import importlib
 import json
 import numpy as np
@@ -22,6 +7,18 @@ import tensorflow
 import tensorflow as tf
 import time
 import uuid
+import copy
+
+from hypergan.discriminators import *
+from hypergan.encoders import *
+from hypergan.generators import *
+from hypergan.loaders import *
+from hypergan.samplers import *
+from hypergan.trainers import *
+
+import hyperchamber as hc
+from hyperchamber import Config
+import hypergan as hg
 
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
@@ -82,7 +79,7 @@ class GAN:
                 print("No checkpoint file found")
         else:
             self.initialize_graph()
-    
+
     def initialize_graph(self):
         print(" |= Initializing new network")
         with tf.device(self.device):

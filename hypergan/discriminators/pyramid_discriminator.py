@@ -56,77 +56,41 @@ class PyramidDiscriminator:
 
     #TODO: arguments telescope, root_config/config confusing
     def discriminator(gan, config, x, g, xs, gs):
-        activation = config['activation']
-        final_activation = config['final_activation']
-        depth_increase = config['depth_increase']
-        depth = config['layers']
-        batch_norm = config['layer_regularizer']
-        strided = config.strided
-        # TODO: cross-d feature
-        if(config['resize']):
-            # shave off layers >= resize 
-            def should_ignore_layer(layer, resize):
-                return int(layer.get_shape()[1]) > config['resize'][0] or \
-                       int(layer.get_shape()[2]) > config['resize'][1]
+        dconfig = {k[2:]: v for k, v in gan.config.items() if k[2:] in inspect.getargspec(gan.ops).args}
+        ops = gan.ops(*dict(dconfig))
 
-            xs = [px for px in xs if not should_ignore_layer(px, config['resize'])]
-            gs = [pg for pg in gs if not should_ignore_layer(pg, config['resize'])]
+        activation = ops.lookup(config.activation)
+        final_activation = ops.lookup(config.final_activation)
+        depth_increase = config.depth_increase
+        depth = config.layers
+        batch_norm = config.layer_regularizer
 
-            x = tf.image.resize_images(x,config['resize'], 1)
-            g = tf.image.resize_images(g,config['resize'], 1)
-
-        batch_size = int(x.get_shape()[0])
-        # TODO: This is standard optimization from improved GAN, cross-d feature
-        if config['layer_filter']:
-            g_filter = tf.concat(axis=3, values=[g, config['layer_filter'](gan, x)])
-            x_filter = tf.concat(axis=3, values=[x, config['layer_filter'](gan, x)])
-            net = tf.concat(axis=0, values=[x_filter,g_filter] )
-        else:
-            net = tf.concat(axis=0, values=[tf.squeeze(x),tf.squeeze(g)])
-        if(config['noise']):
-            net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
-
-        xg = None
+        x, g = self.resize(config, x, g)
+        net = self.combine_filter(config, x, g)
+        net = self.add_noise(config, net)
 
         for i in range(depth):
-          filters = int(net.get_shape()[3])
-          #TODO better name for `batch_norm`?
-          if i != 0:
-              if batch_norm is not None:
-                  net = batch_norm(batch_size*2, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'_expand_bn_'+str(i))(net)
-              net = activation(net)
+            xg = None
+            is_last_layer = (i == depth-1)
+            filters = ops.shape(net)[3]
+            #TODO better name for `batch_norm`?
+            if i != 0:
+                net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
 
-          #TODO: cross-d, overwritable
-          # APPEND xs[i] and gs[i]
-          if(i < len(xs)-1 and i > 0):
-            if strided:
-                index = i+1
-            else:
-                index = i
-            if config['layer_filter']:
-                x_filter_i = tf.concat(axis=3, values=[xs[index], config['layer_filter'](gan, xs[i])])
-                g_filter_i = tf.concat(axis=3, values=[gs[index], config['layer_filter'](gan, xs[i])])
-                xg = tf.concat(axis=0, values=[x_filter_i, g_filter_i])
-            else:
-                if(config['progressive_enhancement']):
-                    xg = tf.concat(axis=0, values=[xs[i], gs[i]])
+                # APPEND xs[i] and gs[i]
+                if(!is_last_layer):
+                    xg = self.combine_filter(config, xs[i], gs[i])
+                    xg = self.add_noise(config, xg)
 
-            if(config['noise'] and xg is not None):
-                xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
+            net = self.progressive_enhancement(net, xg)
 
-            if config['progressive_enhancement']:
-                net = tf.concat(axis=3, values=[net, xg])
+            depth = filters + depth_increase
+            if i == 0:
+                depth = config.first_conv_size
 
-          if config.foundation == 'additive':
-              depth = int(filters+depth_increase)
-          else:
-              depth = int(filters*depth_increase)
+            net = config.block(config, net, depth, prefix+'_layer_'+str(i)+'_')
 
-          if i ==0:
-              depth = config.first_conv_size
-          net = config.block(config, net, depth, prefix+'_layer_'+str(i)+'_')
-
-        print('[discriminator] layer', net)
+            print('[discriminator] layer', net)
 
         for i in range(config.extra_layers):
             output_features = int(int(net.get_shape()[3]))
@@ -154,3 +118,38 @@ class PyramidDiscriminator:
         return net
 
 
+    def resize(self, config, x, g):
+        if(config.resize):
+            # shave off layers >= resize 
+            def should_ignore_layer(layer, resize):
+                return int(layer.get_shape()[1]) > config['resize'][0] or \
+                       int(layer.get_shape()[2]) > config['resize'][1]
+
+            xs = [px for px in xs if not should_ignore_layer(px, config['resize'])]
+            gs = [pg for pg in gs if not should_ignore_layer(pg, config['resize'])]
+
+            x = tf.image.resize_images(x,config['resize'], 1)
+            g = tf.image.resize_images(g,config['resize'], 1)
+        else:
+            return x, g
+
+
+    def combine_filter(self, config, x, g):
+        # TODO: This is standard optimization from improved GAN, cross-d feature
+        if config['layer_filter']:
+            g_filter = tf.concat(axis=3, values=[g, config['layer_filter'](gan, x)])
+            x_filter = tf.concat(axis=3, values=[x, config['layer_filter'](gan, x)])
+            net = tf.concat(axis=0, values=[x_filter,g_filter] )
+        else:
+            net = tf.concat(axis=0, values=[tf.squeeze(x),tf.squeeze(g)])
+        return net
+
+    def add_noise(self, config, net):
+        if(config['noise']):
+            net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
+        return net
+
+    def progressive_enhancement(self, config, net):
+        if config['progressive_enhancement']:
+            net = tf.concat(axis=3, values=[net, xg])
+        return net

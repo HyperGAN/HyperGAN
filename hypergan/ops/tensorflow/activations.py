@@ -55,10 +55,6 @@ def lrelu_sq(x):
     dim = len(x.get_shape()) - 1
     return tf.concat(axis=dim, values=[lrelu(x), tf.minimum(tf.abs(x), tf.square(x))])
 
-
-
-
-
 def decayer(x, name="decayer"):
     with tf.variable_scope(name):
         scale = tf.get_variable("scale", [1], initializer=tf.constant_initializer(1.,dtype=config['dtype']),dtype=config['dtype'])

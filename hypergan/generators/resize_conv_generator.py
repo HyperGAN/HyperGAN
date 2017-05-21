@@ -77,10 +77,10 @@ class ResizeConvGenerator:
 
         for i in range(depth):
             s = ops.shape(net)
-            is_last_iteration = (i == depth-1)
+            is_last_layer = (i == depth-1)
 
             reduced_layers = shape[3]-depth_reduction
-            layers = gan.config.channels if is_last_iteration else reduced_layers
+            layers = gan.config.channels if is_last_layer else reduced_layers
             resize = [min(s[1]*2, x_dims[0]), min(s[2]*2, x_dims[1])]
 
             net = ops.resize_images(net, resize, config.resize_image_type)
@@ -88,7 +88,7 @@ class ResizeConvGenerator:
             net = config.block(ops, net, config, layers)
 
             sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
-            first3 = net if is_last_iteration else sliced
+            first3 = net if is_last_layer else sliced
 
             first3 = ops.layer_regularizer(first3, config.layer_regularizer, config.batch_norm_epsilon)
 

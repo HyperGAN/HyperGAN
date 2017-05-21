@@ -12,5 +12,8 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
         with self.test_session():
             self.assertEqual(discriminator.config.activation, tf.nn.tanh)
 
+    def testCreate(self):
+        with self.test_session():
+            self.assertEqual(discriminator.config.activation, tf.nn.tanh)
 if __name__ == "__main__":
     tf.test.main()

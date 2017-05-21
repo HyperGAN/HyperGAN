@@ -6,7 +6,6 @@ from hypergan.generators.common import *
 
 class ResizeConvGenerator:
     def __init__(self,
-            prefix = 'g_',
             z_projection_depth=512,
             activation='lrelu',
             final_activation='tanh',
@@ -39,7 +38,6 @@ class ResizeConvGenerator:
         selector.set('batch_norm_momentum', batch_norm_momentum)
         selector.set('batch_norm_epsilon', batch_norm_epsilon)
         self.config = selector.random_config()
-        self.prefix = prefix
 
     def create(self, gan, net):
         depth = 0

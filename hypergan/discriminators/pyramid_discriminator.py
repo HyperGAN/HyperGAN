@@ -6,7 +6,6 @@ import os
 
 class PyramidDiscriminator:
     def __init__(self,
-            prefix='d_',
             activation='lrelu',
             block=standard_block,
             depth_increase=2,
@@ -52,7 +51,6 @@ class PyramidDiscriminator:
 
         selector.set('batch_norm_momentum', batch_norm_momentum)
         selector.set('batch_norm_epsilon', batch_norm_epsilon)
-        self.prefix = prefix
         self.config = selector.random_config()
 
     #TODO: arguments telescope, root_config/config confusing

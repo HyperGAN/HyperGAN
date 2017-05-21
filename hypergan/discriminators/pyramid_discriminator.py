@@ -88,7 +88,7 @@ class PyramidDiscriminator:
             if i == 0:
                 depth = config.first_conv_size
 
-            net = config.block(config, net, depth, prefix+'_layer_'+str(i)+'_')
+            net = config.block(ops, net, config, depth)
 
             print('[discriminator] layer', net)
 
@@ -102,15 +102,13 @@ class PyramidDiscriminator:
         net = tf.reshape(net, [batch_size*2, -1])
 
         if final_activation or config.fc_layers > 0:
-            if batch_norm is not None:
-                net = batch_norm(batch_size*2, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'_expand_bn_end_'+str(i))(net)
+            net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
 
         for i in range(config.fc_layers):
             net = activation(net)
-            net = linear(net, config.fc_layer_size, scope=prefix+"_fc_end"+str(i))
+            net = ops.linear(net, config.fc_layer_size)
             if final_activation or i < config.fc_layers - 1:
-                if batch_norm is not None:
-                    net = batch_norm(batch_size*2, momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'_fc_bn_end_'+str(i))(net)
+                net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
 
         if final_activation:
             net = final_activation(net)

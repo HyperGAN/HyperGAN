@@ -2,7 +2,7 @@ import argparse
 import os
 import tensorflow as tf
 import hyperchamber as hc
-from hypergan.util.gan_server import *
+from hypergan.gan_server import *
 from . import GAN
 from .loaders import *
 import hypergan as hg
@@ -12,7 +12,6 @@ import fcntl
 import os
 import sys
 
-from hypergan.util.ops import *
 from hypergan.samplers import *
 
 class CLI:

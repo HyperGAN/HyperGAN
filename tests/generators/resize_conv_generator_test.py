@@ -1,5 +1,6 @@
 import tensorflow as tf
 import hyperchamber as hc
+import numpy as np
 from hypergan.generators.resize_conv_generator import ResizeConvGenerator
 from hypergan.ops import TensorflowOps
 

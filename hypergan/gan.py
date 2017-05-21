@@ -1,6 +1,3 @@
-from hypergan.util.ops import *
-
-from tensorflow.python.framework import ops
 from hyperchamber import Config
 
 import copy
@@ -15,7 +12,6 @@ from hypergan.generators import *
 from hypergan.loaders import *
 from hypergan.samplers import *
 from hypergan.trainers import *
-from hypergan.util import *
 
 import importlib
 import json

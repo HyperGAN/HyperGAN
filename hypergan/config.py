@@ -8,7 +8,6 @@ from hypergan.generators import *
 from hypergan.samplers import *
 from hypergan.trainers import *
 from hypergan.losses import *
-from hypergan.util import *
 import hypergan as hg
 
 # Below are sets of configuration options:

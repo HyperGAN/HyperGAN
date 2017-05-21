@@ -1,7 +1,6 @@
 #This encoder is random multinomial noise
 
 import tensorflow as tf
-from hypergan.util.ops import *
 
 import hyperchamber as hc
 

@@ -1,7 +1,4 @@
-from hypergan.util.ops import *
-from hypergan.util.hc_tf import *
 import tensorflow as tf
-import hypergan.util.wavegan as wavegan
 import hyperchamber as hc
 
 TINY = 1e-12

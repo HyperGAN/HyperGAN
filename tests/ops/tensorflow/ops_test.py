@@ -1,5 +1,5 @@
 import tensorflow as tf
-from hypergan.ops.tensorflow_ops import TensorflowOps
+from hypergan.ops.tensorflow.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 

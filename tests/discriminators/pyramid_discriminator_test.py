@@ -6,7 +6,7 @@ from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 
-discriminator = PyramidDiscriminator(prefix='test', activation=tf.nn.tanh)
+discriminator = PyramidDiscriminator(activation=tf.nn.tanh)
 class PyramidDiscriminatorTest(tf.test.TestCase):
     def testConfig(self):
         with self.test_session():

@@ -14,7 +14,6 @@ class ResizeConvGenerator:
             layer_regularizer='batch_norm',
             block=[standard_block],
             resize_image_type=1,
-            sigmoid_gate=False,
             block_repeat_count=[2],
             batch_norm_momentum=[0.001],
             batch_norm_epsilon=[0.0001],
@@ -32,7 +31,6 @@ class ResizeConvGenerator:
         selector.set('block', block)
         selector.set('block_repeat_count', block_repeat_count)
         selector.set('resize_image_type', resize_image_type)
-        selector.set('sigmoid_gate', sigmoid_gate)
 
         selector.set('orthogonal_initializer_gain', orthogonal_initializer_gain)
         selector.set('batch_norm_momentum', batch_norm_momentum)

@@ -1,26 +1,21 @@
+import tensorflow as tf
+
 class layer_norm_1(object):
-    def __init__(self, batch_size,  epsilon=1e-5, momentum = 0.1, name="layer_norm"):
+    def __init__(self,  epsilon=1e-5, name="layer_norm"):
         self.name = name
-    def __call__(self, x, train=True):
-        return tf.contrib.layers.layer_norm(x, scope=self.name, center=True, scale=True)
+    def __call__(self, x, dtype):
+        return tf.contrib.layers.layer_norm(x, scope=self.name, center=True, scale=True, dtype=dtype)
 
 
 class batch_norm_1(object):
     """Code modification of http://stackoverflow.com/a/33950177
 
     """
-    def __init__(self, batch_size, epsilon=1e-5, momentum = 0.1, name="batch_norm", half=None):
-        assert half is None
-        del momentum # unused
-        with tf.variable_scope(name) as scope:
-            self.epsilon = epsilon
-            self.batch_size = batch_size
+    def __init__(self, epsilon, name):
+        self.epsilon = epsilon
+        self.name=name
 
-            self.name=name
-
-    def __call__(self, x, train=True):
-        del train # unused
-
+    def __call__(self, x, dtype):
         shape = x.get_shape().as_list()
 
         needs_reshape = len(shape) != 4
@@ -35,10 +30,10 @@ class batch_norm_1(object):
             shape = x.get_shape().as_list()
 
         with tf.variable_scope(self.name) as scope:
-            self.gamma = tf.get_variable("gamma", [shape[-1]],dtype=config['dtype'],
-                                initializer=tf.random_normal_initializer(1., 0.02,dtype=config['dtype']))
-            self.beta = tf.get_variable("beta", [shape[-1]],dtype=config['dtype'],
-                                initializer=tf.constant_initializer(0.,dtype=config['dtype']))
+            self.gamma = tf.get_variable("gamma", [shape[-1]],dtype=dtype,
+                                initializer=tf.random_normal_initializer(1., 0.02,dtype=dtype))
+            self.beta = tf.get_variable("beta", [shape[-1]],dtype=dtype,
+                                initializer=tf.constant_initializer(0.,dtype=dtype))
 
             self.mean, self.variance = tf.nn.moments(x, [0, 1, 2])
 
@@ -49,55 +44,47 @@ class batch_norm_1(object):
                 out = tf.reshape(out, orig_shape)
             return out
 
-TRAIN_MODE = True
 class conv_batch_norm(object):
     """Code modification of http://stackoverflow.com/a/33950177"""
-    def __init__(self, name="batch_norm", epsilon=1e-5, momentum=0.1,
-        in_dim=None):
+    def __init__(self, epsilon, name):
         with tf.variable_scope(name) as scope:
             self.epsilon = epsilon
-            self.momentum = momentum
             self.name = name
-            self.in_dim = in_dim
-            global TRAIN_MODE
-            self.train = TRAIN_MODE
             self.ema = tf.train.ExponentialMovingAverage(decay=0.9)
-            print("initing %s in train: %s" % (scope.name, self.train))
 
-    def __call__(self, x):
+    def __call__(self, x, dtype):
         shape = x.get_shape()
-        shp = self.in_dim or shape[-1]
+        shp = shape[-1]
         with tf.variable_scope(self.name) as scope:
-            self.gamma = tf.get_variable("gamma", [shp],dtype=config['dtype'],
-                                         initializer=tf.random_normal_initializer(1., 0.02,dtype=config['dtype']))
-            self.beta = tf.get_variable("beta", [shp],dtype=config['dtype'],
-                                        initializer=tf.constant_initializer(0.,dtype=config['dtype']))
+            self.gamma = tf.get_variable("gamma", [shp],dtype=dtype,
+                                         initializer=tf.random_normal_initializer(1., 0.02,dtype=dtype))
+            self.beta = tf.get_variable("beta", [shp],dtype=dtype,
+                                        initializer=tf.constant_initializer(0.,dtype=dtype))
 
             self.mean, self.variance = tf.nn.moments(x, [0, 1, 2])
             self.mean.set_shape((shp,))
             self.variance.set_shape((shp,))
             self.ema_apply_op = self.ema.apply([self.mean, self.variance])
 
-            if self.train:
-                # with tf.control_dependencies([self.ema_apply_op]):
-                normalized_x = tf.nn.batch_norm_with_global_normalization(
-                        x, self.mean, self.variance, self.beta, self.gamma, self.epsilon,
-                        scale_after_normalization=True)
-            else:
-                normalized_x = tf.nn.batch_norm_with_global_normalization(
-                    x, self.ema.average(self.mean), self.ema.average(self.variance), self.beta,
-                    self.gamma, self.epsilon,
+            # with tf.control_dependencies([self.ema_apply_op]):
+            normalized_x = tf.nn.batch_norm_with_global_normalization(
+                    x, self.mean, self.variance, self.beta, self.gamma, self.epsilon,
                     scale_after_normalization=True)
+            #TODO Sampling can be improved by using this at runtime
+            #    normalized_x = tf.nn.batch_norm_with_global_normalization(
+            #        x, self.ema.average(self.mean), self.ema.average(self.variance), self.beta,
+            #        self.gamma, self.epsilon,
+            #        scale_after_normalization=True)
             return normalized_x
 
 class fc_batch_norm(conv_batch_norm):
-    def __call__(self, fc_x):
+    def __call__(self, fc_x, dtype):
         ori_shape = fc_x.get_shape().as_list()
         if ori_shape[0] is None:
             ori_shape[0] = -1
         new_shape = [ori_shape[0], 1, 1, ori_shape[1]]
         x = tf.reshape(fc_x, new_shape)
-        normalized_x = super(fc_batch_norm, self).__call__(x)
+        normalized_x = super(fc_batch_norm, self).__call__(x, dtype)
         return tf.reshape(normalized_x, ori_shape)
 
 
@@ -105,13 +92,13 @@ class batch_norm_second_half(object):
     """Code modification of http://stackoverflow.com/a/33950177
 
     """
-    def __init__(self, epsilon=1e-5,  name="batch_norm"):
+    def __init__(self, epsilon, name):
         with tf.variable_scope(name) as scope:
             self.epsilon = epsilon
 
             self.name=name
 
-    def __call__(self, x):
+    def __call__(self, x, dtype):
 
         shape = x.get_shape().as_list()
 
@@ -127,10 +114,10 @@ class batch_norm_second_half(object):
             shape = x.get_shape().as_list()
 
         with tf.variable_scope(self.name) as scope:
-            self.gamma = tf.get_variable("gamma", [shape[-1]],dtype=config['dtype'],
-                                initializer=tf.random_normal_initializer(1., 0.02,dtype=config['dtype']))
-            self.beta = tf.get_variable("beta", [shape[-1]],dtype=config['dtype'],
-                                initializer=tf.constant_initializer(0.,dtype=config['dtype']))
+            self.gamma = tf.get_variable("gamma", [shape[-1]],dtype=dtype,
+                                initializer=tf.random_normal_initializer(1., 0.02,dtype=dtype))
+            self.beta = tf.get_variable("beta", [shape[-1]],dtype=dtype,
+                                initializer=tf.constant_initializer(0.,dtype=dtype))
 
             second_half = tf.slice(x, [shape[0] // 2, 0, 0, 0],
                                       [shape[0] // 2, shape[1], shape[2], shape[3]])
@@ -148,13 +135,13 @@ class batch_norm_first_half(object):
     """Code modification of http://stackoverflow.com/a/33950177
 
     """
-    def __init__(self, epsilon=1e-5,  name="batch_norm"):
+    def __init__(self, epsilon, name):
         with tf.variable_scope(name) as scope:
             self.epsilon = epsilon
 
             self.name=name
 
-    def __call__(self, x):
+    def __call__(self, x, dtype):
 
         shape = x.get_shape().as_list()
 
@@ -170,10 +157,10 @@ class batch_norm_first_half(object):
             shape = x.get_shape().as_list()
 
         with tf.variable_scope(self.name) as scope:
-            self.gamma = tf.get_variable("gamma", [shape[-1]],dtype=config['dtype'],
-                                initializer=tf.random_normal_initializer(1., 0.02,dtype=config['dtype']))
-            self.beta = tf.get_variable("beta", [shape[-1]],dtype=config['dtype'],
-                                initializer=tf.constant_initializer(0.,dtype=config['dtype']))
+            self.gamma = tf.get_variable("gamma", [shape[-1]],dtype=dtype,
+                                initializer=tf.random_normal_initializer(1., 0.02,dtype=dtype))
+            self.beta = tf.get_variable("beta", [shape[-1]],dtype=dtype,
+                                initializer=tf.constant_initializer(0.,dtype=dtype))
 
             first_half = tf.slice(x, [0, 0, 0, 0],
                                       [shape[0] // 2, shape[1], shape[2], shape[3]])
@@ -225,15 +212,12 @@ def avg_grads(tower_grads):
   return average_grads
 
 class batch_norm_cross(object):
-    def __init__(self, epsilon=1e-5,  name="batch_norm", dtype=tf.float32):
-        with tf.variable_scope(name) as scope:
-            self.epsilon = epsilon
-            self.name=name
+    def __init__(self, epsilon, name):
+        self.epsilon = epsilon
+        self.name=name
 
-    def __call__(self, x):
-
+    def __call__(self, x, dtype):
         shape = x.get_shape().as_list()
-
         needs_reshape = len(shape) != 4
         if needs_reshape:
             orig_shape = shape
@@ -246,14 +230,14 @@ class batch_norm_cross(object):
             shape = x.get_shape().as_list()
 
         with tf.variable_scope(self.name) as scope:
-            self.gamma0 = tf.get_variable("gamma0", [shape[-1] // 2],dtype=config.dtype,
-                                initializer=tf.random_normal_initializer(1., 0.02, dtype=config.dtype))
+            self.gamma0 = tf.get_variable("gamma0", [shape[-1] // 2],dtype=dtype,
+                                initializer=tf.random_normal_initializer(1., 0.02, dtype=dtype))
             self.beta0 = tf.get_variable("beta0", [shape[-1] // 2],
-                                initializer=tf.constant_initializer(0., dtype=config.dtype))
-            self.gamma1 = tf.get_variable("gamma1", [shape[-1] // 2],dtype=config.dtype,
-                                initializer=tf.random_normal_initializer(1., 0.02,dtype=config.dtype))
-            self.beta1 = tf.get_variable("beta1", [shape[-1] // 2],dtype=config.dtype,
-                                initializer=tf.constant_initializer(0.,dtype=config.dtype))
+                                initializer=tf.constant_initializer(0., dtype=dtype))
+            self.gamma1 = tf.get_variable("gamma1", [shape[-1] // 2],dtype=dtype,
+                                initializer=tf.random_normal_initializer(1., 0.02,dtype=dtype))
+            self.beta1 = tf.get_variable("beta1", [shape[-1] // 2],dtype=dtype,
+                                initializer=tf.constant_initializer(0.,dtype=dtype))
 
             ch0 = tf.slice(x, [0, 0, 0, 0],
                               [shape[0], shape[1], shape[2], shape[3] // 2])

@@ -90,7 +90,7 @@ class ResizeConvGenerator:
             sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
             first3 = net if is_last_iteration else sliced
 
-            first3 = ops.layer_regularizer(first3, config.layer_regularizer, config.batch_norm_momentum, config.batch_norm_epsilon)
+            first3 = ops.layer_regularizer(first3, config.layer_regularizer, config.batch_norm_epsilon)
 
             first3 = final_activation(first3)
 

@@ -13,7 +13,7 @@ def repeating_block(net, config, activation, batch_size,id,name, resize=None, ou
 def standard_block(ops, net, config, output_channels):
     activation = ops.lookup(config.activation)
     net = activation(net)
-    net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_momentum, config.batch_norm_epsilon)
+    net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
     net = ops.conv2d(net, 3, 3, 1, 1, output_channels)
     return net
 

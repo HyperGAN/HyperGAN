@@ -1,5 +1,6 @@
 import tensorflow as tf
 import types
+from hypergan.ops.tensorflow import layer_regularizers
 
 class TensorflowOps:
     def __init__(self, dtype="float32", initializer='orthogonal', orthogonal_gain=1.0, random_stddev=0.02):
@@ -69,12 +70,11 @@ class TensorflowOps:
 
             return deconv
 
-    def layer_regularizer(self, net, symbol, momentum, epsilon):
+    def layer_regularizer(self, net, symbol, epsilon):
         self.assert_tensor(net)
-        batch_size = self.shape(net)[0]
         op = self.lookup(symbol)
         if op:
-            net = config.layer_regularizer(batch_size, momentum=momentum, epsilon=epsilon)(net)
+            net = op(epsilon, self.generate_scope())(net, self.dtype)
         return net
 
     def linear(self, net, output_dim):
@@ -118,6 +118,10 @@ class TensorflowOps:
             return tf.nn.tanh
         if symbol == 'sigmoid':
             return tf.nn.sigmoid
+        if symbol == 'batch_norm':
+            return layer_regularizers.batch_norm_1
+        if symbol == 'layer_norm':
+            return layer_regularizers.layer_norm_1
         #TODO if symbol starts with function:
 
         print("lookup failed", symbol)

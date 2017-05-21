@@ -4,7 +4,7 @@ class layer_norm_1(object):
     def __init__(self,  epsilon=1e-5, name="layer_norm"):
         self.name = name
     def __call__(self, x, dtype):
-        return tf.contrib.layers.layer_norm(x, scope=self.name, center=True, scale=True, dtype=dtype)
+        return tf.contrib.layers.layer_norm(x, scope=self.name, center=True, scale=True)
 
 
 class batch_norm_1(object):

@@ -1,6 +1,7 @@
 import tensorflow as tf
 import hyperchamber as hc
 from hypergan.discriminators.common import *
+import inspect
 import os
 
 class PyramidDiscriminator:
@@ -21,7 +22,7 @@ class PyramidDiscriminator:
             orthogonal_initializer_gain=1.0,
             fc_layers=0,
             fc_layer_size=1024,
-            extra_layers=4,
+            extra_layers=0,
             extra_layers_reduction=2,
             strided=False,
             create=None,
@@ -55,7 +56,8 @@ class PyramidDiscriminator:
         self.config = selector.random_config()
 
     #TODO: arguments telescope, root_config/config confusing
-    def create(gan, config, x, g, xs, gs):
+    def create(self, gan, x, g):
+        config = self.config
         dconfig = {k[2:]: v for k, v in gan.config.items() if k[2:] in inspect.getargspec(gan.ops).args}
         ops = gan.ops(*dict(dconfig))
 
@@ -79,10 +81,13 @@ class PyramidDiscriminator:
 
                 # APPEND xs[i] and gs[i]
                 if not is_last_layer:
-                    xg = self.combine_filter(config, xs[i], gs[i])
+                    shape = ops.shape(net)
+                    small_x = ops.resize_images(x, [shape[1], shape[2]], 1)
+                    small_g = ops.resize_images(g, [shape[1], shape[2]], 1)
+                    xg = self.combine_filter(config, small_x, small_g)
                     xg = self.add_noise(config, xg)
 
-            net = self.progressive_enhancement(net, xg)
+            net = self.progressive_enhancement(config, net, xg)
 
             depth = filters + depth_increase
             if i == 0:
@@ -95,11 +100,11 @@ class PyramidDiscriminator:
         for i in range(config.extra_layers):
             output_features = int(int(net.get_shape()[3]))
             net = activation(net)
-            net = conv2d(net, output_features//config.extra_layers_reduction, name=prefix+'_extra_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+            net = ops.conv2d(net, 3, 3, 1, 1, output_features//config.extra_layers_reduction)
             print('[extra discriminator] layer', net)
         k=-1
 
-        net = tf.reshape(net, [batch_size*2, -1])
+        net = tf.reshape(net, [ops.shape(net)[0], -1])
 
         if final_activation or config.fc_layers > 0:
             net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
@@ -147,7 +152,7 @@ class PyramidDiscriminator:
             net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
         return net
 
-    def progressive_enhancement(self, config, net):
-        if config['progressive_enhancement']:
+    def progressive_enhancement(self, config, net, xg):
+        if 'progressive_enhancement' in config and config.progressive_enhancement and xg is not None:
             net = tf.concat(axis=3, values=[net, xg])
         return net

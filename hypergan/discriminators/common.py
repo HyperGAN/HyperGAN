@@ -1,7 +1,7 @@
 import tensorflow as tf
 import hyperchamber as hc
 
-def repeating_block(config, net, depth, prefix='d_'):
+def repeating_block(ops, net, config, depth):
    batch_norm = config['layer_regularizer']
    activation = config['activation']
    filter_size_w = 2
@@ -20,18 +20,19 @@ def repeating_block(config, net, depth, prefix='d_'):
    print('[discriminator] layer', net)
    return net
 
-def standard_block(config, net, depth, prefix='d_'):
+def standard_block(ops, net, config, depth):
    filter_size_w = 2
    filter_size_h = 2
    filter = [1,filter_size_w,filter_size_h,1]
    stride = [1,filter_size_w,filter_size_h,1]
 
-   net = conv2d(net, depth, name=prefix+'_layer', k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+   net = ops.conv2d(net, 3, 3, 1, 1, depth)
+   #TODO
    net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
    print('[discriminator] layer', net)
    return net
 
-def strided_block(config, net, depth, prefix='d_'):
-   net = conv2d(net, depth, name=prefix+'_layer', k_w=3, k_h=3, d_h=2, d_w=2, regularizer=None,gain=config.orthogonal_initializer_gain)
+def strided_block(ops, net, config, depth):
+   net = ops.conv2d(net, 3, 3, 2, 2, depth)
    print('[discriminator] layer', net)
    return net

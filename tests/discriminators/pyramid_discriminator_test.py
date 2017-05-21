@@ -20,7 +20,7 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
             "z_projection_depth": 128
         })
         graph = hc.Config({
-            'x': tf.constant(1., shape=[32,32,32])
+            'x': tf.constant(1., shape=[32,32,32,3])
         })
         gan = {
             'config': config,
@@ -30,7 +30,7 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
 
         with self.test_session():
             net = tf.constant(1., shape=[32,32,32,3])
-            net = discriminator.create(gan, x, g)
-            self.assertEqual(int(net.get_shape()[3]), 512)
+            net = discriminator.create(hc.Config(gan), graph.x, graph.x)
+            self.assertEqual(int(net.get_shape()[1]), 24)
 if __name__ == "__main__":
     tf.test.main()

@@ -1,7 +1,6 @@
 import tensorflow as tf
-from hypergan.util.ops import *
-from hypergan.util.hc_tf import *
 import hyperchamber as hc
+import numpy as np
 
 from hypergan.losses import wgan_loss, standard_gan_loss, lsgan_loss
 

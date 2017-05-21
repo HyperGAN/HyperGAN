@@ -55,7 +55,7 @@ class PyramidDiscriminator:
         self.config = selector.random_config()
 
     #TODO: arguments telescope, root_config/config confusing
-    def discriminator(gan, config, x, g, xs, gs):
+    def create(gan, config, x, g, xs, gs):
         dconfig = {k[2:]: v for k, v in gan.config.items() if k[2:] in inspect.getargspec(gan.ops).args}
         ops = gan.ops(*dict(dconfig))
 
@@ -78,7 +78,7 @@ class PyramidDiscriminator:
                 net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
 
                 # APPEND xs[i] and gs[i]
-                if(!is_last_layer):
+                if not is_last_layer:
                     xg = self.combine_filter(config, xs[i], gs[i])
                     xg = self.add_noise(config, xg)
 

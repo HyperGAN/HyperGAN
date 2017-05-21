@@ -13,7 +13,24 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
             self.assertEqual(discriminator.config.activation, tf.nn.tanh)
 
     def testCreate(self):
+        config = hc.Config({
+            'batch_size': 32,
+            'channels': 3,
+            'x_dims': [32,32],
+            "z_projection_depth": 128
+        })
+        graph = hc.Config({
+            'x': tf.constant(1., shape=[32,32,32])
+        })
+        gan = {
+            'config': config,
+            'graph': graph,
+            'ops': TensorflowOps,
+        }
+
         with self.test_session():
-            self.assertEqual(discriminator.config.activation, tf.nn.tanh)
+            net = tf.constant(1., shape=[32,32,32,3])
+            net = discriminator.create(gan, x, g)
+            self.assertEqual(int(net.get_shape()[3]), 512)
 if __name__ == "__main__":
     tf.test.main()

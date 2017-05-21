@@ -6,6 +6,8 @@ from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 
+from hypergan.trainers.alternating_trainer import AlternatingTrainer
+
 trainer = AlternatingTrainer()
 class AlternatingTrainerTest(tf.test.TestCase):
     def testConfig(self):

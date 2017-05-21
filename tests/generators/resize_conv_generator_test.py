@@ -12,10 +12,6 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
         with self.test_session():
             self.assertEqual(generator.config.activation, tf.nn.tanh)
 
-    def testPrefix(self):
-        with self.test_session():
-            self.assertEqual(generator.prefix, 'test')
-
     def testCreate(self):
         with self.test_session():
             config = hc.Config({

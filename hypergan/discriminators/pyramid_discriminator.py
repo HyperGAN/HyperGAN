@@ -1,18 +1,16 @@
 import tensorflow as tf
 import hyperchamber as hc
-from hypergan.util.ops import *
-from hypergan.util.hc_tf import *
 from hypergan.discriminators.common import *
 import os
 
 def config(
-        activation=lrelu,
+        activation='lrelu',
         block=standard_block,
         depth_increase=2,
         final_activation=None,
         first_conv_size=16,
         first_strided_conv_size=64,
-        layer_regularizer=layer_norm_1,
+        layer_regularizer='layer_norm',
         layers=5,
         resize=None,
         noise=None,

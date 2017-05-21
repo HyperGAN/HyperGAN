@@ -1,5 +1,4 @@
 import tensorflow as tf
-from hypergan.util.ops import *
 
 def config():
     selector = hc.Selector()

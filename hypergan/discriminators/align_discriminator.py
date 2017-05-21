@@ -1,7 +1,5 @@
 import tensorflow as tf
 import hyperchamber as hc
-from hypergan.util.ops import *
-from hypergan.util.hc_tf import *
 import os
 import hypergan
 
@@ -15,13 +13,13 @@ def l1_distance(a,b):
 
 
 def config(
-        activation=lrelu,
+        activation='lrelu',
         depth_increase=2,
         final_activation=None,
         first_conv_size=16,
         first_strided_conv_size=64,
         distance=l1_distance,
-        layer_regularizer=layer_norm_1,
+        layer_regularizer='layer_norm',
         layers=5,
         resize=None,
         noise=None,
@@ -40,7 +38,7 @@ def config(
         batch_norm_epsilon=[0.0001]
         ):
     selector = hc.Selector()
-    selector.set("activation", [lrelu])#prelu("d_")])
+    selector.set("activation", activation)
     selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
     selector.set("final_activation", final_activation)
     selector.set("first_conv_size", first_conv_size)

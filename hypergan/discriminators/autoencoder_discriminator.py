@@ -1,7 +1,5 @@
 import tensorflow as tf
 import hyperchamber as hc
-from hypergan.util.ops import *
-from hypergan.util.hc_tf import *
 import os
 import hypergan
 from hypergan.discriminators.common import *
@@ -16,7 +14,7 @@ def l1_distance(a,b):
 
 
 def config(
-        activation=lrelu,
+        activation='lrelu',
         block=standard_block,
         block_repeat_count=1,
         depth_increase=2,
@@ -24,7 +22,7 @@ def config(
         first_conv_size=16,
         first_strided_conv_size=64,
         distance=l1_distance,
-        layer_regularizer=layer_norm_1,
+        layer_regularizer='layer_norm',
         layers=5,
         resize=None,
         noise=None,
@@ -43,7 +41,7 @@ def config(
         batch_norm_epsilon=[0.0001]
         ):
     selector = hc.Selector()
-    selector.set("activation", [lrelu])#prelu("d_")])
+    selector.set("activation", activation)
     selector.set("block", block)#prelu("d_")])
     selector.set("block_repeat_count", block_repeat_count)#prelu("d_")])
     selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer

@@ -1,27 +1,29 @@
 import tensorflow as tf
 import hyperchamber as hc
 
-def config():
-    selector = hc.Selector()
-    selector.set("reduce", [tf.reduce_mean])#reduce_sum, reduce_logexp work
 
-    selector.set('create', create)
-    selector.set('batch_norm', layer_norm_1)
+class SupervisedLoss:
+    def __init__(self):
+        selector = hc.Selector()
+        selector.set("reduce", [tf.reduce_mean])#reduce_sum, reduce_logexp work
 
-    return selector.random_config()
+        selector.set('create', create)
+        selector.set('batch_norm', layer_norm_1)
 
-def create(config, gan):
-    batch_norm = config.batch_norm
-    batch_size = gan.config.batch_size
+        self.config = selector.random_config()
 
-    num_classes = gan.config.y_dims
-    net = gan.graph.d_real
-    net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
-    net = batch_norm(batch_size, name='d_bn_end')(net)
+    def create(config, gan):
+        batch_norm = config.batch_norm
+        batch_size = gan.config.batch_size
 
-    d_class_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net,labels=gan.graph.y)
+        num_classes = gan.config.y_dims
+        net = gan.graph.d_real
+        net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
+        net = batch_norm(batch_size, name='d_bn_end')(net)
 
-    gan.graph.d_class_loss=tf.reduce_mean(d_class_loss)
+        d_class_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net,labels=gan.graph.y)
 
-    return [tf.reduce_mean(d_class_loss), None]
+        gan.graph.d_class_loss=tf.reduce_mean(d_class_loss)
+
+        return [tf.reduce_mean(d_class_loss), None]
 

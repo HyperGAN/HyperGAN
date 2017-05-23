@@ -2,56 +2,58 @@ import tensorflow as tf
 from hypergan.losses.common import *
 import hyperchamber as hc
 
-def linear_projection(net, axis=1):
-    net = linear(net, 1, scope="d_lsgan_lin_proj")
-    return net
 
-def config(
-        reduce=linear_projection, 
-        discriminator=None,
-        gradient_penalty=False,
-        labels=[[0,-1,-1]] # a,b,c in the paper
-    ):
-    selector = hc.Selector()
-    selector.set("reduce", reduce)
-    selector.set('discriminator', discriminator)
-    selector.set('gradient_penalty',gradient_penalty)
+class LeastSquaresLoss:
+    def linear_projection(net, axis=1):
+        net = linear(net, 1, scope="d_lsgan_lin_proj")
+        return net
 
-    selector.set('create', create)
-    selector.set('labels', labels)
+    def config(
+            reduce=linear_projection, 
+            discriminator=None,
+            gradient_penalty=False,
+            labels=[[0,-1,-1]] # a,b,c in the paper
+        ):
+        selector = hc.Selector()
+        selector.set("reduce", reduce)
+        selector.set('discriminator', discriminator)
+        selector.set('gradient_penalty',gradient_penalty)
 
-    return selector.random_config()
+        selector.set('create', create)
+        selector.set('labels', labels)
 
-def create(config, gan):
-    if(config.discriminator == None):
-        d_real = gan.graph.d_real
-        d_fake = gan.graph.d_fake
-    else:
-        d_real = gan.graph.d_reals[config.discriminator]
-        d_fake = gan.graph.d_fakes[config.discriminator]
+        return selector.random_config()
 
-    net = tf.concat([d_real, d_fake], 0)
-    net = config.reduce(net, axis=1)
-    s = [int(x) for x in net.get_shape()]
-    net = tf.reshape(net, [s[0], -1])
-    d_real = tf.slice(net, [0,0], [s[0]//2,-1])
-    d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
+    def create(config, gan):
+        if(config.discriminator == None):
+            d_real = gan.graph.d_real
+            d_fake = gan.graph.d_fake
+        else:
+            d_real = gan.graph.d_reals[config.discriminator]
+            d_fake = gan.graph.d_fakes[config.discriminator]
 
-    a,b,c = config.labels
-    d_loss = tf.square(d_real - b)+tf.square(d_fake - a)
-    g_loss = tf.square(d_fake - c)
+        net = tf.concat([d_real, d_fake], 0)
+        net = config.reduce(net, axis=1)
+        s = [int(x) for x in net.get_shape()]
+        net = tf.reshape(net, [s[0], -1])
+        d_real = tf.slice(net, [0,0], [s[0]//2,-1])
+        d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
-    if config.gradient_penalty:
-        d_loss += gradient_penalty(gan, config.gradient_penalty)
+        a,b,c = config.labels
+        d_loss = tf.square(d_real - b)+tf.square(d_fake - a)
+        g_loss = tf.square(d_fake - c)
 
-    d_fake_loss = -d_fake
-    d_real_loss = d_real
+        if config.gradient_penalty:
+            d_loss += gradient_penalty(gan, config.gradient_penalty)
 
-    gan.graph.d_fake_loss=tf.reduce_mean(d_fake_loss)
-    gan.graph.d_real_loss=tf.reduce_mean(d_real_loss)
+        d_fake_loss = -d_fake
+        d_real_loss = d_real
 
-    return [d_loss, g_loss]
+        gan.graph.d_fake_loss=tf.reduce_mean(d_fake_loss)
+        gan.graph.d_real_loss=tf.reduce_mean(d_real_loss)
 
-def echo(net, axis=1):
-    return net
+        return [d_loss, g_loss]
+
+    def echo(net, axis=1):
+        return net
 

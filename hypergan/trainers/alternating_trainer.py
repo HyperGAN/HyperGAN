@@ -2,7 +2,6 @@ import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
 import inspect
-from .common import *
 
 from hypergan.trainers.base_trainer import BaseTrainer
 

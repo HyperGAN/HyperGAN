@@ -10,11 +10,11 @@ from hypergan.trainers.proportional_control_trainer import ProportionalControlTr
 
 trainer = ProportionalControlTrainer()
 class ProportionalControlTrainerTest(tf.test.TestCase):
-    def testConfig(self):
+    def test_config(self):
         with self.test_session():
             self.assertEqual(trainer.config.d_learn_rate, 1e-3)
 
-    def testStep(self):
+    def test_step(self):
         with self.test_session():
             self.assertEqual(trainer.step(), [1, 1])
 

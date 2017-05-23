@@ -8,11 +8,11 @@ from unittest.mock import MagicMock
 
 discriminator = PyramidDiscriminator(activation=tf.nn.tanh)
 class PyramidDiscriminatorTest(tf.test.TestCase):
-    def testConfig(self):
+    def test_config(self):
         with self.test_session():
             self.assertEqual(discriminator.config.activation, tf.nn.tanh)
 
-    def testCreate(self):
+    def test_create(self):
         config = hc.Config({
             'batch_size': 32,
             'channels': 3,

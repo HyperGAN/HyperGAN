@@ -10,7 +10,7 @@ from hypergan.trainers.alternating_trainer import AlternatingTrainer
 
 trainer = AlternatingTrainer()
 class AlternatingTrainerTest(tf.test.TestCase):
-    def testConfig(self):
+    def test_config(self):
         with self.test_session():
             self.assertEqual(trainer.config.d_learn_rate, 1e-3)
 

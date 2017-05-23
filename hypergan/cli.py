@@ -170,6 +170,7 @@ class CLI:
         #TODO
         #saver = tf.train.Saver()
         #saver.save(self.sess, self.save_file)
+        return
 
     def check_stdin(self):
         try:

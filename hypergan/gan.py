@@ -3,8 +3,6 @@ import json
 import numpy as np
 import os
 import sys
-import tensorflow
-import tensorflow as tf
 import time
 import uuid
 import copy

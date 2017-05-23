@@ -18,6 +18,11 @@ class MockOps:
     def __init__(self):
         self.mock = True
 
+class MockTrainer:
+    def __init__(self):
+        self.mock = True
+
+
 class GANTest(tf.test.TestCase):
     def test_constructor(self):
         with self.test_session():
@@ -25,8 +30,11 @@ class GANTest(tf.test.TestCase):
             self.assertEqual(gan.graph.x, graph.x)
 
     def test_train(self):
+        trainer = MockTrainer()
+        config = {}
+        config['trainer'] = trainer
         with self.test_session():
-            gan = GAN(graph = graph, ops = MockOps)
+            gan = GAN(graph = graph, ops = MockOps, config = config)
             gan.train()
             self.assertEqual(gan.step, 1)
 

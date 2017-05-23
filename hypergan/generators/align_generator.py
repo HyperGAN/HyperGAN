@@ -36,6 +36,7 @@ class AlignGenerator:
     def create(config, gan, net, prefix="g_"):
         gan.graph.x = gan.graph.xb
 
+
         z_encoded = gan.graph.z_encoded
 
         # TODO Chain together gab(gba) as gabba

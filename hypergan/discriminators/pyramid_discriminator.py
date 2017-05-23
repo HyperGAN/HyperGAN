@@ -131,6 +131,7 @@ class PyramidDiscriminator:
 
             x = tf.image.resize_images(x,config['resize'], 1)
             g = tf.image.resize_images(g,config['resize'], 1)
+
         else:
             return x, g
 

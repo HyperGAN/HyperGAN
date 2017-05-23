@@ -1,5 +1,4 @@
 import hyperchamber as hc
-import tensorflow as tf
 import importlib
 
 from hypergan.discriminators import *
@@ -16,7 +15,7 @@ import hypergan as hg
 
 def selector(args):
     selector = hc.Selector()
-    selector.set('dtype', tf.float32) #The data type to use in our GAN.  Only float32 is supported at the moment
+    selector.set('dtype', "float32") #The data type to use in our GAN.  Only float32 is supported at the moment
 
     # Z encoder configuration
     selector.set('encoders', [[uniform_encoder.config()]])

@@ -1,6 +1,5 @@
 import argparse
 import os
-import tensorflow as tf
 import hyperchamber as hc
 from hypergan.gan_server import *
 from . import GAN
@@ -112,11 +111,12 @@ class CLI:
             size = mul(shape)
             return [v.name, size/1024./1024.]
 
-        sizes = [get_size(i) for i in tf.global_variables()]
-        sizes = sorted(sizes, key=lambda s: s[1])
-        print("[hypergan] Top 5 largest variables:", sizes[-5:])
-        size = sum([s[1] for s in sizes])
-        print("[hypergan] Size of all variables:", size)
+        #TODO
+        #sizes = [get_size(i) for i in tf.global_variables()]
+        #sizes = sorted(sizes, key=lambda s: s[1])
+        #print("[hypergan] Top 5 largest variables:", sizes[-5:])
+        #size = sum([s[1] for s in sizes])
+        #print("[hypergan] Size of all variables:", size)
 
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
@@ -125,8 +125,9 @@ class CLI:
         build_file = os.path.expanduser("~/.hypergan/builds/"+args.config+"/generator.ckpt")
         self.create_path(build_file)
 
-        saver = tf.train.Saver()
-        saver.save(self.sess, build_file)
+        #TODO
+        #saver = tf.train.Saver()
+        #saver.save(self.sess, build_file)
         print("Saved generator to ", build_file)
 
     def serve(self, gan):
@@ -144,8 +145,9 @@ class CLI:
         while(i < self.args.steps or self.args.steps == -1):
             i+=1
             start_time = time.time()
-            with tf.device(args.device):
-              self.step()
+            #TODO
+            #with tf.device(args.device):
+            self.step()
 
             if args.reset_every is not None \
                 and i % args.reset_every == 0 \
@@ -153,8 +155,9 @@ class CLI:
                 and args.max_resets > reset_count:
                 print("Resetting G")
                 reset_count+=1
-                g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
-                init = tf.initialize_variables(g_vars)
+                #TODO
+                #g_vars = [var for var in tf.trainable_variables() if 'g_' in var.name]
+                #init = tf.initialize_variables(g_vars)
                 self.gan.sess.run(init)
             if(args.save_every != 0 and i % args.save_every == 0):
                 print(" |= Saving network")
@@ -164,8 +167,9 @@ class CLI:
             end_time = time.time()
 
     def save(self):
-        saver = tf.train.Saver()
-        saver.save(self.sess, self.save_file)
+        #TODO
+        #saver = tf.train.Saver()
+        #saver.save(self.sess, self.save_file)
 
     def check_stdin(self):
         try:
@@ -231,7 +235,8 @@ class CLI:
 
     def setup_input_loader(self, format, directory, device, config, seconds=None,
             bitrate=None, crop=False, width=None, height=None, channels=3,filterX=None,filterXGt=None):
-        with tf.device('/cpu:0'):
+        #TODO
+        #with tf.device('/cpu:0'):
             #TODO mp3 braken
             if(format == 'mp3'):
                 return audio_loader.mp3_tensors_from_directory(
@@ -273,7 +278,7 @@ class CLI:
 
         print("[hypergan] Config file", config_filename)
         config = selector.load_or_create_config(config_filename, config)
-        config['dtype']=tf.float32 #TODO fix.  this happens because dtype is stored as an enum
+        config['dtype']='float32'
         config['model']=args.config
         config['batch_size'] = args.batch_size
         config = hg.config.lookup_functions(config)
@@ -307,7 +312,8 @@ class CLI:
         self.create_path(samples_path)
 
         self.gan.load_or_initialize_graph(self.save_file)
-        tf.train.start_queue_runners(sess=self.sess)
+        #TODO
+        #tf.train.start_queue_runners(sess=self.sess)
 
         self.output_graph_size()
 
@@ -318,5 +324,6 @@ class CLI:
         elif args.method == 'build':
             self.build(args)
 
-        tf.reset_default_graph()
+        #TODO
+        #tf.reset_default_graph()
         self.sess.close()

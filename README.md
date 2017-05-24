@@ -116,11 +116,24 @@ _Logos generated with [examples/colorizer](#examples)_
 
 ## Install
 
+Optionally, create a `virtualenv`:
+
+```bash
+  virtualenv --system-site-packages -p python3 hypergan
+  source hypergan/bin/activate
+```
+
+Install hypergan:
 
 ```bash
   pip3 install hypergan --upgrade
 ```
 
+Install dependencies:
+
+```bash
+  pip3 install numpy tensorflow-gpu hyperchamber scipy flask flask-cors pillow
+```
 
 ## Train
 

@@ -103,7 +103,7 @@ def run(gan, feed_dict):
     if(config.d_clipped_weights):
         sess.run(gan.graph.clip)
 
-    _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
+    _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t], feed_dict)
 
     _, g_cost, g_k, measure= sess.run([g_optimizer, g_loss, gan.graph.update_k, gan.graph.measure], feed_dict)
     if iteration % 100 == 0:

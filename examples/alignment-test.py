@@ -2,6 +2,7 @@ import argparse
 import os
 import uuid
 import random
+import sys
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
@@ -86,8 +87,8 @@ def discriminator_config():
             depth_increase=[32],
             final_activation=[tf.nn.relu, tf.tanh, tf.nn.crelu, resize_conv_generator.minmax],
             layer_regularizer=[None],
-            layers=[5,4,3],
-	    extra_layers=[0,1,2,3],
+            layers=[6,5,4],
+	    extra_layers=[2,3],
 	    extra_layers_reduction=[1,2,4],
             fc_layer_size=[300],
             fc_layers=[0,1],
@@ -219,6 +220,13 @@ accuracies_items= list(accuracies.items())
 sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
 names = []
 
+z_size = np.array(static_z).shape[1]
+
+print("Z_SIZE", z_size)
+
+if(z_size > 200):
+    sys.exit()
+
 for i in range(40000):
     d_loss, g_loss = gan.train({gan.graph.xa: static_x, gan.graph.z[0]: static_z})
     if(np.abs(g_loss) > 10000):
@@ -228,12 +236,16 @@ for i in range(40000):
     if i % 100 == 0 and i != 0: 
         if 'k' in gan.graph:
             k = gan.sess.run([gan.graph.k], {gan.graph.xa: exa, gan.graph.z[0]: static_z})
-            print("K", k, "d_loss", d_loss)
+            print("K 2", k, "d_loss", d_loss)
+            print("IF")
             if math.isclose(k[0], 0.0) or np.isnan(d_loss):
                 sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                 names = ["error k or dloss"]
+                print("K LOSS ERROR")
                 break
-        if i > 500:
+            print("/IF")
+        print("I IS", i)
+        if i > 1500:
             diversities_v = gan.sess.run([v for _, v in diversities_items])
             accuracies_v = gan.sess.run([v for _, v in accuracies_items])
             print("D", diversities_v)

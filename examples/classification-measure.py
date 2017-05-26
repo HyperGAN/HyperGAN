@@ -15,13 +15,8 @@ from hypergan.search.random_search import RandomSearch
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a 2d test!', add_help=True)
-    parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
-    parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
     parser.add_argument('--steps', '-s', type=int, default=40000, help='number of steps to run for.  defaults to a lot')
-    parser.add_argument('--sample_every', type=int, default=500, help='Samples the model every n epochs.')
-    parser.add_argument('--config', '-c', type=str, default='2d-test', help='config name')
-    parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
     return parser.parse_args()
 
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
@@ -34,20 +29,14 @@ def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.nn.relu(net)
     net = linear(net, end_features, scope=prefix+'linend')
     net = tf.nn.tanh(net)
-    #ys = tf.concat(axis=0, values=[gan.graph.xy, gan.graph.xy])
-    #net = ys - net
 
     return net
 
 def custom_generator(config, gan, net):
     end_features = ((int)(gan.graph.xy.get_shape()[1]))
     net = gan.graph.x
-    #net = linear(gan.graph.x, ((int)(gan.graph.x.get_shape()[1])), scope="g_lin_proj")
-    #net = tf.nn.relu(net)
     net = linear(net, end_features, scope="g_lin_proj3")
     net = tf.tanh(net)
-    #net = tf.greater(net, 0)
-    #net = tf.cast(net, tf.float32)
     return [net]
 
 def custom_discriminator_config():
@@ -83,9 +72,6 @@ def sampler(gan, name):
     plt.xlim([0, 9])
     plt.ylim([-1,1])
     plt.savefig(name)
-
-
-# TODO end shared code
 
 args = parse_args()
 
@@ -154,7 +140,6 @@ while(True):
 
         with open("classification-results", "a") as myfile:
             print("Writing result")
-            #measure = gan.sess.run(gan.graph.measure)
             myfile.write(savename+","+str(accuracy_v)+"\n")
 
         tf.reset_default_graph()

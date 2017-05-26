@@ -2,5 +2,4 @@ flask
 flask-cors
 hyperchamber>=0.2.7
 tensorflow-gpu>=1.0
-scipy
 Pillow

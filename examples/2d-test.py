@@ -57,15 +57,20 @@ def no_regularizer(amt):
  
 def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     net = tf.concat(axis=0, values=[x,g])
-    net = linear(net, 128, scope=prefix+'lin1')
-    net = tf.nn.relu(net)
-    net = linear(net, 128, scope=prefix+'lin2')
+    net = linear(net, 128, scope=prefix+'linone')
+    for i in range(2):
+        net = tf.nn.crelu(net)
+        net = linear(net, 128, scope=prefix+'lin'+str(i))
+    net = tf.nn.crelu(net)
+    net = linear(net, 128, scope=prefix+'linend')
     return net
 
 def custom_generator(config, gan, net):
     net = linear(net, 128, scope="g_lin_proj")
-    net = batch_norm_1(gan.config.batch_size, name='g_bn_1')(net)
-    net = tf.nn.relu(net)
+    for i in range(2):
+        net = tf.nn.crelu(net)
+        net = linear(net, 128, scope='g_lin'+str(i))
+    net = tf.nn.crelu(net)
     net = linear(net, 2, scope="g_lin_proj3")
     net = tf.tanh(net)
     return [net]

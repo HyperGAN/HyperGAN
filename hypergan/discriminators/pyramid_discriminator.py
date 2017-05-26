@@ -78,15 +78,16 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         
 
     if strided:
-        net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=2, d_w=2,regularizer=None)
+        net = conv2d(net, config.first_strided_conv_size, name=prefix+'_expand', k_w=7, k_h=7, d_h=7, d_w=7,regularizer=None,gain=config.orthogonal_initializer_gain)
     else:
-        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None)
+        net = conv2d(net, config.first_conv_size, name=prefix+'_expand', k_w=3, k_h=3, d_h=1, d_w=1,regularizer=None,gain=config.orthogonal_initializer_gain)
 
     for i in range(depth):
-      #TODO better name for `batch_norm`?
-      if batch_norm is not None:
-          net = batch_norm(batch_size*2, name=prefix+'_expand_bn_'+str(i))(net)
-      net = activation(net)
+      if i > 0:
+          #TODO better name for `batch_norm`?
+          if batch_norm is not None:
+              net = batch_norm(batch_size*2, name=prefix+'_expand_bn_'+str(i))(net)
+          net = activation(net)
     
       #TODO: cross-d, overwritable
       # APPEND xs[i] and gs[i]
@@ -112,14 +113,29 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
       filter_size_h = 2
       filter = [1,filter_size_w,filter_size_h,1]
       stride = [1,filter_size_w,filter_size_h,1]
-      if strided:
-          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=filter_size_h, d_w=filter_size_w, regularizer=None)
-      else:
-          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None)
-          net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+      #if strided:
+      #    net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=2, d_w=2, regularizer=None)
+      #else:
+      if i > 0:
+          net = conv2d(net, int(int(net.get_shape()[3])*depth_increase), name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+      net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+
+
+      if i == 2:
+        for i in range(config.mid_layers):
+            output_features = int(int(net.get_shape()[3]))
+            net = activation(net)
+            net = conv2d(net, output_features, name=prefix+'_extra_layer'+str(i), k_w=1, k_h=1, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+            print('[mid discriminator] layer', net)
+ 
 
       print('[discriminator] layer', net)
-
+    
+    for i in range(config.extra_layers):
+        output_features = int(int(net.get_shape()[3]))
+        net = activation(net)
+        net = conv2d(net, output_features//2, name=prefix+'_extra_layes2r'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+        print('[extra discriminator] layer', net)
     k=-1
 
     net = tf.reshape(net, [batch_size*2, -1])
@@ -139,6 +155,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         net = final_activation(net)
 
 
+    net = batch_norm_1(gan.config.batch_size, name=prefix+'_bn_first')(net)
     return net
 
 

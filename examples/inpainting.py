@@ -61,6 +61,23 @@ def add_inpaint(gan, net):
 
     return x
 
+
+def add_original_x(gan, net):
+    x = gan.graph.x
+    mask = gan.graph.filter_mask
+    print("MASK IS", mask)
+
+    s = [int(x) for x in net.get_shape()]
+    shape = [s[1], s[2]]
+    mask = tf.image.resize_images(mask, shape, 1)
+
+    x = tf.image.resize_images(x, shape, 1)
+    #xx += tf.random_normal(xx.get_shape(), mean=0, stddev=config['noise_stddev'], dtype=root_config['dtype'])
+    x = x*(1-mask)
+    return x
+
+
+
 args = parse_args()
 
 width = int(args.size.split("x")[0])
@@ -74,6 +91,7 @@ config_filename = os.path.expanduser('~/.hypergan/configs/inpainting.json')
 config = selector.load_or_create_config(config_filename, config)
 
 config['generator']['layer_filter'] = add_inpaint
+config['discriminators'][0]['layer_filter'] = add_original_x
 
 config['dtype']=tf.float32
 config['batch_size'] = args.batch_size

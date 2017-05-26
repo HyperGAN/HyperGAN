@@ -132,7 +132,7 @@ Install hypergan:
 Install dependencies:
 
 ```bash
-  pip3 install numpy tensorflow-gpu hyperchamber scipy flask flask-cors pillow
+  pip3 install numpy tensorflow-gpu hyperchamber flask flask-cors pillow
 ```
 
 ## Train

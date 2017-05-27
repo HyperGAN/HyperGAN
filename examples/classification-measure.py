@@ -110,10 +110,8 @@ while(True):
     }
 
     with tf.device(args.device):
-        tfconfig = tf.ConfigProto()
-        tfconfig.gpu_options.allow_growth=True
 
-        gan = hg.GAN(config, initial_graph, tfconfig=tfconfig)
+        gan = hg.GAN(config, initial_graph)
         correct_prediction = tf.equal(tf.argmax(gan.graph.g[0],1), tf.argmax(y,1))
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32)) * 100
         print("CONFIG", gan.config)

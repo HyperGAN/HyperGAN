@@ -29,10 +29,13 @@ import uuid
 
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
-    def __init__(self, config, graph, device='/gpu:0', graph_type='full', tfconfig=tf.ConfigProto()):
+    def __init__(self, config, graph, device='/gpu:0', graph_type='full', tfconfig=None):
         """ Initialized a new GAN."""
         self.config=Config(config)
         self.device=device
+        if tfconfig is None:
+            tfconfig = tf.ConfigProto()
+            tfconfig.gpu_options.allow_growth=True
         self.init_session(device, tfconfig)
         self.graph = Config(graph)
         #TODO rename me.  Graph should refer to our {name => Tensor} collection

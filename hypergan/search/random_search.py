@@ -5,21 +5,15 @@ import numpy as np
 
 class RandomSearch:
     def __init__(self, overrides):
-        self.overrides = overrides
-
-        generators = overrides['generator']
-        discriminators = overrides['discriminators']
-        model = overrides['model']
-        batch_size = overrides['batch_size']
         self.options = {
-            'batch_size':batch_size,
-            'model':model,
             'trainer': self.trainers(),
-            'discriminators': discriminators,
-            'generator': generators,
+            #'discriminators': discriminators,
+            #'generator': generators,
             'losses':self.losses(),
             'encoders':self.encoders()
          }
+
+        self.options = {**self.options, **overrides}
 
     def range(self):
         return list(np.linspace(0, 1, num=1000000))
@@ -124,6 +118,10 @@ class RandomSearch:
         encoders = []
 
         projections = []
+        projections.append([hg.encoders.uniform_encoder.identity])
+        projections.append([hg.encoders.uniform_encoder.sphere])
+        projections.append([hg.encoders.uniform_encoder.binary])
+        projections.append([hg.encoders.uniform_encoder.modal])
         projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.identity])
         projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity])
         projections.append([hg.encoders.uniform_encoder.binary, hg.encoders.uniform_encoder.sphere])
@@ -131,42 +129,22 @@ class RandomSearch:
         projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere])
         projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity, hg.encoders.uniform_encoder.gaussian])
         encoder_opts = {
-                'z': [16],
-                'modes': [2,4,8,16],
-                'projections': projections
-                }
-
-        stable_encoder_opts = {
-          "max": 1,
-          "min": -1,
-          "modes": 8,
-          "projections": [[
-            "function:hypergan.encoders.uniform_encoder.identity",
-            "function:hypergan.encoders.uniform_encoder.modal",
-             "function:hypergan.encoders.uniform_encoder.sphere"
-          ]],
-          "z": 16
+                'z': list(np.arange(0, 100)),
+                'modes': list(np.arange(2,24)),
+                'projections': projections,
+                'min': -1,
+                'max':1,
+                'create': hg.encoders.uniform_encoder.create
         }
 
-
-        #encoders.append([hg.encoders.uniform_encoder.config(**encoder_opts)])
-        encoders.append([hg.encoders.uniform_encoder.config(**stable_encoder_opts)])
-        #encoders.append([custom_encoder_config()])
+        config = hc.Selector(encoder_opts).random_config()
+        encoders.append([config])
         return encoders
 
     def random_config(self):
-        selected = {}
+        selector = hc.Selector(self.options)
+        selected = dict(selector.random_config())
 
-        selector = hc.Selector()
-        for key,value in self.options.items():
-            selector.set(key, value)
-        
-        custom = selector.random_config()
-
-        for key,value in custom.items():
-            selected[key]=value
-
-        
         selected['dtype']=tf.float32
         return hg.config.lookup_functions(selected)
 

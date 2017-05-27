@@ -13,8 +13,8 @@ class RandomSearch:
 
         self.options = {**self.options, **overrides}
 
-    def range(self):
-        return list(np.linspace(0, 1, num=1000000))
+    def range(self, multiplier=1):
+        return list(np.linspace(0, 1, num=1000000)*multiplier)
 
     def trainers(self):
         trainers = []
@@ -34,8 +34,8 @@ class RandomSearch:
         ]
 
         selector = hc.Selector({
-            'd_learn_rate': self.range()/100,
-            'g_learn_rate': self.range()/100,
+            'd_learn_rate': self.range(.001),
+            'g_learn_rate': self.range(.001),
             'd_beta1': self.range(),
             'd_beta2': self.range(),
             'g_beta1': self.range(),

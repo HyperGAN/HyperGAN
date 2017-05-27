@@ -15,6 +15,7 @@ from hypergan.search.random_search import RandomSearch
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a 2d test!', add_help=True)
+    parser.add_argument('--batch_size', '-b', type=int)
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
     parser.add_argument('--steps', '-s', type=int, default=40000, help='number of steps to run for.  defaults to a lot')
     return parser.parse_args()
@@ -92,7 +93,6 @@ while(True):
 
     print("Starting training for: "+savefile)
 
-    config['model']=args.config
     config['batch_size']=args.batch_size
     config['dtype']=tf.float32
     config = hg.config.lookup_functions(config)

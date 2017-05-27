@@ -105,8 +105,10 @@ class RandomSearch:
             'use_k': [False, True],
             'initial_k': self.range(),
             'k_lambda': self.range(),
+            'type': ['wgan', 'lsgan', 'softmax'],
             'create': [
                 hg.losses.boundary_equilibrium_loss.create,
+                hg.losses.began_h_loss.create,
                 hg.losses.lamb_gan_loss.create,
                 hg.losses.lsgan_loss.create,
                 hg.losses.standard_gan_loss.create,

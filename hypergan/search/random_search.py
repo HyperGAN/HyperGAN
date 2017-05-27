@@ -7,8 +7,6 @@ class RandomSearch:
     def __init__(self, overrides):
         self.options = {
             'trainer': self.trainers(),
-            #'discriminators': discriminators,
-            #'generator': generators,
             'losses':self.losses(),
             'encoders':self.encoders()
          }
@@ -36,8 +34,8 @@ class RandomSearch:
         ]
 
         selector = hc.Selector({
-            'd_learn_rate': self.range(),
-            'g_learn_rate': self.range(),
+            'd_learn_rate': self.range()/100,
+            'g_learn_rate': self.range()/100,
             'd_beta1': self.range(),
             'd_beta2': self.range(),
             'g_beta1': self.range(),

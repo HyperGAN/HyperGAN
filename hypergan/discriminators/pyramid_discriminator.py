@@ -87,7 +87,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         x_filter = tf.concat(axis=3, values=[x, config['layer_filter'](gan, x)])
         net = tf.concat(axis=0, values=[x_filter,g_filter] )
     else:
-        net = tf.concat(axis=0, values=[tf.squeeze(x),tf.squeeze(g)])
+        net = tf.concat(axis=0, values=[x,g])
     if(config['noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
 

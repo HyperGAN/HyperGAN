@@ -190,7 +190,7 @@ def train():
         'clipped_gradients': [False, 0.01]
     }
 
-    trainers.append(hg.trainers.adam_trainer.config(**adam_opts))
+    trainers.append(hg.trainers.alternating_trainer.config(**adam_opts))
     
     sgd_opts = {
         'd_learn_rate': [1e-3,1e-4,5e-4,1e-2,1e-6],

@@ -84,15 +84,38 @@ def create(config, gan, net, prefix="g_"):
         #layers = int(net.get_shape()[3])//depth_reduction
         layers = int(net.get_shape()[3])-depth_reduction
         if(i == depth-1):
-            output_channels=gan.config.channels
+            layers=gan.config.channels
         resized_wh=[s[1]*2, s[2]*2]
         if(resized_wh[0] > x_dims[0]):
-            resized_wh=x_dims
+            resized_wh[0]=x_dims[0]
+        if(resized_wh[1] > x_dims[1]):
+            resized_wh[1]=x_dims[1]
+        print(';;;;',resized_wh)
         if gan.config.x_dims[1] == 1:
             resized_wh[1]=1
         net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
 
         print('---', net)
+        if(config.layer_filter):
+            fltr = config.layer_filter(gan, net)
+            if(fltr is not None):
+                net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
+        fltr = 3
+        if fltr > net.get_shape()[1]:
+            fltr=int(net.get_shape()[1])
+        if fltr > net.get_shape()[2]:
+            fltr=int(net.get_shape()[2])
+
+        if config.sigmoid_gate:
+            sigmoid_gate = z
+        else:
+            sigmoid_gate = None
+
+        if gan.config.x_dims[1] == 1:
+            resized_wh[1]=1
+        net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
+
+        print('---', net, layers)
         if(config.layer_filter):
             fltr = config.layer_filter(gan, net)
             if(fltr is not None):

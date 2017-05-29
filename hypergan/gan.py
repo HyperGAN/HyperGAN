@@ -29,11 +29,14 @@ import uuid
 
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
-    def __init__(self, config, graph, device='/gpu:0', graph_type='full'):
+    def __init__(self, config, graph, device='/gpu:0', graph_type='full', tfconfig=None):
         """ Initialized a new GAN."""
         self.config=Config(config)
         self.device=device
-        self.init_session(device)
+        if tfconfig is None:
+            tfconfig = tf.ConfigProto()
+            tfconfig.gpu_options.allow_growth=True
+        self.init_session(device, tfconfig)
         self.graph = Config(graph)
         #TODO rename me.  Graph should refer to our {name => Tensor} collection
         self.create_graph(graph_type, device)
@@ -57,10 +60,10 @@ class GAN:
             else:
                 raise Exception("Invalid graph type")
 
-    def init_session(self, device):
+    def init_session(self, device, tfconfig):
         # Initialize tensorflow
         with tf.device(device):
-            self.sess = tf.Session(config=tf.ConfigProto())
+            self.sess = tf.Session(config=tfconfig)
 
     def train(self, feed_dict={}):
         trainer = hc.Config(hc.lookup_functions(self.config.trainer))

@@ -74,7 +74,10 @@ class Graph:
                 encoders.append(zs)
                 self.gan.graph.z.append(z_base)
 
-        z_encoded = tf.concat(axis=1, values=encoders)
+        if(len(encoders) > 0):
+            z_encoded = tf.concat(axis=1, values=encoders)
+        else:
+            z_encoded = tf.zeros(0)
         self.gan.graph.z_encoded = z_encoded
 
         return z_encoded

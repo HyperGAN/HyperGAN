@@ -77,6 +77,8 @@ class CLI:
             sampler = progressive_enhancement_sampler.sample
         elif(self.args.sampler == "began"):
             sampler = began_sampler.sample
+        elif(self.args.sampler == "aligned_began"):
+            sampler = aligned_began_sampler.sample
         else:
             raise "Cannot find sampler: '"+self.args.sampler+"'"
 

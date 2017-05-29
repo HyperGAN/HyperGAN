@@ -10,32 +10,42 @@ class ResizeConvGenerator(BaseGenerator):
     def required(self):
         return "final_depth activation final_activation depth_increase block".split()
 
-    def depths(self, gan, ops):
+    def depths(self):
+        gan = self.gan
+        ops = self.ops
         config = self.config
         final_depth = config.final_depth
         depths = []
 
+        print("GAN>GRAP>X", gan.graph.x)
         target_w = ops.shape(gan.graph.x)[0]
 
         w = 4 # TODO config option
         i = 0
+
+        depths.append(final_depth)
         while w < target_w:
             w*=2
             i+=1
             depths.append(final_depth + i*config.depth_increase)
+        depths.reverse()
         return depths
 
-    def create(self, gan, net):
+    def create(self, net):
+        gan = self.gan
+        ops = self.ops
+
+        ops.describe("generator")
+
         config = self.config
         layers = 0
         primes = [4, 4]
         nets = []
         x_dims = gan.config.x_dims
         #TODO refactor to a method on GAN object
-        ops.describe("generator")
 
         batch_size = gan.config.batch_size
-        depths = self.depths(gan, ops)
+        depths = self.depths()
         initial_depth = depths[0]
         new_shape = [batch_size, primes[0], primes[1], initial_depth]
 

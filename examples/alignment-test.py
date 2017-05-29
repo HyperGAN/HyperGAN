@@ -159,8 +159,6 @@ initial_graph = {
     'examples_per_epoch':examples_per_epoch
 }
 
-print("Config is ", config.trainer)
-
 gan = hg.GAN(config, initial_graph)
 
 gan.initialize_graph()
@@ -222,11 +220,6 @@ names = []
 
 z_size = np.array(static_z).shape[1]
 
-print("Z_SIZE", z_size)
-
-if(z_size > 200):
-    sys.exit()
-
 for i in range(40000):
     d_loss, g_loss = gan.train({gan.graph.xa: static_x, gan.graph.z[0]: static_z})
     if(np.abs(g_loss) > 10000):
@@ -236,19 +229,14 @@ for i in range(40000):
     if i % 100 == 0 and i != 0: 
         if 'k' in gan.graph:
             k = gan.sess.run([gan.graph.k], {gan.graph.xa: exa, gan.graph.z[0]: static_z})
-            print("K 2", k, "d_loss", d_loss)
-            print("IF")
+            print("K", k, "d_loss", d_loss)
             if math.isclose(k[0], 0.0) or np.isnan(d_loss):
                 sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                 names = ["error k or dloss"]
-                print("K LOSS ERROR")
                 break
-            print("/IF")
-        print("I IS", i)
         if i > 1500:
             diversities_v = gan.sess.run([v for _, v in diversities_items])
             accuracies_v = gan.sess.run([v for _, v in accuracies_items])
-            print("D", diversities_v)
             broken = False
             for k, v in enumerate(diversities_v):
                 sums[k] += v 

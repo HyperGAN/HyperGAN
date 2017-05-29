@@ -24,12 +24,10 @@ def sample(gan, sample_file):
     g=tf.get_default_graph()
     with g.as_default():
         tf.set_random_seed(1)
-        sample = sess.run(generator, feed_dict={z_t: z, y_t: y})
-        width = 8
-        bs = gan.config.batch_size
-        #plot(self.config, sample, sample_file)
-        stacks = [np.hstack(sample[x*width:x*width+width]) for x in range(bs//width)]
-
+        sample = sess.run(generator, feed_dict={z_t: z, y_t: y, x_t: x})
+        mean = sess.run(tf.reduce_mean(gan.graph.z_encoded), feed_dict={z_t: z})
+        width = min(gan.config.batch_size, 8)
+        stacks = [np.hstack(sample[i*width:i*width+width]) for i in range(gan.config.batch_size//width)]
         plot(config, np.vstack(stacks), sample_file)
 
     return [{'image':sample_file, 'label':'grid'}]

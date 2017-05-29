@@ -2,6 +2,7 @@ import argparse
 import os
 import uuid
 import random
+import sys
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
@@ -86,8 +87,8 @@ def discriminator_config():
             depth_increase=[32],
             final_activation=[tf.nn.relu, tf.tanh, tf.nn.crelu, resize_conv_generator.minmax],
             layer_regularizer=[None],
-            layers=[5,4,3],
-	    extra_layers=[0,1,2,3],
+            layers=[6,5,4],
+	    extra_layers=[2,3],
 	    extra_layers_reduction=[1,2,4],
             fc_layer_size=[300],
             fc_layers=[0,1],
@@ -158,8 +159,6 @@ initial_graph = {
     'examples_per_epoch':examples_per_epoch
 }
 
-print("Config is ", config.trainer)
-
 gan = hg.GAN(config, initial_graph)
 
 gan.initialize_graph()
@@ -219,6 +218,8 @@ accuracies_items= list(accuracies.items())
 sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
 names = []
 
+z_size = np.array(static_z).shape[1]
+
 for i in range(40000):
     d_loss, g_loss = gan.train({gan.graph.xa: static_x, gan.graph.z[0]: static_z})
     if(np.abs(g_loss) > 10000):
@@ -233,10 +234,9 @@ for i in range(40000):
                 sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                 names = ["error k or dloss"]
                 break
-        if i > 500:
+        if i > 1500:
             diversities_v = gan.sess.run([v for _, v in diversities_items])
             accuracies_v = gan.sess.run([v for _, v in accuracies_items])
-            print("D", diversities_v)
             broken = False
             for k, v in enumerate(diversities_v):
                 sums[k] += v 

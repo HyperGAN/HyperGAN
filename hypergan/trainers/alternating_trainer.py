@@ -100,7 +100,7 @@ class AlternatingTrainer(BaseTrainer):
         d_class_loss = gan.graph.d_class_loss
         d_vars = gan.graph.d_vars
 
-        _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
+        _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t], feed_dict)
 
         # in WGAN paper, values are clipped.  This might not work, and is slow.
         if(config.d_clipped_weights):

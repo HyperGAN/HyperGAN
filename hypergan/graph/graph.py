@@ -29,9 +29,6 @@ class Graph:
         batch_size = config.batch_size*2
         single_batch_size = config.batch_size
         channels = config.channels
-        if self.gan.graph.xa is not None:
-            x = self.gan.graph.xa
-        print('---', x)
         # combine to one batch, per Ian's "Improved GAN"
         xs = [x]
         gs = g
@@ -74,7 +71,10 @@ class Graph:
                 encoders.append(zs)
                 self.gan.graph.z.append(z_base)
 
-        z_encoded = tf.concat(axis=1, values=encoders)
+        if(len(encoders) > 0):
+            z_encoded = tf.concat(axis=1, values=encoders)
+        else:
+            z_encoded = tf.zeros(0)
         self.gan.graph.z_encoded = z_encoded
 
         return z_encoded

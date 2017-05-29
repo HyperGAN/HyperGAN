@@ -4,6 +4,7 @@ import hyperchamber as hc
 from hypergan.gan_server import *
 from . import GAN
 from .loaders import *
+from .samplers.viewer import GlobalViewer
 import hypergan as hg
 import time
 
@@ -39,6 +40,7 @@ class CLI:
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
+        parser.add_argument('--viewer', dest='viewer', action='store_true', help='Displays samples in a window.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -65,6 +67,9 @@ class CLI:
         to create a video of the learning process.
         """
 
+        if(self.args.viewer):
+            GlobalViewer.enable()
+
         if(self.args.sampler == "grid"):
             sampler = grid_sampler.sample
         elif(self.args.sampler == "batch"):
@@ -75,6 +80,8 @@ class CLI:
             sampler = progressive_enhancement_sampler.sample
         elif(self.args.sampler == "began"):
             sampler = began_sampler.sample
+        elif(self.args.sampler == "aligned_began"):
+            sampler = aligned_began_sampler.sample
         else:
             raise "Cannot find sampler: '"+self.args.sampler+"'"
 
@@ -197,7 +204,7 @@ class CLI:
                 width=width, 
                 height=height, 
                 channels=channels)
-        if self.args.align:
+        if self.args.align: # TODO only support 2 classes for now
             xa,_,_,_,_ = self.setup_input_loader(format, 
                     directory, 
                     device, 
@@ -219,7 +226,7 @@ class CLI:
                     width=width, 
                     height=height, 
                     channels=channels,
-                    filterXGt=0
+                    filterX=1
                     )
         else:
             xa = None
@@ -235,9 +242,8 @@ class CLI:
             }
 
     def setup_input_loader(self, format, directory, device, config, seconds=None,
-            bitrate=None, crop=False, width=None, height=None, channels=3,filterX=None,filterXGt=None):
-        #TODO
-        #with tf.device('/cpu:0'):
+            bitrate=None, crop=False, width=None, height=None, channels=3,filterX=None):
+        with tf.device('/cpu:0'):
             #TODO mp3 braken
             if(format == 'mp3'):
                 return audio_loader.mp3_tensors_from_directory(
@@ -255,7 +261,7 @@ class CLI:
                         format=format,
                         crop=crop,
                         width=width,
-                        height=height,filterX=filterX,filterXGt=filterXGt)
+                        height=height,filterX=filterX)
 
     def run(self):
         parser = self.get_parser()

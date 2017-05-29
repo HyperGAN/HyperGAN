@@ -3,7 +3,7 @@ import hyperchamber as hc
 from hypergan.generators.resize_conv_generator import minmaxzero
 from hypergan.losses.common import *
 
-class BeganHLoss:
+class BeganSoftmaxLoss:
 
     def config(
             reduce=tf.reduce_mean, 
@@ -63,20 +63,11 @@ class BeganHLoss:
 
         k = tf.get_variable(prefix+'k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=config.dtype)
 
-        if config.type == 'wgan':
-            l_x = d_real
-            l_dg =-d_fake
-            g_loss = d_fake
-        elif config.type == 'softmax': #https://arxiv.org/pdf/1704.06191.pdf
-            ln_zb = tf.reduce_sum(tf.exp(-d_real))+tf.reduce_sum(tf.exp(-d_fake))
-            ln_zb = tf.log(ln_zb)
-            l_x = tf.reduce_mean(d_real) + ln_zb
-            g_loss = tf.reduce_mean(d_fake) + tf.reduce_mean(d_real) + ln_zb
-            l_dg =-tf.reduce_mean(d_fake)-tf.reduce_mean(d_real)
-        else:
-            l_x = tf.square(d_real-b)
-            l_dg = tf.square(d_fake - a)
-            g_loss = tf.square(d_fake - c)
+        ln_zb = tf.reduce_sum(tf.exp(-d_real))+tf.reduce_sum(tf.exp(-d_fake))
+        ln_zb = tf.log(ln_zb)
+        l_x = tf.reduce_mean(d_real) + ln_zb
+        g_loss = tf.reduce_mean(d_fake) + tf.reduce_mean(d_real) + ln_zb
+        l_dg =-tf.reduce_mean(d_fake)-tf.reduce_mean(d_real)
 
         if config.use_k:
             d_loss = l_x+k*l_dg
@@ -103,55 +94,6 @@ class BeganHLoss:
         g_loss = tf.reduce_mean(g_loss)
 
 
-        if 'include_recdistance' in config:
-            reconstruction = tf.add_n([
-                dist(gan.graph.rxabba, gan.graph.rxa),
-                dist(gan.graph.rxbaab, gan.graph.rxb)
-                ])
-            reconstruction *= config.alignment_lambda
-            g_loss += tf.reduce_mean(reconstruction)
-
-        if 'include_recdistance2' in config:
-            reconstruction = tf.add_n([
-                dist(gan.graph.rxabba, gan.graph.xa),
-                dist(gan.graph.rxbaab, gan.graph.xb)
-                ])
-            reconstruction *= config.alignment_lambda
-            g_loss += tf.reduce_mean(reconstruction)
-
-        if 'include_distance' in config:
-            reconstruction = tf.add_n([
-                dist(gan.graph.xabba, gan.graph.xa),
-                dist(gan.graph.xbaab, gan.graph.xb)
-                ])
-            reconstruction *= config.alignment_lambda
-            g_loss += tf.reduce_mean(reconstruction)
-            print("- - - -- - Reconstruction loss added.")
-
-        #if 'dist' in config:
-          #d_loss += lam*dist
-          #g_loss += lam*dist
-        #if 'softmax' in config:
-        #    #d_r = gan.graph.encoder_xb
-        #    #d_f = gan.graph.encoder_g
-        #    d_r = gan.graph.encode_xab
-        #    d_f = gan.graph.encode_gab
-
-        #    ln_zb = tf.reduce_sum(tf.exp(-d_r))+tf.reduce_sum(tf.exp(-d_f))
-        #    ln_zb = tf.log(ln_zb)
-
-        #    d_loss += tf.reduce_mean(d_r) + ln_zb
-        #    g_loss += tf.reduce_mean(d_f) + tf.reduce_mean(d_r) + ln_zb
-        # 
-        #    d_r = gan.graph.encode_xba
-        #    d_f = gan.graph.encode_gba
-
-        #    ln_zb = tf.reduce_sum(tf.exp(-d_r))+tf.reduce_sum(tf.exp(-d_f))
-        #    ln_zb = tf.log(ln_zb)
-
-        #    d_loss += tf.reduce_mean(d_r) + ln_zb
-        #    g_loss += tf.reduce_mean(d_f) + tf.reduce_mean(d_r) + ln_zb
-     
         return [k, update_k, measure, d_loss, g_loss]
 
 

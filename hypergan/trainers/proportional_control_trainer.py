@@ -2,7 +2,6 @@ import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
 import inspect
-
 from hypergan.trainers.base_trainer import BaseTrainer
 
 class ProportionalControlTrainer(BaseTrainer):
@@ -103,7 +102,7 @@ class ProportionalControlTrainer(BaseTrainer):
         if(config.d_clipped_weights):
             sess.run(gan.graph.clip)
 
-        _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t])
+        _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t], feed_dict)
 
         _, g_cost, g_k, measure= sess.run([g_optimizer, g_loss, gan.graph.update_k, gan.graph.measure], feed_dict)
         if self.iteration % 100 == 0:
@@ -112,5 +111,3 @@ class ProportionalControlTrainer(BaseTrainer):
         self.iteration+=1
 
         return d_cost, g_cost
-
-

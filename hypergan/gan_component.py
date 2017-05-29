@@ -9,8 +9,18 @@ class GANComponent:
         self.config = hc.Config(config)
         errors = self.validate()
         if errors != []:
-            raise ValidationException(",".join(errors))
+            raise ValidationException("\n".join(errors))
+
+    def required(self):
+        return []
 
     def validate(self):
-        return []
+        errors = []
+        required = self.required()
+        for argument in required:
+            if(self.config.__getattr__(argument) == None):
+                errors.append("`"+argument+"` required")
+
+        return errors
+
 

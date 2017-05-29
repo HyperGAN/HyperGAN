@@ -8,14 +8,8 @@ from .base_discriminator import BaseDiscriminator
 
 class PyramidDiscriminator(BaseDiscriminator):
 
-    def validate(self):
-        errors = []
-        required = "channels activation layers block depth_increase initial_depth".split()
-        for argument in required:
-            if(self.config.__getattr__(argument) == None):
-                errors.append("`"+argument+"` required")
-
-        return errors
+    def required(self):
+        return "channels activation layers block depth_increase initial_depth".split()
 
     #TODO: arguments telescope, root_config/config confusing
     def create(self, gan, x, g):

@@ -6,6 +6,9 @@ from .base_encoder import BaseEncoder
 TINY=1e-12
 
 class UniformEncoder(BaseEncoder):
+    def required(self):
+        return "z min max".split()
+
     def create(self, gan):
         projections = []
         config = self.config

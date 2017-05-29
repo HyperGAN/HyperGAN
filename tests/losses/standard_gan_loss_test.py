@@ -6,11 +6,11 @@ from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 
-discriminator = PyramidDiscriminator(activation=tf.nn.tanh)
-class PyramidDiscriminatorTest(tf.test.TestCase):
+loss = ImprovedLoss({})
+class ImprovedLossTest(tf.test.TestCase):
     def testConfig(self):
         with self.test_session():
-            self.assertEqual(discriminator.config.activation, tf.nn.tanh)
+            self.assertEqual(loss.config.z, None)
 
 if __name__ == "__main__":
     tf.test.main()

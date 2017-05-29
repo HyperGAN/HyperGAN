@@ -8,6 +8,7 @@ class TensorflowOpsTest(tf.test.TestCase):
     def test_lookup(self):
         with self.test_session():
             self.assertEqual(ops.lookup('tanh'), tf.nn.tanh)
+            self.assertEqual(ops.lookup(None), None)
 
     def test_dtype(self):
         with self.test_session():

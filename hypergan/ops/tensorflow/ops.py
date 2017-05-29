@@ -153,6 +153,8 @@ class TensorflowOps:
         return [int(x) for x in net.get_shape()]
 
     def lookup(self, symbol):
+        if symbol == None:
+            return None
         if type(symbol) == types.FunctionType:
             return symbol
         if symbol == 'tanh':
@@ -165,7 +167,7 @@ class TensorflowOps:
             return layer_regularizers.layer_norm_1
         #TODO if symbol starts with function:
 
-        print("lookup failed", symbol)
+        print("lookup failed for ", self.description, symbol)
         return None
 
     def init_session(self, device):

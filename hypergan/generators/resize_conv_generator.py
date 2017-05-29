@@ -90,26 +90,6 @@ def create(config, gan, net, prefix="g_"):
             resized_wh[0]=x_dims[0]
         if(resized_wh[1] > x_dims[1]):
             resized_wh[1]=x_dims[1]
-        print(';;;;',resized_wh)
-        if gan.config.x_dims[1] == 1:
-            resized_wh[1]=1
-        net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
-
-        print('---', net)
-        if(config.layer_filter):
-            fltr = config.layer_filter(gan, net)
-            if(fltr is not None):
-                net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
-        fltr = 3
-        if fltr > net.get_shape()[1]:
-            fltr=int(net.get_shape()[1])
-        if fltr > net.get_shape()[2]:
-            fltr=int(net.get_shape()[2])
-
-        if config.sigmoid_gate:
-            sigmoid_gate = z
-        else:
-            sigmoid_gate = None
 
         if gan.config.x_dims[1] == 1:
             resized_wh[1]=1

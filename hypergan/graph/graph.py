@@ -37,8 +37,8 @@ class Graph:
         print('---', x)
         # combine to one batch, per Ian's "Improved GAN"
         print('x,g', x,g[0])
-        x = tf.reshape(x, [config.batch_size, -1, 1, 1])
-        g[-1] = tf.reshape(g[-1], [config.batch_size, -1, 1, 1])
+        #x = tf.reshape(x, [config.batch_size, -1, 1, 1])
+        #g[-1] = tf.reshape(g[-1], [config.batch_size, -1, 1, 1])
 
         xs = [x]
         gs = g

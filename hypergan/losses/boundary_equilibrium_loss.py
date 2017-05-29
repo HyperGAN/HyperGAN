@@ -105,5 +105,7 @@ def create(config, gan):
 
     gan.graph.gamma = config.gamma
 
+    g_loss = tf.reduce_mean(g_loss)
+    d_loss = tf.reduce_mean(d_loss)
 
     return [d_loss, g_loss]

@@ -1,7 +1,6 @@
 import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
-from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
 from hypergan.gan_component import ValidationException
 from hypergan.ops import TensorflowOps
 from hypergan.gan_component import GANComponent
@@ -30,6 +29,10 @@ class GANComponentTest(tf.test.TestCase):
     def test_ops(self):
         with self.test_session():
             self.assertEqual(type(component.ops), MockOps)
+
+    def test_missing_gan(self):
+        with self.assertRaises(ValidationException):
+            GANComponent(config={}, gan=None)
 
 if __name__ == "__main__":
     tf.test.main()

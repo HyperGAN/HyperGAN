@@ -193,7 +193,7 @@ class CLI:
                 width=width, 
                 height=height, 
                 channels=channels)
-        if self.args.align:
+        if self.args.align: # TODO only support 2 classes for now
             xa,_,_,_,_ = self.setup_input_loader(format, 
                     directory, 
                     device, 
@@ -215,7 +215,7 @@ class CLI:
                     width=width, 
                     height=height, 
                     channels=channels,
-                    filterXGt=0
+                    filterX=1
                     )
         else:
             xa = None
@@ -231,7 +231,7 @@ class CLI:
             }
 
     def setup_input_loader(self, format, directory, device, config, seconds=None,
-            bitrate=None, crop=False, width=None, height=None, channels=3,filterX=None,filterXGt=None):
+            bitrate=None, crop=False, width=None, height=None, channels=3,filterX=None):
         with tf.device('/cpu:0'):
             #TODO mp3 braken
             if(format == 'mp3'):
@@ -250,7 +250,7 @@ class CLI:
                         format=format,
                         crop=crop,
                         width=width,
-                        height=height,filterX=filterX,filterXGt=filterXGt)
+                        height=height,filterX=filterX)
 
     def run(self):
         parser = self.get_parser()

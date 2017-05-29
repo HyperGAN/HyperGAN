@@ -36,16 +36,6 @@ def config(
     selector.set('use_k', use_k)
     selector.set('gamma', gamma)
 
-    if include_recdistance:
-        selector.set('include_recdistance', True)
-    if include_recdistance2:
-        selector.set('include_recdistance2', True)
-    if include_grecdistance:
-        selector.set('include_grecdistance', True)
-    if include_grecdistance2:
-        selector.set('include_grecdistance2', True)
-    if include_distance:
-        selector.set('include_distance', True)
     return selector.random_config()
 
 def g(gan, z):
@@ -105,50 +95,6 @@ def began(gan, config, d_real, d_fake, prefix=''):
 
     d_loss = tf.reduce_mean(d_loss)
     g_loss = tf.reduce_mean(g_loss)
-
-
-    if 'include_recdistance' in config:
-        reconstruction = tf.add_n([
-            dist(gan.graph.rxabba, gan.graph.rxa),
-            dist(gan.graph.rxbaab, gan.graph.rxb)
-            ])
-        reconstruction *= config.alignment_lambda
-        g_loss += tf.reduce_mean(reconstruction)
-
-    if 'include_recdistance2' in config:
-        reconstruction = tf.add_n([
-            dist(gan.graph.rxabba, gan.graph.xa),
-            dist(gan.graph.rxbaab, gan.graph.xb)
-            ])
-        reconstruction *= config.alignment_lambda
-        g_loss += tf.reduce_mean(reconstruction)
-
-
-    if 'include_grecdistance' in config:
-        reconstruction = tf.add_n([
-            dist(gan.graph.rgabba, gan.graph.rga),
-            dist(gan.graph.rgbaab, gan.graph.rgb)
-            ])
-        reconstruction *= config.alignment_lambda
-        g_loss += tf.reduce_mean(reconstruction)
-
-    if 'include_grecdistance2' in config:
-        reconstruction = tf.add_n([
-            dist(gan.graph.rgabba, gan.graph.ga),
-            dist(gan.graph.rgbaab, gan.graph.gb)
-            ])
-        reconstruction *= config.alignment_lambda
-        g_loss += tf.reduce_mean(reconstruction)
-
-
-    if 'include_distance' in config:
-        reconstruction = tf.add_n([
-            dist(gan.graph.xabba, gan.graph.xa),
-            dist(gan.graph.xbaab, gan.graph.xb)
-            ])
-        reconstruction *= config.alignment_lambda
-        g_loss += tf.reduce_mean(reconstruction)
-        print("- - - -- - Reconstruction loss added.")
 
     return [k, update_k, measure, d_loss, g_loss]
 

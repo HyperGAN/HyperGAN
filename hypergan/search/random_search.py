@@ -100,7 +100,7 @@ class RandomSearch:
             'type': ['wgan', 'lsgan', 'softmax'],
             'create': [
                 hg.losses.boundary_equilibrium_loss.create,
-                hg.losses.began_h_loss.create,
+                hg.losses.began_softmax_loss.create,
                 hg.losses.lamb_gan_loss.create,
                 hg.losses.lsgan_loss.create,
                 hg.losses.standard_gan_loss.create,

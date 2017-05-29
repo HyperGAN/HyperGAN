@@ -36,6 +36,10 @@ class Graph:
             x = self.gan.graph.xa
         print('---', x)
         # combine to one batch, per Ian's "Improved GAN"
+        print('x,g', x,g[0])
+        x = tf.reshape(x, [config.batch_size, -1, 1, 1])
+        g[-1] = tf.reshape(g[-1], [config.batch_size, -1, 1, 1])
+
         xs = [x]
         gs = g
         graph.xs=xs
@@ -43,7 +47,13 @@ class Graph:
         g = g[-1]
         if len(gs) > 1:
             for i in gs:
-                resized = tf.image.resize_images(xs[-1],[int(xs[-1].get_shape()[1]//2),int(xs[-1].get_shape()[2]//2)], 1)
+                s = [int(elem) for elem in xs[-1].get_shape()]
+                if len(s) < 4:
+                    print("Disabling progressive enhancement, input size too small")
+                    break
+                maxh = max(s[2]//2, 1)
+                maxw = max(s[1]//2, 1)
+                resized = tf.image.resize_images(xs[-1],[maxw,maxh], 1)
                 xs.append(resized)
             xs.pop()
             gs.reverse()

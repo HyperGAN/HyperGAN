@@ -119,7 +119,9 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         if(config['noise'] and xg is not None):
             xg += tf.random_normal(xg.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
   
+        print("prog enh?_", config.progressive_enhancement)
         if config['progressive_enhancement']:
+            print("adding xg")
             net = tf.concat(axis=3, values=[net, xg])
     
       if config.foundation == 'additive':

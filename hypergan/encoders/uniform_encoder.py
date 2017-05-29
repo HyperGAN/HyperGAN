@@ -1,8 +1,18 @@
 import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
+from .base_encoder import BaseEncoder
 
 TINY=1e-12
+
+class UniformEncoder(BaseEncoder):
+    def create(self, config, gan):
+        zs = []
+        z_base = tf.random_uniform([gan.config.batch_size, config.z],config.min, config.max,dtype=gan.config.dtype)
+        for projection in config.projections:
+          zs.append(projection(config, gan, z_base))
+        zs = tf.concat(axis=1, values=zs)
+        return zs, z_base
 
 def identity(config, gan, net):
     return net
@@ -64,27 +74,5 @@ def periodic_gaussian(config, gan, net):
 
 def periodic_triangle_waveform(z, p):
     return 2.0 / np.pi * tf.asin(tf.sin(2*np.pi*z/p))
-
-class UniformEncoder:
-    def __init__(z=[16,32,64],min=-1,max=1,projections=[[identity, modal, sphere]],
-            modes=4):
-        selector = hc.Selector()
-        selector.set('create', create)
-        selector.set('z', z)
-        selector.set('min', min)
-        selector.set('max', max)
-
-        selector.set('projections', projections)
-        selector.set('modes', modes)
-
-        self.config = selector.random_config()
-
-    def create(config, gan):
-        zs = []
-        z_base = tf.random_uniform([gan.config.batch_size, config.z],config.min, config.max,dtype=gan.config.dtype)
-        for projection in config.projections:
-          zs.append(projection(config, gan, z_base))
-        zs = tf.concat(axis=1, values=zs)
-        return zs, z_base
 
 

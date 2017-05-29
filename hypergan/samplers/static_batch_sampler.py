@@ -27,9 +27,7 @@ def sample(gan, sample_file):
         tf.set_random_seed(1)
         sample = sess.run(generator, feed_dict={z_t: z, y_t: y, x_t: x})
         mean = sess.run(tf.reduce_mean(gan.graph.z_encoded), feed_dict={z_t: z})
-        print("MEAN", mean)
         width = min(gan.config.batch_size, 8)
-        #plot(self.config, sample, sample_file)
         stacks = [np.hstack(sample[i*width:i*width+width]) for i in range(gan.config.batch_size//width)]
         plot(config, np.vstack(stacks), sample_file)
 

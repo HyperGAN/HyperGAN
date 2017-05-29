@@ -43,6 +43,7 @@ class ResizeConvGenerator:
         nets = []
         config = self.config
         x_dims = gan.config.x_dims
+        #TODO refactor to a method on GAN object
         gconfig = {k[2:]: v for k, v in gan.config.items() if k[2:] in inspect.getargspec(gan.ops).args}
         ops = gan.ops(*dict(gconfig))
         batch_size = gan.config.batch_size

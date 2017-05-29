@@ -116,17 +116,33 @@ _Logos generated with [examples/colorizer](#examples)_
 
 ## Install
 
+Optionally, create a `virtualenv`:
+
+```bash
+  virtualenv --system-site-packages -p python3 hypergan
+  source hypergan/bin/activate
+```
+
+Install hypergan:
 
 ```bash
   pip3 install hypergan --upgrade
 ```
 
+Install dependencies:
+
+```bash
+  pip3 install numpy tensorflow-gpu hyperchamber flask flask-cors pillow
+  # Optional, for --viewer:
+  apt-get install python-gi
+```
 
 ## Train
 
 ```bash
-  # Train a 32x32 gan with batch size 32 on a folder of pngs
-  hypergan train [folder] -s 32x32x3 -f png -b 32
+  # Train a 32x32 gan with batch size 32 on a folder of folders of pngs
+  cp *.png folder/class0/
+  hypergan train folder/ -s 32x32x3 -f png -b 32
 ```
 
 ### Increasing performance
@@ -137,6 +153,11 @@ On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include t
   LD_PRELOAD="/usr/lib/libtcmalloc.so.4" hypergan train my_dataset
 ```
 
+HyperGAN does not cache image data in memory. Images are loaded every time they're needed, so you can increase performance by pre-processing your inputs, especially by resampling large inputs to the output resolution. e.g. with ImageMagick:
+
+```bash
+  convert image1.jpg -resize '128x128^' -gravity Center -crop 128x128+0+0 image1.png
+```
 
 ## Development mode
 

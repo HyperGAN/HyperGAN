@@ -5,6 +5,7 @@ import hyperchamber as hc
 from hypergan.util.gan_server import *
 from . import GAN
 from .loaders import *
+from .samplers.viewer import GlobalViewer
 import hypergan as hg
 import time
 
@@ -41,6 +42,7 @@ class CLI:
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
+        parser.add_argument('--viewer', dest='viewer', action='store_true', help='Displays samples in a window.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -66,6 +68,9 @@ class CLI:
 
         to create a video of the learning process.
         """
+
+        if(self.args.viewer):
+            GlobalViewer.enable()
 
         if(self.args.sampler == "grid"):
             sampler = grid_sampler.sample

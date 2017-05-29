@@ -16,14 +16,17 @@ from hypergan.trainers import *
 
 import hyperchamber as hc
 from hyperchamber import Config
+from hypergan.ops import TensorflowOps
+import tensorflow as tf
 import hypergan as hg
 
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
-    def __init__(self, config, graph, device='/gpu:0', graph_type='full', tfconfig=None):
+    def __init__(self, config, graph, ops=TensorflowOps, device='/gpu:0', graph_type='full', tfconfig=None):
         """ Initialized a new GAN."""
         self.config=Config(config)
         self.device=device
+        self.ops = ops
         if tfconfig is None:
             tfconfig = tf.ConfigProto()
             tfconfig.gpu_options.allow_growth=True

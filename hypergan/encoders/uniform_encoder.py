@@ -6,13 +6,14 @@ from .base_encoder import BaseEncoder
 TINY=1e-12
 
 class UniformEncoder(BaseEncoder):
-    def create(self, config, gan):
-        zs = []
+    def create(self, gan):
+        projections = []
+        config = self.config
         z_base = tf.random_uniform([gan.config.batch_size, config.z],config.min, config.max,dtype=gan.config.dtype)
         for projection in config.projections:
-          zs.append(projection(config, gan, z_base))
-        zs = tf.concat(axis=1, values=zs)
-        return zs, z_base
+          projections.append(projection(config, gan, z_base))
+        projections = tf.concat(axis=1, values=projections)
+        return projections, z_base
 
 def identity(config, gan, net):
     return net

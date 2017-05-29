@@ -54,5 +54,12 @@ class TensorflowOpsTest(tf.test.TestCase):
             self.assertEqual(ops.generate_scope(), "1")
             self.assertEqual(ops.generate_scope(), "2")
 
+    def test_generate_name(self):
+        with self.test_session():
+            ops = TensorflowOps()
+            ops.describe("generator")
+            self.assertEqual(ops.generate_name(), "generator_1")
+            self.assertEqual(ops.generate_name(), "generator_2")
+
 if __name__ == "__main__":
     tf.test.main()

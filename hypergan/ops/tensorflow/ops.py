@@ -6,6 +6,7 @@ class TensorflowOps:
     def __init__(self, dtype="float32", initializer='orthogonal', orthogonal_gain=1.0, random_stddev=0.02):
         self.dtype = self.parse_dtype(dtype)
         self.scope_count = 0
+        self.description = ''
         if initializer == 'orthogonal':
             self.initializer = self.orthogonal_initializer(orthogonal_gain)
         else:
@@ -29,6 +30,11 @@ class TensorflowOps:
         self.scope_count += 1
         return str(self.scope_count)
 
+    def generate_name(self):
+        if self.description == "":
+            return self.generate_scope()
+        return self.description + "_" + self.generate_scope()
+
     def parse_dtype(self, dtype):
         if dtype == 'float32':
             return tf.float32
@@ -37,10 +43,13 @@ class TensorflowOps:
         else:
             raise Exception("dtype not defined: "+dtype)
 
+    def describe(self, description):
+        self.description = description
+
     def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         self.assert_tensor(net)
         initializer = self.initializer()
-        with tf.variable_scope(self.generate_scope()):
+        with tf.variable_scope(self.generate_name()):
             with tf.device("/cpu:0"):
                 w = tf.get_variable('w', [filter_h, filter_w, net.get_shape()[-1], output_dim],dtype=self.dtype,
                                     initializer=initializer)
@@ -55,7 +64,37 @@ class TensorflowOps:
         shape = self.shape(net)
         output_shape = [shape[0], shape[1]*stride_h, shape[2]*stride_w, output_dim]
         init_bias = 0.
-        with tf.variable_scope(self.generate_scope()):
+
+    def parse_dtype(self, dtype):
+        if dtype == 'float32':
+            return tf.float32
+        elif dtype == 'float16':
+            return tf.float16
+        else:
+            raise Exception("dtype not defined: "+dtype)
+
+    def describe(self, description):
+        self.description = description
+
+    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
+        self.assert_tensor(net)
+        initializer = self.initializer()
+        with tf.variable_scope(self.generate_name()):
+            with tf.device("/cpu:0"):
+                w = tf.get_variable('w', [filter_h, filter_w, net.get_shape()[-1], output_dim],dtype=self.dtype,
+                                    initializer=initializer)
+            conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding='SAME')
+            biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0, dtype=self.dtype), dtype=self.dtype)
+            conv = tf.nn.bias_add(conv, biases)
+            return conv
+
+    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
+        self.assert_tensor(net)
+        initializer = self.initializer()
+        shape = self.shape(net)
+        output_shape = [shape[0], shape[1]*stride_h, shape[2]*stride_w, output_dim]
+        init_bias = 0.
+        with tf.variable_scope(self.generate_name()):
             # filter : [height, width, output_channels, in_channels]
             w = tf.get_variable('w', [filter_h, filter_w, output_shape[-1], net.get_shape()[-1]], dtype=self.dtype, initializer=initializer)
 
@@ -77,7 +116,7 @@ class TensorflowOps:
         self.assert_tensor(net)
         op = self.lookup(symbol)
         if op:
-            net = op(epsilon, self.generate_scope())(net, self.dtype)
+            net = op(epsilon, self.generate_name())(net, self.dtype)
         return net
 
     def linear(self, net, output_dim):
@@ -85,7 +124,7 @@ class TensorflowOps:
         initializer = self.initializer()
         shape = self.shape(net)
         initial_bias = 0
-        with tf.variable_scope(self.generate_scope()):
+        with tf.variable_scope(self.generate_name()):
           with tf.device('/cpu:0'):
             matrix = tf.get_variable("Matrix", [shape[1], output_dim], dtype=self.dtype,
                                        initializer=initializer,

@@ -8,7 +8,7 @@ import hypergan as hg
 
 from unittest.mock import MagicMock
 
-config = {'channels': 3, 'activation': tf.nn.tanh, 'layers': 3, 'depth_increase' : 3, 'block' : hg.discriminators.common.standard_block}
+config = {'initial_depth': 1, 'channels': 3, 'activation': tf.nn.tanh, 'layers': 3, 'depth_increase' : 3, 'block' : hg.discriminators.common.standard_block}
 
 discriminator = PyramidDiscriminator(config)
 class PyramidDiscriminatorTest(tf.test.TestCase):
@@ -35,7 +35,7 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
         with self.test_session():
             net = tf.constant(1., shape=[32,32,32,3])
             net = discriminator.create(hc.Config(gan), graph.x, graph.x)
-            self.assertEqual(int(net.get_shape()[1]), 24)
+            self.assertEqual(int(net.get_shape()[1]), 112)
 
     def test_validate(self):
         with self.assertRaises(ValidationException):

@@ -10,7 +10,7 @@ class PyramidDiscriminator(BaseDiscriminator):
 
     def validate(self):
         errors = []
-        required = "channels activation layers block depth_increase".split()
+        required = "channels activation layers block depth_increase initial_depth".split()
         for argument in required:
             if(self.config.__getattr__(argument) == None):
                 errors.append("`"+argument+"` required")
@@ -26,16 +26,16 @@ class PyramidDiscriminator(BaseDiscriminator):
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
         depth_increase = config.depth_increase
-        depth = config.layers
+        layers = config.layers
         batch_norm = config.layer_regularizer
 
         x, g = self.resize(config, x, g)
         net = self.combine_filter(config, x, g)
         net = self.add_noise(config, net)
 
-        for i in range(depth):
+        for i in range(layers):
             xg = None
-            is_last_layer = (i == depth-1)
+            is_last_layer = (i == layers-1)
             filters = ops.shape(net)[3]
             #TODO better name for `batch_norm`?
             if i != 0:
@@ -53,13 +53,14 @@ class PyramidDiscriminator(BaseDiscriminator):
 
             depth = filters + depth_increase
             if i == 0:
-                depth = config.first_conv_size
+                depth = config.initial_depth
 
+            print("NET IS", net, depth, layers)
             net = config.block(ops, net, config, depth)
 
             print('[discriminator] layer', net)
 
-        for i in range(config.extra_layers):
+        for i in range(config.extra_layers or 0):
             output_features = int(int(net.get_shape()[3]))
             net = activation(net)
             net = ops.conv2d(net, 3, 3, 1, 1, output_features//config.extra_layers_reduction)
@@ -68,10 +69,10 @@ class PyramidDiscriminator(BaseDiscriminator):
 
         net = tf.reshape(net, [ops.shape(net)[0], -1])
 
-        if final_activation or config.fc_layers > 0:
+        if final_activation or (config.fc_layers or 0) > 0:
             net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
 
-        for i in range(config.fc_layers):
+        for i in range(config.fc_layers or 0):
             net = activation(net)
             net = ops.linear(net, config.fc_layer_size)
             if final_activation or i < config.fc_layers - 1:
@@ -102,7 +103,7 @@ class PyramidDiscriminator(BaseDiscriminator):
 
     def combine_filter(self, config, x, g):
         # TODO: This is standard optimization from improved GAN, cross-d feature
-        if config['layer_filter']:
+        if 'layer_filter' in config:
             g_filter = tf.concat(axis=3, values=[g, config['layer_filter'](gan, x)])
             x_filter = tf.concat(axis=3, values=[x, config['layer_filter'](gan, x)])
             net = tf.concat(axis=0, values=[x_filter,g_filter] )
@@ -111,7 +112,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         return net
 
     def add_noise(self, config, net):
-        if(config['noise']):
+        if('noise' in config and config['noise']):
             net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
         return net
 

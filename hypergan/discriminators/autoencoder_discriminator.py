@@ -18,6 +18,7 @@ def l1_distance(a,b):
 def config(
         activation=lrelu,
         block=standard_block,
+        block_repeat_count=1,
         depth_increase=2,
         final_activation=None,
         first_conv_size=16,
@@ -44,6 +45,7 @@ def config(
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
     selector.set("block", block)#prelu("d_")])
+    selector.set("block_repeat_count", block_repeat_count)#prelu("d_")])
     selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
     selector.set("final_activation", final_activation)
     selector.set("first_conv_size", first_conv_size)
@@ -65,6 +67,7 @@ def config(
     selector.set('noise', noise) #add noise to input
     selector.set('progressive_enhancement', progressive_enhancement)
     selector.set('resize', resize)
+
     selector.set('strided', strided) #TODO: true does not work
     selector.set('distance', distance) #TODO: true does not work
     selector.set('minibatch', minibatch)
@@ -81,6 +84,7 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         if "decoder_layer_regularizer" in gconfig:
             print("overwriting layer regularizer for decoder with ", gconfig['decoder_layer_regularizer'])
             gconfig['layer_regularizer'] = gconfig['decoder_layer_regularizer']
+        #gconfig['layer_filter'] = None
         generator = hc.Config(hc.lookup_functions(gconfig))
 
         s = [int(x) for x in net.get_shape()]
@@ -98,10 +102,9 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     with tf.variable_scope("autoencoder", reuse=True):
         rg = generator.create(generator, gan, netg, prefix=prefix)[-1]
 
-    gan.graph.dx = rx
-    gan.graph.dg = rg
+    gan.graph.rx = rx
+    gan.graph.rg = rg
 
-    
     error = tf.concat([config.distance(x, rx), config.distance(g,rg)], axis=0)
     error = tf.reshape(error, [gan.config.batch_size*2, -1])
     error = tf.concat([error]+mini, axis=1)

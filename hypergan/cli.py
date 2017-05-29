@@ -77,6 +77,8 @@ class CLI:
             sampler = progressive_enhancement_sampler.sample
         elif(self.args.sampler == "began"):
             sampler = began_sampler.sample
+        elif(self.args.sampler == "aligned_began"):
+            sampler = aligned_began_sampler.sample
         else:
             raise "Cannot find sampler: '"+self.args.sampler+"'"
 
@@ -193,8 +195,8 @@ class CLI:
                 width=width, 
                 height=height, 
                 channels=channels)
-        if self.args.align:
-            xb = self.setup_input_loader(format, 
+        if self.args.align: # TODO only support 2 classes for now
+            xa,_,_,_,_ = self.setup_input_loader(format, 
                     directory, 
                     device, 
                     config, 
@@ -204,8 +206,8 @@ class CLI:
                     width=width, 
                     height=height, 
                     channels=channels,
-                    filterX=1)
-            xa = self.setup_input_loader(format, 
+                    filterX=0)
+            xb,y,_,_,_ = self.setup_input_loader(format, 
                     directory, 
                     device, 
                     config, 
@@ -215,7 +217,7 @@ class CLI:
                     width=width, 
                     height=height, 
                     channels=channels,
-                    filterX=0
+                    filterX=1
                     )
         else:
             xa = None
@@ -295,7 +297,7 @@ class CLI:
         config['x_dims']=[height,width]
         config['channels']=channels
 
-        if(int(config['y_dims']) > 1):
+        if(int(config['y_dims']) > 1 and not args.align):
             print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
             config['losses'].append(hg.losses.supervised_loss.config())
         else:

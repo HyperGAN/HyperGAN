@@ -28,6 +28,9 @@ def sampler(gan, name):
     y_t = gan.graph.y
     z_t = gan.graph.z[0]
     x_t = gan.graph.x
+    rx_t = gan.graph.rx
+    rg_t = gan.graph.rg
+    
     sess = gan.sess
     config = gan.config
     global x_v
@@ -38,11 +41,18 @@ def sampler(gan, name):
         x_v = np.tile(x_v[0], [config['batch_size'],1,1,1])
     #z_v = np.mgrid[-0.999:0.999:0.5, -0.999:0.999:0.25].reshape(2,-1).T
 
-    sample, = sess.run([generator], {x_t: x_v, z_t: z_v})
+    sample, rx, rg = sess.run([generator, rx_t, rg_t], {x_t: x_v, z_t: z_v})
     stacks = []
-    stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4], sample[5], sample[6], sample[7]])
-    for i in range(1):
-        stacks.append([sample[i*8+8+j] for j in range(8)])
+    bs = config.batch_size
+    width = 5
+    stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4]])
+    for i in range(bs//width-1):
+        stacks.append([sample[i*width+width+j] for j in range(width)])
+    stacks.append([rx[1], rg[1], rg[2], rg[3], rg[4]])
+    for i in range(bs//width-1):
+        stacks.append([sample[i*width+width+j] for j in range(width)])
+
+
     
     images = np.vstack([np.hstack(s) for s in stacks])
     plot(config, images, name)

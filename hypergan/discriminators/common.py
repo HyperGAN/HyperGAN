@@ -17,7 +17,7 @@ def repeating_block(config, net, depth, prefix='d_'):
      net = activation(net)
      print("[discriminator] hidden layer", net)
 
-   net = conv2d(net, depth, name=prefix+'_expand_layer'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
+   net = conv2d(net, depth, name=prefix+'_expand_layer_last', k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
    net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
    print('[discriminator] layer', net)
    return net

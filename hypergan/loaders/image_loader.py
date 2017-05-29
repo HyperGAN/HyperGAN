@@ -24,8 +24,10 @@ def labelled_image_tensors_from_directory(directory, batch_size, channels=3, for
     print(directories, filterX, directories[filterX])
     print("Filtering files by "+directories[filterX])
     filenames = glob.glob(directories[filterX]+"/*."+format)
+
   else:
     filenames = glob.glob(directory+"/**/*."+format)
+
   print("[loader] ImageLoader found", len(filenames), "images with", total_labels, "different class labels")
   classes = [labels[f.split('/')[-2]] for f in filenames]
   assert len(filenames)!=0, "No images found in "+directory

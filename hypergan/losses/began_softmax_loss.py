@@ -9,11 +9,17 @@ def config(
         reduce=tf.reduce_mean, 
         reverse=False,
         discriminator=None,
+        alignment_lambda=[1],
         k_lambda=0.01,
         labels=[[0,-1,-1]],
         initial_k=0,
         gradient_penalty=False,
         use_k=[True],
+        include_recdistance=False,
+        include_recdistance2=False,
+        include_grecdistance=False,
+        include_grecdistance2=False,
+        include_distance=False,
         gamma=0.75):
     selector = hc.Selector()
     selector.set("reduce", reduce)
@@ -30,6 +36,16 @@ def config(
     selector.set('use_k', use_k)
     selector.set('gamma', gamma)
 
+    if include_recdistance:
+        selector.set('include_recdistance', True)
+    if include_recdistance2:
+        selector.set('include_recdistance2', True)
+    if include_grecdistance:
+        selector.set('include_grecdistance', True)
+    if include_grecdistance2:
+        selector.set('include_grecdistance2', True)
+    if include_distance:
+        selector.set('include_distance', True)
     return selector.random_config()
 
 def g(gan, z):
@@ -51,6 +67,9 @@ def loss(gan, x, reuse=True):
             print('net is', net)
             return tf.reduce_mean(net, axis=1)
 
+def dist(x1, x2):
+    bs = int(x1.get_shape()[0])
+    return tf.reshape(tf.abs(x1 - x2), [bs, -1])
 
 # boundary equilibrium gan
 def began(gan, config, d_real, d_fake, prefix=''):
@@ -60,14 +79,11 @@ def began(gan, config, d_real, d_fake, prefix=''):
 
     k = tf.get_variable(prefix+'k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=config.dtype)
 
-    if config.type == 'wgan':
-        l_x = d_real
-        l_dg =-d_fake
-        g_loss = d_fake
-    else:
-        l_x = tf.square(d_real-b)
-        l_dg = tf.square(d_fake - a)
-        g_loss = tf.square(d_fake - c)
+    ln_zb = tf.reduce_sum(tf.exp(-d_real))+tf.reduce_sum(tf.exp(-d_fake))
+    ln_zb = tf.log(ln_zb)
+    l_x = tf.reduce_mean(d_real) + ln_zb
+    g_loss = tf.reduce_mean(d_fake) + tf.reduce_mean(d_real) + ln_zb
+    l_dg =-tf.reduce_mean(d_fake)-tf.reduce_mean(d_real)
 
     if config.use_k:
         d_loss = l_x+k*l_dg
@@ -84,9 +100,56 @@ def began(gan, config, d_real, d_fake, prefix=''):
     else:
         gamma_d_real = d_real
     k_loss = tf.reduce_mean(gamma_d_real - d_fake, axis=0)
-    update_k = tf.assign(k, minmaxzero(k + config.k_lambda * k_loss))
-    measure = tf.reduce_mean(l_x + tf.abs(k_loss), axis=0)
- 
+    update_k = tf.assign(k, k + config.k_lambda * k_loss)
+    measure = tf.reduce_mean(l_x) + tf.abs(k_loss)
+
+    d_loss = tf.reduce_mean(d_loss)
+    g_loss = tf.reduce_mean(g_loss)
+
+
+    if 'include_recdistance' in config:
+        reconstruction = tf.add_n([
+            dist(gan.graph.rxabba, gan.graph.rxa),
+            dist(gan.graph.rxbaab, gan.graph.rxb)
+            ])
+        reconstruction *= config.alignment_lambda
+        g_loss += tf.reduce_mean(reconstruction)
+
+    if 'include_recdistance2' in config:
+        reconstruction = tf.add_n([
+            dist(gan.graph.rxabba, gan.graph.xa),
+            dist(gan.graph.rxbaab, gan.graph.xb)
+            ])
+        reconstruction *= config.alignment_lambda
+        g_loss += tf.reduce_mean(reconstruction)
+
+
+    if 'include_grecdistance' in config:
+        reconstruction = tf.add_n([
+            dist(gan.graph.rgabba, gan.graph.rga),
+            dist(gan.graph.rgbaab, gan.graph.rgb)
+            ])
+        reconstruction *= config.alignment_lambda
+        g_loss += tf.reduce_mean(reconstruction)
+
+    if 'include_grecdistance2' in config:
+        reconstruction = tf.add_n([
+            dist(gan.graph.rgabba, gan.graph.ga),
+            dist(gan.graph.rgbaab, gan.graph.gb)
+            ])
+        reconstruction *= config.alignment_lambda
+        g_loss += tf.reduce_mean(reconstruction)
+
+
+    if 'include_distance' in config:
+        reconstruction = tf.add_n([
+            dist(gan.graph.xabba, gan.graph.xa),
+            dist(gan.graph.xbaab, gan.graph.xb)
+            ])
+        reconstruction *= config.alignment_lambda
+        g_loss += tf.reduce_mean(reconstruction)
+        print("- - - -- - Reconstruction loss added.")
+
     return [k, update_k, measure, d_loss, g_loss]
 
 
@@ -105,7 +168,5 @@ def create(config, gan):
 
     gan.graph.gamma = config.gamma
 
-    g_loss = tf.reduce_mean(g_loss)
-    d_loss = tf.reduce_mean(d_loss)
 
     return [d_loss, g_loss]

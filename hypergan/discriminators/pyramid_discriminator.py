@@ -8,6 +8,7 @@ import os
 def config(
         activation=lrelu,
         block=standard_block,
+	block_repeat_count=[2],
         depth_increase=2,
         final_activation=None,
         first_conv_size=16,
@@ -31,6 +32,7 @@ def config(
     selector = hc.Selector()
     selector.set("activation", [lrelu])#prelu("d_")])
     selector.set("block", block)#prelu("d_")])
+    selector.set('block_repeat_count', block_repeat_count)
     selector.set("depth_increase", depth_increase)# Size increase of D's features on each layer
     selector.set("final_activation", final_activation)
     selector.set("first_conv_size", first_conv_size)
@@ -65,7 +67,6 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
     depth = config['layers']
     batch_norm = config['layer_regularizer']
     strided = config.strided
-
     # TODO: cross-d feature
     if(config['resize']):
         # shave off layers >= resize 
@@ -86,12 +87,14 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
         x_filter = tf.concat(axis=3, values=[x, config['layer_filter'](gan, x)])
         net = tf.concat(axis=0, values=[x_filter,g_filter] )
     else:
-        net = tf.concat(axis=0, values=[x,g])
+        net = tf.concat(axis=0, values=[tf.squeeze(x),tf.squeeze(g)])
     if(config['noise']):
         net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
 
     xg = None
+
     for i in range(depth):
+      filters = int(net.get_shape()[3])
       #TODO better name for `batch_norm`?
       if i != 0:
           if batch_norm is not None:
@@ -120,9 +123,9 @@ def discriminator(gan, config, x, g, xs, gs, prefix='d_'):
             net = tf.concat(axis=3, values=[net, xg])
     
       if config.foundation == 'additive':
-          depth = int(int(net.get_shape()[3])+depth_increase)
+          depth = int(filters+depth_increase)
       else:
-          depth = int(int(net.get_shape()[3])*depth_increase)
+          depth = int(filters*depth_increase)
 
       if i ==0:
           depth = config.first_conv_size

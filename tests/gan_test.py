@@ -6,6 +6,8 @@ from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 
+from hypergan.search.default_configurations import DefaultConfigurations
+
 from hypergan import GAN
 
 
@@ -35,6 +37,12 @@ class GANTest(tf.test.TestCase):
         config['trainer'] = trainer
         with self.test_session():
             gan = GAN(graph = graph, ops = MockOps, config = config)
+            gan.train()
+            self.assertEqual(gan.step, 1)
+
+    def test_default(self):
+        with self.test_session():
+            gan = GAN(graph = graph, ops = TensorflowOps, config = DefaultConfigurations.get())
             gan.train()
             self.assertEqual(gan.step, 1)
 

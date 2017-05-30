@@ -20,7 +20,7 @@ class ResizeConvGenerator(BaseGenerator):
         print("GAN>GRAP>X", gan.graph.x)
         target_w = ops.shape(gan.graph.x)[0]
 
-        w = 4 # TODO config option
+        w = 8 # TODO config option
         i = 0
 
         depths.append(final_depth)
@@ -38,7 +38,6 @@ class ResizeConvGenerator(BaseGenerator):
         ops.describe("generator")
 
         config = self.config
-        layers = 0
         primes = [4, 4]
         nets = []
         x_dims = gan.config.x_dims
@@ -55,13 +54,6 @@ class ResizeConvGenerator(BaseGenerator):
         net = ops.linear(net, initial_depth*primes[0]*primes[1])
         net = ops.reshape(net, new_shape)
 
-        w = ops.shape(net)[1]
-        target_w = ops.shape(gan.graph.x)[0]
-
-        while w < target_w: #TODO test
-            w*=2
-            layers += 1
-
         depth_reduction = np.float32(config.depth_reduction)
 
         shape = ops.shape(net)
@@ -69,17 +61,16 @@ class ResizeConvGenerator(BaseGenerator):
         net = config.block(ops, net, config, shape[3])
         net = self.layer_filter(gan, config, net)
 
-        for i in range(layers):
+        for i, depth in enumerate(depths):
             s = ops.shape(net)
-            is_last_layer = (i == layers-1)
+            is_last_layer = (i == len(depths)-1)
 
-            reduced_layers = shape[3]-depth_reduction
-            layers = gan.config.channels if is_last_layer else reduced_layers
+            depth = gan.config.channels if is_last_layer else depth
             resize = [min(s[1]*2, x_dims[0]), min(s[2]*2, x_dims[1])]
 
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(gan, config, net)
-            net = config.block(ops, net, config, layers)
+            net = config.block(ops, net, config, depth)
 
             sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
             first3 = net if is_last_layer else sliced
@@ -89,7 +80,7 @@ class ResizeConvGenerator(BaseGenerator):
             first3 = final_activation(first3)
 
             nets.append(first3)
-            size = resize[0]*resize[1]*layers
+            size = resize[0]*resize[1]*depth
             print("[generator] layer", net, size)
 
         return nets

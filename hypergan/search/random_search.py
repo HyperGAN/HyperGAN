@@ -96,7 +96,7 @@ class RandomSearch:
             'label_smooth': self.range(),
             'use_k': [False, True],
             'initial_k': self.range(),
-            'k_lambda': self.range(),
+            'k_lambda': self.range(.001),
             'type': ['wgan', 'lsgan', 'softmax'],
             'create': [
                 hg.losses.boundary_equilibrium_loss.create,

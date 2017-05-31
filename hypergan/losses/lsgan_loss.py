@@ -52,6 +52,9 @@ def create(config, gan):
     gan.graph.d_fake_loss=tf.reduce_mean(d_fake_loss)
     gan.graph.d_real_loss=tf.reduce_mean(d_real_loss)
 
+    d_loss = tf.reduce_mean(d_loss)
+    g_loss = tf.reduce_mean(g_loss)
+
     return [d_loss, g_loss]
 
 def echo(net, axis=1):

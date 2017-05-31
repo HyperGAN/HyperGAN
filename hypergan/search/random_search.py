@@ -104,6 +104,7 @@ class RandomSearch:
                 hg.losses.lamb_gan_loss.create,
                 hg.losses.lsgan_loss.create,
                 hg.losses.standard_gan_loss.create,
+                hg.losses.softmax_loss.create,
                 hg.losses.wgan_loss.create
             ]
         }

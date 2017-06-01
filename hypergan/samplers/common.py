@@ -1,5 +1,6 @@
 import numpy as np
 from PIL import Image
+from hypergan.samplers.viewer import GlobalViewer
 
 def plot(config, image, filename):
     """ Plot an image."""
@@ -7,4 +8,6 @@ def plot(config, image, filename):
     # Scale to 0..255.
     imin, imax = image.min(), image.max()
     image = (image - imin) * 255. / (imax - imin) + .5
-    Image.fromarray(image.astype(np.uint8)).save(filename)
+    image = image.astype(np.uint8)
+    Image.fromarray(image).save(filename)
+    GlobalViewer.update(image)

@@ -133,6 +133,8 @@ Install dependencies:
 
 ```bash
   pip3 install numpy tensorflow-gpu hyperchamber flask flask-cors pillow
+  # Optional, for --viewer:
+  apt-get install python-gi
 ```
 
 ## Train

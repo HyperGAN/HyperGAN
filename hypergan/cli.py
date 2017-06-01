@@ -227,8 +227,20 @@ class CLI:
         else:
             xa = None
             xb = None
+            x2,_,_,_,_=self.setup_input_loader(format, 
+                    directory, 
+                    device, 
+                    config, 
+                    seconds=seconds,
+                    bitrate=bitrate, 
+                    crop=crop, 
+                    width=width, 
+                    height=height, 
+                    channels=channels)
+
         return {
                 'x':x,
+                'x2': x2,
                 'xa':xa,
                 'xb':xb,
                 'y':y,

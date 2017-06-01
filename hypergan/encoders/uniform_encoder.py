@@ -9,9 +9,10 @@ class UniformEncoder(BaseEncoder):
     def required(self):
         return "z min max".split()
 
-    def create(self, gan):
-        projections = []
+    def create(self):
+        gan = self.gan
         config = self.config
+        projections = []
         z_base = tf.random_uniform([gan.config.batch_size, config.z],config.min, config.max,dtype=gan.config.dtype)
         for projection in config.projections:
           projections.append(projection(config, gan, z_base))

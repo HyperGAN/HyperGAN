@@ -8,7 +8,8 @@ from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 
-encoder = UniformEncoder({
+gan = hg.GAN(config={"batch_size": 2, "dtype": tf.float32}, graph={})
+encoder = UniformEncoder(gan, {
     'test':True,
     "z": 2,
     "min": 0,
@@ -26,10 +27,9 @@ class UniformEncoderTest(tf.test.TestCase):
                 "min": 0,
                 "max": 1
                 }
-        subject = UniformEncoder(config)
+        subject = UniformEncoder(gan, config)
         with self.test_session():
-            gan = hg.GAN(config={"batch_size": 2, "dtype": tf.float32}, graph={})
-            projections, z = subject.create(gan)
+            projections, z = subject.create()
             self.assertEqual(projections.get_shape()[1], z.get_shape()[1])
 
     def test_projection_twice(self):
@@ -39,15 +39,14 @@ class UniformEncoderTest(tf.test.TestCase):
                 "min": 0,
                 "max": 1
                 }
-        subject = UniformEncoder(config)
+        subject = UniformEncoder(gan, config)
         with self.test_session():
-            gan = hg.GAN(config={"batch_size": 2, "dtype": tf.float32}, graph={})
-            projections, z = subject.create(gan)
+            projections, z = subject.create()
             self.assertEqual(int(projections.get_shape()[1]), 2*int(z.get_shape()[1]))
             
     def test_validate(self):
         with self.assertRaises(ValidationException):
-            UniformEncoder({})
+            UniformEncoder(gan, {})
  
 
 if __name__ == "__main__":

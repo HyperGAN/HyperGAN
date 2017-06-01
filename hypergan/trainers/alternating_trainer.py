@@ -7,63 +7,9 @@ from hypergan.trainers.base_trainer import BaseTrainer
 
 class AlternatingTrainer(BaseTrainer):
 
-    def __init__(self,
-            d_learn_rate=1e-3,
-            d_epsilon=1e-8,
-            d_beta1=0.9,
-            d_beta2=0.999,
-            g_learn_rate=1e-3,
-            g_epsilon=1e-8,
-            g_beta1=0.9,
-            g_beta2=0.999,
-            g_momentum=0.01, 
-            d_momentum=0.00001, 
-            g_decay=0.999, 
-            d_decay=0.995, 
-            d_rho=0.95,
-            g_rho=0.95,
-            d_initial_accumulator_value=0.1,
-            g_initial_accumulator_value=0.1,
-            d_trainer=tf.train.AdamOptimizer,
-            g_trainer=tf.train.AdamOptimizer,
-            d_clipped_weights=False,
-            clipped_gradients=False
-        ):
-        BaseTrainer.__init__(self)
-        selector = hc.Selector()
-
-        selector.set('d_learn_rate', d_learn_rate)
-        selector.set('d_epsilon', d_epsilon)
-        selector.set('d_beta1', d_beta1)
-        selector.set('d_beta2', d_beta2)
-
-        selector.set('g_learn_rate', g_learn_rate)
-        selector.set('g_epsilon', g_epsilon)
-        selector.set('g_beta1', g_beta1)
-        selector.set('g_beta2', g_beta2)
-
-        selector.set('clipped_gradients', clipped_gradients)
-        selector.set('d_clipped_weights', d_clipped_weights)
-
-        selector.set('d_decay', d_decay)
-        selector.set('g_decay', g_decay)
-
-        selector.set('d_momentum', d_momentum)
-        selector.set('g_momentum', g_momentum)
-
-        selector.set('d_trainer', d_trainer)
-        selector.set('g_trainer', g_trainer)
-
-        selector.set('d_rho', d_rho)
-        selector.set('g_rho', g_rho)
-
-        selector.set('d_initial_accumulator_value', d_initial_accumulator_value)
-        selector.set('g_initial_accumulator_value', g_initial_accumulator_value)
-
-        self.config = selector.random_config()
-        self.iteration = 0
-
-    def create(config, gan, d_vars, g_vars):
+    def _create(self):
+        gan = self.gan
+        config = self.config
         d_loss = gan.graph.d_loss
         g_loss = gan.graph.g_loss
         g_lr = np.float32(config.g_learn_rate)
@@ -81,7 +27,8 @@ class AlternatingTrainer(BaseTrainer):
             g_optimizer = g_optimizer.minimize(g_loss, var_list=g_vars)
             d_optimizer = d_optimizer.minimize(d_loss, var_list=d_vars)
 
-        gan.graph.clip = [tf.assign(d,tf.clip_by_value(d, -config.d_clipped_weights, config.d_clipped_weights))  for d in d_vars]
+        if config.d_clipped_weights is not None:
+            gan.graph.clip = [tf.assign(d,tf.clip_by_value(d, -config.d_clipped_weights, config.d_clipped_weights))  for d in d_vars]
 
         return g_optimizer, d_optimizer
 
@@ -108,13 +55,11 @@ class AlternatingTrainer(BaseTrainer):
 
         if(d_class_loss is not None):
             _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict)
-            if self.iteration % 100 == 0:
-                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (self.iteration, g_cost,d_cost, d_real, d_class, d_log ))
+            if self.step % 100 == 0:
+                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (self.step, g_cost,d_cost, d_real, d_class, d_log ))
         else:
             _, g_cost,d_fake,d_real = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss], feed_dict)
-            if self.iteration % 100 == 0:
-                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (self.iteration, g_cost,d_cost, d_real, d_log ))
-
-        self.iteration+=1
+            if self.step % 100 == 0:
+                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (self.step, g_cost,d_cost, d_real, d_log ))
 
         return d_cost, g_cost

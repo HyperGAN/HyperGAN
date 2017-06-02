@@ -4,7 +4,7 @@ from hypergan.ops.tensorflow.ops import TensorflowOps
 from unittest.mock import MagicMock
 
 ops = TensorflowOps()
-class TensorflowOpsTest(tf.test.TestCase):
+class OpsTest(tf.test.TestCase):
     def test_lookup(self):
         with self.test_session():
             self.assertEqual(ops.lookup('tanh'), tf.nn.tanh)

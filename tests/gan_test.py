@@ -26,7 +26,7 @@ class MockTrainer:
         self.mock = True
 
 
-class GANTest(tf.test.TestCase):
+class GanTest(tf.test.TestCase):
     def test_constructor(self):
         with self.test_session():
             gan = GAN(graph = graph, ops = MockOps, config = {})

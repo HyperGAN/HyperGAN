@@ -6,10 +6,10 @@ from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 
-loss = ImprovedLoss({})
-class ImprovedLossTest(tf.test.TestCase):
+class StandardGanLossTest(tf.test.TestCase):
     def testConfig(self):
         with self.test_session():
+            loss = ImprovedLoss({})
             self.assertEqual(loss.config.z, None)
 
 if __name__ == "__main__":

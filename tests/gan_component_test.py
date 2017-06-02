@@ -13,7 +13,7 @@ class MockOps:
     pass
 gan = hc.Config({'ops': MockOps})
 component = GANComponent(gan=gan, config={'test':True})
-class GANComponentTest(tf.test.TestCase):
+class GanComponentTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
             self.assertEqual(component.config.test, True)

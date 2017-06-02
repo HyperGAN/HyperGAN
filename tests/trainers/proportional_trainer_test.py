@@ -8,14 +8,15 @@ from unittest.mock import MagicMock
 
 from hypergan.trainers.proportional_control_trainer import ProportionalControlTrainer
 
-trainer = ProportionalControlTrainer()
-class ProportionalControlTrainerTest(tf.test.TestCase):
+class ProportionalTrainerTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
+            trainer = ProportionalControlTrainer()
             self.assertEqual(trainer.config.d_learn_rate, 1e-3)
 
     def test_step(self):
         with self.test_session():
+            trainer = ProportionalControlTrainer()
             self.assertEqual(trainer.step(), [1, 1])
 
 if __name__ == "__main__":

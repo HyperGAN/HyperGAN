@@ -9,10 +9,14 @@ from hypergan.ops import TensorflowOps
 from unittest.mock import MagicMock
 
 
-configuration = hg.configuration
 class ConfigurationTest(tf.test.TestCase):
     def test_constructor(self):
         with self.test_session():
-            gan = GAN(graph = graph, ops = MockOps, config = {})
-            self.assertEqual(gan.graph.x, graph.x)
+            default = hg.Configuration.default()
+            self.assertNotEqual(default.trainer, None)
+            self.assertEqual(len(default.discriminators), 1)
+            self.assertEqual(len(default.losses), 1)
 
+
+if __name__ == "__main__":
+    tf.test.main()

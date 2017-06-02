@@ -2,8 +2,10 @@ import hypergan
 from .gan import GAN
 from .graph import Graph
 from .config import selector
+from .configuration import Configuration
 import tensorflow as tf
 import hypergan.cli
+import hypergan as hg
 
 def load(name):
     gan = GAN()

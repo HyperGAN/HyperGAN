@@ -8,9 +8,10 @@ import hypergan as hg
 
 from unittest.mock import MagicMock
 
+gan = hg.GAN(config={"batch_size": 2, "dtype": tf.float32}, graph={})
 config = {'initial_depth': 1, 'channels': 3, 'activation': tf.nn.tanh, 'layers': 3, 'depth_increase' : 3, 'block' : hg.discriminators.common.standard_block}
 
-discriminator = PyramidDiscriminator(config)
+discriminator = PyramidDiscriminator(gan, config)
 class PyramidDiscriminatorTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
@@ -39,7 +40,7 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
 
     def test_validate(self):
         with self.assertRaises(ValidationException):
-            PyramidDiscriminator({})
+            PyramidDiscriminator(gan, {})
         
 if __name__ == "__main__":
     tf.test.main()

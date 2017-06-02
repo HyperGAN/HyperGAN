@@ -20,6 +20,8 @@ from hypergan.ops import TensorflowOps
 import tensorflow as tf
 import hypergan as hg
 
+from hypergan.gan_component import ValidationException
+
 class GAN:
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
     def __init__(self, config, graph, ops=TensorflowOps, device='/gpu:0', graph_type='full', tfconfig=None):
@@ -66,5 +68,5 @@ class GAN:
     def train(self, feed_dict={}):
         trainer = self.get_config_value('trainer') 
         if trainer is None:
-            raise Exception("GAN.train called but no trainer defined")
+            raise ValidationException("GAN.train called but no trainer defined")
         return trainer.run(self, feed_dict)

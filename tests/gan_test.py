@@ -2,6 +2,7 @@ import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
 from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
+from hypergan.gan_component import ValidationException
 from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
@@ -28,8 +29,16 @@ class MockTrainer:
 class GANTest(tf.test.TestCase):
     def test_constructor(self):
         with self.test_session():
-            gan = GAN(graph = graph, ops = MockOps)
+            gan = GAN(graph = graph, ops = MockOps, config = {})
             self.assertEqual(gan.graph.x, graph.x)
+
+    def test_fails_with_no_trainer(self):
+        trainer = MockTrainer()
+        config = {}
+        gan = GAN(graph = graph, ops = MockOps, config = config)
+        with self.assertRaises(ValidationException):
+            gan.train()
+
 
     def test_train(self):
         trainer = MockTrainer()
@@ -42,9 +51,14 @@ class GANTest(tf.test.TestCase):
 
     def test_default(self):
         with self.test_session():
-            gan = GAN(graph = graph, ops = TensorflowOps, config = DefaultConfigurations.get())
+            gan = GAN(graph = graph, ops = TensorflowOps, config = hg.configuration.default())
+            prior_g = gan.generator.weights[0].eval()
+            prior_d = gan.discriminators[0].weights[0].eval()
             gan.train()
-            self.assertEqual(gan.step, 1)
+            posterior_d = gan.discriminators[0].weights[0].eval()
+            posterior_g = gan.generator.weights[0].eval()
+            self.assertNotEqual(posterior_g, prior_g)
+            self.assertNotEqual(posterior_d, prior_d)
 
 if __name__ == "__main__":
     tf.test.main()

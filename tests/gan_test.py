@@ -10,12 +10,15 @@ from unittest.mock import MagicMock
 from hypergan.search.default_configurations import DefaultConfigurations
 
 from hypergan import GAN
+import hypergan as hg
 
 
 graph = hc.Config({
     'x': tf.constant(1., shape=[32,32,32])
 })
 
+
+default_config = hg.Configuration.default()
 
 class MockOps:
     def __init__(self):
@@ -35,23 +38,20 @@ class GanTest(tf.test.TestCase):
     def test_fails_with_no_trainer(self):
         trainer = MockTrainer()
         config = {}
-        gan = GAN(graph = graph, ops = MockOps, config = config)
+        gan = GAN(graph = graph, ops = MockOps, config = default_config)
         with self.assertRaises(ValidationException):
             gan.train()
 
 
     def test_train(self):
-        trainer = MockTrainer()
-        config = {}
-        config['trainer'] = trainer
         with self.test_session():
-            gan = GAN(graph = graph, ops = MockOps, config = config)
+            gan = GAN(graph = graph, ops = MockOps, config = default_config)
             gan.train()
             self.assertEqual(gan.step, 1)
 
     def test_default(self):
         with self.test_session():
-            gan = GAN(graph = graph, ops = TensorflowOps, config = hg.configuration.default())
+            gan = GAN(graph = graph, ops = TensorflowOps, config = default_config)
             prior_g = gan.generator.weights[0].eval()
             prior_d = gan.discriminators[0].weights[0].eval()
             gan.train()

@@ -40,7 +40,7 @@ from trainers.proportional_trainer_test import ProportionalTrainerTest
 #        print(mod)
 #    return mod
 #
-#classes = []
+classes = []
 #for f in glob.glob("*test.py"):
 #    classes.append(test_file(f))
 #

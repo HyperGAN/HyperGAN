@@ -26,11 +26,18 @@ class GAN(GANComponent):
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
     def __init__(self, config=None, graph={}, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps):
         """ Initialized a new GAN."""
+        self.device = device
+        self.ops_backend = ops_backend
+        self.created = False
+
         if config == None:
             config = hg.Configuration.default()
-        self.ops_backend = ops_backend
+
+        # A GAN as a component has a parent of itself
+        # gan.gan.gan.gan.gan.gan
         GANComponent.__init__(self, self, config)
-        self.session = self.ops.new_session(device, ops_config)
+
+        self.session = self.ops.new_session(self.device, ops_config)
         self.graph = Config(graph)
         self.inputs = [graph[k] for k in graph.keys()]
 
@@ -70,24 +77,35 @@ class GAN(GANComponent):
             return config
         return None
 
-    def create_graph(self, graph_type, device):
-        tf_graph = hg.graph.Graph(self)
-        graph = self.graph
-        with tf.device(device):
-            if 'y' in graph:
-                # convert to one-hot
-                graph.y=tf.cast(graph.y,tf.int64)
-                graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
+    def create(self):
+        if self.created:
+            print("gan.create already called. Cowardly refusing to create graph twice")
+            return
 
-            if graph_type == 'full':
-                tf_graph.create(graph)
-            elif graph_type == 'generator':
-                tf_graph.create_generator(graph)
-            else:
-                raise Exception("Invalid graph type")
+        with tf.device(self.device):
+            config = self.config
+
+            if config.generator:
+                self.generator = self.create_component(config.generator)
+            self.discriminators = [self.create_component(discriminator) for discriminator in config.discriminators]
+            self.losses = [self.create_component(loss) for loss in config.losses]
+            if config.trainer:
+                self.trainer = self.create_component(config.trainer)
+            if config.sampler:
+                self.sampler = self.create_component(config.sampler)
+
+            self.created = True
+
+            #TODO convert to one-hot
+            #graph.y=tf.cast(graph.y,tf.int64)
+            #graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
+
+    def create_component(self, defn):
+        if defn['class'] == None:
+            raise ValidationException("Component definition is missing '" + name + "'")
+        return defn['class'](self, defn)
 
     def train(self, feed_dict={}):
-        if self.config['trainer'] is None or self.config['trainer']['class'] is None:
-            raise ValidationException("GAN.train called but no trainer defined")
-        trainer = self.config['trainer']['class'](self, self.config['trainer'])
-        return trainer.run(feed_dict)
+        if not self.created:
+            self.create()
+        return self.trainer.run(feed_dict)

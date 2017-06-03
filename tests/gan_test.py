@@ -4,6 +4,7 @@ from hypergan.ops import TensorflowOps
 from hypergan.search.default_configurations import DefaultConfigurations
 
 from hypergan import GAN
+from hypergan.generators.resize_conv_generator import ResizeConvGenerator
 import hypergan as hg
 import tensorflow as tf
 import hyperchamber as hc
@@ -48,15 +49,25 @@ class GanTest(tf.test.TestCase):
             gan = GAN(graph = {'x': None})
             self.assertEqual(gan.inputs[0], None)
 
+    def test_default(self):
+        with self.test_session():
+            gan = GAN(graph = {'x': tf.constant([1,1,1,1])})
+            gan.create()
+            self.assertEqual(type(gan.generator), ResizeConvGenerator)
+            self.assertEqual(type(gan.discriminators[0]), PyramidDiscriminator)
+            self.assertEqual(len(gan.discriminators), 1)
+            self.assertEqual(len(gan.losses), 1)
+
     def test_train(self):
         with self.test_session():
-            gan = GAN(graph = graph, config = default_config)
+            gan = GAN(graph = graph)
             gan.train()
             self.assertEqual(gan.step, 1)
 
     def test_train_updates_posterior(self):
         with self.test_session():
-            gan = GAN(graph = graph, config = default_config)
+            gan = GAN(graph = graph)
+            gan.create()
             prior_g = gan.generator.weights[0].eval()
             prior_d = gan.discriminators[0].weights[0].eval()
             gan.train()

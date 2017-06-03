@@ -8,7 +8,7 @@ import hypergan as hg
 
 from unittest.mock import MagicMock
 
-gan = hg.GAN(config={"batch_size": 2, "dtype": tf.float32}, graph={})
+gan = hg.GAN()
 config = {'initial_depth': 1, 'channels': 3, 'activation': tf.nn.tanh, 'layers': 3, 'depth_increase' : 3, 'block' : hg.discriminators.common.standard_block}
 
 discriminator = PyramidDiscriminator(gan, config)

@@ -32,7 +32,8 @@ class AlternatingTrainer(BaseTrainer):
 
         return g_optimizer, d_optimizer
 
-    def run(gan, feed_dict):
+    def run(self, feed_dict):
+        gan = self.gan
         sess = gan.session
         config = gan.config
         x_t = gan.graph.x

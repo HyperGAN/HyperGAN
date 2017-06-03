@@ -2,7 +2,9 @@ import hyperchamber as hc
 import tensorflow as tf
 import types
 import importlib
+import hypergan
 from hypergan.ops.tensorflow import layer_regularizers
+from hypergan.ops.tensorflow.activations import lrelu
 
 class TensorflowOps:
     def __init__(self, config={}):
@@ -174,6 +176,10 @@ class TensorflowOps:
             return layer_regularizers.layer_norm_1
         if symbol == "prelu": #TODO test me
             return self.prelu()
+        if symbol == "lrelu": #TODO test me
+            return lrelu
+        if symbol == 'reduce_mean':
+            return tf.reduce_mean
 
         print("lookup failed for ", self.description, symbol)
         return None

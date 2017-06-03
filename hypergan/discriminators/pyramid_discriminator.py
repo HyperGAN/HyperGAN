@@ -9,7 +9,7 @@ from .base_discriminator import BaseDiscriminator
 class PyramidDiscriminator(BaseDiscriminator):
 
     def required(self):
-        return "channels activation layers block depth_increase initial_depth".split()
+        return "activation layers block depth_increase initial_depth".split()
 
     #TODO: arguments telescope, root_config/config confusing
     def create(self, gan, x, g):

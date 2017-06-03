@@ -103,6 +103,7 @@ class GAN(GANComponent):
     def create_component(self, defn):
         if defn['class'] == None:
             raise ValidationException("Component definition is missing '" + name + "'")
+        print("Adding graph component: ", defn['class'])
         return defn['class'](self, defn)
 
     def train(self, feed_dict={}):

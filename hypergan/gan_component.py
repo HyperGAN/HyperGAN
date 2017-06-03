@@ -12,7 +12,6 @@ class GANComponent:
         errors = self.validate()
         if errors != []:
             raise ValidationException("\n".join(errors))
-        print('--',config)
         self.create_ops(config)
 
     def create_ops(self, config):
@@ -20,7 +19,6 @@ class GANComponent:
             return
         if self.gan.ops_backend is None:
             return
-        print(self.gan.ops_backend)
         filtered_options = {k: v for k, v in config.items() if k in inspect.getargspec(self.gan.ops_backend).args}
         self.ops = self.gan.ops_backend(*dict(filtered_options))
         self.config = self.ops.lookup(config)

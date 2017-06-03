@@ -4,27 +4,8 @@ import hyperchamber as hc
 
 
 class LeastSquaresLoss:
-    def linear_projection(net, axis=1):
-        net = linear(net, 1, scope="d_lsgan_lin_proj")
-        return net
 
-    def config(
-            reduce=linear_projection, 
-            discriminator=None,
-            gradient_penalty=False,
-            labels=[[0,-1,-1]] # a,b,c in the paper
-        ):
-        selector = hc.Selector()
-        selector.set("reduce", reduce)
-        selector.set('discriminator', discriminator)
-        selector.set('gradient_penalty',gradient_penalty)
-
-        selector.set('create', create)
-        selector.set('labels', labels)
-
-        return selector.random_config()
-
-    def create(config, gan):
+    def create():
         if(config.discriminator == None):
             d_real = gan.graph.d_real
             d_fake = gan.graph.d_fake
@@ -40,7 +21,7 @@ class LeastSquaresLoss:
         d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])
 
         a,b,c = config.labels
-        d_loss = tf.square(d_real - b)+tf.square(d_fake - a)
+        d_loss = tf.square(d_real - b) + tf.square(d_fake - a)
         g_loss = tf.square(d_fake - c)
 
         if config.gradient_penalty:

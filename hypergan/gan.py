@@ -62,7 +62,7 @@ class GAN(GANComponent):
                 raise Exception("Invalid graph type")
 
     def train(self, feed_dict={}):
-        trainer = self.get_config_value('trainer') 
+        trainer = self.config['trainer']['class'](self.config['trainer'])
         if trainer is None:
             raise ValidationException("GAN.train called but no trainer defined")
         return trainer.run(self, feed_dict)

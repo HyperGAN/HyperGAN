@@ -1,4 +1,5 @@
 import tensorflow as tf
+import hypergan as hg
 from hypergan.ops.tensorflow.ops import TensorflowOps
 
 from unittest.mock import MagicMock
@@ -12,12 +13,13 @@ class OpsTest(tf.test.TestCase):
 
     def test_lookup_class(self):
         with self.test_session():
-            self.assertEqual(ops.lookup_class('tf.python.training.rmsprop.RMSPropOptimizer'), tf.python.training.rmsprop.RMSPropOptimizer)
+            self.assertEqual(ops.lookup_class('class:hypergan.GAN'), hg.GAN)
 
     def test_lookup(self):
         with self.test_session():
             self.assertEqual(ops.lookup('tanh'), tf.nn.tanh)
             self.assertEqual(ops.lookup(tanh_str), tf.nn.tanh)
+            self.assertEqual(ops.lookup({'name': 'tanh'}), {'name':tf.nn.tanh})
             self.assertEqual(ops.lookup(None), None)
 
     def test_dtype(self):

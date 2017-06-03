@@ -7,21 +7,22 @@ class ValidationException(Exception):
 
 class GANComponent:
     def __init__(self, gan, config):
-        self.config = hc.Config(config)
         self.gan = gan
+        self.config = hc.Config(config)
         errors = self.validate()
         if errors != []:
             raise ValidationException("\n".join(errors))
-        self.ops = self.create_ops()
+        self.create_ops(config)
 
-    def create_ops(self):
+    def create_ops(self, config):
         if self.gan is None:
             return None
-        filtered_options = {k: v for k, v in self.config.items() if k in inspect.getargspec(self.gan.ops_backend).args}
+        print(config)
+        filtered_options = {k: v for k, v in config.items() if k in inspect.getargspec(self.gan.ops_backend).args}
         print('create_ops', self.gan, self.gan.ops_backend)
         print("filtered_options", filtered_options)
-        ops = self.gan.ops_backend(*dict(filtered_options))
-        return ops
+        self.ops = self.gan.ops_backend(*dict(filtered_options))
+        self.config = self.ops.lookup(config)
 
     def required(self):
         return []

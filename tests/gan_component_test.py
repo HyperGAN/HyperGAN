@@ -9,10 +9,7 @@ import hypergan as hg
 
 from unittest.mock import MagicMock
 
-class MockOps:
-    pass
-
-gan = hc.Config({'ops_backend': MockOps})
+gan = hg.GAN()
 component = GANComponent(gan=gan, config={'test':True})
 class GanComponentTest(tf.test.TestCase):
     def test_config(self):
@@ -29,7 +26,7 @@ class GanComponentTest(tf.test.TestCase):
 
     def test_ops(self):
         with self.test_session():
-            self.assertEqual(type(component.ops), MockOps)
+            self.assertEqual(type(component.ops), TensorflowOps)
 
     def test_missing_gan(self):
         with self.assertRaises(ValidationException):

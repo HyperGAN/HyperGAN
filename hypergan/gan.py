@@ -85,8 +85,8 @@ class GAN(GANComponent):
         with tf.device(self.device):
             config = self.config
 
-            if config.generator:
-                self.generator = self.create_component(config.generator)
+            self.encoders = [self.create_component(encoder) for encoder in config.encoders]
+            self.generator = self.create_component(config.generator)
             self.discriminators = [self.create_component(discriminator) for discriminator in config.discriminators]
             self.losses = [self.create_component(loss) for loss in config.losses]
             if config.trainer:
@@ -103,8 +103,18 @@ class GAN(GANComponent):
     def create_component(self, defn):
         if defn['class'] == None:
             raise ValidationException("Component definition is missing '" + name + "'")
-        print("Adding graph component: ", defn['class'])
-        return defn['class'](self, defn)
+        gan_component = defn['class'](self, defn)
+        gan_component.create()
+        return gan_component
+
+    def encoder_sample(self, cache=False):
+        if len(self.encoders):
+            return self.encoders[0].sample(cache)
+        return self.encoders
+
+    def generator_sample(self, cache=False):
+        print('selfy.gen', self.generator)
+        return self.generator.sample(cache)
 
     def train(self, feed_dict={}):
         if not self.created:

@@ -13,7 +13,7 @@ import numpy as np
 from unittest.mock import MagicMock
 
 graph = hc.Config({
-    'x': tf.constant(1., shape=[32,32,32])
+    'x': tf.constant(1., shape=[32,32,32], dtype=tf.float32)
 })
 
 default_config = hg.Configuration.default()
@@ -68,11 +68,11 @@ class GanTest(tf.test.TestCase):
         with self.test_session():
             gan = GAN(graph = graph)
             gan.create()
-            prior_g = gan.generator.weights[0].eval()
-            prior_d = gan.discriminators[0].weights[0].eval()
+            prior_g = gan.generator.weights()[0].eval()
+            prior_d = gan.discriminators[0].weights()[0].eval()
             gan.train()
-            posterior_d = gan.discriminators[0].weights[0].eval()
-            posterior_g = gan.generator.weights[0].eval()
+            posterior_d = gan.discriminators[0].weights()[0].eval()
+            posterior_g = gan.generator.weights()[0].eval()
             self.assertNotEqual(posterior_g, prior_g)
             self.assertNotEqual(posterior_d, prior_d)
 

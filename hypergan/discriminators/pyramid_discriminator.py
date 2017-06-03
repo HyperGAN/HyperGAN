@@ -11,11 +11,15 @@ class PyramidDiscriminator(BaseDiscriminator):
     def required(self):
         return "activation layers block depth_increase initial_depth".split()
 
-    #TODO: arguments telescope, root_config/config confusing
-    def create(self, gan, x, g):
+    def create(self):
         config = self.config
-        dconfig = {k[2:]: v for k, v in gan.config.items() if k[2:] in inspect.getargspec(gan.ops).args}
-        ops = gan.ops(*dict(dconfig))
+        gan = self.gan
+        ops = self.ops
+
+        #TODO what if you need multiple samples?
+        #TODO how can we handle inputs/outputs better here?
+        x = gan.graph.x
+        g = gan.generator_sample()
 
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
@@ -102,7 +106,8 @@ class PyramidDiscriminator(BaseDiscriminator):
             x_filter = tf.concat(axis=3, values=[x, config['layer_filter'](gan, x)])
             net = tf.concat(axis=0, values=[x_filter,g_filter] )
         else:
-            net = tf.concat(axis=0, values=[tf.squeeze(x),tf.squeeze(g)])
+            print("XG", x, g)
+            net = tf.concat(axis=0, values=[x,g])
         return net
 
     def add_noise(self, config, net):

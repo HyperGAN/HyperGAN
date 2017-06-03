@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 
 def lrelu(x, leak=0.2, name="lrelu"):
     with tf.variable_scope(name):

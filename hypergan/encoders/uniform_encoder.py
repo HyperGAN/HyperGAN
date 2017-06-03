@@ -15,11 +15,17 @@ class UniformEncoder(BaseEncoder):
         config = self.config
         projections = []
         batch_size = ops.shape(gan.inputs[0])[0]
-        z_base = tf.random_uniform([batch_size, config.z], config.min or -1, config.max or 1, dtype=ops.dtype)
+        self.z_base = tf.random_uniform([batch_size, config.z], config.min or -1, config.max or 1, dtype=ops.dtype)
         for projection in config.projections:
-          projections.append(projection(config, gan, z_base))
-        projections = tf.concat(axis=1, values=projections)
-        return projections, z_base
+          projections.append(projection(config, gan, self.z_base))
+        self.projections = tf.concat(axis=1, values=projections)
+        return self.projections
+
+    def sample(self, cache=False):
+        if cache:
+            return self.projections
+        else:
+            return self.create()
 
 def identity(config, gan, net):
     return net
@@ -62,8 +68,8 @@ def gaussian(config, gan, net):
     z_dim = config.z
     net = (net + 1) / 2
 
-    za = tf.slice(net, [0,0], [gan.config.batch_size, z_dim//2])
-    zb = tf.slice(net, [0,z_dim//2], [gan.config.batch_size, z_dim//2])
+    za = tf.slice(net, [0,0], [gan.batch_size(), z_dim//2])
+    zb = tf.slice(net, [0,z_dim//2], [gan.batch_size(), z_dim//2])
 
     pi = np.pi
     ra = tf.sqrt(-2 * tf.log(za+TINY))*tf.cos(2*pi*zb)

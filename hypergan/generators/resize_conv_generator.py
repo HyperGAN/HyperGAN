@@ -62,9 +62,7 @@ class ResizeConvGenerator(BaseGenerator):
             s = ops.shape(net)
             is_last_layer = (i == len(depths)-1)
 
-            print("PRE depth is ", depth, s)
             depth = gan.channels() if is_last_layer else depth
-            print("depth is ", depth, s)
             resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
 
             net = ops.resize_images(net, resize, config.resize_image_type or 1)

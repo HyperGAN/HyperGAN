@@ -30,7 +30,7 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
         with self.test_session():
             net = tf.constant(1., shape=[1,2])
             nets = generator.create(net)
-            self.assertEqual(len(nets), 3)
+            self.assertEqual(len(nets), 1)
 
     def test_initial_depth(self):
         with self.test_session():

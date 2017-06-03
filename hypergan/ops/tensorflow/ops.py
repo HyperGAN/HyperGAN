@@ -61,7 +61,7 @@ class TensorflowOps:
         elif dtype == 'float16':
             return tf.float16
         else:
-            raise Exception("dtype not defined: "+dtype)
+            raise Exception("dtype not defined: "+str(dtype))
 
     def describe(self, description):
         self.description = description

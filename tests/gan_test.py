@@ -43,6 +43,11 @@ class GanTest(tf.test.TestCase):
         with self.assertRaises(ValidationException):
             gan = GAN(graph = graph, config = {})
 
+    def test_has_input(self):
+        with self.test_session():
+            gan = GAN(graph = {'x': None})
+            self.assertEqual(gan.inputs[0], None)
+
     def test_train(self):
         with self.test_session():
             gan = GAN(graph = graph, config = default_config)

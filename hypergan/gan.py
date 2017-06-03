@@ -32,6 +32,7 @@ class GAN(GANComponent):
         GANComponent.__init__(self, self, config)
         self.session = self.ops.new_session(device, ops_config)
         self.graph = Config(graph)
+        self.inputs = [graph[k] for k in graph.keys()]
 
     def required(self):
         return "generator".split()

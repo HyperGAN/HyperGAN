@@ -8,7 +8,7 @@ from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 
-gan = hg.GAN()
+gan = hg.GAN(graph = {'x': tf.constant([1,1])})
 encoder = UniformEncoder(gan, {
     'test':True,
     "z": 2,

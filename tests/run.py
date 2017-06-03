@@ -5,13 +5,13 @@ from gan_component_test import GanComponentTest
 from gan_test import GanTest
 from configuration_test import ConfigurationTest
 
-from discriminators.pyramid_discriminator_test import PyramidDiscriminatorTest
+#from discriminators.pyramid_discriminator_test import PyramidDiscriminatorTest
 from encoders.match_discriminator_encoder_test import MatchDiscriminatorEncoderTest
 from encoders.uniform_encoder_test import UniformEncoderTest
 
 from generators.align_generator_test import AlignGeneratorTest
-from generators.corridor_generator_test import CorridorGeneratorTest
-from generators.resize_conv_generator_test import ResizeConvGeneratorTest
+#from generators.corridor_generator_test import CorridorGeneratorTest
+#from generators.resize_conv_generator_test import ResizeConvGeneratorTest
 
 from losses.standard_gan_loss_test import StandardGanLossTest
 

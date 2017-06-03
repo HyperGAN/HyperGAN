@@ -49,7 +49,7 @@ class GanTest(tf.test.TestCase):
             gan.train()
             self.assertEqual(gan.step, 1)
 
-    def test_default(self):
+    def test_train_updates_posterior(self):
         with self.test_session():
             gan = GAN(graph = graph, ops = TensorflowOps, config = default_config)
             prior_g = gan.generator.weights[0].eval()

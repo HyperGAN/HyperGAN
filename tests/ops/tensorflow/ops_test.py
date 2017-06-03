@@ -64,9 +64,17 @@ class OpsTest(tf.test.TestCase):
 
     def test_variable_constructor(self):
         with self.test_session():
+            ops = TensorflowOps()
             self.assertEqual(len(ops.weights), 0)
             self.assertEqual(len(ops.biases), 0)
             self.assertEqual(len(ops.variables()), 0)
+
+    def test_get_weight(self):
+        with self.test_session():
+            ops = TensorflowOps(dtype='float32')
+            ops.get_weight([1,1])
+            self.assertTrue('float32' in str(ops.weights[0].dtype))
+
 
 if __name__ == "__main__":
     tf.test.main()

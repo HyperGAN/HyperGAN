@@ -15,7 +15,7 @@ class TensorflowOps:
             self.initializer = self.random_initializer(random_stddev)
 
     def assert_tensor(self, net):
-        if type(net) != tf.Tensor:
+        if type(net) != tf.Tensor and type(net) != tf.Variable:
             raise Exception("Expected a Tensor but received", net)
 
     def variables(self):

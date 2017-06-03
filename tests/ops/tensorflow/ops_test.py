@@ -74,6 +74,15 @@ class OpsTest(tf.test.TestCase):
             ops = TensorflowOps(dtype='float32')
             ops.get_weight([1,1])
             self.assertTrue('float32' in str(ops.weights[0].dtype))
+            self.assertEqual(ops.shape(ops.weights[0]), [1, 1])
+
+
+    def test_get_bias(self):
+        with self.test_session():
+            ops = TensorflowOps(dtype='float32')
+            ops.get_bias([1,1])
+            self.assertTrue('float32' in str(ops.biases[0].dtype))
+            self.assertEqual(ops.shape(ops.biases[0]), [1, 1])
 
 
 if __name__ == "__main__":

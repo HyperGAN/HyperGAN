@@ -7,10 +7,6 @@ from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 
-class MockOps:
-    def __init__(self):
-        self.mock = True
-
 class MockTrainer:
     def __init__(self):
         self.mock = True
@@ -18,7 +14,7 @@ class MockTrainer:
 graph = hc.Config({
     'x': tf.constant(1., shape=[32,32,32])
 })
-gan = hg.GAN(graph = graph, ops = MockOps, config = {})
+gan = hg.GAN(graph = graph)
 
 class MatchDiscriminatorEncoderTest(tf.test.TestCase):
     def test_create(self):

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 from hypergan.trainers.alternating_trainer import AlternatingTrainer
 
 config = {'d_learn_rate': 1e-3, 'g_learn_rate': 1e-3, 'd_trainer': 'rmsprop', 'g_trainer': 'adam'}
-gan = hg.GAN(config={"batch_size": 2, "dtype": tf.float32}, graph={})
+gan = hg.GAN()
 trainer = AlternatingTrainer(gan, config)
 class AlternatingTrainerTest(tf.test.TestCase):
     def test_config(self):

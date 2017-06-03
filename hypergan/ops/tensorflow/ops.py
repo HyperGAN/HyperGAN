@@ -1,9 +1,17 @@
+import hyperchamber as hc
 import tensorflow as tf
 import types
+import importlib
 from hypergan.ops.tensorflow import layer_regularizers
 
 class TensorflowOps:
-    def __init__(self, dtype="float32", initializer='orthogonal', orthogonal_gain=1.0, random_stddev=0.02):
+    def __init__(self, config={}):
+        config = hc.Config(config)
+        dtype = config.dtype or "float32"
+        initializer = config.initializer or 'orthogonal'
+        orthogonal_gain = config.orthogonal_gain or 1.0
+        random_stddev = config.random_stddev or 0.02
+
         self.dtype = self.parse_dtype(dtype)
         self.scope_count = 0
         self.description = ''
@@ -44,6 +52,8 @@ class TensorflowOps:
         return self.description + "_" + self.generate_scope()
 
     def parse_dtype(self, dtype):
+        if type(dtype) == Function:
+            return dtype
         if dtype == 'float32':
             return tf.float32
         elif dtype == 'float16':
@@ -140,6 +150,10 @@ class TensorflowOps:
             return None
         if type(symbol) == types.FunctionType:
             return symbol
+
+        if  symbol.startswith('function:'):
+            return self.lookup_function(symbol)
+
         if symbol == 'tanh':
             return tf.nn.tanh
         if symbol == 'sigmoid':
@@ -148,10 +162,17 @@ class TensorflowOps:
             return layer_regularizers.batch_norm_1
         if symbol == 'layer_norm':
             return layer_regularizers.layer_norm_1
-        #TODO if symbol starts with function:
+        if symbol == "prelu": #TODO test me
+            return self.prelu()
 
         print("lookup failed for ", self.description, symbol)
         return None
+
+    def lookup_function(self, name):
+        namespaced_method = name.split(":")[1]
+        method = namespaced_method.split(".")[-1]
+        namespace = ".".join(namespaced_method.split(".")[0:-1])
+        return getattr(importlib.import_module(namespace),method)
 
     def init_session(self, device):
         # Initialize tensorflow
@@ -179,6 +200,14 @@ class TensorflowOps:
         with tf.device(self.device):
             init = tf.global_variables_initializer()
             self.sess.run(init)
+
+    def new_session(self, device, tfconfig):
+        if tfconfig is None:
+            tfconfig = tf.ConfigProto()
+            tfconfig.gpu_options.allow_growth=True
+
+        with tf.device(device):
+            self.sess = tf.Session(config=tfconfig)
 
     def load_or_initialize_graph(self, save_file):
         save_file = os.path.expanduser(save_file)

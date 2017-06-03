@@ -20,20 +20,21 @@ from hypergan.ops import TensorflowOps
 import tensorflow as tf
 import hypergan as hg
 
-from hypergan.gan_component import ValidationException
+from hypergan.gan_component import ValidationException, GANComponent
 
-class GAN:
+class GAN(GANComponent):
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
-    def __init__(self, config, graph, ops=TensorflowOps, device='/gpu:0', graph_type='full', tfconfig=None):
+    def __init__(self, config=None, graph={}, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps):
         """ Initialized a new GAN."""
-        self.config=Config(config)
-        self.device=device
-        self.ops = ops
-        if tfconfig is None:
-            tfconfig = tf.ConfigProto()
-            tfconfig.gpu_options.allow_growth=True
-        self.init_session(device, tfconfig)
+        if config == None:
+            config = hg.Configuration.default()
+        self.ops_backend = ops_backend
+        GANComponent.__init__(self, self, config)
+        self.session = self.ops.new_session(device, ops_config)
         self.graph = Config(graph)
+
+    def required(self):
+        return "generator".split()
 
     def sample_to_file(self, name, sampler=static_batch_sampler.sample):
         return sampler(self, name)
@@ -59,11 +60,6 @@ class GAN:
                 tf_graph.create_generator(graph)
             else:
                 raise Exception("Invalid graph type")
-
-    def init_session(self, device, tfconfig):
-        # Initialize tensorflow
-        with tf.device(device):
-            self.sess = tf.Session(config=tfconfig)
 
     def train(self, feed_dict={}):
         trainer = self.get_config_value('trainer') 

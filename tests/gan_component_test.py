@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 class MockOps:
     pass
 
-gan = hc.Config({'ops': MockOps})
+gan = hc.Config({'ops_backend': MockOps})
 component = GANComponent(gan=gan, config={'test':True})
 class GanComponentTest(tf.test.TestCase):
     def test_config(self):
@@ -41,5 +41,6 @@ class GanComponentTest(tf.test.TestCase):
             self.assertEqual(component.weights, [])
             self.assertEqual(component.biases, [])
             self.assertEqual(component.variables(), [])
+
 if __name__ == "__main__":
     tf.test.main()

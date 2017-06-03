@@ -4,10 +4,16 @@ from hypergan.ops.tensorflow.ops import TensorflowOps
 from unittest.mock import MagicMock
 
 ops = TensorflowOps()
+tanh_str = "function:tensorflow.python.ops.math_ops.tanh"
 class OpsTest(tf.test.TestCase):
+    def test_lookup_function(self):
+        with self.test_session():
+            self.assertEqual(ops.lookup_function(tanh_str), tf.nn.tanh)
+
     def test_lookup(self):
         with self.test_session():
             self.assertEqual(ops.lookup('tanh'), tf.nn.tanh)
+            self.assertEqual(ops.lookup(tanh_str), tf.nn.tanh)
             self.assertEqual(ops.lookup(None), None)
 
     def test_dtype(self):
@@ -71,14 +77,14 @@ class OpsTest(tf.test.TestCase):
 
     def test_get_weight(self):
         with self.test_session():
-            ops = TensorflowOps(dtype='float32')
+            ops = TensorflowOps({'dtype':'float32'})
             ops.get_weight([1,1])
             self.assertTrue('float32' in str(ops.weights[0].dtype))
             self.assertEqual(ops.shape(ops.weights[0]), [1, 1])
 
     def test_get_bias(self):
         with self.test_session():
-            ops = TensorflowOps(dtype='float32')
+            ops = TensorflowOps({'dtype':'float32'})
             ops.get_bias([1,1])
             self.assertTrue('float32' in str(ops.biases[0].dtype))
             self.assertEqual(ops.shape(ops.biases[0]), [1, 1])

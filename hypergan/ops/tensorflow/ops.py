@@ -146,15 +146,22 @@ class TensorflowOps:
         return [int(x) for x in net.get_shape()]
 
     def lookup(self, symbol):
-        print("SYMBOL ", symbol)
         if symbol == None:
             return None
 
         if type(symbol) == types.FunctionType:
             return symbol
 
-        if type(symbol) == type({}):
+        if type(symbol) == type([]):
+            return [self.lookup(k) for k in symbol]
+
+        if type(symbol) == type({}) or type(symbol) == hc.Config:
             return {k: self.lookup(symbol[k]) for k in symbol.keys()}
+
+        if type(symbol) != type(""):
+            return symbol
+
+        print("SYMB", symbol)
 
         if symbol.startswith('function:'):
             return self.lookup_function(symbol)
@@ -177,7 +184,6 @@ class TensorflowOps:
         return None
 
     def lookup_function(self, name):
-        print('lookup', name)
         namespaced_method = name.split(":")[1]
         method = namespaced_method.split(".")[-1]
         namespace = ".".join(namespaced_method.split(".")[0:-1])

@@ -17,10 +17,7 @@ class GANComponent:
     def create_ops(self, config):
         if self.gan is None:
             return None
-        print(config)
         filtered_options = {k: v for k, v in config.items() if k in inspect.getargspec(self.gan.ops_backend).args}
-        print('create_ops', self.gan, self.gan.ops_backend)
-        print("filtered_options", filtered_options)
         self.ops = self.gan.ops_backend(*dict(filtered_options))
         self.config = self.ops.lookup(config)
 

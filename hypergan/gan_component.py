@@ -35,4 +35,7 @@ class GANComponent:
             errors.append("GANComponent constructed without GAN")
         return errors
 
+    def weights(self):
+        return self.ops.weights
+
 

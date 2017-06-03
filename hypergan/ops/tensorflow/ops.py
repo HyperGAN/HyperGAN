@@ -7,6 +7,8 @@ class TensorflowOps:
         self.dtype = self.parse_dtype(dtype)
         self.scope_count = 0
         self.description = ''
+        self.weights = []
+        self.biases = []
         if initializer == 'orthogonal':
             self.initializer = self.orthogonal_initializer(orthogonal_gain)
         else:
@@ -15,6 +17,9 @@ class TensorflowOps:
     def assert_tensor(self, net):
         if type(net) != tf.Tensor:
             raise Exception("Expected a Tensor but received", net)
+
+    def variables(self):
+        return self.biases + self.weights
 
     def random_initializer(self, stddev):
         def _build():
@@ -25,6 +30,9 @@ class TensorflowOps:
         def _build():
             return tf.orthogonal_initializer(gain)
         return _build
+
+    def describe(self, description):
+        self.description = description
 
     def generate_scope(self):
         self.scope_count += 1
@@ -46,25 +54,16 @@ class TensorflowOps:
     def describe(self, description):
         self.description = description
 
-    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
-        self.assert_tensor(net)
-        initializer = self.initializer()
-        with tf.variable_scope(self.generate_name()):
-            with tf.device("/cpu:0"):
-                w = tf.get_variable('w', [filter_h, filter_w, net.get_shape()[-1], output_dim],dtype=self.dtype,
-                                    initializer=initializer)
-            conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding='SAME')
-            biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0, dtype=self.dtype), dtype=self.dtype)
-            conv = tf.nn.bias_add(conv, biases)
-            return conv
+    def get_weight(self, shape):
+        weight = tf.get_variable('w', shape, dtype=self.dtype, initializer=self.initializer())
+        self.weights.append(weight)
+        return weight
 
-    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
-        self.assert_tensor(net)
-        initializer = self.initializer()
-        shape = self.shape(net)
-        output_shape = [shape[0], shape[1]*stride_h, shape[2]*stride_w, output_dim]
-        init_bias = 0.
-
+    def get_bias(self, shape):
+        bias = tf.get_variable('b', shape, initializer=tf.constant_initializer(0.0, dtype=self.dtype), dtype=self.dtype)
+        self.biases.append(bias)
+        return bias
+    
     def parse_dtype(self, dtype):
         if dtype == 'float32':
             return tf.float32
@@ -73,18 +72,12 @@ class TensorflowOps:
         else:
             raise Exception("dtype not defined: "+dtype)
 
-    def describe(self, description):
-        self.description = description
-
     def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         self.assert_tensor(net)
-        initializer = self.initializer()
         with tf.variable_scope(self.generate_name()):
-            with tf.device("/cpu:0"):
-                w = tf.get_variable('w', [filter_h, filter_w, net.get_shape()[-1], output_dim],dtype=self.dtype,
-                                    initializer=initializer)
+            w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding='SAME')
-            biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0, dtype=self.dtype), dtype=self.dtype)
+            biases = self.get_bias([output_dim])
             conv = tf.nn.bias_add(conv, biases)
             return conv
 
@@ -96,21 +89,25 @@ class TensorflowOps:
         init_bias = 0.
         with tf.variable_scope(self.generate_name()):
             # filter : [height, width, output_channels, in_channels]
-            w = tf.get_variable('w', [filter_h, filter_w, output_shape[-1], net.get_shape()[-1]], dtype=self.dtype, initializer=initializer)
+            w = self.get_weight([filter_h, filter_w, output_dim, output_dim])
 
-            try:
-                deconv = tf.nn.conv2d_transpose(net, w, output_shape=output_shape,
+            deconv = tf.nn.conv2d_transpose(net, w, output_shape=output_shape,
                                     strides=[1, stride_h, stride_w, 1])
 
-            # Support for versions of TensorFlow before 0.7.0
-            except AttributeError:
-                deconv = tf.nn.deconv2d(net, w, output_shape=output_shape,
-                                    strides=[1, stride_h, stride_w, 1])
-
-            biases = tf.get_variable('biases', [output_shape[-1]], dtype=self.dtype,initializer=tf.constant_initializer(init_bias, dtype=self.dtype))
+            biases = self.get_bias([output_shape[-1]])
             deconv = tf.reshape(tf.nn.bias_add(deconv, biases), deconv.get_shape())
 
             return deconv
+
+    def linear(self, net, output_dim):
+        self.assert_tensor(net)
+        initializer = self.initializer()
+        shape = self.shape(net)
+        with tf.variable_scope(self.generate_name()):
+            w = self.get_weight([output_dim, output_dim])
+            bias = self.get_bias([output_dim])
+            return tf.matmul(net, w) + bias
+
 
     def layer_regularizer(self, net, symbol, epsilon):
         self.assert_tensor(net)
@@ -118,20 +115,6 @@ class TensorflowOps:
         if op:
             net = op(epsilon, self.generate_name())(net, self.dtype)
         return net
-
-    def linear(self, net, output_dim):
-        self.assert_tensor(net)
-        initializer = self.initializer()
-        shape = self.shape(net)
-        initial_bias = 0
-        with tf.variable_scope(self.generate_name()):
-          with tf.device('/cpu:0'):
-            matrix = tf.get_variable("Matrix", [shape[1], output_dim], dtype=self.dtype,
-                                       initializer=initializer,
-                                    )
-          bias = tf.get_variable("bias", [output_dim],dtype=self.dtype,
-              initializer=tf.constant_initializer(initial_bias, dtype=self.dtype))
-        return tf.matmul(net, matrix) + bias
 
     def reshape(self, net, shape):
         self.assert_tensor(net)

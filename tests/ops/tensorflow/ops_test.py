@@ -62,5 +62,11 @@ class OpsTest(tf.test.TestCase):
             self.assertEqual(ops.generate_name(), "generator_1")
             self.assertEqual(ops.generate_name(), "generator_2")
 
+    def test_variable_constructor(self):
+        with self.test_session():
+            self.assertEqual(len(ops.weights), 0)
+            self.assertEqual(len(ops.biases), 0)
+            self.assertEqual(len(ops.variables()), 0)
+
 if __name__ == "__main__":
     tf.test.main()

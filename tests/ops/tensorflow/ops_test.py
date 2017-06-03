@@ -10,6 +10,10 @@ class OpsTest(tf.test.TestCase):
         with self.test_session():
             self.assertEqual(ops.lookup_function(tanh_str), tf.nn.tanh)
 
+    def test_lookup_class(self):
+        with self.test_session():
+            self.assertEqual(ops.lookup_class('tf.python.training.rmsprop.RMSPropOptimizer'), tf.python.training.rmsprop.RMSPropOptimizer)
+
     def test_lookup(self):
         with self.test_session():
             self.assertEqual(ops.lookup('tanh'), tf.nn.tanh)

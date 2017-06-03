@@ -1,40 +1,25 @@
 {
-  "batch_size": 32,
-  "channels": 3,
   "discriminators": [
     {
-      "activation": "function:hypergan.util.ops.lrelu",
-      "batch_norm_epsilon": 0.0001,
-      "batch_norm_momentum": 0.001,
+      "activation": "lrelu",
+      "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
       "block": "function:hypergan.discriminators.common.standard_block",
-      "block_repeat_count": 3,
-      "create": "function:hypergan.discriminators.pyramid_discriminator.discriminator",
-      "depth_increase": 32,
       "extra_layers": 1,
       "extra_layers_reduction": 2,
       "fc_layer_size": 300,
       "fc_layers": 1,
-      "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
-      "first_conv_size": 64,
-      "first_strided_conv_size": 64,
-      "foundation": "additive",
-      "layer_filter": null,
-      "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
+      "final_activation": "tanh",
+      "initial_depth": 64,
+      "depth_increase": 64,
+      "layer_regularizer": "layer_norm_1",
       "layers": 5,
-      "minibatch": false,
-      "noise": false,
       "orthogonal_initializer_gain": 1.0595959595959596,
-      "progressive_enhancement": false,
-      "resize": null,
-      "strided": false
+      "resize": null
     }
   ],
-  "dtype": {
-    "_type_enum": 1
-  },
   "encoders": [
     {
-      "create": "function:hypergan.encoders.uniform_encoder.create",
+      "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
       "max": 1,
       "min": -1,
       "modes": 8,
@@ -47,26 +32,21 @@
     }
   ],
   "generator": {
-    "activation": "function:hypergan.util.ops.lrelu",
-    "batch_norm_epsilon": 0.0001,
-    "batch_norm_momentum": 0.001,
+    "activation": "lrelu",
     "block": "function:hypergan.generators.common.standard_block",
     "block_repeat_count": 1,
-    "create": "function:hypergan.generators.resize_conv_generator.create",
-    "depth_reduction": 64,
-    "final_activation": "function:tensorflow.python.ops.math_ops.tanh",
-    "layer_filter": null,
-    "layer_regularizer": "function:hypergan.util.ops.layer_norm_1",
+    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
+    "final_activation": "tanh",
+    "layer_regularizer": "layer_norm_1",
     "orthogonal_initializer_gain": 1.6737373737373737,
-    "resize_image_type": 1,
-    "sigmoid_gate": false,
-    "z_projection_depth": 256
+    "depth_increase": 64,
+    "final_depth": 64
   },
   "losses": [
     {
       "alpha": 0.9325229325229324,
       "beta": 0.3927343927343927,
-      "create": "function:hypergan.losses.lsgan_loss.create",
+      "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
       "gamma": 0.49851949851949845,
       "gradient_penalty": false,
       "initial_k": 0.9823449823449822,
@@ -77,19 +57,13 @@
         1,
         0
       ],
-      "reduce": "function:tensorflow.python.ops.math_ops.reduce_mean",
-      "reverse": false,
-      "type": "softmax",
-      "use_k": true
+      "reduce": "reduce_mean"
     }
   ],
-  "model": "2d-test",
   "trainer": {
-    "clipped_gradients": false,
-    "create": "function:hypergan.trainers.proportional_control_trainer.create",
+    "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
     "d_beta1": 0.6527136527136527,
     "d_beta2": 0.34081534081534076,
-    "d_clipped_weights": false,
     "d_decay": 0.19863719863719861,
     "d_epsilon": 0.8575148575148575,
     "d_global_step": 0.17538217538217538,
@@ -98,7 +72,7 @@
     "d_learn_rate": 0.1473171473171473,
     "d_momentum": 0.7705107705107704,
     "d_rho": 0.4068604068604068,
-    "d_trainer": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+    "d_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer",
     "g_beta1": 0.4648834648834648,
     "g_beta2": 0.9608359608359608,
     "g_decay": 0.3971403971403971,
@@ -109,12 +83,6 @@
     "g_learn_rate": 0.09092509092509092,
     "g_momentum": 0.231034231034231,
     "g_rho": 0.6888646888646888,
-    "g_trainer": "function:tensorflow.python.training.adagrad.AdagradOptimizer",
-    "run": "function:hypergan.trainers.alternating_trainer.run"
-  },
-  "x_dims": [
-    64,
-    64
-  ],
-  "y_dims": 2
+    "g_trainer": "class:tensorflow.python.training.adagrad.AdagradOptimizer"
+  }
 }

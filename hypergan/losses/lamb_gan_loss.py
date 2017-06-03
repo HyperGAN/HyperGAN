@@ -2,7 +2,7 @@ import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
 
-from hypergan.losses import wgan_loss, standard_gan_loss, lsgan_loss
+from hypergan.losses import wgan_loss, standard_gan_loss, least_squares_loss
 
 
 class LambGanLoss:

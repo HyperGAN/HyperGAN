@@ -2,10 +2,18 @@ import tensorflow as tf
 from hypergan.losses.common import *
 import hyperchamber as hc
 
+from hypergan.losses.base_loss import BaseLoss
 
-class LeastSquaresLoss:
+class LeastSquaresLoss(BaseLoss):
 
-    def create():
+    def required(self):
+        return "reduce".split()
+
+    def create(self):
+        gan = self.gan
+        config = self.config
+        ops = self.ops
+
         if(config.discriminator == None):
             d_real = gan.graph.d_real
             d_fake = gan.graph.d_fake
@@ -30,11 +38,13 @@ class LeastSquaresLoss:
         d_fake_loss = -d_fake
         d_real_loss = d_real
 
-        gan.graph.d_fake_loss=tf.reduce_mean(d_fake_loss)
-        gan.graph.d_real_loss=tf.reduce_mean(d_real_loss)
+        d_loss = ops.squash(d_fake_loss, config.reduce)
+
+        ##TODO REFACTOR this .  This is about reporting back numbers to the trainer
+        gan.graph.d_fake_loss = ops.squash(d_fake_loss, config.reduce)
+        gan.graph.d_real_loss = ops.squash(d_real_loss, config.reduce)
+
+        d_loss = ops.squash(d_loss, config.reduce)
+        g_loss = ops.squash(g_loss, config.reduce)
 
         return [d_loss, g_loss]
-
-    def echo(net, axis=1):
-        return net
-

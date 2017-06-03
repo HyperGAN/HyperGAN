@@ -148,6 +148,13 @@ class TensorflowOps:
         self.assert_tensor(net)
         return [int(x) for x in net.get_shape()]
 
+    def squash(self, net, reduce):
+        while(sum(self.shape(net)) > 1):
+            net = reduce(net)
+            net = tf.squeeze(net)
+
+        return net
+
     def lookup(self, symbol):
         if symbol == None:
             return None

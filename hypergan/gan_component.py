@@ -38,4 +38,9 @@ class GANComponent:
     def weights(self):
         return self.ops.weights
 
+    def biases(self):
+        return self.ops.biases
+
+    def variables(self):
+        return self.ops.variables()
 

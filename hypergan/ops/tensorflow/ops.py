@@ -153,7 +153,7 @@ class TensorflowOps:
             return [self.lookup(k) for k in symbol]
 
         if type(symbol) == type({}) or type(symbol) == hc.Config:
-            return {k: self.lookup(symbol[k]) for k in symbol.keys()}
+            return hc.Config({k: self.lookup(symbol[k]) for k in symbol.keys()})
 
         if type(symbol) != type(""):
             return symbol

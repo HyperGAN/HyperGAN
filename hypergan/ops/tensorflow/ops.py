@@ -149,9 +149,6 @@ class TensorflowOps:
         if symbol == None:
             return None
 
-        if type(symbol) == types.FunctionType:
-            return symbol
-
         if type(symbol) == type([]):
             return [self.lookup(k) for k in symbol]
 
@@ -160,8 +157,6 @@ class TensorflowOps:
 
         if type(symbol) != type(""):
             return symbol
-
-        print("SYMB", symbol)
 
         if symbol.startswith('function:'):
             return self.lookup_function(symbol)

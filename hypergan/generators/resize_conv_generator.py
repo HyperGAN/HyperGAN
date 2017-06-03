@@ -17,7 +17,6 @@ class ResizeConvGenerator(BaseGenerator):
         final_depth = config.final_depth
         depths = []
 
-        print("GAN>GRAP>X", gan.graph.x)
         target_w = ops.shape(gan.graph.x)[0]
 
         w = 8 # TODO config option
@@ -40,18 +39,16 @@ class ResizeConvGenerator(BaseGenerator):
         config = self.config
         primes = [4, 4]
         nets = []
-        x_dims = gan.config.x_dims
-        #TODO refactor to a method on GAN object
 
-        batch_size = gan.config.batch_size
         depths = self.depths()
         initial_depth = depths[0]
-        new_shape = [batch_size, primes[0], primes[1], initial_depth]
+        new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
 
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
 
         net = ops.linear(net, initial_depth*primes[0]*primes[1])
+        print("RESHAPE", net, new_shape)
         net = ops.reshape(net, new_shape)
 
         depth_reduction = np.float32(config.depth_reduction)
@@ -65,14 +62,16 @@ class ResizeConvGenerator(BaseGenerator):
             s = ops.shape(net)
             is_last_layer = (i == len(depths)-1)
 
-            depth = gan.config.channels if is_last_layer else depth
-            resize = [min(s[1]*2, x_dims[0]), min(s[2]*2, x_dims[1])]
+            print("PRE depth is ", depth, s)
+            depth = gan.channels() if is_last_layer else depth
+            print("depth is ", depth, s)
+            resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
 
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(gan, config, net)
             net = config.block(ops, net, config, depth)
 
-            sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
+            sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.channels()])
             first3 = net if is_last_layer else sliced
 
             first3 = ops.layer_regularizer(first3, config.layer_regularizer, config.batch_norm_epsilon)

@@ -37,6 +37,30 @@ class GAN(GANComponent):
     def required(self):
         return "generator".split()
 
+    def batch_size(self):
+        #TODO how does this work with generators outside of discriminators?
+        if len(self.inputs) == 0:
+            raise ValidationException("gan.batch_size() requested but no inputs provided")
+        return self.ops.shape(self.inputs[0])[0]
+
+    def channels(self):
+        #TODO same issue with batch_size
+        if len(self.inputs) == 0:
+            raise ValidationException("gan.channels() requested but no inputs provided")
+        return self.ops.shape(self.inputs[0])[-1]
+
+    def width(self):
+        #TODO same issue with batch_size
+        if len(self.inputs) == 0:
+            raise ValidationException("gan.width() requested but no inputs provided")
+        return self.ops.shape(self.inputs[0])[2]
+
+    def height(self):
+        #TODO same issue with batch_size
+        if len(self.inputs) == 0:
+            raise ValidationException("gan.height() requested but no inputs provided")
+        return self.ops.shape(self.inputs[0])[1]
+
     def sample_to_file(self, name, sampler=static_batch_sampler.sample):
         return sampler(self, name)
 

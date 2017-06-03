@@ -116,8 +116,9 @@ class TensorflowOps:
         initializer = self.initializer()
         shape = self.shape(net)
         with tf.variable_scope(self.generate_name()):
-            w = self.get_weight([output_dim, output_dim])
+            w = self.get_weight([shape[1], output_dim])
             bias = self.get_bias([output_dim])
+            print("w is ", net, w, bias)
             return tf.matmul(net, w) + bias
 
 

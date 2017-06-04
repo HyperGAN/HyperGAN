@@ -48,8 +48,5 @@ class UniformEncoderTest(tf.test.TestCase):
         with self.assertRaises(ValidationException):
             UniformEncoder(gan, {})
 
-    def test_encoder_z(self):
-        with self.test_session():
-
 if __name__ == "__main__":
     tf.test.main()

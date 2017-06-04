@@ -126,20 +126,20 @@ class GAN(GANComponent):
         gan_component.create()
         return gan_component
 
-    def encoder_sample(self, cache=False):
+    def encoder_sample(self, cache=True):
         if len(self.encoders):
             return self.encoders[0].sample(cache)
         return self.encoders
 
-    def generator_sample(self, cache=False):
+    def generator_sample(self, cache=True):
         print('selfy.gen', self.generator)
         return self.generator.sample(cache)
 
-    def discriminator_sample(self, cache=False):
+    def discriminator_sample(self, cache=True):
         #TODO test, multiple D
         return self.discriminators[0].sample(cache)
 
-    def loss_sample(self, cache=False):
+    def loss_sample(self, cache=True):
         #TODO test, multiple losses
         return self.losses[0].sample(cache)
 

@@ -25,7 +25,7 @@ class MockTrainer:
 
 def graph():
     return hc.Config({
-        'x': tf.constant(1., shape=[1,32,32,1], dtype=tf.float32)
+        'x': tf.constant(10., shape=[1,32,32,1], dtype=tf.float32)
     })
 
 class GanTest(tf.test.TestCase):
@@ -71,13 +71,13 @@ class GanTest(tf.test.TestCase):
         with self.test_session():
             gan = GAN(graph = graph())
             gan.create()
-            prior_g = gan.generator.weights()[0].eval()
-            prior_d = gan.discriminators[0].weights()[0].eval()
+            prior_g = gan.ops.session.run(gan.generator.weights()[0])
+            prior_d = gan.ops.session.run(gan.discriminators[0].weights()[0])
             gan.train()
-            posterior_d = gan.discriminators[0].weights()[0].eval()
-            posterior_g = gan.generator.weights()[0].eval()
-            self.assertNotEqual(posterior_g, prior_g)
-            self.assertNotEqual(posterior_d, prior_d)
+            posterior_g = gan.ops.session.run(gan.generator.weights()[0])
+            posterior_d = gan.ops.session.run(gan.discriminators[0].weights()[0])
+            self.assertNotEqual(posterior_g.mean(), prior_g.mean())
+            self.assertNotEqual(posterior_d.mean(), prior_d.mean())
 
 if __name__ == "__main__":
     tf.test.main()

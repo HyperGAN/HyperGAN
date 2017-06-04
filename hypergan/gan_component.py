@@ -24,7 +24,7 @@ class GANComponent:
         self.ops = self.gan.ops_backend(config=backend_options, device=self.gan.device)
         self.config = self.ops.lookup(config)
 
-    def sample(self, cache=False):
+    def sample(self, cache=True):
         if cache:
             return self._sample
         return self.create()

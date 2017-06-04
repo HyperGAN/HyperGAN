@@ -205,14 +205,10 @@ class TensorflowOps:
     def lookup_class(self, name):
         return self.lookup_function(name)
 
-    def init_session(self):
-        # Initialize tensorflow
-        with tf.device(self.device):
-            self.session = tf.Session(config=tf.ConfigProto())
-
     def initialize_graph(self):
         print("DEVICE", self.device)
         with tf.device(self.device):
+            print("VARIABLES:", tf.global_variables())
             init = tf.global_variables_initializer()
             self.session.run(init)
             self.initialized = True

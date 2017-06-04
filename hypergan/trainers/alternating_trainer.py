@@ -18,13 +18,9 @@ class AlternatingTrainer(BaseTrainer):
                 #TODO
                 optimizer = capped_optimizer(d_optimizer, config.clipped_gradients, d_loss, d_vars)
             else:
-                optimizer._create_slots(vars)
                 gradients = optimizer.compute_gradients(loss, var_list=vars)
-                print('sn', optimizer.get_slot_names())
-                vars = tf.global_variables()
                 print("VARS", vars)
                 optimizer.apply_gradients(gradients)
-
         #TODO find vars.  initialize.  add to ops. are they created?
 
         return optimizer

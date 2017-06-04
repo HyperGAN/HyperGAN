@@ -23,7 +23,7 @@ class AlternatingTrainer(BaseTrainer):
                 print('sn', optimizer.get_slot_names())
                 vars = tf.global_variables()
                 print("VARS", vars)
-                optimizer = optimizer.apply_gradients(gradients)
+                optimizer.apply_gradients(gradients)
 
         #TODO find vars.  initialize.  add to ops. are they created?
 

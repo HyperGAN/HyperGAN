@@ -4,6 +4,7 @@ import glob
 from gan_component_test import GanComponentTest
 from gan_test import GanTest
 from configuration_test import ConfigurationTest
+from cli_test import CliTest
 
 from discriminators.pyramid_discriminator_test import PyramidDiscriminatorTest
 from encoders.match_discriminator_encoder_test import MatchDiscriminatorEncoderTest
@@ -19,6 +20,7 @@ from ops.tensorflow.ops_test import OpsTest
 
 from trainers.alternating_trainer_test import AlternatingTrainerTest
 from trainers.proportional_trainer_test import ProportionalTrainerTest
+
 
 #def test_file(filename):
 #    if filename == 'run.py':

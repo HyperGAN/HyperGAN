@@ -20,8 +20,14 @@ class GANComponent:
         if self.gan.ops_backend is None:
             return
         filtered_options = {k: v for k, v in config.items() if k in inspect.getargspec(self.gan.ops_backend).args}
-        self.ops = self.gan.ops_backend(*dict(filtered_options))
+        backend_options = dict(filtered_options)
+        self.ops = self.gan.ops_backend(config=backend_options, device=self.gan.device)
         self.config = self.ops.lookup(config)
+
+    def sample(self, cache=False):
+        if cache:
+            return self._sample
+        return self.create()
 
     def required(self):
         return []

@@ -7,7 +7,7 @@ from hypergan.ops.tensorflow import layer_regularizers
 from hypergan.ops.tensorflow.activations import lrelu
 
 class TensorflowOps:
-    def __init__(self, config={}):
+    def __init__(self, config={}, device="/gpu:0"):
         config = hc.Config(config)
         dtype = config.dtype or "float32"
         initializer = config.initializer or 'orthogonal'
@@ -19,6 +19,8 @@ class TensorflowOps:
         self.description = ''
         self.weights = []
         self.biases = []
+        self.device = config.device
+        self.initialized = False
         if initializer == 'orthogonal':
             self.initializer = self.orthogonal_initializer(orthogonal_gain)
         else:
@@ -186,6 +188,8 @@ class TensorflowOps:
             return self.prelu()
         if symbol == "lrelu": #TODO test me
             return lrelu
+        if symbol == 'square':
+            return tf.square
         if symbol == 'reduce_mean':
             return tf.reduce_mean
 
@@ -201,42 +205,27 @@ class TensorflowOps:
     def lookup_class(self, name):
         return self.lookup_function(name)
 
-    def init_session(self, device):
+    def init_session(self):
         # Initialize tensorflow
-        with tf.device(device):
-            self.sess = tf.Session(config=tf.ConfigProto())
-
-    def create_graph(self, graph_type, device):
-        tf_graph = hg.graph.Graph(self)
-        graph = self.graph
-        with tf.device(device):
-            if 'y' in graph:
-                # convert to one-hot
-                graph.y=tf.cast(graph.y,tf.int64)
-                graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
-
-            if graph_type == 'full':
-                tf_graph.create(graph)
-            elif graph_type == 'generator':
-                tf_graph.create_generator(graph)
-            else:
-                raise Exception("Invalid graph type")
+        with tf.device(self.device):
+            self.session = tf.Session(config=tf.ConfigProto())
 
     def initialize_graph(self):
-        print(" |= Initializing new network")
+        print("DEVICE", self.device)
         with tf.device(self.device):
             init = tf.global_variables_initializer()
-            self.sess.run(init)
+            self.session.run(init)
+            self.initialized = True
 
-    def new_session(self, device, tfconfig):
+    def new_session(self, tfconfig):
         if tfconfig is None:
             tfconfig = tf.ConfigProto()
             tfconfig.gpu_options.allow_growth=True
 
-        with tf.device(device):
-            self.sess = tf.Session(config=tfconfig)
+        with tf.device(self.device):
+            self.session = tf.Session(config=tfconfig)
 
-    def load_or_initialize_graph(self, save_file):
+    def load_graph(self, save_file):
         save_file = os.path.expanduser(save_file)
         if os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ):
             print(" |= Loading network from "+ save_file)
@@ -245,14 +234,14 @@ class TensorflowOps:
             ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
             if ckpt and ckpt.model_checkpoint_path:
                 saver = tf.train.Saver()
-                saver.restore(self.sess, save_file)
+                saver.restore(self.session, save_file)
                 loadedFromSave = True
                 print("Model loaded")
             else:
                 print("No checkpoint file found")
         else:
-            self.initialize_graph()
+            raise Exception("File does not exist", save_file)
 
     def save(self, save_file):
         saver = tf.train.Saver()
-        saver.save(self.sess, save_file)
+        saver.save(self.session, save_file)

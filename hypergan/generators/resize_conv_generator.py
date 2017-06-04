@@ -17,9 +17,10 @@ class ResizeConvGenerator(BaseGenerator):
         final_depth = config.final_depth
         depths = []
 
-        target_w = ops.shape(gan.graph.x)[0]
+        print("DEPTHS", gan.inputs)
+        target_w = gan.width()
 
-        w = 8 # TODO config option
+        w = 4
         i = 0
 
         depths.append(final_depth)
@@ -29,11 +30,6 @@ class ResizeConvGenerator(BaseGenerator):
             depths.append(final_depth + i*config.depth_increase)
         depths.reverse()
         return depths
-
-    def sample(self, cache=False):
-        if cache:
-            return self._sample
-        return self.create()
 
     def create(self):
         gan = self.gan
@@ -85,6 +81,7 @@ class ResizeConvGenerator(BaseGenerator):
             size = resize[0]*resize[1]*depth
             print("[generator] layer", net, size)
 
+        print("NET_ are", nets, depths)
         self._sample = nets[-1]
         return self._sample
 

@@ -79,6 +79,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         if final_activation:
             net = final_activation(net)
 
+        self._sample = net
         return net
 
 
@@ -97,7 +98,6 @@ class PyramidDiscriminator(BaseDiscriminator):
 
         else:
             return x, g
-
 
     def combine_filter(self, config, x, g):
         # TODO: This is standard optimization from improved GAN, cross-d feature

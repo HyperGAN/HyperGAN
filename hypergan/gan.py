@@ -24,10 +24,11 @@ from hypergan.gan_component import ValidationException, GANComponent
 
 class GAN(GANComponent):
     """ GANs (Generative Adversarial Networks) consist of a generator and discriminator(s)."""
-    def __init__(self, config=None, graph={}, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps):
+    def __init__(self, config=None, graph={}, device='/cpu:0', ops_config=None, ops_backend=TensorflowOps):
         """ Initialized a new GAN."""
         self.device = device
         self.ops_backend = ops_backend
+        self.ops_config = ops_config
         self.created = False
 
         if config == None:
@@ -37,7 +38,6 @@ class GAN(GANComponent):
         # gan.gan.gan.gan.gan.gan
         GANComponent.__init__(self, self, config)
 
-        self.session = self.ops.new_session(self.device, ops_config)
         self.graph = Config(graph)
         self.inputs = [graph[k] for k in graph.keys()]
 
@@ -60,6 +60,7 @@ class GAN(GANComponent):
         #TODO same issue with batch_size
         if len(self.inputs) == 0:
             raise ValidationException("gan.width() requested but no inputs provided")
+        print("----", self.ops.shape(self.inputs[0]))
         return self.ops.shape(self.inputs[0])[2]
 
     def height(self):
@@ -77,12 +78,27 @@ class GAN(GANComponent):
             return config
         return None
 
-    def create(self):
-        if self.created:
-            print("gan.create already called. Cowardly refusing to create graph twice")
-            return
+    def discriminator_variables(self):
+        #TODO test
+        return self.discriminators[0].ops.variables()
 
+    def generator_variables(self):
+        #TODO test
+        return self.generator.ops.variables()
+
+    def encoder_variables(self):
+        #TODO test
+        return self.encoders[0].ops.variables()
+
+    def create(self):
         with tf.device(self.device):
+            print("GAN DEVICE", self.device)
+            self.session = self.ops.new_session(self.ops_config)
+
+            if self.created:
+                print("gan.create already called. Cowardly refusing to create graph twice")
+                return
+
             config = self.config
 
             self.encoders = [self.create_component(encoder) for encoder in config.encoders]
@@ -96,6 +112,9 @@ class GAN(GANComponent):
 
             self.created = True
 
+            if not self.ops.initialized:
+                print(" |= Initializing new network")
+                self.ops.initialize_graph() # initializes across the entire session
             #TODO convert to one-hot
             #graph.y=tf.cast(graph.y,tf.int64)
             #graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
@@ -115,6 +134,14 @@ class GAN(GANComponent):
     def generator_sample(self, cache=False):
         print('selfy.gen', self.generator)
         return self.generator.sample(cache)
+
+    def discriminator_sample(self, cache=False):
+        #TODO test, multiple D
+        return self.discriminators[0].sample(cache)
+
+    def loss_sample(self, cache=False):
+        #TODO test, multiple losses
+        return self.losses[0].sample(cache)
 
     def train(self, feed_dict={}):
         if not self.created:

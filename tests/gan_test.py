@@ -12,10 +12,6 @@ import numpy as np
 
 from unittest.mock import MagicMock
 
-graph = hc.Config({
-    'x': tf.constant(1., shape=[32,32,32], dtype=tf.float32)
-})
-
 default_config = hg.Configuration.default()
 
 class MockOps:
@@ -27,22 +23,28 @@ class MockTrainer:
         self.mock = True
 
 
+def graph():
+    return hc.Config({
+        'x': tf.constant(1., shape=[1,32,32,1], dtype=tf.float32)
+    })
+
 class GanTest(tf.test.TestCase):
     def test_constructor(self):
         with self.test_session():
-            gan = GAN(graph = graph, config = default_config)
-            self.assertEqual(gan.graph.x, graph.x)
+            g = graph()
+            gan = GAN(graph = g, config = default_config)
+            self.assertEqual(gan.inputs[0], g.x)
 
     def test_fails_with_no_trainer(self):
         trainer = MockTrainer()
         config = {}
-        gan = GAN(graph = graph, config = default_config)
+        gan = GAN(graph = graph(), config = default_config)
         with self.assertRaises(ValidationException):
             gan.train()
 
     def test_validate(self):
         with self.assertRaises(ValidationException):
-            gan = GAN(graph = graph, config = {})
+            gan = GAN(graph = graph(), config = {})
 
     def test_has_input(self):
         with self.test_session():
@@ -51,7 +53,7 @@ class GanTest(tf.test.TestCase):
 
     def test_default(self):
         with self.test_session():
-            gan = GAN(graph = {'x': tf.constant([1,1,1,1])})
+            gan = GAN(graph = {'x': tf.constant(1, shape=[1,1,1,1], dtype=tf.float32)})
             gan.create()
             self.assertEqual(type(gan.generator), ResizeConvGenerator)
             self.assertEqual(type(gan.discriminators[0]), PyramidDiscriminator)
@@ -60,13 +62,13 @@ class GanTest(tf.test.TestCase):
 
     def test_train(self):
         with self.test_session():
-            gan = GAN(graph = graph)
+            gan = GAN(graph = graph())
             gan.train()
-            self.assertEqual(gan.step, 1)
+            self.assertEqual(gan.trainer.step, 1)
 
     def test_train_updates_posterior(self):
         with self.test_session():
-            gan = GAN(graph = graph)
+            gan = GAN(graph = graph())
             gan.create()
             prior_g = gan.generator.weights()[0].eval()
             prior_d = gan.discriminators[0].weights()[0].eval()

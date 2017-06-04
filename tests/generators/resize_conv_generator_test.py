@@ -28,9 +28,13 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            net = tf.constant(1., shape=[1,2])
-            nets = generator.create(net)
-            self.assertEqual(len(nets), 1)
+            gan.config['generator'] = None
+            gan.config['discriminators'] = []
+            gan.config['losses'] = []
+            gan.config['trainer'] = None
+            gan.create()
+            nets = generator.create()
+            self.assertEqual(generator.ops.shape(nets), [1,2,2,3])
 
     def test_initial_depth(self):
         with self.test_session():

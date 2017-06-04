@@ -132,7 +132,6 @@ class GAN(GANComponent):
         return self.encoders
 
     def generator_sample(self, cache=True):
-        print('selfy.gen', self.generator)
         return self.generator.sample(cache)
 
     def discriminator_sample(self, cache=True):

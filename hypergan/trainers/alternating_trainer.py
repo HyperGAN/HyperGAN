@@ -28,11 +28,11 @@ class AlternatingTrainer(BaseTrainer):
             optimizer = trainer_config(learning_rate, **defn)
             vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
             if(config.clipped_gradients):
-                optimizer = self.capped_optimizer(optimizer, config.clipped_gradients, loss, vars)
+                apply_gradients = self.capped_optimizer(optimizer, config.clipped_gradients, loss, vars)
             else:
-                gradients = optimizer.minimize(loss, var_list=vars)
+                apply_gradients = optimizer.minimize(loss, var_list=vars)
 
-        return optimizer
+        return apply_gradients
 
     def _create(self):
         gan = self.gan

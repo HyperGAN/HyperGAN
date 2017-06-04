@@ -27,15 +27,10 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
         graph = hc.Config({
             'x': tf.constant(1., shape=[32,32,32,3])
         })
-        gan = {
-            'config': config,
-            'graph': graph,
-            'ops': TensorflowOps,
-        }
 
         with self.test_session():
             net = tf.constant(1., shape=[32,32,32,3])
-            net = discriminator.create(hc.Config(gan), graph.x, graph.x)
+            net = discriminator.create(hg.GAN(), graph.x, graph.x)
             self.assertEqual(int(net.get_shape()[1]), 112)
 
     def test_validate(self):

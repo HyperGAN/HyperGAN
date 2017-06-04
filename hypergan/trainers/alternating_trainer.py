@@ -9,6 +9,19 @@ TINY = 1e-12
 
 class AlternatingTrainer(BaseTrainer):
 
+    def capped_optimizer(optimizer, cap, loss, vars):
+        gvs = optimizer.compute_gradients(loss, var_list=vars)
+        def create_cap(grad,var):
+            if(grad == None) :
+                print("Warning: No gradient for variable ",var.name)
+                return None
+            return (tf.clip_by_value(grad, -cap, cap), var)
+
+        capped_gvs = [create_cap(grad,var) for grad, var in gvs]
+        capped_gvs = [x for x in capped_gvs if x != None]
+        return optimizer.apply_gradients(capped_gvs)
+
+
     def build_optimizer(self, config, prefix, trainer_config, learning_rate, vars, loss):
         with tf.variable_scope(prefix):
             defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(trainer_config).args and k.startswith(prefix)}

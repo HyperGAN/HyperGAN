@@ -97,17 +97,17 @@ class GAN(GANComponent):
 
     def create(self):
         with tf.device(self.device):
-            print("GAN DEVICE", self.device)
-            self.session = self.ops.new_session(self.ops_config)
-
             if self.created:
                 print("gan.create already called. Cowardly refusing to create graph twice")
                 return
+
+            self.session = self.ops.new_session(self.ops_config)
 
             config = self.config
 
             self.encoders = [self.create_component(encoder) for encoder in config.encoders]
             self.generator = self.create_component(config.generator)
+            print("_GEEONTHO", self.generator)
             self.discriminators = [self.create_component(discriminator) for discriminator in config.discriminators]
             self.losses = [self.create_component(loss) for loss in config.losses]
             self.trainer = self.create_component(config.trainer)
@@ -115,9 +115,6 @@ class GAN(GANComponent):
 
             self.created = True
 
-            if not self.ops.initialized:
-                print(" |= Initializing new network")
-                self.ops.initialize_graph() # initializes across the entire session
             #TODO convert to one-hot
             #graph.y=tf.cast(graph.y,tf.int64)
             #graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
@@ -129,6 +126,7 @@ class GAN(GANComponent):
             raise ValidationException("Component definition is missing '" + name + "'")
         gan_component = defn['class'](self, defn)
         gan_component.create()
+        gan_component.ops.initialize_variables(self.session)
         return gan_component
 
     def encoder_sample(self, cache=True):

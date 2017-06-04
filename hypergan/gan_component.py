@@ -25,7 +25,7 @@ class GANComponent:
         self.config = self.ops.lookup(config)
 
     def sample(self, cache=True, feed_dict={}):
-        self.gan.ops.session.run(self.sample_tensor(cache), feed_dict=feed_dict)
+        return self.gan.session.run(self.sample_tensor(cache), feed_dict=feed_dict)
 
     def sample_tensor(self, cache=True):
         if cache:
@@ -54,4 +54,3 @@ class GANComponent:
 
     def variables(self):
         return self.ops.variables()
-

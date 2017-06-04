@@ -42,5 +42,12 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
             depths = generator.depths()
             self.assertEqual(depths[-1], 4)
 
+    def test_layer_norm(self):
+        with self.test_session():
+            generator = ResizeConvGenerator(config=config, gan=gan)
+            generator.ops.lookup('layer_norm')(generator.ops, tf.constant(1, shape=[1,1,1,1], dtype=tf.float32))
+            self.assertNotEqual(len(generator.variables()), 0)
+
+
 if __name__ == "__main__":
     tf.test.main()

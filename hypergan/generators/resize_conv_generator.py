@@ -58,6 +58,7 @@ class ResizeConvGenerator(BaseGenerator):
 
         net = config.block(ops, net, config, shape[3])
         net = self.layer_filter(gan, config, net)
+        print("CREATING GENERATOR")
 
         for i, depth in enumerate(depths):
             s = ops.shape(net)

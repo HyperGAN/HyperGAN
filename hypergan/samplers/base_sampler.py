@@ -1,13 +1,16 @@
 class BaseSampler:
-    def __init__(self, gan, samples_per_row=8):
+    def __init__(self, gan, samples_per_row=8, session=None):
+        #TODO USE THE TEST SESSION
         self.gan = gan
         self.samples_per_row = samples_per_row
+        self.session = session or self.gan.ops.session
 
     def _sample(self):
         raise "raw _sample method called.  You must override this"
 
     def sample(self, path):
         if not self.gan.created:
+            print("CREATING GAN")
             self.gan.create()
 
         sample = self._sample()

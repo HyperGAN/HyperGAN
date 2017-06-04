@@ -1,10 +1,12 @@
 import tensorflow as tf
 
-class layer_norm_1(object):
-    def __init__(self,  epsilon=1e-5, name="layer_norm"):
-        self.name = name
-    def __call__(self, x, dtype):
-        return tf.contrib.layers.layer_norm(x, scope=self.name, center=True, scale=True)
+def layer_norm_1(ops, net, epsilon=1e-5, name="layer_norm"):
+    with tf.variable_scope(name):
+        layer = tf.contrib.layers.layer_norm(net, scope='layer_norm', center=True, scale=True, variables_collections=tf.GraphKeys.LOCAL_VARIABLES)
+    vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
+    ops.add_weights(vars)
+
+    return layer
 
 
 class batch_norm_1(object):

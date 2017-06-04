@@ -30,6 +30,9 @@ class TensorflowOps:
         if type(net) != tf.Tensor and type(net) != tf.Variable:
             raise Exception("Expected a Tensor but received", net)
 
+    def add_weights(self, weights):
+        self.weights += weights
+
     def variables(self):
         return self.biases + self.weights
 
@@ -128,7 +131,7 @@ class TensorflowOps:
         self.assert_tensor(net)
         op = self.lookup(symbol)
         if op:
-            net = op(epsilon, self.generate_name())(net, self.dtype)
+            net = op(self, net, epsilon=epsilon, name=self.generate_name()+'_layer_regularizer')
         return net
 
     def reshape(self, net, shape):
@@ -205,12 +208,14 @@ class TensorflowOps:
     def lookup_class(self, name):
         return self.lookup_function(name)
 
-    def initialize_graph(self):
+    def initialize_variables(self, session):
         print("DEVICE", self.device)
         with tf.device(self.device):
-            print("VARIABLES:", tf.global_variables())
-            init = tf.global_variables_initializer()
-            self.session.run(init)
+            if len(self.variables()) == 0:
+                return
+            init = tf.variables_initializer(self.variables())
+            print("initializing ", self.description, " variable count: ", len(self.variables()))
+            session.run(init)
             self.initialized = True
 
     def new_session(self, tfconfig):
@@ -219,9 +224,9 @@ class TensorflowOps:
             tfconfig.gpu_options.allow_growth=True
 
         with tf.device(self.device):
-            self.session = tf.Session(config=tfconfig)
+            return tf.Session(config=tfconfig)
 
-    def load_graph(self, save_file):
+    def load_graph(self, session, save_file):
         save_file = os.path.expanduser(save_file)
         if os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ):
             print(" |= Loading network from "+ save_file)
@@ -230,7 +235,7 @@ class TensorflowOps:
             ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
             if ckpt and ckpt.model_checkpoint_path:
                 saver = tf.train.Saver()
-                saver.restore(self.session, save_file)
+                saver.restore(session, save_file)
                 loadedFromSave = True
                 print("Model loaded")
             else:
@@ -238,6 +243,6 @@ class TensorflowOps:
         else:
             raise Exception("File does not exist", save_file)
 
-    def save(self, save_file):
+    def save(self, session, save_file):
         saver = tf.train.Saver()
-        saver.save(self.session, save_file)
+        saver.save(session, save_file)

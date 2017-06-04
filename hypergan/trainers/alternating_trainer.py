@@ -9,12 +9,22 @@ TINY = 1e-12
 
 class AlternatingTrainer(BaseTrainer):
 
-    def build_optimizer(self, config, prefix, trainer_config, lr):
+    def build_optimizer(self, config, prefix, trainer_config, learning_rate, vars, loss):
         with tf.variable_scope(prefix):
             defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(trainer_config).args and k.startswith(prefix)}
-            optimizer = trainer_config(lr, **defn)
-        vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=prefix)
-        print("VARS", vars)
+            optimizer = trainer_config(learning_rate, **defn)
+            vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+            if(config.clipped_gradients):
+                #TODO
+                optimizer = capped_optimizer(d_optimizer, config.clipped_gradients, d_loss, d_vars)
+            else:
+                optimizer._create_slots(vars)
+                gradients = optimizer.compute_gradients(loss, var_list=vars)
+                print('sn', optimizer.get_slot_names())
+                vars = tf.global_variables()
+                print("VARS", vars)
+                optimizer = optimizer.apply_gradients(gradients)
+
         #TODO find vars.  initialize.  add to ops. are they created?
 
         return optimizer
@@ -32,18 +42,11 @@ class AlternatingTrainer(BaseTrainer):
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
-        g_optimizer = self.build_optimizer(config, 'g_', config.g_trainer, g_lr)
-        d_optimizer = self.build_optimizer(config, 'd_', config.d_trainer, d_lr)
+        g_optimizer = self.build_optimizer(config, 'g_', config.g_trainer, g_lr, g_vars, g_loss)
+        d_optimizer = self.build_optimizer(config, 'd_', config.d_trainer, d_lr, d_vars, d_loss)
 
-        if(config.clipped_gradients):
-            g_optimizer = capped_optimizer(g_optimizer, config.clipped_gradients, g_loss, g_vars)
-            d_optimizer = capped_optimizer(d_optimizer, config.clipped_gradients, d_loss, d_vars)
-        else:
-            g_optimizer = g_optimizer.minimize(g_loss, var_list=g_vars)
-            d_optimizer = d_optimizer.minimize(d_loss, var_list=d_vars)
-
-        self.d_loss = d_loss
         self.g_loss = g_loss
+        self.d_loss = d_loss
         self.d_optimizer = d_optimizer
         self.g_optimizer = g_optimizer
 

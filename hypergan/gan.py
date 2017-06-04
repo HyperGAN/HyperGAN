@@ -30,6 +30,7 @@ class GAN(GANComponent):
         self.ops_backend = ops_backend
         self.ops_config = ops_config
         self.created = False
+        self.components = []
 
         if config == None:
             config = hg.Configuration.default()
@@ -115,6 +116,7 @@ class GAN(GANComponent):
 
             self.created = True
 
+            [component.ops.initialize_variables(self.session) for component in self.components]
             #TODO convert to one-hot
             #graph.y=tf.cast(graph.y,tf.int64)
             #graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
@@ -126,7 +128,7 @@ class GAN(GANComponent):
             raise ValidationException("Component definition is missing '" + name + "'")
         gan_component = defn['class'](self, defn)
         gan_component.create()
-        gan_component.ops.initialize_variables(self.session)
+        self.components.append(gan_component)
         return gan_component
 
     def encoder_sample(self, cache=True):

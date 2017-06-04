@@ -38,7 +38,7 @@ class GanTest(tf.test.TestCase):
     def test_fails_with_no_trainer(self):
         trainer = MockTrainer()
         config = {}
-        gan = GAN(graph = graph(), config = default_config)
+        gan = GAN(graph = graph(), config = {})
         with self.assertRaises(ValidationException):
             gan.train()
 

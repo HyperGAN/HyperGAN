@@ -1,6 +1,5 @@
 import hypergan
 from .gan import GAN
-from .graph import Graph
 from .configuration import Configuration
 import tensorflow as tf
 import hypergan.cli

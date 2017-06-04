@@ -19,7 +19,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         #TODO what if you need multiple samples?
         #TODO how can we handle inputs/outputs better here?
         x = gan.graph.x
-        g = gan.generator.sample_tensor()
+        g = gan.generator.sample_tensor(cache=True)
 
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)

@@ -18,7 +18,7 @@ class AlternatingTrainer(BaseTrainer):
         d_vars = gan.discriminator_variables()
         g_vars = gan.encoder_variables() + gan.generator_variables()
 
-        d_loss, g_loss = gan.loss_sample(cache=True)
+        d_loss, g_loss = gan.loss_sample_tensor(cache=True)
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
@@ -45,7 +45,7 @@ class AlternatingTrainer(BaseTrainer):
 
     def _step(self, feed_dict):
         gan = self.gan
-        sess = gan.ops.session
+        sess = gan.session
         config = gan.config
         d_fake_loss = gan.graph.d_fake_loss
         d_real_loss = gan.graph.d_real_loss

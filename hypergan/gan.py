@@ -141,9 +141,17 @@ class GAN(GANComponent):
         #TODO test, multiple D
         return self.discriminators[0].sample(cache)
 
+    def discriminator_sample_tensor(self, cache=True):
+        #TODO test, multiple D
+        return self.discriminators[0].sample_tensor(cache)
+
     def loss_sample(self, cache=True):
         #TODO test, multiple losses
         return self.losses[0].sample(cache)
+
+    def loss_sample_tensor(self, cache=True):
+        #TODO test, multiple losses
+        return self.losses[0].sample_tensor(cache)
 
     def train(self, feed_dict={}):
         if not self.created:

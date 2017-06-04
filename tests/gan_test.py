@@ -71,11 +71,11 @@ class GanTest(tf.test.TestCase):
         with self.test_session():
             gan = GAN(graph = graph())
             gan.create()
-            prior_g = gan.ops.session.run(gan.generator.weights()[0])
-            prior_d = gan.ops.session.run(gan.discriminators[0].weights()[0])
+            prior_g = gan.session.run(gan.generator.weights()[0])
+            prior_d = gan.session.run(gan.discriminators[0].weights()[0])
             gan.train()
-            posterior_g = gan.ops.session.run(gan.generator.weights()[0])
-            posterior_d = gan.ops.session.run(gan.discriminators[0].weights()[0])
+            posterior_g = gan.session.run(gan.generator.weights()[0])
+            posterior_d = gan.session.run(gan.discriminators[0].weights()[0])
             self.assertNotEqual(posterior_g.mean(), prior_g.mean())
             self.assertNotEqual(posterior_d.mean(), prior_d.mean())
 

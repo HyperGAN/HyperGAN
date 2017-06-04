@@ -29,8 +29,8 @@ class UniformEncoderTest(tf.test.TestCase):
                 }
         subject = UniformEncoder(gan, config)
         with self.test_session():
-            projections, z = subject.create()
-            self.assertEqual(projections.get_shape()[1], z.get_shape()[1])
+            projections = subject.create()
+            self.assertEqual(subject.ops.shape(projections)[1], 2)
 
     def test_projection_twice(self):
         config = {
@@ -47,7 +47,6 @@ class UniformEncoderTest(tf.test.TestCase):
     def test_validate(self):
         with self.assertRaises(ValidationException):
             UniformEncoder(gan, {})
- 
 
 if __name__ == "__main__":
     tf.test.main()

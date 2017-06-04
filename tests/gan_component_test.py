@@ -35,8 +35,8 @@ class GanComponentTest(tf.test.TestCase):
     def test_proxy_methods(self):
         component = GANComponent(gan=gan, config={'test':True})
         with self.test_session():
-            self.assertEqual(component.weights, [])
-            self.assertEqual(component.biases, [])
+            self.assertEqual(component.weights(), [])
+            self.assertEqual(component.biases(), [])
             self.assertEqual(component.variables(), [])
 
 if __name__ == "__main__":

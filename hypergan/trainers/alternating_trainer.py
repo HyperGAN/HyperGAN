@@ -9,6 +9,16 @@ TINY = 1e-12
 
 class AlternatingTrainer(BaseTrainer):
 
+    def build_optimizer(self, config, prefix, trainer_config, lr):
+        with tf.variable_scope(prefix):
+            defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(trainer_config).args and k.startswith(prefix)}
+            optimizer = trainer_config(lr, **defn)
+        vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=prefix)
+        print("VARS", vars)
+        #TODO find vars.  initialize.  add to ops. are they created?
+
+        return optimizer
+
     def _create(self):
         gan = self.gan
         config = self.config
@@ -22,10 +32,9 @@ class AlternatingTrainer(BaseTrainer):
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
-        g_defk = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(config.g_trainer).args and k.startswith("d_")}
-        d_defk = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(config.d_trainer).args and k.startswith("g_")}
-        g_optimizer = config.g_trainer(g_lr, **g_defk)
-        d_optimizer = config.d_trainer(d_lr, **d_defk)
+        g_optimizer = self.build_optimizer(config, 'g_', config.g_trainer, g_lr)
+        d_optimizer = self.build_optimizer(config, 'd_', config.d_trainer, d_lr)
+
         if(config.clipped_gradients):
             g_optimizer = capped_optimizer(g_optimizer, config.clipped_gradients, g_loss, g_vars)
             d_optimizer = capped_optimizer(d_optimizer, config.clipped_gradients, d_loss, d_vars)

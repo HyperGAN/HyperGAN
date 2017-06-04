@@ -10,17 +10,14 @@ TINY = 1e-12
 class AlternatingTrainer(BaseTrainer):
 
     def build_optimizer(self, config, prefix, trainer_config, learning_rate, vars, loss):
-        print("BUILDING OPTIMIZER")
         with tf.variable_scope(prefix):
             defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(trainer_config).args and k.startswith(prefix)}
             optimizer = trainer_config(learning_rate, **defn)
             vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
             if(config.clipped_gradients):
-                #TODO
                 optimizer = self.capped_optimizer(optimizer, config.clipped_gradients, loss, vars)
             else:
-                gradients = optimizer.compute_gradients(loss, var_list=vars)
-                optimizer.apply_gradients(gradients)
+                gradients = optimizer.minimize(loss, var_list=vars)
 
         return optimizer
 

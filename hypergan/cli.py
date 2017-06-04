@@ -2,6 +2,7 @@ import argparse
 import os
 import hyperchamber as hc
 from hypergan.gan_server import *
+from hypergan.gan_component import ValidationException
 from . import GAN
 from .loaders import *
 from .samplers.viewer import GlobalViewer
@@ -12,22 +13,77 @@ import fcntl
 import os
 import sys
 
-from hypergan.samplers import *
+from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 
 class CLI:
-    def __init__(self):
+    def __init__(self, gan, args=None):
         self.sampled = 0
         self.steps = 0
-        self.run()
+        self.gan = gan
+        if args == None:
+            self.args = self.get_parser().parse_args()
+        else:
+            self.args = args
+        self.samplers = self.build_sampler_lookup_dict()
+        self.sampler_name = self.get_sampler_name(args)
+        self.sampler = self.samplers[self.sampler_name] if self.sampler_name in self.samplers else None
+        self.validate()
+
+    def get_sampler_name(self, args):
+        if 'sampler' in args:
+            return args['sampler']
+        return 'static_batch'
+
+    def build_sampler_lookup_dict(self):
+        return {
+                'static_batch': StaticBatchSampler
+        }
+        #if(self.args.sampler == "grid"):
+        #    sampler = grid_sampler.sample
+        #elif(self.args.sampler == "batch"):
+        #    sampler = batch_sampler.sample
+        #elif(self.args.sampler == "static_batch"):
+        #    sampler = static_batch_sampler.sample
+        #elif(self.args.sampler == "progressive"):
+        #    sampler = progressive_enhancement_sampler.sample
+        #elif(self.args.sampler == "began"):
+        #    sampler = began_sampler.sample
+        #elif(self.args.sampler == "aligned_began"):
+        #    sampler = aligned_began_sampler.sample
+        #else:
+        #    raise "Cannot find sampler: '"+self.args.sampler+"'"
+
+
+    def sample(self, sample_file):
+        """ Samples to a file.  Useful for visualizing the learning process.
+
+        Use with:
+
+             ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 grid1-7.mp4
+
+        to create a video of the learning process.
+        """
+
+        if(self.args.viewer):
+            GlobalViewer.enable()
+
+        sample_list = sampler(self.gan, sample_file)
+
+        return sample_list
+
+
+    def validate(self):
+        if(self.sampler == None):
+            raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
     def common(self, parser):
+        parser.add_argument('config', action='store', type=str, help='The configuration file to load.')
         parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
         self.common_flags(parser)
 
     def common_flags(self, parser):
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
-        parser.add_argument('--config', '-c', type=str, default=None, help='The name of the config.  This is used for loading/saving the model and configuration.')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
@@ -55,39 +111,6 @@ class CLI:
         self.common(serve_parser)
 
         return parser
-
-
-    def sample(self, sample_file):
-        """ Samples to a file.  Useful for visualizing the learning process.
-
-        Use with:
-
-             ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 grid1-7.mp4
-
-        to create a video of the learning process.
-        """
-
-        if(self.args.viewer):
-            GlobalViewer.enable()
-
-        if(self.args.sampler == "grid"):
-            sampler = grid_sampler.sample
-        elif(self.args.sampler == "batch"):
-            sampler = batch_sampler.sample
-        elif(self.args.sampler == "static_batch"):
-            sampler = static_batch_sampler.sample
-        elif(self.args.sampler == "progressive"):
-            sampler = progressive_enhancement_sampler.sample
-        elif(self.args.sampler == "began"):
-            sampler = began_sampler.sample
-        elif(self.args.sampler == "aligned_began"):
-            sampler = aligned_began_sampler.sample
-        else:
-            raise "Cannot find sampler: '"+self.args.sampler+"'"
-
-        sample_list = sampler(self.gan, sample_file)
-
-        return sample_list
 
     def step(self):
         trainer = hc.Config(hc.lookup_functions(self.config['trainer']))
@@ -264,11 +287,7 @@ class CLI:
                         height=height,filterX=filterX)
 
     def run(self):
-        parser = self.get_parser()
-        self.args = parser.parse_args()
         args = self.args
-        if args.config is None:
-            parser.error("the following arguments are required: --config")
 
         crop = args.crop
         width = int(args.size.split("x")[0])

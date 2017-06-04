@@ -22,32 +22,5 @@ from trainers.alternating_trainer_test import AlternatingTrainerTest
 from trainers.proportional_trainer_test import ProportionalTrainerTest
 
 
-#def test_file(filename):
-#    if filename == 'run.py':
-#        next
-#    import_name = filename[0:-3].replace('/', '.')
-#    class_name = "".join(" ".join(import_name.split("_")).title().split(' '))
-#    class_name = class_name.split(".")[-1]
-#    #print("test file", import_name, class_name)
-#    #return __import__(import_name, fromlist=[class_name])
-#    print(class_name)
-#    mod = __import__(import_name, fromlist=[class_name])
-#    import_name = import_name + '.' + class_name
-#
-#    components = import_name.split('.')
-#    print(components)
-#    for comp in components[1:]:
-#        print(comp, mod)
-#        mod = getattr(mod, comp)
-#        print(mod)
-#    return mod
-#
-classes = []
-#for f in glob.glob("*test.py"):
-#    classes.append(test_file(f))
-#
-#for f in glob.glob("**/*test.py"):
-#    classes.append(test_file(f))
-#
-print("Running all tests", classes)
+print("[hypergan] Running all unit tests")
 tf.test.main()

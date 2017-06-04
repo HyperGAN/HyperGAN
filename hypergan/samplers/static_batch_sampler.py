@@ -1,6 +1,9 @@
 from hypergan.samplers.common import *
 import tensorflow as tf
 
+
+class StaticBatchSampler:
+    pass
 #mask_noise = None
 z = None
 y = None

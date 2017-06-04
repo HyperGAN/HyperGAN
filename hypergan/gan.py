@@ -44,6 +44,10 @@ class GAN(GANComponent):
     def required(self):
         return "generator".split()
 
+    def sample_input(self):
+        #TODO
+        return self.ops.session.run(tf.concat(axis=0, values=self.inputs))
+
     def batch_size(self):
         #TODO how does this work with generators outside of discriminators?
         if len(self.inputs) == 0:
@@ -69,9 +73,6 @@ class GAN(GANComponent):
             raise ValidationException("gan.height() requested but no inputs provided")
         return self.ops.shape(self.inputs[0])[1]
 
-    def sample_to_file(self, name, sampler=static_batch_sampler.sample):
-        return sampler(self, name)
-
     def get_config_value(self, symbol):
         if symbol in self.config:
             config = hc.Config(hc.lookup_functions(self.config[symbol]))
@@ -89,6 +90,10 @@ class GAN(GANComponent):
     def encoder_variables(self):
         #TODO test
         return self.encoders[0].ops.variables()
+
+    def encoder_z(self):
+        #TODO test
+        return self.encoders[0].z
 
     def create(self):
         with tf.device(self.device):

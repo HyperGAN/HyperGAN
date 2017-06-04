@@ -24,7 +24,10 @@ class GANComponent:
         self.ops = self.gan.ops_backend(config=backend_options, device=self.gan.device)
         self.config = self.ops.lookup(config)
 
-    def sample(self, cache=True):
+    def sample(self, cache=True, feed_dict={}):
+        self.gan.ops.session.run(self.sample_tensor(cache), feed_dict=feed_dict)
+
+    def sample_tensor(self, cache=True):
         if cache:
             return self._sample
         return self.create()

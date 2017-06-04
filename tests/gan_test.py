@@ -37,8 +37,9 @@ class GanTest(tf.test.TestCase):
 
     def test_fails_with_no_trainer(self):
         trainer = MockTrainer()
-        config = {}
-        gan = GAN(graph = graph(), config = {})
+        bad_config = hg.Configuration.default()
+        bad_config['trainer'] = None
+        gan = GAN(graph = graph(), config = bad_config)
         with self.assertRaises(ValidationException):
             gan.train()
 
@@ -64,7 +65,7 @@ class GanTest(tf.test.TestCase):
         with self.test_session():
             gan = GAN(graph = graph())
             gan.train()
-            self.assertEqual(gan.trainer.step, 1)
+            self.assertEqual(gan.step(), 1)
 
     def test_train_updates_posterior(self):
         with self.test_session():

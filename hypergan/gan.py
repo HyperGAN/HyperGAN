@@ -105,10 +105,8 @@ class GAN(GANComponent):
             self.generator = self.create_component(config.generator)
             self.discriminators = [self.create_component(discriminator) for discriminator in config.discriminators]
             self.losses = [self.create_component(loss) for loss in config.losses]
-            if config.trainer:
-                self.trainer = self.create_component(config.trainer)
-            if config.sampler:
-                self.sampler = self.create_component(config.sampler)
+            self.trainer = self.create_component(config.trainer)
+            self.sampler = self.create_component(config.sampler)
 
             self.created = True
 
@@ -120,6 +118,8 @@ class GAN(GANComponent):
             #graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
 
     def create_component(self, defn):
+        if defn == None:
+            return None
         if defn['class'] == None:
             raise ValidationException("Component definition is missing '" + name + "'")
         gan_component = defn['class'](self, defn)
@@ -146,4 +146,9 @@ class GAN(GANComponent):
     def train(self, feed_dict={}):
         if not self.created:
             self.create()
-        return self.trainer.run(feed_dict)
+        if self.trainer == None:
+            raise ValidationException("gan.trainer is missing.  Cannot train.")
+        return self.trainer.step(feed_dict)
+
+    def step(self):
+        return self.trainer.current_step

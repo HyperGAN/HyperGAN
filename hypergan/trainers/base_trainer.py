@@ -5,12 +5,12 @@ class BaseTrainer(GANComponent):
     def __init__(self, gan, config):
         GANComponent.__init__(self, gan, config)
         self.create_called = False
-        self.step = 0
+        self.current_step = 0
 
     def _create(self):
         raise Exception('BaseTrainer _create called directly.  Please override.')
 
-    def _step(self):
+    def _step(self, feed_dict):
         raise Exception('BaseTrainer _step called directly.  Please override.')
 
     def create(self):
@@ -18,12 +18,12 @@ class BaseTrainer(GANComponent):
 
         return self._create()
 
-    def step(self):
+    def step(self, feed_dict={}):
         if not self.create_called:
             self.g_optimizer, self.d_optimizer = self.create()
 
-        step = self._step()
-        self.step += 1
+        step = self._step(feed_dict)
+        self.current_step += 1
         return step
 
     def required(self):

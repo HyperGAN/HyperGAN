@@ -43,7 +43,7 @@ class AlternatingTrainer(BaseTrainer):
 
         return g_optimizer, d_optimizer
 
-    def run(self, feed_dict):
+    def _step(self, feed_dict):
         gan = self.gan
         sess = gan.ops.session
         config = gan.config
@@ -59,11 +59,11 @@ class AlternatingTrainer(BaseTrainer):
 
         if(d_class_loss is not None):
             _, g_cost,d_fake,d_real,d_class = sess.run([self.g_optimizer, self.g_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict)
-            if self.step % 100 == 0:
-                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (self.step, g_cost, d_cost, d_real, d_class, d_log ))
+            if self.current_step % 100 == 0:
+                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (self.current_step, g_cost, d_cost, d_real, d_class, d_log ))
         else:
             _, g_cost,d_fake,d_real = sess.run([self.g_optimizer, self.g_loss, d_fake_loss, d_real_loss], feed_dict)
-            if self.step % 100 == 0:
-                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (self.step, g_cost, d_cost, d_real, d_log ))
+            if self.current_step % 100 == 0:
+                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (self.current_step, g_cost, d_cost, d_real, d_log ))
 
         return d_cost, g_cost

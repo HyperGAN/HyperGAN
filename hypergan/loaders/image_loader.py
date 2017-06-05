@@ -8,17 +8,21 @@ import hypergan.vendor.vggnet_loader as vggnet_loader
 from tensorflow.python.ops import array_ops
 
 class ImageLoader:
-    def build_labels(dirs):
-      next_id=0
-      labels = {}
-      for dir in dirs:
-        labels[dir.split('/')[-1]]=next_id
-        next_id+=1
-      return labels,next_id
-    def labelled_image_tensors_from_directory(directory, batch_size, channels=3, format='jpg', width=64, height=64, crop=False, preprocess=False, filterX=None):
+
+    def __init__(self, batch_size):
+        self.batch_size = batch_size
+
+    def build_labels(self, dirs):
+        next_id=0
+        labels = {}
+        for dir in dirs:
+            labels[dir.split('/')[-1]]=next_id
+            next_id+=1
+        return labels,next_id
+
+    def load(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, filterX=None):
       directories = glob.glob(directory+"/*")
       labels,total_labels = build_labels(sorted(filter(os.path.isdir, directories)))
-      num_examples_per_epoch = 30000//4
 
       # Create a queue that produces the filenames to read.
       if filterX is not None:
@@ -54,7 +58,7 @@ class ImageLoader:
       else:
           print("[loader] Failed to load format", format)
       img = tf.cast(img, tf.float32)
-      
+
       label = input_queue[1]
 
       # Image processing for evaluation.
@@ -62,7 +66,7 @@ class ImageLoader:
       if(crop):
           resized_image = hypergan.loaders.resize_image_patch.resize_image_with_crop_or_pad(img,
                                                              height, width, dynamic_shape=True)
-      else:
+      elif(resize):
           #TODO, does this add extra time if no resize happens?
           resized_image = tf.image.resize_images(img, [height, width], 1)
 
@@ -81,20 +85,20 @@ class ImageLoader:
 
       # Ensure that the random shuffling has good mixing properties.
       min_fraction_of_examples_in_queue = 0.4
-      min_queue_examples = int(num_examples_per_epoch *
-                               min_fraction_of_examples_in_queue)
 
       # Generate a batch of images and labels by building up a queue of examples.
-      x,y,f= _get_data(float_image, label, features, min_queue_examples, batch_size)
+      x,y,f= _get_data(float_image, label, features, batch_size)
 
-      return x, y,f, total_labels, num_examples_per_epoch
+      y=tf.cast(graph.y,tf.int64)
+      y=tf.one_hot(graph.y, total_labels, 1.0, 0.0)
+      return x, y
 
 
     def _get_features(image):
         vggnet_loader.maybe_download_and_extract()
         return vggnet_loader.get_features(image)
 
-    def _get_data(image, label, features, min_queue_examples, batch_size):
+    def _get_data(image, label, features, batch_size):
       num_preprocess_threads = 24
       images, label_batch, f_b= tf.train.shuffle_batch(
           [image, label, features],

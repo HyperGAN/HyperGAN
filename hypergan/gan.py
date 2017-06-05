@@ -117,9 +117,6 @@ class GAN(GANComponent):
             self.created = True
 
             self.session.run(tf.global_variables_initializer())
-            #TODO convert to one-hot
-            #graph.y=tf.cast(graph.y,tf.int64)
-            #graph.y=tf.one_hot(graph.y, self.config['y_dims'], 1.0, 0.0)
 
     def create_component(self, defn):
         if defn == None:

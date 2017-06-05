@@ -26,7 +26,6 @@ class AlternatingTrainer(BaseTrainer):
         with tf.variable_scope(prefix):
             defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(trainer_config).args and k.startswith(prefix)}
             optimizer = trainer_config(learning_rate, **defn)
-            vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
             if(config.clipped_gradients):
                 apply_gradients = self.capped_optimizer(optimizer, config.clipped_gradients, loss, vars)
             else:

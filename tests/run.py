@@ -16,6 +16,8 @@ from generators.resize_conv_generator_test import ResizeConvGeneratorTest
 
 from losses.standard_gan_loss_test import StandardGanLossTest
 
+from loaders.image_loader_test import ImageLoaderTest
+
 from ops.tensorflow.ops_test import OpsTest
 
 from trainers.alternating_trainer_test import AlternatingTrainerTest

@@ -30,7 +30,7 @@ class ImageLoaderTest(tf.test.TestCase):
         with self.test_session():
             loader = ImageLoader(32) #TODO crop=true?
             x, y = loader.load(fixture_path(), width=2, height=2, format='png')
-            self.assertEqual(y.get_shape(), [])
+            self.assertEqual(int(y.get_shape()[1]), 2)
             self.assertEqual(int(x.get_shape()[1]), 2)
             self.assertEqual(int(x.get_shape()[2]), 2)
 
@@ -39,7 +39,7 @@ class ImageLoaderTest(tf.test.TestCase):
         with self.test_session():
             loader = ImageLoader(32) #TODO crop=true?
             x, y = loader.load(fixture_path(), width=8, height=8, resize=True, format='png')
-            self.assertEqual(y.get_shape(), [])
+            self.assertEqual(int(y.get_shape()[1]), 2)
             self.assertEqual(int(x.get_shape()[1]), 8)
             self.assertEqual(int(x.get_shape()[2]), 8)
 
@@ -48,7 +48,7 @@ class ImageLoaderTest(tf.test.TestCase):
         with self.test_session():
             loader = ImageLoader(32) #TODO crop=true?
             x, y = loader.load(fixture_path('images'), width=4, height=4, format='png')
-            self.assertEqual(y.get_shape(), [])
+            self.assertEqual(int(y.get_shape()[1]), 1)
             self.assertEqual(int(x.get_shape()[1]), 4)
             self.assertEqual(int(x.get_shape()[2]), 4)
 

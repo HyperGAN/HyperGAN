@@ -108,12 +108,10 @@ class GAN(GANComponent):
 
             self.encoders = [self.create_component(encoder) for encoder in config.encoders]
             self.generator = self.create_component(config.generator)
-            print("_GEEONTHO", self.generator)
             self.discriminators = [self.create_component(discriminator) for discriminator in config.discriminators]
             self.losses = [self.create_component(loss) for loss in config.losses]
             self.trainer = self.create_component(config.trainer)
             self.sampler = self.create_component(config.sampler)
-
             self.created = True
 
             self.session.run(tf.global_variables_initializer())

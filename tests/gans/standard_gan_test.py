@@ -27,7 +27,7 @@ def graph():
         'x': tf.constant(10., shape=[1,32,32,1], dtype=tf.float32)
     })
 
-class GanTest(tf.test.TestCase):
+class StandardGanTest(tf.test.TestCase):
     def test_constructor(self):
         with self.test_session():
             g = graph()

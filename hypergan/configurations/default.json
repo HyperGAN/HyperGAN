@@ -1,36 +1,34 @@
 {
-  "discriminators": [
-    {
-      "activation": "lrelu",
-      "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
-      "block": "function:hypergan.discriminators.common.standard_block",
-      "extra_layers": 1,
-      "extra_layers_reduction": 2,
-      "fc_layer_size": 300,
-      "fc_layers": 1,
-      "final_activation": "tanh",
-      "initial_depth": 64,
-      "depth_increase": 64,
-      "layer_regularizer": "layer_norm",
-      "layers": 5,
-      "orthogonal_initializer_gain": 1.0595959595959596,
-      "resize": null
-    }
-  ],
-  "encoders": [
-    {
-      "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
-      "max": 1,
-      "min": -1,
-      "modes": 8,
-      "projections": [
-        "function:hypergan.encoders.uniform_encoder.identity",
-        "function:hypergan.encoders.uniform_encoder.modal",
-        "function:hypergan.encoders.uniform_encoder.sphere"
-      ],
-      "z": 16
-    }
-  ],
+  "discriminator": 
+  {
+    "activation": "lrelu",
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "block": "function:hypergan.discriminators.common.standard_block",
+    "extra_layers": 1,
+    "extra_layers_reduction": 2,
+    "fc_layer_size": 300,
+    "fc_layers": 1,
+    "final_activation": "tanh",
+    "initial_depth": 64,
+    "depth_increase": 64,
+    "layer_regularizer": "layer_norm",
+    "layers": 5,
+    "orthogonal_initializer_gain": 1.0595959595959596,
+    "resize": null
+  },
+  "encoder":
+  {
+    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "max": 1,
+    "min": -1,
+    "modes": 8,
+    "projections": [
+      "function:hypergan.encoders.uniform_encoder.identity",
+      "function:hypergan.encoders.uniform_encoder.modal",
+      "function:hypergan.encoders.uniform_encoder.sphere"
+    ],
+    "z": 16
+  },
   "generator": {
     "activation": "lrelu",
     "block": "function:hypergan.generators.common.standard_block",
@@ -42,24 +40,23 @@
     "depth_increase": 64,
     "final_depth": 64
   },
-  "losses": [
-    {
-      "alpha": 0.9325229325229324,
-      "beta": 0.3927343927343927,
-      "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
-      "gamma": 0.49851949851949845,
-      "gradient_penalty": false,
-      "initial_k": 0.9823449823449822,
-      "k_lambda": 0.46580146580146575,
-      "label_smooth": 0.7985137985137984,
-      "labels": [
-        -1,
-        1,
-        0
-      ],
-      "reduce": "reduce_mean"
-    }
-  ],
+  "loss":
+  {
+    "alpha": 0.9325229325229324,
+    "beta": 0.3927343927343927,
+    "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
+    "gamma": 0.49851949851949845,
+    "gradient_penalty": false,
+    "initial_k": 0.9823449823449822,
+    "k_lambda": 0.46580146580146575,
+    "label_smooth": 0.7985137985137984,
+    "labels": [
+      -1,
+      1,
+      0
+    ],
+    "reduce": "reduce_mean"
+  },
   "trainer": {
     "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
     "d_beta1": 0.6527136527136527,

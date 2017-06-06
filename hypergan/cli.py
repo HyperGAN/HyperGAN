@@ -15,6 +15,8 @@ import shutil
 import sys
 
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
+from hypergan.samplers.batch_sampler import BatchSampler
+from hypergan.samplers.grid_sampler import GridSampler
 
 class CLI:
     def __init__(self, gan, args=None):

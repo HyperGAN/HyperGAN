@@ -10,7 +10,10 @@ from cli_test import CliTest
 from discriminators.pyramid_discriminator_test import PyramidDiscriminatorTest
 from encoders.match_discriminator_encoder_test import MatchDiscriminatorEncoderTest
 from encoders.uniform_encoder_test import UniformEncoderTest
+
 from samplers.static_batch_sampler_test import StaticBatchSamplerTest
+from samplers.grid_sampler_test import GridSamplerTest
+from samplers.batch_sampler_test import BatchSamplerTest
 
 from generators.align_generator_test import AlignGeneratorTest
 #from generators.corridor_generator_test import CorridorGeneratorTest

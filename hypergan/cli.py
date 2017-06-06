@@ -44,14 +44,10 @@ class CLI:
 
     def sampler_options(self):
         return {
-                'static_batch': StaticBatchSampler
+                'static_batch': StaticBatchSampler,
+                'batch': BatchSampler,
+                'grid': GridSampler
         }
-        #if(self.args.sampler == "grid"):
-        #    sampler = grid_sampler.sample
-        #elif(self.args.sampler == "batch"):
-        #    sampler = batch_sampler.sample
-        #elif(self.args.sampler == "static_batch"):
-        #    sampler = static_batch_sampler.sample
         #elif(self.args.sampler == "progressive"):
         #    sampler = progressive_enhancement_sampler.sample
         #elif(self.args.sampler == "began"):

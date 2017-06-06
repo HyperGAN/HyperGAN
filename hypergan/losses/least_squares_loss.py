@@ -14,7 +14,7 @@ class LeastSquaresLoss(BaseLoss):
         config = self.config
         ops = self.ops
 
-        net = gan.discriminator_sample_tensor(cache=True)
+        net = gan.discriminators[0].sample
 
         net = config.reduce(net, axis=1)
 
@@ -45,6 +45,6 @@ class LeastSquaresLoss(BaseLoss):
         d_loss = ops.squash(d_loss, config.reduce)
         g_loss = ops.squash(g_loss, config.reduce)
 
-        self._sample = [d_loss, g_loss]
+        self.sample = [d_loss, g_loss]
 
-        return [d_loss, g_loss]
+        return self.sample

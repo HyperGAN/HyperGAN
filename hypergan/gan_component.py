@@ -44,20 +44,6 @@ class GANComponent:
         self.ops = self.gan.ops_backend(config=backend_options, device=self.gan.device)
         self.config = self.ops.lookup(config)
 
-    def sample(self, cache=True, feed_dict={}):
-        """
-        Create a sample batch from the generator.
-        """
-        return self.gan.session.run(self.sample_tensor(cache), feed_dict=feed_dict)
-
-    def sample_tensor(self, cache=True):
-        """
-        TODO: caching
-        """
-        if cache:
-            return self._sample
-        return self.create()
-
     def required(self):
         """
         Return a list of required config strings and a `ValidationException` will be thrown if any are missing.

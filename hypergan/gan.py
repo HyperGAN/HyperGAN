@@ -126,36 +126,9 @@ class GAN(GANComponent):
         self.components.append(gan_component)
         return gan_component
 
-    def encoder_sample(self, cache=True):
-        if len(self.encoders):
-            return self.encoders[0].sample(cache)
-        return self.encoders
-
-    def generator_sample(self, cache=True):
-        return self.generator.sample(cache)
-
-    def discriminator_sample(self, cache=True):
-        #TODO test, multiple D
-        return self.discriminators[0].sample(cache)
-
-    def discriminator_sample_tensor(self, cache=True):
-        #TODO test, multiple D
-        return self.discriminators[0].sample_tensor(cache)
-
-    def loss_sample(self, cache=True):
-        #TODO test, multiple losses
-        return self.losses[0].sample(cache)
-
-    def loss_sample_tensor(self, cache=True):
-        #TODO test, multiple losses
-        return self.losses[0].sample_tensor(cache)
-
-    def train(self, feed_dict={}):
+    def step(self, feed_dict={}):
         if not self.created:
             self.create()
         if self.trainer == None:
             raise ValidationException("gan.trainer is missing.  Cannot train.")
         return self.trainer.step(feed_dict)
-
-    def step(self):
-        return self.trainer.current_step

@@ -18,14 +18,8 @@ class UniformEncoder(BaseEncoder):
         self.z = tf.random_uniform([batch_size, config.z], config.min or -1, config.max or 1, dtype=ops.dtype)
         for projection in config.projections:
           projections.append(projection(config, gan, self.z))
-        self.projections = tf.concat(axis=1, values=projections)
-        return self.projections
-
-    def sample(self, cache=False):
-        if cache:
-            return self.projections
-        else:
-            return self.create()
+        self.sample = tf.concat(axis=1, values=projections)
+        return self.sample
 
 def identity(config, gan, net):
     return net

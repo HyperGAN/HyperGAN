@@ -6,36 +6,48 @@ import hypergan.loaders.resize_image_patch
 import hypergan.vendor.inception_loader as inception_loader
 import hypergan.vendor.vggnet_loader as vggnet_loader
 from tensorflow.python.ops import array_ops
-from hypergan.gan_component import ValidationException
+from hypergan.gan_component import ValidationException, GANComponent
 
-class ImageLoader:
+class ImageLoader(GANComponent):
+    """
+    ImageLoader loads a set of images into a tensorflow input pipeline.
+
+    Usage: TODO
+
+    """
 
     def __init__(self, batch_size):
         self.batch_size = batch_size
 
     def build_labels(self, dirs):
-        next_id=0
+        total_labels=0
         labels = {}
         for dir in dirs:
-            labels[dir.split('/')[-1]]=next_id
-            next_id+=1
-        return labels,next_id
+            labels[dir.split('/')[-1]]=total_labels
+            total_labels+=1
+        if(len(dirs) == 1):
+            labels = {}
+            total_labels = 0
+        return labels,total_labels
 
-    def load(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, filterX=None):
+    def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False):
         directories = glob.glob(directory+"/*")
+        directories = [d for d in directories if os.path.isdir(d)]
+
+        if(len(directories) == 0):
+            directories = [directory] 
         labels,total_labels = self.build_labels(sorted(filter(os.path.isdir, directories)))
 
         # Create a queue that produces the filenames to read.
-        if filterX is not None:
-            print(directories, filterX, directories[filterX])
-            print("Filtering files by "+directories[filterX])
-            filenames = glob.glob(directories[filterX]+"/*."+format)
-
+        if(len(directories) == 1):
+            # No subdirectories, use all the images in the passed in path
+            filenames = glob.glob(directory+"/*."+format)
+            classes = []
         else:
             filenames = glob.glob(directory+"/**/*."+format)
+            classes = [labels[f.split('/')[-2]] for f in filenames]
 
         print("[loader] ImageLoader found", len(filenames), "images with", total_labels, "different class labels")
-        classes = [labels[f.split('/')[-2]] for f in filenames]
         self.file_count = len(filenames)
         if self.file_count == 0:
             raise ValidationException("No images found in '" + directory + "'")
@@ -68,16 +80,8 @@ class ImageLoader:
             resized_image = img
 
         tf.Tensor.set_shape(resized_image, [height,width,channels])
-        #resized_image = reshaped_image
-        #resized_image = tf.image.random_flip_left_right(resized_image)
-        #resized_image = tf.image.random_brightness(resized_image, 0.4)
-        #resized_image = tf.image.random_contrast(resized_image, 0.2, 1.0)
-        #resized_image = tf.image.random_hue(resized_image, 0.1)
-        #resized_image = tf.image.random_saturation(resized_image, 0.5, 1.0)
 
-        #resized_image = tf.image.convert_image_dtype(resized_image, tf.float32)
-        # Subtract off the mean and divide by the variance of the pixels.
-        #float_image = tf.image.per_image_whitening(resized_image)
+        # This moves the image to a range of -1 to 1.
         float_image = resized_image / 127.5 - 1.
 
         # Ensure that the random shuffling has good mixing properties.
@@ -88,6 +92,8 @@ class ImageLoader:
 
         y = tf.cast(y, tf.int64)
         y = tf.one_hot(y, total_labels, 1.0, 0.0)
+        self.x = x
+        self.y = y
         return x, y
 
 
@@ -102,3 +108,8 @@ class ImageLoader:
             min_after_dequeue=batch_size)
         return images, tf.reshape(label_batch, [batch_size])
 
+    def sample(self):
+        return self.gan.session.run(self.sample_tensor())
+
+    def sample_tensor(self):
+        return self.x, self.y

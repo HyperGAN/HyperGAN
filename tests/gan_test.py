@@ -41,7 +41,7 @@ class GanTest(tf.test.TestCase):
         bad_config['trainer'] = None
         gan = GAN(graph = graph(), config = bad_config)
         with self.assertRaises(ValidationException):
-            gan.train()
+            gan.step()
 
     def test_validate(self):
         with self.assertRaises(ValidationException):
@@ -64,7 +64,7 @@ class GanTest(tf.test.TestCase):
     def test_train(self):
         with self.test_session():
             gan = GAN(graph = graph())
-            gan.train()
+            gan.step()
             self.assertEqual(gan.step(), 1)
 
     def test_train_updates_posterior(self):
@@ -73,7 +73,7 @@ class GanTest(tf.test.TestCase):
             gan.create()
             prior_g = gan.session.run(gan.generator.weights()[0])
             prior_d = gan.session.run(gan.discriminators[0].weights()[0])
-            gan.train()
+            gan.step()
             posterior_g = gan.session.run(gan.generator.weights()[0])
             posterior_d = gan.session.run(gan.discriminators[0].weights()[0])
             self.assertNotEqual(posterior_g.mean(), prior_g.mean())

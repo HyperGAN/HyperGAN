@@ -10,7 +10,7 @@ import copy
 from hypergan.discriminators import *
 from hypergan.encoders import *
 from hypergan.generators import *
-from hypergan.loaders import *
+from hypergan.inputs import *
 from hypergan.samplers import *
 from hypergan.trainers import *
 
@@ -39,22 +39,40 @@ class StandardGAN(BaseGAN):
     * loss
     * trainer
     """
+    def __init__(self, config=None, graph={}, device='/cpu:0', ops_config=None, ops_backend=TensorflowOps):
+        BaseGAN.__init__(self, config, graph, device, ops_config, ops_backend)
+        self.discriminator = None
+        self.encoder = None
+        self.generator = None
+        self.loss = None
+        self.trainer = None
+
     def required(self):
         return "generator".split()
 
     def create(self):
-        super(StandardGAN, self).create()
+        BaseGAN.create(self)
+        config = self.config
+
+        def create_if(obj):
+            if(hasattr(obj, 'create')):
+                obj.create()
 
         with tf.device(self.device):
             self.session = self.ops.new_session(self.ops_config)
 
-            config = self.config
+            #this is in a specific order
+            self.encoder = self.encoder or self.create_component(config.encoder)
+            self.generator = self.generator or self.create_component(config.generator)
+            self.discriminator = self.discriminator or self.create_component(config.discriminator)
+            self.loss = self.loss or self.create_component(config.loss)
+            self.trainer = self.trainer or self.create_component(config.trainer)
 
-            self.encoder = self.create_component(config.encoder)
-            self.generator = self.create_component(config.generator)
-            self.discriminator = self.create_component(config.discriminator)
-            self.loss = self.create_component(config.loss)
-            self.trainer = self.create_component(config.trainer)
+            create_if(self.encoder)
+            create_if(self.generator)
+            create_if(self.discriminator)
+            create_if(self.loss)
+            create_if(self.trainer)
 
             self.session.run(tf.global_variables_initializer())
 

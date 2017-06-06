@@ -154,6 +154,9 @@ class TensorflowOps:
         return [int(x) for x in net.get_shape()]
 
     def squash(self, net, reduce):
+        """
+        Takes any size tensor and reduces it to a single value using `reduce`.
+        """
         while(sum(self.shape(net)) > 1):
             net = reduce(net)
             net = tf.squeeze(net)

@@ -2,9 +2,7 @@
 import glob
 import os
 import tensorflow as tf
-import hypergan.loaders.resize_image_patch
-import hypergan.vendor.inception_loader as inception_loader
-import hypergan.vendor.vggnet_loader as vggnet_loader
+import hypergan.inputs.resize_image_patch
 from tensorflow.python.ops import array_ops
 from hypergan.gan_component import ValidationException, GANComponent
 
@@ -72,7 +70,7 @@ class ImageLoader(GANComponent):
       # Image processing for evaluation.
       # Crop the central [height, width] of the image.
         if crop:
-            resized_image = hypergan.loaders.resize_image_patch.resize_image_with_crop_or_pad(img, height, width, dynamic_shape=True)
+            resized_image = hypergan.inputs.resize_image_patch.resize_image_with_crop_or_pad(img, height, width, dynamic_shape=True)
         elif resize:
             #TODO, does this add extra time if no resize happens?
             resized_image = tf.image.resize_images(img, [height, width], 1)

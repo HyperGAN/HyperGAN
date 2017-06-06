@@ -3,16 +3,8 @@ import hyperchamber as hc
 
 
 class SupervisedLoss:
-    def __init__(self):
-        selector = hc.Selector()
-        selector.set("reduce", [tf.reduce_mean])#reduce_sum, reduce_logexp work
 
-        selector.set('create', create)
-        selector.set('batch_norm', layer_norm_1)
-
-        self.config = selector.random_config()
-
-    def create(config, gan):
+    def create(self):
         batch_norm = config.batch_norm
         batch_size = gan.config.batch_size
 

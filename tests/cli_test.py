@@ -4,7 +4,7 @@ import tensorflow as tf
 import os
 from hypergan.gan_component import ValidationException
 
-from tests.loaders.image_loader_test import fixture_path
+from tests.inputs.image_loader_test import fixture_path
 import shutil
 
 def graph():

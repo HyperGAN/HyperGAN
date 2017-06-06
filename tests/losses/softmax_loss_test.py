@@ -4,6 +4,7 @@ import hypergan as hg
 import numpy as np
 from hypergan.losses.softmax_loss import SoftmaxLoss
 from hypergan.ops import TensorflowOps
+from tests.mocks import mock_graph
 
 from unittest.mock import MagicMock
 
@@ -16,16 +17,17 @@ class SoftmaxLossTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            graph = {}
-            graph['d_real'] = tf.constant(0, shape=[2,2])
-            graph['d_fake'] = tf.constant(0, shape=[2,2])
-            print('gcraph', graph)
-            loss = SoftmaxLoss(hg.GAN(graph=graph), loss_config)
+            graph = mock_graph()
+
+            gan = hg.GAN(graph=graph)
+            gan.create()
+            loss = SoftmaxLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             d_shape = loss.ops.shape(d_loss)
             g_shape = loss.ops.shape(g_loss)
-            self.assertEqual(d_shape, [])
-            self.assertEqual(g_shape, [])
+            self.assertEqual(sum(d_shape), 1)
+            self.assertEqual(sum(g_shape), 1)
+
 
 if __name__ == "__main__":
     tf.test.main()

@@ -3,34 +3,11 @@ import hyperchamber as hc
 from hypergan.generators.common import minmaxzero
 from hypergan.losses.common import *
 
-class BoundaryEquilibriumLoss:
+from hypergan.losses.base_loss import BaseLoss
 
-    def __init__(self,
-            reduce=tf.reduce_mean, 
-            reverse=False,
-            discriminator=None,
-            k_lambda=0.01,
-            labels=[[0,-1,-1]],
-            initial_k=0,
-            gradient_penalty=False,
-            use_k=[True],
-            gamma=0.75):
-        selector = hc.Selector()
-        selector.set("reduce", reduce)
-        selector.set('reverse', reverse)
-        selector.set('discriminator', discriminator)
-
-        selector.set('create', create)
-        selector.set('k_lambda', k_lambda)
-        selector.set('initial_k', initial_k)
-        selector.set('gradient_penalty',gradient_penalty)
-
-        selector.set('labels', labels)
-        selector.set('type', ['wgan', 'lsgan'])
-        selector.set('use_k', use_k)
-        selector.set('gamma', gamma)
-
-        self.config = selector.random_config()
+class BoundaryEquilibriumLoss(BaseLoss):
+    def required(self):
+        return "type use_k labels reduce k_lambda gamma".split()
 
     def g(gan, z):
         #reuse variables

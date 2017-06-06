@@ -1,5 +1,4 @@
 import tensorflow as tf
-from hypergan.samplers.common import *
 import os
 import json
 

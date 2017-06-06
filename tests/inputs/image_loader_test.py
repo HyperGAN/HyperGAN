@@ -1,7 +1,7 @@
 import hypergan as hg
 import tensorflow as tf
 from hypergan.gan_component import ValidationException
-from hypergan.loaders.image_loader import ImageLoader
+from hypergan.inputs.image_loader import ImageLoader
 import os
 
 def fixture_path(subpath=""):

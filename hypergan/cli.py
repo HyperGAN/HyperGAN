@@ -3,7 +3,7 @@ import os
 import hyperchamber as hc
 from hypergan.gan_component import ValidationException
 from . import GAN
-from .loaders import *
+from .inputs import *
 from .samplers.viewer import GlobalViewer
 from .configuration import Configuration
 import hypergan as hg
@@ -119,7 +119,7 @@ class CLI:
         return parser
 
     def step(self):
-        d_loss, g_loss = self.gan.step()
+        self.gan.step()
 
         if(self.steps > 1 and (self.steps % self.args.sample_every == 0)):
             sample_file="samples/%06d.png" % (self.samples)

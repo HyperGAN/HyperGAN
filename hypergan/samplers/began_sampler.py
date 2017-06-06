@@ -1,4 +1,3 @@
-from hypergan.samplers.common import *
 
 def sample_tensor(sess,generator, feed_dict, sample_file):
     g=tf.get_default_graph()

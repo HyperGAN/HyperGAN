@@ -59,27 +59,34 @@ class AlternatingTrainer(BaseTrainer):
 
         return g_optimizer, d_optimizer
 
+    def output_string(self, metrics):
+        output = "\%2d: " 
+        for name in sorted(metrics.keys()):
+            output += " " + name
+            output += " %.2f"
+        return output
+
+
+    def output_variables(self, metrics):
+        gan = self.gan
+        sess = gan.session
+        return [metrics[k] for k in sorted(metrics.keys())]
+
     def _step(self, feed_dict):
         gan = self.gan
         sess = gan.session
         config = gan.config
-        d_fake_loss = gan.graph.d_fake_loss
-        d_real_loss = gan.graph.d_real_loss
         d_class_loss = gan.graph.d_class_loss
+        metrics = gan.loss.metrics
 
-        _, d_cost, d_log = sess.run([self.d_optimizer, self.d_loss, self.d_log], feed_dict)
+        d_loss, g_loss = self.gan.loss.sample
 
-        # in WGAN paper, values are clipped.  This might not work, and is slow.
+        _ = sess.run(self.d_optimizer, feed_dict)
+        metric_values = sess.run([self.g_optimizer] + self.output_variables(metrics), feed_dict)[1:]
+
+        # TODO in the original WGAN paper, values are clipped.  This is slow.
         if(config.d_clipped_weights):
             sess.run(gan.graph.clip)
 
-        if(d_class_loss is not None):
-            _, g_cost,d_fake,d_real,d_class = sess.run([self.g_optimizer, self.g_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict)
-            if self.current_step % 100 == 0:
-                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (self.current_step, g_cost, d_cost, d_real, d_class, d_log ))
-        else:
-            _, g_cost,d_fake,d_real = sess.run([self.g_optimizer, self.g_loss, d_fake_loss, d_real_loss], feed_dict)
-            if self.current_step % 100 == 0:
-                print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (self.current_step, g_cost, d_cost, d_real, d_log ))
-
-        return d_cost, g_cost
+        if self.current_step % 100 == 0:
+            print(self.output_string(metrics) % tuple([self.current_step] + metric_values))

@@ -76,5 +76,23 @@ class StandardGanTest(tf.test.TestCase):
             self.assertNotEqual(posterior_g.mean(), prior_g.mean())
             self.assertNotEqual(posterior_d.mean(), prior_d.mean())
 
+
+    def test_overridable_components(self):
+        with self.test_session():
+            gan = GAN(graph = graph())
+            gan.discriminator = "d_override"
+            gan.generator = "g_override"
+            gan.encoder = "e_override"
+            gan.loss = "l_override"
+            gan.trainer = "t_override"
+
+            gan.create()
+
+            self.assertEqual(gan.discriminator, "d_override")
+            self.assertEqual(gan.generator, "g_override")
+            self.assertEqual(gan.encoder, "e_override")
+            self.assertEqual(gan.loss, "l_override")
+            self.assertEqual(gan.trainer, "t_override")
+
 if __name__ == "__main__":
     tf.test.main()

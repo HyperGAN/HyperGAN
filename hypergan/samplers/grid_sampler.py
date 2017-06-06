@@ -1,4 +1,3 @@
-from hypergan.samplers.common import *
 from hypergan.samplers.base_sampler import BaseSampler
 import numpy as np
 

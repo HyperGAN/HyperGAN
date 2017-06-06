@@ -1,8 +1,6 @@
 import glob
 import tensorflow as tf
-import hypergan.loaders.resize_audio_patch
-import hypergan.vendor.inception_loader as inception_loader
-import hypergan.vendor.vggnet_loader as vggnet_loader
+import hypergan.inputs.resize_audio_patch
 from tensorflow.contrib import ffmpeg
 
 class AudioLoader:

@@ -28,7 +28,7 @@ from losses.category_loss_test import CategoryLossTest
 from losses.supervised_loss_test import SupervisedLossTest
 from losses.boundary_equilibrium_loss_test import BoundaryEquilibriumLossTest
 
-from loaders.image_loader_test import ImageLoaderTest
+from inputs.image_loader_test import ImageLoaderTest
 
 from ops.tensorflow.ops_test import OpsTest
 

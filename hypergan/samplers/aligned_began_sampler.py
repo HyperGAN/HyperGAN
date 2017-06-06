@@ -1,6 +1,4 @@
 
-from hypergan.samplers.common import *
-
 def sample_tensor(sess,generator, feed_dict, sample_file):
     if isinstance(generator, list):
         generator = generator[0]

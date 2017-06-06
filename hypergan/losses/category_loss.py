@@ -1,13 +1,9 @@
-class CategoryLoss:
-    def __init__(self):
-        selector = hc.Selector()
-        selector.set('discriminator', None)
+from hypergan.losses.base_loss import BaseLoss
 
-        selector.set('create', create)
+class CategoryLoss(BaseLoss):
 
-        self.config = selector.random_config()
-
-    def create(config, gan):
+    def _create(self, d_real, d_fake):
+        # TODO get the d_last_layer
         category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories',stddev=0.15)
         category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
         category_layer = config['generator.activation'](category_layer)

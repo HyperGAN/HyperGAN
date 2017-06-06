@@ -16,7 +16,7 @@ class LeastSquaresLoss(BaseLoss):
 
         net = gan.discriminator.sample
 
-        net = config.reduce(net, axis=1)
+        net = config.reduce(net, axis=1) #TODO is this right?
 
         shape = ops.shape(net)
         net = tf.reshape(net, [shape[0], -1])
@@ -38,8 +38,8 @@ class LeastSquaresLoss(BaseLoss):
         d_real_loss = d_real
 
         ##TODO REFACTOR this .  This is about reporting back numbers to the trainer
-        gan.graph.d_fake_loss = ops.squash(d_fake_loss, config.reduce)
-        gan.graph.d_real_loss = ops.squash(d_real_loss, config.reduce)
+        #gan.graph.d_fake_loss = ops.squash(d_fake_loss, config.reduce)
+        #gan.graph.d_real_loss = ops.squash(d_real_loss, config.reduce)
 
         d_loss = ops.squash(d_fake_loss, config.reduce)
         d_loss = ops.squash(d_loss, config.reduce)

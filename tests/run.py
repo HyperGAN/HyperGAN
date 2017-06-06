@@ -20,6 +20,13 @@ from generators.align_generator_test import AlignGeneratorTest
 from generators.resize_conv_generator_test import ResizeConvGeneratorTest
 
 from losses.standard_gan_loss_test import StandardGanLossTest
+from losses.wasserstein_loss_test import WassersteinLossTest
+from losses.least_squares_loss_test import LeastSquaresLossTest
+from losses.softmax_loss_test import SoftmaxLossTest
+from losses.lamb_gan_loss_test import LambGanLossTest
+from losses.category_loss_test import CategoryLossTest
+from losses.supervised_loss_test import SupervisedLossTest
+from losses.boundary_equilibrium_loss_test import BoundaryEquilibriumLossTest
 
 from loaders.image_loader_test import ImageLoaderTest
 

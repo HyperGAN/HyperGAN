@@ -73,7 +73,7 @@ class CLI:
         if(self.args.viewer):
             GlobalViewer.enable()
 
-        sample_list = sampler(self.gan, sample_file)
+        sample_list = self.gan.sampler(self.gan, sample_file)
 
         return sample_list
 

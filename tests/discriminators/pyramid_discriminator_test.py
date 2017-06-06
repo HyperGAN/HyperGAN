@@ -32,8 +32,8 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
 
         with self.test_session():
             remove_d_config = hg.Configuration.default()
-            remove_d_config['discriminators'] = []
-            remove_d_config['losses'] = []
+            remove_d_config['discriminator'] = None
+            remove_d_config['loss'] = None
             remove_d_config['trainer'] = None
             gan = hg.GAN(config = remove_d_config, graph = {
                 'x': tf.constant(1, shape=[1,4,4,1], dtype=tf.float32)

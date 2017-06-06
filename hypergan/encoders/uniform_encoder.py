@@ -14,7 +14,7 @@ class UniformEncoder(BaseEncoder):
         ops = self.ops
         config = self.config
         projections = []
-        batch_size = ops.shape(gan.inputs[0])[0]
+        batch_size = self.gan.batch_size()
         self.z = tf.random_uniform([batch_size, config.z], config.min or -1, config.max or 1, dtype=ops.dtype)
         for projection in config.projections:
           projections.append(projection(config, gan, self.z))

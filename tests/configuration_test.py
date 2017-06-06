@@ -14,8 +14,8 @@ class ConfigurationTest(tf.test.TestCase):
         with self.test_session():
             default = hg.Configuration.default()
             self.assertNotEqual(default.trainer, None)
-            self.assertEqual(len(default.discriminators), 1)
-            self.assertEqual(len(default.losses), 1)
+            self.assertNotEqual(default.discriminator, None)
+            self.assertNotEqual(default.loss, None)
 
 
 if __name__ == "__main__":

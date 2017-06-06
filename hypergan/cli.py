@@ -32,8 +32,8 @@ class CLI:
         self.validate()
 
     def load(self):
-        #TODO
-        pass
+        raise ValidationException('Load not implemented')
+        #return self.gan.load()
 
     def get_sampler_name(self, args):
         if 'sampler' in args:
@@ -166,6 +166,7 @@ class CLI:
         return gan_server(self.sess, config)
 
     def train(self):
+        args = self.args
         i=0
         if(self.args.ipython):
             fd = sys.stdin.fileno()
@@ -178,7 +179,10 @@ class CLI:
             start_time = time.time()
             self.step()
 
-            if(args.save_every > 0 and i % args.save_every == 0):
+            if (args.save_every != None and
+                args.save_every != -1 and
+                args.save_every > 0 and
+                i % args.save_every == 0):
                 print(" |= Saving network")
                 self.save()
             if args.ipython:

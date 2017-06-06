@@ -48,7 +48,7 @@ class ResizeConvGenerator(BaseGenerator):
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
 
-        net = ops.linear(gan.encoders[0].sample, initial_depth*primes[0]*primes[1])
+        net = ops.linear(gan.encoder.sample, initial_depth*primes[0]*primes[1])
         print("RESHAPE", net, new_shape)
         net = ops.reshape(net, new_shape)
 

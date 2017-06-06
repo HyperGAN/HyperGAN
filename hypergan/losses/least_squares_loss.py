@@ -14,7 +14,7 @@ class LeastSquaresLoss(BaseLoss):
         config = self.config
         ops = self.ops
 
-        net = gan.discriminators[0].sample
+        net = gan.discriminator.sample
 
         net = config.reduce(net, axis=1)
 

@@ -2,7 +2,7 @@ import tensorflow as tf
 import glob
 
 from gan_component_test import GanComponentTest
-from gan import GanTest
+from gan_test import GanTest
 from gans.standard_gan_test import StandardGanTest
 from configuration_test import ConfigurationTest
 from cli_test import CliTest

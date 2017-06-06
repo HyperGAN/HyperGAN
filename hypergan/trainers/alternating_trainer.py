@@ -39,10 +39,10 @@ class AlternatingTrainer(BaseTrainer):
         g_lr = config.g_learn_rate
         d_lr = config.d_learn_rate
 
-        d_vars = gan.discriminators[0].variables()
-        g_vars = gan.encoders[0].variables() + gan.generator.variables()
+        d_vars = gan.discriminator.variables()
+        g_vars = gan.encoder.variables() + gan.generator.variables()
 
-        d_loss, g_loss = gan.losses[0].sample
+        d_loss, g_loss = gan.loss.sample
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 

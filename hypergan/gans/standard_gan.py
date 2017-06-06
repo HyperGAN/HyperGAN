@@ -42,22 +42,6 @@ class StandardGAN(BaseGAN):
     def required(self):
         return "generator".split()
 
-    def discriminator_variables(self):
-        #TODO test
-        return self.discriminator.ops.variables()
-
-    def generator_variables(self):
-        #TODO test
-        return self.generator.ops.variables()
-
-    def encoder_variables(self):
-        #TODO test
-        return self.encoder.ops.variables()
-
-    def encoder_z(self):
-        #TODO test
-        return self.encoder.z
-
     def create(self):
         super(StandardGAN, self).create()
 

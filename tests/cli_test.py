@@ -76,7 +76,7 @@ class CliTest(tf.test.TestCase):
             gan = hg.GAN()
             args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1})
             cli = hg.CLI(gan, args)
-            cli.sample()
+            cli.sample('/tmp/test-sample.png')
             self.assertEqual(cli.gan, gan)
 
 

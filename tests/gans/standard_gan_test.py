@@ -56,9 +56,7 @@ class StandardGanTest(tf.test.TestCase):
             gan = GAN(graph = {'x': tf.constant(1, shape=[1,1,1,1], dtype=tf.float32)})
             gan.create()
             self.assertEqual(type(gan.generator), ResizeConvGenerator)
-            self.assertEqual(type(gan.discriminators[0]), PyramidDiscriminator)
-            self.assertEqual(len(gan.discriminators), 1)
-            self.assertEqual(len(gan.losses), 1)
+            self.assertEqual(type(gan.discriminator), PyramidDiscriminator)
 
     def test_train(self):
         with self.test_session():

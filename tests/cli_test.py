@@ -1,9 +1,11 @@
 import hypergan as hg
 import hyperchamber as hc
 import tensorflow as tf
+import os
 from hypergan.gan_component import ValidationException
 
 from tests.loaders.image_loader_test import fixture_path
+import shutil
 
 def graph():
     return hc.Config({
@@ -104,6 +106,33 @@ class CliTest(tf.test.TestCase):
             cli = hg.CLI(gan, args)
             cli.run()
             self.assertEqual(cli.gan, gan)
+
+    def test_new(self):
+        with self.test_session():
+            try: 
+                shutil.rmtree('/tmp/hg_new')
+            except Exception:
+                pass
+            gan = hg.GAN(graph=graph())
+            args = hc.Config({"size": "1", "steps": 1, "method": "train"})
+            cli = hg.CLI(gan, args)
+            cli.new("/tmp/hg_new")
+            self.assertTrue(os.path.isfile('/tmp/hg_new/default.json'))
+            self.assertTrue(os.path.isdir('/tmp/hg_new/samples'))
+            self.assertTrue(os.path.isdir('/tmp/hg_new/saves'))
+
+    def test_safe_new(self):
+        with self.test_session():
+            try: 
+                shutil.rmtree('/tmp/hg_new2')
+            except Exception:
+                pass
+            gan = hg.GAN(graph=graph())
+            args = hc.Config({"size": "1", "steps": 1, "method": "train"})
+            cli = hg.CLI(gan, args)
+            cli.new("/tmp/hg_new2")
+            with self.assertRaises(ValidationException):
+                cli.new("/tmp/hg_new2")
 
 
 if __name__ == "__main__":

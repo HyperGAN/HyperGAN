@@ -5,11 +5,13 @@ from hypergan.gan_component import ValidationException
 from . import GAN
 from .loaders import *
 from .samplers.viewer import GlobalViewer
+from .configuration import Configuration
 import hypergan as hg
 import time
 
 import fcntl
 import os
+import shutil
 import sys
 
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
@@ -219,6 +221,21 @@ class CLI:
                 return [split[0], split[1], 3]
             return [split[0], split[1], split[2]]
         return [32, 32, 3]
+
+    def new(self, path):
+        if(os.path.exists(path)):
+            raise ValidationException('Path does not exist "'+path+'"')
+
+        print("[hypergan] Creating new project '"+path+"'")
+        os.mkdir(path)
+        os.mkdir(path+'/samples')
+        os.mkdir(path+'/saves')
+        template = 'default.json' #TODO
+        source_configuration = Configuration.find(template)
+        json_path = path + '/' + template
+        shutil.copyfile(source_configuration, json_path)
+
+        return
 
     def run(self):
         args = self.args

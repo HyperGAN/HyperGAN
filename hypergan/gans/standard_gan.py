@@ -55,7 +55,6 @@ class StandardGAN(BaseGAN):
             self.discriminator = self.create_component(config.discriminator)
             self.loss = self.create_component(config.loss)
             self.trainer = self.create_component(config.trainer)
-            self.sampler = self.create_component(config.sampler)
 
             self.session.run(tf.global_variables_initializer())
 

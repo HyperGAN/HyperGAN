@@ -26,7 +26,7 @@ class BaseGAN(GANComponent):
 
     def sample_input(self):
         #TODO
-        return self.ops.session.run(tf.concat(axis=0, values=self.inputs))
+        return self.ops.concat(axis=0, values=self.inputs)
 
     def batch_size(self):
         #TODO how does this work with generators outside of discriminators?

@@ -26,7 +26,7 @@ class CLI:
         self.samplers = self.sampler_options()
         self.sampler_name = self.get_sampler_name(args)
         if self.sampler_name in self.samplers:
-            self.sampler = self.samplers[self.sampler_name]
+            self.sampler = self.samplers[self.sampler_name](self.gan)
         else:
             self.sampler = None
         self.validate()
@@ -73,7 +73,7 @@ class CLI:
         if(self.args.viewer):
             GlobalViewer.enable()
 
-        sample_list = self.gan.sampler(self.gan, sample_file)
+        sample_list = self.sampler.sample(sample_file)
 
         return sample_list
 

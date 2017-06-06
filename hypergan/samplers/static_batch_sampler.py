@@ -11,17 +11,18 @@ class StaticBatchSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.encoders[0].z #TODO
+        z_t = gan.encoder.z #TODO
         inputs_t = gan.inputs[0]
 
         if self.z is None:
-            self.z = gan.encoders[0].sample() #TODO
-            self.input = gan.sample_input()
+            print("GAN IS", gan, gan.encoder)
+            self.z = gan.encoder.z.eval()
+            self.input = gan.session.run(gan.sample_input())
 
         g=tf.get_default_graph()
         with g.as_default():
             tf.set_random_seed(1)
-            {
-                'generator': gan.generator.sample(feed_dict={z_t: self.z, inputs_t: self.input})
+            return {
+                'generator': gan.session.run(gan.generator.sample, feed_dict={z_t: self.z, inputs_t: self.input})
             }
 

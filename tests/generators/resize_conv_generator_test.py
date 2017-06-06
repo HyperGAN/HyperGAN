@@ -29,8 +29,8 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
     def test_create(self):
         with self.test_session():
             gan.config['generator'] = None
-            gan.config['discriminators'] = []
-            gan.config['losses'] = []
+            gan.config['discriminator'] = None
+            gan.config['loss'] = None
             gan.config['trainer'] = None
             gan.create()
             nets = generator.create()

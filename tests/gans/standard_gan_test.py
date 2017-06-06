@@ -62,17 +62,17 @@ class StandardGanTest(tf.test.TestCase):
         with self.test_session():
             gan = GAN(graph = graph())
             gan.step()
-            self.assertEqual(gan.step(), 1)
+            self.assertEqual(gan.trainer.current_step, 1)
 
     def test_train_updates_posterior(self):
         with self.test_session():
             gan = GAN(graph = graph())
             gan.create()
             prior_g = gan.session.run(gan.generator.weights()[0])
-            prior_d = gan.session.run(gan.discriminators[0].weights()[0])
+            prior_d = gan.session.run(gan.discriminator.weights()[0])
             gan.step()
             posterior_g = gan.session.run(gan.generator.weights()[0])
-            posterior_d = gan.session.run(gan.discriminators[0].weights()[0])
+            posterior_d = gan.session.run(gan.discriminator.weights()[0])
             self.assertNotEqual(posterior_g.mean(), prior_g.mean())
             self.assertNotEqual(posterior_d.mean(), prior_d.mean())
 

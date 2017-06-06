@@ -2,13 +2,9 @@ import tensorflow as tf
 from hypergan.losses.common import *
 import hyperchamber as hc
 
-
 from hypergan.losses.base_loss import BaseLoss
 
 class SoftmaxLoss(BaseLoss):
-
-    def required(self):
-        return "reduce".split()
 
     def create(self):
         gan = self.gan
@@ -19,6 +15,7 @@ class SoftmaxLoss(BaseLoss):
 
         net = config.reduce(net, axis=1)
 
+        s = ops.shape(net)
         net = tf.reshape(net, [s[0], -1])
         d_real = tf.slice(net, [0,0], [s[0]//2,-1])
         d_fake = tf.slice(net, [s[0]//2,0], [s[0]//2,-1])

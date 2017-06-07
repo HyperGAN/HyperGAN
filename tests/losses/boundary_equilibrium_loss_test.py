@@ -7,6 +7,7 @@ from hypergan.ops import TensorflowOps
 
 from tests.mocks import mock_gan
 from unittest.mock import MagicMock
+from tests.mocks import mock_gan
 
 loss_config = {
         'test': True, 
@@ -21,7 +22,7 @@ loss_config = {
 class BoundaryEquilibriumLossTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
-            loss = BoundaryEquilibriumLoss(hg.GAN(), loss_config)
+            loss = BoundaryEquilibriumLoss(mock_gan(), loss_config)
             self.assertTrue(loss.config.test)
 
     def test_create(self):

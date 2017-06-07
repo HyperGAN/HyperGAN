@@ -33,7 +33,7 @@ class StandardGanTest(tf.test.TestCase):
         with self.test_session():
             g = graph()
             gan = GAN(inputs = MockInput(), config = default_config)
-            self.assertEqual(gan.inputs[0], g.x)
+            self.assertEqual(gan.inputs.x, g.x)
 
     def test_fails_with_no_trainer(self):
         trainer = MockTrainer()
@@ -50,7 +50,7 @@ class StandardGanTest(tf.test.TestCase):
     def test_has_input(self):
         with self.test_session():
             gan = GAN(inputs = MockInput())
-            self.assertEqual(gan.inputs[0], None)
+            self.assertEqual(gan.inputs.x, None)
 
     def test_default(self):
         with self.test_session():

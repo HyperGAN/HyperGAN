@@ -12,13 +12,13 @@ loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0], 'label_s
 class LambGanLossTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
-            loss = LambGanLoss(hg.GAN(), loss_config)
+            loss = LambGanLoss(mock_gan(), loss_config)
             self.assertTrue(loss.config.test)
 
     def test_create(self):
         with self.test_session():
             graph = mock_gan()
-            gan = hg.GAN(graph=graph)
+            gan = mock_gan()
             gan.create()
             loss = LambGanLoss(gan, loss_config)
             d_loss, g_loss = loss.create()

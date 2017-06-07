@@ -6,7 +6,7 @@ from hypergan.losses.lamb_gan_loss import LambGanLoss
 from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
-from tests.mocks import mock_graph
+from tests.mocks import mock_gan
 
 loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0], 'label_smooth': 0.3, 'alpha': 0.2, 'beta': 0.1}
 class LambGanLossTest(tf.test.TestCase):
@@ -17,7 +17,7 @@ class LambGanLossTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            graph = mock_graph()
+            graph = mock_gan()
             gan = hg.GAN(graph=graph)
             gan.create()
             loss = LambGanLoss(gan, loss_config)

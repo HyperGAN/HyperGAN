@@ -6,7 +6,7 @@ from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
 from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
-from tests.mocks import mock_graph
+from tests.mocks import mock_gan
 
 from hypergan.losses.standard_loss import StandardLoss
 
@@ -20,7 +20,7 @@ class StandardGanLossTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            graph = mock_graph()
+            graph = mock_gan()
 
             gan = hg.GAN(graph=graph)
             gan.create()

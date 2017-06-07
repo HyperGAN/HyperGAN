@@ -105,9 +105,3 @@ class ImageLoader(GANComponent):
             capacity= batch_size*10,
             min_after_dequeue=batch_size)
         return images, tf.reshape(label_batch, [batch_size])
-
-    def sample(self):
-        return self.gan.session.run(self.sample_tensor())
-
-    def sample_tensor(self):
-        return self.x, self.y

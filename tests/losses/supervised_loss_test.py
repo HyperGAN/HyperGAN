@@ -5,27 +5,35 @@ import numpy as np
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.ops import TensorflowOps
 
+from tests.mocks import mock_gan
 from unittest.mock import MagicMock
 
 loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0]}
 class SupervisedLossTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
-            loss = SupervisedLoss(hg.GAN(), loss_config)
+            loss = SupervisedLoss(mock_gan(), loss_config)
             self.assertTrue(loss.config.test)
 
     def test_create(self):
         with self.test_session():
-            graph = {}
-            graph['d_real'] = tf.constant(0, shape=[2,2])
-            graph['d_fake'] = tf.constant(0, shape=[2,2])
-            print('gcraph', graph)
-            loss = SupervisedLoss(hg.GAN(graph=graph), loss_config)
+            gan = mock_gan()
+            gan.create()
+            loss = SupervisedLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             d_shape = loss.ops.shape(d_loss)
-            g_shape = loss.ops.shape(g_loss)
-            self.assertEqual(d_shape, [])
-            self.assertEqual(g_shape, [])
+            self.assertEqual(d_shape, [1])
+            self.assertEqual(g_loss, None)
+
+    def test_metric(self):
+        with self.test_session():
+            gan = mock_gan()
+            gan.create()
+            loss = SupervisedLoss(gan, loss_config)
+            d_loss, g_loss = loss.create()
+            metrics = loss.metrics
+            self.assertTrue(metrics['d_class_loss'] != None)
+
 
 if __name__ == "__main__":
     tf.test.main()

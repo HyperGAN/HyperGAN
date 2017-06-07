@@ -32,20 +32,22 @@ class BaseLoss(GANComponent):
 
         d_loss, g_loss = self._create(d_real, d_fake)
 
-        if config.gradient_penalty:
-            d_loss += gradient_penalty(gan, config.gradient_penalty)
+        sample_metrics = {}
+        if d_loss is not None:
+            if config.gradient_penalty:
+                d_loss += gradient_penalty(gan, config.gradient_penalty)
+            d_loss = ops.squash(d_loss, config.reduce)
+            sample_metrics['d_loss'] = d_loss
 
-        d_loss = ops.squash(d_loss, config.reduce)
-        g_loss = ops.squash(g_loss, config.reduce)
+        if g_loss is not None:
+            g_loss = ops.squash(g_loss, config.reduce)
+            sample_metrics['g_loss'] = g_loss
 
-        self.sample = [d_loss, g_loss]
-        sample_metrics = {
-            'd_loss': d_loss,
-            'g_loss': g_loss
-        }
         self.metrics = self.metrics or sample_metrics
 
-        return [d_loss, g_loss]
+        self.sample = [d_loss, g_loss]
+
+        return self.sample
 
 
     def sigmoid_kl_with_logits(self, logits, targets):

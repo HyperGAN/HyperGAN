@@ -9,6 +9,7 @@ import hypergan as hg
 from hypergan.gan_component import GANComponent
 
 from unittest.mock import MagicMock
+from tests.mocks import MockDiscriminator, mock_gan, MockInput
 
 config = {
         'initial_depth': 1,
@@ -21,7 +22,7 @@ config = {
 class PyramidDiscriminatorTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
-            gan = hg.GAN()
+            gan = mock_gan()
             discriminator = PyramidDiscriminator(gan, config)
             self.assertEqual(discriminator.config.activation, tf.nn.tanh)
 
@@ -35,13 +36,11 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
             remove_d_config['discriminator'] = None
             remove_d_config['loss'] = None
             remove_d_config['trainer'] = None
-            gan = hg.GAN(config = remove_d_config, graph = {
-                'x': tf.constant(1, shape=[1,4,4,1], dtype=tf.float32)
-            })
+            gan = hg.GAN(config = remove_d_config, inputs = MockInput())
             discriminator = PyramidDiscriminator(gan, config)
             gan.create()
             net = discriminator.create()
-            self.assertEqual(int(net.get_shape()[1]), 7)
+            self.assertEqual(int(net.get_shape()[1]), 112)
 
     def test_validate(self):
         with self.assertRaises(ValidationException):

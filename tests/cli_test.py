@@ -5,6 +5,7 @@ import os
 from hypergan.gan_component import ValidationException
 
 from tests.inputs.image_loader_test import fixture_path
+from tests.mocks import MockDiscriminator, mock_gan
 import shutil
 
 def graph():
@@ -31,7 +32,7 @@ class CliTest(tf.test.TestCase):
 
     def test_loads_config_errors_when_empty(self):
         with self.assertRaises(ValidationException):
-            gan = hg.GAN(graph=graph())
+            gan = mock_gan()
             args = {'load': True, "directory": fixture_path()}
             cli = hg.CLI(gan, args)
             cli.load()
@@ -39,7 +40,7 @@ class CliTest(tf.test.TestCase):
 
     def test_get_dimensions(self):
         with self.test_session():
-            gan = hg.GAN(graph=graph())
+            gan = mock_gan()
             args = hc.Config({
               "size": "4"
             })
@@ -66,7 +67,7 @@ class CliTest(tf.test.TestCase):
 
     def test_run(self):
         with self.test_session():
-            gan = hg.GAN(graph=graph())
+            gan = mock_gan()
             args = hc.Config({"size": "1"})
             cli = hg.CLI(gan, args)
             cli.run()
@@ -74,7 +75,7 @@ class CliTest(tf.test.TestCase):
 
     def test_step(self):
         with self.test_session():
-            gan = hg.GAN(graph=graph())
+            gan = mock_gan()
             gan.create()
             args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1})
             cli = hg.CLI(gan, args)
@@ -83,7 +84,7 @@ class CliTest(tf.test.TestCase):
 
     def test_sample(self):
         with self.test_session():
-            gan = hg.GAN(graph=graph())
+            gan = mock_gan()
             args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1})
             gan.create()
             cli = hg.CLI(gan, args)
@@ -93,7 +94,7 @@ class CliTest(tf.test.TestCase):
 
     def test_train(self):
         with self.test_session():
-            gan = hg.GAN(graph=graph())
+            gan = mock_gan()
             args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1})
             cli = hg.CLI(gan, args)
             cli.train()
@@ -101,7 +102,7 @@ class CliTest(tf.test.TestCase):
 
     def test_run_train(self):
         with self.test_session():
-            gan = hg.GAN(graph=graph())
+            gan = mock_gan()
             args = hc.Config({"size": "1", "steps": 1, "method": "train"})
             cli = hg.CLI(gan, args)
             cli.run()
@@ -113,7 +114,7 @@ class CliTest(tf.test.TestCase):
                 shutil.rmtree('/tmp/hg_new')
             except Exception:
                 pass
-            gan = hg.GAN(graph=graph())
+            gan = mock_gan()
             args = hc.Config({"size": "1", "steps": 1, "method": "train"})
             cli = hg.CLI(gan, args)
             cli.new("/tmp/hg_new")
@@ -127,7 +128,7 @@ class CliTest(tf.test.TestCase):
                 shutil.rmtree('/tmp/hg_new2')
             except Exception:
                 pass
-            gan = hg.GAN(graph=graph())
+            gan = mock_gan()
             args = hc.Config({"size": "1", "steps": 1, "method": "train"})
             cli = hg.CLI(gan, args)
             cli.new("/tmp/hg_new2")

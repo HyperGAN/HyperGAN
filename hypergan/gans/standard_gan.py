@@ -39,8 +39,8 @@ class StandardGAN(BaseGAN):
     * loss
     * trainer
     """
-    def __init__(self, config=None, graph={}, device='/cpu:0', ops_config=None, ops_backend=TensorflowOps):
-        BaseGAN.__init__(self, config, graph, device, ops_config, ops_backend)
+    def __init__(self, config=None, inputs=None, device='/cpu:0', ops_config=None, ops_backend=TensorflowOps):
+        BaseGAN.__init__(self, config, inputs, device, ops_config, ops_backend)
         self.discriminator = None
         self.encoder = None
         self.generator = None

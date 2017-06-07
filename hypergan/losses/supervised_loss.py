@@ -1,21 +1,26 @@
 import tensorflow as tf
 import hyperchamber as hc
 
+from hypergan.losses.base_loss import BaseLoss
 
-class SupervisedLoss:
+class SupervisedLoss(BaseLoss):
 
-    def create(self):
-        batch_norm = config.batch_norm
-        batch_size = gan.config.batch_size
+    def _create(self, d_real, d_fake):
+        gan = self.gan
+        ops = self.ops
+        config = self.config
 
-        num_classes = gan.config.y_dims
-        net = gan.graph.d_real
-        net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
-        net = batch_norm(batch_size, name='d_bn_end')(net)
+        batch_size = gan.batch_size()
+        net = d_real
 
-        d_class_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net,labels=gan.graph.y)
+        num_classes = ops.shape(gan.inputs.y)[1]
+        net = gan.discriminator.ops.linear(net, num_classes)
+        net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
 
-        gan.graph.d_class_loss=tf.reduce_mean(d_class_loss)
+        d_class_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net,labels=gan.inputs.y)
 
-        return [tf.reduce_mean(d_class_loss), None]
+        self.metrics = {
+            'd_class_loss': d_class_loss
+        }
 
+        return [d_class_loss, None]

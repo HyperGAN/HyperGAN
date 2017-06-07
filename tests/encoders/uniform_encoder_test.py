@@ -7,8 +7,9 @@ from hypergan.gan_component import ValidationException
 from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
+from tests.mocks import MockDiscriminator, mock_gan
 
-gan = hg.GAN(graph = {'x': tf.constant([1,1])})
+gan = mock_gan()
 encoder = UniformEncoder(gan, {
     'test':True,
     "z": 2,

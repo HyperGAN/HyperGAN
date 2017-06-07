@@ -11,6 +11,7 @@ import hyperchamber as hc
 import numpy as np
 
 from unittest.mock import MagicMock
+from tests.mocks import MockInput
 
 default_config = hg.Configuration.default()
 
@@ -31,42 +32,42 @@ class StandardGanTest(tf.test.TestCase):
     def test_constructor(self):
         with self.test_session():
             g = graph()
-            gan = GAN(graph = g, config = default_config)
+            gan = GAN(inputs = MockInput(), config = default_config)
             self.assertEqual(gan.inputs[0], g.x)
 
     def test_fails_with_no_trainer(self):
         trainer = MockTrainer()
         bad_config = hg.Configuration.default()
         bad_config['trainer'] = None
-        gan = GAN(graph = graph(), config = bad_config)
+        gan = GAN(inputs = MockInput(), config = bad_config)
         with self.assertRaises(ValidationException):
             gan.step()
 
     def test_validate(self):
         with self.assertRaises(ValidationException):
-            gan = GAN(graph = graph(), config = {})
+            gan = GAN(inputs = MockInput(), config = {})
 
     def test_has_input(self):
         with self.test_session():
-            gan = GAN(graph = {'x': None})
+            gan = GAN(inputs = MockInput())
             self.assertEqual(gan.inputs[0], None)
 
     def test_default(self):
         with self.test_session():
-            gan = GAN(graph = {'x': tf.constant(1, shape=[1,1,1,1], dtype=tf.float32)})
+            gan = GAN(inputs = MockInput())
             gan.create()
             self.assertEqual(type(gan.generator), ResizeConvGenerator)
             self.assertEqual(type(gan.discriminator), PyramidDiscriminator)
 
     def test_train(self):
         with self.test_session():
-            gan = GAN(graph = graph())
+            gan = GAN(inputs = MockInput())
             gan.step()
             self.assertEqual(gan.trainer.current_step, 1)
 
     def test_train_updates_posterior(self):
         with self.test_session():
-            gan = GAN(graph = graph())
+            gan = GAN(inputs = MockInput())
             gan.create()
             prior_g = gan.session.run(gan.generator.weights()[0])
             prior_d = gan.session.run(gan.discriminator.weights()[0])
@@ -79,7 +80,7 @@ class StandardGanTest(tf.test.TestCase):
 
     def test_overridable_components(self):
         with self.test_session():
-            gan = GAN(graph = graph())
+            gan = GAN(inputs = MockInput())
             gan.discriminator = "d_override"
             gan.generator = "g_override"
             gan.encoder = "e_override"

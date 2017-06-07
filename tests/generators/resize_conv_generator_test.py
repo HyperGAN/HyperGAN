@@ -6,6 +6,7 @@ from hypergan.generators.resize_conv_generator import ResizeConvGenerator
 from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
+from tests.mocks import MockDiscriminator, mock_gan
 
 config = {
     "activation": 'lrelu',
@@ -15,10 +16,7 @@ config = {
     'test': True,
     'block': hg.discriminators.common.standard_block
 }
-graph = {
-    'x': tf.constant(1., shape=[1,32,32,3])
-}
-gan = hg.GAN(graph=graph)
+gan = mock_gan()
 generator = ResizeConvGenerator(config=config, gan=gan)
 
 class ResizeConvGeneratorTest(tf.test.TestCase):
@@ -34,7 +32,7 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
             gan.config['trainer'] = None
             gan.create()
             nets = generator.create()
-            self.assertEqual(generator.ops.shape(nets), [1,2,2,3])
+            self.assertEqual(generator.ops.shape(nets), [1,2,2,1])
 
     def test_initial_depth(self):
         with self.test_session():

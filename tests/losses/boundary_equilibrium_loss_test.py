@@ -5,7 +5,7 @@ import numpy as np
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.ops import TensorflowOps
 
-from tests.mocks import mock_graph
+from tests.mocks import mock_gan
 from unittest.mock import MagicMock
 
 loss_config = {
@@ -26,9 +26,7 @@ class BoundaryEquilibriumLossTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            graph = mock_graph()
-
-            gan = hg.GAN(graph=graph)
+            gan = mock_gan()
             gan.create()
             loss = BoundaryEquilibriumLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
@@ -39,9 +37,9 @@ class BoundaryEquilibriumLossTest(tf.test.TestCase):
 
     def test_metrics(self):
         with self.test_session():
-            graph = mock_graph()
+            graph = mock_gan()
 
-            gan = hg.GAN(graph=graph)
+            gan = mock_gan()
             gan.create()
             loss = BoundaryEquilibriumLoss(gan, loss_config)
             d_loss, g_loss = loss.create()

@@ -6,7 +6,7 @@ from hypergan.losses.least_squares_loss import LeastSquaresLoss
 from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
-from tests.mocks import mock_graph
+from tests.mocks import mock_gan
 
 loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0]}
 class LeastSquaresLossTest(tf.test.TestCase):
@@ -17,8 +17,7 @@ class LeastSquaresLossTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            graph = mock_graph()
-            gan = hg.GAN(graph=graph)
+            gan = mock_gan()
             gan.create()
             loss = LeastSquaresLoss(gan, loss_config)
             d_loss, g_loss = loss.create()

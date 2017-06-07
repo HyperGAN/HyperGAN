@@ -5,7 +5,7 @@ import numpy as np
 from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
 from hypergan.gan_component import ValidationException
 from hypergan.ops import TensorflowOps
-from tests.mocks import MockDiscriminator, mock_graph
+from tests.mocks import MockDiscriminator, mock_gan
 
 from unittest.mock import MagicMock
 
@@ -21,7 +21,7 @@ class AlternatingTrainerTest(tf.test.TestCase):
 
     def test_validate(self):
         with self.assertRaises(ValidationException):
-            gan = hg.GAN(graph=mock_graph())
+            gan = mock_gan()
             AlternatingTrainer(gan, {})
 
     def test_clip(self):
@@ -33,7 +33,7 @@ class AlternatingTrainerTest(tf.test.TestCase):
 
     def test_output_string(self):
         with self.test_session():
-            gan = hg.GAN(graph=mock_graph())
+            gan = mock_gan()
             gan.create()
             config = {'d_learn_rate': 1e-3, 'g_learn_rate': 1e-3, 'd_trainer': 'rmsprop', 'g_trainer': 'adam'}
             trainer = AlternatingTrainer(gan, config)

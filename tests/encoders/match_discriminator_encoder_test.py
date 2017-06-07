@@ -6,19 +6,17 @@ from hypergan.encoders.match_discriminator_encoder import MatchDiscriminatorEnco
 from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
+from tests.mocks import MockDiscriminator, mock_gan
 
 class MockTrainer:
     def __init__(self):
         self.mock = True
 
-graph = hc.Config({
-    'x': tf.constant(1., shape=[32,32,32])
-})
-gan = hg.GAN(graph = graph)
 
 class MatchDiscriminatorEncoderTest(tf.test.TestCase):
     def test_create(self):
         with self.test_session():
+            gan = mock_gan()
             #subject = MatchDiscriminatorEncoder({})
 
             #z = subject.create(gan)

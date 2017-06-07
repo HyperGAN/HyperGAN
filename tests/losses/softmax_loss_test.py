@@ -4,10 +4,9 @@ import hypergan as hg
 import numpy as np
 from hypergan.losses.softmax_loss import SoftmaxLoss
 from hypergan.ops import TensorflowOps
-from tests.mocks import mock_graph
 
 from unittest.mock import MagicMock
-
+from tests.mocks import mock_gan
 loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0]}
 class SoftmaxLossTest(tf.test.TestCase):
     def test_config(self):
@@ -17,9 +16,7 @@ class SoftmaxLossTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            graph = mock_graph()
-
-            gan = hg.GAN(graph=graph)
+            gan = mock_gan()
             gan.create()
             loss = SoftmaxLoss(gan, loss_config)
             d_loss, g_loss = loss.create()

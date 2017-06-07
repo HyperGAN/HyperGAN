@@ -5,15 +5,14 @@ import numpy as np
 from hypergan.losses.category_loss import CategoryLoss
 from hypergan.ops import TensorflowOps
 
-from tests.mocks import MockDiscriminator, mock_graph
+from tests.mocks import MockDiscriminator, mock_gan
 from unittest.mock import MagicMock
 
 loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0]}
 
 def build_gan():
-    graph = mock_graph()
-    gan = hg.GAN(graph=graph)
-    gan.discriminator = MockDiscriminator()
+    gan = mock_gan()
+    gan.discriminator = MockDiscriminator(gan, {})
     gan.create()
     return gan
 

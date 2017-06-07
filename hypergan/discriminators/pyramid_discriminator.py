@@ -16,9 +16,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         gan = self.gan
         ops = self.ops
 
-        #TODO what if you need multiple samples?
-        #TODO how can we handle inputs/outputs better here?
-        x = gan.graph.x
+        x = gan.inputs.x
 
         g = gan.generator.sample
 

@@ -153,7 +153,7 @@ class TensorflowOps:
         self.assert_tensor(net)
         return [int(x) for x in net.get_shape()]
 
-    def squash(self, net, reduce):
+    def squash(self, net, reduce=tf.reduce_mean):
         """
         Takes any size tensor and reduces it to a single value using `reduce`.
         """

@@ -7,7 +7,7 @@ from hypergan.losses.wasserstein_loss import WassersteinLoss
 from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
-from tests.mocks import mock_graph
+from tests.mocks import mock_gan
 
 loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0]}
 class WassersteinLossTest(tf.test.TestCase):
@@ -18,7 +18,7 @@ class WassersteinLossTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            graph = mock_graph()
+            graph = mock_gan()
 
             gan = hg.GAN(graph=graph)
             gan.create()

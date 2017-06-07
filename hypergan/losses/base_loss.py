@@ -1,4 +1,6 @@
 from hypergan.gan_component import GANComponent
+import numpy as np
+import tensorflow as tf
 
 class BaseLoss(GANComponent):
     def __init__(self, gan, config):
@@ -44,3 +46,14 @@ class BaseLoss(GANComponent):
         self.metrics = self.metrics or sample_metrics
 
         return [d_loss, g_loss]
+
+
+    def sigmoid_kl_with_logits(self, logits, targets):
+       # broadcasts the same target value across the whole batch
+       # this is implemented so awkwardly because tensorflow lacks an x log x op
+       assert isinstance(targets, float)
+       if targets in [0., 1.]:
+         entropy = 0.
+       else:
+         entropy = - targets * np.log(targets) - (1. - targets) * np.log(1. - targets)
+         return tf.nn.sigmoid_cross_entropy_with_logits(logits=logits, labels=tf.ones_like(logits) * targets) - entropy

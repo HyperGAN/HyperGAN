@@ -7,7 +7,7 @@ from hypergan.losses.base_loss import BaseLoss
 
 class BoundaryEquilibriumLoss(BaseLoss):
     def required(self):
-        return "type use_k labels reduce k_lambda gamma".split()
+        return "type use_k reduce k_lambda gamma initial_k labels".split()
 
     def g(gan, z):
         #reuse variables
@@ -30,10 +30,10 @@ class BoundaryEquilibriumLoss(BaseLoss):
 
 
     # boundary equilibrium gan
-    def began(gan, config, d_real, d_fake, prefix=''):
-        a,b,c = config.labels
+    def began(self, gan, config, d_real, d_fake, prefix=''):
         d_fake = config.reduce(d_fake, axis=1)
         d_real = config.reduce(d_real, axis=1)
+        a,b,c = config.labels
 
         k = tf.get_variable(prefix+'k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=config.dtype)
 
@@ -67,20 +67,23 @@ class BoundaryEquilibriumLoss(BaseLoss):
         return [k, update_k, measure, d_loss, g_loss]
 
 
-    def create(config, gan):
+    def _create(self, d_real, d_fake):
+        gan = self.gan
+        config = self.config
+
         x = gan.graph.x
-        if(config.discriminator == None):
-            d_real = gan.graph.d_real
-            d_fake = gan.graph.d_fake
-        else:
-            d_real = gan.graph.d_reals[config.discriminator]
-            d_fake = gan.graph.d_fakes[config.discriminator]
-        k, update_k, measure, d_loss, g_loss = began(gan, config, d_real, d_fake)
+        k, update_k, measure, d_loss, g_loss = self.began(gan, config, d_real, d_fake)
         gan.graph.measure = measure
         gan.graph.k = k
         gan.graph.update_k = update_k
 
         gan.graph.gamma = config.gamma
+
+        self.metrics = {
+            'd_loss': d_loss,
+            'g_loss': g_loss,
+            'k': k
+        }
 
 
         return [d_loss, g_loss]

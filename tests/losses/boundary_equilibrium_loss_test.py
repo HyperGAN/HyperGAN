@@ -5,9 +5,19 @@ import numpy as np
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.ops import TensorflowOps
 
+from tests.mocks import mock_graph
 from unittest.mock import MagicMock
 
-loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0]}
+loss_config = {
+        'test': True, 
+        'reduce':'reduce_mean', 
+        'use_k':True,
+        'k_lambda': 0.2,
+        'gamma': 0.1,
+        'type': 'wgan',
+        'initial_k': 0.001,
+        'labels': [0,1,0]
+        }
 class BoundaryEquilibriumLossTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
@@ -16,16 +26,30 @@ class BoundaryEquilibriumLossTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            graph = {}
-            graph['d_real'] = tf.constant(0, shape=[2,2])
-            graph['d_fake'] = tf.constant(0, shape=[2,2])
-            print('gcraph', graph)
-            loss = BoundaryEquilibriumLoss(hg.GAN(graph=graph), loss_config)
+            graph = mock_graph()
+
+            gan = hg.GAN(graph=graph)
+            gan.create()
+            loss = BoundaryEquilibriumLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             d_shape = loss.ops.shape(d_loss)
             g_shape = loss.ops.shape(g_loss)
-            self.assertEqual(d_shape, [])
-            self.assertEqual(g_shape, [])
+            self.assertEqual(sum(d_shape), 1)
+            self.assertEqual(sum(g_shape), 1)
+
+    def test_metrics(self):
+        with self.test_session():
+            graph = mock_graph()
+
+            gan = hg.GAN(graph=graph)
+            gan.create()
+            loss = BoundaryEquilibriumLoss(gan, loss_config)
+            d_loss, g_loss = loss.create()
+            metrics = loss.metrics
+            self.assertTrue(metrics['k'] != None)
+
+
+
 
 if __name__ == "__main__":
     tf.test.main()

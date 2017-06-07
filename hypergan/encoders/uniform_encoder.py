@@ -16,10 +16,25 @@ class UniformEncoder(BaseEncoder):
         projections = []
         batch_size = self.gan.batch_size()
         self.z = tf.random_uniform([batch_size, config.z], config.min or -1, config.max or 1, dtype=ops.dtype)
+        print("CONFIG", config)
         for projection in config.projections:
-          projections.append(projection(config, gan, self.z))
+            print("LOOKUP", projection)
+            projections.append(self.lookup(projection)(config, gan, self.z))
         self.sample = tf.concat(axis=1, values=projections)
         return self.sample
+
+    def lookup(self, projection):
+        if callable(projection):
+            return projection
+        if projection == 'identity':
+            return identity
+        if projection == 'sphere':
+            return sphere
+        if projection == 'gaussian':
+            return gaussian
+        print("Warning: Encoder could not lookup symbol '"+str(projection)+"'")
+        return None
+        
 
 def identity(config, gan, net):
     return net

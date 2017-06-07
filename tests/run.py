@@ -3,6 +3,7 @@ import glob
 
 from gan_component_test import GanComponentTest
 from gan_test import GanTest
+from multi_component_test import MultiComponent
 from gans.standard_gan_test import StandardGanTest
 from configuration_test import ConfigurationTest
 from cli_test import CliTest

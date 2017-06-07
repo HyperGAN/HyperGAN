@@ -4,7 +4,7 @@ import numpy as np
 from hypergan.gan_component import ValidationException
 from hypergan.ops import TensorflowOps
 from hypergan.gan_component import GANComponent
-from hypergan.ops import TensorflowOps
+from hypergan.multi_component import MultiComponent
 import hypergan as hg
 
 from unittest.mock import MagicMock

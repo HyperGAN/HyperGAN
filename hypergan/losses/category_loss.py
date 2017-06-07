@@ -2,14 +2,28 @@ from hypergan.losses.base_loss import BaseLoss
 
 class CategoryLoss(BaseLoss):
 
+    def required(self):
+        return "categories category_lambda activation".split()
+
     def _create(self, d_real, d_fake):
+        gan = self.gan
+        ops = self.ops
+        config = self.config
+        categories = config.categories
+        activation = ops.lookup(config.activation)
+        #TODO broken.
         # TODO get the d_last_layer
-        category_layer = linear(d_last_layer, sum(config['categories']), 'v_categories',stddev=0.15)
-        category_layer = batch_norm(config['batch_size'], name='v_cat_loss')(category_layer)
-        category_layer = config['generator.activation'](category_layer)
-        categories_l = categories_loss(categories, category_layer, config['batch_size'])
-        g_losses.append(-1*config['categories_lambda']*categories_l)
-        d_losses.append(-1*config['categories_lambda']*categories_l)
+        category_layer = gan.discriminator.ops.linear(d_real, sum(config.categories))
+        category_layer= ops.layer_regularizer(d_real, config.layer_regularizer, config.batch_norm_epsilon)
+        category_layer = activation(category_layer)
+
+        loss = self.categories_loss(categories, category_layer)
+
+        loss = -1*config.category_lambda*loss
+        d_loss = loss
+        g_loss = loss
+
+        return d_loss, g_loss
 
     def split_categories(layer, batch_size, categories):
         start = 0
@@ -20,7 +34,7 @@ class CategoryLoss(BaseLoss):
             start += count
         return ret
 
-    def categories_loss(categories, layer, batch_size):
+    def categories_loss(self, categories, layer):
         loss = 0
         def split(layer):
             start = 0

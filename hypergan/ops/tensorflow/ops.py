@@ -200,7 +200,7 @@ class TensorflowOps:
             return tf.reduce_mean
 
         print("lookup failed for ", self.description, symbol)
-        return None
+        return symbol
 
     def lookup_function(self, name):
         namespaced_method = name.split(":")[1]

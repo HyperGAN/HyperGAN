@@ -35,7 +35,7 @@ class UniformEncoderTest(tf.test.TestCase):
 
     def test_projection_twice(self):
         config = {
-                "projections": [hg.encoders.uniform_encoder.identity, hg.encoders.uniform_encoder.identity],
+                "projections": ['identity', 'identity'],
                 "z": 2,
                 "min": 0,
                 "max": 1
@@ -48,6 +48,7 @@ class UniformEncoderTest(tf.test.TestCase):
     def test_validate(self):
         with self.assertRaises(ValidationException):
             UniformEncoder(gan, {})
+
 
 if __name__ == "__main__":
     tf.test.main()

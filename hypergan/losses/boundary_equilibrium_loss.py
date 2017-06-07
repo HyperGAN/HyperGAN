@@ -71,18 +71,16 @@ class BoundaryEquilibriumLoss(BaseLoss):
         gan = self.gan
         config = self.config
 
-        x = gan.graph.x
+        x = gan.inputs.x
         k, update_k, measure, d_loss, g_loss = self.began(gan, config, d_real, d_fake)
-        gan.graph.measure = measure
-        gan.graph.k = k
-        gan.graph.update_k = update_k
-
-        gan.graph.gamma = config.gamma
+        update_k = update_k
 
         self.metrics = {
             'd_loss': d_loss,
             'g_loss': g_loss,
-            'k': k
+            'k': k,
+            'update_k': update_k, #TODO side effect, this actually trains k
+            'measure': measure
         }
 
 

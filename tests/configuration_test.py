@@ -8,7 +8,6 @@ from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
 
-
 class ConfigurationTest(tf.test.TestCase):
     def test_constructor(self):
         with self.test_session():
@@ -16,7 +15,6 @@ class ConfigurationTest(tf.test.TestCase):
             self.assertNotEqual(default.trainer, None)
             self.assertNotEqual(default.discriminator, None)
             self.assertNotEqual(default.loss, None)
-
 
 if __name__ == "__main__":
     tf.test.main()

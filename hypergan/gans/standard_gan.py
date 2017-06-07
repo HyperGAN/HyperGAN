@@ -56,6 +56,7 @@ class StandardGAN(BaseGAN):
 
         def create_if(obj):
             if(hasattr(obj, 'create')):
+                print("CREATING ", obj)
                 obj.create()
 
         with tf.device(self.device):

@@ -22,7 +22,7 @@ class MultiComponent():
             if hasattr(component, name):
                 lookups.append(getattr(component,name))
             else:
-                return None
+                print("Warning:Skipping lookup of "+name+" because None was returned")
 
         return lookups
 

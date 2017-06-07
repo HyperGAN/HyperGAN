@@ -6,7 +6,7 @@ import hypergan.inputs.resize_image_patch
 from tensorflow.python.ops import array_ops
 from hypergan.gan_component import ValidationException, GANComponent
 
-class ImageLoader(GANComponent):
+class ImageLoader:
     """
     ImageLoader loads a set of images into a tensorflow input pipeline.
 

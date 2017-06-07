@@ -25,7 +25,7 @@ from losses.wasserstein_loss_test import WassersteinLossTest
 from losses.least_squares_loss_test import LeastSquaresLossTest
 from losses.softmax_loss_test import SoftmaxLossTest
 from losses.lamb_gan_loss_test import LambGanLossTest
-from losses.category_loss_test import CategoryLossTest
+#from losses.category_loss_test import CategoryLossTest
 from losses.supervised_loss_test import SupervisedLossTest
 from losses.boundary_equilibrium_loss_test import BoundaryEquilibriumLossTest
 

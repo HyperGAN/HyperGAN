@@ -3,12 +3,19 @@ import hypergan as hg
 import hyperchamber as hc
 import numpy as np
 
+from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
+from hypergan.losses.wasserstein_loss import WassersteinLoss
+from hypergan.losses.least_squares_loss import LeastSquaresLoss
+from hypergan.losses.softmax_loss import SoftmaxLoss
+from hypergan.losses.standard_loss import StandardLoss
+from hypergan.losses.lamb_gan_loss import LambGanLoss
+
 class RandomSearch:
     def __init__(self, overrides):
         self.options = {
-            'trainer': self.trainers(),
-            'losses':self.losses(),
-            'encoders':self.encoders()
+            'trainer': self.trainer(),
+            'loss':self.loss(),
+            'encoder':self.encoder()
          }
 
         self.options = {**self.options, **overrides}
@@ -16,26 +23,23 @@ class RandomSearch:
     def range(self, multiplier=1):
         return list(np.linspace(0, 1, num=1000000)*multiplier)
 
-    def trainers(self):
-        trainers = []
-        any_opts = {}
-
+    def trainer(self):
         tftrainers = [
                 tf.train.AdadeltaOptimizer,
                 tf.train.AdagradOptimizer,
                 tf.train.GradientDescentOptimizer,
                 tf.train.AdamOptimizer,
-                tf.train.AdagradDAOptimizer, # TODO missing param
+               # tf.train.AdagradDAOptimizer, # TODO missing param
                 tf.train.MomentumOptimizer,
-                tf.train.ProximalGradientDescentOptimizer,
+                #tf.train.ProximalGradientDescentOptimizer,
                 #tf.train.FtrlOptimizer,
                 tf.train.RMSPropOptimizer,
-                tf.train.ProximalAdagradOptimizer,
+                #tf.train.ProximalAdagradOptimizer,
         ]
 
         selector = hc.Selector({
-            'd_learn_rate': self.range(.001),
-            'g_learn_rate': self.range(.001),
+            'd_learn_rate': self.range(.01),
+            'g_learn_rate': self.range(.01),
             'd_beta1': self.range(),
             'd_beta2': self.range(),
             'g_beta1': self.range(),
@@ -60,24 +64,18 @@ class RandomSearch:
             'clipped_gradients': False,
             'd_trainer':tftrainers,
             'g_trainer':tftrainers,
-            'create': [
-                hg.trainers.proportional_control_trainer.create,
-                hg.trainers.alternating_trainer.create
-            ],
-            'run': [
-                hg.trainers.proportional_control_trainer.run,
-                hg.trainers.alternating_trainer.run
+            'class': [
+                #hg.trainers.proportional_control_trainer.create,
+                hg.trainers.alternating_trainer.AlternatingTrainer
             ]
         })
-        config = selector.random_config()
-
-
-        return [config]
+        
+        return selector.random_config()
      
-    def losses(self):
+    def loss(self):
         loss_opts = {
             'reverse':[True, False],
-            'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
+            'reduce': ['reduce_mean','reduce_linear','reduce_sum','reduce_logsumexp'],
             'gradient_penalty': False,
             'labels': [
                 [-1, 1, 0],
@@ -98,23 +96,18 @@ class RandomSearch:
             'initial_k': self.range(),
             'k_lambda': self.range(),
             'type': ['wgan', 'lsgan', 'softmax'],
-            'create': [
-                hg.losses.boundary_equilibrium_loss.create,
-                hg.losses.began_softmax_loss.create,
-                hg.losses.lamb_gan_loss.create,
-                hg.losses.lsgan_loss.create,
-                hg.losses.standard_gan_loss.create,
-                hg.losses.wgan_loss.create
+            'class': [
+                BoundaryEquilibriumLoss,
+                LambGanLoss,
+                LeastSquaresLoss,
+                StandardLoss,
+                WassersteinLoss
             ]
         }
 
-        config = hc.Selector(loss_opts).random_config()
+        return  hc.Selector(loss_opts).random_config()
 
-        return [[config]]
-
-    def encoders(self):
-        encoders = []
-
+    def encoder(self):
         projections = []
         projections.append([hg.encoders.uniform_encoder.identity])
         projections.append([hg.encoders.uniform_encoder.sphere])
@@ -127,23 +120,15 @@ class RandomSearch:
         projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere])
         projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity, hg.encoders.uniform_encoder.gaussian])
         encoder_opts = {
-                'z': list(np.arange(0, 100)),
+                'z': list(np.arange(0, 100)*2),
                 'modes': list(np.arange(2,24)),
                 'projections': projections,
                 'min': -1,
                 'max':1,
-                'create': hg.encoders.uniform_encoder.create
+                'class': hg.encoders.uniform_encoder.UniformEncoder
         }
 
-        config = hc.Selector(encoder_opts).random_config()
-        encoders.append([config])
-        return encoders
+        return hc.Selector(encoder_opts).random_config()
 
     def random_config(self):
-        selector = hc.Selector(self.options)
-        selected = dict(selector.random_config())
-
-        selected['dtype']=tf.float32
-        return hg.config.lookup_functions(selected)
-
-
+        return hc.Selector(self.options).random_config()

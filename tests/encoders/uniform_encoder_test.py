@@ -47,8 +47,30 @@ class UniformEncoderTest(tf.test.TestCase):
             
     def test_validate(self):
         with self.assertRaises(ValidationException):
+            config = {
+                "projections": [hg.encoders.uniform_encoder.identity],
+                "z": 3,
+                "min": 0,
+                "max": 1
+            }
+ 
+            UniformEncoder(gan, config)
+
+    def test_validate_z_must_be_multiple_of_two(self):
+        with self.assertRaises(ValidationException):
             UniformEncoder(gan, {})
 
-
+    def test_projection_gaussian(self):
+        config = {
+                "projections": ['identity', 'gaussian'],
+                "z": 2,
+                "min": 0,
+                "max": 1
+                }
+        subject = UniformEncoder(gan, config)
+        with self.test_session():
+            projections = subject.create()
+            self.assertEqual(int(projections.get_shape()[1]), len(config['projections'])*config['z'])
+ 
 if __name__ == "__main__":
     tf.test.main()

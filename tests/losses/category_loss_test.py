@@ -5,18 +5,30 @@ import numpy as np
 from hypergan.losses.category_loss import CategoryLoss
 from hypergan.ops import TensorflowOps
 from hypergan.multi_component import MultiComponent
+from hypergan.encoders.category_encoder import CategoryEncoder
 
 
 from tests.mocks import MockDiscriminator, mock_gan
 from unittest.mock import MagicMock
 
-loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0], 'categories': [3,4,3], 'category_lambda': 0.1, 'activation' : 'tanh'}
+loss_config = {
+        'test': True,
+        'reduce':'reduce_mean',
+        'labels': [0,1,0],
+        'category_lambda': 0.1,
+        'activation' : 'tanh'
+}
+encoder_config = {
+        'categories': [3,4,3],
+        }
 
 def build_gan():
     gan = mock_gan()
     gan.discriminator = MockDiscriminator(gan, {})
     loss = CategoryLoss(gan, loss_config)
-    gan.loss = MultiComponent([gan.loss, loss])
+    encoder = CategoryEncoder(gan, encoder_config)
+    gan.encoder = encoder
+    gan.loss = loss
     gan.create()
     return gan
 

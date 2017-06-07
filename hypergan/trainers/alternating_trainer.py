@@ -54,7 +54,7 @@ class AlternatingTrainer(BaseTrainer):
         self.d_optimizer = d_optimizer
         self.g_optimizer = g_optimizer
 
-        if config.d_clipped_weights is not None:
+        if config.d_clipped_weights:
             gan.graph.clip = [tf.assign(d,tf.clip_by_value(d, -config.d_clipped_weights, config.d_clipped_weights))  for d in d_vars]
 
         return g_optimizer, d_optimizer

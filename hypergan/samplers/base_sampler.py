@@ -28,7 +28,7 @@ class BaseSampler:
         sample_name = 'generator'
         samples = [[sample_data, sample_name]]
 
-        return [{'image':sample_data, 'label':sample_filename} for sample_data, sample_filename in samples]
+        return [{'image':sample_filename, 'label':'sample'} for sample_data, sample_filename in samples] #TODO
 
     def plot(self, image, filename):
         """ Plot an image."""

@@ -3,11 +3,19 @@ import hyperchamber as hc
 import numpy as np
 from .base_encoder import BaseEncoder
 
+from ..gan_component import ValidationException
+
 TINY=1e-12
 
 class UniformEncoder(BaseEncoder):
     def required(self):
         return "z min max".split()
+
+    def validate(self):
+        errors = BaseEncoder.validate(self)
+        if(self.config.z is not None and int(self.config.z) % 2 != 0):
+            errors.append("z must be a multiple of 2 (was %2d)" % self.config.z)
+        return errors
 
     def create(self):
         gan = self.gan

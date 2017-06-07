@@ -6,7 +6,8 @@ from hypergan.gan_component import ValidationException, GANComponent
 import hypergan as hg
 
 class BaseGAN(GANComponent):
-    def __init__(self, config=None, inputs=None, device='/cpu:0', ops_config=None, ops_backend=TensorflowOps):
+    def __init__(self, config=None, inputs=None, device='/cpu:0', ops_config=None, ops_backend=TensorflowOps,
+            batch_size=None, width=None, height=None, channels=None):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
@@ -14,6 +15,10 @@ class BaseGAN(GANComponent):
         self.ops_config = ops_config
         self.created = False
         self.components = []
+        self._batch_size = batch_size
+        self._width = width
+        self._height = height
+        self._channels = channels
 
         if config == None:
             config = hg.Configuration.default()
@@ -23,26 +28,29 @@ class BaseGAN(GANComponent):
         GANComponent.__init__(self, self, config)
 
     def batch_size(self):
-        #TODO how does this work with generators outside of discriminators?
+        if self._batch_size:
+            return self._batch_size
         if self.inputs == None:
             raise ValidationException("gan.batch_size() requested but no inputs provided")
         return self.ops.shape(self.inputs.x)[0]
 
     def channels(self):
-        #TODO same issue with batch_size
+        if self._channels:
+            return self._channels
         if self.inputs == None:
             raise ValidationException("gan.channels() requested but no inputs provided")
         return self.ops.shape(self.inputs.x)[-1]
 
     def width(self):
-        #TODO same issue with batch_size
+        if self._width:
+            return self._width
         if self.inputs == None:
             raise ValidationException("gan.width() requested but no inputs provided")
-        print("----", self.ops.shape(self.inputs.x))
         return self.ops.shape(self.inputs.x)[2]
 
     def height(self):
-        #TODO same issue with batch_size
+        if self._height:
+            return self._height
         if self.inputs == None:
             raise ValidationException("gan.height() requested but no inputs provided")
         return self.ops.shape(self.inputs.x)[1]

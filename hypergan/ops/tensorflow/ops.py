@@ -120,11 +120,18 @@ class TensorflowOps:
         self.assert_tensor(net)
         initializer = self.initializer()
         shape = self.shape(net)
+        print("LINEAR shape is", shape)
         with tf.variable_scope(self.generate_name()):
             w = self.get_weight([shape[1], output_dim])
             bias = self.get_bias([output_dim])
             print("w is ", net, w, bias)
             return tf.matmul(net, w) + bias
+
+    def reduce_linear(self):
+        def _build(net, axis=1):
+            print("NET IS", net)
+            return self.linear(net, 1)
+        return _build
 
 
     def layer_regularizer(self, net, symbol, epsilon):
@@ -151,7 +158,7 @@ class TensorflowOps:
 
     def shape(self, net):
         self.assert_tensor(net)
-        return [int(x) for x in net.get_shape()]
+        return [(x._value or -1) for x in net.get_shape()]
 
     def squash(self, net, reduce=tf.reduce_mean):
         """
@@ -198,6 +205,12 @@ class TensorflowOps:
             return tf.square
         if symbol == 'reduce_mean':
             return tf.reduce_mean
+        if symbol == 'reduce_sum':
+            return tf.reduce_sum
+        if symbol == 'reduce_logsumexp':
+            return tf.reduce_logsumexp
+        if symbol == 'reduce_linear':
+            return self.reduce_linear()
 
         print("lookup failed for ", self.description, symbol)
         return symbol

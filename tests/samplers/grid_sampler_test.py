@@ -6,11 +6,12 @@ import numpy as np
 from hypergan.samplers.grid_sampler import GridSampler
 from hypergan.gan_component import ValidationException
 from hypergan.ops import TensorflowOps
+from tests.mocks import mock_gan
 
 class GridSamplerTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
-            gan = hg.GAN(graph={'x' : tf.constant(1., shape=[1,4,4,1], dtype=tf.float32)})
+            gan = mock_gan()
             gan.create()
 
             sampler = GridSampler(gan)

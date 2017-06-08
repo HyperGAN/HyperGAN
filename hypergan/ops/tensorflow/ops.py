@@ -21,6 +21,7 @@ class TensorflowOps:
         self.biases = []
         self.device = config.device
         self.initialized = False
+        self._reuse = False
         if initializer == 'orthogonal':
             self.initializer = self.orthogonal_initializer(orthogonal_gain)
         else:
@@ -49,7 +50,17 @@ class TensorflowOps:
     def describe(self, description):
         self.description = description
 
+    def reuse(self):
+        self._reuse = True
+        self.reuse_scope_count = 0
+
+    def stop_reuse(self):
+        self._reuse = False
+
     def generate_scope(self):
+        if self._reuse:
+            self.reuse_scope_count += 1
+            return str(self.reuse_scope_count)
         self.scope_count += 1
         return str(self.scope_count)
 
@@ -73,12 +84,14 @@ class TensorflowOps:
 
     def get_weight(self, shape):
         weight = tf.get_variable('w', shape, dtype=self.dtype, initializer=self.initializer())
-        self.weights.append(weight)
+        if not self._reuse:
+            self.weights.append(weight)
         return weight
 
     def get_bias(self, shape):
         bias = tf.get_variable('b', shape, initializer=tf.constant_initializer(0.0, dtype=self.dtype), dtype=self.dtype)
-        self.biases.append(bias)
+        if not self._reuse:
+            self.biases.append(bias)
         return bias
     
     def parse_dtype(self, dtype):
@@ -91,7 +104,7 @@ class TensorflowOps:
 
     def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         self.assert_tensor(net)
-        with tf.variable_scope(self.generate_name()):
+        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding='SAME')
             biases = self.get_bias([output_dim])
@@ -104,7 +117,7 @@ class TensorflowOps:
         shape = self.shape(net)
         output_shape = [shape[0], shape[1]*stride_h, shape[2]*stride_w, output_dim]
         init_bias = 0.
-        with tf.variable_scope(self.generate_name()):
+        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             # filter : [height, width, output_channels, in_channels]
             w = self.get_weight([filter_h, filter_w, output_dim, output_dim])
 
@@ -121,7 +134,7 @@ class TensorflowOps:
         initializer = self.initializer()
         shape = self.shape(net)
         print("LINEAR shape is", shape)
-        with tf.variable_scope(self.generate_name()):
+        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             w = self.get_weight([shape[1], output_dim])
             bias = self.get_bias([output_dim])
             print("w is ", net, w, bias)
@@ -229,7 +242,7 @@ class TensorflowOps:
         with tf.device(self.device):
             if len(self.variables()) == 0:
                 return
-            init = tf.variables_initializer(self.variables())
+            init = tf.variables_initializer(self.variables(), reuse=self._reuse)
             print("initializing ", self.description, " variable count: ", len(self.variables()))
             session.run(init)
             self.initialized = True

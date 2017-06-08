@@ -34,8 +34,9 @@ class BaseLoss(GANComponent):
         d_loss, g_loss = self._create(d_real, d_fake)
 
         if d_loss is not None:
+
             if config.gradient_penalty:
-                d_loss += gradient_penalty(gan, config.gradient_penalty)
+                d_loss += self.gradient_penalty()
             d_loss = ops.squash(d_loss, tf.reduce_mean) #TODO linear doesn't work with this, so we cant pass config.reduce
             self.metrics['d_loss'] = d_loss
 
@@ -48,6 +49,23 @@ class BaseLoss(GANComponent):
         self.sample = [d_loss, g_loss]
 
         return self.sample
+
+
+    def gradient_penalty(self):
+        config = self.config
+        gan = self.gan
+        gradient_penalty = config.gradient_penalty
+        x = gan.inputs.x
+        g = gan.generator.sample
+        shape = [1 for t in g.get_shape()]
+        shape[0] = gan.batch_size()
+        uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
+        interpolates = x + (1 - uniform_noise)*g
+        reused_d = gan.discriminator.reuse(interpolates)
+        gradients = tf.gradients(reused_d, [interpolates])[0]
+        penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
+        penalty = tf.reduce_mean(tf.square(penalty-1.))
+        return float(gradient_penalty) * penalty
 
 
     def sigmoid_kl_with_logits(self, logits, targets):

@@ -19,14 +19,27 @@ class PyramidDiscriminator(BaseDiscriminator):
         x = gan.inputs.x
         g = gan.generator.sample
 
-        activation = ops.lookup(config.activation)
-        final_activation = ops.lookup(config.final_activation)
-        depth_increase = config.depth_increase
-        layers = config.layers
-        batch_norm = config.layer_regularizer
-
         x, g = self.resize(config, x, g)
         net = self.combine_filter(config, x, g)
+        net = self.build_pyramid(net)
+        self.sample = net
+        return net
+
+    def build_pyramid(self, net):
+        config = self.config
+        gan = self.gan
+        ops = self.ops
+
+        layers = config.layers
+        depth_increase = config.depth_increase
+        activation = ops.lookup(config.activation)
+        final_activation = ops.lookup(config.final_activation)
+
+
+        x = gan.inputs.x
+        g = gan.generator.sample
+
+
         net = self.add_noise(config, net)
 
         for i in range(layers):
@@ -77,7 +90,12 @@ class PyramidDiscriminator(BaseDiscriminator):
         if final_activation:
             net = final_activation(net)
 
-        self.sample = net
+        return net
+
+    def reuse(self, net):
+        self.ops.reuse()
+        net = self.build_pyramid(net)
+        self.ops.stop_reuse()
         return net
 
 

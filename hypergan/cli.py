@@ -19,7 +19,7 @@ from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.grid_sampler import GridSampler
 
 class CLI:
-    def __init__(self, gan, args=None):
+    def __init__(self, gan=None, args=None):
         self.samples = 0
         self.steps = 0
         self.gan = gan

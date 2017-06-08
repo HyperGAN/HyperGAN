@@ -32,13 +32,13 @@ class CustomDiscriminator(BaseGenerator):
         end_features = 1
 
         x = gan.inputs.x
-        xy = gan.inputs.xy
+        y = gan.inputs.y
         g = gan.generator.sample
 
         gnet = tf.concat(axis=1, values=[x,g])
-        xynet = tf.concat(axis=1, values=[x,xy])
+        ynet = tf.concat(axis=1, values=[x,y])
 
-        net = tf.concat(axis=0, values=[xynet, gnet])
+        net = tf.concat(axis=0, values=[ynet, gnet])
         net = ops.linear(net, 1024)
         net = tf.nn.relu(net)
         net = ops.linear(net, end_features)

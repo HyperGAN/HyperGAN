@@ -24,15 +24,15 @@ class MNISTInputLoader:
         self.mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
 
         self.x = tf.placeholder(tf.float32, shape=[batch_size, 784])
-        self.y = tf.placeholder(tf.float32, shape=[batch_size, 10])
-        self.xy = ((2*self.y)-1)
+        self.feed_y = tf.placeholder(tf.float32, shape=[batch_size, 10])
+        self.y = ((2*self.feed_y)-1)
 
 while(True):
     savename = "classification-"+str(uuid.uuid4())
     savefile = os.path.expanduser('~/.hypergan/configs/'+savename+'.json')
 
     search = RandomSearch({
-        'generator': {'class': CustomGenerator},
+        'generator': {'class': CustomGenerator, 'end_features': 10},
         'discriminator': {'class': CustomDiscriminator}
         })
 
@@ -55,7 +55,7 @@ while(True):
     for i in range(steps):
         batch = mnist.train.next_batch(args.batch_size)
 
-        gan.step({gan.inputs.x: batch[0], gan.inputs.y: batch[1]})
+        gan.step({gan.inputs.x: batch[0], gan.inputs.feed_y: batch[1]})
 
         if i % args.sample_every == 0 and i > 0:
             accuracy_v = 0

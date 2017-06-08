@@ -127,5 +127,55 @@ class RandomSearch:
 
         return hc.Selector(encoder_opts).random_config()
 
+    def generator_config(self):
+        generator_opts = {
+            "z_projection_depth": [128],
+            "activation":['relu', 'lrelu', 'tanh'],
+            "final_depth":[6,12,32,64],
+            "depth_increase":[8,16,32],
+            "final_activation":['relu', 'lrelu', 'tanh'],
+            "block_repeat_count":[1,2,3],
+            "block":[
+                hg.generators.common.standard_block, 
+                hg.generators.common.inception_block, 
+                hg.generators.common.dense_block, 
+                hg.generators.common.repeating_block
+                ],
+            "orthogonal_initializer_gain": list(np.linspace(0.1, 2, num=100)),
+            "class":[
+                hg.generators.resize_conv_generator.ResizeConvGenerator
+            ]
+        }
+
+        return hc.Selector(generator_opts).random_config()
+
+    def discriminator_config(self):
+        discriminator_opts = {
+            "activation":['relu', 'lrelu', 'tanh'],
+            "final_activation":['relu', 'lrelu', 'tanh'],
+            "block_repeat_count":[1,2,3],
+            "block":[hg.discriminators.common.repeating_block,
+                   hg.discriminators.common.standard_block,
+                   hg.discriminators.common.strided_block
+                   ],
+            "depth_increase":[32],
+            "extra_layers_reduction":[1,2,4],
+            "fc_layer_size":[300],
+            "fc_layers":[0,1],
+            "first_conv_size":[32],
+            "layers": [3,4,5,6],
+            "initial_depth": [16,32,64,128],
+            "noise":[False, 1e-2],
+            "progressive_enhancement":[False, True],
+            "foundation":"additive",
+            "orthogonal_initializer_gain": list(np.linspace(0.1, 2, num=100)),
+            "distance":[hg.discriminators.autoencoder_discriminator.l1_distance, hg.discriminators.autoencoder_discriminator.l2_distance],
+            "class":[
+                hg.discriminators.pyramid_discriminator.PyramidDiscriminator
+            ]
+        }
+
+        return hc.Selector(discriminator_opts).random_config()
+
     def random_config(self):
         return hc.Selector(self.options).random_config()

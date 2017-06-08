@@ -5,10 +5,8 @@ import random
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
-from hypergan.loaders import *
-from hypergan.util.hc_tf import *
-from hypergan.samplers.common import *
-from hypergan.generators import *
+
+from hypergan.search.random_search import RandomSearch
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
@@ -22,7 +20,6 @@ def parse_args():
     parser.add_argument('--config', '-c', type=str, default='stable', help='config name')
     parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
     parser.add_argument('--use_hc_io', '-9', dest='use_hc_io', action='store_true', help='experimental')
-    parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
     return parser.parse_args()
 
 args = parse_args()
@@ -31,7 +28,7 @@ width = int(args.size.split("x")[0])
 height = int(args.size.split("x")[1])
 channels = int(args.size.split("x")[2])
 
-selector = hg.config.selector(args)
+selector = hc.Selector()
 
 config = selector.random_config()
 config_file = args.config
@@ -44,89 +41,31 @@ if args.config_list is not None:
 config_filename = os.path.expanduser('~/.hypergan/configs/'+config_file+'.json')
 config = selector.load_or_create_config(config_filename, config)
 
-# TODO refactor, shared in CLI
-config['dtype']=tf.float32
-config['batch_size'] = args.batch_size
+inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+inputs.create(args.directory,
+              channels=channels, 
+              format=args.format,
+              crop=args.crop,
+              width=width,
+              height=height,
+              resize=False)
 
-if args.add_full_image:
-    config['add_full_image']=args.add_full_image
-    
-x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
-                        args.directory,
-                        config['batch_size'], 
-                        channels=channels, 
-                        format=args.format,
-                        crop=args.crop,
-                        width=width,
-                        height=height)
-
-def generator_config():
-    return resize_conv_generator.config(
-            z_projection_depth=[128],
-            activation=[tf.nn.relu,tf.tanh,lrelu,resize_conv_generator.generator_prelu, tf.nn.crelu],
-            final_activation=[None,tf.nn.tanh,resize_conv_generator.minmax],
-            depth_reduction=[32],
-            layer_filter=None,
-            layer_regularizer=[None],
-	    block_repeat_count=[1,2,3],
-            block=[resize_conv_generator.standard_block, resize_conv_generator.inception_block, resize_conv_generator.dense_block, resize_conv_generator.repeating_block],
-	    orthogonal_initializer_gain= list(np.linspace(0.1, 2, num=100))
-    )
-
-def discriminator_config():
-    return hg.discriminators.autoencoder_discriminator.config(
-	    activation=[tf.nn.relu, lrelu, tf.nn.relu6, tf.nn.elu, tf.nn.crelu, tf.tanh],
-	    block_repeat_count=[1,2,3],
-        block=[hg.discriminators.common.repeating_block,
-               hg.discriminators.common.standard_block,
-               hg.discriminators.common.strided_block
-               ],
-            depth_increase=[32],
-            final_activation=[tf.nn.relu, tf.tanh, tf.nn.crelu, resize_conv_generator.minmax],
-            layer_regularizer=[None],
-            layers=[5,4,3],
-	    extra_layers=[0,1,2,3],
-	    extra_layers_reduction=[1,2,4],
-            fc_layer_size=[300],
-            fc_layers=[0,1],
-            first_conv_size=[32],
-            noise=[False, 1e-2],
-            progressive_enhancement=[False, True],
-			foundation= "additive",
-	    orthogonal_initializer_gain= list(np.linspace(0.1, 2, num=100)),
-        distance=[hg.discriminators.autoencoder_discriminator.l1_distance, hg.discriminators.autoencoder_discriminator.l2_distance]
-    )
-
-
-
-config['y_dims']=num_labels
-config['x_dims']=[height,width]
-config['channels']=channels
-config['model']=args.config
-config = hg.config.lookup_functions(config)
-config['generator']=generator_config()
-config['discriminators']=[discriminator_config()]
-
+random_search = RandomSearch({})
+config["generator"]=random_search.generator_config()
+config["discriminator"]=random_search.discriminator_config()
 
 config_name="static-batch-"+str(uuid.uuid4())
 config_filename = os.path.expanduser('~/.hypergan/configs/'+config_name+'.json')
 print("Saving config to ", config_filename)
 
 selector.save(config_filename, config)
-initial_graph = {
-    'x':x,
-    'y':y,
-    'f':f,
-    'num_labels':num_labels,
-    'examples_per_epoch':examples_per_epoch
-}
 
-gan = hg.GAN(config, initial_graph)
+gan = hg.GAN(config, inputs=inputs)
 
-gan.initialize_graph()
+gan.create()
 
-tf.train.start_queue_runners(sess=gan.sess)
-static_x, static_z = gan.sess.run([gan.graph.x, gan.graph.z[0]])
+tf.train.start_queue_runners(sess=gan.session)
+static_x, static_z = gan.sess.run([inputs.x, gan.encoder.sample])
 
 def batch_diversity(net):
     bs = int(net.get_shape()[0])
@@ -149,9 +88,9 @@ def accuracy(a, b):
     return tf.reduce_sum( tf.reduce_sum(difference, axis=0) , axis=0) 
 
 
-accuracy_x_to_g=accuracy(static_x, gan.graph.g[0])
-diversity_g = batch_diversity(gan.graph.g[0])
-diversity_x = batch_diversity(gan.graph.x)
+accuracy_x_to_g=accuracy(static_x, gan.generator.sample)
+diversity_g = batch_diversity(gan.generator.sample)
+diversity_x = batch_diversity(gan.inputs.x)
 diversity_diff = tf.abs(diversity_x - diversity_g)
 ax_sum = 0
 dd_sum = 0
@@ -159,7 +98,7 @@ dx_sum = 0
 dg_sum = 0
 
 for i in range(12000):
-    d_loss, g_loss = gan.train({gan.graph.x: static_x, gan.graph.z[0]: static_z})
+    d_loss, g_loss = gan.train({gan.inputs.x: static_x, gan.encoders.sample: static_z})
     if(np.abs(g_loss) > 10000):
         print("OVERFLOW");
         ax_sum=10000000.00
@@ -169,22 +108,21 @@ for i in range(12000):
         break
 
     if i % 100 == 0 and i != 0 and i > 400: 
-        if 'k' in gan.graph:
-            k, ax, dg, dx, dd = gan.sess.run([gan.graph.k, accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
-            print("ERROR", ax, dg, dx, dd, k)
-            if math.isclose(k, 0.0) or np.abs(ax) > 800.0 or np.abs(dg) < 20000 or np.isnan(d_loss):
-                ax_sum =100000.00
-                break
-        else:
-            ax, dg, dx, dd = gan.sess.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
-            print("ERROR", ax, dg, dx, dd)
-            if np.abs(ax) > 800.0 or np.abs(dg) < 20000 or np.isnan(d_loss):
-                ax_sum =100000.00
-                break
+        #if 'k' in gan.graph:
+        #    k, ax, dg, dx, dd = gan.sess.run([gan.graph.k, accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
+        #    print("ERROR", ax, dg, dx, dd, k)
+        #    if math.isclose(k, 0.0) or np.abs(ax) > 800.0 or np.abs(dg) < 20000 or np.isnan(d_loss):
+        #        ax_sum =100000.00
+        #        break
+        ax, dg, dx, dd = gan.session.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.inputs.x: static_x, gan.encoder.sample: static_z})
+        print("ERROR", ax, dg, dx, dd)
+        if np.abs(ax) > 800.0 or np.abs(dg) < 20000 or np.isnan(d_loss):
+            ax_sum =100000.00
+            break
 
 
     if(i > 11400):
-        ax, dg, dx, dd = gan.sess.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
+        ax, dg, dx, dd = gan.sess.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.inputs.x: static_x, gan.encoder.sample: static_z})
         ax_sum += ax
         dg_sum += dg
         dx_sum += dx

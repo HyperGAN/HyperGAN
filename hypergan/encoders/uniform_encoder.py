@@ -23,7 +23,7 @@ class UniformEncoder(BaseEncoder):
         config = self.config
         projections = []
         batch_size = self.gan.batch_size()
-        self.z = tf.random_uniform([batch_size, config.z], config.min or -1, config.max or 1, dtype=ops.dtype)
+        self.z = tf.random_uniform([batch_size, int(config.z)], config.min or -1, config.max or 1, dtype=ops.dtype)
         print("CONFIG", config)
         for projection in config.projections:
             print("LOOKUP", projection)
@@ -55,7 +55,7 @@ def sphere(config, gan, net):
     return net/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
 
 def modal(config, gan, net):
-    net = tf.round(net*(config.modes))/(config.modes)
+    net = tf.round(net*float(config.modes))/float(config.modes)
     return net
 
 def binary(config, gan, net):
@@ -82,7 +82,7 @@ def modal_sphere_gaussian(config, gan, net):
 
 # creates normal distribution from uniform values https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 def gaussian(config, gan, net):
-    z_dim = config.z
+    z_dim = int(config.z)
     net = (net + 1) / 2
 
     za = tf.slice(net, [0,0], [gan.batch_size(), z_dim//2])

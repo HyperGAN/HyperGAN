@@ -128,7 +128,7 @@ class PyramidDiscriminator(BaseDiscriminator):
 
     def add_noise(self, config, net):
         if('noise' in config and config['noise']):
-            net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=gan.config.dtype)
+            net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=tf.float32)
         return net
 
     def progressive_enhancement(self, config, net, xg):

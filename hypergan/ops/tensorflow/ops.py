@@ -214,6 +214,8 @@ class TensorflowOps:
             return self.prelu()
         if symbol == "lrelu": #TODO test me
             return lrelu
+        if symbol == "relu": #TODO test me
+            return tf.nn.relu
         if symbol == 'square':
             return tf.square
         if symbol == 'reduce_mean':

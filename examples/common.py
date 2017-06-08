@@ -47,7 +47,27 @@ class CustomDiscriminator(BaseGenerator):
 
         return net
 
+class Custom2DDiscriminator(BaseGenerator):
+    def create(self):
+        gan = self.gan
+        config = self.config
+        ops = self.ops
+        ops.describe('custom_discriminator')
 
+        end_features = 1
+
+        x = gan.inputs.x
+        g = gan.generator.sample
+
+        net = tf.concat(axis=0, values=[x,g])
+
+        net = ops.linear(net, 1024)
+        net = tf.nn.relu(net)
+        net = ops.linear(net, end_features)
+        net = tf.nn.tanh(net)
+        self.sample = net
+
+        return net
 class Custom2DSampler(BaseSampler):
     def sample(self, filename):
         gan = self.gan

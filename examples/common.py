@@ -39,9 +39,7 @@ class CustomDiscriminator(BaseGenerator):
         ynet = tf.concat(axis=1, values=[x,y])
 
         net = tf.concat(axis=0, values=[ynet, gnet])
-        net = ops.linear(net, 1024)
-        net = tf.nn.relu(net)
-        net = ops.linear(net, end_features)
+        net = ops.linear(net, 128)
         net = tf.nn.tanh(net)
         self.sample = net
 
@@ -61,9 +59,7 @@ class Custom2DDiscriminator(BaseGenerator):
 
         net = tf.concat(axis=0, values=[x,g])
 
-        net = ops.linear(net, 1024)
-        net = tf.nn.relu(net)
-        net = ops.linear(net, end_features)
+        net = ops.linear(net, 128)
         net = tf.nn.tanh(net)
         self.sample = net
 

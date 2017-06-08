@@ -9,26 +9,6 @@ class BoundaryEquilibriumLoss(BaseLoss):
     def required(self):
         return "type use_k reduce k_lambda gamma initial_k labels".split()
 
-    def g(gan, z):
-        #reuse variables
-        with(tf.variable_scope("generator", reuse=True)):
-            # call generator
-            generator = hc.Config(hc.lookup_functions(gan.config.generator))
-            nets = generator.create(generator, gan, z)
-            return nets[0]
-
-    def loss(gan, x, reuse=True):
-        for i, discriminator in enumerate(gan.config.discriminators):
-            discriminator = hc.Config(hc.lookup_functions(discriminator))
-            with(tf.variable_scope("discriminator", reuse=reuse)):
-                ds = discriminator.create(gan, discriminator, x, x, gan.graph.xs, gan.graph.gs,prefix="d_"+str(i))
-                bs = gan.config.batch_size
-                net = ds
-                net = tf.slice(net, [0,0],[bs, -1])
-                print('net is', net)
-                return tf.reduce_mean(net, axis=1)
-
-
     # boundary equilibrium gan
     def began(self, gan, config, d_real, d_fake, prefix=''):
         d_fake = config.reduce(d_fake, axis=1)

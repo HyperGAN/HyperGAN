@@ -78,15 +78,12 @@ class RandomSearch:
             'reduce': ['reduce_mean','reduce_linear','reduce_sum','reduce_logsumexp'],
             'gradient_penalty': False,
             'labels': [
-                [-1, 1, 0],
-                [0, 1, 1],
-                [0, -1, -1],
-                [1, -1, 0],
-                [0, -1, 1],
-                [0, 1, -1],
-                [0, 0.5, -0.5],
-                [0.5, -0.5, 0],
-                [0.5, 0, -0.5]
+                [-1, 1, 1],
+                [1, -1, -1],
+                [-1, 1, 1],
+                [0.5, 0.5, -0.5],
+                [0.5, -0.5, -0.5],
+                [-0.5, 0.5, 0.5]
             ],
             'alpha':self.range(),
             'beta':self.range(),

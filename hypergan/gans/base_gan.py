@@ -6,7 +6,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 import hypergan as hg
 
 class BaseGAN(GANComponent):
-    def __init__(self, config=None, inputs=None, device='/cpu:0', ops_config=None, ops_backend=TensorflowOps,
+    def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps,
             batch_size=None, width=None, height=None, channels=None):
         """ Initialized a new GAN."""
         self.inputs = inputs

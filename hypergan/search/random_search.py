@@ -129,11 +129,10 @@ class RandomSearch:
 
     def generator_config(self):
         generator_opts = {
-            "z_projection_depth": [128],
             "activation":['relu', 'lrelu', 'tanh'],
-            "final_depth":[6,12,32,64],
-            "depth_increase":[8,16,32],
-            "final_activation":['relu', 'lrelu', 'tanh'],
+            "final_depth":[32],
+            "depth_increase":[32],
+            "final_activation":['lrelu', 'tanh'],
             "block_repeat_count":[1,2,3],
             "block":[
                 hg.generators.common.standard_block, 
@@ -164,11 +163,12 @@ class RandomSearch:
             "fc_layers":[0,1],
             "first_conv_size":[32],
             "layers": [3,4,5,6],
-            "initial_depth": [16,32,64,128],
+            "initial_depth": [32],
+            "initializer": ['orthogonal', 'random'],
             "noise":[False, 1e-2],
             "progressive_enhancement":[False, True],
-            "foundation":"additive",
-            "orthogonal_initializer_gain": list(np.linspace(0.1, 2, num=100)),
+            "orthogonal_gain": list(np.linspace(0.1, 2, num=10000)),
+            "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
             "distance":[hg.discriminators.autoencoder_discriminator.l1_distance, hg.discriminators.autoencoder_discriminator.l2_distance],
             "class":[
                 hg.discriminators.pyramid_discriminator.PyramidDiscriminator

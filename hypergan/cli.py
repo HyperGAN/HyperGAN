@@ -28,12 +28,27 @@ class CLI:
         else:
             self.args = args
         self.samplers = self.sampler_options()
-        self.sampler_name = self.get_sampler_name(args)
+        self.sampler_name = self.get_sampler_name(self.args)
         if self.sampler_name in self.samplers:
             self.sampler = self.samplers[self.sampler_name](self.gan)
         else:
             self.sampler = None
         self.validate()
+
+        width = int(self.args.size.split("x")[0])
+        height = int(self.args.size.split("x")[1])
+        channels = int(self.args.size.split("x")[2])
+        inputs = hg.inputs.image_loader.ImageLoader(self.args.batch_size)
+        inputs.create(self.args.directory,
+              channels=channels, 
+              format=self.args.format,
+              crop=self.args.crop,
+              width=width,
+              height=height,
+              resize=False)
+
+        self.gan = hg.GAN(config=Configuration.default(), inputs=inputs)
+
 
     def load(self):
         raise ValidationException('Load not implemented')
@@ -41,7 +56,7 @@ class CLI:
 
     def get_sampler_name(self, args):
         if 'sampler' in args:
-            return args['sampler']
+            return args.sampler
         return 'static_batch'
 
     def sampler_options(self):

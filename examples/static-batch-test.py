@@ -5,6 +5,7 @@ import random
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
+import numpy as np
 
 from hypergan.search.random_search import RandomSearch
 

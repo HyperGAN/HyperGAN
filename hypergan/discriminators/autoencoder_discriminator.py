@@ -6,6 +6,7 @@ from hypergan.discriminators.common import *
 
 import hypergan.discriminators.minibatch_discriminator as minibatch
 from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
+from hypergan.generators.resize_conv_generator import ResizeConvGenerator
 from .base_discriminator import BaseDiscriminator
 
 def l2_distance(a,b):
@@ -21,8 +22,12 @@ class AutoencoderDiscriminator(PyramidDiscriminator):
         gan = self.gan
         ops = self.ops
 
+        generator = ResizeConvGenerator(gan, gan.generator.config)
+        generator.ops = ops # share variable allocation to make variables part of the discriminator training step
+
         hidden = PyramidDiscriminator.build(self, net)
-        reconstruction = gan.generator.build(hidden) #reuse?
+        ops.describe("autoencoder")
+        reconstruction = generator.build(hidden)
 
         error = config.distance(net, reconstruction)
 

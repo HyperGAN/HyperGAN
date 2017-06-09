@@ -21,21 +21,12 @@ class AutoencoderDiscriminator(PyramidDiscriminator):
         gan = self.gan
         ops = self.ops
 
-        print("ERROR PRE IS ", net)
-        x, g = self.split_batch(net)
-        print("xg PRE IS ", x, g)
-
         hidden = PyramidDiscriminator.build(self, net)
         reconstruction = gan.generator.build(hidden) #reuse?
 
-        rx, rg = self.split_batch(reconstruction)
+        error = config.distance(net, reconstruction)
 
-        self.rx = rx
-        self.rg = rg
-
-        error = tf.concat([config.distance(x, rx), config.distance(g,rg)], axis=0)
-        print("ERROR IS ", error)
-        error = tf.reshape(error, [ops.shape(error)[0], -1])
+        #error = tf.reshape(error, [ops.shape(error)[0], -1])
         #error = tf.concat([error]+mini, axis=1) TODO minibatch
 
         return error

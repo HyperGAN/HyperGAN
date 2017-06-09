@@ -55,7 +55,7 @@ class CLI:
               height=height,
               resize=self.args.resize)
 
-        self.gan = gan or hg.GAN(config=Configuration.default(), inputs=inputs)
+        self.gan = gan or hg.GAN(config=config, inputs=inputs)
         self.samplers = self.sampler_options()
         self.sampler_name = self.get_sampler_name(self.args)
         if self.sampler_name in self.samplers:

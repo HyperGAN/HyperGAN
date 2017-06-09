@@ -1,6 +1,7 @@
 import argparse
 import os
 import hyperchamber as hc
+import tensorflow as tf
 from hypergan.gan_component import ValidationException
 from . import GAN
 from .inputs import *
@@ -22,22 +23,29 @@ class CLI:
     def __init__(self, gan=None, args=None):
         self.samples = 0
         self.steps = 0
-        self.gan = gan
-        if args == None:
-            self.args = self.get_parser().parse_args()
-        else:
-            self.args = args
-        self.samplers = self.sampler_options()
-        self.sampler_name = self.get_sampler_name(self.args)
-        if self.sampler_name in self.samplers:
-            self.sampler = self.samplers[self.sampler_name](self.gan)
-        else:
-            self.sampler = None
-        self.validate()
 
+        if args == None:
+            args = self.get_parser().parse_args()
+        else:
+            args = args
+        self.args = args
         width = int(self.args.size.split("x")[0])
         height = int(self.args.size.split("x")[1])
         channels = int(self.args.size.split("x")[2])
+
+        if 'config' in args:
+            config = args.config
+        else:
+            config = 'default'
+
+        if 'crop' in args:
+            crop = args.crop
+        else:
+            crop = None
+
+        config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
+        config = hc.Selector().load(config_filename)
+
         inputs = hg.inputs.image_loader.ImageLoader(self.args.batch_size)
         inputs.create(self.args.directory,
               channels=channels, 
@@ -45,10 +53,16 @@ class CLI:
               crop=self.args.crop,
               width=width,
               height=height,
-              resize=False)
+              resize=self.args.resize)
 
-        self.gan = hg.GAN(config=Configuration.default(), inputs=inputs)
-
+        self.gan = gan or hg.GAN(config=Configuration.default(), inputs=inputs)
+        self.samplers = self.sampler_options()
+        self.sampler_name = self.get_sampler_name(self.args)
+        if self.sampler_name in self.samplers:
+            self.sampler = self.samplers[self.sampler_name](self.gan)
+        else:
+            self.sampler = None
+        self.validate()
 
     def load(self):
         raise ValidationException('Load not implemented')
@@ -98,16 +112,17 @@ class CLI:
             raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
     def common(self, parser):
-        parser.add_argument('config', action='store', type=str, help='The configuration file to load.')
         parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
         self.common_flags(parser)
 
     def common_flags(self, parser):
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
+        parser.add_argument('--config', '-c', action='store', type=str, help='The configuration file to load.')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
+        parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
         parser.add_argument('--align', dest='align', action='store_true', help='Align classes.')
         parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
@@ -124,12 +139,12 @@ class CLI:
         subparsers = parser.add_subparsers(dest='method')
         train_parser = subparsers.add_parser('train')
         build_parser = subparsers.add_parser('build')
-        serve_parser = subparsers.add_parser('serve')
+        new_parser = subparsers.add_parser('new')
         subparsers.required = True
         self.common_flags(parser)
         self.common(train_parser)
         self.common(build_parser)
-        self.common(serve_parser)
+        self.common(new_parser)
 
         return parser
 
@@ -178,7 +193,7 @@ class CLI:
         print("Saved generator to ", build_file)
 
     def serve(self, gan):
-        return gan_server(self.sess, config)
+        return gan_server(self.gan.session, config)
 
     def train(self):
         args = self.args
@@ -251,21 +266,9 @@ class CLI:
         return
 
     def run(self):
-        args = self.args
-
-        if 'config' in args:
-            config = args.config
-        else:
-            config = 'default'
-
-        if 'crop' in args:
-            crop = args.crop
-        else:
-            crop = None
-
         width, height, channels = self.get_dimensions()
+        self.gan.create()
 
-        #config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
         #self.save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+"/model.ckpt")
         #self.create_path(self.save_file)
 
@@ -274,7 +277,6 @@ class CLI:
         #config = selector.random_config()
 
         #print("[hypergan] Config file", config_filename)
-        #config = selector.load_or_create_config(config_filename, config)
         #config = hg.config.lookup_functions(config)
 
         #graph = self.setup_input_graph(
@@ -303,16 +305,16 @@ class CLI:
 
         #self.gan.load_or_initialize_graph(self.save_file)
         #TODO
-        #tf.train.start_queue_runners(sess=self.sess)
+        tf.train.start_queue_runners(sess=self.gan.session)
 
         self.output_graph_size()
 
-        if args.method == 'train':
+        if self.args.method == 'train':
             self.train()
-        elif args.method == 'build':
+        elif self.args.method == 'build':
             self.build()
-        elif args.method == 'new':
+        elif self.args.method == 'new':
             self.new()
         #TODO
-        #tf.reset_default_graph()
-        #self.sess.close()
+        tf.reset_default_graph()
+        self.gan.session.close()

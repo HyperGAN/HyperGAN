@@ -17,18 +17,20 @@ class BaseSampler:
             print("Creating sampler")
             self.gan.create()
 
-        sample = self._sample()
+        with gan.session.as_default():
 
-        data = sample['generator'] #TODO variable
+            sample = self._sample()
 
-        width = min(gan.batch_size(), self.samples_per_row)
-        stacks = [np.hstack(data[i*width:i*width+width]) for i in range(gan.batch_size()//width)]
-        sample_data = np.vstack(stacks)
-        self.plot(sample_data, path)
-        sample_name = 'generator'
-        samples = [[sample_data, sample_name]]
+            data = sample['generator'] #TODO variable
 
-        return [{'image':sample_filename, 'label':'sample'} for sample_data, sample_filename in samples] #TODO
+            width = min(gan.batch_size(), self.samples_per_row)
+            stacks = [np.hstack(data[i*width:i*width+width]) for i in range(gan.batch_size()//width)]
+            sample_data = np.vstack(stacks)
+            self.plot(sample_data, path)
+            sample_name = 'generator'
+            samples = [[sample_data, sample_name]]
+
+            return [{'image':sample_filename, 'label':'sample'} for sample_data, sample_filename in samples] #TODO
 
     def plot(self, image, filename):
         """ Plot an image."""

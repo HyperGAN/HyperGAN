@@ -25,12 +25,12 @@ class RandomSearch:
                 tf.train.AdagradOptimizer,
                 tf.train.GradientDescentOptimizer,
                 tf.train.AdamOptimizer,
-                tf.train.AdagradDAOptimizer, # TODO missing param
+                #tf.train.AdagradDAOptimizer, # TODO missing param
                 tf.train.MomentumOptimizer,
-                tf.train.ProximalGradientDescentOptimizer,
+                #tf.train.ProximalGradientDescentOptimizer,
                 #tf.train.FtrlOptimizer,
                 tf.train.RMSPropOptimizer,
-                tf.train.ProximalAdagradOptimizer,
+                #tf.train.ProximalAdagradOptimizer,
         ]
 
         selector = hc.Selector({
@@ -99,13 +99,7 @@ class RandomSearch:
             'k_lambda': self.range(.001),
             'type': ['wgan', 'lsgan', 'softmax'],
             'create': [
-                hg.losses.boundary_equilibrium_loss.create,
-                hg.losses.began_softmax_loss.create,
-                hg.losses.lamb_gan_loss.create,
-                hg.losses.lsgan_loss.create,
-                hg.losses.standard_gan_loss.create,
-                hg.losses.softmax_loss.create,
-                hg.losses.wgan_loss.create
+                hg.losses.cramer_loss.create,
             ]
         }
 

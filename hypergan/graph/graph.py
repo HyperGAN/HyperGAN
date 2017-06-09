@@ -80,6 +80,20 @@ class Graph:
             z_encoded = tf.zeros(0)
         self.gan.graph.z_encoded = z_encoded
 
+        encoders = []
+        with(tf.variable_scope("encoder", reuse=False)):
+            for i, encoder in enumerate(self.gan.config.encoders):
+                encoder = hc.Config(hc.lookup_functions(encoder))
+                zs, z_base = encoder.create(encoder, self.gan)
+                encoders.append(zs)
+
+        if(len(encoders) > 0):
+            z_encoded2 = tf.concat(axis=1, values=encoders)
+        else:
+            z_encoded2 = tf.zeros(0)
+        self.gan.graph.z_encoded2 = z_encoded2
+
+
         return z_encoded
 
     # Used for building the tensorflow graph with only G
@@ -93,6 +107,7 @@ class Graph:
         z = self.create_z_encoding()
         
         graph.g = self.generator(args)
+        graph.g2 = self.generator(args, reuse=True)
 
     def create(self, graph):
         x = graph.x
@@ -111,6 +126,7 @@ class Graph:
         z = self.create_z_encoding()
         # create generator
         g = self.generator(z)
+        graph.g2 = self.generator(graph.z_encoded2, reuse=True)
 
         g_sample = g
 

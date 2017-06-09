@@ -21,11 +21,11 @@ class PyramidDiscriminator(BaseDiscriminator):
 
         x, g = self.resize(config, x, g)
         net = self.combine_filter(config, x, g)
-        net = self.build_pyramid(net)
+        net = self.build(net)
         self.sample = net
         return net
 
-    def build_pyramid(self, net):
+    def build(self, net):
         config = self.config
         gan = self.gan
         ops = self.ops
@@ -94,7 +94,7 @@ class PyramidDiscriminator(BaseDiscriminator):
 
     def reuse(self, net):
         self.ops.reuse()
-        net = self.build_pyramid(net)
+        net = self.build(net)
         self.ops.stop_reuse()
         return net
 

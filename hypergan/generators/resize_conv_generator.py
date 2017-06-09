@@ -33,23 +33,26 @@ class ResizeConvGenerator(BaseGenerator):
 
     def create(self):
         gan = self.gan
+        return self.build(gan.encoder.sample)
+
+    def build(self, net):
+        gan = self.gan
         ops = self.ops
-
-        ops.describe("generator")
-
         config = self.config
+
         primes = [4, 4]
         nets = []
+        ops.describe("generator")
 
         depths = self.depths()
         initial_depth = depths[0]
-        new_shape = [gan.batch_size(), primes[0], primes[1], initial_depth]
+        new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
 
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
 
         print(gan)
-        net = ops.linear(gan.encoder.sample, initial_depth*primes[0]*primes[1])
+        net = ops.linear(net, initial_depth*primes[0]*primes[1])
         print("RESHAPE", net, new_shape)
         net = ops.reshape(net, new_shape)
 
@@ -86,6 +89,12 @@ class ResizeConvGenerator(BaseGenerator):
         print("NET_ are", nets, depths)
         self.sample = nets[-1]
         return self.sample
+
+    def reuse(self, net):
+        self.ops.reuse()
+        net = self.build(net)
+        self.ops.stop_reuse()
+        return net
 
     def layer_filter(self, gan, config, net):
         if config.layer_filter:

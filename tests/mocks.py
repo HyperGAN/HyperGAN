@@ -13,7 +13,7 @@ class MockDiscriminator(GANComponent):
         return self.sample
 
 class MockInput:
-    def __init__(self, batch_size=1):
+    def __init__(self, batch_size=2):
         self.x= tf.constant(10., shape=[batch_size,32,32,1], dtype=tf.float32)
         self.y= tf.constant(1., shape=[batch_size, 2], dtype=tf.float32)
         self.sample = [self.x, self.y]

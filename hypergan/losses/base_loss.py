@@ -8,20 +8,6 @@ class BaseLoss(GANComponent):
         self.metrics = {}
         self.sample = None
 
-    def split_batch(self, net):
-        """ 
-        Discriminators return stacked results (on axis 0).  
-        
-        This splits the results.  Returns [d_real, d_fake]
-        """
-        ops = self.ops
-        s = ops.shape(net)
-        bs = self.gan.batch_size()
-        net = ops.reshape(net, [bs, -1])
-        d_real = ops.slice(net, [0,0], [bs//2,-1])
-        d_fake = ops.slice(net, [bs//2,0], [bs//2,-1])
-        return [d_real, d_fake]
-
     def create(self):
         gan = self.gan
         config = self.config

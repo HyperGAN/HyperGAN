@@ -87,3 +87,22 @@ class GANComponent:
             All variables associated with this component.
         """
         return self.ops.variables()
+
+    def split_batch(self, net):
+        """ 
+        Discriminators return stacked results (on axis 0).  
+        
+        This splits the results.  Returns [d_real, d_fake]
+        """
+        ops = self.ops
+        s = ops.shape(net)
+        bs = s[0]
+        net = ops.reshape(net, [bs, -1])
+        size = [bs//2] + [x for x in ops.shape(net)[1:]]
+        start = [0 for x in ops.shape(net)]
+        start2 = [bs//2] + [0 for x in ops.shape(net)[1:]]
+        d_real = ops.slice(net, start, size)
+        d_fake = ops.slice(net, start2, size)
+        return [d_real, d_fake]
+
+

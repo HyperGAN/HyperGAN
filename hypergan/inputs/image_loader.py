@@ -40,7 +40,7 @@ class ImageLoader:
         if(len(directories) == 1):
             # No subdirectories, use all the images in the passed in path
             filenames = glob.glob(directory+"/*."+format)
-            classes = []
+            classes = [0 for f in filenames]
         else:
             filenames = glob.glob(directory+"/**/*."+format)
             classes = [labels[f.split('/')[-2]] for f in filenames]

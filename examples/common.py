@@ -12,11 +12,30 @@ class CustomGenerator(BaseGenerator):
         gan = self.gan
         config = self.config
         ops = self.ops
+        print(" CONFIG ", config)
         end_features = config.end_features or 1
 
         ops.describe('custom_generator')
 
         net = gan.inputs.x
+        net = ops.linear(net, end_features)
+        net = ops.lookup('tanh')(net)
+        self.sample = net
+        return net
+
+class Custom2DGenerator(BaseGenerator):
+    def create(self):
+        gan = self.gan
+        config = self.config
+        ops = self.ops
+        print(" CONFIG ", config)
+        end_features = config.end_features or 1
+
+        ops.describe('custom_generator')
+
+        net = gan.encoder.sample
+        net = ops.linear(net, 128)
+        net = ops.lookup('relu')(net)
         net = ops.linear(net, end_features)
         net = ops.lookup('tanh')(net)
         self.sample = net
@@ -35,6 +54,7 @@ class CustomDiscriminator(BaseGenerator):
         y = gan.inputs.y
         g = gan.generator.sample
 
+        print(" CONFIG ", g,y)
         gnet = tf.concat(axis=1, values=[x,g])
         ynet = tf.concat(axis=1, values=[x,y])
 
@@ -64,7 +84,8 @@ class Custom2DDiscriminator(BaseGenerator):
         end_features = 1
 
         net = ops.linear(net, 128)
-        net = tf.nn.tanh(net)
+        net = tf.nn.relu(net)
+        net = ops.linear(net, 2)
 
         return net
     def reuse(self, net):

@@ -28,9 +28,7 @@ width = int(args.size.split("x")[0])
 height = int(args.size.split("x")[1])
 channels = int(args.size.split("x")[2])
 
-selector = hc.Selector()
 
-config = selector.random_config()
 config_file = args.config
 
 if args.config_list is not None:
@@ -39,7 +37,7 @@ if args.config_list is not None:
     print("config list chosen", config_file)
 
 config_filename = os.path.expanduser('~/.hypergan/configs/'+config_file+'.json')
-config = selector.load_or_create_config(config_filename, config)
+config = hc.Selector().load(config_filename)
 
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
 inputs.create(args.directory,
@@ -58,14 +56,16 @@ config_name="static-batch-"+str(uuid.uuid4())
 config_filename = os.path.expanduser('~/.hypergan/configs/'+config_name+'.json')
 print("Saving config to ", config_filename)
 
-selector.save(config_filename, config)
+hc.Selector().save(config_filename, config)
+
+print("Creating GAN FROM ", config)
 
 gan = hg.GAN(config, inputs=inputs)
 
 gan.create()
 
 tf.train.start_queue_runners(sess=gan.session)
-static_x, static_z = gan.sess.run([inputs.x, gan.encoder.sample])
+static_x, static_z = gan.session.run([inputs.x, gan.encoder.sample])
 
 def batch_diversity(net):
     bs = int(net.get_shape()[0])
@@ -98,14 +98,7 @@ dx_sum = 0
 dg_sum = 0
 
 for i in range(12000):
-    d_loss, g_loss = gan.train({gan.inputs.x: static_x, gan.encoders.sample: static_z})
-    if(np.abs(g_loss) > 10000):
-        print("OVERFLOW");
-        ax_sum=10000000.00
-        dd_sum=10000000.00
-        dx_sum=10000000.00
-        dg_sum=10000000.00
-        break
+    gan.step({gan.inputs.x: static_x, gan.encoder.sample: static_z})
 
     if i % 100 == 0 and i != 0 and i > 400: 
         #if 'k' in gan.graph:
@@ -116,13 +109,13 @@ for i in range(12000):
         #        break
         ax, dg, dx, dd = gan.session.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.inputs.x: static_x, gan.encoder.sample: static_z})
         print("ERROR", ax, dg, dx, dd)
-        if np.abs(ax) > 800.0 or np.abs(dg) < 20000 or np.isnan(d_loss):
+        if np.abs(ax) > 800.0 or np.abs(dg) < 20000:
             ax_sum =100000.00
             break
 
 
     if(i > 11400):
-        ax, dg, dx, dd = gan.sess.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.inputs.x: static_x, gan.encoder.sample: static_z})
+        ax, dg, dx, dd = gan.session.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.inputs.x: static_x, gan.encoder.sample: static_z})
         ax_sum += ax
         dg_sum += dg
         dx_sum += dx
@@ -133,4 +126,4 @@ with open("results-static-batch", "a") as myfile:
     myfile.write(config_name+","+str(ax_sum)+","+str(dx_sum)+","+str(dg_sum)+","+str(dd_sum)+","+str(dx_sum + dg_sum)+"\n")
  
 tf.reset_default_graph()
-gan.sess.close()
+gan.session.close()

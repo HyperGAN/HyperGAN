@@ -11,7 +11,9 @@ def repeating_block(ops, net, config, output_channels):
     return net
 
 def standard_block(ops, net, config, output_channels):
+    print("CONFIG ACT", config.activation)
     activation = ops.lookup(config.activation)
+    print("nACT", activation)
     net = activation(net)
     net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
     net = ops.conv2d(net, 3, 3, 1, 1, output_channels)
@@ -23,14 +25,14 @@ def inception_block(ops, net, config, output_channels):
     batch_size = int(net.get_shape()[0])
 
     if output_channels == 3:
-        return block_conv(net, config, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
+        return standard_block(ops, net, config, output_channels)
 
     net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
     net = activation(net)
 
-    net1 = ops.conv2d(net, output_channels//3, name=name+'1', k_w=1, k_h=1, d_h=1, d_w=1)
-    net2 = ops.conv2d(net1, output_channels//3, name=name+'2', k_w=filter, k_h=filter, d_h=1, d_w=1)
-    net3 = ops.conv2d(net2, output_channels//3, name=name+'3', k_w=filter, k_h=filter, d_h=1, d_w=1)
+    net1 = ops.conv2d(net, 3, 3, 1, 1, output_channels//3)
+    net2 = ops.conv2d(net1, 3, 3, 1, 1, output_channels//3)
+    net3 = ops.conv2d(net2, 3, 3, 1, 1, output_channels//3)
     net = tf.concat(axis=3, values=[net1, net2, net3])
     return net
 

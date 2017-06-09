@@ -8,6 +8,7 @@ class LeastSquaresLoss(BaseLoss):
 
     def _create(self, d_real, d_fake):
         ops = self.ops
+        ops.describe("LeastSquaresLoss")
         config = self.config
 
         d_real = config.reduce(d_real, axis = 1)

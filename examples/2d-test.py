@@ -4,7 +4,7 @@ import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 from hypergan.generators import *
-from examples.common import CustomDiscriminator, CustomGenerator, Custom2DInputDistribution, Custom2DSampler, Custom2DDiscriminator
+from examples.common import CustomDiscriminator, CustomGenerator, Custom2DInputDistribution, Custom2DSampler, Custom2DDiscriminator, Custom2DGenerator
 from hypergan.search.random_search import RandomSearch
 from hypergan.samplers.viewer import GlobalViewer
 
@@ -29,6 +29,7 @@ with tf.device(args.device):
     config.generator['end_features'] = 2
     gan = hg.GAN(config, inputs = Custom2DInputDistribution(args))
     gan.discriminator = Custom2DDiscriminator(gan, config.discriminator)
+    gan.generator = Custom2DGenerator(gan, config.generator)
     gan.create()
     print("CONFIG", gan.config)
 

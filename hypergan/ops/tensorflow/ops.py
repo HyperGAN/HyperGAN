@@ -251,7 +251,7 @@ class TensorflowOps:
 
     def new_session(self, tfconfig):
         if tfconfig is None:
-            tfconfig = tf.ConfigProto()
+            tfconfig = tf.ConfigProto(allow_soft_placement=True)
             tfconfig.gpu_options.allow_growth=True
 
         with tf.device(self.device):

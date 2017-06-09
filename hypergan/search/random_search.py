@@ -173,7 +173,7 @@ class RandomSearch:
             "distance":[hg.discriminators.autoencoder_discriminator.l1_distance, hg.discriminators.autoencoder_discriminator.l2_distance],
             "class":[
                 hg.discriminators.pyramid_discriminator.PyramidDiscriminator,
-                hg.discriminators.pyramid_discriminator.AutoencoderDiscriminator
+                hg.discriminators.autoencoder_discriminator.AutoencoderDiscriminator
             ]
         }
 

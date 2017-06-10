@@ -199,16 +199,21 @@ class CLI:
 
     def run(self):
         number_classes = self.gan.ops.shape(self.gan.inputs.y)[1]
-        if(number_classes > 1):
-            print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
-            supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
-            self.gan.loss = MultiComponent([supervised_loss, self.gan.loss])
-        else:
-            print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
-
         self.output_graph_size()
         if self.method == 'train':
             self.gan.create()
+            if(number_classes > 1):
+                print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
+                print("SELFGAN", self.gan.loss)
+                supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
+                self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
+                supervised_loss.create()
+                #EWW
+                self.gan.session.run(tf.global_variables_initializer())
+            else:
+                print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
+
+
             tf.train.start_queue_runners(sess=self.gan.session)
             self.train()
             tf.reset_default_graph()

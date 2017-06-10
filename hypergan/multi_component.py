@@ -10,13 +10,15 @@ class MultiComponent():
         self.components = components
         self.gan = components[0].gan
         self._combine = combine
+        self._cache = {}
 
     def __getattr__(self, name):
         if len(self.components) == 0:
             return None
 
         attributes = self.lookup(name)
-        return self.combine(attributes)
+        self._cache[name] = self.combine(name, attributes)
+        return self._cache[name]
 
     def lookup(self, name):
         lookups = []
@@ -28,13 +30,19 @@ class MultiComponent():
 
         return lookups
 
-    def combine(self, data):
+    def combine(self, name, data):
         if data == None or data == []:
             return data
 
-        print("LIST", data)
+        if isinstance(data[0], type({})):
+            full_dict = {}
+            for d in data:
+                full_dict = {**full_dict, **d}
+            return full_dict
         # loss functions return [d_loss, g_loss].  We combine columnwise.
         if isinstance(data, list) and isinstance(data[0], list) and isinstance(data[0][0], tf.Tensor):
+            if(name in self._cache):
+                return self._cache[name]
             result = []
             for j,_ in enumerate(data[0]):
                 column = []
@@ -46,6 +54,8 @@ class MultiComponent():
             return result
 
         if type(data[0]) == tf.Tensor:
+            if(name in self._cache):
+                return self._cache[name]
             return self.reduce(data)
         if callable(data[0]):
             return self.call_each(data)

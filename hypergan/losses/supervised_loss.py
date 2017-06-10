@@ -7,7 +7,6 @@ class SupervisedLoss(BaseLoss):
 
     def _create(self, d_real, d_fake):
         gan = self.gan
-        ops = self.ops
         config = self.config
 
         batch_size = gan.batch_size()
@@ -18,6 +17,7 @@ class SupervisedLoss(BaseLoss):
         net = self.layer_regularizer(net)
 
         d_class_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net,labels=gan.inputs.y)
+        d_class_loss = gan.ops.squash(d_class_loss)
 
         self.metrics = {
             'd_class_loss': d_class_loss

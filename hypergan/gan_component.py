@@ -105,4 +105,8 @@ class GANComponent:
         d_fake = ops.slice(net, start2, size)
         return [d_real, d_fake]
 
-
+    def reuse(self, net):
+        self.ops.reuse()
+        net = self.build(net)
+        self.ops.stop_reuse()
+        return net

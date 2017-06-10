@@ -19,6 +19,9 @@ from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.grid_sampler import GridSampler
 
+from hypergan.losses.supervised_loss import SupervisedLoss
+from hypergan.multi_component import MultiComponent
+
 class CLI:
     def __init__(self, gan, args={}):
         self.samples = 0
@@ -179,18 +182,6 @@ class CLI:
         except:
             return
 
-    def get_dimensions(self):
-        args = self.args
-        if 'size' in args:
-            size = args.size or "32"
-            split = [int(j) for j in args.size.split("x")]
-            if len(split) == 1:
-                return [split[0], split[0], 3]
-            if len(split) == 2:
-                return [split[0], split[1], 3]
-            return [split[0], split[1], split[2]]
-        return [32, 32, 3]
-
     def new(self, path):
         if(os.path.exists(path)):
             raise ValidationException('Path does not exist "'+path+'"')
@@ -207,13 +198,13 @@ class CLI:
         return
 
     def run(self):
-        width, height, channels = self.get_dimensions()
-
-        #if(int(config['y_dims']) > 1 and not args.align):
-        #    print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
-        #    config['losses'].append(hg.losses.supervised_loss.config())
-        #else:
-        #    print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
+        number_classes = self.gan.ops.shape(self.gan.inputs.y)[1]
+        if(number_classes > 1):
+            print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
+            supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
+            self.gan.loss = MultiComponent([supervised_loss, self.gan.loss])
+        else:
+            print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
 
         self.output_graph_size()
         if self.method == 'train':

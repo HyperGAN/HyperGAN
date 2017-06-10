@@ -6,8 +6,10 @@ class MultiComponent():
     """
         Used to combine multiple components into one.  For example, `gan.loss = MultiComponent([loss1, loss2])`
     """
-    def __init__(self, components=[]):
+    def __init__(self, components=[], combine='concat'):
         self.components = components
+        self.gan = components[0].gan
+        self._combine = combine
 
     def __getattr__(self, name):
         if len(self.components) == 0:
@@ -30,12 +32,33 @@ class MultiComponent():
         if data == None or data == []:
             return data
 
-        if type(data[0]) == tf.Tensor:
-            return self.components[0].ops.concat(values=data, axis=1)
+        print("LIST", data)
+        # loss functions return [d_loss, g_loss].  We combine columnwise.
+        if isinstance(data, list) and isinstance(data[0], list) and isinstance(data[0][0], tf.Tensor):
+            result = []
+            for j,_ in enumerate(data[0]):
+                column = []
+                for i,_ in enumerate(data):
+                    column.append(data[i][j])
+                reduction = self.reduce(column)
+                result.append(reduction)
 
+            return result
+
+        if type(data[0]) == tf.Tensor:
+            return self.reduce(data)
         if callable(data[0]):
             return self.call_each(data)
         return data
+
+    def reduce(self, data):
+        data = [d for d in data if d is not None]
+        if self._combine == 'concat':
+            return self.gan.ops.concat(values=data, axis=1)
+        elif self._combine == 'add':
+            return self.gan.ops.add_n(data)
+
+        raise "Unknown combine"
 
     def call_each(self, methods):
         def do_call(*args, **kwargs):

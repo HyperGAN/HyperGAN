@@ -8,10 +8,8 @@ from tests.inputs.image_loader_test import fixture_path
 from tests.mocks import MockDiscriminator, mock_gan
 import shutil
 
-def graph():
-    return hc.Config({
-        'x': tf.constant(10., shape=[1,32,32,1], dtype=tf.float32)
-    })
+from hypergan.multi_component import MultiComponent
+from hypergan.losses.supervised_loss import SupervisedLoss
 
 class CliTest(tf.test.TestCase):
     def test_cli(self):
@@ -37,33 +35,6 @@ class CliTest(tf.test.TestCase):
             cli = hg.CLI(gan, args)
             cli.load()
             #TODO test loading
-
-    def test_get_dimensions(self):
-        with self.test_session():
-            gan = mock_gan()
-            args = hc.Config({
-              "size": "4"
-            })
-            cli = hg.CLI(gan, args)
-            self.assertEqual(cli.get_dimensions()[0], 4)
-            self.assertEqual(cli.get_dimensions()[1], 4)
-            self.assertEqual(cli.get_dimensions()[2], 3)
-
-            args = hc.Config({
-              "size": "8x3"
-            })
-            cli = hg.CLI(gan, args)
-            self.assertEqual(cli.get_dimensions()[0], 8)
-            self.assertEqual(cli.get_dimensions()[1], 3)
-            self.assertEqual(cli.get_dimensions()[2], 3)
-
-            args = hc.Config({
-              "size": "8x3x1"
-            })
-            cli = hg.CLI(gan, args)
-            self.assertEqual(cli.get_dimensions()[0], 8)
-            self.assertEqual(cli.get_dimensions()[1], 3)
-            self.assertEqual(cli.get_dimensions()[2], 1)
 
     def test_run(self):
         with self.test_session():
@@ -100,13 +71,15 @@ class CliTest(tf.test.TestCase):
             cli.train()
             self.assertEqual(cli.gan, gan)
 
-    def test_run_train(self):
+    def test_adds_supervised_loss(self):
         with self.test_session():
             gan = mock_gan()
-            args = hc.Config({"size": "1", "steps": 1, "method": "train"})
+            args = hc.Config({"size": "1", "steps": 1, "method": "test", "save_every": -1})
             cli = hg.CLI(gan, args)
             cli.run()
-            self.assertEqual(cli.gan, gan)
+            self.assertEqual(type(cli.gan.loss), MultiComponent)
+            self.assertEqual(type(cli.gan.loss.components[0]), SupervisedLoss)
+
 
     def test_new(self):
         with self.test_session():

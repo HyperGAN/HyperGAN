@@ -165,6 +165,9 @@ class TensorflowOps:
         self.assert_tensor(net)
         return [(x._value or -1) for x in net.get_shape()]
 
+    def add_n(self, net):
+        return tf.add_n(net)
+
     def squash(self, net, reduce=tf.reduce_mean):
         """
         Takes any size tensor and reduces it to a single value using `reduce`.

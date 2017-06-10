@@ -94,7 +94,7 @@ class GANComponent:
         
         This splits the results.  Returns [d_real, d_fake]
         """
-        ops = self.ops
+        ops = self.ops or self.gan.ops
         s = ops.shape(net)
         bs = s[0]
         net = ops.reshape(net, [bs, -1])

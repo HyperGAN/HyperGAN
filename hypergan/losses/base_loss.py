@@ -7,11 +7,12 @@ class BaseLoss(GANComponent):
         GANComponent.__init__(self, gan, config)
         self.metrics = {}
         self.sample = None
+        self.ops = None
 
     def create(self):
         gan = self.gan
         config = self.config
-        ops = self.ops
+        ops = self.gan.ops
 
         net = gan.discriminator.sample
 
@@ -20,6 +21,9 @@ class BaseLoss(GANComponent):
         d_loss, g_loss = self._create(d_real, d_fake)
 
         if d_loss is not None:
+
+            if config.minibatch:
+                d_loss += self.minibatch(net)
 
             if config.gradient_penalty:
                 d_loss += self.gradient_penalty()
@@ -36,6 +40,39 @@ class BaseLoss(GANComponent):
 
         return self.sample
 
+    # This is openai's implementation of minibatch regularization
+    def minibatch(self, net):
+        ops = self.gan.discriminator.ops
+        config = self.config
+        batch_size = ops.shape(net)[0]
+        single_batch_size = batch_size//2
+        n_kernels = config.minibatch_kernels or 300
+        dim_per_kernel = config.dim_per_kernel or 50
+        print("[discriminator] minibatch from", net, "to", n_kernels*dim_per_kernel)
+        x = ops.linear(net, n_kernels * dim_per_kernel)
+        activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
+
+        big = np.zeros((batch_size, batch_size))
+        big += np.eye(batch_size)
+        big = tf.expand_dims(big, 1)
+        big = tf.cast(big,dtype=ops.dtype)
+
+        abs_dif = tf.reduce_sum(tf.abs(tf.expand_dims(activation,3) - tf.expand_dims(tf.transpose(activation, [1, 2, 0]), 0)), 2)
+        mask = 1. - big
+        masked = tf.exp(-abs_dif) * mask
+        def half(tens, second):
+            m, n, _ = tens.get_shape()
+            m = int(m)
+            n = int(n)
+            return tf.slice(tens, [0, 0, second * single_batch_size], [m, n, single_batch_size])
+
+        # TODO: speedup by allocating the denominator directly instead of constructing it by sum
+        #       (current version makes it easier to play with the mask and not need to rederive
+        #        the denominator)
+        f1 = tf.reduce_sum(half(masked, 0), 2) / tf.reduce_sum(half(mask, 0))
+        f2 = tf.reduce_sum(half(masked, 1), 2) / tf.reduce_sum(half(mask, 1))
+
+        return ops.squash(ops.concat([f1, f2]))
 
     def gradient_penalty(self):
         config = self.config

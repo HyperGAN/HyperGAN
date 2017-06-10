@@ -23,7 +23,9 @@
   "loss":
   {
     "class": "function:hypergan.losses.standard_loss.StandardLoss",
-    "reduce": "reduce_mean"
+    "reduce": "reduce_mean",
+    "improved": true,
+    "minibatch": true
   },
   "trainer": {
     "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",

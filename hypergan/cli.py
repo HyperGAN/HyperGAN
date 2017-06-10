@@ -20,55 +20,24 @@ from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.grid_sampler import GridSampler
 
 class CLI:
-    def __init__(self, gan=None, args=None):
+    def __init__(self, gan, args={}):
         self.samples = 0
         self.steps = 0
+        self.gan = gan
 
-        if args == None:
-            args = self.get_parser().parse_args()
-        else:
-            args = args
-        self.args = args
-        if 'size' in self.args:
-            size = [int(x) for x in self.args.size.split("x")] + [None, None, None]
-        else:
-            size = [None, None, None]
-        width = size[0] or 64
-        height = size[1] or 64
-        channels = size[2] or 3
+        self.args = hc.Config(args)
 
-        if 'config' in args:
-            config = args.config
-        else:
-            config = 'default'
+        crop =  self.args.crop
 
-        if 'crop' in args:
-            crop = args.crop
-        else:
-            crop = None
+        self.sample_every = self.args.sample_every or 100
 
-        if self.args.config is not None:
-            config_filename = hg.Configuration.find(self.args.config+'.json')
-            config = hc.Selector().load(config_filename)
-        else:
-            config = hg.configuration.Configuration.default()
-
-        inputs = hg.inputs.image_loader.ImageLoader(self.args.batch_size)
-        inputs.create(self.args.directory,
-              channels=channels, 
-              format=self.args.format,
-              crop=self.args.crop,
-              width=width,
-              height=height,
-              resize=self.args.resize)
-
-        self.gan = gan or hg.GAN(config=config, inputs=inputs)
         self.samplers = self.sampler_options()
         self.sampler_name = self.get_sampler_name(self.args)
         if self.sampler_name in self.samplers:
             self.sampler = self.samplers[self.sampler_name](self.gan)
         else:
             self.sampler = None
+
         self.validate()
 
     def load(self):
@@ -118,47 +87,10 @@ class CLI:
         if(self.sampler == None):
             raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
-    def common(self, parser):
-        parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-        self.common_flags(parser)
-
-    def common_flags(self, parser):
-        parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
-        parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
-        parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
-        parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
-        parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-        parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
-        parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
-        parser.add_argument('--align', dest='align', action='store_true', help='Align classes.')
-        parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
-        parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
-        parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
-        parser.add_argument('--reset_every', type=int, default=None, help='Resets G every n training steps.')
-        parser.add_argument('--max_resets', type=int, default=1, help='Will only reset G graph this many times.')
-        parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
-        parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
-        parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
-        parser.add_argument('--viewer', dest='viewer', action='store_true', help='Displays samples in a window.')
-
-    def get_parser(self):
-        parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
-        subparsers = parser.add_subparsers(dest='method')
-        train_parser = subparsers.add_parser('train')
-        build_parser = subparsers.add_parser('build')
-        new_parser = subparsers.add_parser('new')
-        subparsers.required = True
-        self.common_flags(parser)
-        self.common(train_parser)
-        self.common(build_parser)
-        self.common(new_parser)
-
-        return parser
-
     def step(self):
         self.gan.step()
 
-        if(self.steps > 1 and (self.steps % self.args.sample_every == 0)):
+        if(self.steps > 1 and (self.steps % self.sample_every == 0)):
             sample_file="samples/%06d.png" % (self.samples)
             self.create_path(sample_file)
             sample_list = self.sample(sample_file)

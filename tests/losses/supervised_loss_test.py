@@ -21,7 +21,7 @@ class SupervisedLossTest(tf.test.TestCase):
             gan.create()
             loss = SupervisedLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
-            d_shape = loss.ops.shape(d_loss)
+            d_shape = gan.ops.shape(d_loss)
             self.assertEqual(d_shape, [1])
             self.assertEqual(g_loss, None)
 

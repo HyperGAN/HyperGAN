@@ -76,7 +76,7 @@ class RandomSearch:
         loss_opts = {
             'reverse':[True, False],
             'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            'gradient_penalty': [False, 10],
+            'gradient_penalty': [False],
             'labels': [
                 [-1, 1, 1],
                 [1, -1, -1],

@@ -43,8 +43,11 @@ class CLI:
         else:
             crop = None
 
-        config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
-        config = hc.Selector().load(config_filename)
+        if self.args.config is not None:
+            config_filename = hg.Configuration.find(self.args.config+'.json')
+            config = hc.Selector().load(config_filename)
+        else:
+            config = hg.configuration.Configuration.default()
 
         inputs = hg.inputs.image_loader.ImageLoader(self.args.batch_size)
         inputs.create(self.args.directory,
@@ -118,7 +121,7 @@ class CLI:
     def common_flags(self, parser):
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
-        parser.add_argument('--config', '-c', action='store', type=str, help='The configuration file to load.')
+        parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')

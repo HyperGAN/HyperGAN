@@ -6,7 +6,8 @@ def layer_norm_1(component, net):
     with tf.variable_scope(scope, reuse=ops._reuse):
         net = tf.contrib.layers.layer_norm(net, scope=scope, center=True, scale=True, variables_collections=tf.GraphKeys.LOCAL_VARIABLES)
         vars = lookup_vars(scope)
-    ops.add_weights(vars)
+    if not ops._reuse:
+        ops.add_weights(vars)
 
     return net
 
@@ -35,7 +36,8 @@ def batch_norm_1(component, net):
                 scope=scope
                 )
         vars = lookup_vars(scope)
-    ops.add_weights(vars)
+    if not ops._reuse:
+        ops.add_weights(vars)
     return net
 
 

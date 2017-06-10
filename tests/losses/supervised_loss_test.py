@@ -34,6 +34,5 @@ class SupervisedLossTest(tf.test.TestCase):
             metrics = loss.metrics
             self.assertTrue(metrics['d_class_loss'] != None)
 
-
 if __name__ == "__main__":
     tf.test.main()

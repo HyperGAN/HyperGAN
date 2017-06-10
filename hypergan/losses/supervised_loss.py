@@ -13,9 +13,9 @@ class SupervisedLoss(BaseLoss):
         batch_size = gan.batch_size()
         net = d_real
 
-        num_classes = ops.shape(gan.inputs.y)[1]
+        num_classes = gan.ops.shape(gan.inputs.y)[1]
         net = gan.discriminator.ops.linear(net, num_classes)
-        net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
+        net = self.layer_regularizer(net)
 
         d_class_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net,labels=gan.inputs.y)
 

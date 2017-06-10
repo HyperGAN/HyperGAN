@@ -40,7 +40,7 @@ class GANComponent:
         if self.gan.ops_backend is None:
             return
         self.ops = self.gan.ops_backend(config=self.config, device=self.gan.device)
-        self.config = self.ops.lookup(config)
+        self.config = self.gan.ops.lookup(config)
 
     def required(self):
         """
@@ -113,7 +113,7 @@ class GANComponent:
 
     def layer_regularizer(self, net):
         symbol = self.config.layer_regularizer
-        op = self.ops.lookup(symbol)
+        op = self.gan.ops.lookup(symbol)
         if op:
             net = op(self, net)
         return net

@@ -25,10 +25,13 @@ class CLI:
         self.steps = 0
         self.gan = gan
 
-        self.args = hc.Config(args)
+        args = hc.Config(args)
+        self.args = args
 
         crop =  self.args.crop
 
+        self.method = args.method or 'test'
+        self.total_steps = args.steps or -1
         self.sample_every = self.args.sample_every or 100
 
         self.samplers = self.sampler_options()
@@ -90,7 +93,7 @@ class CLI:
     def step(self):
         self.gan.step()
 
-        if(self.steps > 1 and (self.steps % self.sample_every == 0)):
+        if(self.steps % self.sample_every == 0):
             sample_file="samples/%06d.png" % (self.samples)
             self.create_path(sample_file)
             sample_list = self.sample(sample_file)
@@ -135,7 +138,6 @@ class CLI:
         return gan_server(self.gan.session, config)
 
     def train(self):
-        args = self.args
         i=0
         if(self.args.ipython):
             fd = sys.stdin.fileno()
@@ -143,18 +145,18 @@ class CLI:
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         reset_count=0
-        while(i < self.args.steps or self.args.steps == -1):
+        while(i < self.total_steps or self.total_steps == -1):
             i+=1
             start_time = time.time()
             self.step()
 
-            if (args.save_every != None and
-                args.save_every != -1 and
-                args.save_every > 0 and
-                i % args.save_every == 0):
+            if (self.args.save_every != None and
+                self.args.save_every != -1 and
+                self.args.save_every > 0 and
+                i % self.args.save_every == 0):
                 print(" |= Saving network")
                 self.save()
-            if args.ipython:
+            if self.args.ipython:
                 self.check_stdin()
             end_time = time.time()
 
@@ -206,56 +208,25 @@ class CLI:
 
     def run(self):
         width, height, channels = self.get_dimensions()
-        self.gan.create()
-
-        #self.save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+"/model.ckpt")
-        #self.create_path(self.save_file)
-
-        #selector = hg.config.selector(args)
-        #print("[hypergan] Welcome.  This is one of ", selector.count_configs(), " possible configurations.")
-        #config = selector.random_config()
-
-        #print("[hypergan] Config file", config_filename)
-        #config = hg.config.lookup_functions(config)
-
-        #graph = self.setup_input_graph(
-        #        args.format,
-        #        args.directory,
-        #        args.device,
-        #        config,
-        #        seconds=None,
-        #        bitrate=None,
-        #        width=width,
-        #        height=height,
-        #        channels=channels,
-        #        crop=crop
-        #)
 
         #if(int(config['y_dims']) > 1 and not args.align):
         #    print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
         #    config['losses'].append(hg.losses.supervised_loss.config())
         #else:
         #    print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
-        #self.config = config
-        #self.sess = self.gan.sess
-
-        #samples_path = "~/.hypergan/samples/"+args.config+'/'
-        #self.create_path(samples_path)
-
-        #self.gan.load_or_initialize_graph(self.save_file)
-        #TODO
-        tf.train.start_queue_runners(sess=self.gan.session)
-
-        sample_file="samples/%06d.png" % (self.samples)
-        self.sample(sample_file)
 
         self.output_graph_size()
-        if self.args.method == 'train':
+        if self.method == 'train':
+            self.gan.create()
+            tf.train.start_queue_runners(sess=self.gan.session)
             self.train()
-        elif self.args.method == 'build':
+            tf.reset_default_graph()
+            self.gan.session.close()
+        elif self.method == 'build':
+            self.gan.create()
             self.build()
-        elif self.args.method == 'new':
+            tf.reset_default_graph()
+            self.gan.session.close()
+        elif self.method == 'new':
             self.new()
         #TODO
-        tf.reset_default_graph()
-        self.gan.session.close()

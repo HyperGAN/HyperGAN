@@ -41,5 +41,9 @@ class BaseSampler:
         imin, imax = image.min(), image.max()
         image = (image - imin) * 255. / (imax - imin) + .5
         image = image.astype(np.uint8)
-        Image.fromarray(image).save(filename)
+        try:
+            Image.fromarray(image).save(filename)
+        except Exception as e:
+            print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
+            print(e)
         GlobalViewer.update(image)

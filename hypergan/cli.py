@@ -310,8 +310,10 @@ class CLI:
         #TODO
         tf.train.start_queue_runners(sess=self.gan.session)
 
-        self.output_graph_size()
+        sample_file="samples/%06d.png" % (self.samples)
+        self.sample(sample_file)
 
+        self.output_graph_size()
         if self.args.method == 'train':
             self.train()
         elif self.args.method == 'build':

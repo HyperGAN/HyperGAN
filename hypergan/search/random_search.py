@@ -76,7 +76,7 @@ class RandomSearch:
         loss_opts = {
             'reverse':[True, False],
             'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            'gradient_penalty': [False],
+            'gradient_penalty': [False, 10],
             'labels': [
                 [-1, 1, 1],
                 [1, -1, -1],
@@ -93,6 +93,7 @@ class RandomSearch:
             'initial_k': self.range(),
             'k_lambda': self.range(.001),
             'type': ['wgan', 'lsgan', 'softmax'],
+            'minibatch': [True, False],
             'class': [
                 BoundaryEquilibriumLoss,
                 LambGanLoss,

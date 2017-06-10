@@ -14,13 +14,13 @@ class ResizeConvGenerator(BaseGenerator):
         gan = self.gan
         ops = self.ops
         config = self.config
-        final_depth = config.final_depth
+        final_depth = config.final_depth-config.depth_increase
         depths = []
 
         print("DEPTHS", gan.inputs)
         target_w = gan.width()
 
-        w = 4
+        w = 8
         i = 0
 
         depths.append(final_depth)
@@ -28,11 +28,14 @@ class ResizeConvGenerator(BaseGenerator):
             w*=2
             i+=1
             depths.append(final_depth + i*config.depth_increase)
+        depths[0]=self.gan.channels()
         depths.reverse()
         return depths
 
     def create(self):
         gan = self.gan
+        ops = self.ops
+        ops.describe("generator")
         return self.build(gan.encoder.sample)
 
     def build(self, net):
@@ -42,7 +45,6 @@ class ResizeConvGenerator(BaseGenerator):
 
         primes = [4, 4]
         nets = []
-        ops.describe("generator")
 
         depths = self.depths()
         initial_depth = depths[0]
@@ -68,7 +70,6 @@ class ResizeConvGenerator(BaseGenerator):
             s = ops.shape(net)
             is_last_layer = (i == len(depths)-1)
 
-            depth = gan.channels() if is_last_layer else depth
             resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
 
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
@@ -78,7 +79,7 @@ class ResizeConvGenerator(BaseGenerator):
             sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.channels()])
             first3 = net if is_last_layer else sliced
 
-            first3 = ops.layer_regularizer(first3, config.layer_regularizer, config.batch_norm_epsilon)
+            first3 = ops.layer_regularizer(self, first3)
 
             first3 = final_activation(first3)
 

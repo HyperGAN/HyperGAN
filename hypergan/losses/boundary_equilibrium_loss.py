@@ -31,9 +31,6 @@ class BoundaryEquilibriumLoss(BaseLoss):
         else:
             d_loss = l_x+l_dg
 
-        if config.gradient_penalty:
-            d_loss += gradient_penalty(gan, config.gradient_penalty)
-
         gamma = config.gamma * tf.ones_like(d_fake)
 
         if config.use_k:

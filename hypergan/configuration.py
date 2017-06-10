@@ -4,7 +4,7 @@ import os
 class Configuration:
     def find(configuration):
         dirname = os.path.dirname(os.path.realpath(__file__))
-        paths = [dirname + "/configurations/", '~/.hypergan/configs/']
+        paths = [dirname + "/configurations/", os.path.abspath(os.path.expanduser('~/.hypergan/configs/'))+'/']
         for path in paths:
             file_path = path + configuration
             if os.path.exists(file_path):

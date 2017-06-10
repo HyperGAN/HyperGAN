@@ -62,7 +62,7 @@ class ResizeConvGenerator(BaseGenerator):
 
         shape = ops.shape(net)
 
-        net = config.block(ops, net, config, shape[3])
+        net = config.block(self, net, shape[3])
         net = self.layer_filter(gan, config, net)
         print("CREATING GENERATOR")
 
@@ -74,12 +74,12 @@ class ResizeConvGenerator(BaseGenerator):
 
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(gan, config, net)
-            net = config.block(ops, net, config, depth)
+            net = config.block(self, net, depth)
 
             sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.channels()])
             first3 = net if is_last_layer else sliced
 
-            first3 = ops.layer_regularizer(self, first3)
+            first3 = self.layer_regularizer(first3)
 
             first3 = final_activation(first3)
 

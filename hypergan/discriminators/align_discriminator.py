@@ -4,7 +4,6 @@ import os
 import hypergan
 
 from hypergan.discriminators.common import *
-import hypergan.discriminators.minibatch_discriminator as minibatch
 
 def l2_distance(a,b):
     return tf.square(a-b)

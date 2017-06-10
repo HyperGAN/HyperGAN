@@ -110,3 +110,12 @@ class GANComponent:
         net = self.build(net)
         self.ops.stop_reuse()
         return net
+
+    def layer_regularizer(self, net):
+        symbol = self.config.layer_regularizer
+        op = self.ops.lookup(symbol)
+        if op:
+            net = op(self, net)
+        return net
+
+

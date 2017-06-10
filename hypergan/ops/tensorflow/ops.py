@@ -146,14 +146,6 @@ class TensorflowOps:
             return self.linear(net, 1)
         return _build
 
-
-    def layer_regularizer(self, net, symbol, epsilon):
-        self.assert_tensor(net)
-        op = self.lookup(symbol)
-        if op:
-            net = op(self, net, epsilon=epsilon, name=self.generate_name()+'_layer_regularizer')
-        return net
-
     def reshape(self, net, shape):
         self.assert_tensor(net)
         return tf.reshape(net, shape)

@@ -105,3 +105,12 @@ def phase_shift(X, r, color=False):
     X = _phase_shift(X, r)
   return X
 
+def minmax(net):
+    net = tf.minimum(net, 1)
+    net = tf.maximum(net, -1)
+    return net
+
+def minmaxzero(net):
+    net = tf.minimum(net, 1)
+    net = tf.maximum(net, 0)
+    return net

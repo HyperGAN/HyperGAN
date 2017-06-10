@@ -48,7 +48,7 @@ class PyramidDiscriminator(BaseDiscriminator):
             filters = ops.shape(net)[3]
             #TODO better name for `batch_norm`?
             if i != 0:
-                net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
+                net = self.layer_regularizer(net)
 
                 # APPEND xs[i] and gs[i]
                 if not is_last_layer:
@@ -79,13 +79,13 @@ class PyramidDiscriminator(BaseDiscriminator):
         net = tf.reshape(net, [ops.shape(net)[0], -1])
 
         if final_activation or (config.fc_layers or 0) > 0:
-            net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
+            net = self.layer_regularizer(net)
 
         for i in range(config.fc_layers or 0):
             net = activation(net)
             net = ops.linear(net, config.fc_layer_size)
             if final_activation or i < config.fc_layers - 1:
-                net = ops.layer_regularizer(net, config.layer_regularizer, config.batch_norm_epsilon)
+                net = self.layer_regularizer(net)
 
         if final_activation:
             net = final_activation(net)

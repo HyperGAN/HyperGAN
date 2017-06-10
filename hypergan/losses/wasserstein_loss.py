@@ -8,7 +8,6 @@ class WassersteinLoss(BaseLoss):
 
     def _create(self, d_real, d_fake):
         config = self.config
-        self.ops.describe("WassersteinLoss")
 
         d_real = config.reduce(d_real, axis = 1)
         d_fake = config.reduce(d_fake, axis = 1)

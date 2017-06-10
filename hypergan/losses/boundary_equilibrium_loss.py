@@ -1,6 +1,6 @@
 import tensorflow as tf
 import hyperchamber as hc
-from hypergan.generators.common import minmaxzero
+from hypergan.ops.tensorflow.activations import minmaxzero
 from hypergan.losses.common import *
 
 from hypergan.losses.base_loss import BaseLoss

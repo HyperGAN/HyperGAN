@@ -25,8 +25,8 @@ class StandardGanLossTest(tf.test.TestCase):
             gan.create()
             loss = StandardLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
-            d_shape = loss.ops.shape(d_loss)
-            g_shape = loss.ops.shape(g_loss)
+            d_shape = gan.ops.shape(d_loss)
+            g_shape = gan.ops.shape(g_loss)
             self.assertEqual(d_shape, [1])
             self.assertEqual(g_shape, [1])
 

@@ -42,8 +42,9 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
 
     def test_layer_norm(self):
         with self.test_session():
+            config['layer_regularizer'] = 'layer_norm'
             generator = ResizeConvGenerator(config=config, gan=gan)
-            generator.ops.lookup('layer_norm')(generator.ops, tf.constant(1, shape=[1,1,1,1], dtype=tf.float32))
+            generator.layer_regularizer(tf.constant(1, shape=[1,1,1,1], dtype=tf.float32))
             self.assertNotEqual(len(generator.variables()), 0)
 
 

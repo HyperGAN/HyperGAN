@@ -24,8 +24,8 @@ class AutoencoderDiscriminator(PyramidDiscriminator):
         generator = ResizeConvGenerator(gan, gan.generator.config)
         generator.ops = ops # share variable allocation to make variables part of the discriminator training step
 
-        hidden = PyramidDiscriminator.build(self, net)
         ops.describe("autoencoder")
+        hidden = PyramidDiscriminator.build(self, net)
         reconstruction = generator.build(hidden)
 
         error = config.distance(net, reconstruction)

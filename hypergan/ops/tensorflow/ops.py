@@ -119,7 +119,7 @@ class TensorflowOps:
         init_bias = 0.
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             # filter : [height, width, output_channels, in_channels]
-            w = self.get_weight([filter_h, filter_w, output_dim, output_dim])
+            w = self.get_weight([filter_h, filter_w, output_dim, shape[3]])
 
             deconv = tf.nn.conv2d_transpose(net, w, output_shape=output_shape,
                                     strides=[1, stride_h, stride_w, 1])

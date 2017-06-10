@@ -132,6 +132,8 @@ class RandomSearch:
             "activation":['relu', 'lrelu', 'tanh'],
             "final_depth":[32],
             "depth_increase":[32],
+            "initializer": ['orthogonal', 'random'],
+            "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
             "final_activation":['lrelu', 'tanh'],
             "block_repeat_count":[1,2,3],
             "block":[

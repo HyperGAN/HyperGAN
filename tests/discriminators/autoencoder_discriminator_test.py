@@ -38,7 +38,7 @@ class AutoencoderDiscriminatorTest(tf.test.TestCase):
             discriminator = AutoencoderDiscriminator(gan, config)
             gan.create()
             net = discriminator.create()
-            self.assertEqual(int(net.get_shape()[1]), 1024)
+            self.assertEqual(int(net.get_shape()[1]), 32)
 
     def test_reuse(self):
         graph = hc.Config({
@@ -58,7 +58,7 @@ class AutoencoderDiscriminatorTest(tf.test.TestCase):
             net = discriminator.reuse(gan.inputs.x)
             v_count2  = len(discriminator.variables())
             print('net',net.get_shape())
-            self.assertEqual(int(net.get_shape()[1]), 1024)
+            self.assertEqual(int(net.get_shape()[1]), 32)
             self.assertEqual(v_count, v_count2)
 
 

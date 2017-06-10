@@ -29,9 +29,13 @@ class CLI:
         else:
             args = args
         self.args = args
-        width = int(self.args.size.split("x")[0])
-        height = int(self.args.size.split("x")[1])
-        channels = int(self.args.size.split("x")[2])
+        if 'size' in self.args:
+            size = [int(x) for x in self.args.size.split("x")] + [None, None, None]
+        else:
+            size = [None, None, None]
+        width = size[0] or 64
+        height = size[1] or 64
+        channels = size[2] or 3
 
         if 'config' in args:
             config = args.config

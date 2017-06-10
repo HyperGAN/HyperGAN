@@ -65,7 +65,7 @@ class PyramidDiscriminator(BaseDiscriminator):
                 depth = config.initial_depth
 
             print("NET IS", net, depth, layers)
-            net = config.block(ops, net, config, depth)
+            net = config.block(self, net, depth)
 
             print('[discriminator] layer', net)
 

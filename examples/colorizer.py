@@ -3,8 +3,40 @@ import os
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
+import numpy as np
 from hypergan.samplers.viewer import GlobalViewer
-from hypergan.samplers.static_batch_sampler import StaticBatchSampler
+from hypergan.samplers.base_sampler import BaseSampler
+
+x_v = None
+z_v = None
+
+class Sampler(BaseSampler):
+    def sample(self, path):
+        gan = self.gan
+        generator = gan.generator.sample
+        z_t = gan.encoder.z
+        x_t = gan.inputs.x
+        
+        sess = gan.session
+        config = gan.config
+        global x_v
+        global z_v
+        if(x_v == None):
+            x_v, z_v = sess.run([x_t, z_t])
+            x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
+        
+        sample = sess.run(generator, {x_t: x_v, z_t: z_v})
+        stacks = []
+        bs = gan.batch_size()
+        width = 5
+        print(np.shape(x_v), np.shape(sample))
+        stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4]])
+        for i in range(bs//width-1):
+            stacks.append([sample[i*width+width+j] for j in range(width)])
+        images = np.vstack([np.hstack(s) for s in stacks])
+
+        self.plot(images, path)
+        return [{'images': images, 'label': 'tiled x sample'}]
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
@@ -65,14 +97,15 @@ config_name = args.config
 title = "[hypergan] colorizer " + config_name
 GlobalViewer.window.set_title(title)
 
-sampler = StaticBatchSampler(gan)
+sampler = Sampler(gan)
 
 for i in range(10000000):
     gan.step()
 
-    if i % args.save_every == 0 and i > 0:
-        print("Saving " + save_file)
-        gan.save(save_file)
+    #if i % args.save_every == 0 and i > 0:
+    #    savefile =,m
+    #    print("Saving " + save_file)
+    #    gan.save(save_file)
 
     if i % args.sample_every == 0:
         print("Sampling "+str(i))

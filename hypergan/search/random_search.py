@@ -29,7 +29,11 @@ class RandomSearch:
                 tf.train.AdagradOptimizer,
                 tf.train.GradientDescentOptimizer,
                 tf.train.AdamOptimizer,
+<<<<<<< HEAD
                # tf.train.AdagradDAOptimizer, # TODO missing param
+=======
+                #tf.train.AdagradDAOptimizer, # TODO missing param
+>>>>>>> develop
                 tf.train.MomentumOptimizer,
                 #tf.train.ProximalGradientDescentOptimizer,
                 #tf.train.FtrlOptimizer,

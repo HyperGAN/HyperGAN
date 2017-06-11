@@ -83,11 +83,11 @@ class BaseLoss(GANComponent):
         shape = [1 for t in g.get_shape()]
         shape[0] = gan.batch_size()
         uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
-        interpolates = x + (1 - uniform_noise)*g
+        interpolates = x + uniform_noise * (g - x)
         reused_d = gan.discriminator.reuse(interpolates)
         gradients = tf.gradients(reused_d, [interpolates])[0]
         penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
-        penalty = tf.reduce_mean(tf.square(penalty-1.))
+        penalty = tf.reduce_mean(tf.square(penalty - 1.))
         return float(gradient_penalty) * penalty
 
 

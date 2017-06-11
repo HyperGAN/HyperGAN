@@ -103,6 +103,7 @@ class ResizeConvGenerator(BaseGenerator):
         return net
 
     def layer_filter(self, gan, config, net):
+        ops = self.ops
         if config.layer_filter:
             fltr = config.layer_filter(gan, net)
             if fltr is not None:

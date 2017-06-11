@@ -1,5 +1,6 @@
 {
-  "arxiv": "https://arxiv.org/pdf/1611.04076v2.pdf",
+  "description": "Least Squares GAN",
+  "publication": "https://arxiv.org/abs/1611.04076v2",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",

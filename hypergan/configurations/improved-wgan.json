@@ -1,4 +1,6 @@
 {
+  "description": "Improved Wasserstein GAN",
+  "publication": "https://arxiv.org/abs/1704.00028",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",

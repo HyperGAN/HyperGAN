@@ -1,5 +1,6 @@
 {
-  "arxiv": "https://arxiv.org/pdf/1704.06191.pdf",
+  "description": "Softmax GAN",
+  "publication": "https://arxiv.org/abs/1704.06191",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",

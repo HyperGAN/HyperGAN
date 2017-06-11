@@ -1,5 +1,6 @@
 {
-  "arxiv": "https://arxiv.org/pdf/1704.06191.pdf",
+  "description": "Boundary Equilibrium GAN.  Uses an internal autoencoder",
+  "publication": "https://arxiv.org/abs/1703.10717",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.autoencoder_discriminator.AutoencoderDiscriminator",

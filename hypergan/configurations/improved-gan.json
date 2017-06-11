@@ -1,4 +1,6 @@
 {
+  "description": "Improved GAN.  Limited to 64x64x3",
+  "publication": "https://arxiv.org/abs/1606.03498",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",

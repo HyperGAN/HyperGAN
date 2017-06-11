@@ -1,4 +1,6 @@
 {
+  "description": "The original famous DCGAN.  Limited to 64x64x3",
+  "publication": "https://arxiv.org/abs/1511.06434",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",

@@ -1,4 +1,5 @@
 {
+  "description": "The default determined by automated search.",
   "discriminator": 
   {
     "activation": "lrelu",

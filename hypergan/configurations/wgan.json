@@ -1,4 +1,6 @@
 {
+  "description":"Wasserstein GAN",
+  "publication":"https://arxiv.org/abs/1701.07875",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",

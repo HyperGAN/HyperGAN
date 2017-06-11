@@ -1,5 +1,6 @@
 import hyperchamber as hc
 import inspect
+import itertools
 
 
 class ValidationException(Exception):
@@ -118,4 +119,58 @@ class GANComponent:
             net = op(self, net)
         return net
 
+    def split_by_width_height(self, net):
+        elems = []
+        ops = self.gan.ops
+        shape = ops.shape(net)
+        bs = shape[0]
+        height = shape[1]
+        width = shape[2]
+        for i in range(width):
+            for j in range(height):
+                elems.append(ops.slice(net, [0, i, j, 0], [bs, 1, 1, -1]))
+
+        return elems
+
+    def permute(self, nets, k):
+        return list(itertools.permutations(nets, k))
+
+    def fully_connected_from_list(self, nets):
+        results = []
+        ops = self.ops
+        print('fuly conec', nets)
+        for net, net2 in nets:
+            net = ops.concat([net, net2], axis=3)
+            shape = ops.shape(net)
+            bs = shape[0]
+            net = ops.reshape(net, [bs, -1])
+            features = ops.shape(net)[1]
+            net = ops.linear(net, features)
+            #net = self.layer_regularizer(net)
+            net = ops.lookup('lrelu')(net)
+            #net = ops.linear(net, features)
+            net = ops.reshape(net, shape)
+            results.append(net)
+        return results
+
+    def relation_layer(self, net):
+        ops = self.ops
+
+        #hack
+        shape = ops.shape(net)
+        input_size = shape[1]*shape[2]*shape[3]
+
+        netlist = self.split_by_width_height(net)
+        permutations = self.permute(netlist, 2)
+        permutations = self.fully_connected_from_list(permutations)
+        # TODO: activation?
+        net = ops.concat(permutations, axis=3)
+
+        #hack
+        bs = ops.shape(net)[0]
+        net = ops.reshape(net, [bs, -1])
+        net = ops.linear(net, input_size)
+        net = ops.reshape(net, shape)
+
+        return net
 

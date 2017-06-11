@@ -76,6 +76,11 @@ class PyramidDiscriminator(BaseDiscriminator):
             print('[extra discriminator] layer', net)
         k=-1
 
+        if config.relation_layer:
+            net = self.layer_regularizer(net)
+            net = activation(net)
+            net = self.relation_layer(net)
+
         net = tf.reshape(net, [ops.shape(net)[0], -1])
 
         if final_activation or (config.fc_layers or 0) > 0:

@@ -58,6 +58,11 @@ class ResizeConvGenerator(BaseGenerator):
         print("RESHAPE", net, new_shape)
         net = ops.reshape(net, new_shape)
 
+        if config.relation_layer:
+            net = activation(net)
+            net = self.relation_layer(net)
+            net = self.layer_regularizer(net)
+
         depth_reduction = np.float32(config.depth_reduction)
 
         shape = ops.shape(net)

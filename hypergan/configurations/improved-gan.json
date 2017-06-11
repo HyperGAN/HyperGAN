@@ -3,7 +3,8 @@
   {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
     "initializer": "random_normal",
-    "random_stddev": 0.02
+    "random_stddev": 0.02,
+    "noise": 1e-2
   },
   "encoder":
   {

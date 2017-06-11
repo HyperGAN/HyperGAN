@@ -40,7 +40,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         g = gan.generator.sample
 
 
-        net = self.add_noise(config, net)
+        net = self.add_noise(net)
 
         for i in range(layers):
             xg = None
@@ -129,11 +129,6 @@ class PyramidDiscriminator(BaseDiscriminator):
         else:
             print("XG", x, g)
             net = tf.concat(axis=0, values=[x,g])
-        return net
-
-    def add_noise(self, config, net):
-        if('noise' in config and config['noise']):
-            net += tf.random_normal(net.get_shape(), mean=0, stddev=config['noise'], dtype=tf.float32)
         return net
 
     def progressive_enhancement(self, config, net, xg):

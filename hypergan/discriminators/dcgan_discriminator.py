@@ -30,6 +30,7 @@ class DCGANDiscriminator(BaseDiscriminator):
         gan = self.gan
         ops = self.ops
 
+        net = self.add_noise(net)
         net = ops.conv2d(net, 3, 3, 2, 2, 64)
         net = ops.lookup('batch_norm')(self, net)
         net = ops.lookup('lrelu')(net)

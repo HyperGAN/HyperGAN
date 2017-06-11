@@ -38,7 +38,7 @@ class BoundaryEquilibriumLoss(BaseLoss):
         else:
             gamma_d_real = d_real
         k_loss = tf.reduce_mean(gamma_d_real - d_fake, axis=0)
-        update_k = tf.assign(k, minmaxzero(k + config.k_lambda * k_loss))
+        update_k = tf.assign(k, tf.clip_by_value(k + config.k_lambda * k_loss, 0, 1))
         measure = tf.reduce_mean(l_x + tf.abs(k_loss), axis=0)
 
         return [k, update_k, measure, d_loss, g_loss]
@@ -57,6 +57,5 @@ class BoundaryEquilibriumLoss(BaseLoss):
             'update_k': update_k, #TODO side effect, this actually trains k
             'measure': measure
         }
-
 
         return [d_loss, g_loss]

@@ -5,11 +5,12 @@
   {
     "class": "class:hypergan.discriminators.autoencoder_discriminator.AutoencoderDiscriminator",
     "layers": 5,
-    "distance": "function:hypergan.discriminators.autoencoder_discriminator.l2_distance",
+    "distance": "function:hypergan.discriminators.autoencoder_discriminator.l1_distance",
     "block": "function:hypergan.discriminators.common.standard_block",
     "initial_depth": 64,
     "activation": "lrelu",
     "noise": 1e-2,
+    "layer_regularizer": "layer_norm",
     "depth_increase": 64
   },
   "encoder":
@@ -24,6 +25,7 @@
   },
   "generator": {
     "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
+    "layer_regularizer": "layer_norm",
     "activation": "lrelu",
     "final_activation": "tanh",
     "depth_increase": 64,
@@ -42,7 +44,7 @@
     "type": "wgan",
     "k_lambda": 0.001,
     "labels": [
-      -1,
+      0,
       1,
       1
     ]
@@ -50,10 +52,10 @@
   "trainer": {
     "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
     "d_beta1": 0.5,
-    "d_learn_rate": 0.0001,
+    "d_learn_rate": 0.00008,
     "d_trainer": "class:tensorflow.python.training.adam.AdamOptimizer",
     "g_beta1": 0.5,
-    "g_learn_rate": 0.0002,
+    "g_learn_rate": 0.00008,
     "g_trainer": "class:tensorflow.python.training.adam.AdamOptimizer"
   }
 }

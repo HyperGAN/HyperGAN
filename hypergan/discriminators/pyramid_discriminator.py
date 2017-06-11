@@ -56,7 +56,7 @@ class PyramidDiscriminator(BaseDiscriminator):
                     small_x = ops.resize_images(x, [shape[1], shape[2]], 1)
                     small_g = ops.resize_images(g, [shape[1], shape[2]], 1)
                     xg = self.combine_filter(config, small_x, small_g)
-                    xg = self.add_noise(config, xg)
+                    xg = self.add_noise(xg)
 
             net = self.progressive_enhancement(config, net, xg)
 

@@ -1,0 +1,49 @@
+{
+  "description": "Cramer GAN",
+  "publication": "https://arxiv.org/abs/1705.10743",
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.cramer_discriminator.CramerDiscriminator",
+    "layers": 5,
+    "block": "function:hypergan.discriminators.common.standard_block",
+    "initial_depth": 64,
+    "layer_regularizer": "layer_norm",
+    "activation": "lrelu",
+    "depth_increase": 64
+  },
+  "encoder":
+  {
+    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "projections": [
+      "function:hypergan.encoders.uniform_encoder.identity"
+    ],
+    "min": -1,
+    "max": 1,
+    "z": 100
+  },
+  "generator": {
+    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
+    "activation": "lrelu",
+    "final_activation": "tanh",
+    "layer_regularizer": "batch_norm",
+    "depth_increase": 64,
+    "final_depth": 64,
+    "block": "function:hypergan.generators.common.standard_block",
+    "initializer": "random_normal",
+    "random_stddev": 0.02
+  },
+  "loss":
+  {
+    "class": "function:hypergan.losses.softmax_loss.SoftmaxLoss",
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "d_beta1": 0.5,
+    "d_learn_rate": 0.0001,
+    "d_trainer": "class:tensorflow.python.training.adam.AdamOptimizer",
+    "g_beta1": 0.5,
+    "g_learn_rate": 0.0001,
+    "g_trainer": "class:tensorflow.python.training.adam.AdamOptimizer"
+  }
+}

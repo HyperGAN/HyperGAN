@@ -33,6 +33,7 @@ class CLI:
 
         crop =  self.args.crop
 
+        self.config_name = self.args.config or 'default'
         self.method = args.method or 'test'
         self.total_steps = args.steps or -1
         self.sample_every = self.args.sample_every or 100
@@ -83,6 +84,9 @@ class CLI:
 
         if(self.args.viewer):
             GlobalViewer.enable()
+            config_name = self.config_name
+            title = "[hypergan] " + config_name
+            GlobalViewer.window.set_title(title)
 
         sample_list = self.sampler.sample(sample_file)
 

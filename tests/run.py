@@ -10,6 +10,7 @@ from cli_test import CliTest
 
 from discriminators.pyramid_discriminator_test import PyramidDiscriminatorTest
 from discriminators.autoencoder_discriminator_test import AutoencoderDiscriminatorTest
+from discriminators.cramer_discriminator_test import CramerDiscriminatorTest
 from encoders.match_discriminator_encoder_test import MatchDiscriminatorEncoderTest
 from encoders.uniform_encoder_test import UniformEncoderTest
 
@@ -24,6 +25,7 @@ from generators.resize_conv_generator_test import ResizeConvGeneratorTest
 from losses.standard_gan_loss_test import StandardGanLossTest
 from losses.wasserstein_loss_test import WassersteinLossTest
 from losses.least_squares_loss_test import LeastSquaresLossTest
+from losses.cramer_loss_test import CramerLossTest
 from losses.softmax_loss_test import SoftmaxLossTest
 from losses.lamb_gan_loss_test import LambGanLossTest
 #from losses.category_loss_test import CategoryLossTest

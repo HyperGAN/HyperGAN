@@ -89,7 +89,7 @@ class GANComponent:
         """
         return self.ops.variables()
 
-    def split_batch(self, net):
+    def split_batch(self, net, count=2):
         """ 
         Discriminators return stacked results (on axis 0).  
         
@@ -98,13 +98,14 @@ class GANComponent:
         ops = self.ops or self.gan.ops
         s = ops.shape(net)
         bs = s[0]
-        net = ops.reshape(net, [bs, -1])
-        size = [bs//2] + [x for x in ops.shape(net)[1:]]
+        nets = []
         start = [0 for x in ops.shape(net)]
-        start2 = [bs//2] + [0 for x in ops.shape(net)[1:]]
-        d_real = ops.slice(net, start, size)
-        d_fake = ops.slice(net, start2, size)
-        return [d_real, d_fake]
+        for i in range(count):
+            net = ops.reshape(net, [bs, -1])
+            size = [bs//count] + [x for x in ops.shape(net)[1:]]
+            nets.append(ops.slice(net, start, size))
+            start[0] += bs//count
+        return nets
 
     def reuse(self, net):
         self.ops.reuse()

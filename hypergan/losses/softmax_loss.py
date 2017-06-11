@@ -1,5 +1,4 @@
 import tensorflow as tf
-from hypergan.losses.common import *
 import hyperchamber as hc
 
 from hypergan.losses.base_loss import BaseLoss

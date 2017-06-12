@@ -29,7 +29,7 @@ class CommandParser:
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
-        parser.add_argument('--viewer', dest='viewer', action='store_true', help='Displays samples in a window.')
+        parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)

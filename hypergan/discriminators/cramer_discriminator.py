@@ -24,6 +24,7 @@ class CramerDiscriminator(PyramidDiscriminator):
         ops = self.ops
 
         discriminator = PyramidDiscriminator(gan, config)
+        discriminator.ops = ops
         encoder = UniformEncoder(gan, gan.config.encoder)
 
         # careful, this order matters

@@ -99,9 +99,9 @@ class GANComponent:
         s = ops.shape(net)
         bs = s[0]
         nets = []
+        net = ops.reshape(net, [bs, -1])
         start = [0 for x in ops.shape(net)]
         for i in range(count):
-            net = ops.reshape(net, [bs, -1])
             size = [bs//count] + [x for x in ops.shape(net)[1:]]
             nets.append(ops.slice(net, start, size))
             start[0] += bs//count

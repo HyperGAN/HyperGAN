@@ -8,7 +8,7 @@ from .base_generator import BaseGenerator
 class ResizeConvGenerator(BaseGenerator):
 
     def required(self):
-        return "final_depth activation final_activation depth_increase block".split()
+        return "final_depth activation depth_increase block".split()
 
     def depths(self):
         gan = self.gan
@@ -86,7 +86,8 @@ class ResizeConvGenerator(BaseGenerator):
 
             first3 = self.layer_regularizer(first3)
 
-            first3 = final_activation(first3)
+            if config.final_activation:
+                first3 = final_activation(first3)
 
             nets.append(first3)
             size = resize[0]*resize[1]*depth

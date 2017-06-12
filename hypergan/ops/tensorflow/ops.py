@@ -4,7 +4,7 @@ import types
 import importlib
 import hypergan
 from hypergan.ops.tensorflow import layer_regularizers
-from hypergan.ops.tensorflow.activations import lrelu
+from hypergan.ops.tensorflow.activations import lrelu, selu
 
 class TensorflowOps:
     def __init__(self, config={}, device="/gpu:0"):
@@ -32,6 +32,8 @@ class TensorflowOps:
             raise Exception("Expected a Tensor but received", net)
 
     def add_weights(self, weights):
+        if not isinstance(weights, list):
+            weights = [weights]
         self.weights += weights
 
     def variables(self):
@@ -146,6 +148,25 @@ class TensorflowOps:
             return self.linear(net, 1)
         return _build
 
+
+    def prelu(self):
+        def _prelu(_x):
+            orig_shape = self.shape(_x)
+            _x = tf.reshape(_x, [orig_shape[0], -1])
+
+            with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+                alphas = tf.get_variable('prelu', 
+                          _x.get_shape()[-1],
+                          initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
+                          dtype=tf.float32)
+                pos = tf.nn.relu(_x)
+                neg = alphas * (_x - abs(_x)) * 0.5
+
+            self.add_weights(alphas)
+            return tf.reshape(pos + neg, orig_shape)
+
+        return _prelu
+
     def reshape(self, net, shape):
         self.assert_tensor(net)
         return tf.reshape(net, shape)
@@ -205,8 +226,12 @@ class TensorflowOps:
             return layer_regularizers.batch_norm_1
         if symbol == 'layer_norm':
             return layer_regularizers.layer_norm_1
+        if symbol == "crelu":
+            return tf.nn.crelu
         if symbol == "prelu": #TODO test me
             return self.prelu()
+        if symbol == "selu": #TODO test me
+            return selu
         if symbol == "lrelu": #TODO test me
             return lrelu
         if symbol == "relu": #TODO test me

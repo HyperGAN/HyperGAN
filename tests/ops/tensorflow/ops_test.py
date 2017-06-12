@@ -7,6 +7,17 @@ from unittest.mock import MagicMock
 ops = TensorflowOps()
 tanh_str = "function:tensorflow.python.ops.math_ops.tanh"
 class OpsTest(tf.test.TestCase):
+    def test_lookup_activations(self):
+        x = tf.constant(-1.0, shape=[2, 2])
+        with self.test_session():
+            activations = ['relu','prelu','selu','crelu']
+            for activation in activations:
+                activation = ops.lookup(activation)(x)
+                
+                tf.get_default_session().run(tf.global_variables_initializer())
+            
+                self.assertNotEqual(x.eval()[0][0], activation.eval()[0][0])
+
     def test_lookup_function(self):
         with self.test_session():
             self.assertEqual(ops.lookup_function(tanh_str), tf.nn.tanh)
@@ -87,6 +98,13 @@ class OpsTest(tf.test.TestCase):
             ops.get_weight([1,1])
             self.assertTrue('float32' in str(ops.weights[0].dtype))
             self.assertEqual(ops.shape(ops.weights[0]), [1, 1])
+
+    def test_add_weight(self):
+        with self.test_session():
+            ops.add_weights(tf.constant(1))
+            ops.add_weights(tf.constant(1,shape=[2,1]))
+
+            self.assertEqual(len(ops.weights), 2)
 
     def test_get_bias(self):
         with self.test_session():

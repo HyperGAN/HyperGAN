@@ -12,7 +12,4 @@ class CramerLoss(BaseLoss):
         g_loss = d_real - d_fake
         d_loss = -g_loss
 
-        if config.gradient_penalty:
-            d_loss += gradient_penalty(gan, config.gradient_penalty)
-
         return [d_loss, g_loss]

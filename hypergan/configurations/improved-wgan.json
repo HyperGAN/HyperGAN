@@ -3,14 +3,11 @@
   "publication": "https://arxiv.org/abs/1704.00028",
   "discriminator": 
   {
-    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
-    "layers": 5,
-    "layer_regularizer": "layer_norm",
-    "block": "function:hypergan.discriminators.common.standard_block",
-    "initial_depth": 64,
+    "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
+    "initializer": "random_normal",
     "activation": "lrelu",
-    "depth_increase": 64,
-    "final_activation": "tanh"
+    "improved": true,
+    "random_stddev": 0.02
   },
   "encoder":
   {
@@ -23,13 +20,10 @@
     "z": 100
   },
   "generator": {
-    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
-    "layer_regularizer": "batch_norm",
-    "activation": "lrelu",
-    "final_activation": "tanh",
-    "depth_increase": 64,
-    "final_depth": 64,
-    "block": "function:hypergan.generators.common.standard_block"
+    "class": "function:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "activation": "selu",
+    "initializer": "random_normal",
+    "random_stddev": 0.02
   },
   "loss":
   {
@@ -39,13 +33,9 @@
   },
   "trainer": {
     "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
-    "d_beta1": 0.5,
-    "d_beta2": 0.9,
-    "d_trainer": "class:tensorflow.python.training.adam.AdamOptimizer",
-    "d_learn_rate": 0.0001,
-    "g_learn_rate": 0.0001,
-    "g_beta1": 0.5,
-    "g_beta2": 0.9,
-    "g_trainer": "class:tensorflow.python.training.adam.AdamOptimizer"
+    "d_learn_rate": 0.00005,
+    "d_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+    "g_learn_rate": 0.00005,
+    "g_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer"
   }
 }

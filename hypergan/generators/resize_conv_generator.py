@@ -8,7 +8,7 @@ from .base_generator import BaseGenerator
 class ResizeConvGenerator(BaseGenerator):
 
     def required(self):
-        return "final_depth activation depth_increase block".split()
+        return "final_depth activation depth_increase".split()
 
     def depths(self):
         gan = self.gan
@@ -52,49 +52,41 @@ class ResizeConvGenerator(BaseGenerator):
 
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
+        block = config.block or standard_block
 
-        print(gan)
         net = ops.linear(net, initial_depth*primes[0]*primes[1])
-        print("RESHAPE", net, new_shape)
         net = ops.reshape(net, new_shape)
 
         if config.relation_layer:
+            net = self.layer_regularizer(net)
             net = activation(net)
             net = self.relation_layer(net)
-            net = self.layer_regularizer(net)
 
         depth_reduction = np.float32(config.depth_reduction)
 
         shape = ops.shape(net)
 
-        net = config.block(self, net, shape[3])
+        net = self.layer_regularizer(net)
+        net = activation(net)
+
         net = self.layer_filter(gan, config, net)
-        print("CREATING GENERATOR")
-
         for i, depth in enumerate(depths):
-            s = ops.shape(net)
+            net = block(self, net, depth)
+            net = self.layer_regularizer(net)
+
             is_last_layer = (i == len(depths)-1)
+            if is_last_layer:
+                net = final_activation(net)
+            else:
+                net = activation(net)
+                s = ops.shape(net)
+                resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
+                net = ops.resize_images(net, resize, config.resize_image_type or 1)
 
-            resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
-
-            net = ops.resize_images(net, resize, config.resize_image_type or 1)
-            net = self.layer_filter(gan, config, net)
-            net = config.block(self, net, depth)
-
-            sliced = ops.slice(net, [0,0,0,0], [-1,-1,-1, gan.channels()])
-            first3 = net if is_last_layer else sliced
-
-            first3 = self.layer_regularizer(first3)
-
-            if config.final_activation:
-                first3 = final_activation(first3)
-
-            nets.append(first3)
             size = resize[0]*resize[1]*depth
             print("[generator] layer", net, size)
 
-        print("NET_ are", nets, depths)
-        self.sample = nets[-1]
+        self.sample = net
         return self.sample
 
     def reuse(self, net):

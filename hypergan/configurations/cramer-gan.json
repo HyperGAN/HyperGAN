@@ -4,12 +4,11 @@
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.cramer_discriminator.CramerDiscriminator",
-    "layers": 5,
-    "block": "function:hypergan.discriminators.common.standard_block",
-    "initial_depth": 64,
-    "layer_regularizer": "layer_norm",
-    "activation": "lrelu",
-    "depth_increase": 64
+    "initializer": "random_normal",
+    "random_stddev": 0.02,
+    "activation": "selu",
+    "final_features": 300,
+    "improved": true
   },
   "encoder":
   {
@@ -22,19 +21,16 @@
     "z": 100
   },
   "generator": {
-    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
-    "activation": "lrelu",
-    "final_activation": "tanh",
-    "layer_regularizer": "batch_norm",
-    "depth_increase": 64,
-    "final_depth": 64,
-    "block": "function:hypergan.generators.common.standard_block",
+    "class": "function:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "activation": "selu",
     "initializer": "random_normal",
     "random_stddev": 0.02
   },
+
   "loss":
   {
-    "class": "function:hypergan.losses.softmax_loss.SoftmaxLoss",
+    "class": "function:hypergan.losses.cramer_loss.CramerLoss",
+    "gradient_penalty": 10,
     "reduce": "reduce_mean"
   },
   "trainer": {

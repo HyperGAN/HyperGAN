@@ -5,6 +5,7 @@
   {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
     "initializer": "random_normal",
+    "layer_regularizer": "batch_norm",
     "random_stddev": 0.02
   },
   "encoder":
@@ -19,6 +20,7 @@
   },
   "generator": {
     "class": "function:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "layer_regularizer": "batch_norm",
     "initializer": "random_normal",
     "random_stddev": 0.02
   },
@@ -33,6 +35,7 @@
     "d_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer",
     "d_clipped_weights": 0.01,
     "g_learn_rate": 0.00005,
-    "g_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer"
+    "g_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+    "d_update_steps": 5
   }
 }

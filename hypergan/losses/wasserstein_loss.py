@@ -8,14 +8,12 @@ class WassersteinLoss(BaseLoss):
     def _create(self, d_real, d_fake):
         config = self.config
 
-        d_real = config.reduce(d_real, axis = 1)
-        d_fake = config.reduce(d_fake, axis = 1)
-
+        print("Initializing Wasserstein loss", config.reverse)
         if(config.reverse):
-            d_loss = d_real - d_fake
-            g_loss = d_fake
-        else:
             d_loss = -d_real + d_fake
             g_loss = -d_fake
+        else:
+            d_loss = d_real - d_fake
+            g_loss = d_fake
 
         return [d_loss, g_loss]

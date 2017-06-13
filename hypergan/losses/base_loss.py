@@ -21,14 +21,17 @@ class BaseLoss(GANComponent):
         d_loss, g_loss = self._create(d_real, d_fake)
 
         if d_loss is not None:
+            d_loss = ops.squash(d_loss, tf.reduce_mean) #TODO linear doesn't work with this, so we cant pass config.reduce
+            self.metrics['d_loss'] = d_loss
 
             if config.minibatch:
                 d_loss += self.minibatch(net)
 
             if config.gradient_penalty:
-                d_loss += self.gradient_penalty()
-            d_loss = ops.squash(d_loss, tf.reduce_mean) #TODO linear doesn't work with this, so we cant pass config.reduce
-            self.metrics['d_loss'] = d_loss
+                gp = self.gradient_penalty()
+                self.metrics['gradient_penalty'] = gp
+                print("Gradient penalty applied")
+                d_loss += gp
 
         if g_loss is not None:
             g_loss = ops.squash(g_loss, tf.reduce_mean)

@@ -7,11 +7,10 @@
     "layers": 5,
     "distance": "function:hypergan.discriminators.autoencoder_discriminator.l1_distance",
     "block": "function:hypergan.discriminators.common.standard_block",
-    "initial_depth": 64,
+    "initial_depth": 32,
     "activation": "lrelu",
-    "noise": 1e-2,
     "layer_regularizer": "layer_norm",
-    "depth_increase": 64
+    "depth_increase": 32
   },
   "encoder":
   {

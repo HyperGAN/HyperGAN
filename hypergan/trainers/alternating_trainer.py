@@ -56,6 +56,8 @@ class AlternatingTrainer(BaseTrainer):
 
         if config.d_clipped_weights:
             self.clip = [tf.assign(d,tf.clip_by_value(d, -config.d_clipped_weights, config.d_clipped_weights))  for d in d_vars]
+        else:
+            self.clip = []
 
         return g_optimizer, d_optimizer
 
@@ -80,11 +82,10 @@ class AlternatingTrainer(BaseTrainer):
 
         d_loss, g_loss = self.gan.loss.sample
 
-        if(config.d_clipped_weights):
-            sess.run(self.clip)
-        _ = sess.run(self.d_optimizer, feed_dict)
-        metric_values = sess.run([self.g_optimizer] + self.output_variables(metrics), feed_dict)[1:]
+        for i in range(config.d_update_steps or 1):
+            sess.run([self.d_optimizer] + self.clip, feed_dict)
 
+        metric_values = sess.run([self.g_optimizer] + self.output_variables(metrics), feed_dict)[1:]
 
         if self.current_step % 100 == 0:
             print(self.output_string(metrics) % tuple([self.current_step] + metric_values))

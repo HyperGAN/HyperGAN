@@ -20,6 +20,7 @@ class DCGANGenerator(BaseGenerator):
         gan = self.gan
         ops = self.ops
         config = self.config
+        activation = ops.lookup(config.activation or 'lrelu')
 
         net = ops.linear(gan.encoder.sample, 4*4*1024)
 
@@ -27,17 +28,18 @@ class DCGANGenerator(BaseGenerator):
 
         net = ops.reshape(net, [shape[0],4,4,1024])
 
+        net = activation(net)
         net = ops.deconv2d(net, 5, 5, 2, 2, 512)
-        net = ops.lookup('batch_norm')(self, net)
-        net = ops.lookup('lrelu')(net)
+        net = self.layer_regularizer(net)
+        net = activation(net)
         net = ops.deconv2d(net, 5, 5, 2, 2, 256)
-        net = ops.lookup('batch_norm')(self, net)
-        net = ops.lookup('lrelu')(net)
+        net = self.layer_regularizer(net)
+        net = activation(net)
         net = ops.deconv2d(net, 5, 5, 2, 2, 128)
-        net = ops.lookup('batch_norm')(self, net)
-        net = ops.lookup('lrelu')(net)
+        net = self.layer_regularizer(net)
+        net = activation(net)
         net = ops.deconv2d(net, 5, 5, 2, 2, gan.channels())
-        net = ops.lookup('batch_norm')(self, net)
+        net = self.layer_regularizer(net)
         net = ops.lookup('tanh')(net)
 
         self.sample = net

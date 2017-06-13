@@ -15,11 +15,6 @@ def repeating_block(component, net, output_channels):
 def standard_block(component, net, output_channels):
     config = component.config
     ops = component.ops
-    print("CONFIG ACT", config.activation)
-    activation = ops.lookup(config.activation)
-    print("nACT", activation)
-    net = activation(net)
-    net = component.layer_regularizer(net)
     net = ops.conv2d(net, 3, 3, 1, 1, output_channels)
     return net
 
@@ -32,9 +27,6 @@ def inception_block(component, net, output_channels):
 
     if output_channels == 3:
         return standard_block(component, net, output_channels)
-
-    net = component.layer_regularizer(net)
-    net = activation(net)
 
     net1 = ops.conv2d(net, 3, 3, 1, 1, output_channels//3)
     net2 = ops.conv2d(net1, 3, 3, 1, 1, output_channels//3)

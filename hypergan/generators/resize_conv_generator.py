@@ -20,7 +20,7 @@ class ResizeConvGenerator(BaseGenerator):
         print("DEPTHS", gan.inputs)
         target_w = gan.width()
 
-        w = 8
+        w = 4
         i = 0
 
         depths.append(final_depth)
@@ -51,15 +51,20 @@ class ResizeConvGenerator(BaseGenerator):
         net = ops.linear(net, initial_depth*primes[0]*primes[1])
         net = ops.reshape(net, new_shape)
 
-        if config.relation_layer:
-            net = self.layer_regularizer(net)
-            net = activation(net)
-            net = self.relation_layer(net)
-
-        depth_reduction = np.float32(config.depth_reduction)
-
         shape = ops.shape(net)
 
+        net = self.layer_regularizer(net)
+        net = activation(net)
+
+        print("[generator] Initial depth", primes, initial_depth)
+
+        if config.relation_layer:
+            net = self.relation_layer(net)
+            net = self.layer_regularizer(net)
+            net = activation(net)
+
+        depth_reduction = np.float32(config.depth_reduction)
+        shape = ops.shape(net)
 
         net = self.layer_filter(net)
         for i, depth in enumerate(depths):
@@ -70,15 +75,14 @@ class ResizeConvGenerator(BaseGenerator):
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = block(self, net, depth)
 
-
             size = resize[0]*resize[1]*depth
             print("[generator] layer", net, size)
 
         if final_activation:
-            print("REsizing final", net)
             net = self.layer_regularizer(net)
             net = activation(net)
             resize = [gan.height(), gan.width()]
+            print("[generator] final resize layer", net, resize)
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = block(self, net, gan.channels())
             net = self.layer_regularizer(net)

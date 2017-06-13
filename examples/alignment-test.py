@@ -10,6 +10,8 @@ import numpy as np
 from hypergan.generators import *
 from hypergan.gans.base_gan import BaseGAN
 from hypergan.gans.standard_gan import StandardGAN
+from hypergan.samplers.base_sampler import BaseSampler
+from hypergan.samplers.viewer import GlobalViewer
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
@@ -47,6 +49,49 @@ print("Saving config to ", config_filename)
 
 hc.Selector().save(config_filename, config)
 
+xa_v = None
+xb_v = None
+
+class Sampler(BaseSampler):
+    def sample(self, path):
+        gan = self.gan
+        cyca = gan.cyca
+        cycb = gan.cycb
+        xa_t = gan.inputs.xa
+        xba_t = gan.gan_btoa.generator.sample
+        xab_t = gan.gan_atob.generator.sample
+        xb_t = gan.inputs.xb
+        
+        sess = gan.session
+        config = gan.config
+        global xa_v, xb_v
+        if(xa_v == None):
+            xa_v, xb_v = sess.run([xa_t, xb_t])
+        
+        xab_v, xba_v, samplea, sampleb = sess.run([xab_t, xba_t, cyca, cycb], {xa_t: xa_v, xb_t: xb_v})
+        stacks = []
+        bs = gan.batch_size() // 2
+        width = 5
+        for i in range(1):
+            stacks.append([xa_v[i*width+width+j] for j in range(width)])
+        for i in range(1):
+            stacks.append([xab_v[i*width+width+j] for j in range(width)])
+        for i in range(1):
+            stacks.append([samplea[i*width+width+j] for j in range(width)])
+        for i in range(1):
+            stacks.append([xb_v[i*width+width+j] for j in range(width)])
+        for i in range(1):
+            stacks.append([xba_v[i*width+width+j] for j in range(width)])
+        for i in range(1):
+            stacks.append([sampleb[i*width+width+j] for j in range(width)])
+
+        [print(np.shape(s)) for s in stacks]
+        images = np.vstack([np.hstack(s) for s in stacks])
+
+        self.plot(images, path)
+        return [{'images': images, 'label': 'tiled x sample'}]
+
+
 
 class TwoImageInput():
     def create(self, args):
@@ -64,6 +109,7 @@ class TwoImageInput():
         xb = tf.tile(tf.image.rgb_to_grayscale(xa), [1,1,1,3])
 
         self.xa = xa
+        self.x = xa
         self.xb = xb
 
 class AlignedGAN(BaseGAN):
@@ -193,8 +239,19 @@ accuracies_items= list(accuracies.items())
 sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
 names = []
 
+sampler = Sampler(gan)
+
+GlobalViewer.enable()
+config_name = args.config
+title = "[hypergan] align-test " + config_name
+GlobalViewer.window.set_title(title)
+
 
 for i in range(40000):
+    if i % args.sample_every == 0:
+        print("Sampling "+str(i))
+        sample_file = "samples/"+str(i)+".png"
+        sampler.sample(sample_file)
     gan.step()
 
     if i % 100 == 0 and i != 0: 

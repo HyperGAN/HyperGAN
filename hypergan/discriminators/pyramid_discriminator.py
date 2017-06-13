@@ -21,10 +21,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
 
-
-        x = gan.inputs.x
-        g = gan.generator.sample
-
+        x, g = self.split_batch(net)
 
         net = self.add_noise(net)
 

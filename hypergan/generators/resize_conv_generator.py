@@ -20,7 +20,7 @@ class ResizeConvGenerator(BaseGenerator):
         print("DEPTHS", gan.inputs)
         target_w = gan.width()
 
-        w = 4
+        w = 8
         i = 0
 
         depths.append(final_depth)
@@ -75,14 +75,14 @@ class ResizeConvGenerator(BaseGenerator):
             net = self.layer_regularizer(net)
 
             is_last_layer = (i == len(depths)-1)
+            net = activation(net)
+            s = ops.shape(net)
+            resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
+            net = ops.resize_images(net, resize, config.resize_image_type or 1)
             if is_last_layer:
                 if final_activation:
                     net = final_activation(net)
-            else:
-                net = activation(net)
-                s = ops.shape(net)
-                resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
-                net = ops.resize_images(net, resize, config.resize_image_type or 1)
+                    net = self.layer_regularizer(net)
 
             size = resize[0]*resize[1]*depth
             print("[generator] layer", net, size)

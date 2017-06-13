@@ -76,6 +76,11 @@ class ResizeConvGenerator(BaseGenerator):
 
             is_last_layer = (i == len(depths)-1)
             if is_last_layer:
+                s = ops.shape(net)
+                resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
+                net = ops.resize_images(net, resize, config.resize_image_type or 1)
+                net = block(self, net, depth)
+                net = self.layer_regularizer(net)
                 net = final_activation(net)
             else:
                 net = activation(net)

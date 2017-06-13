@@ -37,8 +37,7 @@ if args.config_list is not None:
     config_file = random.choice(lines).strip()
     print("config list chosen", config_file)
 
-config_filename = os.path.expanduser('~/.hypergan/configs/'+config_file+'.json')
-config = hc.Selector().load(config_filename)
+config = hg.configuration.Configuration.load(config_file+".json")
 
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
 inputs.create(args.directory,

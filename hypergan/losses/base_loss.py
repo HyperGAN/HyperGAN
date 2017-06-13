@@ -93,7 +93,6 @@ class BaseLoss(GANComponent):
         penalty = tf.reduce_mean(tf.square(penalty - 1.))
         return float(gradient_penalty) * penalty
 
-
     def sigmoid_kl_with_logits(self, logits, targets):
        # broadcasts the same target value across the whole batch
        # this is implemented so awkwardly because tensorflow lacks an x log x op

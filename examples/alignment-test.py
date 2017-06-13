@@ -6,10 +6,10 @@ import sys
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
-from hypergan.loaders import *
-from hypergan.util.hc_tf import *
-from hypergan.samplers.common import *
+import numpy as np
 from hypergan.generators import *
+from hypergan.gans.base_gan import BaseGAN
+from hypergan.gans.standard_gan import StandardGAN
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
@@ -32,9 +32,6 @@ width = int(args.size.split("x")[0])
 height = int(args.size.split("x")[1])
 channels = int(args.size.split("x")[2])
 
-selector = hg.config.selector(args)
-
-config = selector.random_config()
 config_file = args.config
 
 if args.config_list is not None:
@@ -42,129 +39,110 @@ if args.config_list is not None:
     config_file = random.choice(lines).strip()
     print("config list chosen", config_file)
 
-config_filename = os.path.expanduser('~/.hypergan/configs/'+config_file+'.json')
-config = selector.load_or_create_config(config_filename, config)
+config = hg.configuration.Configuration.load(config_file+".json")
 
-# TODO refactor, shared in CLI
-config['dtype']=tf.float32
-config['batch_size'] = args.batch_size
-
-if args.add_full_image:
-    config['add_full_image']=args.add_full_image
-    
-x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
-                        args.directory,
-                        config['batch_size'], 
-                        channels=channels, 
-                        format=args.format,
-                        crop=args.crop,
-                        width=width,
-                        height=height)
-
-xa = x
-xb = tf.tile(tf.image.rgb_to_grayscale(xa), [1,1,1,3])
-
-def generator_config():
-    return align_generator.config(
-            z_projection_depth=[128],
-            activation=[tf.nn.relu,tf.tanh,lrelu,resize_conv_generator.generator_prelu, tf.nn.crelu],
-            final_activation=[None,tf.nn.tanh,resize_conv_generator.minmax],
-            depth_reduction=[32],
-            layer_filter=None,
-            layer_regularizer=[None],
-            block=[resize_conv_generator.standard_block, resize_conv_generator.inception_block, resize_conv_generator.dense_block, resize_conv_generator.repeating_block],
-	    orthogonal_initializer_gain= list(np.linspace(0.1, 2, num=100))
-    )
-
-def discriminator_config():
-    return hg.discriminators.align_discriminator.config(
-	    activation=[tf.nn.relu, lrelu, tf.nn.relu6, tf.nn.elu, tf.nn.crelu, tf.tanh],
-	    block_repeat_count=[1,2,3],
-        block=[hg.discriminators.common.repeating_block,
-               hg.discriminators.common.standard_block,
-               hg.discriminators.common.strided_block
-               ],
-            depth_increase=[32],
-            final_activation=[tf.nn.relu, tf.tanh, tf.nn.crelu, resize_conv_generator.minmax],
-            layer_regularizer=[None],
-            layers=[6,5,4],
-	    extra_layers=[2,3],
-	    extra_layers_reduction=[1,2,4],
-            fc_layer_size=[300],
-            fc_layers=[0,1],
-            first_conv_size=[32],
-            noise=[False, 1e-2],
-            progressive_enhancement=[False, True],
-			foundation= "additive",
-	    orthogonal_initializer_gain= list(np.linspace(0.1, 2, num=100)),
-        distance=[hg.discriminators.autoencoder_discriminator.l1_distance, hg.discriminators.autoencoder_discriminator.l2_distance],
-        include_ae=[True, False],
-        include_gs=[True, False],
-        include_xabba=[True, False],
-        include_gaab=[True, False],
-        include_ga=[True, False],
-        include_cross_distance=[True, False],
-        include_cross_distance2=[True, False],
-        include_encoded=[True, False]
-    )
-
-def generator_autoencode_config():
-    return resize_conv_generator.config(
-            z_projection_depth=[128],
-            activation=[tf.nn.relu,tf.tanh,lrelu,resize_conv_generator.generator_prelu, tf.nn.crelu],
-            final_activation=[None,tf.nn.tanh,resize_conv_generator.minmax],
-            depth_reduction=[32],
-            layer_filter=None,
-            layer_regularizer=[None],
-	    block_repeat_count=[1,2,3],
-            block=[resize_conv_generator.standard_block, resize_conv_generator.inception_block, resize_conv_generator.dense_block, resize_conv_generator.repeating_block],
-	    orthogonal_initializer_gain= list(np.linspace(0.1, 2, num=100))
-    )
-
-def loss_options():
-    selector = hc.Selector()
-    selector.set("alignment_lambda", list(np.linspace(0.001, 10, num=100)))
-    selector.set("include_recdistance",[True, False]),
-    selector.set("include_recdistance2",[True, False]),
-    selector.set("include_grecdistance",[True, False]),
-    selector.set("include_grecdistance2",[True, False]),
-    selector.set("include_distance",[True, False])
-    return selector.random_config()
-
-config['y_dims']=num_labels
-config['x_dims']=[height,width]
-config['channels']=channels
-config['model']=args.config
-config = hg.config.lookup_functions(config)
-config['generator']=generator_config()
-config['generator_autoencode']=generator_autoencode_config()
-config['discriminators']=[discriminator_config()]
-config['encoders']=[{"create": hg.encoders.match_discriminator_encoder.create}]
-
-loss_config = loss_options()
-config['losses'][0].update(loss_config)
-
-config_name="alignment-"+str(uuid.uuid4())
+config_name="alignment-"+str(uuid.uuid4()).split("-")[0]
 config_filename = os.path.expanduser('~/.hypergan/configs/'+config_name+'.json')
 print("Saving config to ", config_filename)
 
-selector.save(config_filename, config)
-initial_graph = {
-    'x':x,
-    'xa':xa,
-    'xb':xb,
-    'y':y,
-    'f':f,
-    'num_labels':num_labels,
-    'examples_per_epoch':examples_per_epoch
-}
+hc.Selector().save(config_filename, config)
 
-gan = hg.GAN(config, initial_graph)
 
-gan.initialize_graph()
+class TwoImageInput():
+    def create(self, args):
+        self.inputsa = hg.inputs.image_loader.ImageLoader(args.batch_size)
+        self.inputsa.create(args.directory,
+                      channels=channels, 
+                      format=args.format,
+                      crop=args.crop,
+                      width=width,
+                      height=height,
+                      resize=False)
 
-tf.train.start_queue_runners(sess=gan.sess)
-exa, exb, static_x, static_z = gan.sess.run([gan.graph.xa, gan.graph.xb, gan.graph.x, gan.graph.z[0]])
+
+        xa = self.inputsa.x
+        xb = tf.tile(tf.image.rgb_to_grayscale(xa), [1,1,1,3])
+
+        self.xa = xa
+        self.xb = xb
+
+class AlignedGAN(BaseGAN):
+    def required(self):
+        return []
+
+    def create(self):
+        config = self.config
+        ops = self.ops
+
+        xa = hc.Config({"x":self.inputs.xa})
+        xb = hc.Config({"x":self.inputs.xb})
+        with tf.variable_scope("ganab"):
+            self.gan_atob = StandardGAN(config=config, inputs=xa)
+        with tf.variable_scope("ganba"):
+            self.gan_btoa = StandardGAN(config=config, inputs=xb)
+
+        self.session = self.ops.new_session(self.ops_config)
+        self.gan_atob.session = self.session
+        self.gan_btoa.session = self.session
+
+        self.xatoz = self.create_component(config.discriminator)
+        self.xbtoz = self.create_component(config.discriminator)
+
+        xaz = self.xatoz.create(x=self.inputs.xa, g=self.inputs.xa)
+        xbz = self.xatoz.create(x=self.inputs.xb, g=self.inputs.xb)
+        xaz = self.split_batch(xaz)[0]
+        xbz = self.split_batch(xbz)[0]
+
+        shape = ops.shape(self.xatoz.sample)
+        self.z = tf.random_uniform(shape, config.min or -1, config.max or 1, dtype=ops.dtype)
+
+        def none():
+            pass
+        def variables():
+            return []
+        encoder = hc.Config({"sample": self.z, "create": none, "variables": variables})
+        self.gan_atob.encoder = encoder
+        self.gan_btoa.encoder = encoder
+
+        with tf.variable_scope("ganab"):
+            self.gan_atob.create()
+        with tf.variable_scope("ganba"):
+            self.gan_btoa.create()
+
+        with tf.variable_scope("ganab"):
+            self.dga = self.gan_atob.discriminator.reuse(x=self.inputs.xa, g=self.gan_btoa.generator.sample)
+        with tf.variable_scope("ganba"):
+            self.dgb = self.gan_btoa.discriminator.reuse(x=self.inputs.xb, g=self.gan_atob.generator.sample)
+
+        with tf.variable_scope("ganab"):
+            self.cycb = self.gan_atob.generator.reuse(xbz)
+        with tf.variable_scope("ganba"):
+            self.cyca = self.gan_btoa.generator.reuse(xaz)
+
+        self.cycloss = tf.reduce_mean(tf.abs(self.inputs.xa-self.cyca)) + \
+                       tf.reduce_mean(tf.abs(self.inputs.xb-self.cycb))
+
+        self.gan_atob.loss.sample[1] += self.cycloss*10
+        self.gan_btoa.loss.sample[1] += self.cycloss*10
+
+        self.gan_atob.trainer = self.gan_atob.create_component(config.trainer)
+        self.gan_btoa.trainer = self.gan_btoa.create_component(config.trainer)
+        self.gan_atob.trainer.create()
+        self.gan_btoa.trainer.create()
+
+        self.session.run(tf.global_variables_initializer())
+
+    def step(self, feed_dict={}):
+        self.gan_atob.step(feed_dict)
+        self.gan_btoa.step(feed_dict)
+
+two_image_input = TwoImageInput()
+two_image_input.create(args)
+
+gan = AlignedGAN(config=config, inputs=two_image_input)
+gan.create()
+
+tf.train.start_queue_runners(sess=gan.session)
 
 def batch_diversity(net):
     bs = int(net.get_shape()[0])
@@ -187,29 +165,26 @@ def accuracy(a, b):
     return tf.reduce_sum( tf.reduce_sum(difference, axis=0) , axis=0) 
 
 accuracies = {
-    "xa_to_rxa":accuracy(exa, gan.graph.rxa),
-    "xb_to_rxb":accuracy(exb, gan.graph.rxb),
-    "xa_to_rxabba":accuracy(exa, gan.graph.rxabba),
-    "xb_to_rxbaab":accuracy(exb, gan.graph.rxbaab),
-    "xa_to_xabba":accuracy(exa, gan.graph.xabba),
-    "xb_to_xbaab":accuracy(exb, gan.graph.xbaab),
-
-    # This only works because xb is grayscale of xa,
-    "xb_to_xab":accuracy(exb, gan.graph.xab)
-
+    #"xa_to_rxa":accuracy(exa, gan.graph.rxa),
+    #"xb_to_rxb":accuracy(exb, gan.graph.rxb),
+    #"xa_to_rxabba":accuracy(exa, gan.graph.rxabba),
+    #"xb_to_rxbaab":accuracy(exb, gan.graph.rxbaab),
+    #"xa_to_xabba":accuracy(exa, gan.graph.xabba),
+    "xb_to_xab":accuracy(gan.inputs.xb, gan.cycb),
+    "xb_to_xba":accuracy(gan.inputs.xa, gan.cyca)
 }
 
 diversities={
-    'rxa': batch_diversity(gan.graph.rxa),
-    'rxb': batch_diversity(gan.graph.rxb),
-    'rxabba': batch_diversity(gan.graph.rxabba),
-    'rxbaab': batch_diversity(gan.graph.rxbaab),
-    'rxab': batch_diversity(gan.graph.rxab),
-    'rxba': batch_diversity(gan.graph.rxba),
-    'xab': batch_diversity(gan.graph.xab),
-    'xba': batch_diversity(gan.graph.xba),
-    'xabba': batch_diversity(gan.graph.xabba),
-    'xbaab': batch_diversity(gan.graph.xbaab)
+    #'rxa': batch_diversity(gan.graph.rxa),
+    #'rxb': batch_diversity(gan.graph.rxb),
+    #'rxabba': batch_diversity(gan.graph.rxabba),
+    #'rxbaab': batch_diversity(gan.graph.rxbaab),
+    #'rxab': batch_diversity(gan.graph.rxab),
+    #'rxba': batch_diversity(gan.graph.rxba),
+    'ab': batch_diversity(gan.gan_atob.generator.sample),
+    'ba': batch_diversity(gan.gan_btoa.generator.sample)
+    #'xabba': batch_diversity(gan.graph.xabba),
+    #'xbaab': batch_diversity(gan.graph.xbaab)
 }
 
 diversities_items= list(diversities.items())
@@ -218,25 +193,21 @@ accuracies_items= list(accuracies.items())
 sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
 names = []
 
-z_size = np.array(static_z).shape[1]
 
 for i in range(40000):
-    d_loss, g_loss = gan.train({gan.graph.xa: static_x, gan.graph.z[0]: static_z})
-    if(np.abs(g_loss) > 10000):
-        print("OVERFLOW");
-        break
+    gan.step()
 
     if i % 100 == 0 and i != 0: 
-        if 'k' in gan.graph:
-            k = gan.sess.run([gan.graph.k], {gan.graph.xa: exa, gan.graph.z[0]: static_z})
-            print("K", k, "d_loss", d_loss)
-            if math.isclose(k[0], 0.0) or np.isnan(d_loss):
-                sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-                names = ["error k or dloss"]
-                break
-        if i > 1500:
-            diversities_v = gan.sess.run([v for _, v in diversities_items])
-            accuracies_v = gan.sess.run([v for _, v in accuracies_items])
+        #if 'k' in gan.graph:
+        #    k = gan.sess.run([gan.graph.k], {gan.graph.xa: exa, gan.graph.z[0]: static_z})
+        #    print("K", k, "d_loss", d_loss)
+        #    if math.isclose(k[0], 0.0) or np.isnan(d_loss):
+        #        sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        #        names = ["error k or dloss"]
+        #        break
+        if i > 200:
+            diversities_v = gan.session.run([v for _, v in diversities_items])
+            accuracies_v = gan.session.run([v for _, v in accuracies_items])
             broken = False
             for k, v in enumerate(diversities_v):
                 sums[k] += v 
@@ -272,4 +243,4 @@ with open("results-alignment", "a") as myfile:
     myfile.write(config_name+","+",".join(["%.2f" % sum for sum in sums])+"\n")
  
 tf.reset_default_graph()
-gan.sess.close()
+gan.session.close()

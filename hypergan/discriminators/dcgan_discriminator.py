@@ -11,20 +11,6 @@ class DCGANDiscriminator(BaseDiscriminator):
     def required(self):
         return []
 
-    def create(self):
-        config = self.config
-        gan = self.gan
-        ops = self.ops
-
-        x = gan.inputs.x
-        g = gan.generator.sample
-
-        net = tf.concat(axis=0, values=[x,g])
-        net = self.build(net)
-
-        self.sample = net
-        return net
-
     def build(self, net):
         config = self.config
         gan = self.gan

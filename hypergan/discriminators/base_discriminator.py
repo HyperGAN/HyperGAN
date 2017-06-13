@@ -2,13 +2,15 @@ from hypergan.gan_component import GANComponent
 import tensorflow as tf
 
 class BaseDiscriminator(GANComponent):
-    def create(self):
+    def create(self, x=None, g=None):
         config = self.config
         gan = self.gan
         ops = self.ops
 
-        x = gan.inputs.x
-        g = gan.generator.sample
+        if x is None:
+            x = gan.inputs.x
+        if g is None:
+            g = gan.generator.sample
 
         x, g = self.resize(config, x, g)
         net = self.combine_filter(config, x, g)
@@ -16,6 +18,24 @@ class BaseDiscriminator(GANComponent):
         self.sample = net
         return net
 
+    def reuse(self, x=None, g=None):
+        config = self.config
+        gan = self.gan
+        ops = self.ops
+
+        if x is None:
+            x or gan.inputs.x
+        if g is None:
+            g or gan.generator.sample
+
+        x, g = self.resize(config, x, g)
+        net = self.combine_filter(config, x, g)
+
+        self.ops.reuse()
+        net = self.build(net)
+        self.ops.stop_reuse()
+
+        return net
 
     def add_noise(self, net):
         config = self.config

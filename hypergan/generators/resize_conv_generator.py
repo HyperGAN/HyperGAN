@@ -69,7 +69,7 @@ class ResizeConvGenerator(BaseGenerator):
         net = self.layer_regularizer(net)
         net = activation(net)
 
-        net = self.layer_filter(gan, config, net)
+        net = self.layer_filter(net)
         for i, depth in enumerate(depths):
             net = block(self, net, depth)
             net = self.layer_regularizer(net)
@@ -96,10 +96,3 @@ class ResizeConvGenerator(BaseGenerator):
         self.ops.stop_reuse()
         return net
 
-    def layer_filter(self, gan, config, net):
-        ops = self.ops
-        if config.layer_filter:
-            fltr = config.layer_filter(gan, net)
-            if fltr is not None:
-                net = ops.concat(axis=3, values=[net, fltr])
-        return net

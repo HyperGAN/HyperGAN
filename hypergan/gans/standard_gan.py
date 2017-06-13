@@ -46,6 +46,7 @@ class StandardGAN(BaseGAN):
         self.generator = None
         self.loss = None
         self.trainer = None
+        self.session = None
 
     def required(self):
         return "generator".split()
@@ -56,11 +57,11 @@ class StandardGAN(BaseGAN):
 
         def create_if(obj):
             if(hasattr(obj, 'create')):
-                print("CREATING ", obj)
                 obj.create()
 
         with tf.device(self.device):
-            self.session = self.ops.new_session(self.ops_config)
+            if self.session is None: 
+                self.session = self.ops.new_session(self.ops_config)
 
             #this is in a specific order
             self.encoder = self.encoder or self.create_component(config.encoder)

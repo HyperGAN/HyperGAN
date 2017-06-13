@@ -21,7 +21,7 @@ class RandomSearch:
         self.options = {**self.options, **overrides}
 
     def range(self, multiplier=1):
-        return list(np.linspace(0, 1, num=1000000)*multiplier)
+        return list(np.linspace(0, 1, num=100000)*multiplier)
 
     def trainer(self):
         tftrainers = [
@@ -76,7 +76,7 @@ class RandomSearch:
         loss_opts = {
             'reverse':[True, False],
             'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            'gradient_penalty': [False],
+            'gradient_penalty': self.range(30) + [False],
             'labels': [
                 [-1, 1, 1],
                 [1, -1, -1],

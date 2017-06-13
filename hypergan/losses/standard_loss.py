@@ -13,9 +13,6 @@ class StandardLoss(BaseLoss):
         config = self.config
         gan = self.gan
 
-        d_real = config.reduce(d_real, axis = 1)
-        d_fake = config.reduce(d_fake, axis = 1)
-
         generator_target_probability = config.generator_target_probability or 0.8
         label_smooth = config.label_smooth or 0.2
 

@@ -6,6 +6,8 @@ import sys, os
 import hyperchamber as hc
 import hypergan as hg
 import hypergan.cli as cli
+from hypergan.gans.aligned_gan import AlignedGAN
+from hypergan.gans.autoencoder_gan import AutoencoderGAN
 
 class CommandParser:
     def common(self, parser):
@@ -20,7 +22,7 @@ class CommandParser:
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
-        parser.add_argument('--align', dest='align', action='store_true', help='Align classes.')
+        parser.add_argument('--align', dest='align', help='Align classes.  Takes a directory of data to align with.')
         parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
@@ -30,6 +32,7 @@ class CommandParser:
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
+        parser.add_argument('--autoencode', dest='autoencode', action='store', help='Disables the display of samples in a window.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -55,20 +58,54 @@ width = size[0] or 64
 height = size[1] or 64
 channels = size[2] or 3
 
-inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-inputs.create(args.directory,
-      channels=channels, 
-      format=args.format,
-      crop=args.crop,
-      width=width,
-      height=height,
-      resize=args.resize)
-
 config = args.config or 'default'
 config_filename = hg.Configuration.find(config+'.json')
 config = hc.Selector().load(config_filename)
 
-gan = hg.GAN(config=config, inputs=inputs)
+
+if not args.align:
+    inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+    inputs.create(args.directory,
+          channels=channels, 
+          format=args.format,
+          crop=args.crop,
+          width=width,
+          height=height,
+          resize=args.resize)
+
+    if args.autoencode:
+        gan = AutoencoderGAN(config=config, inputs=inputs)
+    else:
+        gan = hg.GAN(config=config, inputs=inputs)
+else:
+    inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+    inputs.create(args.directory,
+          channels=channels, 
+          format=args.format,
+          crop=args.crop,
+          width=width,
+          height=height,
+          resize=args.resize)
+
+    inputs2 = hg.inputs.image_loader.ImageLoader(args.batch_size)
+    inputs2.create(args.align,
+          channels=channels, 
+          format=args.format,
+          crop=args.crop,
+          width=width,
+          height=height,
+          resize=args.resize)
+
+    class AlignedInput():
+        def __init__(self, input1, input2):
+            self.x = input1.x
+            self.xa = input1.x
+            self.xb = input2.x
+            self.y = input1.y
+
+    aligned_input = AlignedInput(inputs, inputs2)
+    gan = AlignedGAN(config=config, inputs=aligned_input)
+
 
 gancli = cli.CLI(gan, args=vars(args))
 gancli.run()

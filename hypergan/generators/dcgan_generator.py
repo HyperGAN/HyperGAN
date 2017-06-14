@@ -16,6 +16,8 @@ class DCGANGenerator(BaseGenerator):
         config = self.config
         activation = ops.lookup(config.activation or 'lrelu')
 
+        print("[dcgan] NET IS", net)
+
         net = ops.linear(net, 4*4*1024)
 
         shape = ops.shape(net)

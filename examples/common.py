@@ -42,7 +42,7 @@ class Custom2DGenerator(BaseGenerator):
         return net
 
 class CustomDiscriminator(BaseGenerator):
-    def create(self):
+    def build(self, net):
         gan = self.gan
         config = self.config
         ops = self.ops
@@ -150,3 +150,25 @@ class Custom2DInputDistribution:
 
         self.x = x
         self.xy = tf.zeros_like(self.x)
+
+def batch_diversity(net):
+    bs = int(net.get_shape()[0])
+    avg = tf.reduce_mean(net, axis=0)
+
+    s = [int(x) for x in avg.get_shape()]
+    avg = tf.reshape(avg, [1, s[0], s[1], s[2]])
+
+    tile = [1 for x in net.get_shape()]
+    tile[0] = bs
+    avg = tf.tile(avg, tile)
+    net -= avg
+    return tf.reduce_sum(tf.abs(net))
+
+def accuracy(a, b):
+    "Each point of a is measured against the closest point on b.  Distance differences are added together."
+    difference = tf.abs(a-b)
+    difference = tf.reduce_min(difference, axis=1)
+    difference = tf.reduce_sum(difference, axis=1)
+    return tf.reduce_sum( tf.reduce_sum(difference, axis=0) , axis=0) 
+
+

@@ -130,7 +130,7 @@ class RandomSearch:
 
     def generator_config(self):
         generator_opts = {
-            "activation":['relu', 'lrelu', 'tanh'],
+            "activation":['relu', 'lrelu', 'tanh', 'selu' 'prelu', 'crelu'],
             "final_depth":[32],
             "depth_increase":[32],
             "initializer": ['orthogonal', 'random'],
@@ -153,8 +153,8 @@ class RandomSearch:
 
     def discriminator_config(self):
         discriminator_opts = {
-            "activation":['relu', 'lrelu', 'tanh'],
-            "final_activation":['relu', 'lrelu', 'tanh'],
+            "activation":['relu', 'lrelu', 'tanh', 'selu' 'prelu', 'crelu'],
+            "final_activation":['relu', 'lrelu', 'tanh', 'selu' 'prelu', 'crelu'],
             "block_repeat_count":[1,2,3],
             "block":[hg.discriminators.common.repeating_block,
                    hg.discriminators.common.standard_block,

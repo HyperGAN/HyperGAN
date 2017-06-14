@@ -15,7 +15,8 @@ def repeating_block(component, net, output_channels):
 def standard_block(component, net, output_channels):
     config = component.config
     ops = component.ops
-    net = ops.conv2d(net, 3, 3, 1, 1, output_channels)
+    filter = config.filter or 3
+    net = ops.conv2d(net, filter, filter, 1, 1, output_channels)
     return net
 
 def inception_block(component, net, output_channels):

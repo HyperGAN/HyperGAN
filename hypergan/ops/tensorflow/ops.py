@@ -1,6 +1,7 @@
 import hyperchamber as hc
 import tensorflow as tf
 import types
+import uuid
 import importlib
 import hypergan
 from hypergan.ops.tensorflow import layer_regularizers

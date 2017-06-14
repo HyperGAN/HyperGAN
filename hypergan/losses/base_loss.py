@@ -3,18 +3,23 @@ import numpy as np
 import tensorflow as tf
 
 class BaseLoss(GANComponent):
-    def __init__(self, gan, config):
+    def __init__(self, gan, config, discriminator=None, generator=None):
         GANComponent.__init__(self, gan, config)
         self.metrics = {}
         self.sample = None
         self.ops = None
+        self.discriminator = discriminator
+        self.generator = generator
 
     def create(self):
         gan = self.gan
         config = self.config
         ops = self.gan.ops
-
-        net = gan.discriminator.sample
+        
+        if self.discriminator is None:
+            net = gan.discriminator.sample
+        else:
+            net = self.discriminator.sample
 
         d_real, d_fake = self.split_batch(net)
 
@@ -45,7 +50,8 @@ class BaseLoss(GANComponent):
 
     # This is openai's implementation of minibatch regularization
     def minibatch(self, net):
-        ops = self.gan.discriminator.ops
+        discriminator = self.discriminator or self.gan.discriminator
+        ops = discriminator.ops
         config = self.config
         batch_size = ops.shape(net)[0]
         single_batch_size = batch_size//2
@@ -82,13 +88,17 @@ class BaseLoss(GANComponent):
         gan = self.gan
         gradient_penalty = config.gradient_penalty
         x = gan.inputs.x
-        g = gan.generator.sample
+        generator = self.generator or gan.generator
+        g = generator.sample
+        discriminator = self.discriminator or gan.discriminator
         shape = [1 for t in g.get_shape()]
         shape[0] = gan.batch_size()
         uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
+        print("X", x, g, uniform_noise)
         interpolates = x + uniform_noise * (g - x)
-        reused_d = gan.discriminator.reuse(interpolates)
+        reused_d = discriminator.reuse(interpolates)
         gradients = tf.gradients(reused_d, [interpolates])[0]
+        print("GRAD", gradients, reused_d)
         penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
         penalty = tf.reduce_mean(tf.square(penalty - 1.))
         return float(gradient_penalty) * penalty

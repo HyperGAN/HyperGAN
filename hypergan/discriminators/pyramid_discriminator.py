@@ -34,12 +34,13 @@ class PyramidDiscriminator(BaseDiscriminator):
                 net = self.layer_regularizer(net)
 
                 # APPEND xs[i] and gs[i]
-                if not is_last_layer:
-                    shape = ops.shape(net)
-                    small_x = ops.resize_images(x, [shape[1], shape[2]], 1)
-                    small_g = ops.resize_images(g, [shape[1], shape[2]], 1)
-                    xg = self.combine_filter(config, small_x, small_g)
-                    xg = self.add_noise(xg)
+                #if not is_last_layer:
+                #    shape = ops.shape(net)
+                #    print("____", x, g)
+                #    small_x = ops.resize_images(x, [shape[1], shape[2]], 1)
+                #    small_g = ops.resize_images(g, [shape[1], shape[2]], 1)
+                #    xg = self.combine_filter(config, small_x, small_g)
+                #    xg = self.add_noise(xg)
 
             net = self.progressive_enhancement(config, net, xg)
 

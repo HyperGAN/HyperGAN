@@ -26,6 +26,7 @@ class BaseSampler:
             width = min(gan.batch_size(), self.samples_per_row)
             stacks = [np.hstack(data[i*width:i*width+width]) for i in range(gan.batch_size()//width)]
             sample_data = np.vstack(stacks)
+            print("SAMPLING", np.shape(sample_data))
             self.plot(sample_data, path)
             sample_name = 'generator'
             samples = [[sample_data, sample_name]]
@@ -42,7 +43,8 @@ class BaseSampler:
         image = (image - imin) * 255. / (imax - imin) + .5
         image = image.astype(np.uint8)
         try:
-            Image.fromarray(image).save(filename)
+            pass
+            #Image.fromarray(image).save(filename)
         except Exception as e:
             print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
             print(e)

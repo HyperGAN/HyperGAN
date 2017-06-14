@@ -64,17 +64,22 @@ class StandardGAN(BaseGAN):
                 self.session = self.ops.new_session(self.ops_config)
 
             #this is in a specific order
-            self.encoder = self.encoder or self.create_component(config.encoder)
-            self.generator = self.generator or self.create_component(config.generator)
-            self.discriminator = self.discriminator or self.create_component(config.discriminator)
-            self.loss = self.loss or self.create_component(config.loss)
-            self.trainer = self.trainer or self.create_component(config.trainer)
-
-            create_if(self.encoder)
-            create_if(self.generator)
-            create_if(self.discriminator)
-            create_if(self.loss)
-            create_if(self.trainer)
+            if self.encoder is None:
+                self.encoder = self.create_component(config.encoder)
+                create_if(self.encoder)
+            if self.generator is None:
+                self.generator = self.create_component(config.generator)
+                create_if(self.generator)
+            if self.discriminator is None:
+                self.discriminator = self.create_component(config.discriminator)
+                self.discriminator.ops.describe("discriminator")
+                create_if(self.discriminator)
+            if self.loss is None:
+                self.loss = self.create_component(config.loss)
+                create_if(self.loss)
+            if self.trainer is None:
+                self.trainer = self.create_component(config.trainer)
+                create_if(self.trainer)
 
             self.session.run(tf.global_variables_initializer())
 

@@ -28,15 +28,9 @@ class ResizeConvGenerator(BaseGenerator):
             w*=2
             i+=1
             depths.append(final_depth + i*config.depth_increase)
-        depths[0]=self.gan.channels()
+        depths = depths[1:]
         depths.reverse()
         return depths
-
-    def create(self):
-        gan = self.gan
-        ops = self.ops
-        ops.describe("generator")
-        return self.build(gan.encoder.sample)
 
     def build(self, net):
         gan = self.gan
@@ -66,33 +60,30 @@ class ResizeConvGenerator(BaseGenerator):
 
         shape = ops.shape(net)
 
-        net = self.layer_regularizer(net)
-        net = activation(net)
 
         net = self.layer_filter(net)
         for i, depth in enumerate(depths):
-            net = block(self, net, depth)
             net = self.layer_regularizer(net)
-
-            is_last_layer = (i == len(depths)-1)
             net = activation(net)
-            s = ops.shape(net)
-            resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
+            shape = ops.shape(net)
+            resize = [min(shape[1]*2, gan.height()), min(shape[2]*2, gan.width())]
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
-            if is_last_layer:
-                if final_activation:
-                    net = final_activation(net)
-                    net = self.layer_regularizer(net)
+            net = block(self, net, depth)
+
 
             size = resize[0]*resize[1]*depth
             print("[generator] layer", net, size)
 
+        if final_activation:
+            print("REsizing final", net)
+            net = self.layer_regularizer(net)
+            net = activation(net)
+            resize = [gan.height(), gan.width()]
+            net = ops.resize_images(net, resize, config.resize_image_type or 1)
+            net = block(self, net, gan.channels())
+            net = self.layer_regularizer(net)
+            net = final_activation(net)
+
+
         self.sample = net
         return self.sample
-
-    def reuse(self, net):
-        self.ops.reuse()
-        net = self.build(net)
-        self.ops.stop_reuse()
-        return net
-

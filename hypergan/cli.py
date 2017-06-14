@@ -18,6 +18,8 @@ import sys
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.grid_sampler import GridSampler
+from hypergan.samplers.aligned_sampler import AlignedSampler
+from hypergan.samplers.autoencode_sampler import AutoencodeSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
@@ -60,7 +62,9 @@ class CLI:
         return {
                 'static_batch': StaticBatchSampler,
                 'batch': BatchSampler,
-                'grid': GridSampler
+                'grid': GridSampler,
+                'autoencode': AutoencodeSampler,
+                'aligned': AlignedSampler
         }
         #elif(self.args.sampler == "progressive"):
         #    sampler = progressive_enhancement_sampler.sample

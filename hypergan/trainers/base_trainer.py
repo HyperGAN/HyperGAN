@@ -2,10 +2,13 @@ from hypergan.gan_component import GANComponent
 
 class BaseTrainer(GANComponent):
 
-    def __init__(self, gan, config):
+    def __init__(self, gan, config, d_vars=None, g_vars=None, loss=None):
         GANComponent.__init__(self, gan, config)
         self.create_called = False
         self.current_step = 0
+        self.g_vars = g_vars
+        self.d_vars = d_vars
+        self.loss = loss
 
     def _create(self):
         raise Exception('BaseTrainer _create called directly.  Please override.')

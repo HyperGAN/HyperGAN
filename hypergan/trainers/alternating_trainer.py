@@ -39,10 +39,11 @@ class AlternatingTrainer(BaseTrainer):
         g_lr = config.g_learn_rate
         d_lr = config.d_learn_rate
 
-        d_vars = gan.discriminator.variables()
-        g_vars = gan.encoder.variables() + gan.generator.variables()
+        d_vars = self.d_vars or gan.discriminator.variables()
+        g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
 
-        d_loss, g_loss = gan.loss.sample
+        loss = self.loss or gan.loss
+        d_loss, g_loss = loss.sample
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
@@ -78,9 +79,10 @@ class AlternatingTrainer(BaseTrainer):
         gan = self.gan
         sess = gan.session
         config = gan.config
-        metrics = gan.loss.metrics
+        loss = self.loss or gan.loss
+        metrics = loss.metrics
 
-        d_loss, g_loss = self.gan.loss.sample
+        d_loss, g_loss = loss.sample
 
         for i in range(config.d_update_steps or 1):
             sess.run([self.d_optimizer] + self.clip, feed_dict)

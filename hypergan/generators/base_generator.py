@@ -4,8 +4,9 @@ class BaseGenerator(GANComponent):
     def create(self, sample=None):
         gan = self.gan
         ops = self.ops
-        ops.describe("generator")
-        return self.build(sample or gan.encoder.sample)
+        if sample is None:
+            sample = gan.encoder.sample
+        return self.build(sample)
 
     def layer_filter(self, net):
         ops = self.ops

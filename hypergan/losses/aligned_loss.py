@@ -1,9 +1,6 @@
 import tensorflow as tf
-from hypergan.util.ops import *
-from hypergan.util.hc_tf import *
 import hyperchamber as hc
 from hypergan.generators.resize_conv_generator import minmaxzero
-from hypergan.losses.common import *
 
 def config(
         include_recdistance=False,

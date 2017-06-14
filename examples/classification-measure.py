@@ -4,145 +4,76 @@ import os
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
-import matplotlib.pyplot as plt
-from tensorflow.examples.tutorials.mnist import input_data
-mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
-from hypergan.loaders import *
-from hypergan.samplers.common import *
-from hypergan.util.hc_tf import *
-from hypergan.generators import *
+from hypergan.inputs import *
 from hypergan.search.random_search import RandomSearch
+from examples.common import CustomGenerator, CustomDiscriminator
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Train a 2d test!', add_help=True)
+    parser = argparse.ArgumentParser(description='Train an MNIST classifier G(x) = y', add_help=True)
     parser.add_argument('--sample_every', default=500, type=int)
     parser.add_argument('--batch_size', '-b', default=32, type=int)
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
     parser.add_argument('--steps', '-s', type=int, default=40000, help='number of steps to run for.  defaults to a lot')
     return parser.parse_args()
 
-def custom_discriminator(gan, config, x, g, xs, gs, prefix='d_'):
-    end_features = 1
-
-    gnet = tf.concat(axis=1, values=[x,g])
-    xynet = tf.concat(axis=1, values=[x,gan.graph.xy])
-    net = tf.concat(axis=0, values=[xynet, gnet])
-    net = linear(net, 1024, scope=prefix+'xlinone')
-    net = tf.nn.relu(net)
-    net = linear(net, end_features, scope=prefix+'linend')
-    net = tf.nn.tanh(net)
-
-    return net
-
-def custom_generator(config, gan, net):
-    end_features = ((int)(gan.graph.xy.get_shape()[1]))
-    net = gan.graph.x
-    net = linear(net, end_features, scope="g_lin_proj3")
-    net = tf.tanh(net)
-    return [net]
-
-def custom_discriminator_config():
-    return { 
-            'create': custom_discriminator
-    }
-
-def custom_generator_config():
-    return { 
-            'create': custom_generator
-    }
-
-x_v = None
-xy_v = None
-def sampler(gan, name):
-    generator = gan.graph.g[0]
-    x_t = gan.graph.x
-    xy_t = gan.graph.oy
-    sess = gan.sess
-    config = gan.config
-    global x_v, xy_v
-    if x_v == None:
-        batch = mnist.train.next_batch(50)
-        x_v = batch[0]
-        xy_v = batch[1]
-
-    xy, sample = sess.run([gan.graph.xy,generator], {x_t: x_v, xy_t: xy_v})
-    print("SAMPLE", sample[0], xy[0])
-    plt.clf()
-    plt.figure(figsize=(5,5))
-    plt.plot(sample[0])
-    plt.plot(xy[0])
-    plt.xlim([0, 9])
-    plt.ylim([-1,1])
-    plt.savefig(name)
-
 args = parse_args()
+
+class MNISTInputLoader:
+    def __init__(self, batch_size):
+        from tensorflow.examples.tutorials.mnist import input_data
+        self.mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
+
+        self.x = tf.placeholder(tf.float32, shape=[batch_size, 784])
+        self.feed_y = tf.placeholder(tf.float32, shape=[batch_size, 10])
+        self.y = ((2*self.feed_y)-1)
 
 while(True):
     savename = "classification-"+str(uuid.uuid4())
     savefile = os.path.expanduser('~/.hypergan/configs/'+savename+'.json')
 
-    selector = hc.Selector()
-
     search = RandomSearch({
-        'model': savename,
-        'batch_size': args.batch_size,
-        'generator': custom_generator_config(),
-        'discriminators': [[custom_discriminator_config()]]
+        'generator': {'class': CustomGenerator, 'end_features': 10},
+        'discriminator': {'class': CustomDiscriminator}
         })
 
     config = search.random_config()
 
     print("Starting training for: "+savefile)
 
-    config['batch_size']=args.batch_size
-    config['dtype']=tf.float32
-    config = hg.config.lookup_functions(config)
+    hc.Selector().save(savefile, config)
 
-    selector.save(savefile, config)
 
-    x = tf.placeholder(tf.float32, shape=[None, 784])
-    y = tf.placeholder(tf.float32, shape=[None, 10])
+    mnist_loader = MNISTInputLoader(args.batch_size)
+    gan = hg.GAN(config, inputs=mnist_loader, batch_size=args.batch_size)
+    gan.create()
+    mnist = gan.inputs.mnist
+    correct_prediction = tf.equal(tf.argmax(gan.generator.sample,1), tf.argmax(gan.inputs.y,1))
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32)) * 100
 
-    initial_graph = {
-        'x':x,
-        'oy': y,
-        'xy':((2*y)-1)
-    }
+    steps = args.steps
+    accuracy_v = 0
+    for i in range(steps):
+        batch = mnist.train.next_batch(args.batch_size)
 
-    with tf.device(args.device):
+        gan.step({gan.inputs.x: batch[0], gan.inputs.feed_y: batch[1]})
 
-        gan = hg.GAN(config, initial_graph)
-        correct_prediction = tf.equal(tf.argmax(gan.graph.g[0],1), tf.argmax(y,1))
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32)) * 100
-        print("CONFIG", gan.config)
+        if i % args.sample_every == 0 and i > 0:
+            accuracy_v = 0
+            repeat_count = 10
+            for j in range(repeat_count):
+                test_batch = mnist.test.next_batch(args.batch_size)
+                accuracy_v += gan.session.run(accuracy,{gan.inputs.x: test_batch[0], gan.inputs.y: test_batch[1]})
+            accuracy_v /= repeat_count
+            print(accuracy_v)
+            batch = mnist.train.next_batch(args.batch_size)
 
-        gan.initialize_graph()
-        samples = 0
+            if(i > 50):
+                if(accuracy_v < 10.0):
+                    break
 
-        steps = args.steps
-        accuracy_v = 0
-        for i in range(steps):
-            batch = mnist.train.next_batch(50)
+    with open("classification-results", "a") as myfile:
+        print("Writing result")
+        myfile.write(savename+","+str(accuracy_v)+"\n")
 
-            d_loss, g_loss = gan.train({x: batch[0], y: batch[1]})
-
-            if i % args.sample_every == 0 and i > 0:
-                accuracy_v = gan.sess.run(accuracy,{x: mnist.test.images, y: mnist.test.labels})
-                print(accuracy_v)
-                batch = mnist.train.next_batch(50)
-                g_v,y_v = gan.sess.run([gan.graph.g, gan.graph.xy], {x: batch[0], y: batch[1]})
-
-                print("Sampling "+str(samples))
-                if(samples > 3):
-                    if(accuracy_v < 10.0):
-                        break
-                sample_file="samples/%06d.png" % (samples)
-                gan.sample_to_file(sample_file, sampler=sampler)
-                samples += 1
-
-        with open("classification-results", "a") as myfile:
-            print("Writing result")
-            myfile.write(savename+","+str(accuracy_v)+"\n")
-
-        tf.reset_default_graph()
-        gan.sess.close()
+    tf.reset_default_graph()
+    gan.session.close()

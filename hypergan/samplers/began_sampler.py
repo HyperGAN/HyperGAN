@@ -1,8 +1,4 @@
 
-from hypergan.util.ops import *
-
-from hypergan.samplers.common import *
-
 def sample_tensor(sess,generator, feed_dict, sample_file):
     g=tf.get_default_graph()
     with g.as_default():

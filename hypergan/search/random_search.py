@@ -3,23 +3,27 @@ import hypergan as hg
 import hyperchamber as hc
 import numpy as np
 
+from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
+from hypergan.losses.wasserstein_loss import WassersteinLoss
+from hypergan.losses.least_squares_loss import LeastSquaresLoss
+from hypergan.losses.softmax_loss import SoftmaxLoss
+from hypergan.losses.standard_loss import StandardLoss
+from hypergan.losses.lamb_gan_loss import LambGanLoss
+
 class RandomSearch:
     def __init__(self, overrides):
         self.options = {
-            'trainer': self.trainers(),
-            'losses':self.losses(),
-            'encoders':self.encoders()
+            'trainer': self.trainer(),
+            'loss':self.loss(),
+            'encoder':self.encoder()
          }
 
         self.options = {**self.options, **overrides}
 
     def range(self, multiplier=1):
-        return list(np.linspace(0, 1, num=1000000)*multiplier)
+        return list(np.linspace(0, 1, num=100000)*multiplier)
 
-    def trainers(self):
-        trainers = []
-        any_opts = {}
-
+    def trainer(self):
         tftrainers = [
                 tf.train.AdadeltaOptimizer,
                 tf.train.AdagradOptimizer,
@@ -34,8 +38,8 @@ class RandomSearch:
         ]
 
         selector = hc.Selector({
-            'd_learn_rate': self.range(.001),
-            'g_learn_rate': self.range(.001),
+            'd_learn_rate': self.range(.01),
+            'g_learn_rate': self.range(.01),
             'd_beta1': self.range(),
             'd_beta2': self.range(),
             'g_beta1': self.range(),
@@ -60,35 +64,26 @@ class RandomSearch:
             'clipped_gradients': False,
             'd_trainer':tftrainers,
             'g_trainer':tftrainers,
-            'create': [
-                hg.trainers.proportional_control_trainer.create,
-                hg.trainers.alternating_trainer.create
-            ],
-            'run': [
-                hg.trainers.proportional_control_trainer.run,
-                hg.trainers.alternating_trainer.run
+            'class': [
+                #hg.trainers.proportional_control_trainer.create,
+                hg.trainers.alternating_trainer.AlternatingTrainer
             ]
         })
-        config = selector.random_config()
-
-
-        return [config]
+        
+        return selector.random_config()
      
-    def losses(self):
+    def loss(self):
         loss_opts = {
             'reverse':[True, False],
-            'reduce': [tf.reduce_mean,hg.losses.wgan_loss.linear_projection,tf.reduce_sum,tf.reduce_logsumexp],
-            'gradient_penalty': False,
+            'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
+            'gradient_penalty': self.range(30) + [False],
             'labels': [
-                [-1, 1, 0],
-                [0, 1, 1],
-                [0, -1, -1],
-                [1, -1, 0],
-                [0, -1, 1],
-                [0, 1, -1],
-                [0, 0.5, -0.5],
-                [0.5, -0.5, 0],
-                [0.5, 0, -0.5]
+                [-1, 1, 1],
+                [1, -1, -1],
+                [-1, 1, 1],
+                [0.5, 0.5, -0.5],
+                [0.5, -0.5, -0.5],
+                [-0.5, 0.5, 0.5]
             ],
             'alpha':self.range(),
             'beta':self.range(),
@@ -98,18 +93,19 @@ class RandomSearch:
             'initial_k': self.range(),
             'k_lambda': self.range(.001),
             'type': ['wgan', 'lsgan', 'softmax'],
-            'create': [
-                hg.losses.cramer_loss.create,
+            'minibatch': [True, False],
+            'class': [
+                BoundaryEquilibriumLoss,
+                LambGanLoss,
+                LeastSquaresLoss,
+                StandardLoss,
+                WassersteinLoss
             ]
         }
 
-        config = hc.Selector(loss_opts).random_config()
+        return  hc.Selector(loss_opts).random_config()
 
-        return [[config]]
-
-    def encoders(self):
-        encoders = []
-
+    def encoder(self):
         projections = []
         projections.append([hg.encoders.uniform_encoder.identity])
         projections.append([hg.encoders.uniform_encoder.sphere])
@@ -122,23 +118,69 @@ class RandomSearch:
         projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere])
         projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity, hg.encoders.uniform_encoder.gaussian])
         encoder_opts = {
-                'z': list(np.arange(0, 100)),
+                'z': list(np.arange(0, 100)*2),
                 'modes': list(np.arange(2,24)),
                 'projections': projections,
                 'min': -1,
                 'max':1,
-                'create': hg.encoders.uniform_encoder.create
+                'class': hg.encoders.uniform_encoder.UniformEncoder
         }
 
-        config = hc.Selector(encoder_opts).random_config()
-        encoders.append([config])
-        return encoders
+        return hc.Selector(encoder_opts).random_config()
+
+    def generator_config(self):
+        generator_opts = {
+            "activation":['relu', 'lrelu', 'tanh', 'selu' 'prelu', 'crelu'],
+            "final_depth":[32],
+            "depth_increase":[32],
+            "initializer": ['orthogonal', 'random'],
+            "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
+            "final_activation":['lrelu', 'tanh'],
+            "block_repeat_count":[1,2,3],
+            "block":[
+                hg.generators.common.standard_block, 
+                hg.generators.common.inception_block, 
+                hg.generators.common.dense_block, 
+                hg.generators.common.repeating_block
+                ],
+            "orthogonal_initializer_gain": list(np.linspace(0.1, 2, num=100)),
+            "class":[
+                hg.generators.resize_conv_generator.ResizeConvGenerator
+            ]
+        }
+
+        return hc.Selector(generator_opts).random_config()
+
+    def discriminator_config(self):
+        discriminator_opts = {
+            "activation":['relu', 'lrelu', 'tanh', 'selu' 'prelu', 'crelu'],
+            "final_activation":['relu', 'lrelu', 'tanh', 'selu' 'prelu', 'crelu'],
+            "block_repeat_count":[1,2,3],
+            "block":[hg.discriminators.common.repeating_block,
+                   hg.discriminators.common.standard_block,
+                   hg.discriminators.common.strided_block
+                   ],
+            "depth_increase":[32],
+            "extra_layers_reduction":[1,2,4],
+            "fc_layer_size":[300],
+            "fc_layers":[0,1],
+            "first_conv_size":[32],
+            "layers": [3,4,5,6],
+            "initial_depth": [32],
+            "initializer": ['orthogonal', 'random'],
+            "layer_regularizer": [None, 'batch_norm', 'layer_norm'],
+            "noise":[False, 1e-2],
+            "progressive_enhancement":[False, True],
+            "orthogonal_gain": list(np.linspace(0.1, 2, num=10000)),
+            "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
+            "distance":[hg.discriminators.autoencoder_discriminator.l1_distance, hg.discriminators.autoencoder_discriminator.l2_distance],
+            "class":[
+                hg.discriminators.pyramid_discriminator.PyramidDiscriminator,
+                hg.discriminators.autoencoder_discriminator.AutoencoderDiscriminator
+            ]
+        }
+
+        return hc.Selector(discriminator_opts).random_config()
 
     def random_config(self):
-        selector = hc.Selector(self.options)
-        selected = dict(selector.random_config())
-
-        selected['dtype']=tf.float32
-        return hg.config.lookup_functions(selected)
-
-
+        return hc.Selector(self.options).random_config()

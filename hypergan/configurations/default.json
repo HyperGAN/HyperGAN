@@ -1,0 +1,86 @@
+{
+  "description": "The default determined by automated search.",
+  "discriminator": 
+  {
+    "activation": "lrelu",
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "block": "function:hypergan.discriminators.common.standard_block",
+    "extra_layers": 1,
+    "extra_layers_reduction": 2,
+    "fc_layer_size": 300,
+    "fc_layers": 1,
+    "final_activation": "tanh",
+    "initial_depth": 64,
+    "depth_increase": 64,
+    "layer_regularizer": "layer_norm",
+    "layers": 5,
+    "orthogonal_initializer_gain": 1.0595959595959596,
+    "resize": null
+  },
+  "encoder":
+  {
+    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "max": 1,
+    "min": -1,
+    "modes": 8,
+    "projections": [
+      "function:hypergan.encoders.uniform_encoder.identity",
+      "function:hypergan.encoders.uniform_encoder.modal",
+      "function:hypergan.encoders.uniform_encoder.sphere"
+    ],
+    "z": 16
+  },
+  "generator": {
+    "activation": "lrelu",
+    "block": "function:hypergan.generators.common.standard_block",
+    "block_repeat_count": 1,
+    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
+    "final_activation": "tanh",
+    "layer_regularizer": "layer_norm",
+    "orthogonal_initializer_gain": 1.6737373737373737,
+    "depth_increase": 64,
+    "final_depth": 64
+  },
+  "loss":
+  {
+    "alpha": 0.9325229325229324,
+    "beta": 0.3927343927343927,
+    "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
+    "gamma": 0.49851949851949845,
+    "gradient_penalty": false,
+    "initial_k": 0.9823449823449822,
+    "k_lambda": 0.46580146580146575,
+    "label_smooth": 0.7985137985137984,
+    "labels": [
+      -1,
+      1,
+      0
+    ],
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "d_beta1": 0.6527136527136527,
+    "d_beta2": 0.34081534081534076,
+    "d_decay": 0.19863719863719861,
+    "d_epsilon": 0.8575148575148575,
+    "d_global_step": 0.17538217538217538,
+    "d_initial_accumulator_value": 0.41758441758441756,
+    "d_initial_gradient_squared_accumulator_value": 0.9371479371479371,
+    "d_learn_rate": 0.1473171473171473,
+    "d_momentum": 0.7705107705107704,
+    "d_rho": 0.4068604068604068,
+    "d_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+    "g_beta1": 0.4648834648834648,
+    "g_beta2": 0.9608359608359608,
+    "g_decay": 0.3971403971403971,
+    "g_epsilon": 0.7170267170267169,
+    "g_global_step": 0.4519584519584519,
+    "g_initial_accumulator_value": 0.9972789972789972,
+    "g_initial_gradient_squared_accumulator_value": 0.8025438025438024,
+    "g_learn_rate": 0.09092509092509092,
+    "g_momentum": 0.231034231034231,
+    "g_rho": 0.6888646888646888,
+    "g_trainer": "class:tensorflow.python.training.adagrad.AdagradOptimizer"
+  }
+}

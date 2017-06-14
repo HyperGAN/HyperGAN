@@ -152,6 +152,8 @@ class GANComponent:
             #net = ops.linear(net, features)
             net = ops.reshape(net, shape)
             results.append(net)
+            print(net)
+        print('results', results)
         return results
 
     def relation_layer(self, net):

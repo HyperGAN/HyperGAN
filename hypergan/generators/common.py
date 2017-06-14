@@ -12,10 +12,10 @@ def repeating_block(component, net, output_channels):
         print("[generator] repeating block ", net)
     return net
 
-def standard_block(component, net, output_channels):
+def standard_block(component, net, output_channels, filter=None):
     config = component.config
     ops = component.ops
-    filter = config.filter or 3
+    filter = filter or config.filter or 3
     net = ops.conv2d(net, filter, filter, 1, 1, output_channels)
     return net
 

@@ -49,7 +49,6 @@ class AlignedGAN(BaseGAN):
 
         encode_a.create(self.inputs.xa)
         encode_b.create(self.inputs.xb)
-        print("INPUTS PRE", encode_a.sample, encode_b.sample)
 
         g_ab.create(encode_a.sample)
         g_ba.create(encode_b.sample)
@@ -67,7 +66,6 @@ class AlignedGAN(BaseGAN):
         encode_g_ab = encode_b.reuse(g_ab.sample)
         encode_g_ba = encode_a.reuse(g_ba.sample)
 
-        print("INPUTS", encode_g_ab, encode_g_ba)
         cyca = g_ba.reuse(encode_g_ab)
         cycb = g_ab.reuse(encode_g_ba)
 

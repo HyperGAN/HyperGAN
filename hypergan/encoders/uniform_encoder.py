@@ -24,9 +24,7 @@ class UniformEncoder(BaseEncoder):
         projections = []
         batch_size = self.gan.batch_size()
         self.z = tf.random_uniform([batch_size, int(config.z)], config.min or -1, config.max or 1, dtype=ops.dtype)
-        print("CONFIG", config)
         for projection in config.projections:
-            print("LOOKUP", projection)
             projections.append(self.lookup(projection)(config, gan, self.z))
         self.sample = tf.concat(axis=1, values=projections)
         return self.sample

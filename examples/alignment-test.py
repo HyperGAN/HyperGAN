@@ -11,7 +11,7 @@ from hypergan.generators import *
 from hypergan.gans.base_gan import BaseGAN
 from hypergan.gans.standard_gan import StandardGAN
 from hypergan.samplers.aligned_sampler import AlignedSampler
-from hypergan.samplers.viewer import GlobalViewer
+from hypergan.viewer import GlobalViewer
 from hypergan.gans.aligned_gan import AlignedGAN
 
 from examples.common import batch_diversity, accuracy

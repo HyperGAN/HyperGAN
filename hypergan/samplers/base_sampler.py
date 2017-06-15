@@ -1,6 +1,6 @@
 import numpy as np
 from PIL import Image
-from hypergan.samplers.viewer import GlobalViewer
+from hypergan.viewer import GlobalViewer
 
 class BaseSampler:
     def __init__(self, gan, samples_per_row=8, session=None):

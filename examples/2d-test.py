@@ -6,7 +6,7 @@ import hyperchamber as hc
 from hypergan.generators import *
 from examples.common import CustomDiscriminator, CustomGenerator, Custom2DInputDistribution, Custom2DSampler, Custom2DDiscriminator, Custom2DGenerator
 from hypergan.search.random_search import RandomSearch
-from hypergan.samplers.viewer import GlobalViewer
+from hypergan.viewer import GlobalViewer
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a 2d test!', add_help=True)

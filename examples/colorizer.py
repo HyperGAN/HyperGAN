@@ -4,7 +4,7 @@ import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 import numpy as np
-from hypergan.samplers.viewer import GlobalViewer
+from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 
 x_v = None

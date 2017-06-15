@@ -5,7 +5,7 @@ import tensorflow as tf
 from hypergan.gan_component import ValidationException
 from . import GAN
 from .inputs import *
-from .samplers.viewer import GlobalViewer
+from .viewer import GlobalViewer
 from .configuration import Configuration
 import hypergan as hg
 import time

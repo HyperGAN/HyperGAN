@@ -1,39 +1,42 @@
 import tensorflow as tf
 import hyperchamber as hc
-from hypergan.util.ops import *
-from hypergan.util.hc_tf import *
 
-def repeating_block(config, net, depth, prefix='d_'):
-   batch_norm = config['layer_regularizer']
-   activation = config['activation']
-   filter_size_w = 2
-   filter_size_h = 2
-   filter = [1,filter_size_w,filter_size_h,1]
-   stride = [1,filter_size_w,filter_size_h,1]
-   for i in range(config.block_repeat_count-1):
-     if batch_norm is not None:
-         net = batch_norm(int(net.get_shape()[0]), momentum=config.batch_norm_momentum, epsilon=config.batch_norm_epsilon, name=prefix+'_hidden_bn_'+str(i))(net)
-     net = conv2d(net, depth, name=prefix+'_hidden_layer_'+str(i), k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
-     net = activation(net)
-     print("[discriminator] hidden layer", net)
+def repeating_block(component, net, depth):
+    ops = component.ops
+    config = component.config
+    layer_regularizer = config.layer_regularizer
+    filter_size_w = 2
+    filter_size_h = 2
+    filter = [1,filter_size_w,filter_size_h,1]
+    stride = [1,filter_size_w,filter_size_h,1]
+    for i in range(config.block_repeat_count-1):
+        net = activation(net)
+        if layer_regularizer is not None:
+            net = component.layer_regularizer(net)
+        net = ops.conv2d(net, 3, 3, 1, 1, depth)
+        print("[discriminator] hidden layer", net)
 
-   net = conv2d(net, depth, name=prefix+'_expand_layer_last', k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
-   net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
-   print('[discriminator] layer', net)
-   return net
+    net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+    print('[discriminator] layer', net)
+    return net
 
-def standard_block(config, net, depth, prefix='d_'):
-   filter_size_w = 2
-   filter_size_h = 2
-   filter = [1,filter_size_w,filter_size_h,1]
-   stride = [1,filter_size_w,filter_size_h,1]
+def standard_block(component, net, depth, fltr=3):
+    ops = component.ops
+    config = component.config
+    filter_size_w = 2
+    filter_size_h = 2
+    filter = [1,filter_size_w,filter_size_h,1]
+    stride = [1,filter_size_w,filter_size_h,1]
 
-   net = conv2d(net, depth, name=prefix+'_layer', k_w=3, k_h=3, d_h=1, d_w=1, regularizer=None,gain=config.orthogonal_initializer_gain)
-   net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
-   print('[discriminator] layer', net)
-   return net
+    net = ops.conv2d(net, fltr, fltr, 1, 1, depth)
+    #TODO
+    net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+    print('[discriminator] layer', net)
+    return net
 
-def strided_block(config, net, depth, prefix='d_'):
-   net = conv2d(net, depth, name=prefix+'_layer', k_w=3, k_h=3, d_h=2, d_w=2, regularizer=None,gain=config.orthogonal_initializer_gain)
-   print('[discriminator] layer', net)
-   return net
+def strided_block(component, net, depth):
+    ops = component.ops
+    config = component.config
+    net = ops.conv2d(net, 3, 3, 2, 2, depth)
+    print('[discriminator] layer', net)
+    return net

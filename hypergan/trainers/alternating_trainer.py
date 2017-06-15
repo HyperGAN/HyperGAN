@@ -2,121 +2,108 @@ import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
 import inspect
-from .common import *
 
-def config(
-        d_learn_rate=1e-3,
-        d_epsilon=1e-8,
-        d_beta1=0.9,
-        d_beta2=0.999,
-        g_learn_rate=1e-3,
-        g_epsilon=1e-8,
-        g_beta1=0.9,
-        g_beta2=0.999,
-        g_momentum=0.01, 
-        d_momentum=0.00001, 
-        g_decay=0.999, 
-        d_decay=0.995, 
-        d_rho=0.95,
-        g_rho=0.95,
-        d_initial_accumulator_value=0.1,
-        g_initial_accumulator_value=0.1,
-        d_trainer=tf.train.AdamOptimizer,
-        g_trainer=tf.train.AdamOptimizer,
-        d_clipped_weights=False,
-        clipped_gradients=False
-    ):
-    selector = hc.Selector()
+from hypergan.trainers.base_trainer import BaseTrainer
 
-    selector.set('create', create)
-    selector.set('run', run)
+TINY = 1e-12
 
-    selector.set('d_learn_rate', d_learn_rate)
-    selector.set('d_epsilon', d_epsilon)
-    selector.set('d_beta1', d_beta1)
-    selector.set('d_beta2', d_beta2)
+class AlternatingTrainer(BaseTrainer):
 
-    selector.set('g_learn_rate', g_learn_rate)
-    selector.set('g_epsilon', g_epsilon)
-    selector.set('g_beta1', g_beta1)
-    selector.set('g_beta2', g_beta2)
+    def capped_optimizer(optimizer, cap, loss, vars):
+        gvs = optimizer.compute_gradients(loss, var_list=vars)
+        def create_cap(grad,var):
+            if(grad == None) :
+                print("Warning: No gradient for variable ",var.name)
+                return None
+            return (tf.clip_by_value(grad, -cap, cap), var)
 
-    selector.set('clipped_gradients', clipped_gradients)
-    selector.set('d_clipped_weights', d_clipped_weights)
+        capped_gvs = [create_cap(grad,var) for grad, var in gvs]
+        capped_gvs = [x for x in capped_gvs if x != None]
+        return optimizer.apply_gradients(capped_gvs)
 
-    selector.set('d_decay', d_decay)
-    selector.set('g_decay', g_decay)
 
-    selector.set('d_momentum', d_momentum)
-    selector.set('g_momentum', g_momentum)
+    def build_optimizer(self, config, prefix, trainer_config, learning_rate, vars, loss):
+        with tf.variable_scope(prefix):
+            defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(trainer_config).args and k.startswith(prefix)}
+            optimizer = trainer_config(learning_rate, **defn)
+            if(config.clipped_gradients):
+                apply_gradients = self.capped_optimizer(optimizer, config.clipped_gradients, loss, vars)
+            else:
+                apply_gradients = optimizer.minimize(loss, var_list=vars)
 
-    selector.set('d_trainer', d_trainer)
-    selector.set('g_trainer', g_trainer)
+        return apply_gradients
 
-    selector.set('d_rho', d_rho)
-    selector.set('g_rho', g_rho)
+    def _create(self):
+        gan = self.gan
+        config = self.config
+        g_lr = config.g_learn_rate
+        d_lr = config.d_learn_rate
 
-    selector.set('d_initial_accumulator_value', d_initial_accumulator_value)
-    selector.set('g_initial_accumulator_value', g_initial_accumulator_value)
+        d_vars = self.d_vars or gan.discriminator.variables()
+        g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
 
-    return selector.random_config()
+        loss = self.loss or gan.loss
+        d_loss, g_loss = loss.sample
 
-def create(config, gan, d_vars, g_vars):
-    d_loss = gan.graph.d_loss
-    g_loss = gan.graph.g_loss
-    g_lr = np.float32(config.g_learn_rate)
-    d_lr = np.float32(config.d_learn_rate)
+        self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
-    gan.graph.d_vars = d_vars
-    g_defk = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(config.g_trainer).args and k.startswith("d_")}
-    d_defk = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(config.d_trainer).args and k.startswith("g_")}
-    g_optimizer = config.g_trainer(g_lr, **g_defk)
-    d_optimizer = config.d_trainer(d_lr, **d_defk)
-    if(config.clipped_gradients):
-        g_optimizer = capped_optimizer(g_optimizer, config.clipped_gradients, g_loss, g_vars)
-        d_optimizer = capped_optimizer(d_optimizer, config.clipped_gradients, d_loss, d_vars)
-    else:
-        g_optimizer = g_optimizer.minimize(g_loss, var_list=g_vars)
-        d_optimizer = d_optimizer.minimize(d_loss, var_list=d_vars)
+        self.d_lr = tf.Variable(d_lr, dtype=tf.float32)
+        self.g_lr = tf.Variable(g_lr, dtype=tf.float32)
+        g_optimizer = self.build_optimizer(config, 'g_', config.g_trainer, self.g_lr, g_vars, g_loss)
+        d_optimizer = self.build_optimizer(config, 'd_', config.d_trainer, self.d_lr, d_vars, d_loss)
 
-    gan.graph.clip = [tf.assign(d,tf.clip_by_value(d, -config.d_clipped_weights, config.d_clipped_weights))  for d in d_vars]
+        self.g_loss = g_loss
+        self.d_loss = d_loss
+        self.d_optimizer = d_optimizer
+        self.g_optimizer = g_optimizer
 
-    return g_optimizer, d_optimizer
+        if config.d_clipped_weights:
+            self.clip = [tf.assign(d,tf.clip_by_value(d, -config.d_clipped_weights, config.d_clipped_weights))  for d in d_vars]
+        else:
+            self.clip = []
 
-iteration = 0
-def run(gan, feed_dict):
-    global iteration
-    sess = gan.sess
-    config = gan.config
-    x_t = gan.graph.x
-    g_t = gan.graph.g
-    d_log_t = gan.graph.d_log
-    g_loss = gan.graph.g_loss
-    d_loss = gan.graph.d_loss
-    d_fake_loss = gan.graph.d_fake_loss
-    d_real_loss = gan.graph.d_real_loss
-    g_optimizer = gan.graph.g_optimizer
-    d_optimizer = gan.graph.d_optimizer
-    d_class_loss = gan.graph.d_class_loss
-    d_vars = gan.graph.d_vars
+        if config.anneal_learning_rate:
+            anneal_rate = config.anneal_rate or 0.5
+            anneal_lower_bound = config.anneal_lower_bound or 2e-5
+            self.anneal = [
+                    tf.assign(self.d_lr, tf.maximum(self.d_lr * anneal_rate, anneal_lower_bound)),
+                    tf.assign(self.g_lr, tf.maximum(self.g_lr * anneal_rate, anneal_lower_bound))
+            ]
 
-    _, d_cost, d_log = sess.run([d_optimizer, d_loss, d_log_t], feed_dict)
+        return g_optimizer, d_optimizer
 
-    # in WGAN paper, values are clipped.  This might not work, and is slow.
-    if(config.d_clipped_weights):
-        sess.run(gan.graph.clip)
+    def output_string(self, metrics):
+        output = "\%2d: " 
+        for name in sorted(metrics.keys()):
+            output += " " + name
+            output += " %.2f"
+        return output
 
-    if(d_class_loss is not None):
-        _, g_cost,d_fake,d_real,d_class = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss, d_class_loss], feed_dict)
-        if iteration % 100 == 0:
-            print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_class %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_class, d_log ))
-    else:
-        _, g_cost,d_fake,d_real = sess.run([g_optimizer, g_loss, d_fake_loss, d_real_loss], feed_dict)
-        if iteration % 100 == 0:
-            print("%2d: g cost %.2f d_loss %.2f d_real %.2f d_log %.2f" % (iteration, g_cost,d_cost, d_real, d_log ))
 
-    iteration+=1
+    def output_variables(self, metrics):
+        gan = self.gan
+        sess = gan.session
+        return [metrics[k] for k in sorted(metrics.keys())]
 
-    return d_cost, g_cost
+    def _step(self, feed_dict):
+        gan = self.gan
+        sess = gan.session
+        config = self.config
+        loss = self.loss or gan.loss
+        metrics = loss.metrics
 
+        d_loss, g_loss = loss.sample
+
+        for i in range(config.d_update_steps or 1):
+            sess.run([self.d_optimizer] + self.clip, feed_dict)
+
+        metric_values = sess.run([self.g_optimizer] + self.output_variables(metrics), feed_dict)[1:]
+
+        if self.current_step % 100 == 0:
+            print(self.output_string(metrics) % tuple([self.current_step] + metric_values))
+
+        anneal_every = config.anneal_every or 100000
+        if config.anneal_learning_rate and self.current_step > 0 and self.current_step % anneal_every == 0:
+            dlr, glr = sess.run(self.anneal)
+            print("Lowering the learning rate to d:" + str(dlr) + ", g:" + str(glr))
 

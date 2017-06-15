@@ -77,7 +77,7 @@ class Viewer:
         self.pixbuf = self.GdkPixbuf.Pixbuf.new_from_bytes(pixels,
                 self.GdkPixbuf.Colorspace.RGB,
                 have_alpha, 8, w, h, rowstride)
-        self.im.set_from_pixbuf(self.pixbuf)
+        self.im.set_from_pixbuf(self.pixbuf.copy())
         self.im.show()
         return False  # Don't call the same callback repeatedly.
 

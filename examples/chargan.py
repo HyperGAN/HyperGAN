@@ -9,92 +9,9 @@ import matplotlib.pyplot as plt
 from hypergan.loaders import *
 from hypergan.generators import *
 import numpy as np
+from examples.common import TextInput
 
 import math
-
-class TextInput:
-    def __init__(self, config, batch_size):
-        x = tf.constant("replicate this line 2")
-        reader = tf.TextLineReader()
-        filename_queue = tf.train.string_input_producer(["chargan.txt"])
-        key, line = reader.read(filename_queue)
-        x = line
-        lookup_keys, lookup = get_vocabulary()
-        print("LOOKUP KEYS", lookup_keys)
-
-        table = tf.contrib.lookup.string_to_index_table_from_tensor(
-            mapping = lookup_keys, default_value = 0)
-
-        x = tf.string_join([x, tf.constant(" " * 64)]) 
-        x = tf.substr(x, [0], [64])
-        x = tf.string_split(x,delimiter='')
-        x = tf.sparse_tensor_to_dense(x, default_value=' ')
-        x = tf.reshape(x, [64])
-        x = table.lookup(x)
-        x = tf.one_hot(x, len(lookup))
-        x = tf.cast(x, dtype=tf.float32)
-
-        print("X___",x.get_shape())
-        x = tf.reshape(x, [1, int(x.get_shape()[0]), int(x.get_shape()[1]), 1])
-        x = tf.tile(x, [64, 1, 1, 1])
-        print("X___",x.get_shape())
-        num_preprocess_threads = 8
-        
-        x = tf.train.shuffle_batch(
-          [x],
-          batch_size=batch_size,
-          num_threads=num_preprocess_threads,
-          capacity= 512000,
-          min_after_dequeue=51200,
-          enqueue_many=True)
-
-        self.x = x
-        self.table = table
-            #x=tf.decode_raw(x,tf.uint8)
-            #x=tf.cast(x,tf.int32)
-            #x = table.lookup(x)
-            #x = tf.reshape(x, [64])
-            #print("X IS ", x)
-            #x = "replicate this line"
-
-
-            #x=tf.cast(x, tf.float32)
-            #x=x / 255.0 * 2 - 1
-
-            #x = tf.constant("replicate this line")
-
-
-            #--- working manual input ---
-            #lookup_keys, lookup = get_vocabulary()
-
-            #input_default = 'reproduce this line                                             '
-            #input_default = [lookup[obj] for obj in list(input_default)]
-            #
-            #input_default = tf.constant(input_default)
-            #input_default -= len(lookup_keys)/2.0
-            #input_default /= len(lookup_keys)/2.0
-            #input_default = tf.reshape(input_default, [1, 64])
-            #input_default = tf.tile(input_default, [512, 1])
-
-            #x = tf.placeholder_with_default(
-            #        input_default, 
-            #        [512, 64])
-
-            #---/ working manual input ---
-
-
-
-def text_plot(size, filename, data, x):
-    plt.clf()
-    plt.figure(figsize=(2,2))
-    data = np.squeeze(data)
-    plt.plot(x)
-    plt.plot(data)
-    plt.xlim([0, size])
-    plt.ylim([-2, 2.])
-    plt.ylabel("Amplitude")
-    plt.xlabel("Time")
-    plt.savefig(filename)
 
 def one_hot(index, length):
     return np.eye(length)[index]
@@ -111,9 +28,6 @@ def get_vocabulary():
     return lookup_keys, lookup
 
 
-def sample_char(v):
-    v = v.encode('ascii', errors='ignore')
-    print(v)
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a 2d test!', add_help=True)
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Examples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
@@ -124,42 +38,6 @@ def parse_args():
     parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
     parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
     return parser.parse_args()
-
-def g_resize_conv_create(config, gan, net):
-    gan.config.x_dims = [64,80]
-    gan.config.channels = 1
-    gs = resize_conv_generator.create(config,gan,net)
-    filter = [1,4,8,1]
-    stride = [1,4,8,1]
-    #gs[0] = tf.nn.avg_pool(gs[0], ksize=filter, strides=stride, padding='SAME')
-    #gs[0] = linear(tf.reshape(gs[0], [gan.config.batch_size, -1]), 2, scope="g_2d_lin")
-    #gs[-1] = tf.reshape(gs[-1], [gan.config.batch_size, -1])
-    print("GS0", gs[-1], gs)
-    return gs
-
-def d_pyramid_create(gan, config, x, g, xs, gs, prefix='d_'):
-    s = [int(j) for j in x.get_shape()]
-    x = tf.reshape(x, [s[0], 64, 80, 1])
-    g = tf.reshape(g, [s[0], 64, 80, 1])
-    print("XG", x, g)
-    return hg.discriminators.pyramid_discriminator.discriminator(gan, config, x, g, xs, gs, prefix)
-
-def batch_accuracy(a, b):
-    "Each point of a is measured against the closest point on b.  Distance differences are added together."
-    tiled_a = a
-    tiled_a = tf.reshape(tiled_a, [int(tiled_a.get_shape()[0]), 1, int(tiled_a.get_shape()[1])])
-
-    tiled_a = tf.tile(tiled_a, [1, int(tiled_a.get_shape()[0]), 1])
-
-    tiled_b = b
-    tiled_b = tf.reshape(tiled_b, [1, int(tiled_b.get_shape()[0]), int(tiled_b.get_shape()[1])])
-    tiled_b = tf.tile(tiled_b, [int(tiled_b.get_shape()[0]), 1, 1])
-
-    difference = tf.abs(tiled_a-tiled_b)
-    difference = tf.reduce_min(difference, axis=1)
-    difference = tf.reduce_sum(difference, axis=1)
-    return tf.reduce_sum(difference, axis=0) 
-
 
 
 def train():
@@ -173,7 +51,7 @@ def train():
 
 
     with tf.device(args.device):
-        text_input = TextInput(config, args.batch_size)
+        text_input = TextInput(config, args.batch_size, vocabulary = get_vocabulary, one_hot=True)
         gan = hg.GAN(config, inputs=text_input)
         gan.create()
         with gan.session.as_default():
@@ -224,6 +102,7 @@ def train():
                 sample_file="samples/%06d.png" % (samples)
                 #text_plot(64, sample_file, g[0], x_0[0])
                 samples+=1
+
                 lookup_keys, lookup = get_vocabulary()
 
                 print("X:", sample_output(x_val[0]))
@@ -236,9 +115,10 @@ def train():
                     print(sample_output(g_sample))
 
             if i % args.save_every == 0 and i > 0 and args.config is not None:
-                print("Saving " + save_file)
-                with tf.device('/cpu:0'):
-                    gan.save(save_file)
+                pass
+                #print("Saving " + save_file)
+                #with tf.device('/cpu:0'):
+                #    gan.save(save_file)
 
 
         if args.config is None:

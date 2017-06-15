@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
+import numpy as np
 
 from hypergan.gan_component import GANComponent
 from hypergan.generators.base_generator import BaseGenerator
@@ -171,4 +172,80 @@ def accuracy(a, b):
     difference = tf.reduce_sum(difference, axis=1)
     return tf.reduce_sum( tf.reduce_sum(difference, axis=0) , axis=0) 
 
+class TextInput:
+    def __init__(self, config, batch_size, vocabulary, one_hot=False):
+        x = tf.constant("replicate this line 2")
+        reader = tf.TextLineReader()
+        filename_queue = tf.train.string_input_producer(["chargan.txt"])
+        key, line = reader.read(filename_queue)
+        x = line
+        lookup_keys, lookup = vocabulary()
+        print("LOOKUP KEYS", lookup_keys)
 
+        table = tf.contrib.lookup.string_to_index_table_from_tensor(
+            mapping = lookup_keys, default_value = 0)
+
+        x = tf.string_join([x, tf.constant(" " * 64)]) 
+        x = tf.substr(x, [0], [64])
+        x = tf.string_split(x,delimiter='')
+        x = tf.sparse_tensor_to_dense(x, default_value=' ')
+        x = tf.reshape(x, [64])
+        x = table.lookup(x)
+        if one_hot:
+            x = tf.one_hot(x, len(lookup))
+            x = tf.cast(x, dtype=tf.float32)
+        else:
+            x = tf.cast(x, dtype=tf.float32)
+            x -= len(lookup_keys)/2.0
+            x /= len(lookup_keys)/2.0
+
+        if one_hot:
+            x = tf.reshape(x, [1, int(x.get_shape()[0]), int(x.get_shape()[1]), 1])
+            x = tf.tile(x, [64, 1, 1, 1])
+        else:
+            x = tf.reshape(x, [1,1, 64, 1])
+            x = tf.tile(x, [512, 1, 1, 1])
+
+        num_preprocess_threads = 8
+
+        x = tf.train.shuffle_batch(
+          [x],
+          batch_size=batch_size,
+          num_threads=num_preprocess_threads,
+          capacity= 512000,
+          min_after_dequeue=51200,
+          enqueue_many=True)
+
+        self.x = x
+        self.table = table
+            #x=tf.decode_raw(x,tf.uint8)
+            #x=tf.cast(x,tf.int32)
+            #x = table.lookup(x)
+            #x = tf.reshape(x, [64])
+            #print("X IS ", x)
+            #x = "replicate this line"
+
+
+            #x=tf.cast(x, tf.float32)
+            #x=x / 255.0 * 2 - 1
+
+            #x = tf.constant("replicate this line")
+
+
+            #--- working manual input ---
+            #lookup_keys, lookup = get_vocabulary()
+
+            #input_default = 'reproduce this line                                             '
+            #input_default = [lookup[obj] for obj in list(input_default)]
+            #
+            #input_default = tf.constant(input_default)
+            #input_default -= len(lookup_keys)/2.0
+            #input_default /= len(lookup_keys)/2.0
+            #input_default = tf.reshape(input_default, [1, 64])
+            #input_default = tf.tile(input_default, [512, 1])
+
+            #x = tf.placeholder_with_default(
+            #        input_default, 
+            #        [512, 64])
+
+            #---/ working manual input ---

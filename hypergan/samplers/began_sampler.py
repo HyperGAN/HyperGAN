@@ -1,48 +1,41 @@
+from hypergan.samplers.base_sampler import BaseSampler
 
-def sample_tensor(sess,generator, feed_dict, sample_file):
-    g=tf.get_default_graph()
-    with g.as_default():
-        tf.set_random_seed(1)
-        sample = sess.run(generator, feed_dict=feed_dict)
-        #plot(self.config, sample, sample_file)
-        stacks = [np.hstack(sample[x*8:x*8+8]) for x in range(4)]
-        plot(config, np.vstack(stacks), sample_file)
+import tensorflow as tf
+import numpy as np
 
+class BeganSampler(BaseSampler):
+    def __init__(self, gan):
+        BaseSampler.__init__(self, gan)
+        self.x_v = None
+        self.z_v = None
 
+    def sample(self, path, save_samples=False):
+        gan = self.gan
+        x_t = gan.inputs.x
+        g_t = gan.generator.sample
+        z_t = gan.encoder.sample
+        
+        rx_t = gan.discriminator.reconstruction
 
-#mask_noise = None
-z = None
-y = None
-x = None
-def sample(gan, sample_file):
-    sess = gan.sess
-    config = gan.config
-    global z, y, x
-    generator = gan.graph.g[0]
-    y_t = gan.graph.y
-    z_t = gan.graph.z[0] # TODO support multiple z
-    x_t = gan.graph.x
+        sess = gan.session
+        config = gan.config
+        if(self.x_v == None):
+            self.x_v, self.z_v = sess.run([x_t, z_t])
 
-    if x is None:
-        x = gan.sess.run(x_t)
+        rx_v, g_v = sess.run([rx_t, g_t], {x_t: self.x_v, z_t: self.z_v})
+        stacks = []
+        bs = gan.batch_size() // 2
+        width = 8
+        for i in range(1):
+            stacks.append([self.x_v[i*width+width+j] for j in range(width)])
+        for i in range(1):
+            stacks.append([rx_v[i*width+width+j] for j in range(width)])
+        for i in range(1):
+            stacks.append([g_v[i*width+width+j] for j in range(width)])
 
-    if z is None:
-        z = sess.run(z_t)
-        y = sess.run(y_t)
+        #[print(np.shape(s)) for s in stacks]
+        images = np.vstack([np.hstack(s) for s in stacks])
 
+        self.plot(images, path, save_samples)
+        return [{'images': images, 'label': 'tiled x sample'}]
 
-    x_file = sample_file+'x.png'
-    autoencoded_x_file = sample_file+'autox.png'
-    autoencoded_g_file = sample_file+'autog.png'
-    feed_dict = {z_t: z, y_t: y, x_t: x}
-    sample_tensor(sess,generator, feed_dict, sample_file)
-    sample_tensor(sess,x_t, feed_dict, x_file)
-    sample_tensor(sess,gan.graph.dx, feed_dict, autoencoded_x_file)
-    sample_tensor(sess,gan.graph.dg, feed_dict, autoencoded_g_file)
-    samples = []
-    samples.append({'image':sample_file, 'label':'g'})
-    samples.append({'image':x_file, 'label':'x'})
-    samples.append({'image':autoencoded_g_file, 'label':'autoencoded_g'})
-    samples.append({'image':autoencoded_x_file, 'label':'autoencoded_x'})
-
-    return samples

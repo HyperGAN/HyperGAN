@@ -6,6 +6,7 @@ import importlib
 import hypergan
 from hypergan.ops.tensorflow import layer_regularizers
 from hypergan.ops.tensorflow.activations import lrelu, selu
+from hypergan.ops.tensorflow.extended_ops import *
 
 class TensorflowOps:
     def __init__(self, config={}, device="/gpu:0"):
@@ -241,12 +242,19 @@ class TensorflowOps:
             return tf.square
         if symbol == 'reduce_mean':
             return tf.reduce_mean
+        if symbol == 'reduce_min':
+            return tf.reduce_min
         if symbol == 'reduce_sum':
             return tf.reduce_sum
         if symbol == 'reduce_logsumexp':
             return tf.reduce_logsumexp
         if symbol == 'reduce_linear':
             return self.reduce_linear()
+
+        if symbol == 'l1_distance':
+            return l1_distance
+        if symbol == 'l2_distance':
+            return l2_distance
 
         print("lookup failed for ", self.description, symbol)
         return symbol

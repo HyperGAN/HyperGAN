@@ -4,13 +4,12 @@
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.autoencoder_discriminator.AutoencoderDiscriminator",
-    "layers": 5,
-    "distance": "function:hypergan.discriminators.autoencoder_discriminator.l1_distance",
-    "block": "function:hypergan.discriminators.common.standard_block",
-    "initial_depth": 32,
-    "activation": "lrelu",
-    "layer_regularizer": "layer_norm",
-    "depth_increase": 32
+    "encoder": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
+    "decoder": "class:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "distance": "l1_distance",
+    "final_features": 300,
+    "improved": true,
+    "activation": "selu"
   },
   "encoder":
   {
@@ -23,38 +22,30 @@
     "z": 100
   },
   "generator": {
-    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
-    "layer_regularizer": "layer_norm",
-    "activation": "lrelu",
-    "final_activation": "tanh",
-    "depth_increase": 64,
-    "final_depth": 64,
-    "block": "function:hypergan.generators.common.standard_block",
-    "initializer": "random_normal",
-    "random_stddev": 0.02
+    "class": "class:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "activation": "selu"
   },
   "loss":
   {
-    "class": "function:hypergan.losses.boundary_equilibrium_loss.BoundaryEquilibriumLoss",
+    "class": "class:hypergan.losses.boundary_equilibrium_loss.BoundaryEquilibriumLoss",
     "reduce": "reduce_mean",
     "use_k": true,
-    "gamma": 0.01,
+    "gamma": 0.5,
     "initial_k": 0.001,
     "type": "wgan",
-    "k_lambda": 0.001,
-    "labels": [
-      0,
-      1,
-      1
-    ]
+    "k_lambda": 0.01
   },
   "trainer": {
     "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
     "d_beta1": 0.5,
-    "d_learn_rate": 0.00008,
+    "d_beta2": 0.99,
+    "d_learn_rate": 8e-5,
     "d_trainer": "class:tensorflow.python.training.adam.AdamOptimizer",
     "g_beta1": 0.5,
-    "g_learn_rate": 0.00008,
+    "g_beta2": 0.99,
+    "anneal_learning_rate": true,
+    "anneal_lower_bound": 2e-6,
+    "g_learn_rate": 8e-5,
     "g_trainer": "class:tensorflow.python.training.adam.AdamOptimizer"
   }
 }

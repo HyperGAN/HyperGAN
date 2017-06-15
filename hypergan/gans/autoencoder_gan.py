@@ -22,6 +22,7 @@ import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent
 from .standard_gan import StandardGAN
+from .base_gan import BaseGAN
 
 class AutoencoderGAN(StandardGAN):
     """ 
@@ -41,8 +42,10 @@ class AutoencoderGAN(StandardGAN):
 
         StandardGAN.create(self)
         cycloss = tf.reduce_mean(tf.abs(self.inputs.x-self.generator.sample))
-        self.loss.sample[1] += cycloss*10
+        cycloss_lambda = config.cycloss_lambda or 10
+        self.loss.sample[1] *= config.g_lambda or 1
+        self.loss.sample[1] += cycloss*cycloss_lambda
         self.trainer.create()
+
         self.session.run(tf.global_variables_initializer())
 
- 

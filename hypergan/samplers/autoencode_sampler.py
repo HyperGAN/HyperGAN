@@ -27,7 +27,6 @@ class AutoencodeSampler(BaseSampler):
 
             for j in range(i+2, last-1):
                 percent = (j - (i))/float((last) - (i+1))
-                print("PERCENT",j,percent)
                 self.z[j] = self.z[i]*(1.0-percent) + (self.z[last])*percent
             self.z[i+1] = self.z[i]
             self.z[last-1] = self.z[last]

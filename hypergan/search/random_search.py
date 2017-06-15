@@ -13,6 +13,8 @@ from hypergan.losses.lamb_gan_loss import LambGanLoss
 class RandomSearch:
     def __init__(self, overrides):
         self.options = {
+            'discriminator': self.discriminator(),
+            'generator': self.generator(),
             'trainer': self.trainer(),
             'loss':self.loss(),
             'encoder':self.encoder()
@@ -128,12 +130,12 @@ class RandomSearch:
 
         return hc.Selector(encoder_opts).random_config()
 
-    def generator_config(self):
+    def generator(self):
         generator_opts = {
-            "activation":['relu', 'lrelu', 'tanh', 'selu' 'prelu', 'crelu'],
+            "activation":['relu', 'lrelu', 'tanh', 'selu', 'prelu', 'crelu'],
             "final_depth":[32],
             "depth_increase":[32],
-            "initializer": ['orthogonal', 'random'],
+            "initializer": [None, 'random'],
             "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
             "final_activation":['lrelu', 'tanh'],
             "block_repeat_count":[1,2,3],
@@ -151,10 +153,10 @@ class RandomSearch:
 
         return hc.Selector(generator_opts).random_config()
 
-    def discriminator_config(self):
+    def discriminator(self):
         discriminator_opts = {
-            "activation":['relu', 'lrelu', 'tanh', 'selu' 'prelu', 'crelu'],
-            "final_activation":['relu', 'lrelu', 'tanh', 'selu' 'prelu', 'crelu'],
+            "activation":['relu', 'lrelu', 'tanh', 'selu', 'prelu', 'crelu'],
+            "final_activation":['relu', 'lrelu', 'tanh', 'selu', 'prelu', 'crelu'],
             "block_repeat_count":[1,2,3],
             "block":[hg.discriminators.common.repeating_block,
                    hg.discriminators.common.standard_block,

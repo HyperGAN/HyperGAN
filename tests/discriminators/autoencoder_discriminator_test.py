@@ -18,7 +18,7 @@ config = {
         'layers': 3,
         'depth_increase' : 3,
         'block' : hg.discriminators.common.standard_block,
-        'distance': hg.discriminators.autoencoder_discriminator.l2_distance
+        'distance': 'l2_distance'
         }
 
 class AutoencoderDiscriminatorTest(tf.test.TestCase):

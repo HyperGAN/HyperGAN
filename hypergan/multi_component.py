@@ -63,9 +63,11 @@ class MultiComponent():
 
     def reduce(self, data):
         data = [d for d in data if d is not None]
+        ops = self.gan.ops
         if self._combine == 'concat':
             return self.gan.ops.concat(values=data, axis=1)
         elif self._combine == 'add':
+            data = [ops.reshape(d,ops.shape(data[0])) for d in data]
             return self.gan.ops.add_n(data)
 
         raise "Unknown combine"

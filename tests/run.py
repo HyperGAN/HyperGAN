@@ -11,7 +11,6 @@ from cli_test import CliTest
 from discriminators.pyramid_discriminator_test import PyramidDiscriminatorTest
 from discriminators.autoencoder_discriminator_test import AutoencoderDiscriminatorTest
 from discriminators.cramer_discriminator_test import CramerDiscriminatorTest
-from encoders.match_discriminator_encoder_test import MatchDiscriminatorEncoderTest
 from encoders.uniform_encoder_test import UniformEncoderTest
 
 from samplers.static_batch_sampler_test import StaticBatchSamplerTest

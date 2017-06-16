@@ -72,11 +72,14 @@ class ResizeConvGenerator(BaseGenerator):
         for i, depth in enumerate(depths[1:]):
             s = ops.shape(net)
             resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
-            net = ops.resize_images(net, resize, config.resize_image_type or 1)
-
-            net = activation(net)
             net = self.layer_regularizer(net)
-            net = block(self, net, depth)
+            net = activation(net)
+            if block != 'deconv':
+                net = ops.resize_images(net, resize, config.resize_image_type or 1)
+                net = block(self, net, depth)
+            else:
+                net = ops.deconv2d(net, 5, 5, 2, 2, s[-1])
+
 
             size = resize[0]*resize[1]*depth
             print("[generator] layer", net, size)
@@ -84,8 +87,14 @@ class ResizeConvGenerator(BaseGenerator):
         net = self.layer_regularizer(net)
         net = activation(net)
         resize = [gan.height(), gan.width()]
-        net = ops.resize_images(net, resize, config.resize_image_type or 1)
-        net = block(self, net, gan.channels())
+
+        if block != 'deconv':
+            net = ops.resize_images(net, resize, config.resize_image_type or 1)
+            net = block(self, net, gan.channels())
+        else:
+            net = ops.deconv2d(net, 5, 5, 2, 2, gan.channels())
+
+
         if final_activation:
             net = self.layer_regularizer(net)
             net = final_activation(net)

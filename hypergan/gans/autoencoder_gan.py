@@ -34,7 +34,9 @@ class AutoencoderGAN(StandardGAN):
     def create(self):
         config = self.config
 
-        self.encoder = self.create_component(config.discriminator)
+        d2 = dict(config.discriminator)
+        d2['class'] = self.ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
+        self.encoder = self.create_component(d2)
         self.encoder.ops.describe("encoder")
         self.encoder.create(self.inputs.x)
         self.encoder.z = tf.zeros(0)

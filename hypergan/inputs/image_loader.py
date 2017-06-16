@@ -94,7 +94,6 @@ class ImageLoader:
         self.y = y
         return x, y
 
-
     def _get_data(self, image, label):
         batch_size = self.batch_size
         num_preprocess_threads = 24

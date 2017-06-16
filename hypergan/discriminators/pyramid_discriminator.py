@@ -1,6 +1,5 @@
 import tensorflow as tf
 import hyperchamber as hc
-from hypergan.discriminators.common import *
 import inspect
 import os
 
@@ -77,5 +76,3 @@ class PyramidDiscriminator(BaseDiscriminator):
             net = final_activation(net)
 
         return net
-
-

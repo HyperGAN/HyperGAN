@@ -73,12 +73,14 @@ class Viewer:
         have_alpha = False
         rowstride = w * 3
         # Avoid new_from_data: https://bugzilla.gnome.org/show_bug.cgi?id=721497
+        self.Gdk.threads_enter()
         pixels = self.GLib.Bytes.new_take(image.tostring())
         self.pixbuf = self.GdkPixbuf.Pixbuf.new_from_bytes(pixels,
                 self.GdkPixbuf.Colorspace.RGB,
                 have_alpha, 8, w, h, rowstride)
         self.im.set_from_pixbuf(self.pixbuf.copy())
         self.im.show()
+        self.Gdk.threads_leave()
         return False  # Don't call the same callback repeatedly.
 
 GlobalViewer = Viewer()

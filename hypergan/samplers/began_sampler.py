@@ -8,6 +8,7 @@ class BeganSampler(BaseSampler):
         BaseSampler.__init__(self, gan)
         self.x_v = None
         self.z_v = None
+        self.created = False
 
     def sample(self, path, save_samples=False):
         gan = self.gan
@@ -19,8 +20,9 @@ class BeganSampler(BaseSampler):
 
         sess = gan.session
         config = gan.config
-        if(self.x_v == None):
+        if(not self.created):
             self.x_v, self.z_v = sess.run([x_t, z_t])
+            self.created=True
 
         rx_v, g_v = sess.run([rx_t, g_t], {x_t: self.x_v, z_t: self.z_v})
         stacks = []

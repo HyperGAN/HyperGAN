@@ -8,8 +8,9 @@ class AlignedSampler(BaseSampler):
         BaseSampler.__init__(self, gan)
         self.xa_v = None
         self.xb_v = None
+        self.created = False
 
-    def sample(self, path):
+    def sample(self, path, sample_to_file):
         gan = self.gan
         cyca = gan.cyca
         cycb = gan.cycb
@@ -20,8 +21,9 @@ class AlignedSampler(BaseSampler):
 
         sess = gan.session
         config = gan.config
-        if(self.xa_v == None):
+        if(not self.created):
             self.xa_v, self.xb_v = sess.run([xa_t, xb_t])
+            self.created = True
 
         xab_v, xba_v, samplea, sampleb = sess.run([xab_t, xba_t, cyca, cycb], {xa_t: self.xa_v, xb_t: self.xb_v})
         stacks = []
@@ -43,5 +45,5 @@ class AlignedSampler(BaseSampler):
         #[print(np.shape(s)) for s in stacks]
         images = np.vstack([np.hstack(s) for s in stacks])
 
-        self.plot(images, path)
+        self.plot(images, path, sample_to_file)
         return [{'images': images, 'label': 'tiled x sample'}]

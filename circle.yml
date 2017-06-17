@@ -6,4 +6,5 @@ dependencies:
     - python3 setup.py develop
 test:
   override:
-    - CUDA_VISIBLE_DEVICES="" python3 tests/run.py
+    - sh tests/run.sh
+

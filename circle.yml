@@ -2,6 +2,7 @@ dependencies:
   pre:
     - sudo apt-get install -y python3-setuptools
     - sudo apt-get install -y python3-dev
+    - sudo easy_install3 pip
   override:
     - pip3 install tensorflow-cpu hyperchamber
 test:

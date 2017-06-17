@@ -3,6 +3,7 @@ dependencies:
     - pyenv global 3.5.3
   override:
     - pip3 install tensorflow hyperchamber
+    - python3 setup.py develop
 test:
   override:
     - CUDA_VISIBLE_DEVICES="" python3 tests/run.py

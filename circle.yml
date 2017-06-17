@@ -1,6 +1,5 @@
 dependencies:
   pre:
-    - pyenv install 3.5.3
     - pyenv global 3.5.3
   override:
     - pip3 install tensorflow-cpu hyperchamber

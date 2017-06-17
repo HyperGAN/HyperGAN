@@ -64,8 +64,7 @@ class AlphaGAN(BaseGAN):
             standard_discriminator.ops.describe("discriminator")
 
             uniform_encoder_config = config.encoder
-            uniform_encoder_config.z = ops.shape(encoder.sample)[1]
-            uniform_encoder_config.projections = [UniformEncoder.lookup(self, 'sphere')]
+            uniform_encoder_config.z = ops.shape(encoder.sample)[1]//len(uniform_encoder_config.projections)
             uniform_encoder = UniformEncoder(self, uniform_encoder_config)
             uniform_encoder.create()
 

@@ -17,15 +17,20 @@ class AlphaTrainer(BaseTrainer):
         gan = self.gan
         config = self.config
         losses = self.losses
-        lr = config.g_learn_rate
+        g_lr = config.g_learn_rate
+        d_lr = config.d_learn_rate
 
         optimizers = []
-        self.lr = tf.Variable(lr, dtype=tf.float32)
+        self.d_lr = tf.Variable(d_lr, dtype=tf.float32)
+        self.g_lr = tf.Variable(g_lr, dtype=tf.float32)
         for i, _ in enumerate(losses):
             loss = losses[i]
             var_list = self.var_lists[i]
 
-            optimizer = self.build_optimizer(config, 'g_', config.g_trainer, self.lr, var_list, loss)
+            if i ==0 or i == 1:
+                optimizer = self.build_optimizer(config, 'g_', config.g_trainer, self.g_lr, var_list, loss)
+            else:
+                optimizer = self.build_optimizer(config, 'd_', config.d_trainer, self.d_lr, var_list, loss)
             optimizers.append(optimizer) #TODO prefx
 
         self.optimizers = optimizers

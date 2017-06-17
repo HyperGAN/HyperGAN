@@ -12,7 +12,6 @@
     "final_activation": "tanh",
     "initial_depth": 64,
     "depth_increase": 64,
-    "layer_regularizer": "layer_norm",
     "layers": 5,
     "orthogonal_initializer_gain": 1.0595959595959596,
     "resize": null
@@ -36,7 +35,6 @@
     "block_repeat_count": 1,
     "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
     "final_activation": "tanh",
-    "layer_regularizer": "layer_norm",
     "orthogonal_initializer_gain": 1.6737373737373737,
     "depth_increase": 64,
     "final_depth": 64

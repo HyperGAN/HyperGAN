@@ -6,8 +6,7 @@
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
     "activation": "selu",
     "final_features": 300,
-    "improved": true,
-    "noise": 1e-2
+    "improved": true
   },
   "encoder":
   {
@@ -30,8 +29,7 @@
   {
     "class": "function:hypergan.losses.standard_loss.StandardLoss",
     "reduce": "reduce_mean",
-    "improved": true,
-    "minibatch": true
+    "improved": true
   },
   "trainer": {
     "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",

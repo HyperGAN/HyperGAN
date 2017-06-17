@@ -1,6 +1,9 @@
 dependencies:
-    override:
-          - pip install tensorflow-cpu hyperchamber
+  pre:
+    - sudo apt-get install -y python3-setuptools
+    - sudo apt-get install -y python3-dev
+  override:
+    - pip3 install tensorflow-cpu hyperchamber
 test:
-    override:
-         - CUDA_VISIBLE_DEVICES="" python tests/run.py
+  override:
+    - CUDA_VISIBLE_DEVICES="" python3 tests/run.py

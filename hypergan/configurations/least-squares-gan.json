@@ -4,14 +4,12 @@
 
   "discriminator": 
   {
-    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
-    "layers": 4,
-    "final_activation": "tanh",
-    "block": "function:hypergan.discriminators.common.strided_block",
-    "fc_layers": 0,
-    "initial_depth": 64,
-    "activation": "selu",
-    "depth_increase": 64
+    "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
+    "initializer": "random_normal",
+    "activation": "lrelu",
+    "improved": true,
+    "final_features": 300,
+    "random_stddev": 0.02
   },
 
   "encoder":

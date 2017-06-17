@@ -7,18 +7,23 @@ from hypergan.trainers.base_trainer import BaseTrainer
 
 TINY = 1e-12
 
-class AlternatingTrainer(BaseTrainer):
+class AlphaTrainer(BaseTrainer):
+    def __init__(self, gan, config, losses=[], vars=[]):
+        BaseTrainer.__init__(self, gan, config)
+        self.losses = losses
+
     def _create(self):
         gan = self.gan
         config = self.config
+        losses = self.losses
         g_lr = config.g_learn_rate
         d_lr = config.d_learn_rate
 
-        d_vars = self.d_vars or gan.discriminator.variables()
-        g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
+        for i, _ in enumerate(losses):
+            loss = losses[i]
+            var_list = vars[i]
 
-        loss = self.loss or gan.loss
-        d_loss, g_loss = loss.sample
+
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
@@ -46,6 +51,19 @@ class AlternatingTrainer(BaseTrainer):
             ]
 
         return g_optimizer, d_optimizer
+
+    def output_string(self, metrics):
+        output = "\%2d: " 
+        for name in sorted(metrics.keys()):
+            output += " " + name
+            output += " %.2f"
+        return output
+
+
+    def output_variables(self, metrics):
+        gan = self.gan
+        sess = gan.session
+        return [metrics[k] for k in sorted(metrics.keys())]
 
     def _step(self, feed_dict):
         gan = self.gan

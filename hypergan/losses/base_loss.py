@@ -11,7 +11,7 @@ class BaseLoss(GANComponent):
         self.discriminator = discriminator
         self.generator = generator
 
-    def create(self):
+    def create(self, split=2):
         gan = self.gan
         config = self.config
         ops = self.gan.ops
@@ -21,9 +21,17 @@ class BaseLoss(GANComponent):
         else:
             net = self.discriminator.sample
 
-        d_real, d_fake = self.split_batch(net)
+        if split == 2:
+            d_real, d_fake = self.split_batch(net, split)
+            d_loss, g_loss = self._create(d_real, d_fake)
+        elif split == 3:
+            d_real, d_fake, d_fake2 = self.split_batch(net, split)
+            d_loss, g_loss = self._create(d_real, d_fake)
+            d_loss2, g_loss2 = self._create(d_real, d_fake2)
+            g_loss += g_loss2
+            d_loss += d_loss2
+            #TODO does this double the signal of d_real?
 
-        d_loss, g_loss = self._create(d_real, d_fake)
 
         if d_loss is not None:
             d_loss = ops.squash(d_loss, tf.reduce_mean) #TODO linear doesn't work with this, so we cant pass config.reduce
@@ -45,6 +53,8 @@ class BaseLoss(GANComponent):
         self.metrics = self.metrics or sample_metrics
 
         self.sample = [d_loss, g_loss]
+        self.d_loss = d_loss
+        self.g_loss = g_loss
 
         return self.sample
 

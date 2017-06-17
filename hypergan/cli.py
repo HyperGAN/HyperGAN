@@ -213,13 +213,16 @@ class CLI:
         if self.method == 'train':
             self.gan.create()
             if(number_classes > 1):
-                print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
-                print("SELFGAN", self.gan.loss)
-                supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
-                self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
-                supervised_loss.create()
-                #EWW
-                self.gan.session.run(tf.global_variables_initializer())
+                if not args.noclassloss:
+                    print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
+                    print("SELFGAN", self.gan.loss)
+                    supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
+                    self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
+                    supervised_loss.create()
+                    #EWW
+                    self.gan.session.run(tf.global_variables_initializer())
+                else:
+                    print("Skipping class loss")
             else:
                 print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
 

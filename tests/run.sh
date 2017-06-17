@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES="" nosetests tests --all-modules --nologcapture
+CUDA_VISIBLE_DEVICES="" python3 -m nose tests --all-modules --nologcapture

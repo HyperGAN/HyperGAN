@@ -1,3 +1,3 @@
 test:
     override:
-         - CUDA_VISIBLE_DEVICES="" python3 tests/run.py
+         - CUDA_VISIBLE_DEVICES="" python tests/run.py

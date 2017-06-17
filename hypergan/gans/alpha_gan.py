@@ -23,6 +23,9 @@ import hypergan as hg
 from hypergan.gan_component import ValidationException, GANComponent
 from .base_gan import BaseGAN
 
+from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
+from hypergan.encoders.uniform_encoder import UniformEncoder
+
 class AlphaGAN(BaseGAN):
     """ 
     """
@@ -34,7 +37,7 @@ class AlphaGAN(BaseGAN):
         config = self.config
 
         d2 = dict(config.discriminator)
-        d2['class'] = self.ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
+        #d2['class'] = self.ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
         encoder = self.create_component(d2)
         encoder.ops.describe("encoder")
         encoder.create(self.inputs.x)
@@ -44,12 +47,13 @@ class AlphaGAN(BaseGAN):
         standard_discriminator = self.create_component(config.discriminator)
 
         uniform_encoder = UniformEncoder(self, config.encoder)
-
         uniform_encoder.create()
+
+        self.generator = self.create_component(config.generator)
 
         z = uniform_encoder.sample
         x = self.inputs.x
-        z_hat = self.encoder.sample
+        z_hat = uniform_encoder.sample
         g = self.generator.create(z)
         x_hat = self.generator.reuse(z_hat)
 
@@ -80,12 +84,8 @@ class AlphaGAN(BaseGAN):
         vars.append(standard_discriminator.variables())
         vars.append(encoder_discriminator.variables())
 
-        # trainers
+        # trainer
 
-        self.trainer = AlphaTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4])
+        self.trainer = AlphaTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], vars=vars)
 
         self.session.run(tf.global_variables_initializer())
-
-    def step(self, feed_dict={}):
-        self.trainer1.step(feed_dict)
-        return self.trainer2.step(feed_dict)

@@ -8,6 +8,7 @@ import hypergan as hg
 import hypergan.cli as cli
 from hypergan.gans.aligned_gan import AlignedGAN
 from hypergan.gans.autoencoder_gan import AutoencoderGAN
+from hypergan.gans.alpha_gan import AlphaGAN
 
 class CommandParser:
     def common(self, parser):
@@ -74,7 +75,10 @@ if not args.align:
           height=height,
           resize=args.resize)
 
-    if args.autoencode:
+    if args.autoencode == 'alphagan':
+        print("Starting alpha gan")
+        gan = AlphaGAN(config=config, inputs=inputs)
+    elif args.autoencode:
         gan = AutoencoderGAN(config=config, inputs=inputs)
     else:
         gan = hg.GAN(config=config, inputs=inputs)

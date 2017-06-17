@@ -1,3 +1,6 @@
+dependencies:
+    override:
+          - pip install tensorflow-cpu hyperchamber
 test:
     override:
          - CUDA_VISIBLE_DEVICES="" python tests/run.py

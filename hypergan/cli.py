@@ -111,7 +111,8 @@ class CLI:
             self.create_path(sample_file)
             sample_list = self.sample(sample_file)
             if self.args.use_hc_io:
-                hc.io.sample(self.config, sample_list)
+                self.gan.config['model'] = self.args.config
+                hc.io.sample(self.gan.config, sample_list)
 
             self.samples += 1
 

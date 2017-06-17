@@ -39,5 +39,5 @@ class BeganSampler(BaseSampler):
         images = np.vstack([np.hstack(s) for s in stacks])
 
         self.plot(images, path, save_samples)
-        return [{'images': images, 'label': 'tiled x sample'}]
+        return [{'image': path, 'label': 'tiled x sample'}]
 

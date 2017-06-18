@@ -45,6 +45,7 @@ while(True):
 
     mnist_loader = MNISTInputLoader(args.batch_size)
     gan = hg.GAN(config, inputs=mnist_loader, batch_size=args.batch_size)
+    gan.inputs.gradient_penalty_label = gan.inputs.feed_y # TODO: Our X dimensions dont always match the G.  This causes gradient_penalty to fail.
     gan.create()
     mnist = gan.inputs.mnist
     correct_prediction = tf.equal(tf.argmax(gan.generator.sample,1), tf.argmax(gan.inputs.y,1))

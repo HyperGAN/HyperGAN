@@ -18,7 +18,7 @@ class BoundaryEquilibriumLoss(BaseLoss):
         d_real = config.reduce(d_real)
         d_fake = config.reduce(d_fake)
 
-        k = tf.get_variable('k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=config.dtype)
+        k = tf.get_variable(gan.ops.generate_scope()+'k', [1], initializer=tf.constant_initializer(config.initial_k), dtype=config.dtype)
 
         if config.type == 'wgan':
             l_x = d_real

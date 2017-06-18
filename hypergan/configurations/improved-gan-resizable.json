@@ -3,10 +3,15 @@
   "publication": "https://arxiv.org/abs/1606.03498",
   "discriminator": 
   {
-    "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "layers": 5,
+    "final_activation": "tanh",
+    "block": "function:hypergan.discriminators.common.strided_block",
+    "fc_layers": 1,
+    "initial_depth": 64,
     "activation": "selu",
-    "final_features": 300,
-    "improved": true
+    "depth_increase": 64
+
   },
   "encoder":
   {

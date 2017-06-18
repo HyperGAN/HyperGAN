@@ -1,15 +1,19 @@
 {
   "description": "Least Squares GAN",
   "publication": "https://arxiv.org/abs/1611.04076v2",
+
   "discriminator": 
   {
-    "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
-    "initializer": "random_normal",
-    "activation": "lrelu",
-    "improved": true,
-    "final_features": 300,
-    "random_stddev": 0.02
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "layers": 4,
+    "final_activation": "tanh",
+    "block": "function:hypergan.discriminators.common.strided_block",
+    "fc_layers": 0,
+    "initial_depth": 64,
+    "activation": "selu",
+    "depth_increase": 64
   },
+
   "encoder":
   {
     "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
@@ -21,11 +25,15 @@
     "z": 100
   },
   "generator": {
-    "class": "function:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
     "activation": "selu",
-    "initializer": "random_normal",
-    "random_stddev": 0.02
+    "depth_increase": 64,
+    "final_activation": "tanh",
+    "final_depth": 64,
+    "block": "function:hypergan.generators.common.standard_block"
   },
+
+
   "loss":
   {
     "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",

@@ -1,0 +1,10 @@
+dependencies:
+  pre:
+    - pyenv global 3.5.3
+  override:
+    - pip3 install tensorflow hyperchamber Pillow
+    - python3 setup.py develop
+test:
+  override:
+    - sh tests/run.sh
+

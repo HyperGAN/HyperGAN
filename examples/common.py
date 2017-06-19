@@ -239,7 +239,7 @@ class TextInput:
             x = tf.tile(x, [64, 1, 1, 1])
         else:
             x = tf.reshape(x, [1,1, 64, 1])
-            x = tf.tile(x, [512, 1, 1, 1])
+            x = tf.tile(x, [64, 1, 1, 1])
 
         num_preprocess_threads = 8
 

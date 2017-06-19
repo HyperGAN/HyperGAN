@@ -95,6 +95,7 @@ def train():
 
             def sample_output(val):
                 val *= len(lookup_keys)/2.0
+                val += len(lookup_keys)/2.0
                 val = np.round(val)
 
                 val = np.maximum(0, val)

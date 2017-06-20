@@ -13,9 +13,6 @@ class BaseSampler:
 
     def sample(self, path, save_samples):
         gan = self.gan
-        if not gan.created:
-            print("Creating sampler")
-            self.gan.create()
 
         with gan.session.as_default():
 

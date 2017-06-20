@@ -10,7 +10,7 @@ class ResizeConvGenerator(BaseGenerator):
     def required(self):
         return "final_depth activation depth_increase".split()
 
-    def depths(self):
+    def depths(self, initial_width=4):
         gan = self.gan
         ops = self.ops
         config = self.config
@@ -19,7 +19,7 @@ class ResizeConvGenerator(BaseGenerator):
 
         target_w = gan.width()
 
-        w = (config.initial_dimensions or [4,4])[0]
+        w = initial_width
         print("DEPTHS", gan.inputs.x)
         #ontehuas
         i = 0
@@ -38,23 +38,27 @@ class ResizeConvGenerator(BaseGenerator):
         ops = self.ops
         config = self.config
 
-        primes = config.initial_dimensions or [4, 4]
         nets = []
-
-        depths = self.depths()
-        initial_depth = depths[0]
-        new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
 
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
         block = config.block or standard_block
 
-        net = ops.linear(net, initial_depth*primes[0]*primes[1])
-        net = ops.reshape(net, new_shape)
+        if config.skip_linear:
+            pass
+        else:
+            net = ops.reshape(net, [ops.shape(net)[0], -1])
+            primes = config.initial_dimensions or [4, 4]
+            depths = self.depths(primes[0])
+            initial_depth = depths[0]
+            new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
+            net = ops.linear(net, initial_depth*primes[0]*primes[1])
+            net = ops.reshape(net, new_shape)
 
         shape = ops.shape(net)
 
-        print("[generator] Initial depth", primes, initial_depth, config.relational_layer)
+        depths = self.depths(initial_width = shape[1])
+        print("[generator] Initial depth", shape)
 
         print("+++")
         if config.relation_layer:

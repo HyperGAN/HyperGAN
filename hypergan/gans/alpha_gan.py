@@ -25,7 +25,7 @@ from .base_gan import BaseGAN
 
 from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
 from hypergan.encoders.uniform_encoder import UniformEncoder
-from hypergan.trainers.alpha_trainer import AlphaTrainer
+from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 
 class AlphaGAN(BaseGAN):
     """ 
@@ -63,6 +63,7 @@ class AlphaGAN(BaseGAN):
             standard_discriminator = self.create_component(config.discriminator)
             standard_discriminator.ops.describe("discriminator")
 
+            encoder.sample = ops.reshape(encoder.sample, [ops.shape(encoder.sample)[0], -1])
             uniform_encoder_config = config.encoder
             uniform_encoder_config.z = ops.shape(encoder.sample)[1]//len(uniform_encoder_config.projections)
             uniform_encoder = UniformEncoder(self, uniform_encoder_config)
@@ -74,6 +75,7 @@ class AlphaGAN(BaseGAN):
             x = self.inputs.x
             z_hat = encoder.sample
             g = self.generator.create(z)
+            print("Z, Z_HAT", z, z_hat)
             x_hat = self.generator.reuse(z_hat)
 
             encoder_discriminator.create(x=z, g=z_hat)
@@ -92,10 +94,11 @@ class AlphaGAN(BaseGAN):
             #loss terms
             cycloss = tf.reduce_mean(tf.abs(self.inputs.x-x_hat))
             cycloss_lambda = config.cycloss_lambda or 10
-            loss1=cycloss + encoder_loss.g_loss
-            loss2=cycloss + standard_loss.g_loss
-            loss3=standard_loss.d_loss
-            loss4=encoder_loss.d_loss
+            cycloss *= cycloss_lambda
+            loss1=('generator', cycloss + encoder_loss.g_loss)
+            loss2=('generator', cycloss + standard_loss.g_loss)
+            loss3=('discriminator', standard_loss.d_loss)
+            loss4=('discriminator', encoder_loss.d_loss)
 
             var_lists = []
             var_lists.append(encoder.variables())
@@ -105,7 +108,7 @@ class AlphaGAN(BaseGAN):
 
             # trainer
 
-            self.trainer = AlphaTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists)
+            self.trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists)
             self.trainer.create()
 
             self.session.run(tf.global_variables_initializer())

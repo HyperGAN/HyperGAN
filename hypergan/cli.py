@@ -221,12 +221,12 @@ class CLI:
                     self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
                     supervised_loss.create()
                     #EWW
-                    self.gan.session.run(tf.global_variables_initializer())
                 else:
                     print("Skipping class loss")
             else:
                 print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
 
+            self.gan.session.run(tf.global_variables_initializer())
 
             tf.train.start_queue_runners(sess=self.gan.session)
             self.train()

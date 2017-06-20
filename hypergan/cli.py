@@ -214,7 +214,7 @@ class CLI:
         if self.method == 'train':
             self.gan.create()
             if(number_classes > 1):
-                if not args.noclassloss:
+                if not self.args.noclassloss:
                     print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
                     print("SELFGAN", self.gan.loss)
                     supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)

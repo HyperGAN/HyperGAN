@@ -49,10 +49,12 @@ class CLI:
             self.sampler = None
 
         self.validate()
-
-    def load(self):
-        raise ValidationException('Load not implemented')
-        #return self.gan.load()
+        if self.args.save_file:
+            self.save_file = self.args.save_file
+        else:
+            default_save_path = os.path.abspath("saves/"+args.config)
+            self.save_file = default_save_path + "/model.ckpt"
+            self.create_path(self.save_file)
 
     def get_sampler_name(self, args):
         if 'sampler' in args:
@@ -143,9 +145,6 @@ class CLI:
         build_file = os.path.expanduser("~/.hypergan/builds/"+args.config+"/generator.ckpt")
         self.create_path(build_file)
 
-        #TODO
-        #saver = tf.train.Saver()
-        #saver.save(self.sess, build_file)
         print("Saved generator to ", build_file)
 
     def serve(self, gan):
@@ -169,16 +168,10 @@ class CLI:
                 self.args.save_every > 0 and
                 i % self.args.save_every == 0):
                 print(" |= Saving network")
-                self.save()
+                self.gan.save(self.save_file)
             if self.args.ipython:
                 self.check_stdin()
             end_time = time.time()
-
-    def save(self):
-        #TODO
-        #saver = tf.train.Saver()
-        #saver.save(self.sess, self.save_file)
-        return
 
     def check_stdin(self):
         try:
@@ -200,7 +193,6 @@ class CLI:
         print("[hypergan] Creating new project '"+path+"'")
         os.mkdir(path)
         os.mkdir(path+'/samples')
-        os.mkdir(path+'/saves')
         template = 'default.json' #TODO
         source_configuration = Configuration.find(template)
         json_path = path + '/' + template
@@ -213,6 +205,11 @@ class CLI:
         self.output_graph_size()
         if self.method == 'train':
             self.gan.create()
+            if not self.gan.load(self.save_file):
+                print("Initializing new model")
+            else:
+                print("Model loaded")
+
             if(number_classes > 1):
                 if not self.args.noclassloss:
                     print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")

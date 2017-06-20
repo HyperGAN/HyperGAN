@@ -110,6 +110,8 @@ class AlignedGAN(BaseGAN):
         self.cyca = cyca
         self.cycb = cycb
         self.cycloss = cycloss
+        self.encoder = encode_a
+        self.generator = g_ab
 
         self.session.run(tf.global_variables_initializer())
 

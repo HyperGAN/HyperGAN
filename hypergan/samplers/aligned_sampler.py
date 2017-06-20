@@ -46,4 +46,4 @@ class AlignedSampler(BaseSampler):
         images = np.vstack([np.hstack(s) for s in stacks])
 
         self.plot(images, path, sample_to_file)
-        return [{'images': images, 'label': 'tiled x sample'}]
+        return [{'image': path, 'label': 'tiled x sample'}]

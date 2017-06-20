@@ -21,9 +21,9 @@ class AutoencoderDiscriminator(BaseDiscriminator):
 
         encoder = config.encoder(gan, config)
         encoder.ops = ops
-        ops.describe("autoencoder-d")
+        ops.describe(ops.description+"autoencoder-d")
         hidden = encoder.build(net)
-        ops.describe("autoencoder-g")
+        ops.describe(ops.description+"autoencoder-g")
         reconstruction = generator.build(hidden)
         print("[autoencoder discriminator] hidden layer ", hidden)
 

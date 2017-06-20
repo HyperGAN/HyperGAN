@@ -52,7 +52,7 @@ class AlphaGAN(BaseGAN):
             ops = self.ops
 
             d2 = dict(config.discriminator)
-            #d2['class'] = self.ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
+            d2['class'] = self.ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
             encoder = self.create_component(d2)
             encoder.ops.describe("encoder")
             encoder.create(self.inputs.x)

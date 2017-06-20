@@ -38,9 +38,10 @@ class AlignedGAN(BaseGAN):
         encoder_config = dict(config.discriminator)
         encoder_config['layers']=2
         encoder_config['extra_layers']=5
-        encode_a = self.create_component(config.discriminator)
+        encoder_config['class']=ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
+        encode_a = self.create_component(encoder_config)
         encode_a.ops.describe("encode_a")
-        encode_b = self.create_component(config.discriminator)
+        encode_b = self.create_component(encoder_config)
         encode_b.ops.describe("encode_b")
 
         g_ab = self.create_component(config.generator)
@@ -97,7 +98,13 @@ class AlignedGAN(BaseGAN):
         var_lists.append(encode_b.variables() + g_ba.variables())
         var_lists.append(discriminator_a.variables())
 
-        self.trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists)
+        metrics = []
+        metrics.append(lossa.metrics)
+        metrics.append(None)
+        metrics.append(lossb.metrics)
+        metrics.append(None)
+
+        self.trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists, metrics=metrics)
         self.trainer.create()
 
         self.cyca = cyca

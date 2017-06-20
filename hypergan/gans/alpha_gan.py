@@ -75,6 +75,7 @@ class AlphaGAN(BaseGAN):
             x = self.inputs.x
             z_hat = encoder.sample
             g = self.generator.create(z)
+            sample = self.generator.sample
             print("Z, Z_HAT", z, z_hat)
             x_hat = self.generator.reuse(z_hat)
 
@@ -119,6 +120,7 @@ class AlphaGAN(BaseGAN):
 
             self.session.run(tf.global_variables_initializer())
 
+            self.generator.sample = sample
             self.encoder = encoder
 
 

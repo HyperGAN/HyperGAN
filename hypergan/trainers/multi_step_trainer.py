@@ -8,10 +8,11 @@ from hypergan.trainers.base_trainer import BaseTrainer
 TINY = 1e-12
 
 class MultiStepTrainer(BaseTrainer):
-    def __init__(self, gan, config, losses=[], var_lists=[]):
+    def __init__(self, gan, config, losses=[], var_lists=[], metrics=None):
         BaseTrainer.__init__(self, gan, config)
         self.losses = losses
         self.var_lists = var_lists
+        self.metrics = metrics or [None for i in self.losses]
 
     def _create(self):
         gan = self.gan
@@ -49,13 +50,16 @@ class MultiStepTrainer(BaseTrainer):
         sess = gan.session
         config = self.config
         losses = self.losses
+        metrics = self.metrics
 
         for i, _ in enumerate(losses):
             loss = losses[i]
             optimizer = self.optimizers[i]
-            #metrics = loss.metrics
-            _ = sess.run(optimizer)
-            #metric_values = sess.run([optimizer] + self.output_variables(metrics), feed_dict)[1:]
+            metric = metrics[i]
+            if(metric):
+                metric_values = sess.run([optimizer] + self.output_variables(metric), feed_dict)[1:]
 
-            #if self.current_step % 100 == 0:
-            #    print("loss " + str(i) + "  "+ self.output_string(metrics) % tuple([self.current_step] + metric_values))
+                if self.current_step % 100 == 0:
+                    print("loss " + str(i) + "  "+ self.output_string(metric) % tuple([self.current_step] + metric_values))
+            else:
+                _ = sess.run(optimizer, feed_dict)

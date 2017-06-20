@@ -106,9 +106,15 @@ class AlphaGAN(BaseGAN):
             var_lists.append(standard_discriminator.variables())
             var_lists.append(encoder_discriminator.variables())
 
+            metrics = []
+            metrics.append(encoder_loss.metrics)
+            metrics.append(standard_loss.metrics)
+            metrics.append(None)
+            metrics.append(None)
+
             # trainer
 
-            self.trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists)
+            self.trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists, metrics=metrics)
             self.trainer.create()
 
             self.session.run(tf.global_variables_initializer())

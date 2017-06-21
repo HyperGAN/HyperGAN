@@ -41,10 +41,12 @@ class CommandParser:
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
         subparsers = parser.add_subparsers(dest='method')
         train_parser = subparsers.add_parser('train')
+        sample_parser = subparsers.add_parser('sample')
         build_parser = subparsers.add_parser('build')
         new_parser = subparsers.add_parser('new')
         subparsers.required = True
         self.common_flags(parser)
+        self.common(sample_parser)
         self.common(train_parser)
         self.common(build_parser)
         self.common(new_parser)
@@ -76,10 +78,11 @@ if not args.align:
           height=height,
           resize=args.resize)
 
+    print('-->', args.autoencode)
     if args.autoencode == 'alphagan':
         print("Starting alpha gan")
         gan = AlphaGAN(config=config, inputs=inputs)
-    elif args.autoencode:
+    elif args.autoencode == 'autoencoder':
         gan = AutoencoderGAN(config=config, inputs=inputs)
     else:
         gan = hg.GAN(config=config, inputs=inputs)

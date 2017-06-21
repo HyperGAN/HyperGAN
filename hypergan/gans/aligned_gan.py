@@ -37,7 +37,8 @@ class AlignedGAN(BaseGAN):
 
         encoder_config = dict(config.discriminator)
         encoder_config['layers']=2
-        encoder_config['extra_layers']=5
+        encoder_config['extra_layers']=2
+        encoder_config['fc_layers']=0
         encoder_config['class']=ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
         encode_a = self.create_component(encoder_config)
         encode_a.ops.describe("encode_a")

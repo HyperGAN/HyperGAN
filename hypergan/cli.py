@@ -21,9 +21,11 @@ from hypergan.samplers.grid_sampler import GridSampler
 from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.autoencode_sampler import AutoencodeSampler
+from hypergan.samplers.random_walk_sampler import RandomWalkSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
+from time import sleep
 
 class CLI:
     def __init__(self, gan, args={}):
@@ -64,6 +66,7 @@ class CLI:
     def sampler_options(self):
         return {
                 'static_batch': StaticBatchSampler,
+                'random_walk': RandomWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
                 'began': BeganSampler,
@@ -149,6 +152,16 @@ class CLI:
 
     def serve(self, gan):
         return gan_server(self.gan.session, config)
+
+    def sample_forever(self):
+        while True:
+            sample_file="samples/%06d.png" % (self.samples)
+            self.create_path(sample_file)
+            self.sample(sample_file)
+            self.samples += 1
+            print("Sample", self.samples)
+            sleep(0.01)
+
 
     def train(self):
         i=0
@@ -236,4 +249,28 @@ class CLI:
             self.gan.session.close()
         elif self.method == 'new':
             self.new()
-        #TODO
+        elif self.method == 'sample':
+            self.gan.create()
+            if(number_classes > 1):
+                if not self.args.noclassloss:
+                    print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
+                    print("SELFGAN", self.gan.loss)
+                    supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
+                    self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
+                    supervised_loss.create()
+                    self.gan.session.run(tf.global_variables_initializer())
+                    #EWW
+                else:
+                    print("Skipping class loss")
+            else:
+                print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
+
+            if not self.gan.load(self.save_file):
+                print("Initializing new model")
+            else:
+                print("Model loaded")
+
+            tf.train.start_queue_runners(sess=self.gan.session)
+            self.sample_forever()
+            tf.reset_default_graph()
+            self.gan.session.close()

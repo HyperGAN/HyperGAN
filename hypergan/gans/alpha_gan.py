@@ -122,6 +122,7 @@ class AlphaGAN(BaseGAN):
 
             self.generator.sample = sample
             self.encoder = encoder
+            self.uniform_encoder = uniform_encoder
 
 
     def step(self, feed_dict={}):

@@ -35,7 +35,7 @@ class CommandParser:
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
         parser.add_argument('--autoencode', dest='autoencode', action='store', help='Disables the display of samples in a window.')
-        parser.add_argument('--noclassloss', dest='autoencode', action='store', help='Disables class loss.')
+        parser.add_argument('--noclassloss', dest='noclassloss', action='store', help='Disables class loss.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)

@@ -77,5 +77,5 @@ class MultiComponent():
             results = []
             for method in methods:
                 results.append(method(*args, **kwargs))
-            return self.combine(results)
+            return self.combine(str(method), results)
         return do_call

@@ -82,7 +82,7 @@ class ResizeConvGenerator(BaseGenerator):
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = block(self, net, depth, filter=3)
             else:
-                net = ops.deconv2d(net, 5, 5, 2, 2, s[-1])
+                net = ops.deconv2d(net, 5, 5, 2, 2, depth)
 
 
             size = resize[0]*resize[1]*depth

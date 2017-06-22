@@ -61,10 +61,5 @@ class AutoencoderDiscriminatorTest(tf.test.TestCase):
             self.assertEqual(int(net.get_shape()[1]), 32)
             self.assertEqual(v_count, v_count2)
 
-
-    def test_validate(self):
-        with self.assertRaises(ValidationException):
-            AutoencoderDiscriminator(hg.GAN(), {})
-        
 if __name__ == "__main__":
     tf.test.main()

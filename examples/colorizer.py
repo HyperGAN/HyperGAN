@@ -35,7 +35,7 @@ class Sampler(BaseSampler):
             stacks.append([sample[i*width+width+j] for j in range(width)])
         images = np.vstack([np.hstack(s) for s in stacks])
 
-        self.plot(images, path)
+        self.plot(images, path, False)
         return [{'images': images, 'label': 'tiled x sample'}]
 
 def parse_args():

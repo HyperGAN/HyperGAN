@@ -175,7 +175,7 @@ class RandomSearch:
             "progressive_enhancement":[False, True],
             "orthogonal_gain": list(np.linspace(0.1, 2, num=10000)),
             "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
-            "distance":[hg.discriminators.autoencoder_discriminator.l1_distance, hg.discriminators.autoencoder_discriminator.l2_distance],
+            "distance":['l1_distance', 'l2_distance'],
             "class":[
                 hg.discriminators.pyramid_discriminator.PyramidDiscriminator,
                 hg.discriminators.autoencoder_discriminator.AutoencoderDiscriminator

@@ -160,7 +160,7 @@ class CLI:
             self.sample(sample_file)
             self.samples += 1
             print("Sample", self.samples)
-            sleep(0.01)
+            sleep(0.2)
 
 
     def train(self):

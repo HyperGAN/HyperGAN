@@ -58,22 +58,33 @@ class AlphaGAN(BaseGAN):
             encoder.create(self.inputs.x)
             encoder.z = tf.zeros(0)
 
-            encoder_discriminator = FullyConnectedDiscriminator(self, {})
+            d3 = dict(config.discriminator)
+            d3["layers"]=0
+            d3["extra_layers"]=0
+            d3["fc_layer_size"]=512
+
+            encoder_discriminator = self.create_component(d3)
+            #encoder_discriminator = FullyConnectedDiscriminator(self, {})
             encoder_discriminator.ops.describe("encoder_discriminator")
             standard_discriminator = self.create_component(config.discriminator)
             standard_discriminator.ops.describe("discriminator")
 
-            encoder.sample = ops.reshape(encoder.sample, [ops.shape(encoder.sample)[0], -1])
+            #encoder.sample = ops.reshape(encoder.sample, [ops.shape(encoder.sample)[0], -1])
             uniform_encoder_config = config.encoder
-            uniform_encoder_config.z = ops.shape(encoder.sample)[1]//len(uniform_encoder_config.projections)
+            z_size = 1
+            for size in ops.shape(encoder.sample)[1:]:
+                z_size *= size
+            uniform_encoder_config.z = z_size//len(uniform_encoder_config.projections)
             uniform_encoder = UniformEncoder(self, uniform_encoder_config)
             uniform_encoder.create()
 
             self.generator = self.create_component(config.generator)
 
             z = uniform_encoder.sample
+            z = ops.reshape(z, ops.shape(encoder.sample))
             x = self.inputs.x
             z_hat = encoder.sample
+            print("_Z", z_hat, z)
             g = self.generator.create(z)
             sample = self.generator.sample
             print("Z, Z_HAT", z, z_hat)

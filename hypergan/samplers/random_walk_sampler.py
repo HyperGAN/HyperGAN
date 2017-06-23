@@ -1,5 +1,6 @@
 from hypergan.samplers.base_sampler import BaseSampler
 import tensorflow as tf
+import numpy as np
 
 class RandomWalkSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
@@ -18,14 +19,17 @@ class RandomWalkSampler(BaseSampler):
 
         if self.z is None:
             print("GAN IS", gan, gan.encoder)
-            self.z = z_t.eval()
+            self.z = gan.encoder.sample.eval()
+            self.target = gan.encoder.sample.eval()
             self.input = gan.session.run(gan.inputs.x)
 
-        if self.target is None or self.step > self.steps:
-            self.target = gan.uniform_encoder.z.eval()
+        if self.step > self.steps:
+            self.z = self.target
+            self.target = gan.encoder.sample.eval()
             self.step = 0
 
-        z_interp = self.z + self.target*float(self.step)/self.steps
+        percent = float(self.step)/self.steps
+        z_interp = self.z*(1.0-percent) + self.target*percent
         self.step+=1
         print(self.step)
 

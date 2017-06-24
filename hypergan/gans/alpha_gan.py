@@ -92,7 +92,9 @@ class AlphaGAN(BaseGAN):
 
             encoder_discriminator.create(x=z, g=z_hat)
 
-            encoder_loss = self.create_component(config.loss, discriminator = encoder_discriminator)
+            eloss = dict(config.loss)
+            eloss['gradient_penalty'] = False
+            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator)
             encoder_loss.create()
 
             stacked_xg = ops.concat([x, x_hat, g], axis=0)
@@ -131,7 +133,7 @@ class AlphaGAN(BaseGAN):
 
             self.session.run(tf.global_variables_initializer())
 
-            self.generator.sample = sample
+            #self.generator.sample = sample
             self.encoder = encoder
             self.uniform_encoder = uniform_encoder
 

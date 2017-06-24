@@ -23,10 +23,10 @@ class Sampler(BaseSampler):
         config = gan.config
         global x_v
         global z_v
-        x_v, z_v = sess.run([x_t, z_t])
+        x_v = sess.run(x_t)
         x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
         
-        sample = sess.run(generator, {x_t: x_v, z_t: z_v})
+        sample = sess.run(generator, {x_t: x_v})
         stacks = []
         bs = gan.batch_size()
         width = 5

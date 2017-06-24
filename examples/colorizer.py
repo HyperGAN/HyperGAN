@@ -7,6 +7,8 @@ import numpy as np
 from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 
+from hypergan.gans.alpha_gan import AlphaGAN
+
 x_v = None
 z_v = None
 
@@ -14,16 +16,15 @@ class Sampler(BaseSampler):
     def sample(self, path):
         gan = self.gan
         generator = gan.generator.sample
-        z_t = gan.encoder.z
+        z_t = gan.uniform_encoder.sample
         x_t = gan.inputs.x
         
         sess = gan.session
         config = gan.config
         global x_v
         global z_v
-        if(x_v == None):
-            x_v, z_v = sess.run([x_t, z_t])
-            x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
+        x_v, z_v = sess.run([x_t, z_t])
+        x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
         
         sample = sess.run(generator, {x_t: x_v, z_t: z_v})
         stacks = []
@@ -73,7 +74,7 @@ width = int(args.size.split("x")[0])
 height = int(args.size.split("x")[1])
 channels = int(args.size.split("x")[2])
 
-config = hg.configuration.Configuration.load(args.config)
+config = hg.configuration.Configuration.load(args.config+".json")
 
 config.generator['layer_filter'] = add_bw
 
@@ -86,7 +87,7 @@ inputs.create(args.directory,
               height=height,
               resize=True)
 
-gan = hg.GAN(config, inputs=inputs)
+gan = AlphaGAN(config, inputs=inputs)
 
 gan.create()
 
@@ -102,10 +103,10 @@ sampler = Sampler(gan)
 for i in range(10000000):
     gan.step()
 
-    #if i % args.save_every == 0 and i > 0:
-    #    savefile =,m
-    #    print("Saving " + save_file)
-    #    gan.save(save_file)
+    if i % args.save_every == 0 and i > 0:
+        save_file = "save/model.ckpt"
+        print("Saving " + save_file)
+        gan.save(save_file)
 
     if i % args.sample_every == 0:
         print("Sampling "+str(i))

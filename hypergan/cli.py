@@ -1,4 +1,3 @@
-import argparse
 import os
 import hyperchamber as hc
 import tensorflow as tf

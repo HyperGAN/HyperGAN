@@ -97,7 +97,7 @@ class BaseLoss(GANComponent):
         config = self.config
         gan = self.gan
         gradient_penalty = config.gradient_penalty
-        if gan.inputs.gradient_penalty_label is not None:
+        if has_attr(gan.inputs, 'gradient_penalty_label'):
             x = gan.inputs.gradient_penalty_label
         else:
             x = gan.inputs.x

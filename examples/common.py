@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import argparse
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
@@ -7,6 +8,39 @@ import numpy as np
 from hypergan.gan_component import GANComponent
 from hypergan.generators.base_generator import BaseGenerator
 from hypergan.samplers.base_sampler import BaseSampler
+
+class ArgumentParser:
+    def __init__(self, description):
+        self.parser = argparse.ArgumentParser(description=description, add_help=True)
+        self.add_required_arguments()
+        self.add_search_arguments()
+        self.add_train_arguments()
+
+    def add_required_arguments(self):
+        parser = self.parser
+        parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
+        parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
+        parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
+        parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
+
+    def add_search_arguments(self):
+        parser = self.parser
+        parser.add_argument('action', action='store', type=str, help='One of ["train", "search"]')
+        parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
+
+    def add_train_arguments(self):
+        parser = self.parser
+        parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
+
+    def add_image_arguments(self):
+        parser = self.parser
+        parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
+        parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
+        parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
+        return parser
+
+    def parse_args(self):
+        return self.parser.parse_args()
 
 class CustomGenerator(BaseGenerator):
     def create(self):

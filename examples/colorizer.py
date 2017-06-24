@@ -1,4 +1,3 @@
-import argparse
 import os
 import tensorflow as tf
 import hypergan as hg
@@ -6,6 +5,7 @@ import hyperchamber as hc
 import numpy as np
 from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
+from common import *
 
 from hypergan.gans.alpha_gan import AlphaGAN
 
@@ -39,21 +39,6 @@ class Sampler(BaseSampler):
         self.plot(images, path, False)
         return [{'images': images, 'label': 'tiled x sample'}]
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
-    parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-    parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
-    parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
-    parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
-    parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
-    parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
-    parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
-    parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
-    parser.add_argument('--use_hc_io', '-9', dest='use_hc_io', action='store_true', help='experimental')
-    parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
-    return parser.parse_args()
-
 def add_bw(gan, net):
     x = gan.inputs.x
     s = [int(x) for x in net.get_shape()]
@@ -68,7 +53,11 @@ def add_bw(gan, net):
         
     return x
 
-args = parse_args()
+arg_parser = ArgumentParser("Colorize an image")
+arg_parser.add_image_arguments()
+arg_parser.parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
+args = arg_parser.parse_args()
+
 
 width = int(args.size.split("x")[0])
 height = int(args.size.split("x")[1])

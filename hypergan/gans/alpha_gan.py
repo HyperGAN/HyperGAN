@@ -60,8 +60,11 @@ class AlphaGAN(BaseGAN):
 
             d3 = dict(config.discriminator)
             d3["layers"]=0
-            d3["extra_layers"]=0
+            d3["extra_layers"]=4
+            d3["extra_layers_reduction"]=2
             d3["fc_layer_size"]=512
+            d3["fc_layers"]=0
+            d3['layer_filter']=None
 
             encoder_discriminator = self.create_component(d3)
             #encoder_discriminator = FullyConnectedDiscriminator(self, {})
@@ -109,8 +112,13 @@ class AlphaGAN(BaseGAN):
             cycloss = tf.reduce_mean(tf.abs(self.inputs.x-x_hat))
             cycloss_lambda = config.cycloss_lambda or 10
             cycloss *= cycloss_lambda
-            loss1=('generator', cycloss + encoder_loss.g_loss)
-            loss2=('generator', cycloss + standard_loss.g_loss)
+            print("CYLAMB", cycloss_lambda)
+            if cycloss_lambda > 0:
+                loss1=('generator', cycloss + encoder_loss.g_loss)
+                loss2=('generator', cycloss + standard_loss.g_loss)
+            else:
+                loss1=('generator', encoder_loss.g_loss)
+                loss2=('generator', standard_loss.g_loss)
             loss3=('discriminator', standard_loss.d_loss)
             loss4=('discriminator', encoder_loss.d_loss)
 
@@ -133,7 +141,7 @@ class AlphaGAN(BaseGAN):
 
             self.session.run(tf.global_variables_initializer())
 
-            #self.generator.sample = sample
+            self.generator.sample = sample
             self.encoder = encoder
             self.uniform_encoder = uniform_encoder
 

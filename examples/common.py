@@ -18,6 +18,7 @@ class ArgumentParser:
 
     def add_required_arguments(self):
         parser = self.parser
+        parser.add_argument('action', action='store', type=str, help='One of ["train", "search"]')
         parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
         parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
@@ -25,12 +26,12 @@ class ArgumentParser:
 
     def add_search_arguments(self):
         parser = self.parser
-        parser.add_argument('action', action='store', type=str, help='One of ["train", "search"]')
         parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
 
     def add_train_arguments(self):
         parser = self.parser
         parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
+        parser.add_argument('--save_every', type=int, default=1000, help='Samples the model every n epochs.')
 
     def add_image_arguments(self):
         parser = self.parser

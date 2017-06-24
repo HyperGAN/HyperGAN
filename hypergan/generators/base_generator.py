@@ -13,6 +13,7 @@ class BaseGenerator(GANComponent):
         gan = self.gan
         config = self.config
         if config.layer_filter:
+            print("[base generator] applying layer filter", config['layer_filter'])
             fltr = config.layer_filter(gan, net)
             if fltr is not None:
                 net = ops.concat(axis=3, values=[net, fltr])

@@ -14,7 +14,8 @@ class BaseDiscriminator(GANComponent):
                 g = gan.generator.sample
 
             x, g = self.resize(config, x, g)
-            net = self.combine_filter(config, x, g)
+            net = tf.concat(axis=0, values=[x, g])
+            net = self.layer_filter(net)
 
         net = self.build(net)
         self.sample = net
@@ -64,15 +65,21 @@ class BaseDiscriminator(GANComponent):
         else:
             return x, g
 
-    def combine_filter(self, config, x, g):
-        # TODO: This is standard optimization from improved GAN, cross-d feature
-        if 'layer_filter' in config:
-            g_filter = tf.concat(axis=3, values=[g, config['layer_filter'](gan, x)])
-            x_filter = tf.concat(axis=3, values=[x, config['layer_filter'](gan, x)])
-            net = tf.concat(axis=0, values=[x_filter,g_filter] )
-        else:
-            print("XG", x, g)
-            net = tf.concat(axis=0, values=[x,g])
+    def layer_filter(self, net):
+        config = self.config
+        gan = self.gan
+        ops = self.ops
+        if 'layer_filter' in config and config.layer_filter is not None:
+            print("[base discriminator] applying layer filter", config['layer_filter'])
+            stacks = ops.shape(net)[0] // gan.batch_size()
+            print("STACKS", stacks)
+            filters = []
+            for stack in range(stacks):
+                piece = tf.slice(net, [stack * gan.batch_size(), 0,0,0], [gan.batch_size(), -1, -1, -1])
+                filters.append(config.layer_filter(gan, piece))
+            layer = tf.concat(axis=0, values=filters)
+            print("LAYER", layer, "NET", net)
+            net = tf.concat(axis=3, values=[net, layer])
         return net
 
     def progressive_enhancement(self, config, net, xg):

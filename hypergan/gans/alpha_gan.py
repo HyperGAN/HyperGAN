@@ -104,12 +104,13 @@ class AlphaGAN(BaseGAN):
             standard_discriminator.create(stacked_xg)
 
             standard_loss = self.create_component(config.loss, discriminator = standard_discriminator)
-            standard_loss.create()
+            standard_loss.create(split=3)
 
             self.trainer = self.create_component(config.trainer)
 
             #loss terms
-            cycloss = tf.reduce_mean(tf.abs(self.inputs.x-x_hat))
+            distance = config.distance or ops.lookup('l1_distance')
+            cycloss = tf.reduce_mean(distance(self.inputs.x,x_hat))
             cycloss_lambda = config.cycloss_lambda or 10
             cycloss *= cycloss_lambda
             print("CYLAMB", cycloss_lambda)

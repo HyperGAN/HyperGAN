@@ -45,6 +45,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         for i in range(config.extra_layers or 0):
             output_features = int(int(net.get_shape()[3]))
             net = activation(net)
+            net = self.layer_regularizer(net)
             net = ops.conv2d(net, 3, 3, 1, 1, output_features//(config.extra_layers_reduction or 1))
             print('[extra discriminator] layer', net)
         k=-1

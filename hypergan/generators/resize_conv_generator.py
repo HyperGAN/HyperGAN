@@ -47,9 +47,9 @@ class ResizeConvGenerator(BaseGenerator):
         if config.skip_linear:
             net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
             for i in range(config.extra_layers or 0):
-                net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
-                net = activation(net)
                 net = self.layer_regularizer(net)
+                net = activation(net)
+                net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
         else:
             net = ops.reshape(net, [ops.shape(net)[0], -1])
             primes = config.initial_dimensions or [4, 4]

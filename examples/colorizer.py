@@ -100,7 +100,8 @@ if(os.path.isfile(save_file+".meta")):
     sampler = RandomWalkSampler(gan)
     gan.load(save_file)
 else:
-    sampler = Sampler(gan)
+    #sampler = Sampler(gan)
+    sampler = RandomWalkSampler(gan)
 
 for i in range(10000000):
     if args.action == 'train':

@@ -59,15 +59,8 @@ class AlphaGAN(BaseGAN):
             encoder.create(self.inputs.x)
             encoder.z = tf.zeros(0)
 
-            d3 = dict(config.discriminator)
-#            d3["layers"]=0
-#            d3["extra_layers"]=4
-#            d3["extra_layers_reduction"]=2
-#            d3["fc_layer_size"]=512
-#            d3["fc_layers"]=0
-#            d3['layer_filter']=None
-            d3["layers"]=config.discriminator.encoder_layers or 0
-            d3["extra_layers"]=config.discriminator.encoder_extra_layers or 2
+            d3 = dict(config.alphagan_z_discriminator or config.discriminator)
+            d3['layer_filter']=None
 
             encoder_discriminator = self.create_component(d3)
             #encoder_discriminator = FullyConnectedDiscriminator(self, {})
@@ -154,7 +147,7 @@ class AlphaGAN(BaseGAN):
 
             self.session.run(tf.global_variables_initializer())
 
-            self.generator.sample = sample
+            #self.generator.sample = sample
             self.encoder = encoder
             self.uniform_encoder = uniform_encoder
 

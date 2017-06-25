@@ -53,18 +53,21 @@ class AlphaGAN(BaseGAN):
 
             d2 = dict(config.discriminator)
             d2['class'] = self.ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
+            d2["fc_layers"]=config.discriminator.encoder_fc_layers or 0
+            d2['final_activation'] = ops.lookup('tanh')
             encoder = self.create_component(d2)
             encoder.ops.describe("encoder")
             encoder.create(self.inputs.x)
             encoder.z = tf.zeros(0)
 
             d3 = dict(config.discriminator)
-            d3["layers"]=0
-            d3["extra_layers"]=4
-            d3["extra_layers_reduction"]=2
-            d3["fc_layer_size"]=512
-            d3["fc_layers"]=0
-            d3['layer_filter']=None
+#            d3["layers"]=0
+#            d3["extra_layers"]=4
+#            d3["extra_layers_reduction"]=2
+#            d3["fc_layer_size"]=512
+#            d3["fc_layers"]=0
+#            d3['layer_filter']=None
+            d3["layers"]=config.discriminator.encoder_layers or 3
 
             encoder_discriminator = self.create_component(d3)
             #encoder_discriminator = FullyConnectedDiscriminator(self, {})

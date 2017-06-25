@@ -77,17 +77,27 @@ class AlphaGAN(BaseGAN):
             z_size = 1
             for size in ops.shape(encoder.sample)[1:]:
                 z_size *= size
-            uniform_encoder_config.z = z_size//len(uniform_encoder_config.projections)
+            uniform_encoder_config.z = z_size
             uniform_encoder = UniformEncoder(self, uniform_encoder_config)
             uniform_encoder.create()
 
             self.generator = self.create_component(config.generator)
 
             z = uniform_encoder.sample
-            z = ops.reshape(z, ops.shape(encoder.sample))
             x = self.inputs.x
-            z_hat = encoder.sample
+            z_hat_shape = [ops.shape(encoder.sample)[1], ops.shape(encoder.sample)[2]]
+            z_hat = tf.reshape(encoder.sample, [ops.shape(encoder.sample)[0], -1])
+            # TODO copy paste
+            projections = []
+            for projection in uniform_encoder.config.projections:
+                projections.append(uniform_encoder.lookup(projection)(uniform_encoder.config, self.gan, z_hat))
+            z_hat = tf.concat(axis=1, values=projections)
             print("_Z", z_hat, z)
+
+            z_hat = tf.reshape(z_hat, [self.gan.batch_size(), z_hat_shape[0], z_hat_shape[1], -1])
+            z = tf.reshape(z, ops.shape(z_hat))
+
+            # end encoding
             g = self.generator.create(z)
             sample = self.generator.sample
             print("Z, Z_HAT", z, z_hat)

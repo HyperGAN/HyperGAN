@@ -40,7 +40,7 @@ class Sampler(BaseSampler):
         self.plot(images, path, True)
         return [{'images': images, 'label': 'tiled x sample'}]
 
-def add_bw(gan, net):
+def add_bw(gan, config, net):
     x = gan.inputs.x
     s = [int(x) for x in net.get_shape()]
     print("S IS ", s)
@@ -51,8 +51,10 @@ def add_bw(gan, net):
     if not gan.config.add_full_image:
         print( "[colorizer] Adding black and white image", x)
         x = tf.image.rgb_to_grayscale(x)
-        bwnet = tf.image.rgb_to_grayscale(bwnet)
-        x = tf.concat(axis=3, values=[x, bwnet])
+        if config.colorizer_noise is not None:
+            x += tf.random_normal(x.get_shape(), mean=0, stddev=config.colorizer_noise, dtype=tf.float32)
+        #bwnet = tf.image.rgb_to_grayscale(bwnet)
+        #x = tf.concat(axis=3, values=[x, bwnet])
     else:
         print( "[colorizer] Adding full image", x)
         

@@ -23,8 +23,9 @@ class PyramidDiscriminator(BaseDiscriminator):
         x, g = self.split_batch(net)
 
         net = self.add_noise(net)
-
-        net = config.block(self, net, config.initial_depth or 64, filter=config.initial_filter or 3)
+        if layers > 0:
+            initial_depth = max(ops.shape(net)[3], config.initial_depth or 64)
+            net = config.block(self, net, initial_depth, filter=config.initial_filter or 3)
         for i in range(layers):
             xg = None
             is_last_layer = (i == layers-1)

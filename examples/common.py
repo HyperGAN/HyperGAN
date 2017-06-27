@@ -5,6 +5,7 @@ import hypergan as hg
 import hyperchamber as hc
 import numpy as np
 
+from hypergan.cli import CLI
 from hypergan.gan_component import GANComponent
 from hypergan.generators.base_generator import BaseGenerator
 from hypergan.samplers.base_sampler import BaseSampler
@@ -23,10 +24,13 @@ class ArgumentParser:
         parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
+        parser.add_argument('--steps', type=int, default=1000000, help='Number of steps to train for.')
 
     def add_search_arguments(self):
         parser = self.parser
         parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
+        parser.add_argument('--search_components', '-r', type=str, default=None, help='List which components to random search(generator,discriminator,...).  Defaults to everything.  Separate with commas')
+        parser.add_argument('--output_file', '-o', type=str, default="search.csv", help='output file for search results')
 
     def add_train_arguments(self):
         parser = self.parser
@@ -38,6 +42,7 @@ class ArgumentParser:
         parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
+        parser.add_argument('--sampler', type=str, default=None, help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         return parser
 
     def parse_args(self):
@@ -239,7 +244,7 @@ class TextInput:
             x = tf.tile(x, [64, 1, 1, 1])
         else:
             x = tf.reshape(x, [1,1, 64, 1])
-            x = tf.tile(x, [512, 1, 1, 1])
+            x = tf.tile(x, [64, 1, 1, 1])
 
         num_preprocess_threads = 8
 
@@ -284,3 +289,19 @@ class TextInput:
             #        [512, 64])
 
             #---/ working manual input ---
+
+def lookup_sampler(name):
+    return CLI.sampler_for(name)
+
+def parse_size(size):
+    width = int(size.split("x")[0])
+    height = int(size.split("x")[1])
+    channels = int(size.split("x")[2])
+    return [width, height, channels]
+
+def lookup_config(args, overrides):
+    if args.action == 'train' or args.action == 'sample':
+        return hg.configuration.Configuration.load(args.config+".json")
+    elif args.action == 'search':
+        return RandomSearch(overrides)
+    

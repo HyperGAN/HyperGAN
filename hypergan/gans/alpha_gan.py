@@ -51,12 +51,9 @@ class AlphaGAN(BaseGAN):
             config = self.config
             ops = self.ops
 
-            d2 = dict(config.discriminator)
-            d2['class'] = self.ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
-            d2["fc_layers"]=config.discriminator.encoder_fc_layers or 0
-            d2['final_activation'] = ops.lookup('tanh')
+            d2 = dict(config.g_encoder or config.discriminator)
             encoder = self.create_component(d2)
-            encoder.ops.describe("encoder")
+            encoder.ops.describe("g_encoder")
             encoder.create(self.inputs.x)
             encoder.z = tf.zeros(0)
 

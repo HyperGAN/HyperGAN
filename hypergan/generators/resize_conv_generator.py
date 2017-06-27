@@ -46,6 +46,16 @@ class ResizeConvGenerator(BaseGenerator):
 
         if config.skip_linear:
             net = self.layer_filter(net)
+            if config.concat_linear:
+                size = ops.shape(net)[1]*ops.shape(net)[2]*config.concat_linear_filters
+                net2 = tf.reshape(net, [ops.shape(net)[0], -1])
+                net2 = tf.slice(net2, [0,0], [ops.shape(net)[0], config.concat_linear])
+                net2 = ops.linear(net2, size)
+                net2 = tf.reshape(net2, [ops.shape(net)[0], ops.shape(net)[1], ops.shape(net)[2], config.concat_linear_filters])
+                net2 = self.layer_regularizer(net2)
+                net2 = config.activation(net2)
+                print("|||||||", net2)
+                net = tf.concat([net, net2], axis=3)
             net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
             for i in range(config.extra_layers or 0):
                 net = self.layer_regularizer(net)

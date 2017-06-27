@@ -103,4 +103,7 @@ def periodic_gaussian(config, gan, net):
 def periodic_triangle_waveform(z, p):
     return 2.0 / np.pi * tf.asin(tf.sin(2*np.pi*z/p))
 
-
+def bounded(net):
+    minim = -1
+    maxim = 1
+    return tf.minimum(tf.maximum(net, minim), maxim)

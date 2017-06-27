@@ -65,15 +65,14 @@ arg_parser.add_image_arguments()
 arg_parser.parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
 args = arg_parser.parse_args()
 
+width, height, channels = parse_size(args.size)
 
-width = int(args.size.split("x")[0])
-height = int(args.size.split("x")[1])
-channels = int(args.size.split("x")[2])
+config = lookup_config(args, {})
 
-config = hg.configuration.Configuration.load(args.config+".json")
-
-config.generator['layer_filter'] = add_bw
-config.discriminator['layer_filter'] = add_bw
+if config.g_layer_filter:
+    config.generator['layer_filter'] = add_bw
+if config.d_layer_filter:
+    config.discriminator['layer_filter'] = add_bw
 
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
 inputs.create(args.directory,
@@ -84,37 +83,70 @@ inputs.create(args.directory,
               height=height,
               resize=True)
 
-gan = AlphaGAN(config, inputs=inputs)
-
-gan.create()
-
-tf.train.start_queue_runners(sess=gan.session)
-
-GlobalViewer.enable()
-config_name = args.config
-title = "[hypergan] colorizer " + config_name
-GlobalViewer.window.set_title(title)
-
 save_file = "save/model.ckpt"
-if(os.path.isfile(save_file+".meta")):
-    sampler = RandomWalkSampler(gan)
-    gan.load(save_file)
-else:
-    #sampler = Sampler(gan)
-    sampler = RandomWalkSampler(gan)
 
-for i in range(10000000):
-    if args.action == 'train':
+def setup_gan(config, inputs, args):
+    gan = AlphaGAN(config, inputs=inputs)
+
+    gan.create()
+
+    tf.train.start_queue_runners(sess=gan.session)
+
+    GlobalViewer.enable()
+    config_name = args.config
+    title = "[hypergan] colorizer " + config_name
+    GlobalViewer.window.set_title(title)
+
+    if(os.path.isfile(save_file+".meta")):
+        gan.load(save_file)
+
+    return gan
+
+
+def train(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    sampler = lookup_sampler(args.sampler or Sampler)(gan)
+    for i in range(args.steps):
         gan.step()
 
         if i % args.save_every == 0 and i > 0:
-            print("Saving " + save_file)
+            print("saving " + save_file)
             gan.save(save_file)
 
-    if args.action == "sample" or i % args.sample_every == 0:
-        print("Sampling "+str(i))
+        if i % args.sample_every == 0:
+            print("sampling "+str(i))
+            sample_file = "samples/"+str(i)+".png"
+            sampler.sample(sample_file, False)
+
+    tf.reset_default_graph()
+
+def sample(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
+    for i in range(args.steps):
+        print("SAMPLER =", sampler)
         sample_file = "samples/"+str(i)+".png"
         sampler.sample(sample_file, False)
 
-tf.reset_default_graph()
+def search(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    sampler = lookup_sampler(args.sampler, Sampler)(gan)
+    for i in range(args.steps):
+        gan.step()
 
+        if i % args.sample_every == 0:
+            print("Sampling "+str(i))
+            sample_file = "samples/"+str(i)+".png"
+            sampler.sample(sample_file, False)
+
+
+if args.action == 'train':
+    train(config, inputs, args)
+elif args.action == 'sample':
+    sample(config, inputs, args)
+elif args.action == 'search':
+    search(config, inputs, args)
+else:
+    print("Unknown action: "+args.action)
+
+tf.reset_default_graph()

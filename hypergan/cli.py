@@ -42,12 +42,7 @@ class CLI:
         self.total_steps = args.steps or -1
         self.sample_every = self.args.sample_every or 100
 
-        self.samplers = self.sampler_options()
-        self.sampler_name = self.get_sampler_name(self.args)
-        if self.sampler_name in self.samplers:
-            self.sampler = self.samplers[self.sampler_name](self.gan)
-        else:
-            self.sampler = None
+        self.sampler = CLI.sampler_for(args.sampler or 'static_batch')(self.gan)
 
         self.validate()
         if self.args.save_file:
@@ -57,13 +52,8 @@ class CLI:
             self.save_file = default_save_path + "/model.ckpt"
             self.create_path(self.save_file)
 
-    def get_sampler_name(self, args):
-        if 'sampler' in args:
-            return args.sampler
-        return 'static_batch'
-
-    def sampler_options(self):
-        return {
+    def sampler_for(name):
+        samplers = {
                 'static_batch': StaticBatchSampler,
                 'random_walk': RandomWalkSampler,
                 'batch': BatchSampler,
@@ -72,15 +62,10 @@ class CLI:
                 'autoencode': AutoencodeSampler,
                 'aligned': AlignedSampler
         }
-        #elif(self.args.sampler == "progressive"):
-        #    sampler = progressive_enhancement_sampler.sample
-        #elif(self.args.sampler == "began"):
-        #    sampler = began_sampler.sample
-        #elif(self.args.sampler == "aligned_began"):
-        #    sampler = aligned_began_sampler.sample
-        #else:
-        #    raise "Cannot find sampler: '"+self.args.sampler+"'"
-
+        if name in samplers:
+            return samplers[name]
+        else:
+            return name
 
     def sample(self, sample_file):
         """ Samples to a file.  Useful for visualizing the learning process.

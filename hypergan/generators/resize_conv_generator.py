@@ -45,6 +45,7 @@ class ResizeConvGenerator(BaseGenerator):
         block = config.block or standard_block
 
         if config.skip_linear:
+            net = self.layer_filter(net)
             net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
             for i in range(config.extra_layers or 0):
                 net = self.layer_regularizer(net)

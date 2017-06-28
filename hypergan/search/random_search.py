@@ -72,13 +72,15 @@ class RandomSearch:
             ]
         })
         
-        return selector.random_config()
+        config = selector.random_config()
+        config['d_trainer'] = config['g_trainer']
+        return config
      
     def loss(self):
         loss_opts = {
             'reverse':[True, False],
             'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            'gradient_penalty': self.range(30) + [False],
+            'gradient_penalty': False,
             'labels': [
                 [-1, 1, 1],
                 [1, -1, -1],
@@ -95,13 +97,9 @@ class RandomSearch:
             'initial_k': self.range(),
             'k_lambda': self.range(.001),
             'type': ['wgan', 'lsgan', 'softmax'],
-            'minibatch': [True, False],
+            'minibatch': [False],
             'class': [
-                BoundaryEquilibriumLoss,
-                LambGanLoss,
-                LeastSquaresLoss,
-                StandardLoss,
-                WassersteinLoss
+                LeastSquaresLoss
             ]
         }
 

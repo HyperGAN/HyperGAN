@@ -82,12 +82,7 @@ class RandomSearch:
             'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
             'gradient_penalty': False,
             'labels': [
-                [-1, 1, 1],
-                [1, -1, -1],
-                [-1, 1, 1],
-                [0.5, 0.5, -0.5],
-                [0.5, -0.5, -0.5],
-                [-0.5, 0.5, 0.5]
+                [0, 1, 1]
             ],
             'alpha':self.range(),
             'beta':self.range(),

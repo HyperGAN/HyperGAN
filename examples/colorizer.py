@@ -6,6 +6,7 @@ import numpy as np
 from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.search.alphagan_random_search import AlphaGANRandomSearch
 from common import *
 
 from hypergan.gans.alpha_gan import AlphaGAN
@@ -16,7 +17,7 @@ z_v = None
 class Sampler(BaseSampler):
     def sample(self, path, save_samples):
         gan = self.gan
-        generator = gan.generator.sample
+        generator = gan.uniform_sample
         z_t = gan.uniform_encoder.sample
         x_t = gan.inputs.x
         
@@ -67,12 +68,16 @@ args = arg_parser.parse_args()
 
 width, height, channels = parse_size(args.size)
 
-config = lookup_config(args, {})
+config = lookup_config(args)
+if args.action == 'search':
+    config = AlphaGANRandomSearch({}).random_config()
 
 if config.g_layer_filter:
     config.generator['layer_filter'] = add_bw
 if config.d_layer_filter:
     config.discriminator['layer_filter'] = add_bw
+if config.encode_layer_filter:
+    config.g_encoder['layer_filter'] = add_bw
 
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
 inputs.create(args.directory,
@@ -86,6 +91,7 @@ inputs.create(args.directory,
 save_file = "save/model.ckpt"
 
 def setup_gan(config, inputs, args):
+    print(config)
     gan = AlphaGAN(config, inputs=inputs)
 
     gan.create()
@@ -130,15 +136,13 @@ def sample(config, inputs, args):
 
 def search(config, inputs, args):
     gan = setup_gan(config, inputs, args)
-    sampler = lookup_sampler(args.sampler, Sampler)(gan)
+    reconstruction = accuracy(tf.image.rgb_to_grayscale(gan.uniform_sample), tf.image.rgb_to_grayscale(x))
     for i in range(args.steps):
         gan.step()
-
-        if i % args.sample_every == 0:
-            print("Sampling "+str(i))
-            sample_file = "samples/"+str(i)+".png"
-            sampler.sample(sample_file, False)
-
+        r,d = gan.session.run([reconstruction, diversity])
+        sampler.sample("sample.png", False)
+        print("R", r,"D", d)
+        
 
 if args.action == 'train':
     train(config, inputs, args)

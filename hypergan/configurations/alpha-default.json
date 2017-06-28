@@ -99,5 +99,7 @@
     "g_learn_rate": 0.0001,
     "g_trainer": "class:tensorflow.python.training.adam.AdamOptimizer"
   },
-  "cycloss_lambda": 1
+  "cycloss_lambda": 1,
+  "d_layer_filter": true,
+  "g_layer_filter": true
 }

@@ -51,18 +51,17 @@ class AlphaGAN(BaseGAN):
             config = self.config
             ops = self.ops
 
-            d2 = dict(config.g_encoder or config.discriminator)
-            encoder = self.create_component(d2)
+            g_encoder = dict(config.g_encoder or config.discriminator)
+            encoder = self.create_component(g_encoder)
             encoder.ops.describe("g_encoder")
             encoder.create(self.inputs.x)
             encoder.z = tf.zeros(0)
 
-            d3 = dict(config.alphagan_z_discriminator or config.discriminator)
-            d3['layer_filter']=None
+            z_discriminator = dict(config.z_discriminator or config.discriminator)
+            z_discriminator['layer_filter']=None
 
-            encoder_discriminator = self.create_component(d3)
-            #encoder_discriminator = FullyConnectedDiscriminator(self, {})
-            encoder_discriminator.ops.describe("encoder_discriminator")
+            encoder_discriminator = self.create_component(z_discriminator)
+            encoder_discriminator.ops.describe("z_discriminator")
             standard_discriminator = self.create_component(config.discriminator)
             standard_discriminator.ops.describe("discriminator")
 
@@ -93,6 +92,7 @@ class AlphaGAN(BaseGAN):
             # end encoding
             g = self.generator.create(z)
             sample = self.generator.sample
+            self.uniform_sample = self.generator.sample
             print("Z, Z_HAT", z, z_hat)
             x_hat = self.generator.reuse(z_hat)
 

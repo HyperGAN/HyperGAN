@@ -29,7 +29,7 @@ class GANComponent:
         self.config = hc.Config(config)
         errors = self.validate()
         if errors != []:
-            raise ValidationException("\n".join(errors))
+            raise ValidationException(self.__class__.__name__+": " +"\n".join(errors))
         self.create_ops(config)
 
     def create_ops(self, config):

@@ -23,10 +23,10 @@ def repeating_block(component, net, depth):
 def standard_block(component, net, depth, filter=3):
     ops = component.ops
     config = component.config
-    filter_size_w = filter-1
-    filter_size_h = filter-1
-    flter = [1,filter_size_w,filter_size_h,1]
-    stride = [1,filter_size_w,filter_size_h,1]
+    stride_w = filter-1
+    stride_h = filter-1
+    flter = [1,filter,filter,1]
+    stride = [1,stride_w,stride_h,1]
 
     net = ops.conv2d(net, filter, filter, 1, 1, depth)
     #TODO

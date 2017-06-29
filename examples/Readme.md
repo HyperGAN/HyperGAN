@@ -1,34 +1,97 @@
 Examples
 --------
 
-2d test
-=======
+Each example has 3 actions:
 
-Runs a 2d toy problem for a given configuration.  Can be sampled to show how a given configuration learns.
+* train
+  
+  trains a new example
 
-![](https://j.gifs.com/NxRKnD.gif)
+* sample
 
-2d measure accuracy
+  samples from a trained example
+
+* search
+  
+  randomly searches for a configuration and outputs JSON / metrics
+
+
+2d distribution
 ===================
 
-Applies a batch accuracy (nearest neighbor) measurement to the 2d toy problem.
+Trains a generator to output 2d points (pixels) matching a known distribution.
+
+![](https://j.gifs.com/NxRKnD.gif)
 
 Colorizer 
 =========
 
 Colorizer feeds a black and white version of the input into the generator.
 
-Inpainting
+State: working
+
+Needs search.  
+
+accuracy = black_white(G(x, noise)) - black_white(x)
+diversity = diversity(G)
+
+Alignment
+=========
+
+Align two different datasets along features.
+
+State: running not converging
+
+Needs search.
+
+AlignedRandomSearch
+
+Autoencode
+==========
+
+Reconstruct input images using AutoencoderGAN
+
+State: working
+
+Not done
+
+CharGAN and Sequence (experimental)
+===================================
+
+Character based GANs
+
+State: running not converging
+
+Not done
+
+Classification
+==============
+
+Classify MNIST by generating label distributions.  G(x) = label
+
+State: working
+
+Not done
+
+Static
+======
+
+Memorize X and Z values then test against them.
+
+State: working
+
+Not done
+
+Inpainting (pending)
 ==========
 
 Hides a random part of the image from the discriminator and the generator.
 
-Super Resolution
+Not present
+
+Super Resolution (pending)
 ================
 
 Provides a low resolution image to the generator.
 
-Constant inpainting
-===================
-
-Applies a constant mask over part of the image.  An easier problem than general inpainting.
+Not present

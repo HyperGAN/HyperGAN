@@ -5,7 +5,6 @@ import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 from hypergan.generators import *
-from examples.common import CustomDiscriminator, CustomGenerator, Custom2DInputDistribution, Custom2DSampler, Custom2DDiscriminator, Custom2DGenerator
 from hypergan.search.random_search import RandomSearch
 from hypergan.viewer import GlobalViewer
 from common import *

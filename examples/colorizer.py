@@ -91,7 +91,6 @@ inputs.create(args.directory,
 save_file = "save/model.ckpt"
 
 def setup_gan(config, inputs, args):
-    print(config)
     gan = AlphaGAN(config, inputs=inputs)
 
     gan.create()
@@ -112,6 +111,9 @@ def setup_gan(config, inputs, args):
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     sampler = lookup_sampler(args.sampler or Sampler)(gan)
+
+    metrics = [accuracy(gan.inputs.x, gan.uniform_sample), batch_diversity(gan.uniform_sample)]
+    sum_metrics = [0 for metric in metrics]
     for i in range(args.steps):
         gan.step()
 
@@ -124,28 +126,36 @@ def train(config, inputs, args):
             sample_file = "samples/"+str(i)+".png"
             sampler.sample(sample_file, False)
 
+        if i > args.steps * 9.0/10:
+            for k, metric in enumerate(gan.session.run(metrics)):
+                print("Metric "+str(k)+" "+str(metric))
+                sum_metrics[k] += metric 
+
     tf.reset_default_graph()
+    return sum_metrics
 
 def sample(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
     for i in range(args.steps):
-        print("SAMPLER =", sampler)
         sample_file = "samples/"+str(i)+".png"
         sampler.sample(sample_file, False)
 
 def search(config, inputs, args):
-    gan = setup_gan(config, inputs, args)
-    reconstruction = accuracy(tf.image.rgb_to_grayscale(gan.uniform_sample), tf.image.rgb_to_grayscale(x))
-    for i in range(args.steps):
-        gan.step()
-        r,d = gan.session.run([reconstruction, diversity])
-        sampler.sample("sample.png", False)
-        print("R", r,"D", d)
-        
+    metrics = train(config, inputs, args)
+    if 'search_output' in args:
+        search_output = args.search_output
+    else:
+        search_output = "2d-test-results.csv"
+
+    config_filename = "colorizer-"+str(uuid.uuid4())+'.json'
+    hc.Selector().save(config_filename, config)
+    with open(search_output, "a") as myfile:
+        myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
 
 if args.action == 'train':
-    train(config, inputs, args)
+    metrics = train(config, inputs, args)
+    print("Resulting metrics:", metrics)
 elif args.action == 'sample':
     sample(config, inputs, args)
 elif args.action == 'search':
@@ -153,4 +163,5 @@ elif args.action == 'search':
 else:
     print("Unknown action: "+args.action)
 
-tf.reset_default_graph()
+if(args.viewer):
+    GlobalViewer.window.destroy()

@@ -77,8 +77,8 @@ def setup_gan(config, inputs, args):
 
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
-    accuracies = [accuracy(gan.inputs.xb, gan.cycb),accuracy(gan.inputs.xa, gan.cyca)]
 
+    accuracies = [accuracy(gan.inputs.xb, gan.cycb),accuracy(gan.inputs.xa, gan.cyca)]
     diversities = [batch_diversity(gan.xab), batch_diversity(gan.xba)]
 
     sampler = AlignedSampler(gan)

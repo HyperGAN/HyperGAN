@@ -30,11 +30,6 @@ Colorizer feeds a black and white version of the input into the generator.
 
 State: working
 
-Needs search.  
-
-accuracy = black_white(G(x, noise)) - black_white(x)
-diversity = diversity(G)
-
 Alignment
 =========
 

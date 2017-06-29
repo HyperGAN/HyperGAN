@@ -57,15 +57,13 @@ def train(config, args):
                 sampler.sample(sample_file, args.save_samples)
 
             if i > steps * 9.0/10:
-                for i, metric in enumerate(gan.session.run(metrics)):
-                    sum_metrics[i] += metric 
-
+                for k, metric in enumerate(gan.session.run(metrics)):
+                    sum_metrics[k] += metric 
 
         tf.reset_default_graph()
         gan.session.close()
 
     return sum_metrics
-
 
 if args.action == 'train':
     metrics = train(config, args)
@@ -84,7 +82,6 @@ elif args.action == 'search':
         myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+","+str(total)+"\n")
 else:
     print("Unknown action: "+args.action)
-
 
 if(args.viewer):
     GlobalViewer.window.destroy()

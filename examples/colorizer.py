@@ -96,15 +96,15 @@ def setup_gan(config, inputs, args):
 
     gan.create()
 
+    if(os.path.isfile(save_file+".meta")):
+        gan.load(save_file)
+
     tf.train.start_queue_runners(sess=gan.session)
 
     GlobalViewer.enable()
     config_name = args.config
     title = "[hypergan] colorizer " + config_name
     GlobalViewer.window.set_title(title)
-
-    if(os.path.isfile(save_file+".meta")):
-        gan.load(save_file)
 
     return gan
 

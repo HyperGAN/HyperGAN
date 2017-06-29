@@ -10,7 +10,7 @@ import numpy as np
 from hypergan.search.random_search import RandomSearch
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
+    parser = argparse.ArgumentParser(description='Train with static x and z values. Basic memorization using GAN', add_help=True)
     parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
     parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')

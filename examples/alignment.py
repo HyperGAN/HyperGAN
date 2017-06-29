@@ -13,43 +13,33 @@ from hypergan.gans.standard_gan import StandardGAN
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.viewer import GlobalViewer
 from hypergan.gans.aligned_gan import AlignedGAN
+from common import *
 
-from examples.common import batch_diversity, accuracy
+from hypergan.samplers.random_walk_sampler import RandomWalkSampler
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Test alignment!', add_help=True)
-    parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-    parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
-    parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
-    parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
-    parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
-    parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
-    parser.add_argument('--config', '-c', type=str, default='stable', help='config name')
-    parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
-    parser.add_argument('--use_hc_io', '-9', dest='use_hc_io', action='store_true', help='experimental')
-    return parser.parse_args()
+arg_parser = ArgumentParser("Align two unaligned distributions.  One is black and white of image.")
+arg_parser.add_image_arguments()
+args = arg_parser.parse_args()
 
-args = parse_args()
+width, height, channels = parse_size(args.size)
 
-width = int(args.size.split("x")[0])
-height = int(args.size.split("x")[1])
-channels = int(args.size.split("x")[2])
+config = lookup_config(args)
 
-config_file = args.config
+save_file = "save/model.ckpt"
 
-if args.config_list is not None:
-    lines = tuple(open(args.config_list, 'r'))
-    config_file = random.choice(lines).strip()
-    print("config list chosen", config_file)
+if args.action == 'search':
+    config = AlignedRandomSearch({}).random_config()
 
-config = hg.configuration.Configuration.load(config_file+".json")
+    if args.config_list is not None:
+        lines = tuple(open(args.config_list, 'r'))
+        config_file = random.choice(lines).strip()
+        config = hg.configuration.Configuration.load(config_file+".json")
+        random_config = AlignedRandomSearch({}).random_config()
 
-config_name="alignment-"+str(uuid.uuid4()).split("-")[0]
-config_filename = os.path.expanduser('~/.hypergan/configs/'+config_name+'.json')
-print("Saving config to ", config_filename)
-
-hc.Selector().save(config_filename, config)
+        config["generator"]=random_config["generator"]
+        config["discriminator"]=random_config["discriminator"]
+        # TODO Other search terms?
+        print("config list chosen", config_file)
 
 class TwoImageInput():
     def create(self, args):
@@ -70,77 +60,106 @@ class TwoImageInput():
         self.x = xa #TODO remove
         self.xb = xb
 
-two_image_input = TwoImageInput()
-two_image_input.create(args)
+def setup_gan(config, inputs, args):
+    gan = AlignedGAN(config=config, inputs=inputs)
+    gan.create()
 
-gan = AlignedGAN(config=config, inputs=two_image_input)
-gan.create()
+    if(os.path.isfile(save_file+".meta")):
+        gan.load(save_file)
 
-tf.train.start_queue_runners(sess=gan.session)
+    tf.train.start_queue_runners(sess=gan.session)
 
-accuracies = {
-    "xb_to_xab":accuracy(gan.inputs.xb, gan.cycb),
-    "xb_to_xba":accuracy(gan.inputs.xa, gan.cyca)
-}
+    GlobalViewer.enable()
+    title = "[hypergan] align-test " + args.config
+    GlobalViewer.window.set_title(title)
 
-diversities={
-    'ab': batch_diversity(gan.xab),
-    'ba': batch_diversity(gan.xba)
-}
+    return gan
 
-diversities_items= list(diversities.items())
-accuracies_items= list(accuracies.items())
+def train(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    accuracies = [accuracy(gan.inputs.xb, gan.cycb),accuracy(gan.inputs.xa, gan.cyca)]
 
-sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-names = []
+    diversities = [batch_diversity(gan.xab), batch_diversity(gan.xba)]
 
-sampler = AlignedSampler(gan)
+    sampler = AlignedSampler(gan)
 
-GlobalViewer.enable()
-config_name = args.config
-title = "[hypergan] align-test " + config_name
-GlobalViewer.window.set_title(title)
+    sum_metrics = { 
+            "accuracy": [0 for metric in accuracies], 
+            "diversity": [0 for metric in diversities] 
+    }
 
-for i in range(40000):
-    if i % args.sample_every == 0:
-        print("Sampling "+str(i))
-        sample_file = "samples/"+str(i)+".png"
-        sampler.sample(sample_file)
-    gan.step()
+    for i in range(args.steps):
+        if i % args.sample_every == 0:
+            print("Sampling "+str(i))
+            sample_file = "samples/"+str(i)+".png"
+            sampler.sample(sample_file, args.save_samples)
+        gan.step()
 
-    if i % 100 == 0 and i != 0: 
-        if i > 200:
-            diversities_v = gan.session.run([v for _, v in diversities_items])
-            accuracies_v = gan.session.run([v for _, v in accuracies_items])
-            broken = False
-            for k, v in enumerate(diversities_v):
-                sums[k] += v 
-                name = diversities_items[k][0]
-                names.append(name)
-                if(np.abs(v) < 20000):
-                    sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-                    names = ["error diversity "+name]
-                    broken = True
-                    print("break from diversity")
-                    break
+        if i % args.save_every == 0 and i > 0:
+            print("saving " + save_file)
+            gan.save(save_file)
 
-            for k, v in enumerate(accuracies_v):
-                sums[k+len(diversities_items) ] += v 
-                name = accuracies_items[k][0]
-                names.append(name)
-                if(np.abs(v) > 800):
-                    sums = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-                    names = ["error accuracy "+name]
-                    broken = True
-                    print("break from accuracy")
-                    break
+        if i % 10 == 0 and i != 0: 
+            if i > 20:
+                diversities_v = gan.session.run([v for v in diversities])
+                accuracies_v = gan.session.run([v for v in accuracies])
+                for k, v in enumerate(diversities_v):
+                    if(i > args.steps * 9.0/10):
+                        sum_metrics["diversity"][k]+=v
+                    if(np.abs(v) < 20000):
+                        print("break from diversity")
+                        return
 
-            if(broken):
-                break
-
-with open("results-alignment", "a") as myfile:
-    myfile.write(config_name+","+",".join(names)+"\n")
-    myfile.write(config_name+","+",".join(["%.2f" % sum for sum in sums])+"\n")
+                for k, v in enumerate(accuracies_v):
+                    if(i > args.steps * 9.0/10):
+                        sum_metrics["accuracy"][k]+=v
+                    if(np.abs(v) > 800):
+                        print("break from accuracy")
+                        return
  
-tf.reset_default_graph()
-gan.session.close()
+    tf.reset_default_graph()
+    gan.session.close()
+    return sum_metrics
+
+def search(config, inputs, args):
+    config_name="alignment-"+str(uuid.uuid4()).split("-")[0]
+    config_filename = config_name+'.json'
+    print("Saving config to ", config_filename)
+
+    hc.Selector().save(config_filename, config)
+    metrics = train(config, inputs, args)
+
+    with open("results-alignment", "a") as myfile:
+        accuracies = ["%.2f" % sum for sum in (metrics["accuracy"] or [])]
+        diversities = ["%.2f" % sum for sum in (metrics["diversity"] or [])]
+
+        myfile.write(config_name+","+",".join(accuracies)+",".join(diversities)+"\n")
+
+def sample(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
+    for i in range(args.steps):
+        print("SAMPLER =", sampler)
+        sample_file = "samples/"+str(i)+".png"
+        sampler.sample(sample_file, False)
+
+inputs = TwoImageInput()
+inputs.create(args)
+
+if args.action == 'train':
+    metrics = train(config, inputs, args)
+    accuracies = ["%.2f" % sum for sum in (metrics["accuracy"] or [])]
+    diversities = ["%.2f" % sum for sum in (metrics["diversity"] or [])]
+
+    print("Training complete.  Accuracy", accuracies, "Diversities", diversities)
+
+elif args.action == 'sample':
+    sample(config, inputs, args)
+
+elif args.action == 'search':
+    search(config, inputs, args)
+else:
+    print("Unknown action: "+args.action)
+
+if(args.viewer):
+    GlobalViewer.window.destroy()

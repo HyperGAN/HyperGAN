@@ -8,7 +8,7 @@ class SoftmaxLoss(BaseLoss):
     def _create(self, d_real, d_fake):
         gan = self.gan
         config = self.config
-        ops = self.ops
+        ops = self.gan.ops
 
         ln_zb = tf.reduce_sum(tf.exp(-d_real), axis=1)+tf.reduce_sum(tf.exp(-d_fake), axis=1)
         ln_zb = tf.log(ln_zb)

@@ -19,7 +19,7 @@ class GridSamplerTest(tf.test.TestCase):
             gan.create()
 
             sampler = GridSampler(gan)
-            self.assertEqual(sampler.sample('/tmp/test.png')[0]['image'].shape[-1], 1)
+            self.assertEqual(sampler._sample()['generator'].shape[-1], 1)
 
 if __name__ == "__main__":
     tf.test.main()

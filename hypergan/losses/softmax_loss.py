@@ -17,8 +17,8 @@ class SoftmaxLoss(BaseLoss):
         d_loss = tf.reduce_mean(d_real, axis=1) + ln_zb
         g_loss = tf.reduce_mean(d_fake, axis=1) + tf.reduce_mean(d_real, axis=1) + ln_zb
 
-        d_loss = ops.squash(d_loss)
-        g_loss = ops.squash(g_loss)
+        d_loss = ops.reshape(d_loss, [])
+        g_loss = ops.reshape(g_loss, [])
 
         return [d_loss, g_loss]
 

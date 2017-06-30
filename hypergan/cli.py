@@ -223,7 +223,7 @@ class CLI:
             self.gan.session.close()
         elif self.method == 'build':
             self.gan.create()
-n           self.build()
+            self.build()
             tf.reset_default_graph()
             self.gan.session.close()
         elif self.method == 'new':

@@ -32,7 +32,7 @@ class ArgumentParser:
         parser = self.parser
         parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
         parser.add_argument('--search_components', '-r', type=str, default=None, help='List which components to random search(generator,discriminator,...).  Defaults to everything.  Separate with commas')
-        parser.add_argument('--output_file', '-o', type=str, default="search.csv", help='output file for search results')
+        parser.add_argument('--search_output', '-o', type=str, default="search.csv", help='output file for search results')
 
     def add_train_arguments(self):
         parser = self.parser
@@ -327,3 +327,10 @@ def lookup_config(args):
     if args.action == 'train' or args.action == 'sample':
         return hg.configuration.Configuration.load(args.config+".json")
     
+def random_config_from_list(config_list_file):
+    """ Chooses a random configuration from a list of configs (separated by newline) """
+    lines = tuple(open(config_list_file, 'r'))
+    config_file = random.choice(lines).strip()
+    print("[hypergan] config file chosen from list ", config_list_file, '  file:', config_file)
+    return hg.configuration.Configuration.load(config_file+".json")
+

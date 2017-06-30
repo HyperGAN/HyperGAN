@@ -107,7 +107,6 @@ def setup_gan(config, inputs, args):
 
     return gan
 
-
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     sampler = lookup_sampler(args.sampler or Sampler)(gan)

@@ -31,9 +31,7 @@ if args.action == 'search':
     config = AlignedRandomSearch({}).random_config()
 
     if args.config_list is not None:
-        lines = tuple(open(args.config_list, 'r'))
-        config_file = random.choice(lines).strip()
-        config = hg.configuration.Configuration.load(config_file+".json")
+        config = random_config_from_list(args.config_list)
         random_config = AlignedRandomSearch({}).random_config()
 
         config["generator"]=random_config["generator"]
@@ -129,7 +127,7 @@ def search(config, inputs, args):
     hc.Selector().save(config_filename, config)
     metrics = train(config, inputs, args)
 
-    with open("results-alignment", "a") as myfile:
+    with open(args.search_output, "a") as myfile:
         accuracies = ["%.2f" % sum for sum in (metrics["accuracy"] or [])]
         diversities = ["%.2f" % sum for sum in (metrics["diversity"] or [])]
 
@@ -141,7 +139,7 @@ def sample(config, inputs, args):
     for i in range(args.steps):
         print("SAMPLER =", sampler)
         sample_file = "samples/"+str(i)+".png"
-        sampler.sample(sample_file, False)
+        sampler.sample(sample_file, args.save_samples)
 
 inputs = TwoImageInput()
 inputs.create(args)

@@ -22,7 +22,7 @@ class CategoriesEncoderTest(tf.test.TestCase):
             gan.encoder = encoder
             gan.encoder.create()
             gan.create()
-            self.assertEqual(encoder.sample, encoder.categories)
+            self.assertEqual(gan.ops.shape(encoder.sample)[1]//2, len(encoder.categories))
 
     def test_validate(self):
         with self.assertRaises(ValidationException):

@@ -47,6 +47,9 @@ class BoundaryEquilibriumLoss(BaseLoss):
         update_k = tf.assign(k, tf.reshape(clip, [1]))
         measure = self.gan.ops.squash(l_x + tf.abs(k_loss))
 
+        d_loss = ops.squash(d_loss)
+        g_loss = ops.squash(g_loss)
+
         return [k, update_k, measure, d_loss, g_loss]
 
 

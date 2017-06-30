@@ -20,22 +20,6 @@ class CliTest(tf.test.TestCase):
             cli = hg.CLI(gan, args)
             self.assertEqual(cli.gan, gan)
 
-    def test_validate_sampler(self):
-        with self.assertRaises(ValidationException):
-            gan = hg.GAN()
-            args = {
-                    'sampler': 'nonexisting'
-            }
-            cli = hg.CLI(gan, args)
-
-    def test_loads_config_errors_when_empty(self):
-        with self.assertRaises(ValidationException):
-            gan = mock_gan()
-            args = {'load': True, "directory": fixture_path()}
-            cli = hg.CLI(gan, args)
-            cli.load()
-            #TODO test loading
-
     def test_run(self):
         with self.test_session():
             gan = mock_gan()
@@ -92,8 +76,6 @@ class CliTest(tf.test.TestCase):
             cli = hg.CLI(gan, args)
             cli.new("/tmp/hg_new")
             self.assertTrue(os.path.isfile('/tmp/hg_new/default.json'))
-            self.assertTrue(os.path.isdir('/tmp/hg_new/samples'))
-            self.assertTrue(os.path.isdir('/tmp/hg_new/saves'))
 
     def test_safe_new(self):
         with self.test_session():

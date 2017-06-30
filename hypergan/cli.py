@@ -42,7 +42,7 @@ class CLI:
         self.total_steps = args.steps or -1
         self.sample_every = self.args.sample_every or 100
 
-        self.sampler = CLI.sampler_for(args.sampler or 'static_batch')(self.gan)
+        self.sampler = CLI.sampler_for(args.sampler)(self.gan)
 
         self.validate()
         if self.args.save_file:
@@ -65,8 +65,8 @@ class CLI:
         if name in samplers:
             return samplers[name]
         else:
-            print("[hypergan] No sampler found for ", name)
-            return name
+            print("[hypergan] No sampler found for ", name, ".  Defaulting to StaticBatch")
+            return StaticBatchSampler
 
     def sample(self, sample_file):
         """ Samples to a file.  Useful for visualizing the learning process.

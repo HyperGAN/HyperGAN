@@ -1,15 +1,34 @@
 {
   "description": "Least Squares GAN",
   "publication": "https://arxiv.org/abs/1611.04076v2",
-
   "discriminator": 
   {
-    "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
-    "initializer": "random_normal",
-    "activation": "lrelu",
-    "improved": true,
-    "final_features": 300,
-    "random_stddev": 0.02
+    "activation": "prelu",
+    "distance": "l1_distance",
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "block": "function:hypergan.discriminators.common.strided_block",
+    "extra_layers": 0,
+    "extra_layers_reduction": 1,
+    "fc_layer_size": 300,
+    "fc_layers": 1,
+    "final_activation": "tanh",
+    "initial_depth": 32,
+    "depth_increase": 32,
+    "layers": 5,
+    "orthogonal_initializer_gain": 1.0595959595959596,
+    "initial_filter": 7,
+    "resize": null
+  },
+
+  "generator": {
+    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
+    "activation": "prelu",
+    "layer_regularizer": "batch_norm",
+    "final_depth": 32,
+    "depth_increase": 32,
+    "skip_linear": true,
+    "final_filter": 7,
+    "final_activation": "tanh"
   },
 
   "encoder":
@@ -22,16 +41,6 @@
     "max": 1,
     "z": 100
   },
-  "generator": {
-    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
-    "activation": "selu",
-    "depth_increase": 64,
-    "final_activation": "tanh",
-    "final_depth": 64,
-    "block": "function:hypergan.generators.common.standard_block"
-  },
-
-
   "loss":
   {
     "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",

@@ -29,7 +29,7 @@ class GANComponent:
         self.config = hc.Config(config)
         errors = self.validate()
         if errors != []:
-            raise ValidationException("\n".join(errors))
+            raise ValidationException(self.__class__.__name__+": " +"\n".join(errors))
         self.create_ops(config)
 
     def create_ops(self, config):
@@ -127,8 +127,8 @@ class GANComponent:
         bs = shape[0]
         height = shape[1]
         width = shape[2]
-        for i in range(width):
-            for j in range(height):
+        for i in range(width-1):
+            for j in range(height-1):
                 elems.append(ops.slice(net, [0, i, j, 0], [bs, 1, 1, -1]))
 
         return elems

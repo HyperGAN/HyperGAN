@@ -38,7 +38,7 @@ def get_vocabulary():
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Train a 2d test!', add_help=True)
+    parser = argparse.ArgumentParser(description='Train a sequence of characters using modes (real valued) output.  Related to chargan', add_help=True)
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Examples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
     parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
     parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
@@ -95,6 +95,7 @@ def train():
 
             def sample_output(val):
                 val *= len(lookup_keys)/2.0
+                val += len(lookup_keys)/2.0
                 val = np.round(val)
 
                 val = np.maximum(0, val)

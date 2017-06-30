@@ -1,4 +1,3 @@
-import argparse
 import os
 import hyperchamber as hc
 import tensorflow as tf
@@ -21,9 +20,11 @@ from hypergan.samplers.grid_sampler import GridSampler
 from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.autoencode_sampler import AutoencodeSampler
+from hypergan.samplers.random_walk_sampler import RandomWalkSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
+from time import sleep
 
 class CLI:
     def __init__(self, gan, args={}):
@@ -41,42 +42,31 @@ class CLI:
         self.total_steps = args.steps or -1
         self.sample_every = self.args.sample_every or 100
 
-        self.samplers = self.sampler_options()
-        self.sampler_name = self.get_sampler_name(self.args)
-        if self.sampler_name in self.samplers:
-            self.sampler = self.samplers[self.sampler_name](self.gan)
-        else:
-            self.sampler = None
+        self.sampler = CLI.sampler_for(args.sampler or 'static_batch')(self.gan)
 
         self.validate()
+        if self.args.save_file:
+            self.save_file = self.args.save_file
+        else:
+            default_save_path = os.path.abspath("saves/"+args.config)
+            self.save_file = default_save_path + "/model.ckpt"
+            self.create_path(self.save_file)
 
-    def load(self):
-        raise ValidationException('Load not implemented')
-        #return self.gan.load()
-
-    def get_sampler_name(self, args):
-        if 'sampler' in args:
-            return args.sampler
-        return 'static_batch'
-
-    def sampler_options(self):
-        return {
+    def sampler_for(name):
+        samplers = {
                 'static_batch': StaticBatchSampler,
+                'random_walk': RandomWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
                 'began': BeganSampler,
                 'autoencode': AutoencodeSampler,
                 'aligned': AlignedSampler
         }
-        #elif(self.args.sampler == "progressive"):
-        #    sampler = progressive_enhancement_sampler.sample
-        #elif(self.args.sampler == "began"):
-        #    sampler = began_sampler.sample
-        #elif(self.args.sampler == "aligned_began"):
-        #    sampler = aligned_began_sampler.sample
-        #else:
-        #    raise "Cannot find sampler: '"+self.args.sampler+"'"
-
+        if name in samplers:
+            return samplers[name]
+        else:
+            print("[hypergan] No sampler found for ", name)
+            return name
 
     def sample(self, sample_file):
         """ Samples to a file.  Useful for visualizing the learning process.
@@ -143,13 +133,20 @@ class CLI:
         build_file = os.path.expanduser("~/.hypergan/builds/"+args.config+"/generator.ckpt")
         self.create_path(build_file)
 
-        #TODO
-        #saver = tf.train.Saver()
-        #saver.save(self.sess, build_file)
         print("Saved generator to ", build_file)
 
     def serve(self, gan):
         return gan_server(self.gan.session, config)
+
+    def sample_forever(self):
+        while True:
+            sample_file="samples/%06d.png" % (self.samples)
+            self.create_path(sample_file)
+            self.sample(sample_file)
+            self.samples += 1
+            print("Sample", self.samples)
+            sleep(0.2)
+
 
     def train(self):
         i=0
@@ -169,16 +166,10 @@ class CLI:
                 self.args.save_every > 0 and
                 i % self.args.save_every == 0):
                 print(" |= Saving network")
-                self.save()
+                self.gan.save(self.save_file)
             if self.args.ipython:
                 self.check_stdin()
             end_time = time.time()
-
-    def save(self):
-        #TODO
-        #saver = tf.train.Saver()
-        #saver.save(self.sess, self.save_file)
-        return
 
     def check_stdin(self):
         try:
@@ -200,7 +191,6 @@ class CLI:
         print("[hypergan] Creating new project '"+path+"'")
         os.mkdir(path)
         os.mkdir(path+'/samples')
-        os.mkdir(path+'/saves')
         template = 'default.json' #TODO
         source_configuration = Configuration.find(template)
         json_path = path + '/' + template
@@ -233,9 +223,33 @@ class CLI:
             self.gan.session.close()
         elif self.method == 'build':
             self.gan.create()
-            self.build()
+n           self.build()
             tf.reset_default_graph()
             self.gan.session.close()
         elif self.method == 'new':
             self.new()
-        #TODO
+        elif self.method == 'sample':
+            self.gan.create()
+            if(number_classes > 1):
+                if not self.args.noclassloss:
+                    print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
+                    print("SELFGAN", self.gan.loss)
+                    supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
+                    self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
+                    supervised_loss.create()
+                    self.gan.session.run(tf.global_variables_initializer())
+                    #EWW
+                else:
+                    print("Skipping class loss")
+            else:
+                print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
+
+            if not self.gan.load(self.save_file):
+                print("Initializing new model")
+            else:
+                print("Model loaded")
+
+            tf.train.start_queue_runners(sess=self.gan.session)
+            self.sample_forever()
+            tf.reset_default_graph()
+            self.gan.session.close()

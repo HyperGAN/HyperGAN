@@ -51,7 +51,7 @@ class Viewer:
         self.window.show_all()
         self.can_update = True
         import threading
-        self.thread = threading.Thread(target=Gtk.main, name='gtkmain')
+        self.thread = threading.Thread(target=Gtk.main, name='gtkmain', daemon=True)
         self.thread.start()
 
     def update(self, image):

@@ -11,7 +11,7 @@ class BaseLoss(GANComponent):
         self.discriminator = discriminator
         self.generator = generator
 
-    def create(self):
+    def create(self, split=2):
         gan = self.gan
         config = self.config
         ops = self.gan.ops
@@ -21,9 +21,17 @@ class BaseLoss(GANComponent):
         else:
             net = self.discriminator.sample
 
-        d_real, d_fake = self.split_batch(net)
+        if split == 2:
+            d_real, d_fake = self.split_batch(net, split)
+            d_loss, g_loss = self._create(d_real, d_fake)
+        elif split == 3:
+            d_real, d_fake, d_fake2 = self.split_batch(net, split)
+            d_loss, g_loss = self._create(d_real, d_fake)
+            d_loss2, g_loss2 = self._create(d_real, d_fake2)
+            g_loss += g_loss2
+            d_loss += d_loss2
+            #TODO does this double the signal of d_real?
 
-        d_loss, g_loss = self._create(d_real, d_fake)
 
         if d_loss is not None:
             d_loss = ops.squash(d_loss, tf.reduce_mean) #TODO linear doesn't work with this, so we cant pass config.reduce
@@ -45,6 +53,8 @@ class BaseLoss(GANComponent):
         self.metrics = self.metrics or sample_metrics
 
         self.sample = [d_loss, g_loss]
+        self.d_loss = d_loss
+        self.g_loss = g_loss
 
         return self.sample
 
@@ -87,18 +97,20 @@ class BaseLoss(GANComponent):
         config = self.config
         gan = self.gan
         gradient_penalty = config.gradient_penalty
-        x = gan.inputs.x
+        if has_attr(gan.inputs, 'gradient_penalty_label'):
+            x = gan.inputs.gradient_penalty_label
+        else:
+            x = gan.inputs.x
         generator = self.generator or gan.generator
         g = generator.sample
         discriminator = self.discriminator or gan.discriminator
         shape = [1 for t in g.get_shape()]
         shape[0] = gan.batch_size()
         uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
-        print("X", x, g, uniform_noise)
+        print("[gradient penalty] applying x:", x, "g:", g, "noise:", uniform_noise)
         interpolates = x + uniform_noise * (g - x)
         reused_d = discriminator.reuse(interpolates)
         gradients = tf.gradients(reused_d, [interpolates])[0]
-        print("GRAD", gradients, reused_d)
         penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
         penalty = tf.reduce_mean(tf.square(penalty - 1.))
         return float(gradient_penalty) * penalty

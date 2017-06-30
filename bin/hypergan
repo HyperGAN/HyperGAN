@@ -8,6 +8,7 @@ import hypergan as hg
 import hypergan.cli as cli
 from hypergan.gans.aligned_gan import AlignedGAN
 from hypergan.gans.autoencoder_gan import AutoencoderGAN
+from hypergan.gans.alpha_gan import AlphaGAN
 
 class CommandParser:
     def common(self, parser):
@@ -34,15 +35,18 @@ class CommandParser:
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
         parser.add_argument('--autoencode', dest='autoencode', action='store', help='Disables the display of samples in a window.')
+        parser.add_argument('--noclassloss', dest='noclassloss', action='store', help='Disables class loss.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
         subparsers = parser.add_subparsers(dest='method')
         train_parser = subparsers.add_parser('train')
+        sample_parser = subparsers.add_parser('sample')
         build_parser = subparsers.add_parser('build')
         new_parser = subparsers.add_parser('new')
         subparsers.required = True
         self.common_flags(parser)
+        self.common(sample_parser)
         self.common(train_parser)
         self.common(build_parser)
         self.common(new_parser)
@@ -74,7 +78,11 @@ if not args.align:
           height=height,
           resize=args.resize)
 
-    if args.autoencode:
+    print('-->', args.autoencode)
+    if args.autoencode == 'alphagan':
+        print("Starting alpha gan")
+        gan = AlphaGAN(config=config, inputs=inputs)
+    elif args.autoencode == 'autoencoder':
         gan = AutoencoderGAN(config=config, inputs=inputs)
     else:
         gan = hg.GAN(config=config, inputs=inputs)

@@ -72,20 +72,17 @@ class RandomSearch:
             ]
         })
         
-        return selector.random_config()
+        config = selector.random_config()
+        config['d_trainer'] = config['g_trainer']
+        return config
      
     def loss(self):
         loss_opts = {
             'reverse':[True, False],
             'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            'gradient_penalty': self.range(30) + [False],
+            'gradient_penalty': False,
             'labels': [
-                [-1, 1, 1],
-                [1, -1, -1],
-                [-1, 1, 1],
-                [0.5, 0.5, -0.5],
-                [0.5, -0.5, -0.5],
-                [-0.5, 0.5, 0.5]
+                [0, 1, 1]
             ],
             'alpha':self.range(),
             'beta':self.range(),
@@ -95,13 +92,9 @@ class RandomSearch:
             'initial_k': self.range(),
             'k_lambda': self.range(.001),
             'type': ['wgan', 'lsgan', 'softmax'],
-            'minibatch': [True, False],
+            'minibatch': [False],
             'class': [
-                BoundaryEquilibriumLoss,
-                LambGanLoss,
-                LeastSquaresLoss,
-                StandardLoss,
-                WassersteinLoss
+                LeastSquaresLoss
             ]
         }
 
@@ -175,7 +168,7 @@ class RandomSearch:
             "progressive_enhancement":[False, True],
             "orthogonal_gain": list(np.linspace(0.1, 2, num=10000)),
             "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
-            "distance":[hg.discriminators.autoencoder_discriminator.l1_distance, hg.discriminators.autoencoder_discriminator.l2_distance],
+            "distance":['l1_distance', 'l2_distance'],
             "class":[
                 hg.discriminators.pyramid_discriminator.PyramidDiscriminator,
                 hg.discriminators.autoencoder_discriminator.AutoencoderDiscriminator

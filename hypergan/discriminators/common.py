@@ -20,23 +20,23 @@ def repeating_block(component, net, depth):
     print('[discriminator] layer', net)
     return net
 
-def standard_block(component, net, depth, fltr=3):
+def standard_block(component, net, depth, filter=3):
     ops = component.ops
     config = component.config
-    filter_size_w = 2
-    filter_size_h = 2
-    filter = [1,filter_size_w,filter_size_h,1]
-    stride = [1,filter_size_w,filter_size_h,1]
+    stride_w = filter-1
+    stride_h = filter-1
+    flter = [1,filter,filter,1]
+    stride = [1,stride_w,stride_h,1]
 
-    net = ops.conv2d(net, fltr, fltr, 1, 1, depth)
+    net = ops.conv2d(net, filter, filter, 1, 1, depth)
     #TODO
-    net = tf.nn.avg_pool(net, ksize=filter, strides=stride, padding='SAME')
+    net = tf.nn.avg_pool(net, ksize=flter, strides=stride, padding='SAME')
     print('[discriminator] layer', net)
     return net
 
-def strided_block(component, net, depth):
+def strided_block(component, net, depth, filter=3):
     ops = component.ops
     config = component.config
-    net = ops.conv2d(net, 3, 3, 2, 2, depth)
+    net = ops.conv2d(net, filter, filter, 2, 2, depth)
     print('[discriminator] layer', net)
     return net

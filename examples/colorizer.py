@@ -38,7 +38,7 @@ class Sampler(BaseSampler):
             stacks.append([sample[i*width+width+j] for j in range(width)])
         images = np.vstack([np.hstack(s) for s in stacks])
 
-        self.plot(images, path, True)
+        self.plot(images, path, save_samples)
         return [{'images': images, 'label': 'tiled x sample'}]
 
 def add_bw(gan, config, net):
@@ -124,7 +124,7 @@ def train(config, inputs, args):
         if i % args.sample_every == 0:
             print("sampling "+str(i))
             sample_file = "samples/"+str(i)+".png"
-            sampler.sample(sample_file, False)
+            sampler.sample(sample_file, args.save_samples)
 
         if i > args.steps * 9.0/10:
             for k, metric in enumerate(gan.session.run(metrics)):

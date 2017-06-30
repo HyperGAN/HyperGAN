@@ -65,6 +65,7 @@ class CLI:
         if name in samplers:
             return samplers[name]
         else:
+            print("[hypergan] No sampler found for ", name)
             return name
 
     def sample(self, sample_file):

@@ -73,6 +73,10 @@ def train(config, inputs, args):
     for i in range(args.steps):
         gan.step({gan.inputs.x: static_x, gan.encoder.sample: static_z})
 
+        if i % args.save_every == 0 and i > 0:
+            print("saving " + save_file)
+            gan.save(save_file)
+
         if i > args.steps * 9.0/10:
             for k, metric in enumerate(gan.session.run(metrics)):
                 print("Metric "+str(k)+" "+str(metric))
@@ -88,8 +92,8 @@ def sample(config, inputs, args):
 def search(config, inputs, args):
     metrics = train(config, inputs, args)
     config_filename = "colorizer-"+str(uuid.uuid4())+'.json'
-
     hc.Selector().save(config_filename, config)
+
     with open(args.search_output, "a") as myfile:
         myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
 
@@ -105,5 +109,3 @@ else:
 
 if(args.viewer):
     GlobalViewer.window.destroy()
-
-     

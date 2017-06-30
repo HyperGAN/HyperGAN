@@ -148,12 +148,9 @@ if args.action == 'train':
     metrics = train(config, inputs, args)
     accuracies = ["%.2f" % sum for sum in (metrics["accuracy"] or [])]
     diversities = ["%.2f" % sum for sum in (metrics["diversity"] or [])]
-
     print("Training complete.  Accuracy", accuracies, "Diversities", diversities)
-
 elif args.action == 'sample':
     sample(config, inputs, args)
-
 elif args.action == 'search':
     search(config, inputs, args)
 else:

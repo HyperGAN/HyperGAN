@@ -28,7 +28,9 @@ def build_gan():
     loss = CategoryLoss(gan, loss_config)
     encoder = CategoryEncoder(gan, encoder_config)
     gan.encoder = encoder
+    gan.encoder.create()
     gan.loss = loss
+    gan.loss.create()
     gan.create()
     return gan
 

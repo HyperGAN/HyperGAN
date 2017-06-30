@@ -12,6 +12,7 @@ class BoundaryEquilibriumLoss(BaseLoss):
     def began(self, d_real, d_fake):
         gan = self.gan
         config = self.config
+        ops = self.ops
 
         a,b,c = config.labels or [0,1,1]
 

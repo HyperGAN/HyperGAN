@@ -138,18 +138,14 @@ def sample(config, inputs, args):
     sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
     for i in range(args.steps):
         sample_file = "samples/"+str(i)+".png"
-        sampler.sample(sample_file, False)
+        sampler.sample(sample_file, args.save_samples)
 
 def search(config, inputs, args):
     metrics = train(config, inputs, args)
-    if 'search_output' in args:
-        search_output = args.search_output
-    else:
-        search_output = "2d-test-results.csv"
 
     config_filename = "colorizer-"+str(uuid.uuid4())+'.json'
     hc.Selector().save(config_filename, config)
-    with open(search_output, "a") as myfile:
+    with open(args.search_output, "a") as myfile:
         myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
 
 if args.action == 'train':

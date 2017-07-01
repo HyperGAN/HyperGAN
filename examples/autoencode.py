@@ -17,34 +17,15 @@ from hypergan.search.random_search import RandomSearch
 
 from examples.common import batch_diversity, accuracy
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Test autoencode!', add_help=True)
-    parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-    parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
-    parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
-    parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
-    parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
-    parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
-    parser.add_argument('--config', '-c', type=str, default='stable', help='config name')
-    parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
-    parser.add_argument('--use_hc_io', '-9', dest='use_hc_io', action='store_true', help='experimental')
-    return parser.parse_args()
+arg_parser = ArgumentParser("Colorize an image")
+arg_parser.add_image_arguments()
+args = arg_parser.parse_args()
 
-args = parse_args()
+width, height, channels = parse_size(args.size)
 
-width = int(args.size.split("x")[0])
-height = int(args.size.split("x")[1])
-channels = int(args.size.split("x")[2])
-
-config_file = args.config
-
-if args.config_list is not None:
-    lines = tuple(open(args.config_list, 'r'))
-    config_file = random.choice(lines).strip()
-    print("config list chosen", config_file)
-
-config = hg.configuration.Configuration.load(config_file+".json")
+config = lookup_config(args)
+if args.action == 'search':
+    config = AlphaGANRandomSearch({}).random_config()
 
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
 inputs.create(args.directory,
@@ -53,77 +34,72 @@ inputs.create(args.directory,
               crop=args.crop,
               width=width,
               height=height,
-              resize=False)
+              resize=True)
 
-config = RandomSearch({}).random_config()
-#random_search = RandomSearch({})
-#config.generator=random_search.generator_config()
-#print("g config", config.generator)
-#config.discriminator=random_search.discriminator_config()
-#print("D", config.discriminator)
 
-config_name="autoencoder-"+str(uuid.uuid4())
-config_filename = os.path.expanduser('~/.hypergan/configs/'+config_name+'.json')
-print("Saving config to ", config_filename)
+def setup_gan(config, inputs, args):
+    gan = AutoencoderGAN(config=config, inputs=inputs)
+    gan.create()
 
-hc.Selector().save(config_filename, config)
+    if(os.path.isfile(save_file+".meta")):
+        gan.load(save_file)
 
-gan = AutoencoderGAN(config=config, inputs=inputs)
-gan.create()
-
-tf.train.start_queue_runners(sess=gan.session)
-
-accuracies = {
-    "x_to_rx":accuracy(gan.inputs.x, gan.generator.sample)
-}
-
-diversities={
-    'g': batch_diversity(gan.generator.sample)
-}
-
-diversities_items= list(diversities.items())
-accuracies_items= list(accuracies.items())
-
-sums = [0,0]
-names = []
-
-for i in range(40000):
-    gan.step()
-
-    if i % 100 == 0 and i != 0: 
-        if i > 200:
-            diversities_v = gan.session.run([v for _, v in diversities_items])
-            accuracies_v = gan.session.run([v for _, v in accuracies_items])
-            print("D", diversities_v, "A", accuracies_v)
-            broken = False
-            for k, v in enumerate(diversities_v):
-                sums[k] += v 
-                name = diversities_items[k][0]
-                names.append(name)
-                if(np.abs(v) < 20000):
-                    sums = [-1,-1]
-                    names = ["error diversity "+name]
-                    broken = True
-                    print("break from diversity")
-                    break
-
-            for k, v in enumerate(accuracies_v):
-                sums[k+len(diversities_items) ] += v 
-                name = accuracies_items[k][0]
-                names.append(name)
-                if(np.abs(v) > 800):
-                    sums = [-1,-1]
-                    names = ["error accuracy "+name]
-                    broken = True
-                    print("break from accuracy")
-                    break
-
-            if(broken):
-                break
-
-with open("results-autoencode", "a") as myfile:
-    myfile.write(config_name+","+",".join(names)+"\n")
-    myfile.write(config_name+","+",".join(["%.2f" % sum for sum in sums])+"\n")
  
-tf.reset_default_graph()
-gan.session.close()
+    tf.train.start_queue_runners(sess=gan.session)
+    GlobalViewer.enable()
+    config_name = args.config
+    title = "[hypergan] colorizer " + config_name
+    GlobalViewer.window.set_title(title)
+
+    return gan
+
+def train(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    sampler = lookup_sampler(args.sampler or Sampler)(gan)
+
+    metrics = [accuracy(gan.inputs.x, gan.generator.sample), batch_diversity(gan.generator.sample)]
+    sum_metrics = [0 for metric in metrics]
+
+    for i in range(40000):
+        gan.step()
+
+        if i > args.steps * 9.0/10:
+            for k, metric in enumerate(gan.session.run(metrics)):
+                print("Metric "+str(k)+" "+str(metric))
+                sum_metrics[k] += metric 
+            
+        if i % args.sample_every == 0:
+            print("sampling "+str(i))
+            sample_file = "samples/"+str(i)+".png"
+            sampler.sample(sample_file, args.save_samples)
+
+
+    return sum_metrics
+
+def sample(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
+    for i in range(args.steps):
+        sample_file = "samples/"+str(i)+".png"
+        sampler.sample(sample_file, False)
+
+def search(config, inputs, args):
+    metrics = train(config, inputs, args)
+
+    config_filename = "autoencode-"+str(uuid.uuid4())+'.json'
+    hc.Selector().save(config_filename, config)
+    with open(args.search_output, "a") as myfile:
+        myfile.write(config_filename+","+",".join([str(x) for x in metrics])+"\n")
+
+if args.action == 'train':
+    metrics = train(config, inputs, args)
+    print("Resulting metrics:", metrics)
+elif args.action == 'sample':
+    sample(config, inputs, args)
+elif args.action == 'search':
+    search(config, inputs, args)
+else:
+    print("Unknown action: "+args.action)
+
+if(args.viewer):
+    GlobalViewer.window.destroy()

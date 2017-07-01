@@ -11,6 +11,7 @@ from common import *
 from hypergan.search.random_search import RandomSearch
 
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 
 arg_parser = ArgumentParser("Feed static values into X/Z and memorize them")
 arg_parser.add_image_arguments()
@@ -70,8 +71,14 @@ def train(config, inputs, args):
 
     metrics = [accuracy_x_to_g, diversity_g]
     sum_metrics = [0 for metric in metrics]
+    sampler = lookup_sampler(args.sampler or StaticBatchSampler)(gan)
     for i in range(args.steps):
         gan.step({gan.inputs.x: static_x, gan.encoder.sample: static_z})
+
+        if i % args.sample_every == 0:
+            print("sampling "+str(i))
+            sample_file = "samples/"+str(i)+".png"
+            sampler.sample(sample_file, args.save_samples)
 
         if i % args.save_every == 0 and i > 0:
             print("saving " + save_file)

@@ -104,7 +104,7 @@ class TensorflowOps:
         elif dtype == 'float16':
             return tf.float16
         else:
-            raise Exception("dtype not defined: "+dtype)
+            raise Exception("dtype not defined: "+str(dtype))
 
     def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         self.assert_tensor(net)

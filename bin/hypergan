@@ -23,7 +23,6 @@ class CommandParser:
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
-        parser.add_argument('--align', dest='align', help='Align classes.  Takes a directory of data to align with.')
         parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
         parser.add_argument('--save_every', type=int, default=10000, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=10, help='Saves a sample ever X steps.')
@@ -68,52 +67,23 @@ config_filename = hg.Configuration.find(config+'.json')
 config = hc.Selector().load(config_filename)
 
 
-if not args.align:
-    inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-    inputs.create(args.directory,
-          channels=channels, 
-          format=args.format,
-          crop=args.crop,
-          width=width,
-          height=height,
-          resize=args.resize)
+inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+inputs.create(args.directory,
+      channels=channels, 
+      format=args.format,
+      crop=args.crop,
+      width=width,
+      height=height,
+      resize=args.resize)
 
-    print('-->', args.autoencode)
-    if args.autoencode == 'alphagan':
-        print("Starting alpha gan")
-        gan = AlphaGAN(config=config, inputs=inputs)
-    elif args.autoencode == 'autoencoder':
-        gan = AutoencoderGAN(config=config, inputs=inputs)
-    else:
-        gan = hg.GAN(config=config, inputs=inputs)
+print('-->', args.autoencode)
+if args.autoencode == 'alphagan':
+    print("Starting alpha gan")
+    gan = AlphaGAN(config=config, inputs=inputs)
+elif args.autoencode == 'autoencoder':
+    gan = AutoencoderGAN(config=config, inputs=inputs)
 else:
-    inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-    inputs.create(args.directory,
-          channels=channels, 
-          format=args.format,
-          crop=args.crop,
-          width=width,
-          height=height,
-          resize=args.resize)
-
-    inputs2 = hg.inputs.image_loader.ImageLoader(args.batch_size)
-    inputs2.create(args.align,
-          channels=channels, 
-          format=args.format,
-          crop=args.crop,
-          width=width,
-          height=height,
-          resize=args.resize)
-
-    class AlignedInput():
-        def __init__(self, input1, input2):
-            self.x = input1.x
-            self.xa = input1.x
-            self.xb = input2.x
-            self.y = input1.y
-
-    aligned_input = AlignedInput(inputs, inputs2)
-    gan = AlignedGAN(config=config, inputs=aligned_input)
+    gan = hg.GAN(config=config, inputs=inputs)
 
 
 gancli = cli.CLI(gan, args=vars(args))

@@ -153,7 +153,6 @@ class CLI:
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-        reset_count=0
         while(i < self.total_steps or self.total_steps == -1):
             i+=1
             start_time = time.time()

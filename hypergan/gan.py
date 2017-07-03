@@ -4,7 +4,6 @@ from hypergan.ops.tensorflow.ops import TensorflowOps
 def gan_factory(*args, **kw_args):
     if 'config' in kw_args:
         config = kw_args['config']
-        print("kw_args", kw_args['config']['class'])
     elif len(args) > 0:
         config = args[0]
     else:

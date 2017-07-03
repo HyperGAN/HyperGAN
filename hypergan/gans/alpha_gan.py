@@ -116,15 +116,13 @@ class AlphaGAN(BaseGAN):
             #loss terms
             distance = config.distance or ops.lookup('l1_distance')
             cycloss = tf.reduce_mean(distance(self.inputs.x,x_hat))
-            cycloss_lambda = config.cycloss_lambda or 10
+            cycloss_lambda = config.cycloss_lambda
+            if cycloss_lambda is None:
+                cycloss_lambda = 10
             cycloss *= cycloss_lambda
             print("CYLAMB", cycloss_lambda)
-            if cycloss_lambda > 0:
-                loss1=('generator', cycloss + encoder_loss.g_loss)
-                loss2=('generator', cycloss + standard_loss.g_loss)
-            else:
-                loss1=('generator', encoder_loss.g_loss)
-                loss2=('generator', standard_loss.g_loss)
+            loss1=('generator', cycloss + encoder_loss.g_loss)
+            loss2=('generator', cycloss + standard_loss.g_loss)
             loss3=('discriminator', standard_loss.d_loss)
             loss4=('discriminator', encoder_loss.d_loss)
 

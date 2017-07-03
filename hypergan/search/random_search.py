@@ -156,8 +156,9 @@ class RandomSearch:
                    hg.discriminators.common.strided_block
                    ],
             "depth_increase":[32],
+            "extra_layers": [0, 1, 2, 3],
             "extra_layers_reduction":[1,2,4],
-            "fc_layer_size":[300],
+            "fc_layer_size":[300, 400, 500],
             "fc_layers":[0,1],
             "first_conv_size":[32],
             "layers": [3,4,5,6],

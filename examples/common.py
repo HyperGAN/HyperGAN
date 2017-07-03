@@ -7,11 +7,13 @@ import numpy as np
 
 from hypergan.cli import CLI
 from hypergan.gan_component import GANComponent
+from hypergan.search.random_search import RandomSearch
 from hypergan.generators.base_generator import BaseGenerator
 from hypergan.samplers.base_sampler import BaseSampler
 
 class ArgumentParser:
-    def __init__(self, description):
+    def __init__(self, description, require_directory=True):
+        self.require_directory = require_directory
         self.parser = argparse.ArgumentParser(description=description, add_help=True)
         self.add_global_arguments()
         self.add_search_arguments()
@@ -20,7 +22,8 @@ class ArgumentParser:
     def add_global_arguments(self):
         parser = self.parser
         parser.add_argument('action', action='store', type=str, help='One of ["train", "search"]')
-        parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
+        if self.require_directory:
+            parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
         parser.add_argument('--config', '-c', type=str, default='default', help='config name')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
@@ -31,7 +34,6 @@ class ArgumentParser:
     def add_search_arguments(self):
         parser = self.parser
         parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
-        parser.add_argument('--search_components', '-r', type=str, default=None, help='List which components to random search(generator,discriminator,...).  Defaults to everything.  Separate with commas')
         parser.add_argument('--search_output', '-o', type=str, default="search.csv", help='output file for search results')
 
     def add_train_arguments(self):

@@ -26,43 +26,6 @@ class PyramidDiscriminatorTest(tf.test.TestCase):
             discriminator = PyramidDiscriminator(gan, config)
             self.assertEqual(discriminator.config.activation, tf.nn.tanh)
 
-    def test_create(self):
-        graph = hc.Config({
-            'x': tf.constant(1., shape=[32,32,32,3])
-        })
-
-        with self.test_session():
-            remove_d_config = hg.Configuration.default()
-            remove_d_config['discriminator'] = None
-            remove_d_config['loss'] = None
-            remove_d_config['trainer'] = None
-            gan = hg.GAN(config = remove_d_config, inputs = MockInput())
-            discriminator = PyramidDiscriminator(gan, config)
-            gan.create()
-            net = discriminator.create()
-            self.assertEqual(int(net.get_shape()[1]), 112)
-
-    def test_reuse(self):
-        graph = hc.Config({
-            'x': tf.constant(1., shape=[32,32,32,3])
-        })
-
-        with self.test_session():
-            remove_d_config = hg.Configuration.default()
-            remove_d_config['discriminator'] = None
-            remove_d_config['loss'] = None
-            remove_d_config['trainer'] = None
-            gan = hg.GAN(config = remove_d_config, inputs = MockInput())
-            discriminator = PyramidDiscriminator(gan, config)
-            gan.create()
-            net = discriminator.create()
-            v_count  = len(discriminator.variables())
-            net = discriminator.reuse(gan.inputs.x)
-            v_count2  = len(discriminator.variables())
-            self.assertEqual(int(net.get_shape()[1]), 112)
-            self.assertEqual(v_count, v_count2)
-
-
     def test_validate(self):
         with self.assertRaises(ValidationException):
             PyramidDiscriminator(hg.GAN(), {})

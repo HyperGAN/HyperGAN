@@ -12,6 +12,7 @@ class BoundaryEquilibriumLoss(BaseLoss):
     def began(self, d_real, d_fake):
         gan = self.gan
         config = self.config
+        ops = self.gan.ops
 
         a,b,c = config.labels or [0,1,1]
 
@@ -46,6 +47,9 @@ class BoundaryEquilibriumLoss(BaseLoss):
         clip = tf.reduce_mean(clip, axis=0)
         update_k = tf.assign(k, tf.reshape(clip, [1]))
         measure = self.gan.ops.squash(l_x + tf.abs(k_loss))
+
+        d_loss = ops.reshape(d_loss, [])
+        g_loss = ops.reshape(g_loss, [])
 
         return [k, update_k, measure, d_loss, g_loss]
 

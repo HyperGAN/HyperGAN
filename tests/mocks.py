@@ -4,8 +4,8 @@ import hypergan as hg
 
 from hypergan.gan_component import GANComponent
 
-def mock_gan(batch_size=1):
-    return hg.GAN(inputs=MockInput(batch_size=batch_size))
+def mock_gan(batch_size=1, y=1):
+    return hg.GAN(inputs=MockInput(batch_size=batch_size, y=y))
 
 class MockDiscriminator(GANComponent):
     def create(self):
@@ -13,8 +13,8 @@ class MockDiscriminator(GANComponent):
         return self.sample
 
 class MockInput:
-    def __init__(self, batch_size=2):
+    def __init__(self, batch_size=2, y=1):
         self.x= tf.constant(10., shape=[batch_size,32,32,1], dtype=tf.float32)
-        self.y= tf.constant(1., shape=[batch_size, 2], dtype=tf.float32)
+        self.y= tf.constant(1., shape=[batch_size, y], dtype=tf.float32)
         self.sample = [self.x, self.y]
 

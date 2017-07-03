@@ -20,22 +20,6 @@ class CliTest(tf.test.TestCase):
             cli = hg.CLI(gan, args)
             self.assertEqual(cli.gan, gan)
 
-    def test_validate_sampler(self):
-        with self.assertRaises(ValidationException):
-            gan = hg.GAN()
-            args = {
-                    'sampler': 'nonexisting'
-            }
-            cli = hg.CLI(gan, args)
-
-    def test_loads_config_errors_when_empty(self):
-        with self.assertRaises(ValidationException):
-            gan = mock_gan()
-            args = {'load': True, "directory": fixture_path()}
-            cli = hg.CLI(gan, args)
-            cli.load()
-            #TODO test loading
-
     def test_run(self):
         with self.test_session():
             gan = mock_gan()
@@ -73,13 +57,13 @@ class CliTest(tf.test.TestCase):
 
     def test_adds_supervised_loss(self):
         with self.test_session():
-            gan = mock_gan()
-            args = hc.Config({"size": "1", "steps": 1, "method": "test", "save_every": -1})
+            gan = mock_gan(y=2)
+            args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1})
             cli = hg.CLI(gan, args)
-            cli.run()
+            gan.create()
+            cli.add_supervised_loss()
             self.assertEqual(type(cli.gan.loss), MultiComponent)
             self.assertEqual(type(cli.gan.loss.components[0]), SupervisedLoss)
-
 
     def test_new(self):
         with self.test_session():
@@ -92,8 +76,6 @@ class CliTest(tf.test.TestCase):
             cli = hg.CLI(gan, args)
             cli.new("/tmp/hg_new")
             self.assertTrue(os.path.isfile('/tmp/hg_new/default.json'))
-            self.assertTrue(os.path.isdir('/tmp/hg_new/samples'))
-            self.assertTrue(os.path.isdir('/tmp/hg_new/saves'))
 
     def test_safe_new(self):
         with self.test_session():

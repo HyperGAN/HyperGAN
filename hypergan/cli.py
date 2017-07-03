@@ -42,13 +42,13 @@ class CLI:
         self.total_steps = args.steps or -1
         self.sample_every = self.args.sample_every or 100
 
-        self.sampler = CLI.sampler_for(args.sampler or 'static_batch')(self.gan)
+        self.sampler = CLI.sampler_for(args.sampler)(self.gan)
 
         self.validate()
         if self.args.save_file:
             self.save_file = self.args.save_file
         else:
-            default_save_path = os.path.abspath("saves/"+args.config)
+            default_save_path = os.path.abspath("saves/"+self.config_name)
             self.save_file = default_save_path + "/model.ckpt"
             self.create_path(self.save_file)
 
@@ -65,8 +65,8 @@ class CLI:
         if name in samplers:
             return samplers[name]
         else:
-            print("[hypergan] No sampler found for ", name)
-            return name
+            print("[hypergan] No sampler found for ", name, ".  Defaulting to StaticBatch")
+            return StaticBatchSampler
 
     def sample(self, sample_file):
         """ Samples to a file.  Useful for visualizing the learning process.
@@ -198,30 +198,24 @@ class CLI:
 
         return
 
-    def run(self):
+    def add_supervised_loss(self):
         number_classes = self.gan.ops.shape(self.gan.inputs.y)[1]
+        if(number_classes > 1):
+            print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
+            print("SELFGAN", self.gan.loss)
+            supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
+            self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
+            supervised_loss.create()
+            #EWW
+        else:
+            print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
+
+    def run(self):
         self.output_graph_size()
         if self.method == 'train':
             self.gan.create()
-            if(number_classes > 1):
-                if not self.args.noclassloss:
-                    print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
-                    print("SELFGAN", self.gan.loss)
-                    supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
-                    self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
-                    supervised_loss.create()
-                    self.gan.session.run(tf.global_variables_initializer())
-                    #EWW
-                else:
-                    print("Skipping class loss")
-            else:
-                print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
-
-            if not self.gan.load(self.save_file):
-                print("Initializing new model")
-            else:
-                print("Model loaded")
-
+            self.add_supervised_loss(gan)
+            self.gan.session.run(tf.global_variables_initializer())
 
             tf.train.start_queue_runners(sess=self.gan.session)
             self.train()

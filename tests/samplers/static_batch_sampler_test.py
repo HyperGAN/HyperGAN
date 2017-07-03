@@ -9,13 +9,13 @@ from hypergan.ops import TensorflowOps
 from tests.mocks import mock_gan
 
 class StaticBatchSamplerTest(tf.test.TestCase):
-    def test_config(self):
+    def test_sample(self):
         with self.test_session():
             gan = mock_gan()
             gan.create()
 
             sampler = StaticBatchSampler(gan)
-            self.assertEqual(sampler.sample('/tmp/test.png')[0]['image'].shape[-1], 1)
+            self.assertEqual(sampler._sample()['generator'].shape[-1], 1)
 
 if __name__ == "__main__":
     tf.test.main()

@@ -21,7 +21,7 @@ class ArgumentParser:
         parser = self.parser
         parser.add_argument('action', action='store', type=str, help='One of ["train", "search"]')
         parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-        parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
+        parser.add_argument('--config', '-c', type=str, default='default', help='config name')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
         parser.add_argument('--steps', type=int, default=1000000, help='Number of steps to train for.')

@@ -57,7 +57,7 @@ def setup_gan(config, inputs, args):
 
     GlobalViewer.enable()
     config_name = args.config
-    title = "[hypergan] colorizer " + config_name
+    title = "[hypergan] static " + config_name
     GlobalViewer.window.set_title(title)
 
     return gan
@@ -98,7 +98,7 @@ def sample(config, inputs, args):
 
 def search(config, inputs, args):
     metrics = train(config, inputs, args)
-    config_filename = "colorizer-"+str(uuid.uuid4())+'.json'
+    config_filename = "static-"+str(uuid.uuid4())+'.json'
     hc.Selector().save(config_filename, config)
 
     with open(args.search_output, "a") as myfile:

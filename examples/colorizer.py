@@ -1,4 +1,6 @@
 import os
+import uuid
+import random
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
@@ -71,6 +73,10 @@ width, height, channels = parse_size(args.size)
 config = lookup_config(args)
 if args.action == 'search':
     config = AlphaGANRandomSearch({}).random_config()
+    config["d_layer_filter"] = random.choice([True, False])
+    config["g_layer_filter"] = random.choice([True, False])
+    config["encode_layer_filter"] = random.choice([True, False])
+    config["cycloss_lambda"]= 0
 
 if config.g_layer_filter:
     config.generator['layer_filter'] = add_bw
@@ -95,7 +101,7 @@ def setup_gan(config, inputs, args):
 
     gan.create()
 
-    if(os.path.isfile(save_file+".meta")):
+    if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)
 
     tf.train.start_queue_runners(sess=gan.session)
@@ -116,7 +122,7 @@ def train(config, inputs, args):
     for i in range(args.steps):
         gan.step()
 
-        if i % args.save_every == 0 and i > 0:
+        if args.action == 'train' and i % args.save_every == 0 and i > 0:
             print("saving " + save_file)
             gan.save(save_file)
 
@@ -146,7 +152,7 @@ def search(config, inputs, args):
     config_filename = "colorizer-"+str(uuid.uuid4())+'.json'
     hc.Selector().save(config_filename, config)
     with open(args.search_output, "a") as myfile:
-        myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
+        myfile.write(config_filename+","+",".join([str(x) for x in metrics])+"\n")
 
 if args.action == 'train':
     metrics = train(config, inputs, args)

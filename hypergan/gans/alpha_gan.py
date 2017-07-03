@@ -39,9 +39,8 @@ class AlphaGAN(BaseGAN):
         self.trainer = None
         self.session = None
 
-
     def required(self):
-        return "generator".split()
+        return "generator discriminator z_discriminator g_encoder".split()
 
     def create(self):
         BaseGAN.create(self)
@@ -56,6 +55,9 @@ class AlphaGAN(BaseGAN):
             encoder.ops.describe("g_encoder")
             encoder.create(self.inputs.x)
             encoder.z = tf.zeros(0)
+            if(len(encoder.sample.get_shape()) == 2):
+                s = ops.shape(encoder.sample)
+                encoder.sample = tf.reshape(encoder.sample, [s[0],s[1], 1, 1])
 
             z_discriminator = dict(config.z_discriminator or config.discriminator)
             z_discriminator['layer_filter']=None

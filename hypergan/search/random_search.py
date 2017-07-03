@@ -170,8 +170,8 @@ class RandomSearch:
             "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
             "distance":['l1_distance', 'l2_distance'],
             "class":[
-                hg.discriminators.pyramid_discriminator.PyramidDiscriminator,
-                hg.discriminators.autoencoder_discriminator.AutoencoderDiscriminator
+                hg.discriminators.pyramid_discriminator.PyramidDiscriminator
+               # hg.discriminators.autoencoder_discriminator.AutoencoderDiscriminator
             ]
         }
 

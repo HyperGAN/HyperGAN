@@ -1,43 +1,38 @@
 import argparse
 import os
 import uuid
-import random
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 import numpy as np
-
+from hypergan.generators import *
+from hypergan.viewer import GlobalViewer
+from common import *
 from hypergan.search.random_search import RandomSearch
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Train with static x and z values. Basic memorization using GAN', add_help=True)
-    parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-    parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
-    parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
-    parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
-    parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
-    parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
-    parser.add_argument('--config', '-c', type=str, default='stable', help='config name')
-    parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
-    parser.add_argument('--use_hc_io', '-9', dest='use_hc_io', action='store_true', help='experimental')
-    return parser.parse_args()
+from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 
-args = parse_args()
+arg_parser = ArgumentParser("Feed static values into X/Z and memorize them")
+arg_parser.add_image_arguments()
+args = arg_parser.parse_args()
 
-width = int(args.size.split("x")[0])
-height = int(args.size.split("x")[1])
-channels = int(args.size.split("x")[2])
+width, height, channels = parse_size(args.size)
 
+config = lookup_config(args)
 
-config_file = args.config
+save_file = "save/model.ckpt"
 
-if args.config_list is not None:
-    lines = tuple(open(args.config_list, 'r'))
-    config_file = random.choice(lines).strip()
-    print("config list chosen", config_file)
+if args.action == 'search':
+    config = RandomSearch({}).random_config()
 
-config = hg.configuration.Configuration.load(config_file+".json")
+    if args.config_list is not None:
+        config = random_config_from_list(args.config_list)
+        random_config = RandomSearch({}).random_config()
+
+        config["generator"]=random_config["generator"]
+        config["discriminator"]=random_config["discriminator"]
+        # TODO Other search terms?
 
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
 inputs.create(args.directory,
@@ -46,84 +41,78 @@ inputs.create(args.directory,
               crop=args.crop,
               width=width,
               height=height,
-              resize=False)
+              resize=True)
 
-random_search = RandomSearch({})
-config["generator"]=random_search.generator_config()
-config["discriminator"]=random_search.discriminator_config()
+save_file = "save/model.ckpt"
 
-config_name="static-batch-"+str(uuid.uuid4())
-config_filename = os.path.expanduser('~/.hypergan/configs/'+config_name+'.json')
-print("Saving config to ", config_filename)
+def setup_gan(config, inputs, args):
+    gan = hg.GAN(config, inputs=inputs)
 
-hc.Selector().save(config_filename, config)
+    gan.create()
 
-print("Creating GAN FROM ", config)
+    if(os.path.isfile(save_file+".meta")):
+        gan.load(save_file)
 
-gan = hg.GAN(config, inputs=inputs)
+    tf.train.start_queue_runners(sess=gan.session)
 
-gan.create()
+    GlobalViewer.enable()
+    config_name = args.config
+    title = "[hypergan] static " + config_name
+    GlobalViewer.window.set_title(title)
 
-tf.train.start_queue_runners(sess=gan.session)
-static_x, static_z = gan.session.run([inputs.x, gan.encoder.sample])
+    return gan
 
-def batch_diversity(net):
-    bs = int(net.get_shape()[0])
-    avg = tf.reduce_mean(net, axis=0)
+def train(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    static_x, static_z = gan.session.run([gan.inputs.x, gan.encoder.sample])
 
-    s = [int(x) for x in avg.get_shape()]
-    avg = tf.reshape(avg, [1, s[0], s[1], s[2]])
+    accuracy_x_to_g=accuracy(static_x, gan.generator.sample)
+    diversity_g = batch_diversity(gan.generator.sample)
 
-    tile = [1 for x in net.get_shape()]
-    tile[0] = bs
-    avg = tf.tile(avg, tile)
-    net -= avg
-    return tf.reduce_sum(tf.abs(net))
+    metrics = [accuracy_x_to_g, diversity_g]
+    sum_metrics = [0 for metric in metrics]
+    sampler = lookup_sampler(args.sampler or StaticBatchSampler)(gan)
+    for i in range(args.steps):
+        gan.step({gan.inputs.x: static_x, gan.encoder.sample: static_z})
 
-def accuracy(a, b):
-    "Each point of a is measured against the closest point on b.  Distance differences are added together."
-    difference = tf.abs(a-b)
-    difference = tf.reduce_min(difference, axis=1)
-    difference = tf.reduce_sum(difference, axis=1)
-    return tf.reduce_sum( tf.reduce_sum(difference, axis=0) , axis=0) 
+        if i % args.sample_every == 0:
+            print("sampling "+str(i))
+            sample_file = "samples/"+str(i)+".png"
+            sampler.sample(sample_file, args.save_samples)
 
+        if i % args.save_every == 0 and i > 0:
+            print("saving " + save_file)
+            gan.save(save_file)
 
-accuracy_x_to_g=accuracy(static_x, gan.generator.sample)
-diversity_g = batch_diversity(gan.generator.sample)
-diversity_x = batch_diversity(gan.inputs.x)
-diversity_diff = tf.abs(diversity_x - diversity_g)
-ax_sum = 0
-dd_sum = 0
-dx_sum = 0
-dg_sum = 0
+        if i > args.steps * 9.0/10:
+            for k, metric in enumerate(gan.session.run(metrics)):
+                print("Metric "+str(k)+" "+str(metric))
+                sum_metrics[k] += metric 
 
-for i in range(12000):
-    gan.step({gan.inputs.x: static_x, gan.encoder.sample: static_z})
+def sample(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
+    for i in range(args.steps):
+        sample_file = "samples/"+str(i)+".png"
+        sampler.sample(sample_file, args.save_samples)
 
-    if i % 100 == 0 and i != 0 and i > 400: 
-        #if 'k' in gan.graph:
-        #    k, ax, dg, dx, dd = gan.sess.run([gan.graph.k, accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.graph.x: static_x, gan.graph.z[0]: static_z})
-        #    print("ERROR", ax, dg, dx, dd, k)
-        #    if math.isclose(k, 0.0) or np.abs(ax) > 800.0 or np.abs(dg) < 20000 or np.isnan(d_loss):
-        #        ax_sum =100000.00
-        #        break
-        ax, dg, dx, dd = gan.session.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.inputs.x: static_x, gan.encoder.sample: static_z})
-        print("ERROR", ax, dg, dx, dd)
-        if np.abs(ax) > 800.0 or np.abs(dg) < 20000:
-            ax_sum =100000.00
-            break
+def search(config, inputs, args):
+    metrics = train(config, inputs, args)
+    config_filename = "static-"+str(uuid.uuid4())+'.json'
+    hc.Selector().save(config_filename, config)
 
+    with open(args.search_output, "a") as myfile:
+        myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
 
-    if(i > 11400):
-        ax, dg, dx, dd = gan.session.run([accuracy_x_to_g, diversity_g, diversity_x, diversity_diff], {gan.inputs.x: static_x, gan.encoder.sample: static_z})
-        ax_sum += ax
-        dg_sum += dg
-        dx_sum += dx
-        dd_sum += dd
-        
+if args.action == 'train':
+    metrics = train(config, inputs, args)
+    print("Resulting metrics:", metrics)
+elif args.action == 'sample':
+    sample(config, inputs, args)
+elif args.action == 'search':
+    search(config, inputs, args)
+else:
+    print("Unknown action: "+args.action)
 
-with open("results-static-batch", "a") as myfile:
-    myfile.write(config_name+","+str(ax_sum)+","+str(dx_sum)+","+str(dg_sum)+","+str(dd_sum)+","+str(dx_sum + dg_sum)+"\n")
- 
-tf.reset_default_graph()
-gan.session.close()
+if(args.viewer):
+    GlobalViewer.window.destroy()

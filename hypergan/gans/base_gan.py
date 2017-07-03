@@ -79,6 +79,7 @@ class BaseGAN(GANComponent):
 
     def save(self, save_file):
         print("Saving network to ", save_file)
+        os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
         saver = tf.train.Saver()
         saver.save(self.session, save_file)
 

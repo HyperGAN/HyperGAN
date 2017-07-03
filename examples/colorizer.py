@@ -1,4 +1,6 @@
 import os
+import uuid
+import random
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
@@ -71,6 +73,10 @@ width, height, channels = parse_size(args.size)
 config = lookup_config(args)
 if args.action == 'search':
     config = AlphaGANRandomSearch({}).random_config()
+    config["d_layer_filter"] = random.choice([True, False])
+    config["g_layer_filter"] = random.choice([True, False])
+    config["encode_layer_filter"] = random.choice([True, False])
+    config["cycloss_lambda"]= 0
 
 if config.g_layer_filter:
     config.generator['layer_filter'] = add_bw
@@ -91,11 +97,11 @@ inputs.create(args.directory,
 save_file = "save/model.ckpt"
 
 def setup_gan(config, inputs, args):
-    gan = AlphaGAN(config, inputs=inputs)
+    gan = hg.GAN(config, inputs=inputs)
 
     gan.create()
 
-    if(os.path.isfile(save_file+".meta")):
+    if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)
 
     tf.train.start_queue_runners(sess=gan.session)
@@ -107,7 +113,6 @@ def setup_gan(config, inputs, args):
 
     return gan
 
-
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     sampler = lookup_sampler(args.sampler or Sampler)(gan)
@@ -117,7 +122,7 @@ def train(config, inputs, args):
     for i in range(args.steps):
         gan.step()
 
-        if i % args.save_every == 0 and i > 0:
+        if args.action == 'train' and i % args.save_every == 0 and i > 0:
             print("saving " + save_file)
             gan.save(save_file)
 
@@ -139,19 +144,15 @@ def sample(config, inputs, args):
     sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
     for i in range(args.steps):
         sample_file = "samples/"+str(i)+".png"
-        sampler.sample(sample_file, False)
+        sampler.sample(sample_file, args.save_samples)
 
 def search(config, inputs, args):
     metrics = train(config, inputs, args)
-    if 'search_output' in args:
-        search_output = args.search_output
-    else:
-        search_output = "2d-test-results.csv"
 
     config_filename = "colorizer-"+str(uuid.uuid4())+'.json'
     hc.Selector().save(config_filename, config)
-    with open(search_output, "a") as myfile:
-        myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
+    with open(args.search_output, "a") as myfile:
+        myfile.write(config_filename+","+",".join([str(x) for x in metrics])+"\n")
 
 if args.action == 'train':
     metrics = train(config, inputs, args)

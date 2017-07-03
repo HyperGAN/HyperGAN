@@ -141,7 +141,7 @@ Install dependencies:
 
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of folders of pngs
-  cp *.png folder/class0/
+  cp *.png folder/
   hypergan train folder/ -s 32x32x3 -f png -b 32
 ```
 

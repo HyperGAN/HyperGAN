@@ -54,7 +54,10 @@ _Logos generated with [examples/colorizer](#examples)_
 
 # Changelog
 
-## 0.8 ~ "LSGAN / 2d test"
+
+## 0.9 ~ Refactorings and optimizations
+
+## 0.8 ~ Least Squares GAN and API examples
 
 * Tensorflow 1.0 support
 * New configuration format and refactored api.
@@ -66,7 +69,7 @@ _Logos generated with [examples/colorizer](#examples)_
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0.8.png'/>
 
-## 0.7 ~ "WGAN API"
+## 0.7 ~ WGAN & API
 
 * New loss function based on `wgan` :.  Fixes many classes of mode collapse!  See <a href="#wgan">wgan implementation</a>
 * Initial Public API Release
@@ -75,26 +78,15 @@ _Logos generated with [examples/colorizer](#examples)_
 * API example: `super-resolution` - zoom in and enhance.  We've caught the bad guy!
 * 4 *new* samplers.  `--sampler` flag.  Valid options are: `batch`,`progressive`,`static_batch`,`grid`. 
 
-## 0.6 ~ "MultiGAN"
-
-* New encoders
-* Support for multiple discriminators
-* Support for discriminators on different image resolutions
-
-## 0.5 ~ "FaceGAN"
-
-### 0.5.x
+## 0.5 / 0.6
 
 * fixed configuration save/load
 * cleaner cli output
 * documentation cleanup
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0-5-6.png'/>
-
-### 0.5.0
 * pip package released!
 * Better defaults.  Good variance.  256x256.  The broken images showed up after training for 5 days.
 
+<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0-5-6.png'/>
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold.png'/>
 
 ### 0.1-0.4

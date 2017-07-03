@@ -42,6 +42,7 @@ class AlphaGANRandomSearch(RandomSearch):
         self.options['z_discriminator']['extra_layers']=alpha_config.z_discriminator_extra_layers
         self.options['z_discriminator']['extra_layers_reduction']=alpha_config.z_discriminator_extra_layers_reduction
         self.options['cycloss_lambda']=alpha_config.cycloss_lambda
+        self.options["class"]="class:hypergan.gans.alpha_gan.AlphaGAN"
         self.options['d_layer_filter']=alpha_config.d_layer_filter
         self.options['g_layer_filter']=alpha_config.g_layer_filter
         self.options['encode_layer_filter']=alpha_config.encode_layer_filter

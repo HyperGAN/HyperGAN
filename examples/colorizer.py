@@ -97,7 +97,7 @@ inputs.create(args.directory,
 save_file = "save/model.ckpt"
 
 def setup_gan(config, inputs, args):
-    gan = AlphaGAN(config, inputs=inputs)
+    gan = hg.GAN(config, inputs=inputs)
 
     gan.create()
 

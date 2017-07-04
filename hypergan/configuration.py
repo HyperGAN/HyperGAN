@@ -1,11 +1,15 @@
 import hyperchamber as hc
 import os
+import glob
 
 class Configuration:
-    def find(configuration):
+    def all_paths():
         dirname = os.path.dirname(os.path.realpath(__file__))
         paths = [dirname + "/configurations/", os.path.abspath(os.path.expanduser('~/.hypergan/configs/'))+'/',
                  os.path.abspath(os.path.relpath("."))+"/" ]
+        return paths
+    def find(configuration):
+        paths = Configuration.all_paths()
         Configuration.paths = paths
         for path in paths:
             file_path = path + configuration
@@ -20,3 +24,7 @@ class Configuration:
         return hc.Selector().load(config_file)
     def default():
         return Configuration.load('default.json')
+    def list():
+        paths = Configuration.all_paths()
+        return sorted(sum([[x.split("/")[-1].split(".")[0] for x in glob.glob(path+"/*.json")] for path in paths], []))
+

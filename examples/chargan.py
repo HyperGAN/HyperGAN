@@ -12,6 +12,7 @@ from examples.common import *
 import numpy as np
 
 import math
+import os
 
 arg_parser = ArgumentParser("Learn from a text file", require_directory=False)
 arg_parser.parser.add_argument('--one_hot', action='store_true', help='Use character one-hot encodings.')
@@ -32,10 +33,14 @@ def search(config, args):
         myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
 
 def train(config, args):
+    save_file = "save/chargan/model.ckpt"
     with tf.device(args.device):
         text_input = TextInput(config, args.batch_size, one_hot=one_hot)
         gan = hg.GAN(config, inputs=text_input)
         gan.create()
+
+        if(args.action != 'search' and os.path.isfile(save_file+".meta")):
+            gan.load(save_file)
 
         with gan.session.as_default():
             text_input.table.init.run()
@@ -68,8 +73,12 @@ def train(config, args):
         for i in range(args.steps):
             gan.step()
 
+            if args.action == 'train' and i % args.save_every == 0 and i > 0:
+                print("saving " + save_file)
+                gan.save(save_file)
 
-            if i % args.sample_every == 0 and i > 0:
+
+            if i % args.sample_every == 0:
                 g, x_val = gan.session.run([gan.generator.sample, gan.inputs.x], {gan.encoder.z: z_0})
                 bs = np.shape(x_val)[0]
                 samples+=1

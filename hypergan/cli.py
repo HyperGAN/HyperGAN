@@ -214,6 +214,10 @@ class CLI:
             self.add_supervised_loss()
             self.gan.session.run(tf.global_variables_initializer())
 
+            if not self.gan.load(self.save_file):
+                print("Initializing new model")
+            else:
+                print("Model loaded")
             tf.train.start_queue_runners(sess=self.gan.session)
             self.train()
             tf.reset_default_graph()

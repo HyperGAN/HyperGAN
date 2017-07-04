@@ -81,8 +81,8 @@ class StandardGAN(BaseGAN):
                 self.trainer = self.create_component(config.trainer)
                 create_if(self.trainer)
 
-            if self.encoder and hasattr(self.encoder, 'sample'):
-                self.uniform_sample = self.encoder.sample
+            if self.generator and hasattr(self.generator, 'sample'):
+                self.uniform_sample = self.generator.sample
 
             self.session.run(tf.global_variables_initializer())
 

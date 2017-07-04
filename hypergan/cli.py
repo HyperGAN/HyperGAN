@@ -198,10 +198,8 @@ class CLI:
         return
 
     def add_supervised_loss(self):
-        number_classes = self.gan.ops.shape(self.gan.inputs.y)[1]
-        if(number_classes > 1):
+        if self.args.classloss:
             print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
-            print("SELFGAN", self.gan.loss)
             supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
             self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
             supervised_loss.create()
@@ -229,20 +227,7 @@ class CLI:
             self.new()
         elif self.method == 'sample':
             self.gan.create()
-            if(number_classes > 1):
-                if self.args.classloss:
-                    print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
-                    print("SELFGAN", self.gan.loss)
-                    supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
-                    self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
-                    supervised_loss.create()
-                    self.gan.session.run(tf.global_variables_initializer())
-                    #EWW
-                else:
-                    print("Skipping class loss")
-            else:
-                print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
-
+            self.add_supervised_loss()
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
             else:

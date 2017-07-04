@@ -33,7 +33,7 @@ class CommandParser:
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
         parser.add_argument('--autoencode', dest='autoencode', action='store', help='Disables the display of samples in a window.')
-        parser.add_argument('--noclassloss', dest='noclassloss', action='store', help='Disables class loss.')
+        parser.add_argument('--classloss', dest='classloss', action='store_true', help='Enable class loss.  You must have multiple subfolders, one for each class')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -76,14 +76,7 @@ if not args.align:
           height=height,
           resize=args.resize)
 
-    print('-->', args.autoencode)
-    if args.autoencode == 'alphagan':
-        print("Starting alpha gan")
-        gan = AlphaGAN(config=config, inputs=inputs)
-    elif args.autoencode == 'autoencoder':
-        gan = AutoencoderGAN(config=config, inputs=inputs)
-    else:
-        gan = hg.GAN(config=config, inputs=inputs)
+    gan = hg.GAN(config=config, inputs=inputs)
 else:
     inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
     inputs.create(args.directory,

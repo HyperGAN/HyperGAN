@@ -230,7 +230,7 @@ class CLI:
         elif self.method == 'sample':
             self.gan.create()
             if(number_classes > 1):
-                if not self.args.noclassloss:
+                if self.args.classloss:
                     print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
                     print("SELFGAN", self.gan.loss)
                     supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)

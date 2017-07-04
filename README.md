@@ -4,8 +4,8 @@
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists.
 
-![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-1.gif)
-![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-3.gif)
+![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-1.gif)
+![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-3.gif)
 
 _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the RandomWalk sampler_
 

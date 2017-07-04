@@ -38,14 +38,14 @@ class PyramidDiscriminator(BaseDiscriminator):
             net = self.layer_regularizer(net)
 
             if config.skip_layer_filters and (i+1) in config.skip_layer_filters:
-                print("[hypergan] discriminator skipping layer filter", i)
+                pass
             else:
                 net = self.layer_filter(net)
+                print("[hypergan] adding layer filter", net)
 
             net = self.progressive_enhancement(config, net, xg)
 
             depth = filters + depth_increase
-            print("NET IS", net, depth, layers)
             net = config.block(self, net, depth)
 
             print('[discriminator] layer', net)
@@ -55,7 +55,7 @@ class PyramidDiscriminator(BaseDiscriminator):
             net = activation(net)
             net = self.layer_regularizer(net)
             net = ops.conv2d(net, 3, 3, 1, 1, output_features//(config.extra_layers_reduction or 1))
-            print('[extra discriminator] layer', net)
+            print('[discriminator] extra layer', net)
         k=-1
 
         if config.relation_layer:
@@ -78,6 +78,6 @@ class PyramidDiscriminator(BaseDiscriminator):
         if final_activation:
             net = final_activation(net)
 
-        print("D END", net)
+        print("[discriminator] output", net)
 
         return net

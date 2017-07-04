@@ -88,14 +88,12 @@ class AlphaGAN(BaseGAN):
                 projection = ops.reshape(projection, ops.shape(encoder.sample))
                 projections.append(projection)
             z_hat = tf.concat(axis=3, values=projections)
-            print("_Z", z_hat, z)
 
             z = ops.reshape(z, ops.shape(z_hat))
             # end encoding
             g = self.generator.create(z)
             sample = self.generator.sample
             self.uniform_sample = self.generator.sample
-            print("Z, Z_HAT", z, z_hat)
             x_hat = self.generator.reuse(z_hat)
 
             encoder_discriminator.create(x=z, g=z_hat)
@@ -120,7 +118,6 @@ class AlphaGAN(BaseGAN):
             if cycloss_lambda is None:
                 cycloss_lambda = 10
             cycloss *= cycloss_lambda
-            print("CYLAMB", cycloss_lambda)
             loss1=('generator', cycloss + encoder_loss.g_loss)
             loss2=('generator', cycloss + standard_loss.g_loss)
             loss3=('discriminator', standard_loss.d_loss)

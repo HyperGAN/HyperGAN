@@ -1,7 +1,9 @@
 # HyperGAN
 A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
-![Colorizer 0.9](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-0.9.gif)
+![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-1.gif)
+![Colorizer 0.9 2](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-2.gif)
+![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-3.gif)
 _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the RandomWalk sampler_
 
 # Table of contents

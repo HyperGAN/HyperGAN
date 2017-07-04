@@ -37,7 +37,6 @@ if args.action == 'search':
 
         config["generator"]=random_config["generator"]
         config["discriminator"]=random_config["discriminator"]
-        # TODO Other search terms?
         print("config list chosen", config_file)
 
 class TwoImageInput():
@@ -138,7 +137,6 @@ def sample(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
     for i in range(args.steps):
-        print("SAMPLER =", sampler)
         sample_file = "samples/"+str(i)+".png"
         sampler.sample(sample_file, args.save_samples)
 

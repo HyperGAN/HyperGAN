@@ -9,9 +9,6 @@ from hypergan.gan_component import ValidationException, GANComponent
 class ImageLoader:
     """
     ImageLoader loads a set of images into a tensorflow input pipeline.
-
-    Usage: TODO
-
     """
 
     def __init__(self, batch_size):

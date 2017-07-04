@@ -387,13 +387,13 @@ No good results yet
 
 ### Softmax loss
 
-Not working as well as others yet, but really interesting
+Not working as well as the others
 
 ### Boundary Equilibrium Loss
 
 Use with the `AutoencoderDiscriminator`.
 
-This is pretty experimental but works well.  See the `began` configuration template.
+See the `began` configuration template.
 
 ### Loss configuration
 
@@ -602,9 +602,6 @@ The branches are:
 ## Showcase
 
 If you create something cool with this let us know!  Open a pull request and add your links, and screenshots here!
-
-In case you are interested, our pivotal board is here: https://www.pivotaltracker.com/n/projects/1886395
-
 
 # About
 

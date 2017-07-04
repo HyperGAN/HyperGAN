@@ -1,6 +1,4 @@
 {
-  "description": "Least Squares GAN",
-  "publication": "https://arxiv.org/abs/1611.04076v2",
   "discriminator": 
   {
     "activation": "prelu",

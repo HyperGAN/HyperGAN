@@ -1,6 +1,4 @@
 {
-  "description": "Least Squares GAN",
-  "publication": "https://arxiv.org/abs/1611.04076v2",
   "discriminator": 
   {
     "activation": "selu",
@@ -103,5 +101,6 @@
   "cycloss_lambda": 0.1,
   "d_layer_filter": true,
   "g_layer_filter": true,
+  "class": "class:hypergan.gans.alpha_gan.AlphaGAN",
   "encode_layer_filter": true
 }

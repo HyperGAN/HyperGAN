@@ -1,6 +1,5 @@
 {
-  "description": "Improved GAN.  Limited to 64x64x3",
-  "publication": "https://arxiv.org/abs/1606.03498",
+  "description": "Improved GAN resizable",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",

@@ -58,7 +58,7 @@ class CliTest(tf.test.TestCase):
     def test_adds_supervised_loss(self):
         with self.test_session():
             gan = mock_gan(y=2)
-            args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1, "classloss": true})
+            args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1, "classloss": True})
             cli = hg.CLI(gan, args)
             gan.create()
             cli.add_supervised_loss()

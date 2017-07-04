@@ -1,34 +1,95 @@
 Examples
 --------
 
-2d test
-=======
+Each example has 3 actions:
 
-Runs a 2d toy problem for a given configuration.  Can be sampled to show how a given configuration learns.
+* train
+  
+  trains a new example
+
+* sample
+
+  samples from a trained example
+
+* search
+  
+  randomly searches for a configuration and outputs JSON / metrics
+
+
+2d distribution
+===================
+
+Trains a generator to output 2d points (pixels) matching a known distribution.
 
 ![](https://j.gifs.com/NxRKnD.gif)
 
-2d measure accuracy
-===================
-
-Applies a batch accuracy (nearest neighbor) measurement to the 2d toy problem.
+Search:  2d-distance measure from generator batch to known distribution
 
 Colorizer 
 =========
 
 Colorizer feeds a black and white version of the input into the generator.
 
-Inpainting
+State: working
+
+Search:  Distance from black and white image to black and white version of generated output
+
+Alignment
+=========
+
+Align images and black and white versions of those images.
+
+State: working
+
+Search:  Distance from Gab(Xa),black_and_white(Xa)
+
+Autoencode
+==========
+
+Reconstruct input images using AutoencoderGAN
+
+State: working
+
+Search: Reconstruction cost
+
+CharGAN and Sequence (experimental)
+===================================
+
+Character based GANs
+Pass --one_hot for better results
+
+State: working
+
+Search: Not working
+
+Classification
+==============
+
+Classify MNIST by generating label distributions.  G(x) = label
+
+State: working
+
+Search:  The percentage of argmax(G(x)) that match the input labels.
+
+Static
+======
+
+Memorize X and Z values then test against them.
+
+State: working
+
+Search: Reconstruction
+
+Inpainting (pending)
 ==========
 
 Hides a random part of the image from the discriminator and the generator.
 
-Super Resolution
+Not present
+
+Super Resolution (pending)
 ================
 
 Provides a low resolution image to the generator.
 
-Constant inpainting
-===================
-
-Applies a constant mask over part of the image.  An easier problem than general inpainting.
+Not present

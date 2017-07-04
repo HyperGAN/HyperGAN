@@ -1,149 +1,120 @@
 import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
-from hypergan.util.hc_tf import *
+from hypergan.generators.common import *
 
-def standard_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
+from .base_generator import BaseGenerator
 
-def inception_block(net, config, activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    if output_channels == 3:
-        return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
-    size = int(net.get_shape()[-1])
-    if(batch_norm is not None):
-        net = batch_norm(batch_size, name=name+'bn')(net)
+class ResizeConvGenerator(BaseGenerator):
 
-    net = activation(net)
-    s = net.get_shape()
-    if(sigmoid_gate is not None):
-        mask = linear(sigmoid_gate, s[1]*s[2]*s[3], scope=name+"lin_proj_mask")
-        mask = tf.reshape(mask, net.get_shape())
-        net *= tf.nn.sigmoid(mask)
+    def required(self):
+        return "final_depth activation depth_increase".split()
 
-    if output_channels == 3:
-        return conv2d(net, output_channels, name=name, k_w=filter, k_h=filter, d_h=1, d_w=1)
+    def depths(self, initial_width=4):
+        gan = self.gan
+        ops = self.ops
+        config = self.config
+        final_depth = config.final_depth-config.depth_increase
+        depths = []
 
-    net1 = conv2d(net, output_channels//3, name=name+'1', k_w=1, k_h=1, d_h=1, d_w=1)
-    net2 = conv2d(net1, output_channels//3, name=name+'2', k_w=filter, k_h=filter, d_h=1, d_w=1)
-    net3 = conv2d(net2, output_channels//3, name=name+'3', k_w=filter, k_h=filter, d_h=1, d_w=1)
-    net = tf.concat(axis=3, values=[net1, net2, net3])
-    return net
+        target_w = gan.width()
 
-def dense_block(net,config,  activation, batch_size,id,name, resize=None, output_channels=None, stride=2, noise_shape=None, dtype=tf.float32,filter=3, batch_norm=None, sigmoid_gate=None, reshaped_z_proj=None):
-    if output_channels == 3:
-        return block_conv(net, activation, batch_size, 'identity', name, output_channels=output_channels, filter=filter, batch_norm=config.layer_regularizer)
+        w = initial_width
+        #ontehuas
+        i = 0
 
-    net1 = block_conv(net, activation, batch_size, 'identity', name, output_channels=max(output_channels-16, 16), filter=filter, batch_norm=config.layer_regularizer)
-    net2 = block_conv(net, activation, batch_size, 'identity', name+'2', output_channels=16, filter=filter, batch_norm=config.layer_regularizer)
-    net = tf.concat(axis=3, values=[net1, net2])
-    return net
+        depths.append(final_depth)
+        while w < target_w:
+            w*=2
+            i+=1
+            depths.append(final_depth + i*config.depth_increase)
+        depths = depths[1:]
+        depths.reverse()
+        return depths
 
-generator_prelus=0
-def generator_prelu(net):
-    global generator_prelus # hack
-    generator_prelus+=1
-    return prelu('g_', generator_prelus, net) # Only ever 1 generator
+    def build(self, net):
+        gan = self.gan
+        ops = self.ops
+        config = self.config
 
-def config(
-        z_projection_depth=512,
-        activation=generator_prelu,
-        final_activation=tf.nn.tanh,
-        depth_reduction=2,
-        layer_filter=None,
-        layer_regularizer=batch_norm_1,
-        block=[standard_block],
-        resize_image_type=1,
-        sigmoid_gate=False,
-        create_method=None
-        ):
-    selector = hc.Selector()
-    
-    if create_method is None:
-       selector.set('create', create)
-    else:
-        selector.set('create', create_method)
+        nets = []
 
-    selector.set("z_projection_depth", z_projection_depth) # Used in the first layer - the linear projection of z
-    selector.set("activation", activation); # activation function used inside the generator
-    selector.set("final_activation", final_activation); # Last layer of G.  Should match the range of your input - typically -1 to 1
-    selector.set("depth_reduction", depth_reduction) # Divides our depth by this amount every time we go up in size
-    selector.set('layer_filter', layer_filter) #Add information to g
-    selector.set('layer_regularizer', batch_norm_1)
-    selector.set('block', block)
-    selector.set('resize_image_type', resize_image_type)
-    selector.set('sigmoid_gate', sigmoid_gate)
+        activation = ops.lookup(config.activation)
+        final_activation = ops.lookup(config.final_activation)
+        block = config.block or standard_block
 
-    return selector.random_config()
-
-def create(config, gan, net):
-    z = net
-    x_dims = gan.config.x_dims
-    z_proj_dims = config.z_projection_depth
-    primes = find_smallest_prime(x_dims[0], x_dims[1])
-    # project z
-    net = linear(net, z_proj_dims*primes[0]*primes[1], scope="g_lin_proj")
-    new_shape = [gan.config.batch_size, primes[0],primes[1],z_proj_dims]
-    net = tf.reshape(net, new_shape)
-
-    depth=0
-    w=int(net.get_shape()[1])
-    target_w=int(gan.config.x_dims[0])
-    while(w<target_w):
-        w*=2
-        depth += 1
-
-    nets=[]
-    activation = config.activation
-    batch_size = gan.config.batch_size
-    depth_reduction = np.float32(config.depth_reduction)
-
-    s = [int(x) for x in net.get_shape()]
-
-    net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_init', output_channels=int(net.get_shape()[3]), filter=3)
-    if(config.layer_filter):
-        fltr = config.layer_filter(gan, net)
-        if(fltr is not None):
-            net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
-
-    for i in range(depth):
-        s = [int(x) for x in net.get_shape()]
-        layers = int(net.get_shape()[3])//depth_reduction
-        if(i == depth-1):
-            layers=gan.config.channels
-        resized_wh=[s[1]*2, s[2]*2]
-        net = tf.image.resize_images(net, [resized_wh[0], resized_wh[1]], config.resize_image_type)
-        if(config.layer_filter):
-            fltr = config.layer_filter(gan, net)
-            if(fltr is not None):
-                net = tf.concat(axis=3, values=[net, fltr]) # TODO: pass through gan object
-        fltr = 3
-        if fltr > net.get_shape()[1]:
-            fltr=int(net.get_shape()[1])
-        if fltr > net.get_shape()[2]:
-            fltr=int(net.get_shape()[2])
-
-        if config.sigmoid_gate:
-            sigmoid_gate = z
+        if config.skip_linear:
+            net = self.layer_filter(net)
+            if config.concat_linear:
+                size = ops.shape(net)[1]*ops.shape(net)[2]*config.concat_linear_filters
+                net2 = tf.reshape(net, [ops.shape(net)[0], -1])
+                net2 = tf.slice(net2, [0,0], [ops.shape(net)[0], config.concat_linear])
+                net2 = ops.linear(net2, size)
+                net2 = tf.reshape(net2, [ops.shape(net)[0], ops.shape(net)[1], ops.shape(net)[2], config.concat_linear_filters])
+                net2 = self.layer_regularizer(net2)
+                net2 = config.activation(net2)
+                net = tf.concat([net, net2], axis=3)
+            net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
+            for i in range(config.extra_layers or 0):
+                net = self.layer_regularizer(net)
+                net = activation(net)
+                net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
         else:
-            sigmoid_gate = None
+            net = ops.reshape(net, [ops.shape(net)[0], -1])
+            primes = config.initial_dimensions or [4, 4]
+            depths = self.depths(primes[0])
+            initial_depth = depths[0]
+            new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
+            net = ops.linear(net, initial_depth*primes[0]*primes[1])
+            net = ops.reshape(net, new_shape)
 
-        net = config.block(net, config, activation, batch_size, 'identity', 'g_layers_'+str(i), output_channels=layers, filter=3, sigmoid_gate=sigmoid_gate)
-        if(i == depth-1):
-            first3 = net
+        shape = ops.shape(net)
+
+        depths = self.depths(initial_width = shape[1])
+        print("[generator] Initial depth", shape)
+
+        if config.relation_layer:
+            net = self.layer_regularizer(net)
+            net = activation(net)
+            net = self.relation_layer(net)
+            print("[generator] relational layer", net)
         else:
-            first3 = tf.slice(net, [0,0,0,0], [-1,-1,-1, gan.config.channels])
-        if config.final_activation:
-            if config.layer_regularizer:
-                first3 = config.layer_regularizer(gan.config.batch_size, name='g_bn_first3_'+str(i))(first3)
-            first3 = config.final_activation(first3)
-        nets.append(first3)
-        size = int(net.get_shape()[1])*int(net.get_shape()[2])*int(net.get_shape()[3])
-        print("[generator] layer", net, size)
+            pass
 
-    return nets
+        depth_reduction = np.float32(config.depth_reduction)
+        shape = ops.shape(net)
 
-    
-def minmax(net):
-    net = tf.minimum(net, 1)
-    net = tf.maximum(net, -1)
-    return net
+        net = self.layer_filter(net)
+        for i, depth in enumerate(depths[1:]):
+            s = ops.shape(net)
+            resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
+            net = self.layer_regularizer(net)
+            net = activation(net)
+            if block != 'deconv':
+                net = ops.resize_images(net, resize, config.resize_image_type or 1)
+                net = block(self, net, depth, filter=3)
+            else:
+                net = ops.deconv2d(net, 5, 5, 2, 2, depth)
+
+
+            size = resize[0]*resize[1]*depth
+            print("[generator] layer", net, size)
+
+        net = self.layer_regularizer(net)
+        net = activation(net)
+        resize = [gan.height(), gan.width()]
+
+        if block != 'deconv':
+            net = ops.resize_images(net, resize, config.resize_image_type or 1)
+            net = self.layer_filter(net)
+            net = block(self, net, gan.channels(), filter=config.final_filter or 3)
+        else:
+            net = ops.deconv2d(net, 5, 5, 2, 2, gan.channels())
+
+
+        if final_activation:
+            net = self.layer_regularizer(net)
+            net = final_activation(net)
+
+        self.sample = net
+        return self.sample

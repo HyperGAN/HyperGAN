@@ -1,0 +1,51 @@
+{
+  "description": "Boundary Equilibrium GAN.  Uses an internal autoencoder",
+  "publication": "https://arxiv.org/abs/1703.10717",
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.autoencoder_discriminator.AutoencoderDiscriminator",
+    "encoder": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
+    "decoder": "class:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "distance": "l1_distance",
+    "final_features": 300,
+    "improved": true,
+    "activation": "selu"
+  },
+  "encoder":
+  {
+    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "projections": [
+      "function:hypergan.encoders.uniform_encoder.identity"
+    ],
+    "min": -1,
+    "max": 1,
+    "z": 100
+  },
+  "generator": {
+    "class": "class:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "activation": "selu"
+  },
+  "loss":
+  {
+    "class": "class:hypergan.losses.boundary_equilibrium_loss.BoundaryEquilibriumLoss",
+    "reduce": "reduce_mean",
+    "use_k": true,
+    "gamma": 0.5,
+    "initial_k": 0.001,
+    "type": "wgan",
+    "k_lambda": 0.01
+  },
+  "trainer": {
+    "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "d_beta1": 0.5,
+    "d_beta2": 0.99,
+    "d_learn_rate": 8e-5,
+    "d_trainer": "class:tensorflow.python.training.adam.AdamOptimizer",
+    "g_beta1": 0.5,
+    "g_beta2": 0.99,
+    "anneal_learning_rate": true,
+    "anneal_lower_bound": 2e-6,
+    "g_learn_rate": 8e-5,
+    "g_trainer": "class:tensorflow.python.training.adam.AdamOptimizer"
+  }
+}

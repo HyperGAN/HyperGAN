@@ -1,0 +1,19 @@
+dependencies:
+  pre:
+    - pyenv global 3.5.3
+  override:
+    - pip3 install tensorflow hyperchamber Pillow pdoc
+    - python3 setup.py develop
+test:
+  override:
+    - sh tests/run.sh
+deployment:
+  docs:
+    branch: master
+    commands:
+    - pdoc --html --overwrite hypergan
+    - mkdir -p $CIRCLE_ARTIFACTS/apidocs
+    - cp -R hypergan/* $CIRCLE_ARTIFACTS/apidocs
+    - aws s3 sync hypergan s3://hypergan-apidocs/0.9.0/ --delete --acl "public-read"
+
+    

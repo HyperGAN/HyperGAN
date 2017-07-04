@@ -1,145 +1,171 @@
-import argparse
 import os
+import uuid
+import random
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
-from hypergan.loaders import *
-from hypergan.samplers.common import *
+import numpy as np
+from hypergan.viewer import GlobalViewer
+from hypergan.samplers.base_sampler import BaseSampler
+from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.search.alphagan_random_search import AlphaGANRandomSearch
+from common import *
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Train a colorizer!', add_help=True)
-    parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-    parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
-    parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
-    parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
-    parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
-    parser.add_argument('--sample_every', type=int, default=50, help='Samples the model every n epochs.')
-    parser.add_argument('--save_every', type=int, default=30000, help='Saves the model every n epochs.')
-    parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
-    parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
-    parser.add_argument('--use_hc_io', '-9', dest='use_hc_io', action='store_true', help='experimental')
-    parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
-    return parser.parse_args()
+from hypergan.gans.alpha_gan import AlphaGAN
 
 x_v = None
 z_v = None
-def sampler(gan, name):
-    generator = gan.graph.g[0]
-    y_t = gan.graph.y
-    z_t = gan.graph.z[0]
-    x_t = gan.graph.x
-    sess = gan.sess
-    config = gan.config
-    global x_v
-    global z_v
-    x_v = None
-    if(x_v == None):
-        x_v, z_v = sess.run([x_t, z_t])
-        x_v = np.tile(x_v[0], [config['batch_size'],1,1,1])
-    #z_v = np.mgrid[-0.999:0.999:0.5, -0.999:0.999:0.25].reshape(2,-1).T
 
-    sample, = sess.run([generator], {x_t: x_v, z_t: z_v})
-    stacks = []
-    stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4], sample[5], sample[6], sample[7]])
-    for i in range(3):
-        stacks.append([sample[i*8+8+j] for j in range(8)])
-    
-    images = np.vstack([np.hstack(s) for s in stacks])
-    plot(config, images, name)
+class Sampler(BaseSampler):
+    def sample(self, path, save_samples):
+        gan = self.gan
+        generator = gan.uniform_sample
+        z_t = gan.uniform_encoder.sample
+        x_t = gan.inputs.x
+        
+        sess = gan.session
+        config = gan.config
+        global x_v
+        global z_v
+        x_v = sess.run(x_t)
+        x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
+        
+        sample = sess.run(generator, {x_t: x_v})
+        stacks = []
+        bs = gan.batch_size()
+        width = 5
+        print(np.shape(x_v), np.shape(sample))
+        stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4]])
+        for i in range(bs//width-1):
+            stacks.append([sample[i*width+width+j] for j in range(width)])
+        images = np.vstack([np.hstack(s) for s in stacks])
 
-def add_bw(gan, net):
-    x = gan.graph.x
+        self.plot(images, path, save_samples)
+        return [{'images': images, 'label': 'tiled x sample'}]
+
+def add_bw(gan, config, net):
+    x = gan.inputs.x
     s = [int(x) for x in net.get_shape()]
+    print("S IS ", s)
     shape = [s[1], s[2]]
     x = tf.image.resize_images(x, shape, 1)
+    bwnet = tf.slice(net, [0, 0, 0, 0], [s[0],s[1],s[2], 3])
     
     if not gan.config.add_full_image:
         print( "[colorizer] Adding black and white image", x)
         x = tf.image.rgb_to_grayscale(x)
+        if config.colorizer_noise is not None:
+            x += tf.random_normal(x.get_shape(), mean=0, stddev=config.colorizer_noise, dtype=tf.float32)
+        #bwnet = tf.image.rgb_to_grayscale(bwnet)
+        #x = tf.concat(axis=3, values=[x, bwnet])
     else:
         print( "[colorizer] Adding full image", x)
         
     return x
 
-def add_original_x(gan, net):
-    x = gan.graph.x
-    s = [int(x) for x in net.get_shape()]
-    shape = [s[1], s[2]]
-    x = tf.image.resize_images(x, shape, 1)
-    print("Created bw ", x)
+arg_parser = ArgumentParser("Colorize an image")
+arg_parser.add_image_arguments()
+arg_parser.parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
+args = arg_parser.parse_args()
 
-    x = tf.image.rgb_to_grayscale(x)
-    #x = tf.nn.dropout(x, 0.005)
-    #x += tf.random_normal(x.get_shape(), mean=0, stddev=1e-1, dtype=config['dtype'])
+width, height, channels = parse_size(args.size)
 
-    return x
+config = lookup_config(args)
+if args.action == 'search':
+    config = AlphaGANRandomSearch({}).random_config()
+    config["d_layer_filter"] = random.choice([True, False])
+    config["g_layer_filter"] = random.choice([True, False])
+    config["encode_layer_filter"] = random.choice([True, False])
+    config["cycloss_lambda"]= 0
 
-args = parse_args()
+if config.g_layer_filter:
+    config.generator['layer_filter'] = add_bw
+if config.d_layer_filter:
+    config.discriminator['layer_filter'] = add_bw
+if config.encode_layer_filter:
+    config.g_encoder['layer_filter'] = add_bw
 
-width = int(args.size.split("x")[0])
-height = int(args.size.split("x")[1])
-channels = int(args.size.split("x")[2])
+inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+inputs.create(args.directory,
+              channels=channels, 
+              format=args.format,
+              crop=args.crop,
+              width=width,
+              height=height,
+              resize=True)
 
-selector = hg.config.selector(args)
+save_file = "save/model.ckpt"
 
-config = selector.random_config()
-config_filename = os.path.expanduser('~/.hypergan/configs/'+args.config+'.json')
-config = selector.load_or_create_config(config_filename, config)
+def setup_gan(config, inputs, args):
+    gan = hg.GAN(config, inputs=inputs)
 
-#TODO add this option to D
-#TODO add this option to G
-config['generator']['layer_filter'] = add_bw
-config['discriminators'][0]['layer_filter'] = None#add_original_x
+    gan.create()
 
-# TODO refactor, shared in CLI
-config['dtype']=tf.float32
-config['batch_size'] = args.batch_size
+    if(args.action != 'search' and os.path.isfile(save_file+".meta")):
+        gan.load(save_file)
 
-if args.add_full_image:
-    config['add_full_image']=args.add_full_image
-    
-x,y,f,num_labels,examples_per_epoch = image_loader.labelled_image_tensors_from_directory(
-                        args.directory,
-                        config['batch_size'], 
-                        channels=channels, 
-                        format=args.format,
-                        crop=args.crop,
-                        width=width,
-                        height=height)
+    tf.train.start_queue_runners(sess=gan.session)
 
-config['y_dims']=num_labels
-config['x_dims']=[height,width]
-config['channels']=channels
-config['model']=args.config
-config = hg.config.lookup_functions(config)
+    GlobalViewer.enable()
+    config_name = args.config
+    title = "[hypergan] colorizer " + config_name
+    GlobalViewer.window.set_title(title)
 
-initial_graph = {
-    'x':x,
-    'y':y,
-    'f':f,
-    'num_labels':num_labels,
-    'examples_per_epoch':examples_per_epoch
-}
+    return gan
 
-gan = hg.GAN(config, initial_graph)
+def train(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    sampler = lookup_sampler(args.sampler or Sampler)(gan)
+    samples = 0
 
-save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
-gan.load_or_initialize_graph(save_file)
+    metrics = [accuracy(gan.inputs.x, gan.uniform_sample), batch_diversity(gan.uniform_sample)]
+    sum_metrics = [0 for metric in metrics]
+    for i in range(args.steps):
+        gan.step()
 
-tf.train.start_queue_runners(sess=gan.sess)
-for i in range(10000000):
-    d_loss, g_loss = gan.train()
+        if args.action == 'train' and i % args.save_every == 0 and i > 0:
+            print("saving " + save_file)
+            gan.save(save_file)
 
-    if i % args.save_every == 0 and i > 0:
-        print("Saving " + save_file)
-        gan.save(save_file)
+        if i % args.sample_every == 0:
+            sample_file="samples/%06d.png" % (samples)
+            samples += 1
+            sampler.sample(sample_file, args.save_samples)
 
-    if i % args.sample_every == 0 and i > 0:
-        print("Sampling "+str(i))
-        sample_file = "samples/"+str(i)+".png"
-        gan.sample_to_file(sample_file, sampler=sampler)
-        if args.use_hc_io:
-            hc.io.sample(config, [{"image":sample_file, "label": 'sample'}]) 
+        if i > args.steps * 9.0/10:
+            for k, metric in enumerate(gan.session.run(metrics)):
+                print("Metric "+str(k)+" "+str(metric))
+                sum_metrics[k] += metric 
 
-tf.reset_default_graph()
-sess.close()
+    tf.reset_default_graph()
+    return sum_metrics
+
+def sample(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+    sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
+    samples = 0
+    for i in range(args.steps):
+        sample_file="samples/%06d.png" % (samples)
+        samples += 1
+        sampler.sample(sample_file, args.save_samples)
+
+def search(config, inputs, args):
+    metrics = train(config, inputs, args)
+
+    config_filename = "colorizer-"+str(uuid.uuid4())+'.json'
+    hc.Selector().save(config_filename, config)
+    with open(args.search_output, "a") as myfile:
+        myfile.write(config_filename+","+",".join([str(x) for x in metrics])+"\n")
+
+if args.action == 'train':
+    metrics = train(config, inputs, args)
+    print("Resulting metrics:", metrics)
+elif args.action == 'sample':
+    sample(config, inputs, args)
+elif args.action == 'search':
+    search(config, inputs, args)
+else:
+    print("Unknown action: "+args.action)
+
+if(args.viewer):
+    GlobalViewer.window.destroy()

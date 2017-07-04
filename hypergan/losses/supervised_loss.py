@@ -1,29 +1,26 @@
 import tensorflow as tf
-from hypergan.util.ops import *
-from hypergan.util.hc_tf import *
 import hyperchamber as hc
 
-def config():
-    selector = hc.Selector()
-    selector.set("reduce", [tf.reduce_mean])#reduce_sum, reduce_logexp work
+from hypergan.losses.base_loss import BaseLoss
 
-    selector.set('create', create)
-    selector.set('batch_norm', layer_norm_1)
+class SupervisedLoss(BaseLoss):
 
-    return selector.random_config()
+    def _create(self, d_real, d_fake):
+        gan = self.gan
+        config = self.config
 
-def create(config, gan):
-    batch_norm = config.batch_norm
-    batch_size = gan.config.batch_size
+        batch_size = gan.batch_size()
+        net = d_real
 
-    num_classes = gan.config.y_dims
-    net = gan.graph.d_real
-    net = linear(net, num_classes, scope="d_fc_end", stddev=0.003)
-    net = batch_norm(batch_size, name='d_bn_end')(net)
+        num_classes = gan.ops.shape(gan.inputs.y)[1]
+        net = gan.discriminator.ops.linear(net, num_classes)
+        net = self.layer_regularizer(net)
 
-    d_class_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net,labels=gan.graph.y)
+        d_class_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net,labels=gan.inputs.y)
+        d_class_loss = gan.ops.squash(d_class_loss)
 
-    gan.graph.d_class_loss=tf.reduce_mean(d_class_loss)
+        self.metrics = {
+            'd_class_loss': d_class_loss
+        }
 
-    return [d_class_loss, None]
-
+        return [d_class_loss, None]

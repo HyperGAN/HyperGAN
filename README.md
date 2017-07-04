@@ -2,7 +2,7 @@
 
 [![CircleCI](https://circleci.com/gh/255BITS/HyperGAN/tree/master.svg?style=svg)](https://circleci.com/gh/255BITS/HyperGAN/tree/master)
 
-A composable GAN API and CLI.  Built for developers, scientists, and artists.
+A composable GAN API and CLI.  Built for developers, researchers, and artists.
 
 ![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-1.gif)
 ![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-3.gif)

@@ -143,14 +143,22 @@ Install dependencies:
   hypergan new mymodel
 ```
 
-This will create a mymodel.json based off the default configuration.  You can change configuration templates with the `-c` flag.  See all configuration templates with `--list-templates` or `-l`.
+This will create a mymodel.json based off the default configuration.  You can change configuration templates with the `-c` flag.  
+
+## List configuration templates
+
+```bash
+  hypergan new mymodel -l
+```
+
+See all configuration templates with `--list-templates` or `-l`.
 
 ## Train
 
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of folders of pngs
   cp *.png folder/
-  hypergan train folder/ -s 32x32x3 -f png -b 32
+  hypergan train folder/ -s 32x32x3 -f png -b 32 -c mymodel
 ```
 
 ### Increasing performance

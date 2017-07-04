@@ -617,6 +617,13 @@ HyperGAN is currently in open beta.
 * Least Squares GAN - https://arxiv.org/pdf/1611.04076v2.pdf
 * Boundary Equilibrium GAN - https://arxiv.org/abs/1703.10717
 * Self-Normalizing Neural Networks - https://arxiv.org/abs/1706.02515
+* Variational Approaches for Auto-Encoding
+Generative Adversarial Networks - https://arxiv.org/pdf/1706.04987.pdf
+* CycleGAN - https://junyanz.github.io/CycleGAN/
+* DiscoGAN - https://arxiv.org/pdf/1703.05192.pdf
+* Softmax GAN - https://arxiv.org/abs/1704.06191
+* The Cramer Distance as a Solution to Biased Wasserstein Gradients - https://arxiv.org/abs/1705.10743
+* Improved Training of Wasserstein GANs - https://arxiv.org/abs/1704.00028
 
 ## Sources
 

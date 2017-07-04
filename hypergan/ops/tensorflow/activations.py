@@ -35,7 +35,6 @@ def maxout(x, k = 2):
     shape = [int(e) for e in x.get_shape()]
     ax = len(shape)
     ch = shape[-1]
-    print('x',x,ch,k)
     assert ch % k == 0
     shape[-1] = ch // k
     shape.append(k)
@@ -47,7 +46,6 @@ def offset_maxout(x, k = 2):
     shape = [int(e) for e in x.get_shape()]
     ax = len(shape)
     ch = shape[-1]
-    print("--",ch,k)
     assert ch % k == 0
     shape[-1] = ch // k
     shape.append(k)
@@ -90,7 +88,6 @@ def masked_relu(x, name="ignored"):
 def _phase_shift(I, r):
     # Helper function with main phase shift operation
     bsize, a, b, c = I.get_shape().as_list()
-    print("RESHAPE", a, b,c,'--',a,b,r,r)
     X = tf.reshape(I, (bsize, a, b, r, r))
     X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
     X = tf.split(axis=1, num_or_size_splits=a, value=X)  # a, [bsize, b, r, r]

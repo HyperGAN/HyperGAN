@@ -58,7 +58,7 @@ class CliTest(tf.test.TestCase):
     def test_adds_supervised_loss(self):
         with self.test_session():
             gan = mock_gan(y=2)
-            args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1})
+            args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1, "classloss": True})
             cli = hg.CLI(gan, args)
             gan.create()
             cli.add_supervised_loss()
@@ -68,27 +68,27 @@ class CliTest(tf.test.TestCase):
     def test_new(self):
         with self.test_session():
             try: 
-                shutil.rmtree('/tmp/hg_new')
+                os.remove('test.json')
             except Exception:
                 pass
             gan = mock_gan()
-            args = hc.Config({"size": "1", "steps": 1, "method": "train"})
+            args = hc.Config({"size": "1", "steps": 1, "method": "train", "directory": "test"})
             cli = hg.CLI(gan, args)
-            cli.new("/tmp/hg_new")
-            self.assertTrue(os.path.isfile('/tmp/hg_new/default.json'))
+            cli.new()
+            self.assertTrue(os.path.isfile('test.json'))
 
     def test_safe_new(self):
         with self.test_session():
             try: 
-                shutil.rmtree('/tmp/hg_new2')
+                os.remove('test.json')
             except Exception:
                 pass
             gan = mock_gan()
-            args = hc.Config({"size": "1", "steps": 1, "method": "train"})
+            args = hc.Config({"size": "1", "steps": 1, "method": "train", "directory": "test"})
             cli = hg.CLI(gan, args)
-            cli.new("/tmp/hg_new2")
+            cli.new()
             with self.assertRaises(ValidationException):
-                cli.new("/tmp/hg_new2")
+                cli.new()
 
 
 if __name__ == "__main__":

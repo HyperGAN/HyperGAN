@@ -14,7 +14,6 @@ class StaticBatchSampler(BaseSampler):
         inputs_t = gan.inputs.x
 
         if self.z is None:
-            print("GAN IS", gan, gan.encoder)
             self.z = gan.encoder.z.eval()
             self.input = gan.session.run(gan.inputs.x)
 

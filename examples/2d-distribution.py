@@ -9,7 +9,7 @@ from hypergan.search.random_search import RandomSearch
 from hypergan.viewer import GlobalViewer
 from common import *
 
-arg_parser = ArgumentParser("Test your gan vs a known distribution")
+arg_parser = ArgumentParser("Test your gan vs a known distribution", require_directory=False)
 arg_parser.parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
 args = arg_parser.parse_args()
 

@@ -36,7 +36,6 @@ class CramerDiscriminator(BaseDiscriminator):
 
         #dg  is a sampling of g twice
 
-        print("DG", d1, original, net)
         # net is [x,g] (stacked)
         error = self.f(xinput, dx, dg)
         return error

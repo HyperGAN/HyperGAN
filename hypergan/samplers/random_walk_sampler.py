@@ -18,7 +18,6 @@ class RandomWalkSampler(BaseSampler):
         inputs_t = gan.inputs.x
 
         if self.z is None:
-            print("GAN IS", gan, gan.encoder)
             self.z = gan.encoder.sample.eval()
             self.target = gan.encoder.sample.eval()
             self.input = gan.session.run(gan.inputs.x)
@@ -31,7 +30,6 @@ class RandomWalkSampler(BaseSampler):
         percent = float(self.step)/self.steps
         z_interp = self.z*(1.0-percent) + self.target*percent
         self.step+=1
-        print(self.step)
 
         g=tf.get_default_graph()
         with g.as_default():

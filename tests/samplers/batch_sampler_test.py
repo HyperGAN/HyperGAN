@@ -15,7 +15,7 @@ class BatchSamplerTest(tf.test.TestCase):
             gan.create()
 
             sampler = BatchSampler(gan)
-            self.assertEqual(sampler._sample()['generator'].shape[-1], 100)
+            self.assertEqual(sampler._sample()['generator'].shape[-1], 1)
 
 if __name__ == "__main__":
     tf.test.main()

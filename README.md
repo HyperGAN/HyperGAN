@@ -1,5 +1,6 @@
-# HyperGAN
-A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
+# HyperGAN 0.9
+
+A composable GAN API and CLI.  Built for developers, scientists, and artists.
 
 ![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-1.gif)
 ![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-3.gif)
@@ -33,20 +34,19 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 * [The pip package hypergan](#the-pip-package-hypergan)
  * [Training](#training)
  * [Sampling](#sampling)
- * [Web Server](#web-server)
 * [API](API)
   * [Examples](#examples)
+  * [Search](#search)
   * [GAN object](#gan-object)
 * [Datasets](#datasets)
- * [Supervised learning](#supervised-learning)
  * [Unsupervised learning](#unsupervised-learning)
+ * [Supervised learning](#supervised-learning)
  * [Creating a Dataset](#creating-a-dataset)
  * [Downloadable Datasets](#downloadable-datasets)
 * [Contributing](#contributing)
   * [Our process](#our-process)
   * [Branches](#branches)
   * [Showcase](#showcase)
-  * [Notable Configurations](#notable-configurations)
 * [About](#about)
 * [Sources](#sources)
 * [Papers](#papers)
@@ -59,7 +59,7 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 
 * API Documentation - https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
 * Prepackaged configurations
-* Lots of losses and configurations to choose from
+* New viewer front-end!
 * Examples, including the ability to randomly search for good configurations
 
 See more here https://github.com/255BITS/HyperGAN/pull/66
@@ -504,7 +504,7 @@ To see a detailed list, run
 
 # API
 
-See generated API documentation at https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
+See the API documentation at https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
 
 ```python3
   import hypergan as hg
@@ -517,6 +517,12 @@ Examples
 --------
 
 See the example documentation https://github.com/255BITS/HyperGAN/tree/master/examples
+
+## Search
+
+Each example is capable of random search.  You can search along any set of parameters, including loss functions, trainers, generators, etc.
+
+See the examples for more information.
 
 # Datasets
 

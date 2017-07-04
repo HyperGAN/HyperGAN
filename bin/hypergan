@@ -65,18 +65,21 @@ config = args.config or 'default'
 config_filename = hg.Configuration.find(config+'.json')
 config = hc.Selector().load(config_filename)
 
-
 if not args.align:
-    inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-    inputs.create(args.directory,
-          channels=channels, 
-          format=args.format,
-          crop=args.crop,
-          width=width,
-          height=height,
-          resize=args.resize)
+    if args.method == 'new':
+        gan = hg.GAN(config=config, inputs=None)
 
-    gan = hg.GAN(config=config, inputs=inputs)
+    else:
+        inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+        inputs.create(args.directory,
+              channels=channels, 
+              format=args.format,
+              crop=args.crop,
+              width=width,
+              height=height,
+              resize=args.resize)
+
+        gan = hg.GAN(config=config, inputs=inputs)
 else:
     inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
     inputs.create(args.directory,

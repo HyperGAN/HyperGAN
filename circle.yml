@@ -7,6 +7,13 @@ dependencies:
 test:
   override:
     - sh tests/run.sh
+deployment:
+  docs:
+    commands:
     - pdoc --html --overwrite hypergan
     - mkdir -p $CIRCLE_ARTIFACTS/apidocs
     - cp -R hypergan/* $CIRCLE_ARTIFACTS/apidocs
+    - aws s3 sync hypergan s3://hypergan-apidocs/0.9/ --delete
+    
+
+    

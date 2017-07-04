@@ -34,6 +34,7 @@ class CommandParser:
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
         parser.add_argument('--autoencode', dest='autoencode', action='store', help='Disables the display of samples in a window.')
         parser.add_argument('--classloss', dest='classloss', action='store_true', help='Enable class loss.  You must have multiple subfolders, one for each class')
+        parser.add_argument('--list-templates', '-l', dest='list_templates', action='store_true', help='List available templates.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -66,17 +67,27 @@ config_filename = hg.Configuration.find(config+'.json')
 config = hc.Selector().load(config_filename)
 
 
+if args.list_templates:
+    configs = hg.Configuration.list()
+    for config in configs:
+        template = hg.Configuration.load(config+'.json', verbose=False)
+        print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
+    exit(0)
 if not args.align:
-    inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-    inputs.create(args.directory,
-          channels=channels, 
-          format=args.format,
-          crop=args.crop,
-          width=width,
-          height=height,
-          resize=args.resize)
+    if args.method == 'new':
+        gan = hg.GAN(config=config, inputs=None)
 
-    gan = hg.GAN(config=config, inputs=inputs)
+    else:
+        inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+        inputs.create(args.directory,
+              channels=channels, 
+              format=args.format,
+              crop=args.crop,
+              width=width,
+              height=height,
+              resize=args.resize)
+
+        gan = hg.GAN(config=config, inputs=inputs)
 else:
     inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
     inputs.create(args.directory,

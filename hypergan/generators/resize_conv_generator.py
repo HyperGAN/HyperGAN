@@ -20,7 +20,6 @@ class ResizeConvGenerator(BaseGenerator):
         target_w = gan.width()
 
         w = initial_width
-        print("DEPTHS", gan.inputs.x)
         #ontehuas
         i = 0
 
@@ -54,7 +53,6 @@ class ResizeConvGenerator(BaseGenerator):
                 net2 = tf.reshape(net2, [ops.shape(net)[0], ops.shape(net)[1], ops.shape(net)[2], config.concat_linear_filters])
                 net2 = self.layer_regularizer(net2)
                 net2 = config.activation(net2)
-                print("|||||||", net2)
                 net = tf.concat([net, net2], axis=3)
             net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
             for i in range(config.extra_layers or 0):
@@ -75,14 +73,13 @@ class ResizeConvGenerator(BaseGenerator):
         depths = self.depths(initial_width = shape[1])
         print("[generator] Initial depth", shape)
 
-        print("+++")
         if config.relation_layer:
-            print("----", "RELATIONAL LAYER")
             net = self.layer_regularizer(net)
             net = activation(net)
             net = self.relation_layer(net)
+            print("[generator] relational layer", net)
         else:
-            print("!!")
+            pass
 
         depth_reduction = np.float32(config.depth_reduction)
         shape = ops.shape(net)

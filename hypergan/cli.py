@@ -175,7 +175,6 @@ class CLI:
             input = sys.stdin.read()
             if input[0]=="y":
                 return
-            print("INPUT", input)
             from IPython import embed
             # Misc code
             embed()
@@ -183,17 +182,13 @@ class CLI:
         except:
             return
 
-    def new(self, path):
-        if(os.path.exists(path)):
-            raise ValidationException('Path does not exist "'+path+'"')
-
-        print("[hypergan] Creating new project '"+path+"'")
-        os.mkdir(path)
-        os.mkdir(path+'/samples')
-        template = 'default.json' #TODO
-        source_configuration = Configuration.find(template)
-        json_path = path + '/' + template
-        shutil.copyfile(source_configuration, json_path)
+    def new(self):
+        template = self.args.directory + '.json'
+        print("[hypergan] Creating new configuration file '"+template+"' based off of '"+self.config_name+".json'")
+        if os.path.isfile(template):
+            raise ValidationException("File exists: " + template)
+        source_configuration = Configuration.find(self.config_name+".json")
+        shutil.copyfile(source_configuration, template)
 
         return
 

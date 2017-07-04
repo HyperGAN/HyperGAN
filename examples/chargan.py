@@ -50,23 +50,12 @@ def train(config, args):
         x_0 = gan.session.run(gan.inputs.x)
         z_0 = gan.session.run(gan.encoder.z)
 
-        if args.config is not None:
-            pass
-            #save_file = os.path.expanduser("~/.hypergan/saves/"+args.config+".ckpt")
-            #with tf.device('/cpu:0'):
-            #    gan.load_or_initialize_graph(save_file)
-        else:
-            save_file = None
-            #gan.initialize_graph()
-
         ax_sum = 0
         ag_sum = 0
         diversity = 0.00001
         dlog = 0
         last_i = 0
         samples = 0
-
-        tf.train.start_queue_runners(sess=gan.session)
 
         vocabulary = text_input.get_vocabulary()
 

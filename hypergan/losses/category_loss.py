@@ -26,7 +26,6 @@ class CategoryLoss(BaseLoss):
         loss = -1*config.category_lambda*loss
         d_loss = loss
         g_loss = loss
-        print("D_LOSS", d_loss, "G_LOSS", g_loss)
 
         return d_loss, g_loss
 

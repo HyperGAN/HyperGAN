@@ -15,7 +15,6 @@ class AutoencoderDiscriminator(BaseDiscriminator):
         gan = self.gan
         ops = self.ops
 
-        print("GAN", gan.config)
         generator = config.decoder(gan, gan.config.generator)
         generator.ops = ops # share variable allocation to make variables part of the discriminator training step
 

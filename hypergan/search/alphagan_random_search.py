@@ -46,5 +46,4 @@ class AlphaGANRandomSearch(RandomSearch):
         self.options['d_layer_filter']=alpha_config.d_layer_filter
         self.options['g_layer_filter']=alpha_config.g_layer_filter
         self.options['encode_layer_filter']=alpha_config.encode_layer_filter
-        print(self.options)
         self.options = {**self.options, **overrides}

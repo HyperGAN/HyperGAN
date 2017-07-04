@@ -136,10 +136,10 @@ class GANComponent:
     def permute(self, nets, k):
         return list(itertools.permutations(nets, k))
 
+    #TODO this is broken
     def fully_connected_from_list(self, nets):
         results = []
         ops = self.ops
-        print('fuly conec', nets)
         for net, net2 in nets:
             net = ops.concat([net, net2], axis=3)
             shape = ops.shape(net)
@@ -152,8 +152,6 @@ class GANComponent:
             #net = ops.linear(net, features)
             net = ops.reshape(net, shape)
             results.append(net)
-            print(net)
-        print('results', results)
         return results
 
     def relation_layer(self, net):

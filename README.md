@@ -260,7 +260,10 @@ The same network on `128x128x3`:
 
 ## Encoders
 
-Sometimes referred to as the `z-space` representation or `latent space`.  Functionally it samples from a known input distribution, typically as input to the Generator.
+Sometimes referred to as the `z-space` representation or `latent space`.  In `dcgan` the 'encoder' is random uniform noise.
+
+Can be thought of as input to the `generator`.
+
 
 ### Uniform Encoder
 
@@ -302,7 +305,7 @@ On/Off
 
 ### Category Encoder
 
-Uses categorical prior to choose 'one-of-many' options.  Can be paired with Categorical Loss.
+Uses categorical prior to choose 'one-of-many' options.
 
 
 ## Discriminators
@@ -354,7 +357,6 @@ Wasserstein Loss is simply:
 ```
 
 d_loss and g_loss can be reversed as well - just add a '-' sign.
-
 
 ## Least-Squares GAN
 

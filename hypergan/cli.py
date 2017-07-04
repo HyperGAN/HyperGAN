@@ -183,11 +183,11 @@ class CLI:
         except:
             return
 
-    def new(self, path):
+    def new(self):
         template = self.args.directory + '.json'
         print("[hypergan] Creating new configuration file '"+template+"' based off of '"+self.config_name+".json'")
         if os.path.isfile(template):
-            raise Exception("File exists: " + template)
+            raise ValidationException("File exists: " + template)
         source_configuration = Configuration.find(self.config_name+".json")
         shutil.copyfile(source_configuration, template)
 

@@ -64,6 +64,8 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 * New viewer front-end!
 * Examples, including the ability to randomly search for good configurations
 
+Samples coming soon.
+
 See more here https://github.com/255BITS/HyperGAN/pull/66
 
 ## 0.8 ~ Least Squares GAN and API examples

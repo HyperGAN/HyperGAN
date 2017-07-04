@@ -1,4 +1,6 @@
-# HyperGAN 0.9
+# HyperGAN 0.9 
+
+[![CircleCI](https://circleci.com/gh/255BITS/HyperGAN/tree/master.svg?style=svg)](https://circleci.com/gh/255BITS/HyperGAN/tree/master)
 
 A composable GAN API and CLI.  Built for developers, scientists, and artists.
 

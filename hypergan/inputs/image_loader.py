@@ -69,7 +69,6 @@ class ImageLoader:
         if crop:
             resized_image = hypergan.inputs.resize_image_patch.resize_image_with_crop_or_pad(img, height, width, dynamic_shape=True)
         elif resize:
-            #TODO, does this add extra time if no resize happens?
             resized_image = tf.image.resize_images(img, [height, width], 1)
         else: 
             resized_image = img

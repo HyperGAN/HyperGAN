@@ -8,8 +8,8 @@ class GridSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.encoder.z #TODO
-        #TODO This isn't doing any gridlike stuff.  Need to feed this into feed dict(also check size)
+        z_t = gan.encoder.z
+        #This isn't doing any gridlike stuff.  Need to feed this into feed dict(also check size)
         y = np.linspace(0,1, 6)
 
         z = np.mgrid[-0.999:0.999:0.6, -0.999:0.999:0.26].reshape(2,-1).T

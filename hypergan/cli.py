@@ -108,24 +108,6 @@ class CLI:
 
         self.steps+=1
 
-    def output_graph_size(self):
-        def mul(s):
-            x = 1
-            for y in s:
-                x*=y
-            return x
-        def get_size(v):
-            shape = [int(x) for x in v.get_shape()]
-            size = mul(shape)
-            return [v.name, size/1024./1024.]
-
-        #TODO
-        #sizes = [get_size(i) for i in tf.global_variables()]
-        #sizes = sorted(sizes, key=lambda s: s[1])
-        #print("[hypergan] Top 5 largest variables:", sizes[-5:])
-        #size = sum([s[1] for s in sizes])
-        #print("[hypergan] Size of all variables:", size)
-
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
@@ -203,7 +185,6 @@ class CLI:
             print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
 
     def run(self):
-        self.output_graph_size()
         if self.method == 'train':
             self.gan.create()
             self.add_supervised_loss()

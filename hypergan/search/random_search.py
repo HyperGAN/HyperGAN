@@ -31,12 +31,8 @@ class RandomSearch:
                 tf.train.AdagradOptimizer,
                 tf.train.GradientDescentOptimizer,
                 tf.train.AdamOptimizer,
-                #tf.train.AdagradDAOptimizer, # TODO missing param
                 tf.train.MomentumOptimizer,
-                #tf.train.ProximalGradientDescentOptimizer,
-                #tf.train.FtrlOptimizer,
-                tf.train.RMSPropOptimizer,
-                #tf.train.ProximalAdagradOptimizer,
+                tf.train.RMSPropOptimizer
         ]
 
         selector = hc.Selector({

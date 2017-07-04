@@ -4,7 +4,6 @@ from hypergan.viewer import GlobalViewer
 
 class BaseSampler:
     def __init__(self, gan, samples_per_row=8, session=None):
-        #TODO USE THE TEST SESSION
         self.gan = gan
         self.samples_per_row = samples_per_row
 
@@ -18,7 +17,7 @@ class BaseSampler:
 
             sample = self._sample()
 
-            data = sample['generator'] #TODO variable
+            data = sample['generator']
 
             width = min(gan.batch_size(), self.samples_per_row)
             stacks = [np.hstack(data[i*width:i*width+width]) for i in range(gan.batch_size()//width)]
@@ -27,7 +26,7 @@ class BaseSampler:
             sample_name = 'generator'
             samples = [[sample_data, sample_name]]
 
-            return [{'image':path, 'label':'sample'} for sample_data, sample_filename in samples] #TODO
+            return [{'image':path, 'label':'sample'} for sample_data, sample_filename in samples]
 
     def plot(self, image, filename, save_sample):
         """ Plot an image."""

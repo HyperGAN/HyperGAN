@@ -33,7 +33,7 @@ class MultiStepTrainer(BaseTrainer):
                 optimizer = self.build_optimizer(config, 'g_', config.g_trainer, self.g_lr, var_list, loss)
             else:
                 optimizer = self.build_optimizer(config, 'd_', config.d_trainer, self.d_lr, var_list, loss)
-            optimizers.append(optimizer) #TODO prefx
+            optimizers.append(optimizer)
 
         self.optimizers = optimizers
 

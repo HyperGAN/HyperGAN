@@ -63,7 +63,7 @@ class BoundaryEquilibriumLoss(BaseLoss):
 
         self.metrics = {
             'k': k,
-            'update_k': update_k, #TODO side effect, this actually trains k
+            'update_k': update_k, #side effect, this actually trains k
             'measure': measure
         }
 

@@ -42,6 +42,6 @@ class CramerDiscriminator(BaseDiscriminator):
 
     # this is from the paper
     def f(self, net, dx, dg):
-        # TODO  TODO might need a second sample of X 
+        # Note: this is currently not working that well. we might need a second sample of X 
 
         return tf.norm(net - dg, axis=1) - tf.norm(dx, axis=1)

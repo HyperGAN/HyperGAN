@@ -30,11 +30,11 @@ class BaseLoss(GANComponent):
             d_loss2, g_loss2 = self._create(d_real, d_fake2)
             g_loss += g_loss2
             d_loss += d_loss2
-            #TODO does this double the signal of d_real?
+            #does this double the signal of d_real?
 
 
         if d_loss is not None:
-            d_loss = ops.squash(d_loss, tf.reduce_mean) #TODO linear doesn't work with this, so we cant pass config.reduce
+            d_loss = ops.squash(d_loss, tf.reduce_mean) #linear doesn't work with this, so we cant pass config.reduce
             self.metrics['d_loss'] = d_loss
 
             if config.minibatch:
@@ -85,9 +85,6 @@ class BaseLoss(GANComponent):
             n = int(n)
             return tf.slice(tens, [0, 0, second * single_batch_size], [m, n, single_batch_size])
 
-        # TODO: speedup by allocating the denominator directly instead of constructing it by sum
-        #       (current version makes it easier to play with the mask and not need to rederive
-        #        the denominator)
         f1 = tf.reduce_sum(half(masked, 0), 2) / tf.reduce_sum(half(mask, 0))
         f2 = tf.reduce_sum(half(masked, 1), 2) / tf.reduce_sum(half(mask, 1))
 

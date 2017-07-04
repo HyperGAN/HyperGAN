@@ -34,7 +34,7 @@ class GANComponent:
 
     def create_ops(self, config):
         """
-        Create the ops object as `self.ops`.  Also looks up config TODO: review
+        Create the ops object as `self.ops`.  Also looks up config
         """
         if self.gan is None:
             return
@@ -136,7 +136,7 @@ class GANComponent:
     def permute(self, nets, k):
         return list(itertools.permutations(nets, k))
 
-    #TODO this is broken
+    #this is broken
     def fully_connected_from_list(self, nets):
         results = []
         ops = self.ops
@@ -164,7 +164,6 @@ class GANComponent:
         netlist = self.split_by_width_height(net)
         permutations = self.permute(netlist, 2)
         permutations = self.fully_connected_from_list(permutations)
-        # TODO: activation?
         net = ops.concat(permutations, axis=3)
 
         #hack

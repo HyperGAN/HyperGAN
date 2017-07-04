@@ -22,7 +22,6 @@ class StandardLoss(BaseLoss):
             g_loss = self.sigmoid_kl_with_logits(d_fake, generator_target_probability)
             d_loss = self.sigmoid_kl_with_logits(d_real, 1.-label_smooth) + \
                     tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)
-            #TODO missing a piece? Oops
         else:
             g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)
             d_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=zeros) + \

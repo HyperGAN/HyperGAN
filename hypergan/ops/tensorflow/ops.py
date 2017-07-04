@@ -227,13 +227,13 @@ class TensorflowOps:
             return layer_regularizers.layer_norm_1
         if symbol == "crelu":
             return tf.nn.crelu
-        if symbol == "prelu": #TODO test me
+        if symbol == "prelu":
             return self.prelu()
-        if symbol == "selu": #TODO test me
+        if symbol == "selu":
             return selu
-        if symbol == "lrelu": #TODO test me
+        if symbol == "lrelu":
             return lrelu
-        if symbol == "relu": #TODO test me
+        if symbol == "relu":
             return tf.nn.relu
         if symbol == 'square':
             return tf.square

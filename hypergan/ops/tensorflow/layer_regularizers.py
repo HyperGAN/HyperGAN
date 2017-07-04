@@ -32,7 +32,7 @@ def batch_norm_1(component, net):
                 center = center,
                 scale = scale,
                 epsilon = epsilon,
-                is_training = True, #TODO: research
+                is_training = True,
                 scope=scope
                 )
         vars = lookup_vars(scope)

@@ -29,7 +29,6 @@ def standard_block(component, net, depth, filter=3):
     stride = [1,stride_w,stride_h,1]
 
     net = ops.conv2d(net, filter, filter, 1, 1, depth)
-    #TODO
     net = tf.nn.avg_pool(net, ksize=flter, strides=stride, padding='SAME')
     print('[discriminator] layer', net)
     return net

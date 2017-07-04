@@ -1,11 +1,8 @@
 # HyperGAN
 A versatile GAN(generative adversarial network) implementation focused on scalability and ease-of-use.
 
-![hypergan logo 1](https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/hypergan-logo1.jpg)
-![hypergan logo 2](https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/hypergan-logo2.jpg)
-![hypergan logo 4](https://raw.githubusercontent.com/255BITS/HyperGAN/develop/doc/hypergan-logo4.jpg)
-
-_Logos generated with [examples/colorizer](#examples)_
+![Colorizer 0.9](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/images/colorizer-0.9.gif)
+_Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the RandomWalk sampler_
 
 # Table of contents
 
@@ -20,6 +17,7 @@ _Logos generated with [examples/colorizer](#examples)_
 * [Configuration](#configuration)
   * [Usage](#usage)
   * [Architecture](#architecture)
+  * [GANComponent](#GANComponent)
   * [Generator](#generator)
   * [Encoders](#encoders)
   * [Discriminators](#discriminators)
@@ -57,6 +55,7 @@ _Logos generated with [examples/colorizer](#examples)_
 
 ## 0.9 ~ Refactorings and optimizations
 
+* API Documentation - https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
 * Prepackaged configurations
 * Lots of losses and configurations to choose from
 * Examples, including the ability to randomly search for good configurations
@@ -222,6 +221,10 @@ In the original DCGAN you will have one of the following components:
 
 
 Other architectures may differ.  See the configuration templates.
+
+## GANComponent
+
+A base class for each of the component types listed below.
 
 ## Generator
 
@@ -499,6 +502,8 @@ To see a detailed list, run
 
 # API
 
+See generated API documentation at https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
+
 ```python3
   import hypergan as hg
 ```
@@ -613,6 +618,7 @@ HyperGAN is currently in open beta.
 * InfoGAN - https://arxiv.org/abs/1606.03657
 * Improved GAN - https://arxiv.org/abs/1606.03498
 * Adversarial Inference - https://arxiv.org/abs/1606.00704
+* Energy-based Generative Adversarial Network - https://arxiv.org/abs/1609.03126
 * Wasserstein GAN - https://arxiv.org/abs/1701.07875
 * Least Squares GAN - https://arxiv.org/pdf/1611.04076v2.pdf
 * Boundary Equilibrium GAN - https://arxiv.org/abs/1703.10717
@@ -637,7 +643,7 @@ Generative Adversarial Networks - https://arxiv.org/pdf/1706.04987.pdf
 If you wish to cite this project, do so like this:
 
 ```
-  255bits (M. Garcia),
+  255bits(Martyn, Mikkel et al),
   HyperGAN, (2017), 
   GitHub repository, 
   https://github.com/255BITS/HyperGAN

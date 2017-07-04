@@ -13,9 +13,9 @@ from hypergan.gans.standard_gan import StandardGAN
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.viewer import GlobalViewer
 from hypergan.gans.autoencoder_gan import AutoencoderGAN
-from hypergan.search.random_search import RandomSearch
+from hypergan.search.alphagan_random_search import AlphaGANRandomSearch
 
-from examples.common import batch_diversity, accuracy
+from examples.common import *
 
 arg_parser = ArgumentParser("Colorize an image")
 arg_parser.add_image_arguments()
@@ -27,6 +27,7 @@ config = lookup_config(args)
 if args.action == 'search':
     config = AlphaGANRandomSearch({}).random_config()
 
+save_file = "save/model.ckpt"
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
 inputs.create(args.directory,
               channels=channels, 
@@ -41,7 +42,7 @@ def setup_gan(config, inputs, args):
     gan = AutoencoderGAN(config=config, inputs=inputs)
     gan.create()
 
-    if(os.path.isfile(save_file+".meta")):
+    if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)
 
  
@@ -55,12 +56,12 @@ def setup_gan(config, inputs, args):
 
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
-    sampler = lookup_sampler(args.sampler or Sampler)(gan)
+    sampler = lookup_sampler(args.sampler or 'autoencode')(gan)
 
     metrics = [accuracy(gan.inputs.x, gan.generator.sample), batch_diversity(gan.generator.sample)]
     sum_metrics = [0 for metric in metrics]
 
-    for i in range(40000):
+    for i in range(args.steps):
         gan.step()
 
         if i > args.steps * 9.0/10:
@@ -73,12 +74,15 @@ def train(config, inputs, args):
             sample_file = "samples/"+str(i)+".png"
             sampler.sample(sample_file, args.save_samples)
 
+        if args.action == 'train' and i % args.save_every == 0 and i > 0:
+            print("saving " + save_file)
+            gan.save(save_file)
 
     return sum_metrics
 
 def sample(config, inputs, args):
     gan = setup_gan(config, inputs, args)
-    sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
+    sampler = lookup_sampler(args.sampler or 'random_walk')(gan)
     for i in range(args.steps):
         sample_file = "samples/"+str(i)+".png"
         sampler.sample(sample_file, False)

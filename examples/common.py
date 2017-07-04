@@ -7,11 +7,13 @@ import numpy as np
 
 from hypergan.cli import CLI
 from hypergan.gan_component import GANComponent
+from hypergan.search.random_search import RandomSearch
 from hypergan.generators.base_generator import BaseGenerator
 from hypergan.samplers.base_sampler import BaseSampler
 
 class ArgumentParser:
-    def __init__(self, description):
+    def __init__(self, description, require_directory=True):
+        self.require_directory = require_directory
         self.parser = argparse.ArgumentParser(description=description, add_help=True)
         self.add_global_arguments()
         self.add_search_arguments()
@@ -20,8 +22,9 @@ class ArgumentParser:
     def add_global_arguments(self):
         parser = self.parser
         parser.add_argument('action', action='store', type=str, help='One of ["train", "search"]')
-        parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
-        parser.add_argument('--config', '-c', type=str, default='colorizer', help='config name')
+        if self.require_directory:
+            parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
+        parser.add_argument('--config', '-c', type=str, default='default', help='config name')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
         parser.add_argument('--steps', type=int, default=1000000, help='Number of steps to train for.')
@@ -31,7 +34,6 @@ class ArgumentParser:
     def add_search_arguments(self):
         parser = self.parser
         parser.add_argument('--config_list', '-m', type=str, default=None, help='config list name')
-        parser.add_argument('--search_components', '-r', type=str, default=None, help='List which components to random search(generator,discriminator,...).  Defaults to everything.  Separate with commas')
         parser.add_argument('--search_output', '-o', type=str, default="search.csv", help='output file for search results')
 
     def add_train_arguments(self):
@@ -237,17 +239,15 @@ def accuracy(a, b):
     return tf.reduce_sum( tf.reduce_sum(difference, axis=0) , axis=0) 
 
 class TextInput:
-    def __init__(self, config, batch_size, vocabulary, one_hot=False):
-        x = tf.constant("replicate this line 2")
+    def __init__(self, config, batch_size, one_hot=False):
+        self.lookup = None
         reader = tf.TextLineReader()
         filename_queue = tf.train.string_input_producer(["chargan.txt"])
-        key, line = reader.read(filename_queue)
-        x = line
-        lookup_keys, lookup = vocabulary()
-        print("LOOKUP KEYS", lookup_keys)
+        key, x = reader.read(filename_queue)
+        vocabulary = self.get_vocabulary()
 
         table = tf.contrib.lookup.string_to_index_table_from_tensor(
-            mapping = lookup_keys, default_value = 0)
+            mapping = vocabulary, default_value = 0)
 
         x = tf.string_join([x, tf.constant(" " * 64)]) 
         x = tf.substr(x, [0], [64])
@@ -255,20 +255,16 @@ class TextInput:
         x = tf.sparse_tensor_to_dense(x, default_value=' ')
         x = tf.reshape(x, [64])
         x = table.lookup(x)
+        self.one_hot = one_hot
         if one_hot:
-            x = tf.one_hot(x, len(lookup))
+            x = tf.one_hot(x, len(vocabulary))
             x = tf.cast(x, dtype=tf.float32)
-        else:
-            x = tf.cast(x, dtype=tf.float32)
-            x -= len(lookup_keys)/2.0
-            x /= len(lookup_keys)/2.0
-
-        if one_hot:
             x = tf.reshape(x, [1, int(x.get_shape()[0]), int(x.get_shape()[1]), 1])
-            x = tf.tile(x, [64, 1, 1, 1])
         else:
+            x = tf.cast(x, dtype=tf.float32)
+            x -= len(vocabulary)/2.0
+            x /= len(vocabulary)/2.0
             x = tf.reshape(x, [1,1, 64, 1])
-            x = tf.tile(x, [64, 1, 1, 1])
 
         num_preprocess_threads = 8
 
@@ -282,37 +278,70 @@ class TextInput:
 
         self.x = x
         self.table = table
-            #x=tf.decode_raw(x,tf.uint8)
-            #x=tf.cast(x,tf.int32)
-            #x = table.lookup(x)
-            #x = tf.reshape(x, [64])
-            #print("X IS ", x)
-            #x = "replicate this line"
 
+    def get_vocabulary(self):
+        vocab = list("~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.")
+        return vocab
 
-            #x=tf.cast(x, tf.float32)
-            #x=x / 255.0 * 2 - 1
+    def np_one_hot(index, length):
+        return np.eye(length)[index]
 
-            #x = tf.constant("replicate this line")
+    def get_character(self, data):
+        return self.get_lookup_table()[data]
 
+    def get_lookup_table(self):
+        if self.lookup is None:
+            vocabulary = self.get_vocabulary()
+            values = np.arange(len(vocabulary))
+            lookup = {}
 
-            #--- working manual input ---
-            #lookup_keys, lookup = get_vocabulary()
+            if self.one_hot:
+                for i, key in enumerate(vocabulary):
+                    lookup[key]=self.np_one_hot(values[i], len(values))
+            else:
+                for i, key in enumerate(vocabulary):
+                    lookup[key]=values[i]
 
-            #input_default = 'reproduce this line                                             '
-            #input_default = [lookup[obj] for obj in list(input_default)]
-            #
-            #input_default = tf.constant(input_default)
-            #input_default -= len(lookup_keys)/2.0
-            #input_default /= len(lookup_keys)/2.0
-            #input_default = tf.reshape(input_default, [1, 64])
-            #input_default = tf.tile(input_default, [512, 1])
+            #reverse the hash
+            lookup = {i[1]:i[0] for i in lookup.items()}
+            self.lookup = lookup
+        return self.lookup
 
-            #x = tf.placeholder_with_default(
-            #        input_default, 
-            #        [512, 64])
+    def text_plot(self, size, filename, data, x):
+        bs = x.shape[0]
+        data = np.reshape(data, [bs, -1])
+        x = np.reshape(x, [bs, -1])
+        plt.clf()
+        plt.figure(figsize=(2,2))
+        data = np.squeeze(data)
+        plt.plot(x)
+        plt.plot(data)
+        plt.xlim([0, size])
+        plt.ylim([-2, 2.])
+        plt.ylabel("Amplitude")
+        plt.xlabel("Time")
+        plt.savefig(filename)
 
-            #---/ working manual input ---
+    def sample_output(self, val):
+        vocabulary = self.get_vocabulary()
+        if self.one_hot:
+            vals = [ np.argmax(r) for r in val ]
+            ox_val = [vocabulary[obj] for obj in list(vals)]
+            string = "".join(ox_val)
+            return string
+        else:
+            val = np.reshape(val, [-1])
+            val *= len(vocabulary)/2.0
+            val += len(vocabulary)/2.0
+            val = np.round(val)
+
+            val = np.maximum(0, val)
+            val = np.minimum(len(vocabulary)-1, val)
+
+            ox_val = [self.get_character(obj) for obj in list(val)]
+            string = "".join(ox_val)
+            return string
+
 
 def lookup_sampler(name):
     return CLI.sampler_for(name)

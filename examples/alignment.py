@@ -13,6 +13,7 @@ from hypergan.gans.standard_gan import StandardGAN
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.viewer import GlobalViewer
 from hypergan.gans.aligned_gan import AlignedGAN
+from hypergan.search.aligned_random_search import AlignedRandomSearch
 from common import *
 
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
@@ -62,7 +63,7 @@ def setup_gan(config, inputs, args):
     gan = AlignedGAN(config=config, inputs=inputs)
     gan.create()
 
-    if(os.path.isfile(save_file+".meta")):
+    if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)
 
     tf.train.start_queue_runners(sess=gan.session)
@@ -93,7 +94,7 @@ def train(config, inputs, args):
             sampler.sample(sample_file, args.save_samples)
         gan.step()
 
-        if i % args.save_every == 0 and i > 0:
+        if args.action == 'train' and i % args.save_every == 0 and i > 0:
             print("saving " + save_file)
             gan.save(save_file)
 

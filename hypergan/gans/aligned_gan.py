@@ -27,7 +27,7 @@ from .standard_gan import StandardGAN
 
 class AlignedGAN(BaseGAN):
     def required(self):
-        return []
+        return ["generator", "discriminator"]
 
     def create(self):
         config = self.config
@@ -35,11 +35,7 @@ class AlignedGAN(BaseGAN):
 
         self.session = self.ops.new_session(self.ops_config)
 
-        encoder_config = dict(config.discriminator)
-        encoder_config['layers']=2
-        encoder_config['extra_layers']=2
-        encoder_config['fc_layers']=0
-        encoder_config['class']=ops.lookup("class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator")
+        encoder_config = dict(config.input_encoder)
         encode_a = self.create_component(encoder_config)
         encode_a.ops.describe("encode_a")
         encode_b = self.create_component(encoder_config)
@@ -86,7 +82,9 @@ class AlignedGAN(BaseGAN):
 
         # loss terms
 
-        cycloss_lambda = config.cycloss_lambda or 10
+        cycloss_lambda = config.cycloss_lambda
+        if cycloss_lambda is None:
+            cycloss_lambda = 10
         cycloss *= cycloss_lambda
         loss1=('generator', cycloss + lossb.g_loss)
         loss2=('discriminator', lossb.d_loss)

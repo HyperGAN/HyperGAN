@@ -50,14 +50,14 @@ def setup_gan(config, inputs, args):
 
     gan.create()
 
-    if(os.path.isfile(save_file+".meta")):
+    if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)
 
     tf.train.start_queue_runners(sess=gan.session)
 
     GlobalViewer.enable()
     config_name = args.config
-    title = "[hypergan] colorizer " + config_name
+    title = "[hypergan] static " + config_name
     GlobalViewer.window.set_title(title)
 
     return gan
@@ -80,7 +80,7 @@ def train(config, inputs, args):
             sample_file = "samples/"+str(i)+".png"
             sampler.sample(sample_file, args.save_samples)
 
-        if i % args.save_every == 0 and i > 0:
+        if args.action == 'train' and i % args.save_every == 0 and i > 0:
             print("saving " + save_file)
             gan.save(save_file)
 
@@ -88,6 +88,7 @@ def train(config, inputs, args):
             for k, metric in enumerate(gan.session.run(metrics)):
                 print("Metric "+str(k)+" "+str(metric))
                 sum_metrics[k] += metric 
+    return sum_metrics
 
 def sample(config, inputs, args):
     gan = setup_gan(config, inputs, args)
@@ -98,11 +99,11 @@ def sample(config, inputs, args):
 
 def search(config, inputs, args):
     metrics = train(config, inputs, args)
-    config_filename = "colorizer-"+str(uuid.uuid4())+'.json'
+    config_filename = "static-"+str(uuid.uuid4())+'.json'
     hc.Selector().save(config_filename, config)
 
     with open(args.search_output, "a") as myfile:
-        myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
+        myfile.write(config_filename+","+",".join([str(x) for x in metrics])+"\n")
 
 if args.action == 'train':
     metrics = train(config, inputs, args)

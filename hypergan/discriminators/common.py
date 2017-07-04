@@ -1,16 +1,16 @@
 import tensorflow as tf
 import hyperchamber as hc
 
-def repeating_block(component, net, depth):
+def repeating_block(component, net, depth, filter=3):
     ops = component.ops
     config = component.config
     layer_regularizer = config.layer_regularizer
-    filter_size_w = 2
-    filter_size_h = 2
+    filter_size_w = filter
+    filter_size_h = filter
     filter = [1,filter_size_w,filter_size_h,1]
     stride = [1,filter_size_w,filter_size_h,1]
     for i in range(config.block_repeat_count-1):
-        net = activation(net)
+        net = config.activation(net)
         if layer_regularizer is not None:
             net = component.layer_regularizer(net)
         net = ops.conv2d(net, 3, 3, 1, 1, depth)

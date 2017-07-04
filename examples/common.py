@@ -57,7 +57,6 @@ class CustomGenerator(BaseGenerator):
         gan = self.gan
         config = self.config
         ops = self.ops
-        print(" CONFIG ", config)
         end_features = config.end_features or 1
 
         ops.describe('custom_generator')
@@ -73,7 +72,6 @@ class Custom2DGenerator(BaseGenerator):
         gan = self.gan
         config = self.config
         ops = self.ops
-        print(" CONFIG ", config)
         end_features = config.end_features or 1
 
         ops.describe('custom_generator')
@@ -99,7 +97,6 @@ class CustomDiscriminator(BaseGenerator):
         y = gan.inputs.y
         g = gan.generator.sample
 
-        print(" CONFIG ", g,y)
         gnet = tf.concat(axis=1, values=[x,g])
         ynet = tf.concat(axis=1, values=[x,y])
 
@@ -272,8 +269,8 @@ class TextInput:
           [x],
           batch_size=batch_size,
           num_threads=num_preprocess_threads,
-          capacity= 512000,
-          min_after_dequeue=51200,
+          capacity= 5000,
+          min_after_dequeue=500,
           enqueue_many=True)
 
         self.x = x

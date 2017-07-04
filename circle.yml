@@ -14,6 +14,6 @@ deployment:
     - pdoc --html --overwrite hypergan
     - mkdir -p $CIRCLE_ARTIFACTS/apidocs
     - cp -R hypergan/* $CIRCLE_ARTIFACTS/apidocs
-    - aws s3 sync hypergan s3://hypergan-apidocs/0.9/ --delete
+    - aws s3 sync hypergan s3://hypergan-apidocs/0.9.0/ --delete --acl "public-read"
 
     

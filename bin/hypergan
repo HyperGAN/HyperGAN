@@ -70,8 +70,8 @@ config = hc.Selector().load(config_filename)
 if args.list_templates:
     configs = hg.Configuration.list()
     for config in configs:
-        template = hg.Configuration.load(config+'.json')
-        print(config + " - " + str(template.description) + " ("+ str(template.publication) + ")")
+        template = hg.Configuration.load(config+'.json', verbose=False)
+        print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
     exit(0)
 if not args.align:
     if args.method == 'new':

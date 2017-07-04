@@ -175,7 +175,6 @@ class CLI:
             input = sys.stdin.read()
             if input[0]=="y":
                 return
-            print("INPUT", input)
             from IPython import embed
             # Misc code
             embed()
@@ -224,7 +223,7 @@ class CLI:
             tf.reset_default_graph()
             self.gan.session.close()
         elif self.method == 'new':
-            self.new(self.args.directory)
+            self.new()
         elif self.method == 'sample':
             self.gan.create()
             self.add_supervised_loss()

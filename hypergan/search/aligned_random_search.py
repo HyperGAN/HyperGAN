@@ -31,7 +31,6 @@ class AlignedRandomSearch(RandomSearch):
 
         self.options['cycloss_lambda'] = random.choice([0,10])
 
-        print(self.options)
         self.options = {**self.options, **overrides}
 
     def input_encoder(self):

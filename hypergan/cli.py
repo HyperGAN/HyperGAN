@@ -213,7 +213,7 @@ class CLI:
         self.output_graph_size()
         if self.method == 'train':
             self.gan.create()
-            self.add_supervised_loss(gan)
+            self.add_supervised_loss()
             self.gan.session.run(tf.global_variables_initializer())
 
             tf.train.start_queue_runners(sess=self.gan.session)

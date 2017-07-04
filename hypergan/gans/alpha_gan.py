@@ -39,9 +39,8 @@ class AlphaGAN(BaseGAN):
         self.trainer = None
         self.session = None
 
-
     def required(self):
-        return "generator".split()
+        return "generator discriminator z_discriminator g_encoder".split()
 
     def create(self):
         BaseGAN.create(self)
@@ -56,6 +55,9 @@ class AlphaGAN(BaseGAN):
             encoder.ops.describe("g_encoder")
             encoder.create(self.inputs.x)
             encoder.z = tf.zeros(0)
+            if(len(encoder.sample.get_shape()) == 2):
+                s = ops.shape(encoder.sample)
+                encoder.sample = tf.reshape(encoder.sample, [s[0],s[1], 1, 1])
 
             z_discriminator = dict(config.z_discriminator or config.discriminator)
             z_discriminator['layer_filter']=None
@@ -86,14 +88,12 @@ class AlphaGAN(BaseGAN):
                 projection = ops.reshape(projection, ops.shape(encoder.sample))
                 projections.append(projection)
             z_hat = tf.concat(axis=3, values=projections)
-            print("_Z", z_hat, z)
 
             z = ops.reshape(z, ops.shape(z_hat))
             # end encoding
             g = self.generator.create(z)
             sample = self.generator.sample
             self.uniform_sample = self.generator.sample
-            print("Z, Z_HAT", z, z_hat)
             x_hat = self.generator.reuse(z_hat)
 
             encoder_discriminator.create(x=z, g=z_hat)
@@ -114,15 +114,12 @@ class AlphaGAN(BaseGAN):
             #loss terms
             distance = config.distance or ops.lookup('l1_distance')
             cycloss = tf.reduce_mean(distance(self.inputs.x,x_hat))
-            cycloss_lambda = config.cycloss_lambda or 10
+            cycloss_lambda = config.cycloss_lambda
+            if cycloss_lambda is None:
+                cycloss_lambda = 10
             cycloss *= cycloss_lambda
-            print("CYLAMB", cycloss_lambda)
-            if cycloss_lambda > 0:
-                loss1=('generator', cycloss + encoder_loss.g_loss)
-                loss2=('generator', cycloss + standard_loss.g_loss)
-            else:
-                loss1=('generator', encoder_loss.g_loss)
-                loss2=('generator', standard_loss.g_loss)
+            loss1=('generator', cycloss + encoder_loss.g_loss)
+            loss2=('generator', cycloss + standard_loss.g_loss)
             loss3=('discriminator', standard_loss.d_loss)
             loss4=('discriminator', encoder_loss.d_loss)
 

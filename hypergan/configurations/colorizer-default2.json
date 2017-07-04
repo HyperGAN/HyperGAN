@@ -133,6 +133,5 @@
   "cycloss_lambda": 0.1,
   "d_layer_filter": false,
   "g_layer_filter": true,
-  "class": "class:hypergan.gans.alpha_gan.AlphaGAN",
   "encode_layer_filter": true
 }

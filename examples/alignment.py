@@ -13,6 +13,7 @@ from hypergan.gans.standard_gan import StandardGAN
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.viewer import GlobalViewer
 from hypergan.gans.aligned_gan import AlignedGAN
+from hypergan.search.aligned_random_search import AlignedRandomSearch
 from common import *
 
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
@@ -31,9 +32,7 @@ if args.action == 'search':
     config = AlignedRandomSearch({}).random_config()
 
     if args.config_list is not None:
-        lines = tuple(open(args.config_list, 'r'))
-        config_file = random.choice(lines).strip()
-        config = hg.configuration.Configuration.load(config_file+".json")
+        config = random_config_from_list(args.config_list)
         random_config = AlignedRandomSearch({}).random_config()
 
         config["generator"]=random_config["generator"]
@@ -64,7 +63,7 @@ def setup_gan(config, inputs, args):
     gan = AlignedGAN(config=config, inputs=inputs)
     gan.create()
 
-    if(os.path.isfile(save_file+".meta")):
+    if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)
 
     tf.train.start_queue_runners(sess=gan.session)
@@ -95,7 +94,7 @@ def train(config, inputs, args):
             sampler.sample(sample_file, args.save_samples)
         gan.step()
 
-        if i % args.save_every == 0 and i > 0:
+        if args.action == 'train' and i % args.save_every == 0 and i > 0:
             print("saving " + save_file)
             gan.save(save_file)
 
@@ -129,7 +128,7 @@ def search(config, inputs, args):
     hc.Selector().save(config_filename, config)
     metrics = train(config, inputs, args)
 
-    with open("results-alignment", "a") as myfile:
+    with open(args.search_output, "a") as myfile:
         accuracies = ["%.2f" % sum for sum in (metrics["accuracy"] or [])]
         diversities = ["%.2f" % sum for sum in (metrics["diversity"] or [])]
 
@@ -141,7 +140,7 @@ def sample(config, inputs, args):
     for i in range(args.steps):
         print("SAMPLER =", sampler)
         sample_file = "samples/"+str(i)+".png"
-        sampler.sample(sample_file, False)
+        sampler.sample(sample_file, args.save_samples)
 
 inputs = TwoImageInput()
 inputs.create(args)
@@ -150,12 +149,9 @@ if args.action == 'train':
     metrics = train(config, inputs, args)
     accuracies = ["%.2f" % sum for sum in (metrics["accuracy"] or [])]
     diversities = ["%.2f" % sum for sum in (metrics["diversity"] or [])]
-
     print("Training complete.  Accuracy", accuracies, "Diversities", diversities)
-
 elif args.action == 'sample':
     sample(config, inputs, args)
-
 elif args.action == 'search':
     search(config, inputs, args)
 else:

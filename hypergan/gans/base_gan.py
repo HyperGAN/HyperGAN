@@ -78,25 +78,24 @@ class BaseGAN(GANComponent):
         self.created = True
 
     def save(self, save_file):
-        print("Saving network to ", save_file)
+        print("[hypergan] Saving network to ", save_file)
+        os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
         saver = tf.train.Saver()
         saver.save(self.session, save_file)
 
     def load(self, save_file):
         save_file = os.path.expanduser(save_file)
         if os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ):
-            print(" |= Loading network from "+ save_file)
+            print("[hypergan] |= Loading network from "+ save_file)
             dir = os.path.dirname(save_file)
-            print(" |= Loading checkpoint from "+ dir)
+            print("[hypergan] |= Loading checkpoint from "+ dir)
             ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
             if ckpt and ckpt.model_checkpoint_path:
                 saver = tf.train.Saver()
                 saver.restore(self.session, save_file)
                 loadedFromSave = True
-                print("Model loaded")
                 return True
             else:
-                print("No checkpoint file found")
                 return False
         else:
             return False

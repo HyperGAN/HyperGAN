@@ -104,7 +104,7 @@ class TensorflowOps:
         elif dtype == 'float16':
             return tf.float16
         else:
-            raise Exception("dtype not defined: "+dtype)
+            raise Exception("dtype not defined: "+str(dtype))
 
     def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         self.assert_tensor(net)
@@ -137,16 +137,13 @@ class TensorflowOps:
         self.assert_tensor(net)
         initializer = self.initializer()
         shape = self.shape(net)
-        print("LINEAR shape is", shape)
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             w = self.get_weight([shape[1], output_dim])
             bias = self.get_bias([output_dim])
-            print("w is ", net, w, bias)
             return tf.matmul(net, w) + bias
 
     def reduce_linear(self):
         def _build(net, axis=1):
-            print("NET IS", net)
             return self.linear(net, 1)
         return _build
 
@@ -256,7 +253,6 @@ class TensorflowOps:
         if symbol == 'l2_distance':
             return l2_distance
 
-        print("lookup failed for ", self.description, symbol)
         return symbol
 
     def lookup_function(self, name):
@@ -269,12 +265,10 @@ class TensorflowOps:
         return self.lookup_function(name)
 
     def initialize_variables(self, session):
-        print("DEVICE", self.device)
         with tf.device(self.device):
             if len(self.variables()) == 0:
                 return
             init = tf.variables_initializer(self.variables(), reuse=self._reuse)
-            print("initializing ", self.description, " variable count: ", len(self.variables()))
             session.run(init)
             self.initialized = True
 

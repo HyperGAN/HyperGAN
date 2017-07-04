@@ -6,17 +6,10 @@ import hypergan as hg
 import hyperchamber as hc
 from hypergan.inputs import *
 from hypergan.search.random_search import RandomSearch
-from examples.common import CustomGenerator, CustomDiscriminator
+from common import *
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Train an MNIST classifier G(x) = y', add_help=True)
-    parser.add_argument('--sample_every', default=500, type=int)
-    parser.add_argument('--batch_size', '-b', default=32, type=int)
-    parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
-    parser.add_argument('--steps', '-s', type=int, default=40000, help='number of steps to run for.  defaults to a lot')
-    return parser.parse_args()
-
-args = parse_args()
+arg_parser = ArgumentParser(description='Train an MNIST classifier G(x) = label')
+args = arg_parser.parse_args()
 
 class MNISTInputLoader:
     def __init__(self, batch_size):
@@ -27,10 +20,9 @@ class MNISTInputLoader:
         self.feed_y = tf.placeholder(tf.float32, shape=[batch_size, 10])
         self.y = ((2*self.feed_y)-1)
 
-while(True):
-    savename = "classification-"+str(uuid.uuid4())
-    savefile = os.path.expanduser('~/.hypergan/configs/'+savename+'.json')
+config = lookup_config(args)
 
+if args.action == 'search':
     search = RandomSearch({
         'generator': {'class': CustomGenerator, 'end_features': 10},
         'discriminator': {'class': CustomDiscriminator}
@@ -38,22 +30,23 @@ while(True):
 
     config = search.random_config()
 
-    print("Starting training for: "+savefile)
+mnist_loader = MNISTInputLoader(args.batch_size)
 
-    hc.Selector().save(savefile, config)
-
-
-    mnist_loader = MNISTInputLoader(args.batch_size)
-    gan = hg.GAN(config, inputs=mnist_loader, batch_size=args.batch_size)
+def setup_gan(config, inputs, args):
+    gan = hg.GAN(config, inputs=inputs, batch_size=args.batch_size)
     gan.inputs.gradient_penalty_label = gan.inputs.feed_y # TODO: Our X dimensions dont always match the G.  This causes gradient_penalty to fail.
     gan.create()
-    mnist = gan.inputs.mnist
+
+    return gan
+
+def train(config, args):
+    gan = setup_gan(config, mnist_loader, args)
     correct_prediction = tf.equal(tf.argmax(gan.generator.sample,1), tf.argmax(gan.inputs.y,1))
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32)) * 100
-
-    steps = args.steps
-    accuracy_v = 0
-    for i in range(steps):
+    metrics = [accuracy]
+    sum_metrics = [0 for metric in metrics]
+    mnist = gan.inputs.mnist
+    for i in range(args.steps):
         batch = mnist.train.next_batch(args.batch_size)
 
         gan.step({gan.inputs.x: batch[0], gan.inputs.feed_y: batch[1]})
@@ -65,16 +58,30 @@ while(True):
                 test_batch = mnist.test.next_batch(args.batch_size)
                 accuracy_v += gan.session.run(accuracy,{gan.inputs.x: test_batch[0], gan.inputs.y: test_batch[1]})
             accuracy_v /= repeat_count
-            print(accuracy_v)
             batch = mnist.train.next_batch(args.batch_size)
 
             if(i > 50):
                 if(accuracy_v < 10.0):
+                    sum_metrics = [-1 for metric in metrics]
                     break
 
-    with open("classification-results", "a") as myfile:
-        print("Writing result")
-        myfile.write(savename+","+str(accuracy_v)+"\n")
+    return sum_metrics
 
-    tf.reset_default_graph()
-    gan.session.close()
+def search(config, args):
+    metrics = train(config, args)
+    config_filename = "classification-"+str(uuid.uuid4())+'.json'
+    hc.Selector().save(config_filename, config)
+
+    with open(args.search_output, "a") as myfile:
+        print("Writing result")
+        myfile.write(config_filename+","+",".join([str(x) for x in metrics])+"\n")
+
+if args.action == 'train':
+    metrics = train(config, args)
+    print("Resulting metrics:", metrics)
+elif args.action == 'search':
+    search(config, args)
+else:
+    print("Unknown action: "+args.action)
+
+

@@ -70,15 +70,13 @@ class BaseDiscriminator(GANComponent):
         gan = self.gan
         ops = self.ops
         if 'layer_filter' in config and config.layer_filter is not None:
-            print("[base discriminator] applying layer filter", config['layer_filter'])
+            print("[discriminator] applying layer filter", config['layer_filter'])
             stacks = ops.shape(net)[0] // gan.batch_size()
-            print("STACKS", stacks)
             filters = []
             for stack in range(stacks):
                 piece = tf.slice(net, [stack * gan.batch_size(), 0,0,0], [gan.batch_size(), -1, -1, -1])
                 filters.append(config.layer_filter(gan, self.config, piece))
             layer = tf.concat(axis=0, values=filters)
-            print("LAYER", layer, "NET", net)
             net = tf.concat(axis=3, values=[net, layer])
         return net
 

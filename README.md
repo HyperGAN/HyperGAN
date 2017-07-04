@@ -102,7 +102,7 @@ _Logos generated with [examples/colorizer](#examples)_
 ## Minimum requirements
 
 1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
-2. CPU mode is _extremely_ slow.  Never train with it!
+2. CPU training is _extremely_ slow.  Use a GPU if you can!
 3. Python3
 
 
@@ -129,12 +129,28 @@ Install dependencies:
   apt-get install python-gi
 ```
 
+## Create a new project
+
+```bash
+  hypergan new mymodel
+```
+
+This will create a mymodel.json based off the default configuration.  You can change configuration templates with the `-c` flag.  
+
+## List configuration templates
+
+```bash
+  hypergan new mymodel -l
+```
+
+See all configuration templates with `--list-templates` or `-l`.
+
 ## Train
 
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of folders of pngs
-  cp *.png folder/class0/
-  hypergan train folder/ -s 32x32x3 -f png -b 32
+  cp *.png folder/
+  hypergan train folder/ -s 32x32x3 -f png -b 32 -c mymodel
 ```
 
 ### Increasing performance

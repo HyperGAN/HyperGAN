@@ -47,7 +47,6 @@ class BaseTrainer(GANComponent):
         return [metrics[k] for k in sorted(metrics.keys())]
 
     def capped_optimizer(optimizer, cap, loss, var_list):
-        print("VARS Are", var_list)
         gvs = optimizer.compute_gradients(loss, var_list=var_list)
         def create_cap(grad,var):
             if(grad == None) :
@@ -61,7 +60,6 @@ class BaseTrainer(GANComponent):
 
 
     def build_optimizer(self, config, prefix, trainer_config, learning_rate, var_list, loss):
-        print("VARS Are", var_list)
         with tf.variable_scope(prefix):
             defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(trainer_config).args and k.startswith(prefix)}
             optimizer = trainer_config(learning_rate, **defn)

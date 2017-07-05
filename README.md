@@ -4,12 +4,17 @@
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists.
 
-![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-1.gif)
+HyperGAN is currently in open beta.
+
+![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
 
 _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the RandomWalk sampler_
 
 # Table of contents
 
+* [About](#about)
+* [Showcase](#showcase)
+* [Documentation](#documentation)
 * [Changelog](#changelog)
 * [Quick start](#quick-start)
   * [Minimum Requirements](#minimum-requirements)
@@ -38,7 +43,6 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 * [API](API)
   * [Examples](#examples)
   * [Search](#search)
-  * [GAN object](#gan-object)
 * [Datasets](#datasets)
  * [Unsupervised learning](#unsupervised-learning)
  * [Supervised learning](#supervised-learning)
@@ -47,63 +51,37 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 * [Contributing](#contributing)
   * [Our process](#our-process)
   * [Branches](#branches)
-  * [Showcase](#showcase)
-* [About](#about)
 * [Sources](#sources)
 * [Papers](#papers)
 * [Citation](#citation)
 
-# Changelog
+# About
 
+Generative Adversarial Networks consist of 2 learning systems that learn together.  HyperGAN implements these learning systems in Tensorflow with deep learning.
 
-## 0.9 ~ Refactorings and optimizations
+For an introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
 
-* API Documentation - https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
-* Prepackaged configurations
-* New viewer front-end!
-* Examples, including the ability to randomly search for good configurations
+HyperGAN is currently in open beta.
 
-Samples coming soon.
+# Showcase
 
-See more here https://github.com/255BITS/HyperGAN/pull/66
-
-## 0.8 ~ Least Squares GAN and API examples
-
-* Tensorflow 1.0 support
-* New configuration format and refactored api.
-* New loss based on least squared GAN.  See <a href="#Least-Squares-GAN">least squares GAN implementation</a>.
-* API example `2d-test` - tests a trainer/encoder/loss combination against a known distribution.
-* API example `2d-measure` - measure and report the above test by randomly combining options.
-* Updated default configuration.
-* More
+![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-1.gif)
+![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-3.gif)
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0.8.png'/>
 
-## 0.7 ~ WGAN & API
+If you create something cool with this let us know.
 
-* New loss `wgan`
-* Initial Public API Release
-* API example: `colorizer` - re-colorize an image!
-* API example: `inpainter` - remove a section of an image and have your GAN repaint it
-* API example: `super-resolution` - zoom in and enhance.  We've caught the bad guy!
-* 4 *new* samplers.  `--sampler` flag.  Valid options are: `batch`,`progressive`,`static_batch`,`grid`. 
+# Documentation
 
-## 0.5 / 0.6
+[API Documentation](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)
 
-* pip package released
+# Changelog
 
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0-5-6.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold.png'/>
-
-### 0.1-0.4
-* Initial private release
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/legacy-0.1.png'/>
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/legacy-0.1-2.png'/>
-
+See the full changelog here:
+[Changelog.md](Changelog.md)
 
 # Quick start
-
 
 ## Minimum requirements
 
@@ -473,33 +451,6 @@ To create videos:
 ```bash
   ffmpeg -i samples/%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
 ```
-
-
-## hypergan build
-
-Build takes the same arguments as train and builds a generator.  It's required for serve.
-
-Building does 2 things:
-
-* Loads the training model, which include the discriminator
-* Saves into a ckpt model containing only the generator
-
-## Saves
-
-Saves are stored in `~/.hypergan/saves/`
-
-They can be large.
-
-## Formats
-
-```bash
---format <type>
-```
-
-Type can be one of:
-* jpg
-* png
-
 ## Arguments
 
 To see a detailed list, run 
@@ -515,9 +466,6 @@ See the API documentation at https://s3.amazonaws.com/hypergan-apidocs/0.9.0/ind
   import hypergan as hg
 ```
 
-## Examples
-API is currently under development.  The best reference are the examples in the `examples` directory.
-
 Examples
 --------
 
@@ -526,8 +474,6 @@ See the example documentation https://github.com/255BITS/HyperGAN/tree/master/ex
 ## Search
 
 Each example is capable of random search.  You can search along any set of parameters, including loss functions, trainers, generators, etc.
-
-See the examples for more information.
 
 # Datasets
 
@@ -599,29 +545,6 @@ The branches are:
 *Bug fixes* and *showcases* can be merged into `master`
 
 *Configuration changes*, *new architectures*, and generally anything experimental belongs in `develop`.
-
-## Showcase
-
-![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
-![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-3.gif)
-
-If you create something cool with this let us know!  Open a pull request and add your links, and screenshots here!
-
-# About
-
-Generative Adversarial Networks consist of 2 learning systems that learn together.  HyperGAN implements these learning systems in Tensorflow with deep learning.
-
-The `discriminator` learns the difference between real and fake data.  The `generator` learns to create fake data.
-
-For a more in-depth introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
-
-A single fully trained `GAN` consists of the following useful networks:
-
-* `generator` - Generates content that fools the `discriminator`.  If using supervised learning mode, can generate data on a specific classification.
-* `discriminator` - The discriminator learns how to identify real data and how to detect fake data from the generator.
-* `classifier` - Only available when using supervised learning.  Classifies an image by type.  Some examples of possible datasets are 'apple/orange', 'cat/dog/squirrel'.  See <a href='#createdataset'>Creating a Dataset</a>.
-
-HyperGAN is currently in open beta.
 
 
 ## Papers

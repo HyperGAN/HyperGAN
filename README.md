@@ -5,7 +5,6 @@
 A composable GAN API and CLI.  Built for developers, researchers, and artists.
 
 ![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-1.gif)
-![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-3.gif)
 
 _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the RandomWalk sampler_
 
@@ -602,6 +601,9 @@ The branches are:
 *Configuration changes*, *new architectures*, and generally anything experimental belongs in `develop`.
 
 ## Showcase
+
+![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
+![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-3.gif)
 
 If you create something cool with this let us know!  Open a pull request and add your links, and screenshots here!
 

@@ -133,9 +133,9 @@ See all configuration templates with `--list-templates` or `-l`.
 ## Train
 
 ```bash
-  # Train a 32x32 gan with batch size 32 on a folder of folders of pngs
+  # Train a 32x32 gan with batch size 32 on a folder of folders of pngs, resizing images as necessary
   cp *.png folder/
-  hypergan train folder/ -s 32x32x3 -f png -b 32 -c mymodel
+  hypergan train folder/ -s 32x32x3 -f png -c mymodel --resize
 ```
 
 ### Increasing performance

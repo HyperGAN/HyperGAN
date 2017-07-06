@@ -18,6 +18,7 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 * [Changelog](#changelog)
 * [Quick start](#quick-start)
   * [Minimum Requirements](#minimum-requirements)
+  * [Create a new project](#create-a-new-project)
   * [Install](#install)
   * [Train](#train)
   * [Increasing Performance](#increasing-performance)

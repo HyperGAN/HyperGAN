@@ -71,7 +71,9 @@ HyperGAN is currently in open beta.
 
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0.8.png'/>
 
-If you create something cool with this let us know.
+0.9 samples are still training.
+
+Share your creations here by opening a PR.
 
 # Documentation
 

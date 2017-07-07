@@ -1,1 +1,1 @@
-recursive-include hypergan/configurations *
+recursive-include hypergan/configurations *.json

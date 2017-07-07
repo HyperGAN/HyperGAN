@@ -3,12 +3,12 @@
 There are many places where we would love help:
 
 * Implement a paper.  There is a huge list of GANs left to implement: https://github.com/GKalliatakis/Delving-deep-into-GANs
-* Create an API example.  Warning: this is _very_ fun.
+* Create an API example.  Warning: this can be fun.
 * Contribute a screenshot, _gif_ or video of your trained network.
 * Search for and _share_ good GAN configurations (examples are searchable)
-* Do your own custom research.  Warning: this is _very_ addictive.
+* Do your own custom research.  Warning: this is addictive.
 
-GANs are so very interesting and we welcome anyone wanting to help explore them.
+GANs are very interesting and we welcome and encourage anyone wanting to explore them.
 
 ## Requesting a feature
 
@@ -56,7 +56,7 @@ HyperGAN can help researchers by being *sharable* (and reproducable) using `json
 
 HyperGAN is in open beta and available to everyone under the MIT license.
 
-GANs are a very hot field of research and things will likely shift to best accomodate the state of the art.
+GANs are an active area of research and things will likely shift to best accomodate the state of the art.
 
 ## Custom models
 

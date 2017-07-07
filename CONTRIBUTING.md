@@ -28,8 +28,8 @@ Our goal is to be able to train a model on expensive hardware, then deploy the g
 
 There are backends to add, deployment targets to hit.  We could use help all across the stack.  If you are an ML engineer you can help by implementing a paper.  If you are an enthusiast, share your creations. And developers, we'd love to see what you create.
 
-# Consulting
+# Custom models
 
-If you would like to contact us about consulting or custom models please email martyn.garcia AT gmail.com.
+If you would like to contact us about building custom models please email martyn.garcia AT gmail.com.
 
 HyperGAN is a long-term project by 255 BITS.

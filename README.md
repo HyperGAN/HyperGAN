@@ -176,22 +176,9 @@ Don't train on CPU!  It's too slow.
 
 # Configuration
 
-Configuration in HyperGAN uses JSON files.  You can create a new config by running `hypergan train`.
+Configuration in HyperGAN uses JSON files.  You can create a new config with the default template by running `hypergan new mymodel`.
 
-Configurations are located in:
-
-```bash
-  ~/.hypergan/configs/
-```
-
-
-## Usage
-
-```bash
-  --config [name]
-```
-
-Naming a configuration during training required.
+You can see all templates with `hypergan new mymodel -l`.
 
 ## Architecture
 

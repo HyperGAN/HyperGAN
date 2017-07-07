@@ -31,7 +31,7 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 * [API](API)
   * [Examples](#examples)
   * [Search](#search)
- * [Configuration](#configuration)
+* [Configuration](#configuration)
   * [Usage](#usage)
   * [Architecture](#architecture)
   * [GANComponent](#GANComponent)

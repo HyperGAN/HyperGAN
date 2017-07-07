@@ -24,7 +24,6 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
   * [Increasing Performance](#increasing-performance)
   * [Development Mode](#development-mode)
   * [Running on CPU](#running-on-cpu)
-
 * [The pip package hypergan](#the-pip-package-hypergan)
  * [Training](#training)
  * [Sampling](#sampling)
@@ -51,8 +50,7 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
   * [Creating a Dataset](#creating-a-dataset)
   * [Downloadable Datasets](#downloadable-datasets)
 * [Contributing](#contributing)
-  * [Our process](#our-process)
-  * [Branches](#branches)
+* [Versioning](#Versioning)
 * [Sources](#sources)
 * [Papers](#papers)
 * [Citation](#citation)
@@ -73,8 +71,6 @@ HyperGAN is currently in open beta.
 <img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0.8.png'/>
 
 0.9 samples are still training.
-
-Share your creations here by opening a PR.
 
 # Documentation
 
@@ -500,10 +496,11 @@ Determined by the GAN implementation.  These variables are the same across all t
 
 # Contributing
 
-Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab that have the label *Help Wanted*.
+Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab.
 
+See <a href='CONTRIBUTING.md'>how to contribute.</a>
 
-## Our process
+# Versioning
 
 HyperGAN uses semantic versioning.  http://semver.org/
 
@@ -512,18 +509,6 @@ TLDR: *x.y.z*
 * _x_ is incremented on stable public releases.
 * _y_ is incremented on API breaking changes.  This includes configuration file changes and graph construction changes.
 * _z_ is incremented on non-API breaking changes.  *z* changes will be able to reload a saved graph.
-
-## Branches
-
-The branches are:
-
-* `master` contains the best GAN we've found as default.  It aims to *just work* for most use cases(YMMV).
-* `develop` contains the latest and can be in a broken state.
-
-*Bug fixes* and *showcases* can be merged into `master`
-
-*Configuration changes*, *new architectures*, and generally anything experimental belongs in `develop`.
-
 
 ## Papers
 

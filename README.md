@@ -24,7 +24,14 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
   * [Increasing Performance](#increasing-performance)
   * [Development Mode](#development-mode)
   * [Running on CPU](#running-on-cpu)
-* [Configuration](#configuration)
+
+* [The pip package hypergan](#the-pip-package-hypergan)
+ * [Training](#training)
+ * [Sampling](#sampling)
+* [API](API)
+  * [Examples](#examples)
+  * [Search](#search)
+ * [Configuration](#configuration)
   * [Usage](#usage)
   * [Architecture](#architecture)
   * [GANComponent](#GANComponent)
@@ -38,12 +45,6 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
    * [Categories](#categorical-loss)
    * [Supervised](#supervised-loss)
   * [Trainers](#trainers)
-* [The pip package hypergan](#the-pip-package-hypergan)
- * [Training](#training)
- * [Sampling](#sampling)
-* [API](API)
-  * [Examples](#examples)
-  * [Search](#search)
 * [Datasets](#datasets)
  * [Unsupervised learning](#unsupervised-learning)
  * [Supervised learning](#supervised-learning)
@@ -111,7 +112,7 @@ Install hypergan:
 Install dependencies:
 
 ```bash
-  pip3 install numpy tensorflow-gpu hyperchamber flask flask-cors pillow
+  pip3 install numpy tensorflow-gpu hyperchamber pillow
   # Optional, for --viewer:
   apt-get install python-gi
 ```
@@ -136,7 +137,6 @@ See all configuration templates with `--list-templates` or `-l`.
 
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of folders of pngs, resizing images as necessary
-  cp *.png folder/
   hypergan train folder/ -s 32x32x3 -f png -c mymodel --resize
 ```
 
@@ -174,11 +174,103 @@ CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 Don't train on CPU!  It's too slow.
 
+
+# The pip package hypergan
+
+```bash
+ hypergan -h
+```
+
+## Training
+
+```bash
+  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
+```
+## Sampling
+
+```bash
+  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name] --sampler static_batch --sample_every 5
+```
+
+One way a network learns:
+
+[![Demo CountPages alpha](https://j.gifs.com/58KmzA.gif)](https://www.youtube.com/watch?v=tj3ZLNfcJFo&list=PLWW3WtkBA3MuSnAVS__D0FkENZzuTbHFg&index=1)
+
+
+To create videos:
+
+```bash
+  ffmpeg -i samples/%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
+```
+## Arguments
+
+To see a detailed list, run 
+```bash
+  hypergan -h
+```
+
+# API
+
+See the API documentation at https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
+
+```python3
+  import hypergan as hg
+```
+
+Examples
+--------
+
+See the example documentation https://github.com/255BITS/HyperGAN/tree/master/examples
+
+## Search
+
+Each example is capable of random search.  You can search along any set of parameters, including loss functions, trainers, generators, etc.
+
+# Datasets
+
+To build a new network you need a dataset.  Your data should be structured like:
+
+``` 
+  [folder]/[directory]/*.png
+```
+
+## Creating a Dataset
+
+Datasets in HyperGAN are meant to be simple to create.  Just use a folder of images.
+
+## Unsupervised learning
+
+The default mode of hypergan.
+
+```
+ [folder]/*.png
+```
+
+For jpg(pass `-f jpg`)
+
+
+## Supervised learning
+
+Training with labels allows you to train a `classifier`.
+
+Each directory in your dataset represents a classification.  
+
+Example:  Dataset setup for classification of apple and orange images:
+```
+ /dataset/apples
+ /dataset/oranges
+```
+
+You must pass `--classloss` to hypergan cli to activate this feature.
+
 # Configuration
 
 Configuration in HyperGAN uses JSON files.  You can create a new config with the default template by running `hypergan new mymodel`.
 
 You can see all templates with `hypergan new mymodel -l`.
+
 
 ## Architecture
 
@@ -378,19 +470,7 @@ See the `began` configuration template.
 
 ## Trainers
 
-### RMSProp
-
-Uses RMSProp on G and D
-
-
-### Adam
-
-Uses Adam on G and D
-
-### SGD
-
-Uses SGD on G and D
-
+Determined by the GAN implementation.  These variables are the same across all trainers.
 
 ### Configuration
 
@@ -410,98 +490,6 @@ Uses SGD on G and D
 | d_momentum | (rmsprop)  | float >= 0
 | clipped_gradients | If set, gradients will be clipped to this value. | float > 0 or None
 | d_clipped_weights | If set, the discriminator will be clipped by value. |float > 0 or None
-
-
-# The pip package hypergan
-
-```bash
- hypergan -h
-```
-
-## Training
-
-```bash
-  # Train a 256x256 gan with batch size 32 on a folder of pngs
-  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
-```
-## Sampling
-
-```bash
-  # Train a 256x256 gan with batch size 32 on a folder of pngs
-  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name] --sampler static_batch --sample_every 5
-```
-
-One way a network learns:
-
-[![Demo CountPages alpha](https://j.gifs.com/58KmzA.gif)](https://www.youtube.com/watch?v=tj3ZLNfcJFo&list=PLWW3WtkBA3MuSnAVS__D0FkENZzuTbHFg&index=1)
-
-
-To create videos:
-
-```bash
-  ffmpeg -i samples/%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
-```
-## Arguments
-
-To see a detailed list, run 
-```bash
-  hypergan -h
-```
-
-# API
-
-See the API documentation at https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
-
-```python3
-  import hypergan as hg
-```
-
-Examples
---------
-
-See the example documentation https://github.com/255BITS/HyperGAN/tree/master/examples
-
-## Search
-
-Each example is capable of random search.  You can search along any set of parameters, including loss functions, trainers, generators, etc.
-
-# Datasets
-
-To build a new network you need a dataset.  Your data should be structured like:
-
-``` 
-  [folder]/[directory]/*.png
-```
-
-## Creating a Dataset
-
-Datasets in HyperGAN are meant to be simple to create.  Just use a folder of images.
-
-## Unsupervised learning
-
-The default mode of hypergan.
-
-```
- [folder]/*.png
-```
-
-For jpg(pass `-f jpg`)
-
-
-## Supervised learning
-
-Training with labels allows you to train a `classifier`.
-
-Each directory in your dataset represents a classification.  
-
-Example:  Dataset setup for classification of apple and orange images:
-```
- /dataset/apples
- /dataset/oranges
-```
-
-You must pass `--classloss` to hypergan cli to activate this feature.
-
 
 
 ## Downloadable datasets

@@ -1,3 +1,13 @@
+Thank you for contributing.  There are many ways to get involved:
+
+* Implement a paper.  There is a huge list of GANs left to implement: https://github.com/GKalliatakis/Delving-deep-into-GANs
+* Create an API example.  Warning, this is _very_ fun.
+* Contribute a screenshot or video of your trained network.
+* Do your own custom research.
+* Search for good GAN configurations on your hardware (examples are searchable)
+
+GANs are so very interesting and we welcome anyone wanting to help explore them.
+
 # Requesting a feature
 
 Open an issue describing the feature and a little bit about why you want it.
@@ -20,18 +30,30 @@ Thank you!  Issue a pull request
 
 # Project vision
 
-The goal of this project is to create a composable GAN API to use in our own apps.
+The goal of this project is to create a composable GAN API for developers, researchers and artists to use.
 
-Our goal is to be able to train a model on expensive hardware, then deploy the generator or discriminator to various consumer platforms.
+### Developer goals:
+
+We foresee developers training models on expensive hardware, then deploying a generator or discriminator to various platforms(phones, tablets, servers, toasters (the perfect toast robot?)).  
+
+HyperGAN hopes to make that *easy* to do with the API.
+
+### Artist goals:
+
+Artists may use GANs to generate paintings, align concepts to data, or things we cant think of (they are very creative people).  
+
+HyperGAN can help artists by being *simple* to use through the command line.
+
+### Researcher goals:
+
+Researchers may find it useful to compose various parts of different papers to test concepts or add new composable types.  
+
+HyperGAN can help researchers a *sharable* way using `json` files.
 
 # Current state
 
 HyperGAN is in open beta and available to everyone under the MIT license.
 
-We welcome help from everyone. 
- 
-If you are an ML engineer(or study) you can help by implementing a paper.  If you are an enthusiast or developer, we'd love to see what you create.
- 
 # Custom models
 
 If you would like to contact us about building custom models please email martyn.garcia AT gmail.com.

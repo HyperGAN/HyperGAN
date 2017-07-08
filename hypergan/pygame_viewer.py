@@ -8,22 +8,26 @@ Usage:
 Delays loading Gtk and friends until enable() is called.
 """
 import numpy as np
-import pygame
 
 class PygameViewer:
 
-    def __init__(self, title="HyperGAN"):
+    def __init__(self, title="HyperGAN", enabled=True):
         self.screen = None
         self.title = title
+        self.enabled = enabled
 
     def update(self, image):
+        if not self.enabled: return
+
         image = np.transpose(image, [1, 0,2])
         size = [image.shape[0], image.shape[1]]
         if not self.screen:
-            self.screen = pygame.display.set_mode(size)
-            pygame.display.set_caption(self.title)
-        surface = pygame.Surface(size)
-        pygame.surfarray.blit_array(surface, image)
+            import pygame
+            self.pg = pygame
+            self.screen = self.pg.display.set_mode(size)
+            self.pg.display.set_caption(self.title)
+        surface = self.pg.Surface(size)
+        self.pg.surfarray.blit_array(surface, image)
         self.screen.blit(surface, (0,0))
-        pygame.display.flip()
+        self.pg.display.flip()
 

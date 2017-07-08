@@ -58,6 +58,7 @@ def setup_gan(config, inputs, args):
     config_name = args.config
     title = "[hypergan] static " + config_name
     GlobalViewer.title = title
+    GlobalViewer.enabled = args.viewer
 
     return gan
 

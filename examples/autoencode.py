@@ -50,6 +50,7 @@ def setup_gan(config, inputs, args):
     config_name = args.config
     title = "[hypergan] colorizer " + config_name
     GlobalViewer.title = title
+    GlobalViewer.enabled = args.viewer
 
     return gan
 

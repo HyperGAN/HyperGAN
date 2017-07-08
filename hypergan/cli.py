@@ -52,6 +52,10 @@ class CLI:
             self.save_file = default_save_path + "/model.ckpt"
             self.create_path(self.save_file)
 
+        title = "[hypergan] " + self.config_name
+        GlobalViewer.title = title
+        GlobalViewer.enabled = self.args.viewer
+
     def sampler_for(name):
         samplers = {
                 'static_batch': StaticBatchSampler,
@@ -77,11 +81,6 @@ class CLI:
 
         to create a video of the learning process.
         """
-
-        if(self.args.viewer):
-            config_name = self.config_name
-            title = "[hypergan] " + config_name
-            GlobalViewer.title = title
 
         sample_list = self.sampler.sample(sample_file, self.args.save_samples)
 

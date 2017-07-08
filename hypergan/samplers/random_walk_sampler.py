@@ -9,22 +9,23 @@ class RandomWalkSampler(BaseSampler):
         self.y = None
         self.x = None
         self.step = 0
-        self.steps = 30
+        self.steps = 8
         self.target = None
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.encoder.sample
+        print("UNIFORM")
+        z_t = gan.uniform_encoder.sample
         inputs_t = gan.inputs.x
 
         if self.z is None:
-            self.z = gan.encoder.sample.eval()
-            self.target = gan.encoder.sample.eval()
+            self.z = gan.uniform_encoder.sample.eval()
+            self.target = gan.uniform_encoder.sample.eval()
             self.input = gan.session.run(gan.inputs.x)
 
         if self.step > self.steps:
             self.z = self.target
-            self.target = gan.encoder.sample.eval()
+            self.target = gan.uniform_encoder.sample.eval()
             self.step = 0
 
         percent = float(self.step)/self.steps
@@ -35,6 +36,6 @@ class RandomWalkSampler(BaseSampler):
         with g.as_default():
             tf.set_random_seed(1)
             return {
-                'generator': gan.session.run(gan.generator.sample, feed_dict={z_t: z_interp, inputs_t: self.input})
+                'generator': gan.session.run(gan.uniform_sample, feed_dict={z_t: z_interp, inputs_t: self.input})
             }
 

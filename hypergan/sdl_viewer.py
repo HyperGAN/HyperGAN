@@ -12,16 +12,19 @@ import numpy as np
 import pygame
 
 class SdlViewer:
-    def __init__(self, size = (2048, 256)):
+    def __init__(self, size = (2048, 512)):
         self.size = size
 
     def enable(self):
         self.screen = pygame.display.set_mode(self.size)
 
     def update(self, image):
-        surface = pygame.Surface((self.size[1], self.size[0]))
+        print("preImage is ",image.shape)
+        image = np.transpose(image, [1, 0,2])
+        print("Image is ",image.shape)
+        surface = pygame.Surface(self.size)
         pygame.surfarray.blit_array(surface, image)
-        surface = pygame.transform.rotate(surface, -90)
+        #surface = pygame.transform.rotate(surface, 90)
         self.screen.blit(surface, (0,0))
         pygame.display.flip()
 

@@ -108,9 +108,7 @@ Install hypergan:
 Install dependencies:
 
 ```bash
-  pip3 install numpy tensorflow-gpu hyperchamber pillow
-  # Optional, for --viewer:
-  apt-get install python-gi
+  pip3 install numpy tensorflow-gpu hyperchamber pillow pygame
 ```
 
 ## Create a new project

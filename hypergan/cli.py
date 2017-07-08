@@ -81,7 +81,7 @@ class CLI:
         if(self.args.viewer):
             config_name = self.config_name
             title = "[hypergan] " + config_name
-            #GlobalViewer.window.set_title(title)
+            GlobalViewer.title = title
 
         sample_list = self.sampler.sample(sample_file, self.args.save_samples)
 

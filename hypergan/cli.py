@@ -4,7 +4,7 @@ import tensorflow as tf
 from hypergan.gan_component import ValidationException
 from . import GAN
 from .inputs import *
-from .sdl_viewer import GlobalViewer
+from .viewer import GlobalViewer
 from .configuration import Configuration
 import hypergan as hg
 import time
@@ -79,7 +79,6 @@ class CLI:
         """
 
         if(self.args.viewer):
-            GlobalViewer.enable()
             config_name = self.config_name
             title = "[hypergan] " + config_name
             #GlobalViewer.window.set_title(title)

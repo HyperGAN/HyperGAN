@@ -67,7 +67,6 @@ def setup_gan(config, inputs, args):
 
     tf.train.start_queue_runners(sess=gan.session)
 
-    GlobalViewer.enable()
     title = "[hypergan] align-test " + args.config
     GlobalViewer.window.set_title(title)
 

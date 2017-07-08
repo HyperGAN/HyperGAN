@@ -47,7 +47,6 @@ def setup_gan(config, inputs, args):
 
  
     tf.train.start_queue_runners(sess=gan.session)
-    GlobalViewer.enable()
     config_name = args.config
     title = "[hypergan] colorizer " + config_name
     GlobalViewer.window.set_title(title)

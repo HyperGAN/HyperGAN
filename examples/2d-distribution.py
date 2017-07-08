@@ -20,7 +20,6 @@ if args.action == 'search':
 
 def train(config, args):
     if(args.viewer):
-        GlobalViewer.enable()
         title = "[hypergan] 2d-test " + args.config
         GlobalViewer.window.set_title(title)
 

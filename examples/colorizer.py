@@ -72,11 +72,23 @@ width, height, channels = parse_size(args.size)
 
 config = lookup_config(args)
 if args.action == 'search':
-    config = AlphaGANRandomSearch({}).random_config()
+    random_config = AlphaGANRandomSearch({}).random_config()
+    if args.config_list is not None:
+        config = random_config_from_list(args.config_list)
+
+        config["generator"]=random_config["generator"]
+        config["g_encoder"]=random_config["g_encoder"]
+        config["discriminator"]=random_config["discriminator"]
+        config["z_discriminator"]=random_config["z_discriminator"]
+
+        # TODO Other search terms?
+    else:
+        config = random_config
     config["d_layer_filter"] = random.choice([True, False])
     config["g_layer_filter"] = random.choice([True, False])
     config["encode_layer_filter"] = random.choice([True, False])
     config["cycloss_lambda"]= 0
+    config["discriminator"]["skip_layer_filters"]=random.choice([[],[0],[0,1],[0,1,2],[0,1,2,3]])
 
 if config.g_layer_filter:
     config.generator['layer_filter'] = add_bw

@@ -4,6 +4,7 @@ import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 import numpy as np
+import random
 
 from hypergan.cli import CLI
 from hypergan.gan_component import GANComponent

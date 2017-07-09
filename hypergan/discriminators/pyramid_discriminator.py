@@ -29,7 +29,8 @@ class PyramidDiscriminator(BaseDiscriminator):
                 pass
             else:
                 net = self.layer_filter(net)
-            net = config.block(self, net, initial_depth, filter=config.initial_filter or 3)
+
+            net = config.block(self, net, initial_depth, filter=config.initial_filter or 2)
         for i in range(layers):
             xg = None
             is_last_layer = (i == layers-1)

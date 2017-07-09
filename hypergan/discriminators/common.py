@@ -1,7 +1,7 @@
 import tensorflow as tf
 import hyperchamber as hc
 
-def repeating_block(component, net, depth, filter=3):
+def repeating_block(component, net, depth, filter=2):
     ops = component.ops
     config = component.config
     layer_regularizer = config.layer_regularizer
@@ -20,7 +20,7 @@ def repeating_block(component, net, depth, filter=3):
     print('[discriminator] layer', net)
     return net
 
-def standard_block(component, net, depth, filter=3):
+def standard_block(component, net, depth, filter=2):
     ops = component.ops
     config = component.config
     stride_w = filter-1

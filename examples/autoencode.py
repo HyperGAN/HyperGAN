@@ -17,7 +17,7 @@ from hypergan.search.alphagan_random_search import AlphaGANRandomSearch
 
 from examples.common import *
 
-arg_parser = ArgumentParser("Colorize an image")
+arg_parser = ArgumentParser("Autoencode an image with AlphaGAN")
 arg_parser.add_image_arguments()
 args = arg_parser.parse_args()
 
@@ -25,7 +25,20 @@ width, height, channels = parse_size(args.size)
 
 config = lookup_config(args)
 if args.action == 'search':
-    config = AlphaGANRandomSearch({}).random_config()
+    random_config = AlphaGANRandomSearch({}).random_config()
+    if args.config_list is not None:
+        config = random_config_from_list(args.config_list)
+
+        config["generator"]=random_config["generator"]
+        config["g_encoder"]=random_config["g_encoder"]
+        config["discriminator"]=random_config["discriminator"]
+        config["z_discriminator"]=random_config["z_discriminator"]
+        config["generator"]["skip_linear"]=random.choice([True])
+    else:
+        config = random_config
+    config["cycloss_lambda"]= 0.1
+
+config["class"]="class:hypergan.gans.alpha_gan.AlphaGAN" # TODO
 
 save_file = "save/model.ckpt"
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
@@ -48,7 +61,7 @@ def setup_gan(config, inputs, args):
  
     tf.train.start_queue_runners(sess=gan.session)
     config_name = args.config
-    title = "[hypergan] colorizer " + config_name
+    title = "[hypergan] autoencode " + config_name
     GlobalViewer.title = title
     GlobalViewer.enabled = args.viewer
 

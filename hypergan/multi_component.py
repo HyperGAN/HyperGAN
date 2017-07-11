@@ -37,7 +37,7 @@ class MultiComponent():
         if isinstance(data[0], type({})):
             full_dict = {}
             for d in data:
-                full_dict = {**full_dict, **d}
+                full_dict.update(d)
             return full_dict
         # loss functions return [d_loss, g_loss].  We combine columnwise.
         if isinstance(data, list) and isinstance(data[0], list) and isinstance(data[0][0], tf.Tensor):

@@ -69,6 +69,7 @@ def setup_gan(config, inputs, args):
 
     title = "[hypergan] align-test " + args.config
     GlobalViewer.title = title
+    GlobalViewer.enabled = args.viewer
 
     return gan
 

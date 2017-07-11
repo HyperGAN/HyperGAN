@@ -21,6 +21,7 @@ from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.autoencode_sampler import AutoencodeSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
@@ -52,10 +53,15 @@ class CLI:
             self.save_file = default_save_path + "/model.ckpt"
             self.create_path(self.save_file)
 
+        title = "[hypergan] " + self.config_name
+        GlobalViewer.title = title
+        GlobalViewer.enabled = self.args.viewer
+
     def sampler_for(name):
         samplers = {
                 'static_batch': StaticBatchSampler,
                 'random_walk': RandomWalkSampler,
+                'alphagan_random_walk': AlphaganRandomWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
                 'began': BeganSampler,
@@ -77,12 +83,6 @@ class CLI:
 
         to create a video of the learning process.
         """
-
-        if(self.args.viewer):
-            GlobalViewer.enable()
-            config_name = self.config_name
-            title = "[hypergan] " + config_name
-            GlobalViewer.window.set_title(title)
 
         sample_list = self.sampler.sample(sample_file, self.args.save_samples)
 

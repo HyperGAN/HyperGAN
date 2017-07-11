@@ -92,26 +92,36 @@ See the full changelog here:
 
 ## Install
 
-Optionally, create a `virtualenv`:
 
-```bash
-  virtualenv --system-site-packages -p python3 hypergan
-  source hypergan/bin/activate
-```
-
-Install hypergan:
+### Install hypergan:
 
 ```bash
   pip3 install hypergan --upgrade
 ```
 
-Install dependencies:
+### Optional `virtualenv`:
+
+If you use virtualenv:
 
 ```bash
-  pip3 install numpy tensorflow-gpu hyperchamber pillow
-  # Optional, for --viewer:
-  apt-get install python-gi
+  virtualenv --system-site-packages -p python3 hypergan
+  source hypergan/bin/activate
 ```
+### Dependencies:
+
+If installation fails try this.
+
+```bash
+  pip3 install numpy tensorflow-gpu hyperchamber pillow pygame
+```
+
+### Dependency help
+
+If the above step fails see the dependency documentation:
+
+* tensorflow - https://www.tensorflow.org/install/
+* pygame  - http://www.pygame.org/wiki/GettingStarted
+
 
 ## Create a new project
 

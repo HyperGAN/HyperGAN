@@ -47,10 +47,10 @@ def setup_gan(config, inputs, args):
 
  
     tf.train.start_queue_runners(sess=gan.session)
-    GlobalViewer.enable()
     config_name = args.config
     title = "[hypergan] colorizer " + config_name
-    GlobalViewer.window.set_title(title)
+    GlobalViewer.title = title
+    GlobalViewer.enabled = args.viewer
 
     return gan
 
@@ -104,6 +104,3 @@ elif args.action == 'search':
     search(config, inputs, args)
 else:
     print("Unknown action: "+args.action)
-
-if(args.viewer):
-    GlobalViewer.window.destroy()

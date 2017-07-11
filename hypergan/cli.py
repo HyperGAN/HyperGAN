@@ -21,6 +21,7 @@ from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.autoencode_sampler import AutoencodeSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
@@ -60,6 +61,7 @@ class CLI:
         samplers = {
                 'static_batch': StaticBatchSampler,
                 'random_walk': RandomWalkSampler,
+                'alphagan_random_walk': AlphaganRandomWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
                 'began': BeganSampler,

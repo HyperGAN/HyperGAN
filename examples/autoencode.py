@@ -50,6 +50,7 @@ inputs.create(args.directory,
               height=height,
               resize=True)
 
+save_file = "save/model.ckpt"
 
 def setup_gan(config, inputs, args):
     gan = AutoencoderGAN(config=config, inputs=inputs)

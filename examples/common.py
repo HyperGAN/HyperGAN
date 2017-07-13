@@ -342,7 +342,7 @@ class TextInput:
 
 
 def lookup_sampler(name):
-    return CLI.sampler_for(name)
+    return CLI.sampler_for(name, name)
 
 def parse_size(size):
     width = int(size.split("x")[0])

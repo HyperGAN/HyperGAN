@@ -118,6 +118,8 @@ class ResizeConvGenerator(BaseGenerator):
         if final_activation:
             net = self.layer_regularizer(net)
             net = final_activation(net)
+        if config.final_layer_filter:
+            net = config.final_layer_filter(gan, config, net)
 
         self.sample = net
         return self.sample

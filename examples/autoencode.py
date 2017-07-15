@@ -74,6 +74,7 @@ def train(config, inputs, args):
 
     metrics = [accuracy(gan.inputs.x, gan.generator.sample), batch_diversity(gan.generator.sample)]
     sum_metrics = [0 for metric in metrics]
+    samples = 0
 
     for i in range(args.steps):
         gan.step()
@@ -85,7 +86,8 @@ def train(config, inputs, args):
             
         if i % args.sample_every == 0:
             print("sampling "+str(i))
-            sample_file = "samples/"+str(i)+".png"
+            sample_file="samples/%06d.png" % (samples)
+            samples += 1
             sampler.sample(sample_file, args.save_samples)
 
         if args.action == 'train' and i % args.save_every == 0 and i > 0:

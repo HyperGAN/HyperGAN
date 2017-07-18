@@ -7,12 +7,12 @@ import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 import numpy as np
+import math
 from hypergan.generators import *
 from hypergan.gans.base_gan import BaseGAN
 from hypergan.gans.standard_gan import StandardGAN
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.viewer import GlobalViewer
-from hypergan.gans.autoencoder_gan import AutoencoderGAN
 from hypergan.search.alphagan_random_search import AlphaGANRandomSearch
 
 from examples.common import *
@@ -53,7 +53,7 @@ inputs.create(args.directory,
 save_file = "save/model.ckpt"
 
 def setup_gan(config, inputs, args):
-    gan = AutoencoderGAN(config=config, inputs=inputs)
+    gan = hg.GAN(config=config, inputs=inputs)
     gan.create()
 
     if(args.action != 'search' and os.path.isfile(save_file+".meta")):
@@ -72,14 +72,16 @@ def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     sampler = lookup_sampler(args.sampler or 'autoencode')(gan)
 
-    metrics = [accuracy(gan.inputs.x, gan.generator.sample), batch_diversity(gan.generator.sample)]
+    accuracy_t = batch_accuracy(gan.inputs.x, gan.generator.sample)
+    diversity_t = batch_diversity(gan.uniform_sample)
+    metrics = [accuracy_t, diversity_t]
     sum_metrics = [0 for metric in metrics]
     samples = 0
 
     for i in range(args.steps):
         gan.step()
 
-        if i > args.steps * 9.0/10:
+        if i == (args.steps-1):
             for k, metric in enumerate(gan.session.run(metrics)):
                 print("Metric "+str(k)+" "+str(metric))
                 sum_metrics[k] += metric 
@@ -93,6 +95,21 @@ def train(config, inputs, args):
         if args.action == 'train' and i % args.save_every == 0 and i > 0:
             print("saving " + save_file)
             gan.save(save_file)
+
+        if i % 100 and i > 500:
+            losses = gan.session.run([loss[1] for loss in gan.trainer.losses])
+            accuracy, diversity = gan.session.run([
+                accuracy_t, 
+                diversity_t
+            ])
+
+            has_failed = any([math.isnan(loss) for loss in losses]) or \
+                    accuracy > 1000 or diversity < 1000
+
+            if has_failed:
+                sum_metrics = [-1,-1]
+                print("breaking from failure detection")
+                break
 
     return sum_metrics
 

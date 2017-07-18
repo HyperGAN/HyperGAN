@@ -213,8 +213,11 @@ def batch_diversity(net):
     net -= avg
     return tf.reduce_sum(tf.abs(net))
 
-def batch_accuracy(a, b):
-    "Each point of a is measured against the closest point on b.  Distance differences are added together."
+def distribution_accuracy(a, b):
+    """
+    Each point of a is measured against the closest point on b.  Distance differences are added together.  
+    
+    This works best on a large batch of small inputs."""
     tiled_a = a
     tiled_a = tf.reshape(tiled_a, [int(tiled_a.get_shape()[0]), 1, int(tiled_a.get_shape()[1])])
 
@@ -229,8 +232,8 @@ def batch_accuracy(a, b):
     difference = tf.reduce_sum(difference, axis=1)
     return tf.reduce_sum(difference, axis=0) 
 
-def accuracy(a, b):
-    "Each point of a is measured against the closest point on b.  Distance differences are added together."
+def batch_accuracy(a, b):
+    "Difference from a to b.  Meant for reconstruction measurements."
     difference = tf.abs(a-b)
     difference = tf.reduce_min(difference, axis=1)
     difference = tf.reduce_sum(difference, axis=1)

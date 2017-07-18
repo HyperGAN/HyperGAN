@@ -30,6 +30,9 @@ class AlphaGANRandomSearch(RandomSearch):
             'z_discriminator_extra_layers': [0,1,2],
             'z_discriminator_extra_layers_reduction': [1,2],
             'cycloss_lambda': -1,
+            'concat_linear': [64,128,256],
+            'concat_linear_filters': [32,64,128,256],
+            'skip_linear': [False, True],
             'd_layer_filter': [True,False],
             'g_layer_filter': [True,False],
             'encode_layer_filter': [True, False]

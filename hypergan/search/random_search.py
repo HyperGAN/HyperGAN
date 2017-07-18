@@ -160,7 +160,7 @@ class RandomSearch:
             "layers": [3,4,5,6],
             "initial_depth": [32],
             "initializer": ['orthogonal', 'random'],
-            "layer_regularizer": [None, 'batch_norm', 'layer_norm'],
+            "layer_regularizer": [None,  'layer_norm'],
             "noise":[False, 1e-2],
             "progressive_enhancement":[False, True],
             "orthogonal_gain": list(np.linspace(0.1, 2, num=10000)),

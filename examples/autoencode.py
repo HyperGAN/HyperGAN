@@ -33,6 +33,7 @@ if args.action == 'search':
         config["g_encoder"]=random_config["g_encoder"]
         config["discriminator"]=random_config["discriminator"]
         config["z_discriminator"]=random_config["z_discriminator"]
+        config["cycloss_lambda"]=random_config["cycloss_lambda"]
     else:
         config = random_config
 

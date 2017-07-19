@@ -33,10 +33,8 @@ if args.action == 'search':
         config["g_encoder"]=random_config["g_encoder"]
         config["discriminator"]=random_config["discriminator"]
         config["z_discriminator"]=random_config["z_discriminator"]
-        config["generator"]["skip_linear"]=random.choice([True])
     else:
         config = random_config
-    config["cycloss_lambda"]= 0.1
 
 config["class"]="class:hypergan.gans.alpha_gan.AlphaGAN" # TODO
 

@@ -72,7 +72,7 @@ class AlphaGAN(BaseGAN):
             z_size = 1
             for size in ops.shape(encoder.sample)[1:]:
                 z_size *= size
-            uniform_encoder_config.z = z_size
+            uniform_encoder_config.z = z_size // len(uniform_encoder_config.projections)
             uniform_encoder = UniformEncoder(self, uniform_encoder_config)
             uniform_encoder.create()
 
@@ -82,13 +82,7 @@ class AlphaGAN(BaseGAN):
             x = self.inputs.x
 
             # project the output of the autoencoder
-            projection_input = ops.reshape(encoder.sample, [ops.shape(encoder.sample)[0],-1])
-            projections = []
-            for projection in uniform_encoder.config.projections:
-                projection = uniform_encoder.lookup(projection)(uniform_encoder.config, self.gan, projection_input)
-                projection = ops.reshape(projection, ops.shape(encoder.sample))
-                projections.append(projection)
-            z_hat = tf.concat(axis=3, values=projections)
+            z_hat = encoder.sample
 
             z = ops.reshape(z, ops.shape(z_hat))
             # end encoding

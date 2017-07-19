@@ -126,7 +126,7 @@ class RandomSearch:
             "depth_increase":[32],
             "initializer": [None, 'random'],
             "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
-            "final_activation":['lrelu', 'tanh'],
+            "final_activation":['lrelu', 'tanh', None],
             "block_repeat_count":[1,2,3],
             "block":[
                 hg.generators.common.standard_block, 
@@ -145,7 +145,7 @@ class RandomSearch:
     def discriminator(self):
         discriminator_opts = {
             "activation":['relu', 'lrelu', 'tanh', 'selu', 'prelu', 'crelu'],
-            "final_activation":['relu', 'lrelu', 'tanh', 'selu', 'prelu', 'crelu'],
+            "final_activation":['tanh', None],
             "block_repeat_count":[1,2,3],
             "block":[hg.discriminators.common.repeating_block,
                    hg.discriminators.common.standard_block,

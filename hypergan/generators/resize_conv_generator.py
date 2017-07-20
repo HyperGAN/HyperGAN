@@ -43,7 +43,17 @@ class ResizeConvGenerator(BaseGenerator):
         final_activation = ops.lookup(config.final_activation)
         block = config.block or standard_block
 
+        shape = ops.shape(net)
+        if(shape[2] == 1):
+            primes = config.initial_dimensions or [4, 4]
+            print("[generator] Reshaping network based on primes.", primes)
+            net = ops.reshape(net, [shape[0], primes[0], primes[1], -1])
+            print("[generator] Reshaped network layer to ", net)
+
+
         if config.skip_linear:
+            print("[generator] Skipping linear", net)
+            
             net = self.layer_filter(net)
             if config.concat_linear:
                 size = ops.shape(net)[1]*ops.shape(net)[2]*config.concat_linear_filters

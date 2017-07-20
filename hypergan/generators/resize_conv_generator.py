@@ -44,7 +44,7 @@ class ResizeConvGenerator(BaseGenerator):
         block = config.block or standard_block
 
         shape = ops.shape(net)
-        if(shape[2] == 1):
+        if len(shape) == 4 and shape[2] == 1:
             primes = config.initial_dimensions or [4, 4]
             print("[generator] Reshaping network based on primes.", primes)
             net = ops.reshape(net, [shape[0], primes[0], primes[1], -1])

@@ -111,11 +111,9 @@ class CLI:
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
-    def build(self):
-        save_file = self.args.config+".pbgraph"
-        build_file = os.path.expanduser("builds/"+save_file)
+    def build(self, args):
+        build_file = os.path.expanduser("~/.hypergan/builds/"+args.config+"/generator.ckpt")
         self.create_path(build_file)
-        tf.train.write_graph(self.gan.session.graph, 'builds', save_file)
 
         print("Saved generator to ", build_file)
 

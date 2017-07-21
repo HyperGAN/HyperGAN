@@ -80,23 +80,24 @@ class ImageLoader:
 
         # Ensure that the random shuffling has good mixing properties.
         min_fraction_of_examples_in_queue = 0.4
-
+        
         # Generate a batch of images and labels by building up a queue of examples.
-        x,y = self._get_data(float_image, label)
+        filename, x,y = self._get_data(input_queue[0],float_image, label)
 
         y = tf.cast(y, tf.int64)
         y = tf.one_hot(y, total_labels, 1.0, 0.0)
         self.x = x
         self.y = y
+        self.filename = filename
         return x, y
 
-    def _get_data(self, image, label):
+    def _get_data(self, filename, image, label):
         batch_size = self.batch_size
         num_preprocess_threads = 24
-        images, label_batch = tf.train.shuffle_batch(
-            [image, label],
+        files, images, label_batch = tf.train.shuffle_batch(
+            [filename, image, label],
             batch_size=batch_size,
             num_threads=num_preprocess_threads,
             capacity= batch_size*10,
             min_after_dequeue=batch_size)
-        return images, tf.reshape(label_batch, [batch_size])
+        return files, images, tf.reshape(label_batch, [batch_size])

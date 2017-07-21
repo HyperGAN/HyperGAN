@@ -7,6 +7,7 @@ class StaticBatchSampler(BaseSampler):
         self.z = None
         self.y = None
         self.x = None
+        self.assign = None
 
     def _sample(self):
         gan = self.gan
@@ -16,6 +17,11 @@ class StaticBatchSampler(BaseSampler):
         if self.z is None:
             self.z = gan.encoder.z.eval()
             self.input = gan.session.run(gan.inputs.x)
+
+        #if self.gan.config.sampler_assign:
+        #    if self.assign == None:
+        #        self.assign = z_t.assign(self.z)
+        #    self.gan.session.run(self.assign)
 
         g=tf.get_default_graph()
         with g.as_default():

@@ -86,8 +86,10 @@ class TensorflowOps:
     def describe(self, description):
         self.description = description
 
-    def get_weight(self, shape):
-        weight = tf.get_variable('w', shape, dtype=self.dtype, initializer=self.initializer())
+    def get_weight(self, shape, name=None):
+        if name == None:
+            name = 'w'
+        weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=self.initializer())
         if not self._reuse:
             self.weights.append(weight)
         return weight

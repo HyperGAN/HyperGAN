@@ -60,6 +60,6 @@ class MultiStepTrainer(BaseTrainer):
                 metric_values = sess.run([optimizer] + self.output_variables(metric), feed_dict)[1:]
 
                 if self.current_step % 100 == 0:
-                    print("loss " + str(i) + "  "+ self.output_string(metric) % tuple([self.current_step] + metric_values))
+                    print("loss " + str(i) + "  "+ loss[0] + " " + self.output_string(metric) % tuple([self.current_step] + metric_values))
             else:
                 _ = sess.run(optimizer, feed_dict)

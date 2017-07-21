@@ -203,7 +203,7 @@ class CLI:
         elif self.method == 'build':
             self.gan.create()
             if not self.gan.load(self.save_file):
-                print("Initializing new model")
+                raise "Could not load model: "+ save_file
             else:
                 print("Model loaded")
             self.build()

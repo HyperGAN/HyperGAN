@@ -38,6 +38,7 @@ class GenerativeLatentOptimizer(BaseGAN):
         self.trainer = None
         self.session = None
         self.zs = {}
+        self.reconstructions = {}
 
     def required(self):
         return "generator".split()
@@ -64,29 +65,26 @@ class GenerativeLatentOptimizer(BaseGAN):
                 create_if(self.generator)
                 self.uniform_sample = self.generator.sample
 
-
-            var_lists = [self.variables() + self.generator.variables()]
-        
-            losses = []
-            metrics = []
-
             if config.type == 'reconstruction':
-                self.loss = tf.square(self.inputs.x - self.generator.sample)
+                var_lists = [self.variables() + self.generator.variables()]
+                losses = [tf.square(self.inputs.x - self.generator.sample)]
             elif config.type == 'pyramid_reconstruction':
                 start = [1, 1]
                 end = self.ops.shape(self.inputs.x)
                 end = [end[1], end[2]]
                 current = start
-                self.loss = tf.zeros(1)
+                loss = tf.zeros(1)
                 while current[0] < start[0] and current[1] < start[0]:
                     current[0]*=2
                     current[1]*=2 # TODO ratio
 
                     currentx = tf.image.resize_images(self.inputs.x,current, 1)
                     currentg = tf.image.resize_images(self.generator.sample,current, 1)
-                    self.loss += self.ops.squash(tf.square(currentx - currentg))
+                    loss += self.ops.squash(tf.square(currentx - currentg))
 
-                self.loss += self.ops.squash(tf.square(self.inputs.x - self.generator.sample))
+                loss += self.ops.squash(tf.square(self.inputs.x - self.generator.sample))
+                losses = [loss]
+                var_lists = [self.variables() + self.generator.variables()]
             elif config.type == 'z_encoder':
                 encoder_discriminator = self.create_component(config.z_discriminator)
                 encoder_discriminator.ops.describe("z_discriminator")
@@ -95,38 +93,44 @@ class GenerativeLatentOptimizer(BaseGAN):
 
                 encoder_loss = self.create_component(self.config.loss, discriminator = encoder_discriminator)
                 encoder_loss.create()
-                print("D_LOSS", encoder_loss.d_loss)
+                
+                sample = self.generator.sample
+                uniform_g = self.generator.reuse(z_target)
+                self.generator.sample = sample
                 with tf.variable_scope("d"):
                     discriminator = self.create_component(config.discriminator)
-                    discriminator.create(x=self.inputs.x, g=self.generator.sample)
-                standard_loss = self.create_component(self.config.loss, discriminator = discriminator)
-                standard_loss.create()
-                #self.loss = tf.square(self.inputs.x - self.generator.sample) + encoder_loss.g_loss
-                self.loss = encoder_loss.g_loss + standard_loss.g_loss
-                self.loss += tf.square(self.inputs.x - self.generator.sample) 
-                #reshaped_z = self.ops.reshape(z, self.ops.shape(dx))
-                #self.loss += tf.norm(dx - dg)# + tf.norm(dg - reshaped_z)
-                #var_lists.append(discriminator.variables() + self.variables())
+                    stacked = self.ops.concat([self.inputs.x, sample, uniform_g], axis=0)
+                    discriminator.create(net=stacked)
 
-                var_lists.append(discriminator.variables())
-                var_lists.append(encoder_discriminator.variables() + self.variables())
-            
-                #losses.append(('discriminator', tf.square(dx - reshaped_z)))
+                standard_loss = self.create_component(self.config.loss, discriminator = discriminator)
+                standard_loss.create(split=3)
+                losses = []
+                distance_lambda = 1
+                distance_loss = distance_lambda * self.ops.squash(tf.abs(self.inputs.x - self.generator.sample))
+                self.reconstruction_multiplier = tf.ones([self.gan.batch_size(), 1], dtype=tf.float32)
+                losses.append(('generator', distance_loss + 100*encoder_loss.g_loss))
+                losses.append(('generator', self.reconstruction_multiplier*distance_loss + standard_loss.g_loss))
                 losses.append(('discriminator', standard_loss.d_loss))
                 losses.append(('discriminator', encoder_loss.d_loss))
+                var_lists = []
+                var_lists.append(self.variables())
+                var_lists.append(self.generator.variables())
+                var_lists.append(discriminator.variables())
+                var_lists.append(encoder_discriminator.variables())
+                metrics = []
                 metrics.append(encoder_loss.metrics)
-                metrics.append(encoder_loss.metrics)
+                metrics.append(standard_loss.metrics)
+                metrics.append(standard_loss.metrics)
                 metrics.append(encoder_loss.metrics)
             elif config.type == 'wgan':
                 with tf.variable_scope("d"):
                     discriminator = self.create_component(config.discriminator)
                     dx = discriminator.create(net=self.inputs.x)
                     dg = discriminator.reuse(net=self.generator.sample)
-                self.loss = tf.abs(0.5 - dx - dg)
-                var_lists[0] += discriminator.variables()
-                self.loss += 0.01*self.ops.squash(tf.abs(self.inputs.x - self.generator.sample))
+                losses = tf.abs(dx - dg) + 0.01*self.ops.squash(tf.norm(self.inputs.x - self.generator.sample))
+                var_lists = self.variables() + self.generator.variables() + discriminator.variables()
+                metrics = []
 
-            losses = [('generator', self.loss)] + losses
             self.trainer = MultiStepTrainer(self, self.config.trainer, losses, var_lists=var_lists, metrics=metrics)
             self.trainer.create()
 
@@ -153,6 +157,20 @@ class GenerativeLatentOptimizer(BaseGAN):
         stacked = np.vstack(zs)
         return stacked
 
+    def reconstruction_costs(self, next_filenames):
+        costs = []
+        for filename in next_filenames:
+            if filename in self.reconstructions:
+                self.reconstructions[filename]+=1.0
+            else:
+                self.reconstructions[filename]=0.0
+            if(self.reconstructions[filename] > 1.0):
+                self.reconstructions[filename] = 0.0
+
+            costs.append(self.reconstructions[filename])
+        stacked = np.vstack(costs)
+        return stacked
+
     def step(self, feed_dict={}):
         if not self.created:
             self.create()
@@ -161,6 +179,7 @@ class GenerativeLatentOptimizer(BaseGAN):
         next_filenames, next_x = self.session.run([self.inputs.filename, self.inputs.x])
         next_z = self.lookup_z(next_filenames)
         feed_dict[self.inputs.x]=next_x
+        feed_dict[self.reconstruction_multiplier]=self.reconstruction_costs(next_filenames)
         self.session.run(self.assign_z, {self.assign_z_feed: next_z})
 
         self.trainer.step(feed_dict)

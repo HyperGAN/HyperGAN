@@ -16,6 +16,7 @@ class FullyConnectedDiscriminator(BaseDiscriminator):
         activation = ops.lookup(config.activation or 'lrelu')
         final_activation = ops.lookup(config.final_activation or 'tanh')
 
+        net = tf.reshape(net, [ops.shape(net)[0], -1])
         net = ops.linear(net, 512)
         net = activation(net)
         net = ops.linear(net, 512)

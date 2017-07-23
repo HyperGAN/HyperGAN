@@ -1,6 +1,7 @@
 import hyperchamber as hc
 import inspect
 import itertools
+import types
 
 
 class ValidationException(Exception):
@@ -116,7 +117,7 @@ class GANComponent:
     def layer_regularizer(self, net):
         symbol = self.config.layer_regularizer
         op = self.gan.ops.lookup(symbol)
-        if op:
+        if op and isinstance(op, types.FunctionType):
             net = op(self, net)
         return net
 

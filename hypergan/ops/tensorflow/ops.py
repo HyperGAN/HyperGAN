@@ -24,6 +24,7 @@ class TensorflowOps:
         self.device = config.device
         self.initialized = False
         self._reuse = False
+        self.config = config
         if initializer == 'orthogonal':
             self.initializer = self.orthogonal_initializer(orthogonal_gain)
         else:
@@ -86,8 +87,12 @@ class TensorflowOps:
     def describe(self, description):
         self.description = description
 
-    def get_weight(self, shape):
-        weight = tf.get_variable('w', shape, dtype=self.dtype, initializer=self.initializer())
+    def get_weight(self, shape, name=None, initializer=None):
+        if name == None:
+            name = "w"
+        if initializer == None:
+            initializer = self.initializer()
+        weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer)
         if not self._reuse:
             self.weights.append(weight)
         return weight
@@ -106,8 +111,42 @@ class TensorflowOps:
         else:
             raise Exception("dtype not defined: "+str(dtype))
 
+    def cosine_conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
+        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+            w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
+            conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding='SAME')
+            biases = self.get_bias([output_dim])
+            biases *= 0.001
+            bias = tf.nn.bias_add(conv, biases)
+
+            w_square = tf.square(w)
+            w_sum = tf.reduce_sum(w, [0,1,2])
+            biases_square = tf.square(biases)
+            w_biases = tf.add(w_sum, biases_square)
+            w_norm = tf.sqrt(tf.abs(w_biases) + 0.00001)
+
+            net_square = tf.square(net)
+            w_ones = tf.ones_like(w)
+            net_sum = tf.nn.conv2d(net_square, w_ones, strides=[1, stride_h, stride_w, 1], padding='SAME')
+            net_biases = tf.add(net_sum, 0.00001)
+            net_norm = tf.sqrt(tf.abs(net_biases)+0.00001)
+
+            conv_norm_w = tf.div(bias, w_norm)
+            
+            return tf.div(conv_norm_w, net_norm)
+
+
+
+
     def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         self.assert_tensor(net)
+
+        print("CONF ", self.config)
+        if self.config.layer_regularizer == 'cosine_norm':
+            print("F S ", filter_w, stride_w)
+            print("COSINE NORM")
+            return self.cosine_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
+
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding='SAME')
@@ -133,7 +172,18 @@ class TensorflowOps:
 
             return deconv
 
+    # TODO: Can't get this to work on output from Z.  it NaN
+    def cosine_linear(self, net, output_dim):
+        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+            w = self.get_weight([self.shape(net)[1], output_dim], name='cos_w')
+            b = self.get_bias([output_dim])
+            w_norm = tf.sqrt(tf.reduce_sum(w**2, axis=0, keep_dims=True) + b ** 2)+0.000001
+            x_norm = tf.sqrt(tf.reduce_sum(net**2, axis=1, keep_dims=True) + 0.000001)
+            return (tf.matmul(net, w) + 0.001 * b) / w_norm / x_norm
+
     def linear(self, net, output_dim):
+        if self.config.linear_type == 'cosine':
+            return self.cosine_linear(net, output_dim)
         self.assert_tensor(net)
         initializer = self.initializer()
         shape = self.shape(net)
@@ -221,6 +271,8 @@ class TensorflowOps:
             return tf.nn.tanh
         if symbol == 'sigmoid':
             return tf.nn.sigmoid
+        if symbol == 'cosine_norm':
+            return "cosine_norm"
         if symbol == 'batch_norm':
             return layer_regularizers.batch_norm_1
         if symbol == 'layer_norm':

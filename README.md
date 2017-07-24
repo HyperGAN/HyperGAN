@@ -190,7 +190,7 @@ Don't train on CPU!  It's too slow.
 ## Training
 
 ```bash
-  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  # Train a 32x32 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
 ## Sampling

@@ -135,35 +135,47 @@ class TensorflowOps:
 
             return conv / (w_norm * net_norm)
 
+    def weightnorm_conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
+        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+            w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
+            g = self.get_weight(name='g', shape=[1,output_dim])
+            conv = tf.nn.conv2d(net, w, strides=[1, 1, 1, 1], padding='SAME')
+            b = self.get_bias([output_dim], 0.001)
+
+            w_square = tf.square(w)
+            #w_sum = tf.reduce_sum(w_square, [0,1,2])
+            w_conv = tf.nn.conv2d(tf.ones_like(net), w_square, strides=[1, 1, 1, 1], padding='SAME')
+            w_norm = tf.sqrt(w_conv + 1e-4)
+
+            return (conv*g+b) / (w_norm)
+
     #def weightnorm_conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
     #    with tf.variable_scope(self.generate_name(), reuse=self._reuse):
     #        w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
-    #        g = self.get_bias([output_dim], name='g')
-    #        conv = tf.nn.conv2d(net, w, strides=[1, 1, 1, 1], padding='SAME')
-    #        b = self.get_bias([output_dim], 0.001)
-    #        conv = tf.nn.bias_add(conv, b)
+    #        g = self.get_weight(name='g', shape=[1,output_dim])
+    #        b = self.get_bias([output_dim])
 
-    #        w_square = tf.square(w*g+b)
-    #        #w_sum = tf.reduce_sum(w_square, [0,1,2])
-    #        w_conv = tf.nn.conv2d(tf.ones_like(net), w_square, strides=[1, 1, 1, 1], padding='SAME')
-    #        w_norm = tf.sqrt(w_conv + 1e-4)
+	#		# use weight normalization (Salimans & Kingma, 2016)
+    #        W = tf.reshape(g,[1,1,1,output_dim])*tf.nn.l2_normalize(w,[0,1,2])
 
-    #        return g*conv / (w_norm)
+    #        # calculate convolutional layer output
+    #        return tf.nn.bias_add(tf.nn.conv2d(net, W, [1, stride_h, stride_w, 1], padding='SAME'), b)
 
     def weightnorm_conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             # modified from https://github.com/openai/weightnorm/blob/master/tensorflow/nn.py
             # data based initialization of parameters
+            g = self.get_weight(name='g', shape=[1,1,1,output_dim])#, initializer=scale_init)
+            b = self.get_bias(shape=[output_dim])#, initializer=-m_init*scale_init)
             shape = [filter_h, filter_w, int(net.get_shape()[-1]),output_dim]
             V = self.get_weight(name='v', shape=shape)
             V_norm = tf.nn.l2_normalize(V.initialized_value(), [0,1,2])
             x_init = tf.nn.conv2d(net, V_norm, [1, stride_h, stride_w, 1], padding="SAME")
+            x_init = tf.nn.bias_add(x_init, b)
             m_init, v_init = tf.nn.moments(x_init, [0,1,2])
             scale_init = 1.0/tf.sqrt(v_init + 1e-8)
-            g = self.get_weight(name='g', shape=[1,1])#, initializer=scale_init)
-            #b = self.get_weight(name='b', shape=[output_dim])#, initializer=-m_init*scale_init)
             x_init = tf.reshape(scale_init,[1,1,1,output_dim])*(x_init-tf.reshape(m_init,[1,1,1,output_dim]))
-            return x_init
+            return g*x_init
 
 
     def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
@@ -246,6 +258,25 @@ class TensorflowOps:
 
         return _prelu
 
+    def trelu(self):
+        def _trelu(_x):
+            activation = self.lookup(self.config.trelu_activation or 'relu')
+            orig_shape = self.shape(_x)
+            _x = tf.reshape(_x, [orig_shape[0], -1])
+
+            with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+                alphas = tf.get_variable('trelu', 
+                          _x.get_shape()[-1],
+                          initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
+                          dtype=tf.float32)
+                net = activation(_x - alphas) + alphas
+
+            self.add_weights(alphas)
+            return tf.reshape(net, orig_shape)
+
+        return _trelu
+
+
     def reshape(self, net, shape):
         self.assert_tensor(net)
         return tf.reshape(net, shape)
@@ -311,6 +342,8 @@ class TensorflowOps:
             return tf.nn.crelu
         if symbol == "prelu":
             return self.prelu()
+        if symbol == "trelu":
+            return self.trelu()
         if symbol == "selu":
             return selu
         if symbol == "lrelu":

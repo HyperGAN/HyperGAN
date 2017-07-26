@@ -25,6 +25,7 @@ class PygameViewer:
             self.pg = pygame
             self.screen = self.pg.display.set_mode(size)
             self.pg.display.set_caption(self.title)
+        self.pg.event.get()
         surface = self.pg.Surface(size)
         self.pg.surfarray.blit_array(surface, image)
         self.screen.blit(surface, (0,0))

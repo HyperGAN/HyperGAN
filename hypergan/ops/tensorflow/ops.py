@@ -83,11 +83,15 @@ class TensorflowOps:
         else:
             raise Exception("dtype not defined: "+str(dtype))
 
-    def describe(self, description):
-        self.description = description
-
-    def get_weight(self, shape):
-        weight = tf.get_variable('w', shape, dtype=self.dtype, initializer=self.initializer())
+    def get_weight(self, shape=None, name=None, initializer=None):
+        if name == None:
+            name = "w"
+        if initializer == None:
+            initializer = self.initializer()
+        if shape is not None:
+            weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer)
+        else:
+            weight = tf.get_variable(name, dtype=self.dtype, initializer=initializer)
         if not self._reuse:
             self.weights.append(weight)
         return weight

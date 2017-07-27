@@ -27,6 +27,9 @@ from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
 from time import sleep
 
+from tensorflow.python.tools import freeze_graph
+from tensorflow.python.tools import optimize_for_inference_lib
+
 class CLI:
     def __init__(self, gan, args={}):
         self.samples = 0
@@ -112,10 +115,50 @@ class CLI:
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
     def build(self):
-        save_file = self.args.config+".pbgraph"
-        build_file = os.path.expanduser("builds/"+save_file)
+        save_file_text = self.args.config+".pbtxt"
+        build_file = os.path.expanduser("builds/"+save_file_text)
         self.create_path(build_file)
-        tf.train.write_graph(self.gan.session.graph, 'builds', save_file)
+        tf.train.write_graph(self.gan.session.graph, 'builds', save_file_text)
+        inputs = [x.name.split(":")[0] for x in self.gan.input_nodes()]
+        outputs = [x.name.split(":")[0] for x in self.gan.output_nodes()]
+        print("___")
+        print(inputs, outputs)
+        tf.reset_default_graph()
+        self.gan.session.close()
+
+        pbtxt_path = "builds/"+self.args.config+'.pbtxt'
+        checkpoint_path = "saves/"+self.args.config+'/model.ckpt'
+        input_saver_def_path = ""
+        input_binary = False
+        output_node_names = ",".join(outputs)
+        restore_op_name = "save/restore_all"
+        filename_tensor_name = "save/Const:0"
+        output_frozen_graph_name = 'builds/frozen_'+self.args.config+'.pb'
+        output_optimized_graph_name = 'builds/optimized_'+self.args.config+'.pb'
+        clear_devices = True
+
+        print("FREEZING GRAPH")
+        freeze_graph.freeze_graph(pbtxt_path, input_saver_def_path,
+          input_binary, checkpoint_path, output_node_names,
+          restore_op_name, filename_tensor_name,
+          output_frozen_graph_name, clear_devices, "")
+        print("FROZEN")
+
+        input_graph_def = tf.GraphDef()
+        with tf.gfile.Open(output_frozen_graph_name, "rb") as f:
+            data = f.read()
+            input_graph_def.ParseFromString(data)
+
+        output_graph_def = optimize_for_inference_lib.optimize_for_inference(
+                input_graph_def,
+                inputs, # an array of the input node(s)
+                outputs, # an array of output nodes
+                tf.float32.as_datatype_enum)
+
+        # Save the optimized graph
+
+        f = tf.gfile.FastGFile(output_optimized_graph_name, "w")
+        f.write(output_graph_def.SerializeToString())
 
         print("Saved generator to ", build_file)
 
@@ -207,8 +250,6 @@ class CLI:
             else:
                 print("Model loaded")
             self.build()
-            tf.reset_default_graph()
-            self.gan.session.close()
         elif self.method == 'new':
             self.new()
         elif self.method == 'sample':

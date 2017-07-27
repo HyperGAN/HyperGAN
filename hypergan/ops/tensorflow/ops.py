@@ -84,9 +84,6 @@ class TensorflowOps:
         else:
             raise Exception("dtype not defined: "+str(dtype))
 
-    def describe(self, description):
-        self.description = description
-
     def get_weight(self, shape=None, name=None, initializer=None):
         if name == None:
             name = "w"
@@ -169,7 +166,7 @@ class TensorflowOps:
             b = self.get_bias(shape=[output_dim])#, initializer=-m_init*scale_init)
             shape = [filter_h, filter_w, int(net.get_shape()[-1]),output_dim]
             V = self.get_weight(name='v', shape=shape)
-            V_norm = tf.nn.l2_normalize(V.initialized_value(), [0,1,2])
+            V_norm = tf.nn.l2_normalize(V, [0,1,2])
             x_init = tf.nn.conv2d(net, V_norm, [1, stride_h, stride_w, 1], padding="SAME")
             x_init = tf.nn.bias_add(x_init, b)
             m_init, v_init = tf.nn.moments(x_init, [0,1,2])

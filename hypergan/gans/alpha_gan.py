@@ -144,3 +144,12 @@ class AlphaGAN(BaseGAN):
 
     def step(self, feed_dict={}):
         return self.trainer.step(feed_dict)
+
+    def input_nodes(self):
+        "used in hypergan build"
+        return [self.encoder.sample, self.inputs.x, self.uniform_encoder.sample]
+
+
+    def output_nodes(self):
+        "used in hypergan build"
+        return [self.generator.sample, self.uniform_sample]

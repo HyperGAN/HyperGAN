@@ -175,6 +175,27 @@ class TensorflowOps:
             return g*x_init
 
 
+    def weightnorm_deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
+        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+            # modified from https://github.com/openai/weightnorm/blob/master/tensorflow/nn.py
+            # data based initialization of parameters
+            g = self.get_weight(name='g', shape=[1,1,1,output_dim])#, initializer=scale_init)
+            b = self.get_bias(shape=[output_dim])#, initializer=-m_init*scale_init)
+            shape = [filter_h, filter_w, output_dim, int(net.get_shape()[-1])]
+            V = self.get_weight(name='v', shape=shape)
+            V_norm = tf.nn.l2_normalize(V, [0,1,2])
+            
+            net_shape = self.shape(net)
+            target_shape = [net_shape[0], net_shape[1]*stride_h, net_shape[2]*stride_w, output_dim]
+            print(net, target_shape, V_norm)
+            x_init = tf.nn.conv2d_transpose(net, V_norm, target_shape, [1, stride_h, stride_w, 1], padding="SAME")
+            x_init = tf.nn.bias_add(x_init, b)
+            m_init, v_init = tf.nn.moments(x_init, [0,1,2])
+            scale_init = 1.0/tf.sqrt(v_init + 1e-8)
+            x_init = tf.reshape(scale_init,[1,1,1,output_dim])*(x_init-tf.reshape(m_init,[1,1,1,output_dim]))
+            return g*x_init
+
+
     def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         self.assert_tensor(net)
 
@@ -198,6 +219,8 @@ class TensorflowOps:
         self.assert_tensor(net)
         initializer = self.initializer()
         shape = self.shape(net)
+        if self.config.layer_regularizer == 'weight_norm':
+            return self.weightnorm_deconv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
         output_shape = [shape[0], shape[1]*stride_h, shape[2]*stride_w, output_dim]
         init_bias = 0.
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
@@ -380,7 +403,7 @@ class TensorflowOps:
         with tf.device(self.device):
             if len(self.variables()) == 0:
                 return
-            init = tf.variables_initializer(self.variables(), reuse=self._reuse)
+            init = tf.variables_initializer(self.variables())
             session.run(init)
             self.initialized = True
 

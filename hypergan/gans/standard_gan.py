@@ -19,6 +19,7 @@ from hyperchamber import Config
 from hypergan.ops import TensorflowOps
 import tensorflow as tf
 import hypergan as hg
+from hypergan.skip_connections import SkipConnections
 
 from hypergan.gan_component import ValidationException, GANComponent
 from .base_gan import BaseGAN
@@ -47,6 +48,7 @@ class StandardGAN(BaseGAN):
         self.loss = None
         self.trainer = None
         self.session = None
+        self.skip_connections = SkipConnections()
 
     def required(self):
         return "generator".split()

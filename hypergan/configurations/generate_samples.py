@@ -1,14 +1,16 @@
-import hypergan as hg
 from subprocess import call
 
 import glob
 
 filenames = glob.glob("*.json")
 
+cmd="rm -rf samples"
+result = call(cmd, shell=True)
+
 for f in filenames:
     config = f.split(".")[0]
 
-    cmd="CUDA_VISIBLE_DEVICES=0 hypergan train /ml/datasets/faces/128x128/all --sample_every 100 --sampler debug --format jpg --size 64x64x3 -b 8 -c "+config+" --resize --save_samples --steps 1000"
+    cmd="CUDA_VISIBLE_DEVICES=0 hypergan train /ml/datasets/faces/128x128/all --sample_every 3000 --sampler debug --format jpg --size 64x64x3 -b 8 -c "+config+" --resize --save_samples --steps 12001"
     print(cmd)
     result = call(cmd, shell=True)
 

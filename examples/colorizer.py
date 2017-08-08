@@ -163,7 +163,7 @@ def train(config, inputs, args):
     sampler = lookup_sampler(args.sampler or Sampler)(gan)
     samples = 0
 
-    metrics = [accuracy(gan.inputs.x, gan.uniform_sample), batch_diversity(gan.uniform_sample)]
+    metrics = [batch_accuracy(gan.inputs.x, gan.uniform_sample), batch_diversity(gan.uniform_sample)]
     sum_metrics = [0 for metric in metrics]
     for i in range(args.steps):
         gan.step()

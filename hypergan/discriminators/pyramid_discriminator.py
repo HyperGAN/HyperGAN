@@ -50,18 +50,20 @@ class PyramidDiscriminator(BaseDiscriminator):
 
             print('[discriminator] layer', net)
 
+        k=-1
+
+        if config.relation_layer:
+            #net = activation(net)
+            #net = self.layer_regularizer(net)
+            net = self.relation_layer(net)
+            print("[discriminator] relation layer", net)
+
         for i in range(config.extra_layers or 0):
             output_features = int(int(net.get_shape()[3]))
             net = activation(net)
             net = self.layer_regularizer(net)
             net = ops.conv2d(net, 3, 3, 1, 1, output_features//(config.extra_layers_reduction or 1))
             print('[discriminator] extra layer', net)
-        k=-1
-
-        if config.relation_layer:
-            net = activation(net)
-            net = self.layer_regularizer(net)
-            net = self.relation_layer(net)
 
         #net = tf.reshape(net, [ops.shape(net)[0], -1])
 

@@ -47,6 +47,7 @@ class AlphaGAN(BaseGAN):
         if self.session is None: 
             self.session = self.ops.new_session(self.ops_config)
         with tf.device(self.device):
+            self.inputs.x = tf.identity(self.inputs.x, name='input')
             config = self.config
             ops = self.ops
 
@@ -78,7 +79,8 @@ class AlphaGAN(BaseGAN):
 
             self.generator = self.create_component(config.generator)
 
-            z = uniform_encoder.sample
+            direction = tf.random_normal(ops.shape(uniform_encoder.sample), stddev=0.3, name='direction')
+            slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
             x = self.inputs.x
 
             # project the output of the autoencoder
@@ -90,12 +92,13 @@ class AlphaGAN(BaseGAN):
                 projections.append(projection)
             z_hat = tf.concat(axis=3, values=projections)
 
+            z = uniform_encoder.sample + slider * direction
             z = ops.reshape(z, ops.shape(z_hat))
             # end encoding
 
             g = self.generator.create(z)
             sample = self.generator.sample
-            self.uniform_sample = self.generator.sample
+            self.uniform_sample = g
             x_hat = self.generator.reuse(z_hat)
 
             encoder_discriminator.create(x=z, g=z_hat)
@@ -147,15 +150,20 @@ class AlphaGAN(BaseGAN):
             self.encoder = encoder
             self.uniform_encoder = uniform_encoder
 
+            self.slider = slider
+            self.direction = direction
+
 
     def step(self, feed_dict={}):
         return self.trainer.step(feed_dict)
 
     def input_nodes(self):
         "used in hypergan build"
-        return [self.encoder.sample, self.inputs.x, self.uniform_encoder.sample]
+        #return []
+        return [self.inputs.x, self.uniform_encoder.sample, self.slider, self.direction]
 
 
     def output_nodes(self):
         "used in hypergan build"
-        return [self.generator.sample, self.uniform_sample]
+        #return [self.uniform_sample]
+        return [self.encoder.sample, self.uniform_sample]

@@ -9,12 +9,6 @@
 
 ### samples/cramer-gan
 
-![samples/cramer-gan/000000.png](samples/cramer-gan/000000.png)
-
-![samples/cramer-gan/000001.png](samples/cramer-gan/000001.png)
-
-![samples/cramer-gan/000002.png](samples/cramer-gan/000002.png)
-
 ### samples/improved-gan
 
 ![samples/improved-gan/000000.png](samples/improved-gan/000000.png)
@@ -39,8 +33,6 @@
 
 ![samples/least-squares-gan-optimized/000002.png](samples/least-squares-gan-optimized/000002.png)
 
-### samples/alphagan-lsgan
-
 ### samples/began
 
 ![samples/began/000000.png](samples/began/000000.png)
@@ -58,14 +50,6 @@
 ![samples/began-optimized/000002.png](samples/began-optimized/000002.png)
 
 ### samples/softmax-gan
-
-### samples/least-squares-gan-optimized-wn
-
-![samples/least-squares-gan-optimized-wn/000000.png](samples/least-squares-gan-optimized-wn/000000.png)
-
-![samples/least-squares-gan-optimized-wn/000001.png](samples/least-squares-gan-optimized-wn/000001.png)
-
-![samples/least-squares-gan-optimized-wn/000002.png](samples/least-squares-gan-optimized-wn/000002.png)
 
 ### samples/align
 
@@ -110,14 +94,6 @@
 ![samples/improved-gan-optimized/000001.png](samples/improved-gan-optimized/000001.png)
 
 ![samples/improved-gan-optimized/000002.png](samples/improved-gan-optimized/000002.png)
-
-### samples/least-squares-gan
-
-![samples/least-squares-gan/000000.png](samples/least-squares-gan/000000.png)
-
-![samples/least-squares-gan/000001.png](samples/least-squares-gan/000001.png)
-
-![samples/least-squares-gan/000002.png](samples/least-squares-gan/000002.png)
 
 ### samples/default
 

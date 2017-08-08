@@ -105,6 +105,8 @@ class GANComponent:
             size = [bs//count] + [x for x in ops.shape(net)[1:]]
             nets.append(ops.slice(net, start, size))
             start[0] += bs//count
+        s[0] = s[0] // count
+        nets = [ops.reshape(net,s) for net in nets]
         return nets
 
     def reuse(self, net):

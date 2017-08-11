@@ -64,6 +64,17 @@ For an introduction, see here [http://blog.aylien.com/introduction-generative-ad
 
 HyperGAN is currently in open beta.
 
+## Features
+
+* Optimized
+* Platform independent
+* Scalable
+* Dataset agnostic
+* Hyperparameter search built in(see examples)
+* Combine different components to build your own GAN
+* Unsupervised & supervised learning options
+* and more
+
 # Showcase
 
 ![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-1.gif)

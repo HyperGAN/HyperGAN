@@ -107,9 +107,9 @@ class ResizeConvGenerator(BaseGenerator):
         if block != 'deconv':
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(net)
-            net = block(self, net, gan.channels(), filter=config.final_filter or 3)
+            net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3)
         else:
-            net = ops.deconv2d(net, 5, 5, 2, 2, gan.channels())
+            net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
 
 
         if final_activation:

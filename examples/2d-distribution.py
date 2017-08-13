@@ -16,6 +16,7 @@ args = arg_parser.parse_args()
 config = lookup_config(args)
 if args.action == 'search':
     config = RandomSearch({}).random_config()
+    config['loss']['minibatch'] = False # minibatch breaks on this example
 
 
 def train(config, args):

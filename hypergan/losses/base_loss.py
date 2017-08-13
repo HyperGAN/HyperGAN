@@ -96,6 +96,9 @@ class BaseLoss(GANComponent):
         ops = self.gan.ops
         gradient_penalty = config.gradient_penalty
         x = gan.inputs.x
+        if hasattr(gan.inputs, 'gradient_penalty_label'):
+            x = gan.inputs.gradient_penalty_label
+
         generator = self.generator or gan.generator
         g = generator.sample
         discriminator = self.discriminator or gan.discriminator

@@ -92,7 +92,7 @@ class RandomSearch:
             'improved': [True, False],
             'class': [
                 #LeastSquaresLoss,
-                StandardLosns
+                StandardLoss
             ]
         }
 

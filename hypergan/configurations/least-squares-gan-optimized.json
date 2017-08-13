@@ -18,7 +18,8 @@
   "generator": {
     "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
     "activation": "prelu",
-    "layer_regularizer": "weight_norm",
+    "layer_regularizer": "batch_norm",
+    "initializer": "random_normal",
     "final_depth": 64,
     "depth_increase": 64,
     "final_activation": "tanh"
@@ -42,12 +43,30 @@
     ]
   },
   "trainer": {
-    "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
-    "d_beta1": 0.5,
-    "d_learn_rate": 0.0001,
-    "d_trainer": "class:tensorflow.python.training.adam.AdamOptimizer",
-    "g_beta1": 0.5,
-    "g_learn_rate": 0.0001,
-    "g_trainer": "class:tensorflow.python.training.adam.AdamOptimizer"
+    "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "clipped_gradients": false,
+    "d_beta1": 0.1051710517105171,
+    "d_beta2": 0.7203172031720317,
+    "d_clipped_weights": false,
+    "d_decay": 0.6478364783647836,
+    "d_epsilon": 0.007500075000750007,
+    "d_global_step": 0.5866358663586636,
+    "d_initial_accumulator_value": 0.3673636736367364,
+    "d_initial_gradient_squared_accumulator_value": 0.8661486614866148,
+    "d_learn_rate": 0.003947939479394794,
+    "d_momentum": 0.5922759227592276,
+    "d_rho": 0.5358953589535895,
+    "d_trainer": "function:tensorflow.python.training.adam.AdamOptimizer",
+    "g_beta1": 0.6119661196611966,
+    "g_beta2": 0.5612256122561226,
+    "g_decay": 0.6771767717677176,
+    "g_epsilon": 0.3087330873308733,
+    "g_global_step": 0.931239312393124,
+    "g_initial_accumulator_value": 0.6465564655646556,
+    "g_initial_gradient_squared_accumulator_value": 0.969479694796948,
+    "g_learn_rate": 0.008020980209802098,
+    "g_momentum": 0.06887068870688706,
+    "g_rho": 0.43922439224392246,
+    "g_trainer": "function:tensorflow.python.training.adam.AdamOptimizer"
   }
 }

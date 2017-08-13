@@ -1,5 +1,7 @@
 import argparse
 import os
+import math
+
 import uuid
 import tensorflow as tf
 import hypergan as hg
@@ -59,6 +61,13 @@ def train(config, args):
             if i > steps * 9.0/10:
                 for k, metric in enumerate(gan.session.run(metrics)):
                     sum_metrics[k] += metric 
+            if i % 300 == 0:
+                print("Checking")
+                for k, metric in enumerate(gan.metrics.keys()):
+                    if metric== 'gradient_penalty':
+                        print("--", gan.session.run(gan.metrics[metric]))
+                        if math.isnan(gan.session.run(gan.metrics[metric])):
+                            return None
 
         tf.reset_default_graph()
         gan.session.close()

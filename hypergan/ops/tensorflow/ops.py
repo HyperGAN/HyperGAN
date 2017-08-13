@@ -24,6 +24,8 @@ class TensorflowOps:
         self.device = config.device
         self.initialized = False
         self._reuse = False
+        self.reuse_scope_count = 0
+        self.reuse_context = 0
         self.config = config
         if initializer == 'orthogonal':
             self.initializer = self.orthogonal_initializer(orthogonal_gain)
@@ -58,9 +60,12 @@ class TensorflowOps:
     def reuse(self):
         self._reuse = True
         self.reuse_scope_count = 0
+        self.reuse_context += 1
 
     def stop_reuse(self):
-        self._reuse = False
+        self.reuse_context -= 1
+        if self.reuse_context == 0:
+            self._reuse = False
 
     def generate_scope(self):
         if self._reuse:

@@ -20,9 +20,9 @@ if args.action == 'search':
 
 def train(config, args):
     if(args.viewer):
-        GlobalViewer.enable()
         title = "[hypergan] 2d-test " + args.config
-        GlobalViewer.window.set_title(title)
+        GlobalViewer.title = title
+        GlobalViewer.enabled = args.viewer
 
     with tf.device(args.device):
         config.generator['end_features'] = 2
@@ -83,5 +83,3 @@ elif args.action == 'search':
 else:
     print("Unknown action: "+args.action)
 
-if(args.viewer):
-    GlobalViewer.window.destroy()

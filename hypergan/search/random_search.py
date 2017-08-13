@@ -86,36 +86,26 @@ class RandomSearch:
 
     def loss(self):
         loss_opts = {
-            #'reverse':[True, False],
-            #'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            #'gradient_penalty': False,
-            #'labels': [
-            #    [0, 1, 1]
-            #],
-            #'alpha':self.range(),
-            #'beta':self.range(),
-            #'gamma':self.range(),
-            #'label_smooth': self.range(),
-            #'use_k': [False, True],
-            #'initial_k': self.range(),
-            #'k_lambda': self.range(.001),
-            #'type': ['wgan', 'lsgan', 'softmax'],
-            #'minibatch': [False],
-            #'class': [
-            #    LeastSquaresLoss
-            #]
-            'class': [
-                    VralLoss
-            ],
-            "target_mean": [-1,-0.5,0,0.5,1],
-            "fake_mean": [-1,-0.5,0,0.5,1],
+            'reverse':[True, False],
             'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            'type': ['log_rr', 'log_rf', 'log_fr', 'log_ff', 'log_all'],
-            'value_function': ['square', 'log', 'original'],
-            'g_loss': ['l2','fr_l2','rr_l2'],
-            
-            "r_discriminator": self.fc_discriminator()
-
+            'gradient_penalty': [False, True, 'dragan'],
+            'labels': [
+                [0, 1, 1]
+            ],
+            'alpha':self.range(),
+            'beta':self.range(),
+            'gamma':self.range(),
+            'label_smooth': self.range(),
+            'use_k': [False, True],
+            'initial_k': self.range(),
+            'k_lambda': self.range(.001),
+            'type': ['wgan', 'lsgan', 'softmax'],
+            'minibatch': [True, False],
+            'improved': [True, False],
+            'class': [
+                #LeastSquaresLoss,
+                StandardLosns
+            ]
         }
         loss_opts["f_discriminator"] = loss_opts["r_discriminator"]
 
@@ -186,7 +176,7 @@ class RandomSearch:
             "initial_depth": [32],
             "initializer": ['orthogonal', 'random'],
             "layer_regularizer": [None, 'batch_norm', 'layer_norm'],
-            "noise":[False, 1e-2],
+            "noise":[False],
             "progressive_enhancement":[False, True],
             "orthogonal_gain": list(np.linspace(0.1, 2, num=10000)),
             "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),

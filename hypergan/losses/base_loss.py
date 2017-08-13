@@ -8,8 +8,19 @@ class BaseLoss(GANComponent):
         self.metrics = {}
         self.sample = None
         self.ops = None
+        if discriminator == None:
+            discriminator = gan.discriminator
+        if generator == None:
+            generator = gan.generator
         self.discriminator = discriminator
         self.generator = generator
+
+    def reuse(self, d_real, d_fake):
+        self.discriminator.ops.reuse()
+        net = self._create(d_real, d_fake)
+        self.discriminator.ops.stop_reuse()
+        return net
+
 
     def create(self, split=2):
         gan = self.gan
@@ -27,7 +38,7 @@ class BaseLoss(GANComponent):
         elif split == 3:
             d_real, d_fake, d_fake2 = self.split_batch(net, split)
             d_loss, g_loss = self._create(d_real, d_fake)
-            d_loss2, g_loss2 = self._create(d_real, d_fake2)
+            d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
             g_loss += g_loss2
             d_loss += d_loss2
             #does this double the signal of d_real?

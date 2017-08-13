@@ -15,7 +15,7 @@ class BaseLoss(GANComponent):
         gan = self.gan
         config = self.config
         ops = self.gan.ops
-        
+
         if self.discriminator is None:
             net = gan.discriminator.sample
         else:
@@ -93,11 +93,9 @@ class BaseLoss(GANComponent):
     def gradient_penalty(self):
         config = self.config
         gan = self.gan
+        ops = self.gan.ops
         gradient_penalty = config.gradient_penalty
-        if has_attr(gan.inputs, 'gradient_penalty_label'):
-            x = gan.inputs.gradient_penalty_label
-        else:
-            x = gan.inputs.x
+        x = gan.inputs.x
         generator = self.generator or gan.generator
         g = generator.sample
         discriminator = self.discriminator or gan.discriminator
@@ -105,7 +103,11 @@ class BaseLoss(GANComponent):
         shape[0] = gan.batch_size()
         uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
         print("[gradient penalty] applying x:", x, "g:", g, "noise:", uniform_noise)
-        interpolates = x + uniform_noise * (g - x)
+        if config.gradient_penalty_type == 'dragan':
+            mean, variance = tf.nn.moments(x, axes=[0, 1, 2, 3])
+            interpolates = x + uniform_noise * 0.5 * variance * tf.random_uniform(shape=ops.shape(x), minval=0.,maxval=1.)
+        else:
+            interpolates = x + uniform_noise * (g - x)
         reused_d = discriminator.reuse(interpolates)
         gradients = tf.gradients(reused_d, [interpolates])[0]
         penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))

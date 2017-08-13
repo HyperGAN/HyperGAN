@@ -66,6 +66,7 @@ HyperGAN is currently in open beta.
 
 ## Features
 
+* Reproducible architectures using json configurations
 * Optimized
 * Platform independent
 * Scalable

@@ -19,10 +19,9 @@ if args.action == 'search':
 
 
 def train(config, args):
-    if(args.viewer):
-        title = "[hypergan] 2d-test " + args.config
-        GlobalViewer.title = title
-        GlobalViewer.enabled = args.viewer
+    title = "[hypergan] 2d-test " + args.config
+    GlobalViewer.title = title
+    GlobalViewer.enabled = args.viewer
 
     with tf.device(args.device):
         config.generator['end_features'] = 2

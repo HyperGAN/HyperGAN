@@ -115,7 +115,10 @@ class BaseLoss(GANComponent):
         uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
         print("[gradient penalty] applying x:", x, "g:", g, "noise:", uniform_noise)
         if config.gradient_penalty_type == 'dragan':
-            mean, variance = tf.nn.moments(x, axes=[0, 1, 2, 3])
+            axes = [0, 1, 2, 3]
+            if len(ops.shape(x)) == 2:
+                axes = [0, 1]
+            mean, variance = tf.nn.moments(x, axes=axes)
             interpolates = x + uniform_noise * 0.5 * variance * tf.random_uniform(shape=ops.shape(x), minval=0.,maxval=1.)
         else:
             interpolates = x + uniform_noise * (g - x)

@@ -11,6 +11,7 @@ from hypergan.gan_component import GANComponent
 from hypergan.search.random_search import RandomSearch
 from hypergan.generators.base_generator import BaseGenerator
 from hypergan.samplers.base_sampler import BaseSampler
+from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 
 class ArgumentParser:
     def __init__(self, description, require_directory=True):
@@ -343,6 +344,65 @@ class TextInput:
             string = "".join(ox_val)
             return string
 
+class ZBackproper:
+    """ Back props into Z to find a good reconstruction of a given image"""
+    def __init__(self, gan):
+        self.gan = gan
+        shape = gan.ops.shape(gan.encoder.sample)
+        with tf.device(gan.device):
+            self.z = self.gan.ops.get_weight(shape=shape, name='zencode')
+            self.generator = gan.generator.reuse(self.z)
+            self.loss = ('generator', tf.reduce_mean(tf.square(self.gan.inputs.x - self.generator)))
+            self.assign_z_feed = tf.zeros_like(self.z)
+            self.assign_z = self.z.assign(self.assign_z_feed)
+            self.zs = {}
+            var_lists = [self.z]
+            losses = [self.loss]
+            metrics = [False]
+
+            self.trainer = MultiStepTrainer(gan, self.gan.config.trainer, losses, var_lists=var_lists, metrics=metrics)
+            print("SHAPE", shape, self.z)
+            self.gan.ops.initialize_variables(gan.session)
+            self.session.run(tf.global_variables_initializer())
+            self.trainer.create()
+
+    def guarantee_initialized_variables(self, session, list_of_variables = None):
+        if list_of_variables is None:
+            list_of_variables = tf.all_variables()
+        uninitialized_variables = list(tf.get_variable(name) for name in
+                                       self.gan.session.run(tf.report_uninitialized_variables(list_of_variables)))
+        self.gan.session.run(tf.initialize_variables(uninitialized_variables))
+        return unintialized_variables
+
+    def set_z(self, filenames, zs):
+        for i,_ in enumerate(filenames):
+            self.zs[filenames[i]] = zs[i]
+
+    def lookup_z(self, next_filenames):
+        zs = []
+        for filename in next_filenames:
+            shape = self.gan.ops.shape(self.gan.encoder.sample)
+            shape[0]=1
+            if filename in self.zs:
+                z = self.zs[filename]
+                z = np.reshape(z, shape)
+            else:
+                z = np.random.uniform(-1,1,shape)
+            zs.append(z)
+        stacked = np.vstack(zs)
+        return stacked
+
+    def step(self, feed_dict):
+        next_filenames, next_x = self.gan.session.run([self.gan.inputs.filename, self.gan.inputs.x])
+
+        next_z = self.lookup_z(next_filenames)
+        self.gan.session.run(self.assign_z, {self.assign_z_feed: next_z})
+
+        self.trainer.step(feed_dict)
+
+        updated_z = self.session.run(self.z)
+        self.set_z(next_filenames, updated_z)
+        return updated_z
 
 def lookup_sampler(name):
     return CLI.sampler_for(name, name)
@@ -352,6 +412,23 @@ def parse_size(size):
     height = int(size.split("x")[1])
     channels = int(size.split("x")[2])
     return [width, height, channels]
+
+# https://github.com/tensorflow/tensorflow/issues/312
+def optimistic_restore(session, save_file):
+    reader = tf.train.NewCheckpointReader(save_file)
+    saved_shapes = reader.get_variable_to_shape_map()
+    var_names = sorted([(var.name, var.name.split(':')[0]) for var in tf.global_variables()
+            if var.name.split(':')[0] in saved_shapes])
+    restore_vars = []
+    name2var = dict(zip(map(lambda x:x.name.split(':')[0], tf.global_variables()), tf.global_variables()))
+    with tf.variable_scope('', reuse=True):
+        for var_name, saved_var_name in var_names:
+            curr_var = name2var[saved_var_name]
+            var_shape = curr_var.get_shape().as_list()
+            if var_shape == saved_shapes[saved_var_name]:
+                restore_vars.append(curr_var)
+    saver = tf.train.Saver(restore_vars)
+    saver.restore(session, save_file)
 
 def lookup_config(args):
     if args.action == 'train' or args.action == 'sample':

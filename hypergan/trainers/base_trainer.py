@@ -16,6 +16,27 @@ class BaseTrainer(GANComponent):
     def _step(self, feed_dict):
         raise Exception('BaseTrainer _step called directly.  Please override.')
 
+    def create(self):
+        config = self.config
+        g_lr = config.g_learn_rate
+        d_lr = config.d_learn_rate
+        self.create_called = True
+        self.global_step = tf.Variable(0, trainable=False)
+        decay_function = config.decay_function
+        if decay_function:
+            print("using decay function", decay_function)
+            decay_steps = config.decay_steps or 50000
+            decay_rate = config.decay_rate or 0.9
+            decay_staircase = config.decay_staircase or False
+            self.d_lr = decay_function(d_lr, self.global_step, decay_steps, decay_rate, decay_staircase)
+            self.g_lr = decay_function(g_lr, self.global_step, decay_steps, decay_rate, decay_staircase)
+        else:
+            self.d_lr = d_lr
+            self.g_lr = g_lr
+
+
+        return self._create()
+
     def step(self, feed_dict={}):
         self.shake_weights()
         step = self._step(feed_dict)
@@ -99,7 +120,7 @@ class BaseTrainer(GANComponent):
 
         capped_gvs = [create_cap(grad,var) for grad, var in gvs]
         capped_gvs = [x for x in capped_gvs if x != None]
-        return optimizer.apply_gradients(capped_gvs)
+        return optimizer.apply_gradients(capped_gvs, global_step=self.global_step)
 
 
     def build_optimizer(self, config, prefix, trainer_config, learning_rate, var_list, loss):
@@ -109,7 +130,7 @@ class BaseTrainer(GANComponent):
             if(config.clipped_gradients):
                 apply_gradients = self.capped_optimizer(optimizer, config.clipped_gradients, loss, var_list)
             else:
-                apply_gradients = optimizer.minimize(loss, var_list=var_list)
+                apply_gradients = optimizer.minimize(loss, var_list=var_list, global_step=self.global_step)
 
         return apply_gradients
 

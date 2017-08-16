@@ -9,8 +9,7 @@ class SegmentSampler(BaseSampler):
         self.x_v = None
         self.z_v = None
         self.created = False
-
-    def sample(self, path, save_samples=False):
+    def _sample(self):
         gan = self.gan
         x_t = gan.inputs.x
         g_t = gan.generator.sample
@@ -32,11 +31,10 @@ class SegmentSampler(BaseSampler):
         width = 8
         for gen in gens:
             for i in range(1):
-                stacks.append([gen[i*width+width+j] for j in range(width)])
+                stacks.append([gen[i*width+j] for j in range(width)])
 
         #[print(np.shape(s)) for s in stacks]
-        images = np.vstack([np.hstack(s) for s in stacks])
+        images = np.vstack(stacks)
+        return {'generator':images}
 
-        self.plot(images, path, save_samples)
-        return [{'image': path, 'label': 'tiled x sample'}]
 

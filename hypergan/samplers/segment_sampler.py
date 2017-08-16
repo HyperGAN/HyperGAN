@@ -40,7 +40,7 @@ class SegmentSampler(BaseSampler):
 
         stacks = []
         bs = gan.batch_size() // 2
-        width = 8
+        width = min(gan.batch_size(), 8)
         for gen in gens:
             for i in range(1):
                 stacks.append([gen[i*width+j] for j in range(width)])

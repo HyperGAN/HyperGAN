@@ -86,9 +86,12 @@ class AlphaGAN(BaseGAN):
             # end encoding
 
             g = self.generator.create(z)
+            self.mask_generator = self.generator.mask_generator
+            self.mask = self.generator.mask
             sample = self.generator.sample
             self.uniform_sample = self.generator.sample
             x_hat = self.generator.reuse(z_hat)
+            self.autoencode_mask = self.generator.mask_generator.sample
 
             encoder_discriminator.create(x=z, g=z_hat)
 

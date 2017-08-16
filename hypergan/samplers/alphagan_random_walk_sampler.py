@@ -8,6 +8,7 @@ class AlphaganRandomWalkSampler(BaseSampler):
         self.z = None
         self.y = None
         self.x = None
+        self.mask = None
         self.step = 0
         self.steps = 8
         self.target = None
@@ -16,13 +17,21 @@ class AlphaganRandomWalkSampler(BaseSampler):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
         inputs_t = gan.inputs.x
+        mask_t = gan.mask_generator.sample
 
         if self.z is None:
-            self.z = gan.uniform_encoder.sample.eval()/2
+            self.input = gan.session.run(gan.inputs.x)
+            self.z = gan.session.run(gan.encoder.sample, feed_dict={
+                inputs_t: self.input
+            })
             direct = gan.uniform_encoder.sample.eval()[0]/2
             direct = np.reshape(direct, [1, direct.shape[0]])
             self.direction = np.tile(direct, [self.z.shape[0], 1])
-            self.input = gan.session.run(gan.inputs.x)
+            self.mask = gan.session.run(gan.autoencode_mask, feed_dict={
+                inputs_t: self.input, 
+                gan.encoder.sample: self.z
+            })
+            self.z = np.reshape(self.z, [self.z.shape[0], -1])
 
         if self.step > self.steps:
             self.z = np.minimum(self.z+self.direction, 1)
@@ -41,6 +50,10 @@ class AlphaganRandomWalkSampler(BaseSampler):
         with g.as_default():
             tf.set_random_seed(1)
             return {
-                'generator': gan.session.run(gan.uniform_sample, feed_dict={z_t: z_interp, inputs_t: self.input})
+                'generator': gan.session.run(gan.uniform_sample, feed_dict={
+                    z_t: z_interp, 
+                    inputs_t: self.input, 
+                    mask_t: self.mask
+                })
             }
 

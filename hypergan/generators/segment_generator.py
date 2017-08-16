@@ -68,4 +68,6 @@ class SegmentGenerator(ResizeConvGenerator):
         self.g2x = (gan.inputs.x * mask) + \
                 (1.0-mask) * g2.sample
 
+        self.mask_generator = mask_generator
+
         return self.sample

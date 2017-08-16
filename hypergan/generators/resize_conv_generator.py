@@ -57,9 +57,8 @@ class ResizeConvGenerator(BaseGenerator):
             net = self.layer_filter(net)
             if config.concat_linear:
                 size = ops.shape(net)[1]*ops.shape(net)[2]*config.concat_linear_filters
-                net2 = tf.slice(net, [0,0,0,0], [ops.shape(net)[0], ops.shape(net)[1], ops.shape(net)[2], config.concat_linear])
-                net2 = tf.reshape(net2, [ops.shape(net2)[0], -1])
-                print("Linear from", net2, "to", size)
+                net2 = tf.reshape(net, [ops.shape(net)[0], -1])
+                net2 = tf.slice(net2, [0,0], [ops.shape(net)[0], config.concat_linear])
                 net2 = ops.linear(net2, size)
                 net2 = tf.reshape(net2, [ops.shape(net)[0], ops.shape(net)[1], ops.shape(net)[2], config.concat_linear_filters])
                 if config.concat_linear_regularize:

@@ -161,3 +161,28 @@ class AlphaGAN(BaseGAN):
 
     def step(self, feed_dict={}):
         return self.trainer.step(feed_dict)
+<<<<<<< HEAD
+=======
+
+    def input_nodes(self):
+        "used in hypergan build"
+        return [
+                self.inputs.x,
+                self.mask_generator.sample,
+                self.slider, 
+                self.direction,
+                self.uniform_encoder.sample
+        ]
+
+
+    def output_nodes(self):
+        "used in hypergan build"
+        return [
+                self.encoder.sample,
+                self.generator.sample, 
+                self.uniform_sample,
+                self.mask_generator.sample,
+                self.generator.g1x,
+                self.generator.g2x
+        ]
+>>>>>>> 7bfef19... [feature] mask and g1x/g2x outputs

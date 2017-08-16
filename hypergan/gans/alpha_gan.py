@@ -154,9 +154,22 @@ class AlphaGAN(BaseGAN):
 
     def input_nodes(self):
         "used in hypergan build"
-        return [self.inputs.x, self.uniform_encoder.sample, self.slider, self.direction]
+        return [
+                self.inputs.x,
+                self.mask_generator.sample,
+                self.slider, 
+                self.direction,
+                self.uniform_encoder.sample
+        ]
 
 
     def output_nodes(self):
         "used in hypergan build"
-        return [self.encoder.sample, self.uniform_sample]
+        return [
+                self.encoder.sample,
+                self.generator.sample, 
+                self.uniform_sample,
+                self.mask_generator.sample,
+                self.generator.g1x,
+                self.generator.g2x
+        ]

@@ -129,6 +129,8 @@ class CLI:
         print(inputs, outputs)
         tf.reset_default_graph()
         self.gan.session.close()
+        [print("Input: ", x) for x in self.gan.input_nodes()]
+        [print("Output: ", y) for y in self.gan.output_nodes()]
 
         pbtxt_path = "builds/"+self.args.config+'.pbtxt'
         checkpoint_path = "saves/"+self.args.config+'/model.ckpt'
@@ -141,12 +143,10 @@ class CLI:
         output_optimized_graph_name = 'builds/optimized_'+self.args.config+'.pb'
         clear_devices = True
 
-        print("FREEZING GRAPH")
         freeze_graph.freeze_graph(pbtxt_path, input_saver_def_path,
           input_binary, checkpoint_path, output_node_names,
           restore_op_name, filename_tensor_name,
           output_frozen_graph_name, clear_devices, "")
-        print("FROZEN")
 
         input_graph_def = tf.GraphDef()
         with tf.gfile.Open(output_frozen_graph_name, "rb") as f:
@@ -161,10 +161,23 @@ class CLI:
 
         # Save the optimized graph
 
-        f = tf.gfile.FastGFile(output_optimized_graph_name, "w")
+        f = tf.gfile.FastGFile(output_optimized_graph_name, "wb")
         f.write(output_graph_def.SerializeToString())
+        f.flush()
+        f.close()
 
-        print("Saved generator to ", build_file)
+        print("Saved generator to ", output_optimized_graph_name)
+
+        print("Testing loading ", output_optimized_graph_name)
+        with tf.gfile.FastGFile(output_optimized_graph_name, 'rb') as f:
+            graph_def = tf.GraphDef()
+            graph_def.ParseFromString(f.read())
+            tf.import_graph_def(graph_def, name='')
+        with tf.Session() as sess:
+            for input in inputs:
+                print("Input: ", input, sess.graph.get_tensor_by_name(input+":0"))
+            for output in outputs:
+                print("Output: ", output, sess.graph.get_tensor_by_name(output+":0"))
 
     def serve(self, gan):
         return gan_server(self.gan.session, config)

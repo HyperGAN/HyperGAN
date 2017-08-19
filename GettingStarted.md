@@ -47,20 +47,20 @@ Each paper is a combination of json file and code.
 
 HyperGAN has tried to make it easy to add a new component.  Here are some basic classification rules on where paper implementations should go:
 
-paper type | proposed implementation
-----------------------------------------
-new type of encoder | new encoder class
-new type of input distribution encoding | either new encoder class or projection of uniform_encoder
-new type of generator | create a new generator class
-feature that could possibly apply to all generators | BaseGenerator
-new type of discriminator | create a new discriminator class
-applies to all discriminators | add it to all discriminators with BaseDiscriminator
-new type of loss | create a new loss class
-new type of gradient penalty | add it to all losses with BaseLoss
-new gan design | new GAN
-new trainer | configuration change
-new activation | add it to ops.py.  Be sure to include it in the huge conditional, search for prelu and you'll see
-something else | Probably easiest to hack it in as a GAN, even if you have to build the graph up yourself in #create.
+| paper type | proposed implementation |
+| ---------------------------------------- |
+| new type of encoder | new encoder class |
+| new type of input distribution encoding | either new encoder class or projection of uniform_encoder |
+| new type of generator | create a new generator class |
+| feature that could possibly apply to all generators | BaseGenerator |
+| new type of discriminator | create a new discriminator class |
+| applies to all discriminators | add it to all discriminators with BaseDiscriminator |
+| new type of loss | create a new loss class |
+| new type of gradient penalty | add it to all losses with BaseLoss |
+| new gan design | new GAN |
+| new trainer | configuration change |
+| new activation | add it to ops.py.  Be sure to include it in the huge conditional, search for prelu and you'll see |
+| something else | Probably easiest to hack it in as a GAN, even if you have to build the graph up yourself in #create. |
 
 When implementing a new paper, feature-gate any breaking code so that old configurations still work(and you have something to compare).
 

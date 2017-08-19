@@ -40,6 +40,12 @@ class BaseLoss(GANComponent):
             if config.minibatch:
                 d_loss += self.minibatch(net)
 
+            if config.gradient_locally_stable:
+                gls = self.gradient_locally_stable()
+                self.metrics['gradient_locally_stable'] = gls
+                print("Gradient locally stable applied")
+                g_loss += gls
+
             if config.gradient_penalty:
                 gp = self.gradient_penalty()
                 self.metrics['gradient_penalty'] = gp
@@ -90,14 +96,21 @@ class BaseLoss(GANComponent):
 
         return ops.squash(ops.concat([f1, f2]))
 
+    def gradient_locally_stable(self):
+        discriminator = self.discriminator or self.gan.discriminator
+        config = self.config
+        generator = self.generator or self.gan.generator
+        g_sample = self.gan.uniform_sample
+        gradients = tf.gradients(discriminator.sample, [g_sample])[0]
+        penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
+        penalty = tf.reduce_mean(tf.square(penalty))
+        return float(config.gradient_locally_stable) * penalty
+
     def gradient_penalty(self):
         config = self.config
         gan = self.gan
         gradient_penalty = config.gradient_penalty
-        if has_attr(gan.inputs, 'gradient_penalty_label'):
-            x = gan.inputs.gradient_penalty_label
-        else:
-            x = gan.inputs.x
+        x = gan.inputs.x
         generator = self.generator or gan.generator
         g = generator.sample
         discriminator = self.discriminator or gan.discriminator

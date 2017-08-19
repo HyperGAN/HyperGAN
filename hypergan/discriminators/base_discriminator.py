@@ -81,6 +81,10 @@ class BaseDiscriminator(GANComponent):
         return net
 
     def progressive_enhancement(self, config, net, xg):
-        if 'progressive_enhancement' in config and config.progressive_enhancement and xg is not None:
-            net = tf.concat(axis=3, values=[net, xg])
+        if config.skip_connection:
+            s = self.ops.shape(net)
+            extra = gan.skip_connections.get(config.skip_connection, [s[0], s[1], s[2], self.gan.channels()])
+            #TODO APpend X
+            tf.concat([extra, net], axis=1)
+
         return net

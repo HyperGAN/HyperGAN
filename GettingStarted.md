@@ -48,7 +48,7 @@ Each paper is a combination of json file and code.
 HyperGAN has tried to make it easy to add a new component.  Here are some basic classification rules on where paper implementations should go:
 
 | paper type | proposed implementation |
-| ---------------------------------------- |
+| -------------------- | -------------------- |
 | new type of encoder | new encoder class |
 | new type of input distribution encoding | either new encoder class or projection of uniform_encoder |
 | new type of generator | create a new generator class |

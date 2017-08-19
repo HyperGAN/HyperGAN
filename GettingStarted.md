@@ -6,7 +6,7 @@ Everyone will have different goals when using hypergan.  Here are some common us
 
 ### Training a network
 
-HyperGAN is currently beta.  We need help searching for a default cross data-set configuration.  Various papers are implemented by listing `hypergan new modelname -l'
+HyperGAN is currently beta.  We are still searching for a default cross data-set configuration.  Various papers are implemented by listing `hypergan new modelname -l'
 
 ### Deploying a model
 
@@ -66,7 +66,7 @@ When implementing a new paper, feature-gate any breaking code so that old config
 
 ### Custom research
 
-HyperGAN is meant to support custom research as well.  Just start hacking.  You can replace any part of the GAN with the json file, or
+HyperGAN is meant to support custom research as well.  You can replace any part of the GAN with the json file, or
 just create a new GAN altogether.
 
 Also, try to save refactoring until after it works.

@@ -193,12 +193,15 @@ Don't train on CPU!  It's too slow.
   # Train a 32x32 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
+
 ## Sampling
 
 ```bash
   # Train a 256x256 gan with batch size 32 on a folder of pngs
-  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name] --sampler static_batch --sample_every 5
+  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name] --sampler static_batch --sample_every 5 --save_samples
 ```
+
+By default hypergan will not save samples to disk.  To change this, use `--save_samples`.
 
 One way a network learns:
 

@@ -102,7 +102,7 @@ class ResizeConvGenerator(BaseGenerator):
             net = self.layer_regularizer(net)
 
             if config.skip_connection:
-                sliced = tf.slice(net, [0,0,0,0], [-1, -1, -1, gan.channels()]
+                sliced = tf.slice(net, [0,0,0,0], [-1, -1, -1, gan.channels()])
                 sliced = final_activation(sliced)
                 gan.skip_connections.set(config.skip_connection, sliced, shape=ops.shape(sliced))
 

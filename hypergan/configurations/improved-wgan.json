@@ -1,16 +1,14 @@
 {
   "description": "Improved Wasserstein GAN",
   "publication": "https://arxiv.org/abs/1704.00028",
-  "discriminator": 
-  {
+  "discriminator": {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
     "initializer": "random_normal",
     "activation": "lrelu",
     "improved": true,
     "random_stddev": 0.02
   },
-  "encoder":
-  {
+  "encoder": {
     "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
     "projections": [
       "function:hypergan.encoders.uniform_encoder.identity"
@@ -25,17 +23,17 @@
     "initializer": "random_normal",
     "random_stddev": 0.02
   },
-  "loss":
-  {
+  "loss": {
     "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
     "reduce": "reduce_mean",
-    "gradient_penalty": 10
+    "gradient_penalty": 10,
+    "gradient_locally_stable": 0.01
   },
   "trainer": {
     "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
-    "d_learn_rate": 0.00005,
+    "d_learn_rate": 5e-05,
     "d_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "g_learn_rate": 0.00005,
+    "g_learn_rate": 5e-05,
     "g_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer"
   }
 }

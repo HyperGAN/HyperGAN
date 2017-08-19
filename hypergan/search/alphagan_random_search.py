@@ -29,7 +29,10 @@ class AlphaGANRandomSearch(RandomSearch):
             'z_discriminator_layers': [0,1,2],
             'z_discriminator_extra_layers': [0,1,2],
             'z_discriminator_extra_layers_reduction': [1,2],
-            'cycloss_lambda': -1,
+            'cycloss_lambda': [0.1, 0.3, 0.2],
+            'concat_linear': [64,128,256],
+            'concat_linear_filters': [32,64,128,256],
+            'skip_linear': [False, True],
             'd_layer_filter': [True,False],
             'g_layer_filter': [True,False],
             'encode_layer_filter': [True, False]
@@ -42,8 +45,10 @@ class AlphaGANRandomSearch(RandomSearch):
         self.options['z_discriminator']['extra_layers']=alpha_config.z_discriminator_extra_layers
         self.options['z_discriminator']['extra_layers_reduction']=alpha_config.z_discriminator_extra_layers_reduction
         self.options['cycloss_lambda']=alpha_config.cycloss_lambda
+        self.options['generator']['concat_linear']=alpha_config.concat_linear
+        self.options['generator']['concat_linear_filters']=alpha_config.concat_linear_filters
+        self.options['generator']['skip_linear']=alpha_config.skip_linear
         self.options["class"]="class:hypergan.gans.alpha_gan.AlphaGAN"
         self.options['d_layer_filter']=alpha_config.d_layer_filter
         self.options['g_layer_filter']=alpha_config.g_layer_filter
-        self.options['encode_layer_filter']=alpha_config.encode_layer_filter
         self.options = {**self.options, **overrides}

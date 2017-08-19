@@ -6,23 +6,21 @@ import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 import matplotlib.pyplot as plt
-from hypergan.loaders import *
 from hypergan.generators import *
 from examples.common import *
 import numpy as np
-
-import math
-import os
+from examples.common import *
+from hypergan.search.alphagan_random_search import AlphaGANRandomSearch
+from hypergan.gans.alpha_gan import AlphaGAN
 
 arg_parser = ArgumentParser("Learn from a text file", require_directory=False)
 arg_parser.parser.add_argument('--one_hot', action='store_true', help='Use character one-hot encodings.')
 args = arg_parser.parse_args()
 
-one_hot = args.one_hot
 
 config = lookup_config(args)
 if args.action == 'search':
-    config = RandomSearch({}).random_config()
+    config = AlphaGANRandomSearch({}).random_config()
 
 def search(config, args):
     metrics = train(config, args)
@@ -32,20 +30,53 @@ def search(config, args):
     with open(args.search_output, "a") as myfile:
         myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
 
-def train(config, args):
-    save_file = "save/chargan/model.ckpt"
+
+save_file = "save/model.ckpt"
+
+config = lookup_config(args)
+
+inputs = TextInput(config, args.batch_size, one_hot=args.one_hot)
+
+if args.action == 'search':
+    random_config = AlphaGANRandomSearch({}).random_config()
+
+    if args.config_list is not None:
+        config = random_config_from_list(args.config_list)
+
+        config["generator"]=random_config["generator"]
+        config["discriminator"]=random_config["discriminator"]
+        # TODO Other search terms?
+    else:
+        config = random_config
+
+
+def setup_gan(config, inputs, args):
+    gan = hg.GAN(config, inputs=inputs)
+
+    gan.create()
+
+    if(args.action != 'search' and os.path.isfile(save_file+".meta")):
+        gan.load(save_file)
+
     with tf.device(args.device):
-        text_input = TextInput(config, args.batch_size, one_hot=one_hot)
-        gan = hg.GAN(config, inputs=text_input)
-        gan.create()
-
-        if(args.action != 'search' and os.path.isfile(save_file+".meta")):
-            gan.load(save_file)
-
         with gan.session.as_default():
-            text_input.table.init.run()
-        tf.train.start_queue_runners(sess=gan.session)
+            inputs.table.init.run()
+    tf.train.start_queue_runners(sess=gan.session)
 
+    return gan
+
+def sample(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+
+def search(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+
+def train(config, inputs, args):
+    gan = setup_gan(config, inputs, args)
+
+    trainers = []
+
+    with tf.device(args.device):
         s = [int(g) for g in gan.generator.sample.get_shape()]
         x_0 = gan.session.run(gan.inputs.x)
         z_0 = gan.session.run(gan.encoder.z)
@@ -57,7 +88,7 @@ def train(config, args):
         last_i = 0
         samples = 0
 
-        vocabulary = text_input.get_vocabulary()
+        vocabulary = inputs.get_vocabulary()
 
         for i in range(args.steps):
             gan.step()
@@ -71,13 +102,13 @@ def train(config, args):
                 g, x_val = gan.session.run([gan.generator.sample, gan.inputs.x], {gan.encoder.z: z_0})
                 bs = np.shape(x_val)[0]
                 samples+=1
-                print("X: "+text_input.sample_output(x_val[0]))
+                print("X: "+inputs.sample_output(x_val[0]))
                 print("G:")
                 for j, g0 in enumerate(g):
                     if j > 4:
                         break
 
-                    print(text_input.sample_output(g0))
+                    print(inputs.sample_output(g0))
 
         if args.config is None:
             with open("sequence-results-10k.csv", "a") as myfile:
@@ -86,9 +117,12 @@ def train(config, args):
         gan.session.close()
 
 if args.action == 'train':
-    metrics = train(config, args)
+    metrics = train(config, inputs, args)
     print("Resulting metrics:", metrics)
+elif args.action == 'sample':
+    sample(config, inputs, args)
 elif args.action == 'search':
-    search(config, args)
+    search(config, inputs, args)
 else:
     print("Unknown action: "+args.action)
+

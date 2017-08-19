@@ -72,7 +72,7 @@ class StandardGAN(BaseGAN):
             if self.generator is None and config.generator:
                 self.generator = self.create_component(config.generator)
                 create_if(self.generator)
-            self.uniform_sample = self.generator.sample
+                self.uniform_sample = self.generator.sample
 
             if self.discriminator is None and config.discriminator:
                 self.discriminator = self.create_component(config.discriminator)

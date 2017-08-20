@@ -16,6 +16,6 @@ deployment:
     - cp -R hypergan/* $CIRCLE_ARTIFACTS/apidocs
     - cp -R tests/coverage $CIRCLE_ARTIFACTS/coverage
     - aws s3 sync hypergan s3://hypergan-apidocs/0.10.0/ --delete --acl "public-read"
-    - aws s3 sync tests/coverage s3://hypergan-codecoverage/0.10.0/ --delete --acl "public-read"
+    - aws s3 sync tests/coverage s3://hypergan-apidocs/0.10.0/coverage --delete --acl "public-read"
 
     

@@ -79,7 +79,7 @@ HyperGAN is currently in open beta.
 
  * [0.10.0](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
  * [0.9.x](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)
- * [Test coverage](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/tests/coverage/index.html)
+ * [Test coverage](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/coverage/index.html)
 
 # Changelog
 

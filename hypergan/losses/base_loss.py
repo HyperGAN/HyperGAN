@@ -8,8 +8,19 @@ class BaseLoss(GANComponent):
         self.metrics = {}
         self.sample = None
         self.ops = None
+        if discriminator == None:
+            discriminator = gan.discriminator
+        if generator == None:
+            generator = gan.generator
         self.discriminator = discriminator
         self.generator = generator
+
+    def reuse(self, d_real, d_fake):
+        self.discriminator.ops.reuse()
+        net = self._create(d_real, d_fake)
+        self.discriminator.ops.stop_reuse()
+        return net
+
 
     def create(self, split=2):
         gan = self.gan
@@ -27,7 +38,7 @@ class BaseLoss(GANComponent):
         elif split == 3:
             d_real, d_fake, d_fake2 = self.split_batch(net, split)
             d_loss, g_loss = self._create(d_real, d_fake)
-            d_loss2, g_loss2 = self._create(d_real, d_fake2)
+            d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
             g_loss += g_loss2
             d_loss += d_loss2
             #does this double the signal of d_real?
@@ -39,6 +50,12 @@ class BaseLoss(GANComponent):
 
             if config.minibatch:
                 d_loss += self.minibatch(net)
+
+            if config.gradient_locally_stable:
+                gls = self.gradient_locally_stable()
+                self.metrics['gradient_locally_stable'] = gls
+                print("Gradient locally stable applied")
+                g_loss += gls
 
             if config.gradient_penalty:
                 gp = self.gradient_penalty()
@@ -90,14 +107,21 @@ class BaseLoss(GANComponent):
 
         return ops.squash(ops.concat([f1, f2]))
 
+    def gradient_locally_stable(self):
+        discriminator = self.discriminator or self.gan.discriminator
+        config = self.config
+        generator = self.generator or self.gan.generator
+        g_sample = self.gan.uniform_sample
+        gradients = tf.gradients(discriminator.sample, [g_sample])[0]
+        penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
+        penalty = tf.reduce_mean(tf.square(penalty))
+        return float(config.gradient_locally_stable) * penalty
+
     def gradient_penalty(self):
         config = self.config
         gan = self.gan
         gradient_penalty = config.gradient_penalty
-        if has_attr(gan.inputs, 'gradient_penalty_label'):
-            x = gan.inputs.gradient_penalty_label
-        else:
-            x = gan.inputs.x
+        x = gan.inputs.x
         generator = self.generator or gan.generator
         g = generator.sample
         discriminator = self.discriminator or gan.discriminator

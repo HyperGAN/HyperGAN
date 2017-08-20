@@ -73,7 +73,6 @@ class PyramidDiscriminator(BaseDiscriminator):
             net = activation(net)
             net = ops.reshape(net, [ops.shape(net)[0], -1])
             net = ops.linear(net, config.fc_layer_size or 300)
-            net = self.layer_regularizer(net)
 
         if final_activation:
             net = final_activation(net)

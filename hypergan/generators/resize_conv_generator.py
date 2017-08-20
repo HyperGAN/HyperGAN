@@ -61,7 +61,8 @@ class ResizeConvGenerator(BaseGenerator):
                 net2 = tf.slice(net2, [0,0], [ops.shape(net)[0], config.concat_linear])
                 net2 = ops.linear(net2, size)
                 net2 = tf.reshape(net2, [ops.shape(net)[0], ops.shape(net)[1], ops.shape(net)[2], config.concat_linear_filters])
-                net2 = self.layer_regularizer(net2)
+                if config.concat_linear_regularize:
+                    net2 = self.layer_regularizer(net2)
                 net2 = config.activation(net2)
                 net = tf.concat([net, net2], axis=3)
             net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
@@ -99,7 +100,14 @@ class ResizeConvGenerator(BaseGenerator):
             s = ops.shape(net)
             resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
             net = self.layer_regularizer(net)
+
+            if config.skip_connection:
+                sliced = tf.slice(net, [0,0,0,0], [-1, -1, -1, gan.channels()])
+                sliced = final_activation(sliced)
+                gan.skip_connections.set(config.skip_connection, sliced, shape=ops.shape(sliced))
+
             net = activation(net)
+
             if block != 'deconv':
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)

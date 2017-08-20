@@ -144,16 +144,15 @@ class GANComponent:
         results = []
         ops = self.ops
         for net, net2 in nets:
-            net = ops.concat([net, net2], axis=3)
-            shape = ops.shape(net)
-            bs = shape[0]
-            net = ops.reshape(net, [bs, -1])
-            features = ops.shape(net)[1]
-            net = ops.linear(net, features)
+            net = ops.concat([net, net2], axis=2)
+            #shape = ops.shape(net)
+            #bs = shape[0]
+            #net = ops.reshape(net, [bs, -1])
+            #features = ops.shape(net)[1]
             #net = self.layer_regularizer(net)
-            net = ops.lookup('lrelu')(net)
+            print('add', net, net2)
             #net = ops.linear(net, features)
-            net = ops.reshape(net, shape)
+            #net = ops.reshape(net, shape)
             results.append(net)
         return results
 
@@ -167,13 +166,13 @@ class GANComponent:
         netlist = self.split_by_width_height(net)
         permutations = self.permute(netlist, 2)
         permutations = self.fully_connected_from_list(permutations)
-        net = ops.concat(permutations, axis=3)
+        net = ops.concat(permutations, axis=1)
 
         #hack
-        bs = ops.shape(net)[0]
-        net = ops.reshape(net, [bs, -1])
-        net = ops.linear(net, input_size)
-        net = ops.reshape(net, shape)
+        #bs = ops.shape(net)[0]
+        #net = ops.reshape(net, [bs, -1])
+        #net = ops.linear(net, input_size)
+        #net = ops.reshape(net, shape)
 
         return net
 

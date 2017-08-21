@@ -27,7 +27,7 @@ class ResizeConvGenerator(BaseGenerator):
         while w < target_w:
             w*=2
             i+=1
-            depths.append(final_depth + i*config.depth_increase)
+            depths.append(final_depth + i*config.depth_increase + (gan.channels() or config.channels) - 3)
         depths = depths[1:]
         depths.reverse()
         return depths

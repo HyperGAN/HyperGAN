@@ -1,0 +1,2 @@
+hypergan/configurations/samples/**/*.png filter=lfs diff=lfs merge=lfs -text
+hypergan/configurations/samples/*.png filter=lfs diff=lfs merge=lfs -text

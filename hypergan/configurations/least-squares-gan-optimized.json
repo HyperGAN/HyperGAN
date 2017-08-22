@@ -1,6 +1,5 @@
 {
-  "discriminator": 
-  {
+  "discriminator": {
     "activation": "prelu",
     "distance": "l1_distance",
     "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
@@ -16,18 +15,15 @@
     "orthogonal_initializer_gain": 1.0595959595959596,
     "resize": null
   },
-
   "generator": {
     "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
     "activation": "prelu",
-    "layer_regularizer": "batch_norm",
+    "layer_regularizer": "weight_norm",
     "final_depth": 64,
     "depth_increase": 64,
     "final_activation": "tanh"
   },
-
-  "encoder":
-  {
+  "encoder": {
     "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
     "projections": [
       "function:hypergan.encoders.uniform_encoder.identity"
@@ -36,11 +32,14 @@
     "max": 1,
     "z": 100
   },
-  "loss":
-  {
+  "loss": {
     "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
     "reduce": "reduce_mean",
-    "labels": [0,1,1]
+    "labels": [
+      0,
+      1,
+      1
+    ]
   },
   "trainer": {
     "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",

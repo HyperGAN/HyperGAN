@@ -24,6 +24,7 @@ from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.autoencode_sampler import AutoencodeSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
@@ -55,10 +56,15 @@ class CLI:
             self.save_file = default_save_path + "/model.ckpt"
             self.create_path(self.save_file)
 
+        title = "[hypergan] " + self.config_name
+        GlobalViewer.title = title
+        GlobalViewer.enabled = self.args.viewer
+
     def sampler_for(name):
         samplers = {
                 'static_batch': StaticBatchSampler,
                 'random_walk': RandomWalkSampler,
+                'alphagan_random_walk': AlphaganRandomWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
                 'began': BeganSampler,
@@ -80,12 +86,6 @@ class CLI:
 
         to create a video of the learning process.
         """
-
-        if(self.args.viewer):
-            GlobalViewer.enable()
-            config_name = self.config_name
-            title = "[hypergan] " + config_name
-            GlobalViewer.window.set_title(title)
 
         sample_list = self.sampler.sample(sample_file, self.args.save_samples)
 
@@ -114,9 +114,11 @@ class CLI:
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
-    def build(self, args):
-        build_file = os.path.expanduser("~/.hypergan/builds/"+args.config+"/generator.ckpt")
+    def build(self):
+        save_file = self.args.config+".pbgraph"
+        build_file = os.path.expanduser("builds/"+save_file)
         self.create_path(build_file)
+        tf.train.write_graph(self.gan.session.graph, 'builds', save_file)
 
         print("Saved generator to ", build_file)
 
@@ -203,6 +205,10 @@ class CLI:
             self.gan.session.close()
         elif self.method == 'build':
             self.gan.create()
+            if not self.gan.load(self.save_file):
+                raise "Could not load model: "+ save_file
+            else:
+                print("Model loaded")
             self.build()
             tf.reset_default_graph()
             self.gan.session.close()

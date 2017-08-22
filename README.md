@@ -24,7 +24,6 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
   * [Increasing Performance](#increasing-performance)
   * [Development Mode](#development-mode)
   * [Running on CPU](#running-on-cpu)
-
 * [The pip package hypergan](#the-pip-package-hypergan)
  * [Training](#training)
  * [Sampling](#sampling)
@@ -51,8 +50,7 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
   * [Creating a Dataset](#creating-a-dataset)
   * [Downloadable Datasets](#downloadable-datasets)
 * [Contributing](#contributing)
-  * [Our process](#our-process)
-  * [Branches](#branches)
+* [Versioning](#Versioning)
 * [Sources](#sources)
 * [Papers](#papers)
 * [Citation](#citation)
@@ -74,8 +72,6 @@ HyperGAN is currently in open beta.
 
 0.9 samples are still training.
 
-Share your creations here by opening a PR.
-
 # Documentation
 
 [API Documentation](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)
@@ -96,26 +92,36 @@ See the full changelog here:
 
 ## Install
 
-Optionally, create a `virtualenv`:
 
-```bash
-  virtualenv --system-site-packages -p python3 hypergan
-  source hypergan/bin/activate
-```
-
-Install hypergan:
+### Install hypergan:
 
 ```bash
   pip3 install hypergan --upgrade
 ```
 
-Install dependencies:
+### Optional `virtualenv`:
+
+If you use virtualenv:
 
 ```bash
-  pip3 install numpy tensorflow-gpu hyperchamber pillow
-  # Optional, for --viewer:
-  apt-get install python-gi
+  virtualenv --system-site-packages -p python3 hypergan
+  source hypergan/bin/activate
 ```
+### Dependencies:
+
+If installation fails try this.
+
+```bash
+  pip3 install numpy tensorflow-gpu hyperchamber pillow pygame
+```
+
+### Dependency help
+
+If the above step fails see the dependency documentation:
+
+* tensorflow - https://www.tensorflow.org/install/
+* pygame  - http://www.pygame.org/wiki/GettingStarted
+
 
 ## Create a new project
 
@@ -184,15 +190,18 @@ Don't train on CPU!  It's too slow.
 ## Training
 
 ```bash
-  # Train a 256x256 gan with batch size 32 on a folder of pngs
+  # Train a 32x32 gan with batch size 32 on a folder of pngs
   hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
 ```
+
 ## Sampling
 
 ```bash
   # Train a 256x256 gan with batch size 32 on a folder of pngs
-  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name] --sampler static_batch --sample_every 5
+  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name] --sampler static_batch --sample_every 5 --save_samples
 ```
+
+By default hypergan will not save samples to disk.  To change this, use `--save_samples`.
 
 One way a network learns:
 
@@ -500,10 +509,11 @@ Determined by the GAN implementation.  These variables are the same across all t
 
 # Contributing
 
-Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab that have the label *Help Wanted*.
+Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab.
 
+See <a href='CONTRIBUTING.md'>how to contribute.</a>
 
-## Our process
+# Versioning
 
 HyperGAN uses semantic versioning.  http://semver.org/
 
@@ -512,18 +522,6 @@ TLDR: *x.y.z*
 * _x_ is incremented on stable public releases.
 * _y_ is incremented on API breaking changes.  This includes configuration file changes and graph construction changes.
 * _z_ is incremented on non-API breaking changes.  *z* changes will be able to reload a saved graph.
-
-## Branches
-
-The branches are:
-
-* `master` contains the best GAN we've found as default.  It aims to *just work* for most use cases(YMMV).
-* `develop` contains the latest and can be in a broken state.
-
-*Bug fixes* and *showcases* can be merged into `master`
-
-*Configuration changes*, *new architectures*, and generally anything experimental belongs in `develop`.
-
 
 ## Papers
 

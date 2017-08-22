@@ -1,3 +1,6 @@
+"""
+Generators create the samples.  Trained generators are often the goal of our users.
+"""
 from os.path import dirname, basename, isfile
 import glob
 modules = glob.glob(dirname(__file__)+"/*.py")

@@ -14,10 +14,6 @@ HyperGAN is currently beta.  We are still searching for a default cross data-set
 
 #### Building image datasets
 
-Regardless of the dataset you build, you will likely need to do some preprocessing.  HyperGAN can scale and crop.  Scaling does not
-
-Checkout the git repo, you'll probably want to make changes.
-
 ### Using search
 
 Each of the examples support search.  Automated search can help find good configurations.

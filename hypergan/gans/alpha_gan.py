@@ -54,6 +54,7 @@ class AlphaGAN(BaseGAN):
         if self.session is None: 
             self.session = self.ops.new_session(self.ops_config)
         with tf.device(self.device):
+            self.inputs.x = tf.identity(self.inputs.x, name='input')
             config = self.config
             ops = self.ops
 
@@ -79,24 +80,20 @@ class AlphaGAN(BaseGAN):
             z_size = 1
             for size in ops.shape(encoder.sample)[1:]:
                 z_size *= size
-            uniform_encoder_config.z = z_size
+            uniform_encoder_config.z = z_size // len(uniform_encoder_config.projections)
             uniform_encoder = UniformEncoder(self, uniform_encoder_config)
             uniform_encoder.create()
 
             self.generator = self.create_component(config.generator)
 
-            z = uniform_encoder.sample
+            direction = tf.random_normal(ops.shape(uniform_encoder.sample), stddev=0.3, name='direction')
+            slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
             x = self.inputs.x
 
             # project the output of the autoencoder
-            projection_input = ops.reshape(encoder.sample, [ops.shape(encoder.sample)[0],-1])
-            projections = []
-            for projection in uniform_encoder.config.projections:
-                projection = uniform_encoder.lookup(projection)(uniform_encoder.config, self.gan, projection_input)
-                projection = ops.reshape(projection, ops.shape(encoder.sample))
-                projections.append(projection)
-            z_hat = tf.concat(axis=3, values=projections)
+            z_hat = encoder.sample
 
+            z = uniform_encoder.sample + slider * direction
             z = ops.reshape(z, ops.shape(z_hat))
             # end encoding
 
@@ -104,22 +101,23 @@ class AlphaGAN(BaseGAN):
             self.mask_generator = self.generator.mask_generator
             self.mask = self.generator.mask
             sample = self.generator.sample
-            self.uniform_sample = self.generator.sample
+            self.uniform_sample = g
             x_hat = self.generator.reuse(z_hat)
             self.autoencode_mask = self.generator.mask_generator.sample
 
             encoder_discriminator.create(x=z, g=z_hat)
 
             eloss = dict(config.loss)
-            eloss['gradient_penalty'] = False
-            eloss['gradient_locally_stable'] = False
+            eloss['gradient_penalty_label'] = z_hat
             encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator)
             encoder_loss.create()
 
             stacked_xg = ops.concat([x, x_hat, g], axis=0)
             standard_discriminator.create(stacked_xg)
 
-            standard_loss = self.create_component(config.loss, discriminator = standard_discriminator)
+            sloss = dict(config.loss)
+            sloss['gradient_penalty'] = False#self.gan.inputs.x
+            standard_loss = self.create_component(sloss, discriminator = standard_discriminator)
             standard_loss.create(split=3)
 
             self.trainer = self.create_component(config.trainer)
@@ -143,10 +141,12 @@ class AlphaGAN(BaseGAN):
             var_lists.append(encoder_discriminator.variables())
 
             metrics = []
-            metrics.append(encoder_loss.metrics)
+            metrics.append(None)
+            metrics.append(None)
+            #metrics.append(None)
+            
             metrics.append(standard_loss.metrics)
-            metrics.append(None)
-            metrics.append(None)
+            metrics.append(encoder_loss.metrics)
 
             # trainer
 
@@ -158,11 +158,12 @@ class AlphaGAN(BaseGAN):
             self.encoder = encoder
             self.uniform_encoder = uniform_encoder
 
+            self.slider = slider
+            self.direction = direction
+
 
     def step(self, feed_dict={}):
         return self.trainer.step(feed_dict)
-<<<<<<< HEAD
-=======
 
     def input_nodes(self):
         "used in hypergan build"
@@ -185,4 +186,3 @@ class AlphaGAN(BaseGAN):
                 self.generator.g1x,
                 self.generator.g2x
         ]
->>>>>>> 7bfef19... [feature] mask and g1x/g2x outputs

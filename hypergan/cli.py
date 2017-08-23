@@ -62,7 +62,7 @@ class CLI:
         GlobalViewer.title = title
         GlobalViewer.enabled = self.args.viewer
 
-    def sampler_for(name):
+    def sampler_for(name, default=StaticBatchSampler):
         samplers = {
                 'static_batch': StaticBatchSampler,
                 'random_walk': RandomWalkSampler,
@@ -78,8 +78,8 @@ class CLI:
         if name in samplers:
             return samplers[name]
         else:
-            print("[hypergan] No sampler found for ", name, ".  Defaulting to StaticBatch")
-            return StaticBatchSampler
+            print("[hypergan] No sampler found for ", name, ".  Defaulting to", default)
+            return default
 
     def sample(self, sample_file):
         """ Samples to a file.  Useful for visualizing the learning process.

@@ -57,11 +57,21 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 
 # About
 
-Generative Adversarial Networks consist of 2 learning systems that learn together.  HyperGAN implements these learning systems in Tensorflow with deep learning.
+Generative Adversarial Networks consist of 2 learning systems that learn together.  HyperGAN implements these learning systems in Tensorflow with deep learning, using json files to reproduce architectures from white papers.
 
 For an introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
 
+
 HyperGAN is currently in open beta.
+
+## Features
+
+* Reproducible architectures using json configurations
+* Platform independent
+* Dataset agnostic
+* Hyperparameter search built in(see examples)
+* Combine different components to build your own GAN
+* Unsupervised & supervised learning options
 
 # Showcase
 

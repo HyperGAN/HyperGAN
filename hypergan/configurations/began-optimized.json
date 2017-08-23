@@ -29,6 +29,7 @@
   "generator": {
     "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
     "activation": "selu",
+    "layer_regularizer": "weight_conv",
     "depth_increase": 64,
     "final_depth": 64,
     "final_activation": "tanh",

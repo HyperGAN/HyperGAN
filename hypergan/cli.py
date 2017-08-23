@@ -1,3 +1,6 @@
+"""
+The command line interface.  Trains a directory of data.
+"""
 import os
 import hyperchamber as hc
 import tensorflow as tf

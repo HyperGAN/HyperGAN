@@ -29,6 +29,7 @@ from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 
 class AlphaGAN(BaseGAN):
     """ 
+      AlphaGAN, or α-GAN from https://arxiv.org/pdf/1706.04987.pdf
     """
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
@@ -40,6 +41,12 @@ class AlphaGAN(BaseGAN):
         self.session = None
 
     def required(self):
+        """
+        `g_encoder` is a discriminator.  It takes X as input
+        `z_discriminator` is another discriminator.  It takes as input the output of g_encoder and z
+        `discriminator` is a standard discriminator.  It measures X, reconstruction of X, and G.
+        `generator` produces two samples, g_encoder output and a known random distribution.
+        """
         return "generator discriminator z_discriminator g_encoder".split()
 
     def create(self):

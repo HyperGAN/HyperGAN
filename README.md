@@ -67,14 +67,11 @@ HyperGAN is currently in open beta.
 ## Features
 
 * Reproducible architectures using json configurations
-* Optimized
 * Platform independent
-* Scalable
 * Dataset agnostic
 * Hyperparameter search built in(see examples)
 * Combine different components to build your own GAN
 * Unsupervised & supervised learning options
-* and more
 
 # Showcase
 

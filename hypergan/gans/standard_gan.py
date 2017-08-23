@@ -77,6 +77,7 @@ class StandardGAN(BaseGAN):
             if self.loss is None and config.loss:
                 self.loss = self.create_component(config.loss)
                 create_if(self.loss)
+                self.metrics = self.loss.metrics
             if self.trainer is None and config.trainer:
                 self.trainer = self.create_component(config.trainer)
                 create_if(self.trainer)

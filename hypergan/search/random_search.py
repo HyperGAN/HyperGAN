@@ -76,7 +76,8 @@ class RandomSearch:
         loss_opts = {
             'reverse':[True, False],
             'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            'gradient_penalty': False,
+            'gradient_penalty': [10],
+            'gradient_penalty_type': 'dragan',
             'labels': [
                 [0, 1, 1]
             ],
@@ -88,9 +89,11 @@ class RandomSearch:
             'initial_k': self.range(),
             'k_lambda': self.range(.001),
             'type': ['wgan', 'lsgan', 'softmax'],
-            'minibatch': [False],
+            'minibatch': [True, False],
+            'improved': [True, False],
             'class': [
-                LeastSquaresLoss
+                #LeastSquaresLoss,
+                StandardLoss
             ]
         }
 
@@ -161,7 +164,7 @@ class RandomSearch:
             "initial_depth": [32],
             "initializer": ['orthogonal', 'random'],
             "layer_regularizer": [None, 'batch_norm', 'layer_norm'],
-            "noise":[False, 1e-2],
+            "noise":[False],
             "progressive_enhancement":[False, True],
             "orthogonal_gain": list(np.linspace(0.1, 2, num=10000)),
             "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),

@@ -18,9 +18,15 @@ class FDivergenceLoss(BaseLoss):
             gfx = d_real
             gfg = d_fake
         elif config.type == 'js':
+            log2 = tf.constant(np.log(2)-TINY, dtype=tf.float32)
+            d_real = tf.minimum(log2, d_real)
+            d_fake = tf.minimum(log2, d_fake)
             gfx = np.log(2) - tf.log(1+tf.exp(-d_real))
             gfg = np.log(2) - tf.log(1+tf.exp(-d_fake))
         elif config.type == 'gan':
+            log2 = tf.constant(np.log(2)-TINY, dtype=tf.float32)
+            d_real = tf.minimum(log2, d_real)
+            d_fake = tf.minimum(log2, d_fake)
             gfx = -tf.log(1+tf.exp(-d_real)+TINY)
             gfg = -tf.log(1+tf.exp(-d_fake)+TINY)
         elif config.type == 'reverse_kl':
@@ -30,6 +36,8 @@ class FDivergenceLoss(BaseLoss):
             gfx = d_real
             gfg = d_fake
         elif config.type == 'squared_hellinger':
+            d_real = tf.minimum(1-TINY, d_real)
+            d_fake = tf.minimum(1-TINY, d_fake)
             gfx = 1-tf.exp(-d_real)
             gfg = 1-tf.exp(-d_fake)
 

@@ -68,4 +68,14 @@ class FDivergenceLoss(BaseLoss):
         d_loss = -gfx+conjugate
         g_loss = -conjugate
 
+        if config.g_loss_type == 'standard':
+            g_loss = -conjugate
+        elif config.g_loss_type == 'rkl':
+            g_loss = -d_fake
+        elif config.g_loss_type == 'kl':
+            g_loss = d_fake * tf.exp(d_fake)
+        elif config.g_loss_type == 'alpha':
+            a = config.alpha
+            g_loss = (1.0/(a*(a-1))) * (tf.exp(a*d_fake) - 1 - a*(tf.exp(d_fake) - 1))
+
         return [d_loss, g_loss]

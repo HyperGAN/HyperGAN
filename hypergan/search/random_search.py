@@ -86,24 +86,6 @@ class RandomSearch:
 
     def loss(self):
         loss_opts = {
-            #'reverse':[True, False],
-            #'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            #'gradient_penalty': False,
-            #'labels': [
-            #    [0, 1, 1]
-            #],
-            #'alpha':self.range(),
-            #'beta':self.range(),
-            #'gamma':self.range(),
-            #'label_smooth': self.range(),
-            #'use_k': [False, True],
-            #'initial_k': self.range(),
-            #'k_lambda': self.range(.001),
-            #'type': ['wgan', 'lsgan', 'softmax'],
-            #'minibatch': [False],
-            #'class': [
-            #    LeastSquaresLoss
-            #]
             'class': [
                     VralLoss
             ],

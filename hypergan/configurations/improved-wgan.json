@@ -19,6 +19,7 @@
   },
   "generator": {
     "class": "function:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "layer_regularizer": "batch_norm",
     "activation": "selu",
     "initializer": "random_normal",
     "random_stddev": 0.02

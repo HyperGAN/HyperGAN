@@ -1,4 +1,5 @@
 from hypergan.samplers.base_sampler import BaseSampler
+
 from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
@@ -7,6 +8,7 @@ import tensorflow as tf
 import numpy as np
 import hypergan as hg
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
+
 
 class DebugSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
@@ -19,7 +21,6 @@ class DebugSampler(BaseSampler):
         if gan.config.loss['class'] == BoundaryEquilibriumLoss:
           self.samplers += [BeganSampler(gan, samples_per_row)]
 
-        print("GANLOSS", gan.loss.__class__.__name__)
 
 
     def _sample(self):

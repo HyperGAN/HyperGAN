@@ -11,6 +11,8 @@ class AlternatingTrainer(BaseTrainer):
     def _create(self):
         gan = self.gan
         config = self.config
+        g_lr = config.g_learn_rate
+        d_lr = config.d_learn_rate
 
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
@@ -20,6 +22,8 @@ class AlternatingTrainer(BaseTrainer):
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
+        self.d_lr = tf.Variable(d_lr, dtype=tf.float32)
+        self.g_lr = tf.Variable(g_lr, dtype=tf.float32)
         g_optimizer = self.build_optimizer(config, 'g_', config.g_trainer, self.g_lr, g_vars, g_loss)
         d_optimizer = self.build_optimizer(config, 'd_', config.d_trainer, self.d_lr, d_vars, d_loss)
 

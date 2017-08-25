@@ -18,6 +18,26 @@ def repeating_block(component, net, depth, filter=3):
     print('[discriminator] layer', net)
     return net
 
+def repeating_strided_block(component, net, depth, filter=3):
+    ops = component.ops
+    config = component.config
+    layer_regularizer = config.layer_regularizer
+    ksize = [1,filter-1,filter-1,1]
+    stride = [1,filter-1,filter-1,1]
+    for i in range(config.block_repeat_count-1):
+        net = config.activation(net)
+        if layer_regularizer is not None:
+            net = component.layer_regularizer(net)
+        if i== config.block_repeat_count-2:
+            net = ops.conv2d(net, 3, 3, 2, 2, depth)
+        else:
+            net = ops.conv2d(net, 3, 3, 1, 1, depth)
+        print("[discriminator] hidden layer", net)
+
+    print('[discriminator] layer', net)
+    return net
+
+
 def standard_block(component, net, depth, filter=3):
     ops = component.ops
     config = component.config

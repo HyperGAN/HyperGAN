@@ -29,6 +29,7 @@ from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 
 class AlphaGAN(BaseGAN):
     """ 
+      AlphaGAN, or α-GAN from https://arxiv.org/pdf/1706.04987.pdf
     """
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
@@ -40,6 +41,12 @@ class AlphaGAN(BaseGAN):
         self.session = None
 
     def required(self):
+        """
+        `g_encoder` is a discriminator.  It takes X as input
+        `z_discriminator` is another discriminator.  It takes as input the output of g_encoder and z
+        `discriminator` is a standard discriminator.  It measures X, reconstruction of X, and G.
+        `generator` produces two samples, g_encoder output and a known random distribution.
+        """
         return "generator discriminator z_discriminator g_encoder".split()
 
     def create(self):
@@ -106,7 +113,9 @@ class AlphaGAN(BaseGAN):
             stacked_xg = ops.concat([x, x_hat, g], axis=0)
             standard_discriminator.create(stacked_xg)
 
-            standard_loss = self.create_component(config.loss, discriminator = standard_discriminator)
+            sloss = dict(config.loss)
+            sloss['gradient_penalty'] = False#self.gan.inputs.x
+            standard_loss = self.create_component(sloss, discriminator = standard_discriminator)
             standard_loss.create(split=3)
 
             self.trainer = self.create_component(config.trainer)
@@ -130,10 +139,12 @@ class AlphaGAN(BaseGAN):
             var_lists.append(encoder_discriminator.variables())
 
             metrics = []
-            metrics.append(encoder_loss.metrics)
+            metrics.append(None)
+            metrics.append(None)
+            #metrics.append(None)
+            
             metrics.append(standard_loss.metrics)
-            metrics.append(None)
-            metrics.append(None)
+            metrics.append(encoder_loss.metrics)
 
             # trainer
 

@@ -22,6 +22,8 @@ class MultiStepTrainer(BaseTrainer):
         d_lr = config.d_learn_rate
 
         optimizers = []
+        self.d_lr = tf.Variable(d_lr, dtype=tf.float32)
+        self.g_lr = tf.Variable(g_lr, dtype=tf.float32)
         for i, _ in enumerate(losses):
             loss = losses[i][1]
             var_list = self.var_lists[i]

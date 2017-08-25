@@ -26,7 +26,7 @@ class BaseLoss(GANComponent):
         gan = self.gan
         config = self.config
         ops = self.gan.ops
-        
+
         if self.discriminator is None:
             net = gan.discriminator.sample
         else:
@@ -40,7 +40,7 @@ class BaseLoss(GANComponent):
             d_loss, g_loss = self._create(d_real, d_fake)
             d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
             g_loss += g_loss2
-            d_loss += d_loss2
+            d_loss = 0.5*d_loss + 0.5*d_loss2
             #does this double the signal of d_real?
 
 
@@ -120,6 +120,7 @@ class BaseLoss(GANComponent):
     def gradient_penalty(self):
         config = self.config
         gan = self.gan
+        ops = self.gan.ops
         gradient_penalty = config.gradient_penalty
         x = gan.inputs.x
         generator = self.generator or gan.generator
@@ -129,7 +130,14 @@ class BaseLoss(GANComponent):
         shape[0] = gan.batch_size()
         uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
         print("[gradient penalty] applying x:", x, "g:", g, "noise:", uniform_noise)
-        interpolates = x + uniform_noise * (g - x)
+        if config.gradient_penalty_type == 'dragan':
+            axes = [0, 1, 2, 3]
+            if len(ops.shape(x)) == 2:
+                axes = [0, 1]
+            mean, variance = tf.nn.moments(x, axes=axes)
+            interpolates = x + uniform_noise * 0.5 * variance * tf.random_uniform(shape=ops.shape(x), minval=0.,maxval=1.)
+        else:
+            interpolates = x + uniform_noise * (g - x)
         reused_d = discriminator.reuse(interpolates)
         gradients = tf.gradients(reused_d, [interpolates])[0]
         penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))

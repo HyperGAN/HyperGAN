@@ -339,6 +339,23 @@ class TensorflowOps:
 
         return _trelu
 
+    def frelu(self):
+        def _frelu(_x):
+            activation = self.lookup(self.config.frelu_activation or 'relu')
+            orig_shape = self.shape(_x)
+            _x = tf.reshape(_x, [orig_shape[0], -1])
+
+            with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+                alphas = tf.get_variable('frelu', 
+                          [1],
+                          initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
+                          dtype=tf.float32)
+                net = activation(_x) + alphas
+
+            self.add_weights(alphas)
+            return tf.reshape(net, orig_shape)
+
+        return _frelu
 
     def reshape(self, net, shape):
         self.assert_tensor(net)
@@ -409,6 +426,8 @@ class TensorflowOps:
             return self.trelu()
         if symbol == "selu":
             return selu
+        if symbol == "frelu":
+            return self.frelu()
         if symbol == "lrelu":
             return lrelu
         if symbol == "relu":

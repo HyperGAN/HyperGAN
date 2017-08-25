@@ -6,10 +6,10 @@
     "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
     "block": "function:hypergan.discriminators.common.standard_block",
     "encoder_fc_layers": 0,
-    "extra_layers": 2,
+    "extra_layers": 0,
     "extra_layers_reduction": 1,
     "fc_layer_size": 300,
-    "layer_regularizer": "layer_norm",
+    "layer_regularizer": "cosine_norm",
     "fc_layers": 1,
     "initial_depth": 32,
     "depth_increase": 32,
@@ -25,11 +25,11 @@
     "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
     "block": "function:hypergan.discriminators.common.standard_block",
     "encoder_fc_layers": 0,
-    "extra_layers": 3,
+    "extra_layers": 0,
     "extra_layers_reduction": 1,
     "fc_layer_size": 300,
     "final_activation": "tanh",
-    "layer_regularizer": "layer_norm",
+    "layer_regularizer": "cosine_norm",
     "fc_layers": 1,
     "initial_depth": 32,
     "depth_increase": 32,
@@ -48,8 +48,7 @@
     "extra_layers_reduction": 1,
     "fc_layer_size": 300,
     "final_activation": "tanh",
-    "layer_filter": "function:__main__.add_bw",
-    "layer_regularizer": "layer_norm",
+    "layer_regularizer": "cosine_norm",
     "fc_layers": 0,
     "initial_depth": 32,
     "depth_increase": 32,
@@ -61,15 +60,16 @@
 
 
   "generator": {
-    "layer_filter": "function:__main__.add_bw",
-    "extra_layers": 2,
+    "extra_layers": 0,
     "skip_linear": true,
     "concat_linear": 100,
     "concat_linear_filters": 32,
     "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
-    "activation": "prelu",
-    "layer_regularizer": "batch_norm",
+    "activation": "selu",
     "final_activation": "tanh",
+    "layer_regularizer": "cosine_norm",
+    "linear_type": "cosine",
+    "concat_linear_regularize": false,
     "final_depth": 32,
     "depth_increase": 32
   },
@@ -94,6 +94,7 @@
     "initial_k": 0.5024350243502435,
     "k_lambda": 8.040080400804008e-05,
     "label_smooth": 0.010890108901089011,
+    "minibatch": true,
     "labels": [
       -1,
       1,
@@ -132,6 +133,9 @@
     "g_rho": 0.43922439224392246,
     "g_trainer": "function:tensorflow.python.training.adam.AdamOptimizer"
   },
+  "cycloss_lambda": 0.1,
+  "d_layer_filter": false,
+  "g_layer_filter": true,
   "class": "class:hypergan.gans.alpha_gan.AlphaGAN",
-  "cycloss_lambda": 0.1
+  "encode_layer_filter": true
 }

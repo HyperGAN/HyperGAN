@@ -105,7 +105,8 @@ class AlphaGAN(BaseGAN):
             encoder_discriminator.create(x=z, g=z_hat)
 
             eloss = dict(config.loss)
-            eloss['gradient_penalty_label'] = z_hat
+            eloss['gradient_penalty'] = False
+            eloss['gradient_locally_stable'] = False
             encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator)
             encoder_loss.create()
 

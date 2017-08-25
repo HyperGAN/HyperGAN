@@ -100,7 +100,14 @@ class ResizeConvGenerator(BaseGenerator):
             s = ops.shape(net)
             resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
             net = self.layer_regularizer(net)
+
+            if config.skip_connection:
+                sliced = tf.slice(net, [0,0,0,0], [-1, -1, -1, gan.channels()])
+                sliced = final_activation(sliced)
+                gan.skip_connections.set(config.skip_connection, sliced, shape=ops.shape(sliced))
+
             net = activation(net)
+
             if block != 'deconv':
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)

@@ -9,6 +9,7 @@ from hypergan.losses.least_squares_loss import LeastSquaresLoss
 from hypergan.losses.softmax_loss import SoftmaxLoss
 from hypergan.losses.standard_loss import StandardLoss
 from hypergan.losses.lamb_gan_loss import LambGanLoss
+from hypergan.losses.vral_loss import VralLoss
 
 class RandomSearch:
     def __init__(self, overrides):
@@ -62,6 +63,7 @@ class RandomSearch:
             'clipped_gradients': False,
             'd_trainer':tftrainers,
             'g_trainer':tftrainers,
+            "d_update_steps": [1, 2, 4, 8],
             'class': [
                 #hg.trainers.proportional_control_trainer.create,
                 hg.trainers.alternating_trainer.AlternatingTrainer
@@ -72,30 +74,32 @@ class RandomSearch:
         config['d_trainer'] = config['g_trainer']
         return config
      
+    def fc_discriminator(self):
+        opts = {
+          "activation": ["selu", "lrelu", "relu"],
+          "layer_regularizer": [None, "layer_norm"],
+          "linear_type": [None, "cosine"],
+          "features": [1, 10, 100, 200, 512],
+          "class": "class:hypergan.discriminators.fully_connected_discriminator.FullyConnectedDiscriminator"
+        }
+        return hc.Selector(opts).random_config()
+
     def loss(self):
         loss_opts = {
-            'reverse':[True, False],
-            'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            'gradient_penalty': [10],
-            'gradient_penalty_type': 'dragan',
-            'labels': [
-                [0, 1, 1]
-            ],
-            'alpha':self.range(),
-            'beta':self.range(),
-            'gamma':self.range(),
-            'label_smooth': self.range(),
-            'use_k': [False, True],
-            'initial_k': self.range(),
-            'k_lambda': self.range(.001),
-            'type': ['wgan', 'lsgan', 'softmax'],
-            'minibatch': [True, False],
-            'improved': [True, False],
             'class': [
-                #LeastSquaresLoss,
-                StandardLoss
-            ]
+                    VralLoss
+            ],
+            "target_mean": [-1,-0.5,0,0.5,1],
+            "fake_mean": [-1,-0.5,0,0.5,1],
+            'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
+            'type': ['log_rr', 'log_rf', 'log_fr', 'log_ff', 'log_all'],
+            'value_function': ['square', 'log', 'original'],
+            'g_loss': ['l2','fr_l2','rr_l2'],
+            
+            "r_discriminator": self.fc_discriminator()
+
         }
+        loss_opts["f_discriminator"] = loss_opts["r_discriminator"]
 
         return  hc.Selector(loss_opts).random_config()
 
@@ -129,7 +133,7 @@ class RandomSearch:
             "depth_increase":[32],
             "initializer": [None, 'random'],
             "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),
-            "final_activation":['lrelu', 'tanh'],
+            "final_activation":['lrelu', 'tanh', None],
             "block_repeat_count":[1,2,3],
             "block":[
                 hg.generators.common.standard_block, 
@@ -148,7 +152,7 @@ class RandomSearch:
     def discriminator(self):
         discriminator_opts = {
             "activation":['relu', 'lrelu', 'tanh', 'selu', 'prelu', 'crelu'],
-            "final_activation":['relu', 'lrelu', 'tanh', 'selu', 'prelu', 'crelu'],
+            "final_activation":['tanh', None],
             "block_repeat_count":[1,2,3],
             "block":[hg.discriminators.common.repeating_block,
                    hg.discriminators.common.standard_block,
@@ -163,8 +167,8 @@ class RandomSearch:
             "layers": [3,4,5,6],
             "initial_depth": [32],
             "initializer": ['orthogonal', 'random'],
-            "layer_regularizer": [None, 'batch_norm', 'layer_norm'],
-            "noise":[False],
+            "layer_regularizer": [None,  'layer_norm'],
+            "noise":[False, 1e-2],
             "progressive_enhancement":[False, True],
             "orthogonal_gain": list(np.linspace(0.1, 2, num=10000)),
             "random_stddev": list(np.linspace(0.0, 0.1, num=10000)),

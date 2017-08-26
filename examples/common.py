@@ -10,6 +10,7 @@ from hypergan.cli import CLI
 from hypergan.gan_component import GANComponent
 from hypergan.search.random_search import RandomSearch
 from hypergan.generators.base_generator import BaseGenerator
+from hypergan.discriminators.base_discriminator import BaseDiscriminator
 from hypergan.samplers.base_sampler import BaseSampler
 
 class ArgumentParser:
@@ -68,23 +69,6 @@ class CustomGenerator(BaseGenerator):
         self.sample = net
         return net
 
-class Custom2DGenerator(BaseGenerator):
-    def create(self):
-        gan = self.gan
-        config = self.config
-        ops = self.ops
-        end_features = config.end_features or 1
-
-        ops.describe('custom_generator')
-
-        net = gan.encoder.sample
-        net = ops.linear(net, 128)
-        net = ops.lookup('relu')(net)
-        net = ops.linear(net, end_features)
-        net = ops.lookup('tanh')(net)
-        self.sample = net
-        return net
-
 class CustomDiscriminator(BaseGenerator):
     def build(self, net):
         gan = self.gan
@@ -107,6 +91,24 @@ class CustomDiscriminator(BaseGenerator):
         self.sample = net
 
         return net
+
+class Custom2DGenerator(BaseGenerator):
+    def create(self):
+        gan = self.gan
+        config = self.config
+        ops = self.ops
+        end_features = config.end_features or 2
+
+        ops.describe('custom_generator')
+
+        net = gan.encoder.sample
+        net = ops.linear(net, 128)
+        net = ops.lookup('relu')(net)
+        net = ops.linear(net, end_features)
+        net = ops.lookup('tanh')(net)
+        self.sample = net
+        return net
+
 
 class Custom2DDiscriminator(BaseGenerator):
     def create(self):
@@ -235,9 +237,9 @@ def distribution_accuracy(a, b):
 def batch_accuracy(a, b):
     "Difference from a to b.  Meant for reconstruction measurements."
     difference = tf.abs(a-b)
-    difference = tf.reduce_min(difference, axis=1)
+    #difference = tf.reduce_min(difference, axis=1)
     difference = tf.reduce_sum(difference, axis=1)
-    return tf.reduce_sum( tf.reduce_sum(difference, axis=0) , axis=0) 
+    return tf.reduce_sum(difference, axis=0)
 
 class TextInput:
     def __init__(self, config, batch_size, one_hot=False):

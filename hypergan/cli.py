@@ -26,6 +26,7 @@ from hypergan.samplers.autoencode_sampler import AutoencodeSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
 from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
 from hypergan.samplers.debug_sampler import DebugSampler
+from hypergan.samplers.segment_sampler import SegmentSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
@@ -74,6 +75,7 @@ class CLI:
                 'began': BeganSampler,
                 'autoencode': AutoencodeSampler,
                 'debug': DebugSampler,
+                'segment': SegmentSampler,
                 'aligned': AlignedSampler
         }
         if name in samplers:

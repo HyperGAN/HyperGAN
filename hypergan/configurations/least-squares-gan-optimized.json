@@ -18,7 +18,7 @@
   "generator": {
     "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
     "activation": "prelu",
-    "layer_regularizer": "batch_norm",
+    "layer_regularizer": "weight_norm",
     "initializer": "random_normal",
     "final_depth": 64,
     "depth_increase": 64,

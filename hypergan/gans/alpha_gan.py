@@ -98,9 +98,12 @@ class AlphaGAN(BaseGAN):
             # end encoding
 
             g = self.generator.create(z)
+            self.mask_generator = self.generator.mask_generator
+            self.mask = self.generator.mask
             sample = self.generator.sample
             self.uniform_sample = g
             x_hat = self.generator.reuse(z_hat)
+            self.autoencode_mask = self.generator.mask_generator.sample
 
             encoder_discriminator.create(x=z, g=z_hat)
 
@@ -165,11 +168,22 @@ class AlphaGAN(BaseGAN):
 
     def input_nodes(self):
         "used in hypergan build"
-        #return []
-        return [self.inputs.x, self.uniform_encoder.sample, self.slider, self.direction]
+        return [
+                self.inputs.x,
+                self.mask_generator.sample,
+                self.slider, 
+                self.direction,
+                self.uniform_encoder.sample
+        ]
 
 
     def output_nodes(self):
         "used in hypergan build"
-        #return [self.uniform_sample]
-        return [self.encoder.sample, self.uniform_sample]
+        return [
+                self.encoder.sample,
+                self.generator.sample, 
+                self.uniform_sample,
+                self.mask_generator.sample,
+                self.generator.g1x,
+                self.generator.g2x
+        ]

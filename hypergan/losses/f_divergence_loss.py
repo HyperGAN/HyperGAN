@@ -43,7 +43,7 @@ class FDivergenceLoss(BaseLoss):
         elif config.type == 'gan':
             conjugate = -tf.log(1-tf.exp(gfg)+TINY)
         elif config.type == 'reverse_kl':
-            conjugate = -1-tf.log(-gfg)
+            conjugate = -1-tf.log(-gfg+TINY)
         elif config.type == 'pearson':
             conjugate = 0.25 * tf.square(gfg)+gfg
         elif config.type == 'squared_hellinger':

@@ -22,6 +22,8 @@ class DebugSampler(BaseSampler):
           self.samplers += [BeganSampler(gan, samples_per_row)]
 
 
+        if isinstance(gan.generator, SegmentGenerator):
+            self.samplers += [SegmentSampler(gan)]
 
     def _sample(self):
         samples = [sampler._sample()['generator'] for sampler in self.samplers]

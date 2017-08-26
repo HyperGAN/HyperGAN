@@ -3,11 +3,12 @@ import numpy as np
 import tensorflow as tf
 
 class BaseLoss(GANComponent):
-    def __init__(self, gan, config, discriminator=None, generator=None):
+    def __init__(self, gan, config, discriminator=None, generator=None, x=None):
         GANComponent.__init__(self, gan, config)
         self.metrics = {}
         self.sample = None
         self.ops = None
+        self.x = x
         if discriminator == None:
             discriminator = gan.discriminator
         if generator == None:
@@ -122,7 +123,9 @@ class BaseLoss(GANComponent):
         gan = self.gan
         ops = self.gan.ops
         gradient_penalty = config.gradient_penalty
-        x = gan.inputs.x
+        x = self.x 
+        if x is None:
+            x=gan.inputs.x
         generator = self.generator or gan.generator
         g = generator.sample
         discriminator = self.discriminator or gan.discriminator

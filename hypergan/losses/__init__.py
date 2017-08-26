@@ -1,3 +1,6 @@
+"""
+Losses can be swapped out to test various combinations.
+"""
 from os.path import dirname, basename, isfile
 import glob
 modules = glob.glob(dirname(__file__)+"/*.py")

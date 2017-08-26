@@ -5,6 +5,7 @@
   {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
     "activation": "lrelu",
+    "layer_regularizer": "batch_norm",
     "final_features": 300,
     "improved": true,
     "noise": 1e-2
@@ -22,6 +23,7 @@
   "generator": {
     "class": "function:hypergan.generators.dcgan_generator.DCGANGenerator",
     "initializer": "random_normal",
+    "layer_regularizer": "batch_norm",
     "activation": "selu",
     "random_stddev": 0.02
   },

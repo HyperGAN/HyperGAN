@@ -105,16 +105,13 @@ class AlphaGAN(BaseGAN):
             encoder_discriminator.create(x=z, g=z_hat)
 
             eloss = dict(config.eloss or config.loss)
-            eloss['gradient_penalty'] = False
-            eloss['gradient_locally_stable'] = False
-            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator)
+            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator, x=z)
             encoder_loss.create()
 
             stacked_xg = ops.concat([x, x_hat, g], axis=0)
             standard_discriminator.create(stacked_xg)
 
             sloss = dict(config.loss)
-            sloss['gradient_penalty'] = False#self.gan.inputs.x
             standard_loss = self.create_component(sloss, discriminator = standard_discriminator)
             standard_loss.create(split=3)
 

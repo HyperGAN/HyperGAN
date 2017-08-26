@@ -8,6 +8,7 @@ import tensorflow as tf
 import numpy as np
 import hypergan as hg
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
+from hypergan.generators.segment_generator import SegmentGenerator
 
 
 class DebugSampler(BaseSampler):

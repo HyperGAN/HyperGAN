@@ -23,52 +23,67 @@ class BaseLoss(GANComponent):
         return net
 
 
-    def create(self, split=2):
+    def create(self, split=2, d_real=None, d_fake=None):
         gan = self.gan
         config = self.config
         ops = self.gan.ops
 
-        if self.discriminator is None:
-            net = gan.discriminator.sample
-        else:
-            net = self.discriminator.sample
+        d_loss = None
+        g_loss = None
+        if d_real is None or d_fake is None:
+            # Not passed in, lets populate d_real/d_fake
 
-        if split == 2:
-            d_real, d_fake = self.split_batch(net, split)
+            if self.discriminator is None:
+                net = gan.discriminator.sample
+            else:
+                net = self.discriminator.sample
+
+            if split == 2:
+                d_real, d_fake = self.split_batch(net, split)
+                d_loss, g_loss = self._create(d_real, d_fake)
+            elif split == 3:
+                d_real, d_fake, d_fake2 = self.split_batch(net, split)
+                d_loss, g_loss = self._create(d_real, d_fake)
+                d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
+                g_loss += g_loss2
+                d_loss = 0.5*d_loss + 0.5*d_loss2
+                #does this double the signal of d_real?
+        else:
             d_loss, g_loss = self._create(d_real, d_fake)
-        elif split == 3:
-            d_real, d_fake, d_fake2 = self.split_batch(net, split)
-            d_loss, g_loss = self._create(d_real, d_fake)
-            d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
-            g_loss += g_loss2
-            d_loss = 0.5*d_loss + 0.5*d_loss2
-            #does this double the signal of d_real?
 
 
         if d_loss is not None:
-            d_loss = ops.squash(d_loss, tf.reduce_mean) #linear doesn't work with this, so we cant pass config.reduce
-            self.metrics['d_loss'] = d_loss
 
             if config.minibatch:
-                d_loss += self.minibatch(net)
+                d_loss = tf.reshape(d_loss, [ops.shape(d_loss)[0], -1])
+                d_loss = tf.concat([d_loss, self.minibatch(net)], axis=1)
 
             if config.gradient_locally_stable:
                 gls = self.gradient_locally_stable()
-                self.metrics['gradient_locally_stable'] = gls
+                self.metrics['gradient_locally_stable'] = ops.squash(gls, tf.reduce_mean)
                 print("Gradient locally stable applied")
-                g_loss += gls
+                g_loss = tf.reshape(g_loss, [ops.shape(g_loss)[0], -1])
+                gls = tf.reshape(gls, [ops.shape(gls)[0], -1])
+                g_loss = tf.concat([g_loss, gls], axis=1)
 
             if config.gradient_penalty:
                 gp = self.gradient_penalty()
-                self.metrics['gradient_penalty'] = gp
+                self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
                 print("Gradient penalty applied")
-                d_loss += gp
+                d_loss = tf.reshape(d_loss, [ops.shape(d_loss)[0], -1])
+                gp = tf.reshape(gp, [ops.shape(gp)[0], -1])
+                d_loss = tf.concat([d_loss, gp], axis=1)
 
+        self.d_loss_features = d_loss
+        self.g_loss_features = g_loss
+
+        d_loss = ops.squash(d_loss, tf.reduce_mean) #linear doesn't work with this, so we cant pass config.reduce
+
+        # TODO: Why are we squashing before gradient penalty?
+        self.metrics['d_loss'] = d_loss
         if g_loss is not None:
             g_loss = ops.squash(g_loss, tf.reduce_mean)
             self.metrics['g_loss'] = g_loss
-
-        self.metrics = self.metrics or sample_metrics
 
         self.sample = [d_loss, g_loss]
         self.d_loss = d_loss
@@ -115,7 +130,7 @@ class BaseLoss(GANComponent):
         g_sample = self.gan.uniform_sample
         gradients = tf.gradients(discriminator.sample, [g_sample])[0]
         penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
-        penalty = tf.reduce_mean(tf.square(penalty))
+        penalty = tf.square(penalty)
         return float(config.gradient_locally_stable) * penalty
 
     def gradient_penalty(self):
@@ -141,10 +156,11 @@ class BaseLoss(GANComponent):
             interpolates = x + uniform_noise * 0.5 * variance * tf.random_uniform(shape=ops.shape(x), minval=0.,maxval=1.)
         else:
             interpolates = x + uniform_noise * (g - x)
+        print("DISC", discriminator)
         reused_d = discriminator.reuse(interpolates)
         gradients = tf.gradients(reused_d, [interpolates])[0]
         penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
-        penalty = tf.reduce_mean(tf.square(penalty - 1.))
+        penalty = tf.square(penalty - 1.)
         return float(gradient_penalty) * penalty
 
     def sigmoid_kl_with_logits(self, logits, targets):

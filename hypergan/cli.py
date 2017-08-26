@@ -51,8 +51,8 @@ class CLI:
         self.total_steps = args.steps or -1
         self.sample_every = self.args.sample_every or 100
 
-        self.sampler = CLI.sampler_for(args.sampler)(self.gan)
-
+        self.sampler_name = args.sampler
+        self.sampler = None
         self.validate()
         if self.args.save_file:
             self.save_file = self.args.save_file
@@ -93,15 +93,19 @@ class CLI:
 
         to create a video of the learning process.
         """
-
+        self.lazy_create()
         sample_list = self.sampler.sample(sample_file, self.args.save_samples)
 
         return sample_list
 
-
     def validate(self):
+        return True
+
+    def lazy_create(self):
         if(self.sampler == None):
-            raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
+            self.sampler = CLI.sampler_for(self.sampler_name)(self.gan)
+            if(self.sampler == None):
+                raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
     def step(self):
         self.gan.step()

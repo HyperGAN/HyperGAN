@@ -16,6 +16,11 @@ Each example has 3 actions:
   randomly searches for a configuration and outputs JSON / metrics
 
 
+1d distribution
+===================
+
+Trains a generator along 1 dimension.  By default runs with 2 gaussian mixture.
+
 2d distribution
 ===================
 
@@ -93,3 +98,4 @@ Super Resolution (pending)
 Provides a low resolution image to the generator.
 
 Not present
+

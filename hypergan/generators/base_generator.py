@@ -28,3 +28,14 @@ class BaseGenerator(GANComponent):
             if fltr is not None:
                 net = ops.concat(axis=3, values=[net, fltr])
         return net
+
+    def project_from_prior(self, primes, net, initial_depth, type='linear', name='prior_projection'):
+        ops = self.ops
+        net = ops.reshape(net, [ops.shape(net)[0], -1])
+        new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
+        net = ops.linear(net, initial_depth*primes[0]*primes[1])
+        print("projection ", net)
+        net = ops.reshape(net, new_shape)
+        return net
+
+

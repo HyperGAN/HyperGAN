@@ -65,20 +65,11 @@ class ResizeConvGenerator(BaseGenerator):
                     net2 = self.layer_regularizer(net2)
                 net2 = config.activation(net2)
                 net = tf.concat([net, net2], axis=3)
-            net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
-            for i in range(config.extra_layers or 0):
-                net = self.layer_regularizer(net)
-                net = activation(net)
-                net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
         else:
-            net = ops.reshape(net, [ops.shape(net)[0], -1])
             primes = config.initial_dimensions or [4, 4]
-            depths = self.depths(primes[0])
-            initial_depth = depths[0]
-            new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
-            net = ops.linear(net, initial_depth*primes[0]*primes[1])
-            net = ops.reshape(net, new_shape)
-
+            initial_depth = self.depths(primes[0])[0]
+            net = self.project_from_prior(primes, net, initial_depth, type='linear')
+            
         shape = ops.shape(net)
 
         depths = self.depths(initial_width = shape[1])

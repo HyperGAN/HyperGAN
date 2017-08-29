@@ -114,6 +114,4 @@ class AlignedGAN(BaseGAN):
 
         self.session.run(tf.global_variables_initializer())
 
-    def step(self, feed_dict={}):
-        return self.trainer.step(feed_dict)
 

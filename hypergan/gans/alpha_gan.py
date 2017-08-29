@@ -160,9 +160,6 @@ class AlphaGAN(BaseGAN):
             self.direction = direction
 
 
-    def step(self, feed_dict={}):
-        return self.trainer.step(feed_dict)
-
     def input_nodes(self):
         "used in hypergan build"
         return [

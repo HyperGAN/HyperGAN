@@ -80,20 +80,25 @@ class AlphaGAN(BaseGAN):
             z_size = 1
             for size in ops.shape(encoder.sample)[1:]:
                 z_size *= size
-            uniform_encoder_config.z = z_size // len(uniform_encoder_config.projections)
-            uniform_encoder = UniformEncoder(self, uniform_encoder_config)
+            z_dims = z_size
+            z = tf.random_uniform([self.gan.batch_size(), z_dims], -1, 1, dtype=ops.dtype)
+
+            direction = tf.random_normal(ops.shape(z), stddev=0.3, name='direction')
+            slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
+
+            z = z + slider * direction
+
+            uniform_encoder = UniformEncoder(self, uniform_encoder_config, z=z)
             uniform_encoder.create()
 
             self.generator = self.create_component(config.generator)
 
-            direction = tf.random_normal(ops.shape(uniform_encoder.sample), stddev=0.3, name='direction')
-            slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
             x = self.inputs.x
 
             # project the output of the autoencoder
             z_hat = encoder.sample
 
-            z = uniform_encoder.sample + slider * direction
+            z = uniform_encoder.sample
             z = ops.reshape(z, ops.shape(z_hat))
             # end encoding
 
@@ -108,29 +113,34 @@ class AlphaGAN(BaseGAN):
             encoder_discriminator.create(x=z, g=z_hat)
 
             eloss = dict(config.eloss or config.loss)
-            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator, x=z)
+            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator, x=z, generator=z_hat)
             encoder_loss.create()
 
             stacked_xg = ops.concat([x, x_hat, g], axis=0)
             standard_discriminator.create(stacked_xg)
 
             sloss = dict(config.loss)
-            standard_loss = self.create_component(sloss, discriminator = standard_discriminator)
+            standard_loss = self.create_component(sloss, discriminator = standard_discriminator, x=self.inputs.x, generator=self.uniform_sample)
             standard_loss.create(split=3)
 
             self.trainer = self.create_component(config.trainer)
 
+            recode_z = encoder.reuse(self.generator.reuse(z))
+
             #loss terms
             distance = config.distance or ops.lookup('l1_distance')
             cycloss = tf.reduce_mean(distance(self.inputs.x,x_hat))
+            z_cycloss = tf.reduce_mean(distance(z,recode_z))
             cycloss_lambda = config.cycloss_lambda
+            z_cycloss_lambda = config.z_cycloss_lambda
             if cycloss_lambda is None:
                 cycloss_lambda = 10
             cycloss *= cycloss_lambda
-            loss1=('generator encoder', cycloss + encoder_loss.g_loss)
-            loss2=('generator image', cycloss + standard_loss.g_loss)
-            loss3=('discriminator encoder', standard_loss.d_loss)
-            loss4=('discriminator image', encoder_loss.d_loss)
+            z_cycloss *= z_cycloss_lambda
+            loss1=('generator encoder', z_cycloss + cycloss + encoder_loss.g_loss)
+            loss2=('generator image', z_cycloss + cycloss + standard_loss.g_loss)
+            loss3=('discriminator image', standard_loss.d_loss)
+            loss4=('discriminator encoder', encoder_loss.d_loss)
 
             var_lists = []
             var_lists.append(encoder.variables())

@@ -33,7 +33,8 @@ class BaseDiscriminator(GANComponent):
                 g or gan.generator.sample
 
             x, g = self.resize(config, x, g)
-            net = self.combine_filter(config, x, g)
+            net = tf.concat(axis=0, values=[x, g])
+            net = self.layer_filter(net)
 
         self.ops.reuse()
         net = self.build(net)

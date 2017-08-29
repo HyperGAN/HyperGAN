@@ -14,9 +14,10 @@ class BaseLoss(GANComponent):
         if generator == None:
             generator = gan.generator
         self.discriminator = discriminator
-        self.generator = generator
+        if(generator is not None):
+            self.generator = gan.generator.sample
 
-    def reuse(self, d_real, d_fake):
+    def reuse(self, d_real=None, d_fake=None):
         self.discriminator.ops.reuse()
         net = self._create(d_real, d_fake)
         self.discriminator.ops.stop_reuse()

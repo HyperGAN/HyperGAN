@@ -38,6 +38,7 @@ class SegmentGenerator(ResizeConvGenerator):
 
         if config.mask_generator:
             mask = mask_generator.sample
+            self.mask = self.mask * 2 - 1
         else:
             mask = mask_generator.sample/2.0+0.5
 

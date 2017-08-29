@@ -2,10 +2,12 @@ import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 import numpy as np
+import random
 
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.losses.wasserstein_loss import WassersteinLoss
 from hypergan.losses.least_squares_loss import LeastSquaresLoss
+from hypergan.losses.f_divergence_loss import FDivergenceLoss
 from hypergan.losses.softmax_loss import SoftmaxLoss
 from hypergan.losses.standard_loss import StandardLoss
 from hypergan.losses.lamb_gan_loss import LambGanLoss
@@ -84,7 +86,7 @@ class RandomSearch:
         }
         return hc.Selector(opts).random_config()
 
-    def loss(self):
+    def var_loss(self):
         loss_opts = {
             'class': [
                     VralLoss
@@ -102,6 +104,24 @@ class RandomSearch:
         loss_opts["f_discriminator"] = loss_opts["r_discriminator"]
 
         return  hc.Selector(loss_opts).random_config()
+    def loss(self):
+        loss_opts = {
+            'class': [
+                    FDivergenceLoss
+            ],
+            "type": ["kl","js","gan","reverse_kl","pearson","squared_hellinger"],
+            'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
+            "g_loss_type": ["standard","rkl","kl","alpha"],
+            "alpha": list(np.linspace(0, 1, num=100))
+        }
+
+        gradient_penalty = random.choice([True, False])
+        if gradient_penalty:
+            loss_opts["gradient_penalty_type"]=["improved-wgan","dragan"]
+            loss_opts["gradient_penalty"]=self.range(10)
+
+        return  hc.Selector(loss_opts).random_config()
+
 
     def encoder(self):
         projections = []
@@ -128,7 +148,7 @@ class RandomSearch:
 
     def generator(self):
         generator_opts = {
-            "activation":['relu', 'lrelu', 'tanh', 'selu', 'prelu', 'crelu'],
+            "activation":['lrelu', 'tanh', 'selu', 'prelu', 'crelu', 'nsoftplus'],
             "final_depth":[32],
             "depth_increase":[32],
             "initializer": [None, 'random'],
@@ -152,7 +172,7 @@ class RandomSearch:
     def discriminator(self):
         discriminator_opts = {
             "activation":['relu', 'lrelu', 'tanh', 'selu', 'prelu', 'crelu'],
-            "final_activation":['tanh', None],
+            "final_activation":[None],
             "block_repeat_count":[1,2,3],
             "block":[hg.discriminators.common.repeating_block,
                    hg.discriminators.common.standard_block,

@@ -89,9 +89,3 @@ class StandardGAN(BaseGAN):
 
             self.session.run(tf.global_variables_initializer())
 
-    def step(self, feed_dict={}):
-        if not self.created:
-            self.create()
-        if self.trainer == None:
-            raise ValidationException("gan.trainer is missing.  Cannot train.")
-        return self.trainer.step(feed_dict)

@@ -9,7 +9,7 @@ import tensorflow as tf
 
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps,
-            batch_size=None, width=None, height=None, channels=None):
+            batch_size=None, width=None, height=None, channels=None, debug=None):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
@@ -21,6 +21,7 @@ class BaseGAN(GANComponent):
         self._width = width
         self._height = height
         self._channels = channels
+        self.debug = debug
 
         if config == None:
             config = hg.Configuration.default()
@@ -28,6 +29,7 @@ class BaseGAN(GANComponent):
         # A GAN as a component has a parent of itself
         # gan.gan.gan.gan.gan.gan
         GANComponent.__init__(self, self, config)
+        self.ops.debug = debug
 
     def batch_size(self):
         if self._batch_size:
@@ -76,6 +78,22 @@ class BaseGAN(GANComponent):
         if self.created:
             raise ValidationException("gan.create already called. Cowardly refusing to create graph twice")
         self.created = True
+
+    def step(self, feed_dict={}):
+        from tensorflow.python import debug as tf_debug
+        if self.ops.debug and not isinstance(self.session, tf_debug.LocalCLIDebugWrapperSession):
+
+            self.session = tf_debug.LocalCLIDebugWrapperSession(self.session)
+            self.session.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
+
+        return self._step(feed_dict)
+
+    def _step(self, feed_dict={}):
+        if not self.created:
+            self.create()
+        if self.trainer == None:
+            raise ValidationException("gan.trainer is missing.  Cannot train.")
+        return self.trainer.step(feed_dict)
 
     def save(self, save_file):
         print("[hypergan] Saving network to ", save_file)

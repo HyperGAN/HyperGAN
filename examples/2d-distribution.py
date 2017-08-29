@@ -37,8 +37,8 @@ def train(config, args):
         gan.discriminator.create()
         gan.create()
 
-        accuracy_x_to_g=batch_accuracy(gan.inputs.x, gan.generator.sample)
-        accuracy_g_to_x=batch_accuracy(gan.generator.sample, gan.inputs.x)
+        accuracy_x_to_g=distribution_accuracy(gan.inputs.x, gan.generator.sample)
+        accuracy_g_to_x=distribution_accuracy(gan.generator.sample, gan.inputs.x)
 
         sampler = Custom2DSampler(gan)
 
@@ -62,12 +62,12 @@ def train(config, args):
                 for k, metric in enumerate(gan.session.run(metrics)):
                     sum_metrics[k] += metric 
             if i % 300 == 0:
-                print("Checking")
                 for k, metric in enumerate(gan.metrics.keys()):
-                    if metric== 'gradient_penalty':
-                        print("--", gan.session.run(gan.metrics[metric]))
-                        if math.isnan(gan.session.run(gan.metrics[metric])):
-                            return None
+                    metric_value = gan.session.run(gan.metrics[metric])
+                    print("--", metric,  metric_value)
+                    if math.isnan(metric_value) or math.isinf(metric_value):
+                        print("Breaking due to invalid metric")
+                        return None
 
         tf.reset_default_graph()
         gan.session.close()

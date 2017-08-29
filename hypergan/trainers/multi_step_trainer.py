@@ -27,7 +27,7 @@ class MultiStepTrainer(BaseTrainer):
         for i, _ in enumerate(losses):
             loss = losses[i][1]
             var_list = self.var_lists[i]
-            is_generator = losses[i][0] == 'generator'
+            is_generator = 'generator' in losses[i][0]
 
             if is_generator:
                 optimizer = self.build_optimizer(config, 'g_', config.g_trainer, self.g_lr, var_list, loss)

@@ -36,7 +36,10 @@ class SegmentGenerator(ResizeConvGenerator):
         self.mask_single_channel = mask_generator.sample
         self.mask = tf.tile(mask_generator.sample, [1,1,1,3])
 
-        mask = mask_generator.sample/2.0+0.5
+        if config.mask_generator:
+            mask = mask_generator.sample
+        else:
+            mask = mask_generator.sample/2.0+0.5
 
         config['layer_filter'] = add_mask
 

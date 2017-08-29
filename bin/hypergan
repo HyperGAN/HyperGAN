@@ -118,7 +118,8 @@ else:
             self.y = input1.y
 
     aligned_input = AlignedInput(inputs, inputs2)
-    gan = AlignedGAN(config=config, inputs=aligned_input)
+    gan = hg.GAN(config=config, inputs=aligned_input)
+
 
 
 gancli = cli.CLI(gan, args=vars(args))

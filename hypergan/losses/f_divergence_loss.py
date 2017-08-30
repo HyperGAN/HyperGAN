@@ -24,14 +24,12 @@ class FDivergenceLoss(BaseLoss):
             gfx = np.log(2) - tf.log(1+tf.exp(-d_real))
             gfg = np.log(2) - tf.log(1+tf.exp(-d_fake))
         elif config.type == 'js_weighted':
-            gfx = -pi*tf.log(pi) - tf.log(1+tf.exp(-d_real))
-            gfg = -pi*tf.log(pi) - tf.log(1+tf.exp(-d_fake))
+            print("PI IS", pi)
+            gfx = -pi*np.log(pi) - tf.log(1+tf.exp(-d_real))
+            gfg = -pi*np.log(pi) - tf.log(1+tf.exp(-d_fake))
         elif config.type == 'gan':
-            log2 = tf.constant(np.log(2)-TINY, dtype=tf.float32)
-            d_real = tf.minimum(log2, d_real)
-            d_fake = tf.minimum(log2, d_fake)
-            gfx = -tf.log(1+tf.exp(-d_real)+TINY)
-            gfg = -tf.log(1+tf.exp(-d_fake)+TINY)
+            gfx = -tf.log(1+tf.exp(-d_real))
+            gfg = -tf.log(1+tf.exp(-d_fake))
         elif config.type == 'reverse_kl':
             gfx = -tf.exp(-d_real)
             gfg = -tf.exp(-d_fake)
@@ -39,8 +37,10 @@ class FDivergenceLoss(BaseLoss):
             gfx = d_real
             gfg = d_fake
         elif config.type == 'squared_hellinger' or config.type == 'neyman':
-            gfx = 1-tf.exp(-d_real)
-            gfg = 1-tf.exp(-d_fake)
+            bound_real = tf.maximum(-3., d_real)
+            bound_fake = tf.maximum(-3., d_fake)
+            gfx = 1-tf.exp(-bound_real)
+            gfg = 1-tf.exp(-bound_fake)
 
         elif config.type == 'total_variation':
             gfx = 0.5*tf.nn.tanh(d_real)
@@ -56,43 +56,38 @@ class FDivergenceLoss(BaseLoss):
         conjugate = None
 
         if config.type == 'kl':
-            c = tf.constant(8-TINY, dtype=tf.float32)
-            gfg = tf.maximum(gfg, c)
-            conjugate = tf.exp(gfg-1)
+            bounded = tf.minimum(4., gfg)
+            conjugate = tf.exp(bounded-1)
         elif config.type == 'js':
-            c = tf.constant(2-TINY, dtype=tf.float32)
-            gfg = tf.maximum(tf.exp(gfg), c)
-            conjugate = -tf.log(2-gfg)
+            conjugate = -tf.log(2-tf.exp(gfg))
         elif config.type == 'js_weighted':
-            c = tf.constant(-pi*tf.log(pi)-TINY, dtype=tf.float32)
-            gfg = tf.maximum(gfg, c)
-            conjugate = (1-pi)*tf.log((1-pi)/((1-pi)*tf.exp(gfg/pi)))
+            c = -pi*np.log(pi)-TINY
+            print("C IS ",c )
+            c = tf.constant(c, dtype=tf.float32)
+            bounded = gfg#tf.maximum(gfg, c)
+            conjugate = (1-pi)*tf.log((1-pi)/((1-pi)*tf.exp(bounded/pi)))
         elif config.type == 'gan':
-            gfg = tf.minimum(-TINY, gfg)
-            conjugate = -tf.log(1-tf.exp(gfg)+TINY)
+            conjugate = -tf.log(1-tf.exp(gfg))
         elif config.type == 'reverse_kl':
-            gfg = tf.minimum(TINY, gfg)
-            conjugate = -1-tf.log(-gfg)
+            bounded = tf.minimum(TINY, gfg)
+            conjugate = -1-tf.log(-bounded)
         elif config.type == 'pearson':
             conjugate = 0.25 * tf.square(gfg)+gfg
         elif config.type == 'neyman':
-            gfg = tf.minimum(1-TINY, gfg)
-            conjugate = 2 - 2 * tf.sqrt(1 - gfg)
+            bound = tf.nn.relu(1.-gfg)+1e-3
+            conjugate = 2 - 2 * tf.sqrt(bound)
         elif config.type == 'squared_hellinger':
-            gfg = tf.minimum(1-TINY, gfg)
-            conjugate = gfg/(1-gfg)
+            bounded = tf.minimum(1.-TINY, gfg)
+            conjugate = bounded/(1.-bounded)
         elif config.type == 'jeffrey':
             raise "jeffrey conjugate not implemented"
 
-        elif config.type == 'alpha1':
-            c = tf.constant(1./(1.-alpha)-TINY, dtype=tf.float32)
-            gfg = tf.minimum(gfg, c)
-            conjugate = tf.pow(1./alpha * (gfg * ( alpha - 1) + 1), alpha/(alpha - 1.)) - 1. / alpha
-        elif config.type == 'alpha2':
-            conjugate = tf.pow(1./alpha * (gfg * ( alpha - 1) + 1), alpha/(alpha - 1.)) - 1. / alpha
+        elif config.type == 'alpha2' or config.type == 'alpha1':
+            bounded = gfg
+            bounded = 1./alpha * (bounded * ( alpha - 1) + 1)
+            conjugate = tf.pow(bounded, alpha/(alpha - 1.)) - 1. / alpha
 
         elif config.type == 'total_variation':
-            gfg = tf.minimum(0.5, tf.maximum(net, -0.5))
             conjugate = gfg
         else:
             raise "Unknown type " + config.type
@@ -119,22 +114,103 @@ class FDivergenceLoss(BaseLoss):
 
         if config.g_loss_type == 'gan':
             g_loss = -conjugate
+        elif config.g_loss_type == 'total_variation':
+            # The inverse of derivative(1/2*x - 1)) = 0.5
+            # so we use the -conjugate for now
+            g_loss = -conjugate
+        elif config.g_loss_type == 'js':
+            # https://www.wolframalpha.com/input/?i=inverse+of+derivative(-(u%2B1)*log((1%2Bu)%2F2)%2Bu*log(u))
+            g_loss = -tf.exp(d_fake)
+        elif config.g_loss_type == 'js_weighted':
+            # https://www.wolframalpha.com/input/?i=inverse+of+derivative(-(u%2B1)*log((1%2Bu)%2F2)%2Bu*log(u))
+            p = pi
+            u = d_fake
+            #inner = (-4.*u*tf.exp(p/u) + tf.exp(2.)*tf.square(u)-2.*tf.exp(2.)*u+tf.exp(2.))/tf.square(u)
+            #inner = tf.nn.relu(inner) + 1e-3
+            #g_loss = (1.-u)/(2.*u) - tf.sqrt(inner)/(2.*tf.exp(1.))
+            exp_bounded = p/u
+            exp_bounded = tf.minimum(4., exp_bounded)
+            inner = (-4.*u*tf.exp(exp_bounded) +np.exp(2.)*tf.square(u)-2.*np.exp(2.)*u+np.exp(2.))/tf.square(u)
+            inner = tf.nn.relu(inner)
+            u = tf.maximum(0.1,u)
+            sqrt = tf.sqrt(inner+1e-2) / (2*np.exp(1))
+            g_loss = (1.-u)/(2.*u)# + sqrt
+        elif config.g_loss_type == 'pearson':
+            g_loss = -(d_fake-2.0)/2.0
+        elif config.g_loss_type == 'neyman':
+            bounded = tf.nn.relu(1-d_fake)+1e-3
+            g_loss = -1./tf.sqrt(bounded)
+        elif config.g_loss_type == 'squared_hellinger':
+            g_loss = -1.0/(tf.square(d_fake-1)+1e-2)
         elif config.g_loss_type == 'reverse_kl':
             g_loss = -d_fake
         elif config.g_loss_type == 'kl':
-            g_loss = d_fake * tf.exp(d_fake)
-        elif config.g_loss_type == 'alpha1' or config.g_loss_type == 'alpha2':
+            bounded = tf.minimum(3., d_fake)
+            g_loss = -bounded * tf.exp(bounded)
+        elif config.g_loss_type == 'alpha1': 
             a = alpha
-            g_loss = (1.0/(a*(a-1))) * (tf.exp(a*d_fake) - 1 - a*(tf.exp(d_fake) - 1))
+            bounded = d_fake
+            g_loss = (1.0/(a*(a-1))) * (tf.exp(a*bounded) - 1 - a*(tf.exp(bounded) - 1))
+        elif config.g_loss_type == 'alpha2':
+            a = alpha
+            bounded = tf.minimum(d_fake, 4.)
+            g_loss = -(1.0/(a*(a-1))) * (tf.exp(a*bounded) - 1 - a*(tf.exp(bounded) - 1))
         else:
-            raise "Unknown type " + config.type
+            raise "Unknown g_loss_type " + config.type
 
         self.gfg = gfg
         self.gfx = gfx
 
+        print("G_LOSS IS ", g_loss)
+
         return [d_loss, g_loss]
 
     def g_regularizers(self):
-        return []
+        regularizer = None
+        config = self.config
+        pi = config.pi or 2
+        alpha = config.alpha or 0.5
+
+        ddfc = 0
+
+        if config.regularizer == 'kl':
+            # https://www.wolframalpha.com/input/?i=derivative(derivative(exp(t-1)))
+            bounded = tf.minimum(4., self.gfg)
+            ddfc = tf.exp(bounded - 1)
+        elif config.regularizer == 'js':
+            # https://www.wolframalpha.com/input/?i=derivative(derivative(-log(2-exp(t))))
+            ddfc = -(2*tf.exp(self.gfg)) / (tf.square(2-tf.exp(self.gfg))+1e-2)
+        elif config.regularizer == 'js_weighted':
+            # https://www.wolframalpha.com/input/?i=derivative(derivative((1-C)*log(((1-C)%2F(1-C*exp(x%2FC)))))
+            ddfc = -((pi-1)*tf.exp(self.gfg/pi))/(pi*tf.square(pi*tf.exp(self.gfg/pi)-1))
+        elif config.regularizer == 'gan':
+            # https://www.wolframalpha.com/input/?i=derivative(derivative(-log(1-exp(t))))
+            ddfc = (2*tf.exp(self.gfg)) / (tf.square(1-tf.exp(self.gfg))+1e-2)
+        elif config.regularizer == 'reverse_kl':
+            # https://www.wolframalpha.com/input/?i=derivative(derivative(-1-log(-x)))
+            ddfc = 1.0/tf.square(self.gfg)
+        elif config.regularizer == 'pearson':
+            # https://www.wolframalpha.com/input/?i=derivative(derivative(0.25*x*x+%2B+x))
+            ddfc = 0.5
+        elif config.regularizer == 'jeffrey':
+            raise "jeffrey regularizer not implemented"
+        elif config.regularizer == 'squared_hellinger': 
+            # https://www.wolframalpha.com/input/?i=derivative(derivative(t%2F(1-t)))
+            ddfc = -2 / (tf.pow(self.gfg - 1, 3)+1e-2)
+            #ddfc = 0
+        elif config.regularizer == 'neyman':
+            # https://www.wolframalpha.com/input/?i=derivative(derivative(2-2*sqrt(1-t)))
+            bounded = tf.nn.relu(1-self.gfg)+1e-3
+            ddfc = 1.0/(2*tf.pow(bounded, 3/2))
+        elif config.regularizer == 'total_variation':
+            # https://www.wolframalpha.com/input/?i=derivative(derivative(t))
+            ddfc = 0
+        elif config.regularizer == 'alpha1' or config.regularizer == 'alpha2':
+            # https://www.wolframalpha.com/input/?i=derivative(derivative(1%2FC*(x*(C-1)%2B1)%5E(C%2FC-1)-1%2FC))
+            ddfc = -tf.pow((alpha - 1)*self.gfg+1, (1/(alpha-1)-1))
+        regularizer = ddfc * tf.nn.l2_normalize(self.gfg, [0]) * (config.regularizer_lambda or 1)
+        self.metrics['fgan_regularizer'] = self.gan.ops.squash(regularizer)
+        return [regularizer ]
+        
     def d_regularizers(self):
         return []

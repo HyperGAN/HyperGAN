@@ -77,6 +77,7 @@ if args.list_templates:
 if not args.align:
     if args.method == 'new':
         gan = hg.GAN(config=config, inputs=None)
+        gan.name = config_name
 
     else:
         inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
@@ -89,6 +90,7 @@ if not args.align:
               resize=args.resize)
 
         gan = hg.GAN(config=config, inputs=inputs, debug=args.debug)
+        gan.name = config_name
 else:
     inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
     inputs.create(args.directory,

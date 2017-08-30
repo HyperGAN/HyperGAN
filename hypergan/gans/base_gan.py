@@ -22,6 +22,7 @@ class BaseGAN(GANComponent):
         self._height = height
         self._channels = channels
         self.debug = debug
+        self.name = "hypergan"
 
         if config == None:
             config = hg.Configuration.default()

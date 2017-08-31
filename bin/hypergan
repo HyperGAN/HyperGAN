@@ -63,8 +63,8 @@ width = size[0] or 64
 height = size[1] or 64
 channels = size[2] or 3
 
-config = args.config or 'default'
-config_filename = hg.Configuration.find(config+'.json')
+config_name = args.config or 'default'
+config_filename = hg.Configuration.find(config_name+'.json')
 config = hc.Selector().load(config_filename)
 
 

@@ -25,8 +25,8 @@ class RandomSearch:
 
         self.options = {**self.options, **overrides}
 
-    def range(self, multiplier=1):
-        return list(np.linspace(0, 1, num=100000)*multiplier)
+    def range(self, start=0., end=1.):
+        return list(np.linspace(start, end, num=1000))
 
     def trainer(self):
         tftrainers = [
@@ -39,22 +39,20 @@ class RandomSearch:
         ]
 
         selector = hc.Selector({
-            'd_learn_rate': self.range(.01),
-            'g_learn_rate': self.range(.01),
+            'd_learn_rate': self.range(0.0001, 0.001),
+            'g_learn_rate': self.range(0.0001, 0.001),
             'd_beta1': self.range(),
             'd_beta2': self.range(),
             'g_beta1': self.range(),
             'g_beta2': self.range(),
-            'd_epsilon': self.range(),
-            'g_epsilon': self.range(),
+            'd_epsilon': self.range(1e-8, 0.1),
+            'g_epsilon': self.range(1e-8, 0.1),
             'g_momentum': self.range(),
             'd_momentum': self.range(),
             'd_decay': self.range(),
             'g_decay': self.range(),
             'd_rho': self.range(),
             'g_rho': self.range(),
-            'd_global_step': self.range(),
-            'g_global_step': self.range(),
             'd_initial_accumulator_value': self.range(),
             'g_initial_accumulator_value': self.range(),
             'd_initial_gradient_squared_accumulator_value': self.range(),
@@ -104,23 +102,28 @@ class RandomSearch:
         loss_opts["f_discriminator"] = loss_opts["r_discriminator"]
 
         return  hc.Selector(loss_opts).random_config()
+
     def loss(self):
         loss_opts = {
             'class': [
                     FDivergenceLoss
             ],
-            "type": ["kl","js","gan","reverse_kl","pearson","squared_hellinger"],
-            'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp'],
-            "g_loss_type": ["standard","rkl","kl","alpha"],
-            "alpha": list(np.linspace(0, 1, num=100))
+            "type": ["kl","js","gan","reverse_kl","pearson","squared_hellinger", "total_variation"],
+            'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp']
         }
 
         gradient_penalty = random.choice([True, False])
         if gradient_penalty:
             loss_opts["gradient_penalty_type"]=["improved-wgan","dragan"]
-            loss_opts["gradient_penalty"]=self.range(10)
+            loss_opts["gradient_penalty"]=self.range(0.1, 30)
 
-        return  hc.Selector(loss_opts).random_config()
+        choice = hc.Selector(loss_opts).random_config()
+
+        if random.choice([True, False]):
+            choice["regularizer"] = choice["type"]
+        if random.choice([True, False]):
+            choice["g_loss_type"] = choice["type"]
+        return choice
 
 
     def encoder(self):

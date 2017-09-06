@@ -11,6 +11,8 @@ class BaseTrainer(GANComponent):
         self.g_vars = g_vars
         self.d_vars = d_vars
         self.loss = loss
+        self.d_shake = None
+        self.g_shake = None
 
     def _create(self):
         raise Exception('BaseTrainer _create called directly.  Please override.')
@@ -27,9 +29,61 @@ class BaseTrainer(GANComponent):
         if not self.create_called:
             self.create()
 
+        self.shake_weights()
         step = self._step(feed_dict)
         self.current_step += 1
         return step
+
+    def shake_weight_d_assigns(self, weights):
+        if(self.config.shake_weights_d is None):
+            return []
+        if(self.d_shake is None):
+            self.d_shake = []
+            for weight in weights:
+                dimensions = 1
+                for dim in self.ops.shape(weight):
+                    dimensions *= dim 
+                gaussian = tf.random_normal([dimensions])
+                uniform = tf.random_uniform(shape=[dimensions],minval=0.,maxval=1.)
+                unit_ball = gaussian / tf.nn.l2_normalize(gaussian, dim=0)
+                unit_ball = uniform*self.config.shake_weights_d
+                unit_ball = tf.reshape(unit_ball, self.ops.shape(weight))
+                op = tf.assign(weight, weight+unit_ball)
+                self.d_shake.append(op)
+        return self.d_shake
+
+    def shake_weight_g_assigns(self, weights):
+        if(self.config.shake_weights_g is None):
+            return []
+        if(self.g_shake is None):
+            self.g_shake = []
+            for weight in weights:
+                dimensions = 1
+                for dim in self.ops.shape(weight):
+                    dimensions *= dim
+                gaussian = tf.random_normal([dimensions])
+                uniform = tf.random_uniform(shape=[dimensions],minval=0.,maxval=1.)
+                unit_ball = gaussian / tf.nn.l2_normalize(gaussian, dim=0)
+                unit_ball = uniform*self.config.shake_weights_g
+                unit_ball = tf.reshape(unit_ball, self.ops.shape(weight))
+                print(unit_ball)
+                op = tf.assign(weight, weight+unit_ball)
+                self.g_shake.append(op)
+        return self.g_shake
+
+    def shake_weights(self):
+        gan = self.gan
+        if self.config.shake_weights_d:
+            d_vars = self.d_vars or gan.discriminator.variables()
+            d_ops = self.shake_weight_d_assigns(d_vars)
+            if d_ops:
+                self.gan.session.run(d_ops)
+        if self.config.shake_weights_g:
+            g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
+            g_ops = self.shake_weight_g_assigns(g_vars)
+            if g_ops:
+                self.gan.session.run(g_ops)
+
 
     def required(self):
         return "d_trainer g_trainer d_learn_rate g_learn_rate".split()

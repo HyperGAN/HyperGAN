@@ -135,6 +135,8 @@ class AlphaGAN(BaseGAN):
             z_cycloss_lambda = config.z_cycloss_lambda
             if cycloss_lambda is None:
                 cycloss_lambda = 10
+            if z_cycloss_lambda is None:
+                z_cycloss_lambda = 0
             cycloss *= cycloss_lambda
             z_cycloss *= z_cycloss_lambda
             loss1=('generator encoder', z_cycloss + cycloss + encoder_loss.g_loss)

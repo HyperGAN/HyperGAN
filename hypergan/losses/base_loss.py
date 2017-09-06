@@ -12,10 +12,9 @@ class BaseLoss(GANComponent):
         if discriminator == None:
             discriminator = gan.discriminator
         if generator == None:
-            generator = gan.generator
+            generator = gan.generator.sample #TODO should not be sample
         self.discriminator = discriminator
-        if(generator is not None):
-            self.generator = gan.generator.sample
+        self.generator = generator
 
     def reuse(self, d_real=None, d_fake=None):
         self.discriminator.ops.reuse()
@@ -59,9 +58,9 @@ class BaseLoss(GANComponent):
         g_loss_features = g_loss
         self.d_loss_features = d_loss_features
         self.g_loss_features = g_loss_features
-        d_net = tf.concat([d_real, d_fake], axis=1)
 
         if config.minibatch:
+            d_net = tf.concat([d_real, d_fake], axis=0)
             d_regularizers.append(self.minibatch(d_net)) # TODO on d_loss_features?
 
         if config.gradient_locally_stable:

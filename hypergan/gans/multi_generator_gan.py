@@ -88,7 +88,7 @@ class MultiGeneratorGAN(BaseGAN):
 
             g_loss = tf.constant(0.0)
             d_loss = tf.constant(0.0)
-            metrics = [None, None]
+            metrics = []
             d_fake_features = []
 
             for i in range(config.number_generators):
@@ -106,24 +106,92 @@ class MultiGeneratorGAN(BaseGAN):
                 g_loss += loss[1]
                 d_loss += loss[0]
 
+            var_lists = []
+            steps = []
+
             if config.class_loss_type == 'svm':
                 # classifier loss 
                 for i in range(config.number_generators):
                     features = tf.reshape(d_fake_features[i], [self.batch_size(), -1])
-                    c_loss = ops.lookup('tanh')(features)
+                    c_loss = ops.lookup('crelu')(features)
+                    print("C LOSS 1", c_loss)
                     c_loss = ops.linear(c_loss, config.number_generators)
                     label = tf.one_hot([i], config.number_generators)
                     label = tf.tile(label, [self.batch_size(), 1])
                     c_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=c_loss, labels=label)
             
                     g_loss += c_loss*(config.c_loss_lambda or 1)
+                metrics.append({"class loss": self.ops.squash(c_loss)})
+                metrics.append(self.loss.metrics)
 
-            var_lists = []
-            var_lists.append(self.generator.variables() + self.variables())
-            var_lists.append(self.discriminator.variables())
 
-            # trainer
-            steps = [('generator', g_loss), ('discriminator', d_loss)]
+                var_lists.append(self.generator.variables() + self.variables())
+                var_lists.append(self.discriminator.variables())
+                steps = [('generator', g_loss), ('discriminator', d_loss)]
+
+            if config.class_loss_type == 'gan':
+                d2 = None
+                g2 = None
+                l2 = None
+                d2_loss_sum = tf.constant(0.)
+                g2_loss_sum = tf.constant(0.)
+
+                var_lists.append(self.generator.variables() + self.variables())
+                var_lists.append(self.discriminator.variables())
+                # classifier as gan loss 
+                for i in range(config.number_generators):
+                    if i != 0:
+                        self.ops.reuse()
+                    features = tf.reshape(d_fake_features[i], [self.batch_size(), -1])
+                    label = tf.one_hot([i], config.number_generators)
+                    label = tf.tile(label, [self.batch_size(), 1])
+
+                    # D2(G2(gx), label)
+                    g2config = dict(config.generator2)
+                    g2 = self.create_component(g2config)
+                    # this is the generator
+                    g2.ops.describe("G2")
+
+                    if i == 0:
+                        g2sample = g2.create(tf.concat(generator_samples, axis=3))
+                    else:
+                        g2sample = g2.reuse(tf.concat(generator_samples, axis=3))
+
+
+                    d2config = dict(config.discriminator2)
+                    d2 = self.create_component(d2config)
+
+                    d2.ops.describe("D2")
+                    if i == 0:
+                        d2.create(x=label, g=g2sample)
+                        var_lists.append(g2.variables())
+                        var_lists.append(d2.variables())
+                    else:
+                        d2.reuse(x=label, g=g2sample)
+
+                    l2config = dict(config.loss)
+                    l2 = self.create_component(l2config,discriminator=d2, generator=g2)
+                    d2_loss, g2_loss = l2.create()
+
+                    g2_loss_sum += g2_loss
+                    d2_loss_sum += d2_loss
+
+                    if i != 0:
+                        self.ops.stop_reuse()
+
+
+                steps = [
+                        ('generator 1', g_loss + g2_loss_sum), 
+                        ('discriminator 1', d_loss),
+                        ('generator 2', g2_loss_sum + g_loss), 
+                        ('discriminator 2', d2_loss)
+                ]
+
+                metrics.append(None)
+                metrics.append(self.loss.metrics)
+                metrics.append(None)
+                metrics.append(l2.metrics)
+
 
 
             print("T", self.config.trainer, steps, metrics)

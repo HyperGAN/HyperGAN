@@ -65,7 +65,7 @@ class BaseLoss(GANComponent):
             d_regularizers.append(self.minibatch(d_net)) # TODO on d_loss_features?
 
         if config.gradient_locally_stable:
-            gls = self.gradient_locally_stable(d_net) # TODO on d_loss_features?
+            gls = self.gradient_locally_stable(d_loss_features) # TODO on d_loss_features?
             g_regularizers.append(gls)
             self.metrics['gradient_locally_stable'] = ops.squash(gls, tf.reduce_mean)
             print("Gradient locally stable applied")
@@ -145,9 +145,7 @@ class BaseLoss(GANComponent):
         generator = self.generator
         g_sample = self.gan.uniform_sample
         gradients = tf.gradients(d_net, [g_sample])[0]
-        penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
-        penalty = tf.square(penalty)
-        return float(config.gradient_locally_stable) * penalty
+        return -float(config.gradient_locally_stable) * tf.nn.l2_normalize(gradients, dim=1)
 
     def gradient_penalty(self):
         config = self.config

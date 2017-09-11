@@ -17,7 +17,7 @@ class SegmentSampler(BaseSampler):
 
         g1x_t = gan.generator.g1x
         g2x_t = gan.generator.g2x
-        mask_t = gan.autoencode_mask
+        mask_t = gan.autoencode_mask_3_channel
 
         sess = gan.session
         config = gan.config

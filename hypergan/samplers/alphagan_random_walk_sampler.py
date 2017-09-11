@@ -21,7 +21,7 @@ class AlphaganRandomWalkSampler(BaseSampler):
 
         if self.z is None:
             self.input = gan.session.run(gan.inputs.x)
-            self.z = gan.session.run(gan.encoder.sample, feed_dict={
+            self.z = gan.session.run(gan.z_hat, feed_dict={
                 inputs_t: self.input
             })
             direct = gan.uniform_encoder.sample.eval()[0]/2
@@ -29,7 +29,7 @@ class AlphaganRandomWalkSampler(BaseSampler):
             self.direction = np.tile(direct, [self.z.shape[0], 1])
             self.mask = gan.session.run(gan.autoencode_mask, feed_dict={
                 inputs_t: self.input, 
-                gan.encoder.sample: self.z
+                gan.z_hat: self.z
             })
             self.z = np.reshape(self.z, [self.z.shape[0], -1])
 

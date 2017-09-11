@@ -61,7 +61,8 @@ class AlphaGAN(BaseGAN):
             g_encoder = dict(config.g_encoder or config.discriminator)
             encoder = self.create_component(g_encoder)
             encoder.ops.describe("g_encoder")
-            encoder.create(self.inputs.x)
+            z_hat = encoder.create(self.inputs.x)
+            self.z_hat = z_hat
             encoder.z = tf.zeros(0)
             if(len(encoder.sample.get_shape()) == 2):
                 s = ops.shape(encoder.sample)
@@ -95,11 +96,10 @@ class AlphaGAN(BaseGAN):
 
             x = self.inputs.x
 
-            # project the output of the autoencoder
-            z_hat = encoder.sample
 
             z = uniform_encoder.sample
             z = ops.reshape(z, ops.shape(z_hat))
+            self.z = z
             # end encoding
 
             g = self.generator.create(z)
@@ -108,7 +108,9 @@ class AlphaGAN(BaseGAN):
             sample = self.generator.sample
             self.uniform_sample = g
             x_hat = self.generator.reuse(z_hat)
+            self.x_hat = x_hat
             self.autoencode_mask = self.generator.mask_generator.sample
+            self.autoencode_mask_3_channel = self.generator.mask
 
             encoder_discriminator.create(x=z, g=z_hat)
 
@@ -126,21 +128,27 @@ class AlphaGAN(BaseGAN):
             self.trainer = self.create_component(config.trainer)
 
             recode_z = encoder.reuse(self.generator.reuse(z))
+            recode_z_hat = encoder.reuse(x_hat)
 
             #loss terms
             distance = config.distance or ops.lookup('l1_distance')
             cycloss = tf.reduce_mean(distance(self.inputs.x,x_hat))
             z_cycloss = tf.reduce_mean(distance(z,recode_z))
+            z_hat_cycloss = tf.reduce_mean(distance(z_hat,recode_z_hat))
             cycloss_lambda = config.cycloss_lambda
             z_cycloss_lambda = config.z_cycloss_lambda
+            z_hat_cycloss_lambda = config.z_hat_cycloss_lambda
             if cycloss_lambda is None:
                 cycloss_lambda = 10
             if z_cycloss_lambda is None:
                 z_cycloss_lambda = 0
+            if z_hat_cycloss_lambda is None:
+                z_hat_cycloss_lambda = 0
             cycloss *= cycloss_lambda
             z_cycloss *= z_cycloss_lambda
-            loss1=('generator encoder', z_cycloss + cycloss + encoder_loss.g_loss)
-            loss2=('generator image', z_cycloss + cycloss + standard_loss.g_loss)
+            z_hat_cycloss *= z_hat_cycloss_lambda
+            loss1=('generator encoder', z_cycloss + z_hat_cycloss + cycloss + encoder_loss.g_loss)
+            loss2=('generator image', z_cycloss + z_hat_cycloss + cycloss + standard_loss.g_loss)
             loss3=('discriminator image', standard_loss.d_loss)
             loss4=('discriminator encoder', encoder_loss.d_loss)
 

@@ -5,6 +5,7 @@ from hypergan.generators.common import *
 
 from .base_generator import BaseGenerator
 from .resize_conv_generator import ResizeConvGenerator
+from .segment_generator import SegmentGenerator
 
 def add_mask(gan, config, net):
     mask = gan.generator.mask_single_channel
@@ -12,7 +13,7 @@ def add_mask(gan, config, net):
     shape = [s[1], s[2]]
     return tf.image.resize_images(mask, shape, 1)
 
-class MultisegmentSharedGenerator(ResizeConvGenerator):
+class MultisegmentSharedGenerator(SegmentGenerator):
 
     def required(self):
         return []

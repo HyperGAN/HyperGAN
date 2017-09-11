@@ -12,12 +12,12 @@ class SegmentSampler(BaseSampler):
     def _sample(self):
         gan = self.gan
         x_t = gan.inputs.x
-        g_t = gan.generator.sample
+        g_t = gan.autoencode_x
         z_t = gan.z_hat
 
         g1x_t = gan.generator.g1x
         g2x_t = gan.generator.g2x
-        mask_t = gan.autoencode_mask_3_channel
+        mask_t = gan.autoencode_mask
 
         sess = gan.session
         config = gan.config

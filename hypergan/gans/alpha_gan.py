@@ -110,7 +110,7 @@ class AlphaGAN(BaseGAN):
             x_hat = self.generator.reuse(z_hat)
             self.x_hat = x_hat
             self.autoencode_mask = self.generator.mask_generator.sample
-            self.autoencode_mask_3_channel = self.generator.mask
+            self.autoencode_x = self.generator.sample
 
             encoder_discriminator.create(x=z, g=z_hat)
 

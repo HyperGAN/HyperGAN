@@ -12,32 +12,33 @@ class SegmentSampler(BaseSampler):
     def _sample(self):
         gan = self.gan
         x_t = gan.inputs.x
-        g_t = gan.autoencode_x
-        z_t = gan.z_hat
+        g_t = gan.generator.sample
+        z_t = gan.encoder.sample
 
         g1x_t = gan.generator.g1x
         g2x_t = gan.generator.g2x
-        mask_t = gan.autoencode_mask_3_channel
+        mask_t = gan.generator.mask
 
         sess = gan.session
         config = gan.config
         if(not self.created):
-            self.x_v, self.z_v = sess.run([x_t, z_t])
+            self.x_v = sess.run(x_t)
             self.created=True
 
         gens = sess.run(
                 [
-                    x_t,
+                    gan.inputs.x,
+                    g_t,
                     mask_t,
-                    gan.x_hat,
                     g1x_t,
                     g2x_t,
-                    g_t
-
+                    gan.generator.g1.sample,
+                    gan.generator.g2.sample
                 ], {
-                    x_t: self.x_v,
-                    z_t: self.z_v
+                    x_t: self.x_v
                 })
+
+        print("gens", [np.shape(g) for g in gens])
 
         stacks = []
         bs = gan.batch_size() // 2

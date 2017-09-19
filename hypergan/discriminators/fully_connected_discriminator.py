@@ -19,11 +19,11 @@ class FullyConnectedDiscriminator(BaseDiscriminator):
         net = ops.reshape(net, [ops.shape(net)[0], -1])
 
         print("[fully connected discriminator] creating FC layer from ", net)
-        net = self.layer_regularizer(net)
+        net = ops.linear(net, 512)#config.features or ops.shape(net)[-1])
         net = activation(net)
-        net = ops.linear(net, config.features or ops.shape(net)[-1])
+        net = ops.linear(net, 512)#config.features or ops.shape(net)[-1])
+        #net = ops.linear(net, config.features or ops.shape(net)[-1])
         if final_activation:
-            net = self.layer_regularizer(net)
             net = final_activation(net)
 
         self.sample = net

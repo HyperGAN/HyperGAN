@@ -12,11 +12,11 @@ class BaseLoss(GANComponent):
         if discriminator == None:
             discriminator = gan.discriminator
         if generator == None:
-            generator = gan.generator
+            generator = gan.generator.sample #TODO should not be sample
         self.discriminator = discriminator
         self.generator = generator
 
-    def reuse(self, d_real, d_fake):
+    def reuse(self, d_real=None, d_fake=None):
         self.discriminator.ops.reuse()
         net = self._create(d_real, d_fake)
         self.discriminator.ops.stop_reuse()
@@ -44,53 +44,48 @@ class BaseLoss(GANComponent):
             elif split == 3:
                 d_real, d_fake, d_fake2 = self.split_batch(net, split)
                 d_loss, g_loss = self._create(d_real, d_fake)
-                d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
-                g_loss += g_loss2
-                d_loss = 0.5*d_loss + 0.5*d_loss2
+                d_loss2, g_loss2 = self._create(d_real, d_fake2)
+                g_loss = g_loss + g_loss2
+                d_loss = d_loss + d_loss2
                 #does this double the signal of d_real?
-        elif split == 5:
-            d_real, d_fake, d_fake2, d_fake3, d_fake4 = self.split_batch(net, split)
-            d_loss, g_loss = self._create(d_real, d_fake)
-            d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
-            d_loss3, g_loss3 = self.reuse(d_real, d_fake3)
-            d_loss4, g_loss4 = self.reuse(d_real, d_fake4)
-            d_loss = tf.add_n([d_loss, d_loss2, d_loss3, d_loss4])
-            g_loss = tf.add_n([g_loss, g_loss2, g_loss3, g_loss4])
-            #does this double the signal of d_real?
-
-
         else:
             d_loss, g_loss = self._create(d_real, d_fake)
-            d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
-            g_loss += g_loss2
-            d_loss += d_loss2
-            #does this double the signal of d_real?
 
 
-        if d_loss is not None:
+        d_regularizers = []
+        g_regularizers = []
+        d_loss_features = d_loss
+        g_loss_features = g_loss
+        self.d_loss_features = d_loss_features
+        self.g_loss_features = g_loss_features
 
-            if config.minibatch:
-                d_loss = tf.reshape(d_loss, [ops.shape(d_loss)[0], -1])
-                d_loss = tf.concat([d_loss, self.minibatch(net)], axis=1)
+        if config.minibatch:
+            d_net = tf.concat([d_real, d_fake], axis=0)
+            d_regularizers.append(self.minibatch(d_net)) # TODO on d_loss_features?
 
-            if config.gradient_locally_stable:
-                gls = self.gradient_locally_stable()
-                self.metrics['gradient_locally_stable'] = ops.squash(gls, tf.reduce_mean)
-                print("Gradient locally stable applied")
-                g_loss = tf.reshape(g_loss, [ops.shape(g_loss)[0], -1])
-                gls = tf.reshape(gls, [ops.shape(gls)[0], -1])
-                g_loss = tf.concat([g_loss, gls], axis=1)
+        if config.gradient_locally_stable:
+            gls = self.gradient_locally_stable(d_loss_features) # TODO on d_loss_features?
+            g_regularizers.append(gls)
+            self.metrics['gradient_locally_stable'] = ops.squash(gls, tf.reduce_mean)
+            print("Gradient locally stable applied")
 
-            if config.gradient_penalty:
-                gp = self.gradient_penalty()
-                self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
-                print("Gradient penalty applied")
-                d_loss = tf.reshape(d_loss, [ops.shape(d_loss)[0], -1])
-                gp = tf.reshape(gp, [ops.shape(gp)[0], -1])
-                d_loss = tf.concat([d_loss, gp], axis=1)
+        if config.gradient_penalty:
+            gp = self.gradient_penalty()
+            d_regularizers.append(gp)
+            self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
+            print("Gradient penalty applied")
 
-        self.d_loss_features = d_loss
-        self.g_loss_features = g_loss
+        d_regularizers += self.d_regularizers()
+        g_regularizers += self.g_regularizers()
+
+        for regularizer in d_regularizers:
+            regularizer = tf.reshape(regularizer, [ops.shape(regularizer)[0],-1])
+            d_loss = tf.reshape(d_loss, [ops.shape(d_loss)[0], -1])
+            d_loss = tf.concat([d_loss, regularizer], axis=1)
+        for regularizer in g_regularizers:
+            regularizer = tf.reshape(regularizer, [ops.shape(regularizer)[0],-1])
+            g_loss = tf.reshape(g_loss, [ops.shape(g_loss)[0], -1])
+            g_loss = tf.concat([g_loss, regularizer], axis=1)
 
         d_loss = ops.squash(d_loss, tf.reduce_mean) #linear doesn't work with this, so we cant pass config.reduce
 
@@ -105,6 +100,12 @@ class BaseLoss(GANComponent):
         self.g_loss = g_loss
 
         return self.sample
+
+    def d_regularizers(self):
+        return []
+
+    def g_regularizers(self):
+        return []
 
     # This is openai's implementation of minibatch regularization
     def minibatch(self, net):
@@ -138,15 +139,12 @@ class BaseLoss(GANComponent):
 
         return ops.squash(ops.concat([f1, f2]))
 
-    def gradient_locally_stable(self):
-        discriminator = self.discriminator or self.gan.discriminator
+    def gradient_locally_stable(self, d_net):
         config = self.config
-        generator = self.generator or self.gan.generator
+        generator = self.generator
         g_sample = self.gan.uniform_sample
-        gradients = tf.gradients(discriminator.sample, [g_sample])[0]
-        penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
-        penalty = tf.square(penalty)
-        return float(config.gradient_locally_stable) * penalty
+        gradients = tf.gradients(d_net, [g_sample])[0]
+        return -float(config.gradient_locally_stable) * tf.nn.l2_normalize(gradients, dim=1)
 
     def gradient_penalty(self):
         config = self.config
@@ -156,10 +154,9 @@ class BaseLoss(GANComponent):
         x = self.x 
         if x is None:
             x=gan.inputs.x
-        generator = self.generator or gan.generator
-        g = generator.sample
+        g = self.generator
         discriminator = self.discriminator or gan.discriminator
-        shape = [1 for t in g.get_shape()]
+        shape = [1 for t in ops.shape(x)]
         shape[0] = gan.batch_size()
         uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
         print("[gradient penalty] applying x:", x, "g:", g, "noise:", uniform_noise)

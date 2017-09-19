@@ -29,6 +29,7 @@ from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 
 class AlphaGAN(BaseGAN):
     """ 
+      AlphaGAN, or α-GAN from https://arxiv.org/pdf/1706.04987.pdf
     """
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
@@ -40,6 +41,12 @@ class AlphaGAN(BaseGAN):
         self.session = None
 
     def required(self):
+        """
+        `g_encoder` is a discriminator.  It takes X as input
+        `z_discriminator` is another discriminator.  It takes as input the output of g_encoder and z
+        `discriminator` is a standard discriminator.  It measures X, reconstruction of X, and G.
+        `generator` produces two samples, g_encoder output and a known random distribution.
+        """
         return "generator discriminator z_discriminator g_encoder".split()
 
     def create(self):
@@ -54,7 +61,8 @@ class AlphaGAN(BaseGAN):
             g_encoder = dict(config.g_encoder or config.discriminator)
             encoder = self.create_component(g_encoder)
             encoder.ops.describe("g_encoder")
-            encoder.create(self.inputs.x)
+            z_hat = encoder.create(self.inputs.x)
+            self.z_hat = z_hat
             encoder.z = tf.zeros(0)
             if(len(encoder.sample.get_shape()) == 2):
                 s = ops.shape(encoder.sample)
@@ -73,19 +81,25 @@ class AlphaGAN(BaseGAN):
             z_size = 1
             for size in ops.shape(encoder.sample)[1:]:
                 z_size *= size
-            uniform_encoder_config.z = z_size
-            uniform_encoder = UniformEncoder(self, uniform_encoder_config)
+            z_dims = z_size
+            z = tf.random_uniform([self.gan.batch_size(), z_dims], -1, 1, dtype=ops.dtype)
+
+            direction = tf.random_normal(ops.shape(z), stddev=0.3, name='direction')
+            slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
+
+            uniform_encoder = UniformEncoder(self, uniform_encoder_config, z=z)
             uniform_encoder.create()
+
+            z = uniform_encoder.sample + slider * direction
 
             self.generator = self.create_component(config.generator)
 
-            direction = tf.random_normal(ops.shape(uniform_encoder.sample), stddev=0.3, name='direction')
-            slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
             x = self.inputs.x
-            z_hat = encoder.sample
 
-            z = uniform_encoder.sample + slider * direction
+
+            z = uniform_encoder.sample
             z = ops.reshape(z, ops.shape(z_hat))
+            self.z = z
             # end encoding
 
             g = self.generator.create(z)
@@ -94,39 +108,50 @@ class AlphaGAN(BaseGAN):
             sample = self.generator.sample
             self.uniform_sample = g
             x_hat = self.generator.reuse(z_hat)
-            self.autoencode_x = x_hat
             self.x_hat = x_hat
-            self.z_hat = z_hat
             self.autoencode_mask = self.generator.mask_generator.sample
             self.autoencode_mask_3_channel = self.generator.mask
+            self.autoencode_x = self.generator.sample
 
             encoder_discriminator.create(x=z, g=z_hat)
 
             eloss = dict(config.eloss or config.loss)
-            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator, x=z)
+            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator, x=z, generator=z_hat)
             encoder_loss.create()
 
             stacked_xg = ops.concat([x, x_hat, g], axis=0)
             standard_discriminator.create(stacked_xg)
 
-            standard_loss = self.create_component(config.loss, discriminator = standard_discriminator)
             sloss = dict(config.loss)
-            standard_loss = self.create_component(sloss, discriminator = standard_discriminator)
+            standard_loss = self.create_component(sloss, discriminator = standard_discriminator, x=self.inputs.x, generator=self.uniform_sample)
             standard_loss.create(split=3)
 
             self.trainer = self.create_component(config.trainer)
 
+            #recode_z = encoder.reuse(self.generator.reuse(z))
+            #recode_z_hat = encoder.reuse(x_hat)
+
             #loss terms
             distance = config.distance or ops.lookup('l1_distance')
             cycloss = tf.reduce_mean(distance(self.inputs.x,x_hat))
+            #z_cycloss = tf.reduce_mean(distance(z,recode_z))
+            #z_hat_cycloss = tf.reduce_mean(distance(z_hat,recode_z_hat))
             cycloss_lambda = config.cycloss_lambda
+            #z_cycloss_lambda = config.z_cycloss_lambda
+            #z_hat_cycloss_lambda = config.z_hat_cycloss_lambda
             if cycloss_lambda is None:
                 cycloss_lambda = 10
+            #if z_cycloss_lambda is None:
+            #    z_cycloss_lambda = 0
+            #if z_hat_cycloss_lambda is None:
+            #    z_hat_cycloss_lambda = 0
             cycloss *= cycloss_lambda
+            #z_cycloss *= z_cycloss_lambda
+            #z_hat_cycloss *= z_hat_cycloss_lambda
             loss1=('generator encoder', cycloss + encoder_loss.g_loss)
-            loss2=('generator image', cycloss + standard_loss.g_loss)
-            loss3=('discriminator encoder', standard_loss.d_loss)
-            loss4=('discriminator image', encoder_loss.d_loss)
+            loss2=('generator image',cycloss + standard_loss.g_loss)
+            loss3=('discriminator image', standard_loss.d_loss)
+            loss4=('discriminator encoder', encoder_loss.d_loss)
 
             var_lists = []
             var_lists.append(encoder.variables())
@@ -135,10 +160,12 @@ class AlphaGAN(BaseGAN):
             var_lists.append(encoder_discriminator.variables())
 
             metrics = []
-            metrics.append(encoder_loss.metrics)
+            metrics.append(None)
+            metrics.append(None)
+            #metrics.append(None)
+            
             metrics.append(standard_loss.metrics)
-            metrics.append(None)
-            metrics.append(None)
+            metrics.append(encoder_loss.metrics)
 
             # trainer
 
@@ -153,9 +180,6 @@ class AlphaGAN(BaseGAN):
             self.slider = slider
             self.direction = direction
 
-
-    def step(self, feed_dict={}):
-        return self.trainer.step(feed_dict)
 
     def input_nodes(self):
         "used in hypergan build"

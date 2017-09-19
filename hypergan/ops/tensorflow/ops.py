@@ -238,8 +238,8 @@ class TensorflowOps:
             return self.cosine_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
         if self.config.layer_regularizer == 'weight_norm3':
             return self.weightnorm3_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
-        #if self.config.layer_regularizer == 'weight_norm2':
-        #    return self.weightnorm2_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
+        if self.config.layer_regularizer == 'weight_norm2':
+            return self.weightnorm2_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
         if self.config.layer_regularizer == 'weight_norm':
             return self.weightnorm_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
 

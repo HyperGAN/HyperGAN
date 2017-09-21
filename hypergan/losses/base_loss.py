@@ -44,7 +44,7 @@ class BaseLoss(GANComponent):
             elif split == 3:
                 d_real, d_fake, d_fake2 = self.split_batch(net, split)
                 d_loss, g_loss = self._create(d_real, d_fake)
-                d_loss2, g_loss2 = self._create(d_real, d_fake2)
+                d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
                 g_loss = g_loss + g_loss2
                 d_loss = d_loss + d_loss2
                 #does this double the signal of d_real?

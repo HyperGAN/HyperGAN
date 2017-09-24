@@ -37,7 +37,7 @@
     "orthogonal_initializer_gain": 1.0595959595959596,
     "resize": null
   },
-  "g_encoder": 
+  "input_encoder": 
   {
     "activation": "selu",
     "distance": "l2_distance",

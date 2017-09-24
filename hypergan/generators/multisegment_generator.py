@@ -84,8 +84,6 @@ class MultisegmentGenerator(SegmentGenerator):
             sample += (1.0-mask)*m*g
             mask = mask*(1.0-m)
 
-        self.sample = sample
-
         print("OUTPUT", self.sample, g1.sample, g2.sample, mask)
 
         self.g1 = g1

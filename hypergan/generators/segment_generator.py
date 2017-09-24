@@ -59,7 +59,7 @@ class SegmentGenerator(ResizeConvGenerator):
         self.ops.add_weights(g1.variables())
         self.ops.add_weights(g2.variables())
 
-        self.sample = (g1.sample * mask) + \
+        sample = (g1.sample * mask) + \
                       (1.0-mask) * g2.sample 
 
         print("OUTPUT", self.sample, g1.sample, g2.sample, mask)
@@ -74,4 +74,4 @@ class SegmentGenerator(ResizeConvGenerator):
 
         self.mask_generator = mask_generator
 
-        return self.sample
+        return sample

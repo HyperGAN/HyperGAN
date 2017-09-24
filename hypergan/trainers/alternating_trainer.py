@@ -8,7 +8,7 @@ from hypergan.trainers.base_trainer import BaseTrainer
 TINY = 1e-12
 
 class AlternatingTrainer(BaseTrainer):
-    def _create(self):
+    def create(self):
         gan = self.gan
         config = self.config
         g_lr = config.g_learn_rate

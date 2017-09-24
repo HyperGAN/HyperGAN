@@ -9,12 +9,12 @@ TINY = 1e-12
 
 class MultiStepTrainer(BaseTrainer):
     def __init__(self, gan, config, losses=[], var_lists=[], metrics=None):
-        BaseTrainer.__init__(self, gan, config)
         self.losses = losses
         self.var_lists = var_lists
         self.metrics = metrics or [None for i in self.losses]
+        BaseTrainer.__init__(self, gan, config)
 
-    def _create(self):
+    def create(self):
         gan = self.gan
         config = self.config
         losses = self.losses

@@ -31,13 +31,13 @@ class MultiGeneratorGAN(BaseGAN):
     https://arxiv.org/pdf/1708.02556v2.pdf
     """
     def __init__(self, *args, **kwargs):
-        BaseGAN.__init__(self, *args, **kwargs)
         self.discriminator = None
         self.encoder = None
         self.generator = None
         self.loss = None
         self.trainer = None
         self.session = None
+        BaseGAN.__init__(self, *args, **kwargs)
 
     def required(self):
         return "generator discriminator number_generators".split()

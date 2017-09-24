@@ -9,13 +9,12 @@ import tensorflow as tf
 
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps,
-            batch_size=None, width=None, height=None, channels=None, debug=None):
+            batch_size=None, width=None, height=None, channels=None, debug=None, session=None):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
         self.ops_backend = ops_backend
         self.ops_config = ops_config
-        self.created = False
         self.components = []
         self._batch_size = batch_size
         self._width = width

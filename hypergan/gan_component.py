@@ -3,7 +3,6 @@ import inspect
 import itertools
 import types
 
-
 class ValidationException(Exception):
     """
     GAN components validate their configurations before creation.  
@@ -18,7 +17,7 @@ class GANComponent:
 
     GAN objects are also GANComponents.
     """
-    def __init__(self, gan, config):
+    def __init__(self, gan, config, name=None):
         """
         Initializes a gan component based on a `gan` and a `config` dictionary.
 
@@ -32,6 +31,8 @@ class GANComponent:
         if errors != []:
             raise ValidationException(self.__class__.__name__+": " +"\n".join(errors))
         self.create_ops(config)
+        self.ops.describe(name or self.__class__.__name__)
+        self.create()
 
     def create_ops(self, config):
         """
@@ -43,6 +44,9 @@ class GANComponent:
             return
         self.ops = self.gan.ops_backend(config=self.config, device=self.gan.device)
         self.config = self.gan.ops.lookup(config)
+
+    def create(self, *args):
+        raise ValidationException("GANComponent.create() called directly.  Please override.")
 
     def required(self):
         """

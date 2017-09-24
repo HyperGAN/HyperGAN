@@ -41,7 +41,6 @@ class StandardGAN(BaseGAN):
     * trainer
     """
     def __init__(self, *args, **kwargs):
-        BaseGAN.__init__(self, *args, **kwargs)
         self.discriminator = None
         self.encoder = None
         self.generator = None
@@ -49,17 +48,13 @@ class StandardGAN(BaseGAN):
         self.trainer = None
         self.session = None
         self.skip_connections = SkipConnections()
+        BaseGAN.__init__(self, *args, **kwargs)
 
     def required(self):
         return "generator".split()
 
     def create(self):
-        BaseGAN.create(self)
         config = self.config
-
-        def create_if(obj):
-            if(hasattr(obj, 'create')):
-                obj.create()
 
         with tf.device(self.device):
             if self.session is None: 
@@ -68,23 +63,18 @@ class StandardGAN(BaseGAN):
             #this is in a specific order
             if self.encoder is None and config.encoder:
                 self.encoder = self.create_component(config.encoder)
-                create_if(self.encoder)
             if self.generator is None and config.generator:
                 self.generator = self.create_component(config.generator)
-                create_if(self.generator)
                 self.uniform_sample = self.generator.sample
 
             if self.discriminator is None and config.discriminator:
                 self.discriminator = self.create_component(config.discriminator)
                 self.discriminator.ops.describe("discriminator")
-                create_if(self.discriminator)
             if self.loss is None and config.loss:
                 self.loss = self.create_component(config.loss)
-                create_if(self.loss)
                 self.metrics = self.loss.metrics
             if self.trainer is None and config.trainer:
                 self.trainer = self.create_component(config.trainer)
-                create_if(self.trainer)
 
 
             self.session.run(tf.global_variables_initializer())

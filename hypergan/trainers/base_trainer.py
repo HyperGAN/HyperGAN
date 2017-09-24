@@ -5,30 +5,18 @@ import inspect
 class BaseTrainer(GANComponent):
 
     def __init__(self, gan, config, d_vars=None, g_vars=None, loss=None):
-        GANComponent.__init__(self, gan, config)
-        self.create_called = False
         self.current_step = 0
         self.g_vars = g_vars
         self.d_vars = d_vars
         self.loss = loss
         self.d_shake = None
         self.g_shake = None
-
-    def _create(self):
-        raise Exception('BaseTrainer _create called directly.  Please override.')
+        GANComponent.__init__(self, gan, config)
 
     def _step(self, feed_dict):
         raise Exception('BaseTrainer _step called directly.  Please override.')
 
-    def create(self):
-        self.create_called = True
-
-        return self._create()
-
     def step(self, feed_dict={}):
-        if not self.create_called:
-            self.create()
-
         self.shake_weights()
         step = self._step(feed_dict)
         self.current_step += 1

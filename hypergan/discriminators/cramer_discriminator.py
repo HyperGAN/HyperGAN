@@ -21,8 +21,7 @@ class CramerDiscriminator(BaseDiscriminator):
         encoder = UniformEncoder(gan, gan.config.encoder)
 
         # careful, this order matters
-        gan.generator.reuse(encoder.create())
-        g2 = gan.generator.sample
+        g2 = gan.generator.reuse(encoder.create())
         double = tf.concat([net] + [g2, g2], axis=0)
         original = discriminator.build(double)
         d1 = self.split_batch(original, 4)

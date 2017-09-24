@@ -1,6 +1,12 @@
 from hypergan.gan_component import GANComponent
 
 class BaseGenerator(GANComponent):
+
+    def __init__(self, gan, config, name=None, input=None):
+        self.input = input
+        self.name = name
+        GANComponent.__init__(self, gan, config, name=name)
+
     """
         Superclass for all Generators.  Provides some common functionality.
     """
@@ -11,8 +17,11 @@ class BaseGenerator(GANComponent):
         gan = self.gan
         ops = self.ops
         if sample is None:
+            sample = self.input
+        if sample is None:
             sample = gan.encoder.sample
-        return self.build(sample)
+        self.sample = self.build(sample)
+        return self.sample
 
     def layer_filter(self, net):
         """

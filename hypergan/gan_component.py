@@ -17,7 +17,7 @@ class GANComponent:
 
     GAN objects are also GANComponents.
     """
-    def __init__(self, gan, config, name=None):
+    def __init__(self, gan, config, name=None, reuse=False):
         """
         Initializes a gan component based on a `gan` and a `config` dictionary.
 
@@ -32,6 +32,10 @@ class GANComponent:
             raise ValidationException(self.__class__.__name__+": " +"\n".join(errors))
         self.create_ops(config)
         self.ops.describe(name or self.__class__.__name__)
+
+        if reuse:
+            self.ops.reuse()
+
         self.create()
 
     def create_ops(self, config):

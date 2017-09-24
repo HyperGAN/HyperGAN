@@ -12,7 +12,7 @@ class SegmentSampler(BaseSampler):
     def _sample(self):
         gan = self.gan
         x_t = gan.inputs.x
-        g_t = gan.generator.autoencoded_x
+        g_t = gan.autoencoded_x
         z_t = gan.encoder.sample
 
         g1x_t = gan.generator.g1x

@@ -2,10 +2,11 @@ from hypergan.gan_component import GANComponent
 
 class BaseGenerator(GANComponent):
 
-    def __init__(self, gan, config, name=None, input=None):
+    def __init__(self, gan, config, name=None, input=None, reuse=False):
         self.input = input
         self.name = name
-        GANComponent.__init__(self, gan, config, name=name)
+
+        GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
 
     """
         Superclass for all Generators.  Provides some common functionality.

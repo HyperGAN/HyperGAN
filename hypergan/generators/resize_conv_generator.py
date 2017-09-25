@@ -126,5 +126,4 @@ class ResizeConvGenerator(BaseGenerator):
             net = self.layer_regularizer(net)
             net = final_activation(net)
 
-        self.sample = net
-        return self.sample
+        return net

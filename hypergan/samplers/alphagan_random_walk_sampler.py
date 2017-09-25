@@ -17,21 +17,20 @@ class AlphaganRandomWalkSampler(BaseSampler):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
         inputs_t = gan.inputs.x
-        mask_t = gan.mask_generator.sample
+        mask_t = gan.mask
 
         if self.z is None:
             self.input = gan.session.run(gan.inputs.x)
             self.z = gan.session.run(gan.z_hat, feed_dict={
                 inputs_t: self.input
             })
-            direct = gan.uniform_encoder.sample.eval()[0]/2
-            direct = np.reshape(direct, [1, direct.shape[0]])
-            self.direction = np.tile(direct, [self.z.shape[0], 1])
+            self.direction = gan.uniform_encoder.sample.eval()/2
+            #direct = np.reshape(direct, [1, direct.shape[0]])
+            #self.direction = np.tile(direct, [self.z.shape[0], 1])
             self.mask = gan.session.run(gan.autoencode_mask, feed_dict={
                 inputs_t: self.input, 
                 gan.z_hat: self.z
             })
-            self.z = np.reshape(self.z, [self.z.shape[0], -1])
 
         if self.step > self.steps:
             self.z = np.minimum(self.z+self.direction, 1)
@@ -40,6 +39,7 @@ class AlphaganRandomWalkSampler(BaseSampler):
 
             self.step = 0
 
+        self.direction = np.reshape(self.direction, self.z.shape)
         percent = float(self.step)/self.steps
         z_interp = self.z + self.direction*percent
         z_interp = np.minimum(z_interp, 1)

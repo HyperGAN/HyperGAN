@@ -23,19 +23,16 @@ class SegmentGenerator(ResizeConvGenerator):
         mask_config["layer_filter"]=None
         mask_generator = ResizeConvGenerator(gan, mask_config, name='mask', input=net, reuse=self.ops._reuse)
 
+        mask_single_channel = mask_generator.sample
         def add_mask(gan, config, net):
-            mask = self.mask_single_channel
+            mask = mask_single_channel
             s = gan.ops.shape(net)
             shape = [s[1], s[2]]
             return tf.image.resize_images(mask, shape, 1)
 
 
-        self.mask_single_channel = mask_generator.sample
-        self.mask = tf.tile(mask_generator.sample, [1,1,1,3])
-
         if config.mask_generator:
             mask = mask_generator.sample
-            self.mask = self.mask * 2 - 1
         else:
             mask = mask_generator.sample/2.0+0.5
 
@@ -44,23 +41,32 @@ class SegmentGenerator(ResizeConvGenerator):
         g1 = ResizeConvGenerator(gan, config, input=net, name='g1', reuse=self.ops._reuse)
         g2 = ResizeConvGenerator(gan, config, input=net, name='g2', reuse=self.ops._reuse)
 
-        self.ops.add_weights(mask_generator.variables())
-        self.ops.add_weights(g1.variables())
-        self.ops.add_weights(g2.variables())
-
         sample = (g1.sample * mask) + \
                       (1.0-mask) * g2.sample 
 
         print("OUTPUT", sample, g1.sample, g2.sample, mask)
 
-        self.g1 = g1
-        self.g2 = g2
+        if not hasattr(self, 'g1'):
+            self.ops.add_weights(mask_generator.variables())
+            self.ops.add_weights(g1.variables())
+            self.ops.add_weights(g2.variables())
 
-        self.g1x = (g1.sample * mask) + \
-                (1.0-mask) * gan.inputs.x
-        self.g2x = (gan.inputs.x * mask) + \
-                (1.0-mask) * g2.sample
 
-        self.mask_generator = mask_generator
+            self.g1 = g1
+            self.g2 = g2
+
+            self.g1x = (g1.sample * mask) + \
+                    (1.0-mask) * gan.inputs.x
+            self.g2x = (gan.inputs.x * mask) + \
+                    (1.0-mask) * g2.sample
+
+            self.mask_generator = mask_generator
+            self.mask = tf.tile(mask_generator.sample, [1,1,1,3])
+            if config.mask_generator:
+                self.mask = self.mask * 2 - 1
+
+        else:
+            print("-->SKIP")
+
 
         return sample

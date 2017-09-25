@@ -40,18 +40,11 @@ class BaseLoss(GANComponent):
             else:
                 net = self.discriminator.sample
 
-            if split == 2:
-                d_real, d_fake = self.split_batch(net, split)
-                d_loss, g_loss = self._create(d_real, d_fake)
-            elif split == 3:
-                d_real, d_fake, d_fake2 = self.split_batch(net, split)
-                d_loss, g_loss = self._create(d_real, d_fake)
-                d_loss2, g_loss2 = self.reuse(d_real, d_fake2)
-                g_loss = g_loss + g_loss2
-                d_loss = d_loss + d_loss2
-                #does this double the signal of d_real?
-        else:
-            d_loss, g_loss = self._create(d_real, d_fake)
+            ds = self.split_batch(net, split)
+            d_real = ds[0]
+            d_fake = tf.add_n(ds[1:])/(len(ds)-1)
+
+        d_loss, g_loss = self._create(d_real, d_fake)
 
 
         d_regularizers = []

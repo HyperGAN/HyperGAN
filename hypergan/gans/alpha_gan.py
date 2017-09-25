@@ -65,14 +65,22 @@ class AlphaGAN(BaseGAN):
 
             encoder_loss = self.create_loss(config.eloss or config.loss, z_discriminator, z, encoder, 2)
 
-            stacked_xg = ops.concat([x_input, x_hat,  generator.sample], axis=0)
+            if config.segments_included:
+                stacked = [x_input, x_hat,  generator.sample, generator.g1x, generator.g2x]
+            else:
+                stacked = [x_input, x_hat,  generator.sample]
+
+            print("STACKED " + str(len(stacked)))
+
+            stacked_xg = ops.concat(stacked, axis=0)
+
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg)
 
-            standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 3)
+            standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
 
             #loss terms
             cycloss = self.create_cycloss(x_input, x_hat)
-            z_cycloss = self.create_z_cycloss()
+            z_cycloss = self.create_z_cycloss(uniform_encoder.sample, encoder.sample, encoder, generator)
 
             trainer = self.create_trainer(cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, z_discriminator)
             self.session.run(tf.global_variables_initializer())
@@ -131,28 +139,46 @@ class AlphaGAN(BaseGAN):
         return cycloss
 
 
-    def create_z_cycloss(self):
-        #recode_z = encoder.reuse(self.generator.reuse(z))
-        #recode_z_hat = encoder.reuse(x_hat)
-        #z_cycloss = tf.reduce_mean(distance(z,recode_z))
-        #z_hat_cycloss = tf.reduce_mean(distance(z_hat,recode_z_hat))
-        #z_cycloss_lambda = config.z_cycloss_lambda
-        #z_hat_cycloss_lambda = config.z_hat_cycloss_lambda
-        #if z_cycloss_lambda is None:
-        #    z_cycloss_lambda = 0
-        #if z_hat_cycloss_lambda is None:
-        #    z_hat_cycloss_lambda = 0
-        #z_cycloss *= z_cycloss_lambda
-        #z_hat_cycloss *= z_hat_cycloss_lambda
-        return None
+    def create_z_cycloss(self, z, x_hat, encoder, generator):
+        config = self.config
+        ops = self.ops
+        total = None
+        distance = config.distance or ops.lookup('l1_distance')
+        if config.z_hat_lambda:
+            z_hat_cycloss_lambda = config.z_hat_cycloss_lambda
+            recode_z_hat = encoder.reuse(x_hat)
+            z_hat_cycloss = tf.reduce_mean(distance(z_hat,recode_z_hat))
+            z_hat_cycloss *= z_hat_cycloss_lambda
+        if config.z_cycloss_lambda:
+            print("Z is ", z, encoder.sample)
+            recode_z = encoder.reuse(generator.reuse(z))
+            z_cycloss = tf.reduce_mean(distance(z,recode_z))
+            z_cycloss_lambda = config.z_cycloss_lambda
+            if z_cycloss_lambda is None:
+                z_cycloss_lambda = 0
+            z_cycloss *= z_cycloss_lambda
+
+        if config.z_hat_lambda and config.z_cycloss_lambda:
+            total = z_cycloss + z_hat_cycloss
+        elif config.z_cycloss_lambda:
+            total = z_cycloss
+        elif config.z_hat_lambda:
+            total = z_hat_cycloss
+        return total
 
 
 
     def create_trainer(self, cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, encoder_discriminator):
-        loss1=('generator encoder', cycloss + encoder_loss.g_loss)
-        loss2=('generator image',cycloss + standard_loss.g_loss)
-        loss3=('discriminator image', standard_loss.d_loss)
-        loss4=('discriminator encoder', encoder_loss.d_loss)
+        if z_cycloss is not None:
+            loss1=('generator encoder', z_cycloss + cycloss + encoder_loss.g_loss)
+            loss2=('generator image', z_cycloss + cycloss + standard_loss.g_loss)
+            loss3=('discriminator image', standard_loss.d_loss)
+            loss4=('discriminator encoder', encoder_loss.d_loss)
+        else:
+            loss1=('generator encoder', cycloss + encoder_loss.g_loss)
+            loss2=('generator image',cycloss + standard_loss.g_loss)
+            loss3=('discriminator image', standard_loss.d_loss)
+            loss4=('discriminator encoder', encoder_loss.d_loss)
 
         var_lists = []
         var_lists.append(encoder.variables())

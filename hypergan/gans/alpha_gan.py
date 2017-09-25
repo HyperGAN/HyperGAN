@@ -104,17 +104,14 @@ class AlphaGAN(BaseGAN):
 
             encoder_discriminator.create(x=z, g=z_hat)
 
-            eloss = dict(config.loss)
-            eloss['gradient_penalty'] = False
-            eloss['gradient_locally_stable'] = False
-            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator)
+            eloss = dict(config.eloss or config.loss)
+            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator, x=z)
             encoder_loss.create()
 
             stacked_xg = ops.concat([x, x_hat, g], axis=0)
             standard_discriminator.create(stacked_xg)
 
             sloss = dict(config.loss)
-            sloss['gradient_penalty'] = False#self.gan.inputs.x
             standard_loss = self.create_component(sloss, discriminator = standard_discriminator)
             standard_loss.create(split=3)
 
@@ -127,10 +124,10 @@ class AlphaGAN(BaseGAN):
             if cycloss_lambda is None:
                 cycloss_lambda = 10
             cycloss *= cycloss_lambda
-            loss1=('generator', cycloss + encoder_loss.g_loss)
-            loss2=('generator', cycloss + standard_loss.g_loss)
-            loss3=('discriminator', standard_loss.d_loss)
-            loss4=('discriminator', encoder_loss.d_loss)
+            loss1=('generator encoder', cycloss + encoder_loss.g_loss)
+            loss2=('generator image', cycloss + standard_loss.g_loss)
+            loss3=('discriminator encoder', standard_loss.d_loss)
+            loss4=('discriminator image', encoder_loss.d_loss)
 
             var_lists = []
             var_lists.append(encoder.variables())

@@ -8,6 +8,7 @@ import tensorflow as tf
 import numpy as np
 import hypergan as hg
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
+from hypergan.generators.segment_generator import SegmentGenerator
 
 
 class DebugSampler(BaseSampler):
@@ -22,6 +23,8 @@ class DebugSampler(BaseSampler):
           self.samplers += [BeganSampler(gan, samples_per_row)]
 
 
+        if isinstance(gan.generator, SegmentGenerator):
+            self.samplers += [SegmentSampler(gan)]
 
     def _sample(self):
         samples = [sampler._sample()['generator'] for sampler in self.samplers]

@@ -53,7 +53,6 @@ class AlphaGAN(BaseGAN):
             encoder = self.create_encoder(x_input)
             z_shape = self.ops.shape(encoder.sample)
 
-
             uniform_encoder = UniformEncoder(self, config.encoder, output_shape=z_shape)
             direction, slider = self.create_controls(z_shape)
             z = uniform_encoder.sample + slider * direction
@@ -99,7 +98,7 @@ class AlphaGAN(BaseGAN):
 
         if hasattr(generator, 'mask_generator'):
             self.mask_generator = generator.mask_generator
-            self.mask = generator.mask
+            self.mask = mask
             self.autoencode_mask = generator.mask_generator.sample
             self.autoencode_mask_3_channel = generator.mask
 

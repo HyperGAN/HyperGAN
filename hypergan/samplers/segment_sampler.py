@@ -28,12 +28,10 @@ class SegmentSampler(BaseSampler):
         gens = sess.run(
                 [
                     gan.inputs.x,
-                    g_t,
                     mask_t,
+                    g_t,
                     g1x_t,
-                    g2x_t,
-                    gan.generator.g1.sample,
-                    gan.generator.g2.sample
+                    g2x_t
                 ], {
                     x_t: self.x_v
                 })

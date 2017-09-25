@@ -7,7 +7,7 @@ class BatchSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.encoder.z
+        z_t = gan.encoder.sample
         inputs_t = gan.inputs.x
 
 

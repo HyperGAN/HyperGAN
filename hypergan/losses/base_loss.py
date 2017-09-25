@@ -3,8 +3,7 @@ import numpy as np
 import tensorflow as tf
 
 class BaseLoss(GANComponent):
-    def __init__(self, gan, config, discriminator=None, generator=None, x=None):
-        GANComponent.__init__(self, gan, config)
+    def __init__(self, gan, config, discriminator=None, generator=None, x=None, split=2):
         self.metrics = {}
         self.sample = None
         self.ops = None
@@ -15,6 +14,8 @@ class BaseLoss(GANComponent):
             generator = gan.generator.sample #TODO should not be sample
         self.discriminator = discriminator
         self.generator = generator
+        self.split = split
+        GANComponent.__init__(self, gan, config)
 
     def reuse(self, d_real=None, d_fake=None):
         self.discriminator.ops.reuse()
@@ -23,10 +24,11 @@ class BaseLoss(GANComponent):
         return net
 
 
-    def create(self, split=2, d_real=None, d_fake=None):
+    def create(self, d_real=None, d_fake=None):
         gan = self.gan
         config = self.config
         ops = self.gan.ops
+        split = self.split
 
         d_loss = None
         g_loss = None
@@ -38,19 +40,23 @@ class BaseLoss(GANComponent):
             else:
                 net = self.discriminator.sample
 
-            if split == 2:
-                d_real, d_fake = self.split_batch(net, split)
+            ds = self.split_batch(net, split)
+            d_real = ds[0]
+            if config.combine == "legacy":
                 d_loss, g_loss = self._create(d_real, d_fake)
-            elif split == 3:
-                d_real, d_fake, d_fake2 = self.split_batch(net, split)
+                for d_f in ds[1:]:
+                    di, gi = self.reuse(d_real, d_f)
+                    d_loss += di
+                    g_loss += gi
+            elif config.combine == "tiled":
+                d_real = tf.tile(d_real, [len(ds)-1, 1])
+                d_fake = tf.concat(values=ds[1:], axis=0)
                 d_loss, g_loss = self._create(d_real, d_fake)
-                d_loss2, g_loss2 = self._create(d_real, d_fake2)
-                g_loss = 0.5*g_loss + 0.5*g_loss2
-                d_loss = 0.5*d_loss + 0.5*d_loss2
-                #does this double the signal of d_real?
+            else:
+                d_fake = tf.add_n(ds[1:])/(len(ds)-1)
+                d_loss, g_loss = self._create(d_real, d_fake)
         else:
             d_loss, g_loss = self._create(d_real, d_fake)
-
 
         d_regularizers = []
         g_regularizers = []

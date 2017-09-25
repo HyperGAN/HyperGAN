@@ -9,13 +9,12 @@ import tensorflow as tf
 
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps,
-            batch_size=None, width=None, height=None, channels=None, debug=None):
+            batch_size=None, width=None, height=None, channels=None, debug=None, session=None):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
         self.ops_backend = ops_backend
         self.ops_config = ops_config
-        self.created = False
         self.components = []
         self._batch_size = batch_size
         self._width = width
@@ -23,9 +22,21 @@ class BaseGAN(GANComponent):
         self._channels = channels
         self.debug = debug
         self.name = "hypergan"
+        self.session = session
 
         if config == None:
             config = hg.Configuration.default()
+
+        if debug and not isinstance(self.session, tf_debug.LocalCLIDebugWrapperSession):
+            self.session = tf_debug.LocalCLIDebugWrapperSession(self.session)
+            self.session.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
+        else:
+            tfconfig = tf.ConfigProto(allow_soft_placement=True)
+            #tfconfig = tf.ConfigProto(log_device_placement=True)
+            tfconfig.gpu_options.allow_growth=True
+
+            with tf.device(self.device):
+                self.session = self.session or tf.Session(config=tfconfig)
 
         # A GAN as a component has a parent of itself
         # gan.gan.gan.gan.gan.gan
@@ -76,22 +87,12 @@ class BaseGAN(GANComponent):
         return gan_component
 
     def create(self):
-        if self.created:
-            raise ValidationException("gan.create already called. Cowardly refusing to create graph twice")
-        self.created = True
+        raise ValidationException("BaseGAN.create() called directly.  Please override")
 
     def step(self, feed_dict={}):
-        from tensorflow.python import debug as tf_debug
-        if self.ops.debug and not isinstance(self.session, tf_debug.LocalCLIDebugWrapperSession):
-
-            self.session = tf_debug.LocalCLIDebugWrapperSession(self.session)
-            self.session.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
-
         return self._step(feed_dict)
 
     def _step(self, feed_dict={}):
-        if not self.created:
-            self.create()
         if self.trainer == None:
             raise ValidationException("gan.trainer is missing.  Cannot train.")
         return self.trainer.step(feed_dict)

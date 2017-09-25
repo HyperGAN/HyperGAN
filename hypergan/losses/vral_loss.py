@@ -89,12 +89,8 @@ class VralLoss(BaseLoss):
             return tf.random_normal(shape, mean, stddev)
 
     def F(self, d_fake):
-        f_discriminator = self.gan.create_component(self.config.f_discriminator)
-        f_discriminator.ops.describe("F_y_g_z")
-        if self.discriminator.ops._reuse:
-            f_discriminator.ops.reuse()
+        f_discriminator = self.gan.create_component(self.config.f_discriminator, name="F_y_g_z", reuse=self.discriminator.ops._reuse, input=d_fake)
 
-        result = f_discriminator.build(net=d_fake)
         self.discriminator.ops.add_weights(f_discriminator.variables())
         if self.discriminator.ops._reuse:
             f_discriminator.ops.stop_reuse()
@@ -102,13 +98,8 @@ class VralLoss(BaseLoss):
         return f_discriminator
 
     def R(self, d_real):
-        r_discriminator = self.gan.create_component(self.config.r_discriminator)
-        r_discriminator.ops.describe("R_y_X")
-        if self.discriminator.ops._reuse:
-            r_discriminator.ops.reuse()
+        r_discriminator = self.gan.create_component(self.config.r_discriminator, name="R_y_X", reuse=self.discriminator.ops._reuse, input=d_real)
 
-        result = r_discriminator.build(net=d_real)
-        print(self.discriminator, r_discriminator.variables())
         self.discriminator.ops.add_weights(r_discriminator.variables())
         if self.discriminator.ops._reuse:
             r_discriminator.ops.stop_reuse()

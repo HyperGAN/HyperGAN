@@ -2,10 +2,17 @@ from hypergan.gan_component import GANComponent
 import tensorflow as tf
 
 class BaseDiscriminator(GANComponent):
+    def __init__(self, gan, config, name=None, input=None, reuse=None):
+        self.input = input
+        self.name = name
+        GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
+
     def create(self, net=None, x=None, g=None):
         config = self.config
         gan = self.gan
         ops = self.ops
+        if net is None and self.input is not None:
+            net = self.input
 
         if net is None:
             if x is None:

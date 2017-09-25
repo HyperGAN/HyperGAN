@@ -249,15 +249,13 @@ class CLI:
             print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
             supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
             self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
-            supervised_loss.create()
             #EWW
         else:
             print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
 
     def run(self):
         if self.method == 'train':
-            self.gan.create()
-            self.add_supervised_loss()
+            self.add_supervised_loss() # TODO I think this is broken now(after moving create out)
             self.gan.session.run(tf.global_variables_initializer())
 
             if not self.gan.load(self.save_file):
@@ -269,7 +267,6 @@ class CLI:
             tf.reset_default_graph()
             self.gan.session.close()
         elif self.method == 'build':
-            self.gan.create()
             if not self.gan.load(self.save_file):
                 raise "Could not load model: "+ save_file
             else:
@@ -278,7 +275,6 @@ class CLI:
         elif self.method == 'new':
             self.new()
         elif self.method == 'sample':
-            self.gan.create()
             self.add_supervised_loss()
             if not self.gan.load(self.save_file):
                 print("Initializing new model")

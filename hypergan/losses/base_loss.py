@@ -43,8 +43,8 @@ class BaseLoss(GANComponent):
             ds = self.split_batch(net, split)
             d_real = ds[0]
             if config.combine == "legacy":
-                d_loss, g_loss = self._create(d_real, d_fake)
-                for d_f in ds[1:]:
+                d_loss, g_loss = self._create(d_real, ds[1])
+                for d_f in ds[2:]:
                     di, gi = self.reuse(d_real, d_f)
                     d_loss += di
                     g_loss += gi

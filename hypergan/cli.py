@@ -111,7 +111,7 @@ class CLI:
         self.gan.step()
 
         if(self.steps % self.sample_every == 0):
-            sample_file="samples/%06d.png" % (self.samples)
+            sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
             self.create_path(sample_file)
             sample_list = self.sample(sample_file)
             if self.args.use_hc_io:

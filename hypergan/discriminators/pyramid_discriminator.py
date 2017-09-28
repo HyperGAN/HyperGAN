@@ -25,10 +25,6 @@ class PyramidDiscriminator(BaseDiscriminator):
         net = self.add_noise(net)
         if layers > 0:
             initial_depth = max(ops.shape(net)[3], config.initial_depth or 64)
-            if config.skip_layer_filters and 0 in config.skip_layer_filters:
-                pass
-            else:
-                net = self.layer_filter(net)
             net = config.block(self, net, initial_depth, filter=config.initial_filter or 3)
         for i in range(layers):
             xg = None
@@ -42,8 +38,6 @@ class PyramidDiscriminator(BaseDiscriminator):
             else:
                 net = self.layer_filter(net)
                 print("[hypergan] adding layer filter", net)
-
-            net = self.progressive_enhancement(config, net, xg)
 
             depth = filters + depth_increase
             net = config.block(self, net, depth)

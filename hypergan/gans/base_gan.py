@@ -2,6 +2,7 @@ import hyperchamber as hc
 from hyperchamber import Config
 from hypergan.ops import TensorflowOps
 from hypergan.gan_component import ValidationException, GANComponent
+from hypergan.skip_connections import SkipConnections
 
 import os
 import hypergan as hg
@@ -23,6 +24,7 @@ class BaseGAN(GANComponent):
         self.debug = debug
         self.name = "hypergan"
         self.session = session
+        self.skip_connections = SkipConnections()
 
         if config == None:
             config = hg.Configuration.default()

@@ -23,7 +23,6 @@ class BaseDiscriminator(GANComponent):
 
             x, g = self.resize(config, x, g)
             net = tf.concat(axis=0, values=[x, g])
-            net = self.layer_filter(net)
 
         net = self.build(net)
         self.sample = net
@@ -78,22 +77,24 @@ class BaseDiscriminator(GANComponent):
         config = self.config
         gan = self.gan
         ops = self.ops
+        stacks = ops.shape(net)[0] // gan.batch_size()
+
         split_shape = ops.shape(net)
         split_shape[-1] = gan.channels()
-        split_shape[0] //= 2
+        split_shape[0] //= stacks
         enhance = gan.skip_connections.get('progressive_enhancement', split_shape)
         concats = [net]
 
-        if enhance is not None:
+        if enhance is not None and stacks == 2:
             print("[discriminator] Adding layer filter with enhancement layer", enhance, split_shape)
             new_shape = [ops.shape(net)[1], ops.shape(net)[2]]
-            x = tf.image.resize_images(self.gan.inputs.x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
+            x = self.add_noise(self.gan.inputs.x)
+            x = tf.image.resize_images(x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
             layer = tf.concat(axis=0, values=[x, enhance])
             concats.append(layer)
 
         if 'layer_filter' in config and config.layer_filter is not None:
             print("[discriminator] applying layer filter", config['layer_filter'])
-            stacks = ops.shape(net)[0] // gan.batch_size()
             filters = []
             for stack in range(stacks):
                 piece = tf.slice(net, [stack * gan.batch_size(), 0,0,0], [gan.batch_size(), -1, -1, -1])
@@ -103,14 +104,5 @@ class BaseDiscriminator(GANComponent):
 
         if len(concats) > 1:
             net = tf.concat(axis=3, values=concats)
-
-        return net
-
-    def progressive_enhancement(self, config, net, xg):
-        if config.skip_connection:
-            s = self.ops.shape(net)
-            extra = gan.skip_connections.get(config.skip_connection, [s[0], s[1], s[2], self.gan.channels()])
-            #TODO APpend X
-            tf.concat([extra, net], axis=1)
 
         return net

@@ -41,7 +41,7 @@ class AlphaGAN(BaseGAN):
         `discriminator` is a standard discriminator.  It measures X, reconstruction of X, and G.
         `generator` produces two samples, input_encoder output and a known random distribution.
         """
-        return "generator discriminator z_discriminator input_encoder".split()
+        return "generator discriminator z_discriminator ".split()
 
     def create(self):
         config = self.config
@@ -114,7 +114,7 @@ class AlphaGAN(BaseGAN):
 
     def create_encoder(self, x_input):
         config = self.config
-        input_encoder = dict(config.input_encoder or config.discriminator)
+        input_encoder = dict(config.input_encoder or config.g_encoder or config.discriminator)
         encoder = self.create_component(input_encoder, name='input_encoder', input=x_input)
         return encoder
 

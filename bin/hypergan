@@ -77,8 +77,8 @@ if args.list_templates:
     exit(0)
 if not args.align:
     if args.method == 'new':
-        gan = hg.GAN(config=config, inputs=None)
-        gan.name = config_name
+        gan = None
+        pass
 
     else:
         inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)

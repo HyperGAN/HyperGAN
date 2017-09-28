@@ -33,7 +33,7 @@ class Sampler(BaseSampler):
         x_v = sess.run(x_t)
         x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
         if layer_filter == None:
-            layer_filter = gan.generator.config.layer_filter(gan, gan.generator.config, x_t)
+            layer_filter = gan.generator.layer_filter(x_t)
         
         layer_filter_v = sess.run(layer_filter, {x_t: x_v})
 
@@ -133,19 +133,17 @@ if args.add_full_image_frame:
 
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
 inputs.create(args.directory,
-              channels=channels, 
-              format=args.format,
-              crop=args.crop,
-              width=width,
-              height=height,
-              resize=True)
+        channels=channels, 
+        format=args.format,
+        crop=args.crop,
+        width=width,
+        height=height,
+        resize=True)
 
 save_file = "save/model.ckpt"
 
 def setup_gan(config, inputs, args):
     gan = hg.GAN(config, inputs=inputs)
-
-    gan.create()
 
     if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)

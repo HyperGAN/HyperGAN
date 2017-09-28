@@ -11,6 +11,7 @@ class BaseDiscriminator(GANComponent):
         config = self.config
         gan = self.gan
         ops = self.ops
+
         if net is None and self.input is not None:
             net = self.input
 

@@ -32,6 +32,11 @@ class BaseGenerator(GANComponent):
         ops = self.ops
         gan = self.gan
         config = self.config
+        if config.progressive_enhancement:
+            split = ops.slice(net, [0, 0, 0, 0], [-1, -1, -1, gan.channels()])
+            print("[generator] adding progressive enhancement", split)
+            gan.skip_connections.set('progressive_enhancement', split)
+
         if config.layer_filter:
             print("[base generator] applying layer filter", config['layer_filter'])
             fltr = config.layer_filter(gan, self.config, net)

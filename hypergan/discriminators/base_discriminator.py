@@ -78,6 +78,19 @@ class BaseDiscriminator(GANComponent):
         config = self.config
         gan = self.gan
         ops = self.ops
+        split_shape = ops.shape(net)
+        split_shape[-1] = gan.channels()
+        split_shape[0] //= 2
+        enhance = gan.skip_connections.get('progressive_enhancement', split_shape)
+        concats = [net]
+
+        if enhance is not None:
+            print("[discriminator] Adding layer filter with enhancement layer", enhance, split_shape)
+            new_shape = [ops.shape(net)[1], ops.shape(net)[2]]
+            x = tf.image.resize_images(self.gan.inputs.x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
+            layer = tf.concat(axis=0, values=[x, enhance])
+            concats.append(layer)
+
         if 'layer_filter' in config and config.layer_filter is not None:
             print("[discriminator] applying layer filter", config['layer_filter'])
             stacks = ops.shape(net)[0] // gan.batch_size()
@@ -86,7 +99,11 @@ class BaseDiscriminator(GANComponent):
                 piece = tf.slice(net, [stack * gan.batch_size(), 0,0,0], [gan.batch_size(), -1, -1, -1])
                 filters.append(config.layer_filter(gan, self.config, piece))
             layer = tf.concat(axis=0, values=filters)
-            net = tf.concat(axis=3, values=[net, layer])
+            concats.append(layer)
+
+        if len(concats) > 1:
+            net = tf.concat(axis=3, values=concats)
+
         return net
 
     def progressive_enhancement(self, config, net, xg):

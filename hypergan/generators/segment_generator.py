@@ -77,4 +77,18 @@ class SegmentGenerator(ResizeConvGenerator):
         if config.mask_generator:
             self.mask = self.mask * 2 - 1
 
+        pe = self.gan.skip_connections.get_shapes("progressive_enhancement")
+        if len(pe) > 0:
+            for shape in pe:
+                pe = self.gan.skip_connections.get_array("progressive_enhancement", shape=shape)
+                g1 = pe[-2]
+                g2 = pe[-1]
+                print("[generator] segment generator combining progressive enhancement layers: ", len(pe))
+                resized_mask = tf.image.resize_images(self.mask, [shape[1], shape[2]], 1)
+                combine = resized_mask * g1 + (1 - resized_mask) * g2
+                self.gan.skip_connections.clear("progressive_enhancement", shape=shape)
+                for pe_layer in pe[0:-2]+[combine]:
+                    self.gan.skip_connections.set("progressive_enhancement", pe_layer)
+
+
         return sample

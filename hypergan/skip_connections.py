@@ -20,16 +20,43 @@ class SkipConnections:
     def get(self, name, shape=None):
         if shape:
             shape = [int(x) for x in shape]
+        
         connections = hc.Config(self.connections)
         if name in connections:
             conns = connections[name]
         else:
             conns = []
-        print(conns)
         for con in conns:
             if con[0] == shape:
                 return con[1]
         return None
+
+    def get_shapes(self, name):
+        shapes = []
+        for conn in self.connections[name]:
+            if conn[0] not in shapes:
+                shapes.append(conn[0])
+        return shapes
+
+    def clear(self, name, shape=None):
+        new_connections = []
+        for conn in self.connections[name]:
+            if(shape == conn[0] or shape is None):
+                pass
+            else:
+                new_connections.append(conn)
+        self.connections[name] = new_connections
+
+    def get_array(self, name, shape=None):
+        if shape:
+            shape = [int(x) for x in shape]
+        connections = hc.Config(self.connections)
+        if name in connections:
+            conns = connections[name]
+        else:
+            conns = []
+        return [con[1] for con in conns if con[0] == shape]
+
 
     def set(self, name, value):
         shape = value.get_shape()

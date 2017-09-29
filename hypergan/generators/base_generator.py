@@ -24,6 +24,18 @@ class BaseGenerator(GANComponent):
         self.sample = self.build(sample)
         return self.sample
 
+    def add_progressive_enhancement(self, net):
+        ops = self.ops
+        gan = self.gan
+        config = self.config
+        if config.progressive_enhancement:
+            split = ops.slice(net, [0, 0, 0, 0], [-1, -1, -1, gan.channels()])
+            if config.final_activation:
+                split = config.final_activation(split)
+            print("[generator] adding progressive enhancement", split)
+            gan.skip_connections.set('progressive_enhancement', split)
+
+
     def layer_filter(self, net):
         """
             If a layer filter is defined, apply it.  Layer filters allow for adding information
@@ -32,11 +44,6 @@ class BaseGenerator(GANComponent):
         ops = self.ops
         gan = self.gan
         config = self.config
-        if config.progressive_enhancement:
-            split = ops.slice(net, [0, 0, 0, 0], [-1, -1, -1, gan.channels()])
-            print("[generator] adding progressive enhancement", split)
-            gan.skip_connections.set('progressive_enhancement', split)
-
         if config.layer_filter:
             print("[base generator] applying layer filter", config['layer_filter'])
             fltr = config.layer_filter(gan, self.config, net)

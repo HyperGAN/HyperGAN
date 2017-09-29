@@ -113,6 +113,8 @@ class ResizeConvGenerator(BaseGenerator):
             print("[generator] layer", net, size)
 
         net = self.layer_regularizer(net)
+        self.add_progressive_enhancement(net)
+
         net = activation(net)
         resize = [gan.height(), gan.width()]
 

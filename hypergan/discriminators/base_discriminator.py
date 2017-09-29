@@ -82,16 +82,21 @@ class BaseDiscriminator(GANComponent):
         split_shape = ops.shape(net)
         split_shape[-1] = gan.channels()
         split_shape[0] //= stacks
-        enhance = gan.skip_connections.get('progressive_enhancement', split_shape)
+        enhancers = gan.skip_connections.get_array('progressive_enhancement', split_shape)
         concats = [net]
 
-        if enhance is not None and stacks == 2:
-            print("[discriminator] Adding layer filter with enhancement layer", enhance, split_shape)
-            new_shape = [ops.shape(net)[1], ops.shape(net)[2]]
-            x = self.add_noise(self.gan.inputs.x)
-            x = tf.image.resize_images(x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
-            layer = tf.concat(axis=0, values=[x, enhance])
-            concats.append(layer)
+        if len(enhancers) > 0:
+            if stacks > 1:
+                print("Adding " + str(stacks) + " stacks" + str(len(enhancers)))
+                new_shape = [ops.shape(net)[1], ops.shape(net)[2]]
+                x = self.add_noise(self.gan.inputs.x)
+                x = tf.image.resize_images(x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
+                layer = tf.concat(axis=0, values=[x]+enhancers)
+                concats.append(layer)
+            elif stacks == 1:
+                enhance = enhancers[0]
+                concats.append(enhance)
+
 
         if 'layer_filter' in config and config.layer_filter is not None:
             print("[discriminator] applying layer filter", config['layer_filter'])

@@ -72,7 +72,7 @@ class AlphaGAN(BaseGAN):
                 generator.reuse(z, mask=generator.mask_single_channel)
                 stacked = [x_input, g1x_hat, g2x_hat, generator.g1x, generator.g2x]
             else:
-                stacked = [x_input, x_hat, generator.sample]
+                stacked = [x_input, generator.sample, x_hat]
 
             stacked_xg = ops.concat(stacked, axis=0)
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg)

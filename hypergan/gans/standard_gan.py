@@ -67,8 +67,7 @@ class StandardGAN(BaseGAN):
                 self.uniform_sample = self.generator.sample
 
             if self.discriminator is None and config.discriminator:
-                self.discriminator = self.create_component(config.discriminator)
-                self.discriminator.ops.describe("discriminator")
+                self.discriminator = self.create_component(config.discriminator, name="discriminator")
             if self.loss is None and config.loss:
                 self.loss = self.create_component(config.loss)
                 self.metrics = self.loss.metrics

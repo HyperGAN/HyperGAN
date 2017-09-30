@@ -261,7 +261,7 @@ class CLI:
                 print("Model loaded")
             tf.train.start_queue_runners(sess=self.gan.session)
             self.train()
-            if not args.nosave:
+            if not self.args.nosave:
                 self.gan.save(self.save_file)
             tf.reset_default_graph()
             self.gan.session.close()

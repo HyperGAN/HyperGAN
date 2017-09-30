@@ -22,15 +22,12 @@ class MultiLoss(BaseLoss):
                 loss_object.create(d_real=d_real_partitions[i], d_fake=d_fake_partitions[i])
             else:
                 loss_object.create(d_real=d_real, d_fake=d_fake)
-            print("CRreating from ", loss_object.g_loss_features, loss_object.d_loss_features)
 
             losses.append(loss_object)
 
-            print(loss_object)
         #relational layer?
         combine = MultiComponent(combine='concat', components=losses)
 
-        print("LOSSES", combine.g_loss_features, "2",combine.lookup("g_loss_features"))
         if config.combine == 'concat':
             g_loss = combine.g_loss_features
             d_loss = combine.d_loss_features

@@ -132,8 +132,6 @@ class CLI:
         tf.train.write_graph(self.gan.session.graph, 'builds', save_file_text)
         inputs = [x.name.split(":")[0] for x in self.gan.input_nodes()]
         outputs = [x.name.split(":")[0] for x in self.gan.output_nodes()]
-        print("___")
-        print(inputs, outputs)
         tf.reset_default_graph()
         self.gan.session.close()
         [print("Input: ", x) for x in self.gan.input_nodes()]
@@ -160,7 +158,6 @@ class CLI:
             data = f.read()
             input_graph_def.ParseFromString(data)
 
-        print("GRAPH INPUTS", inputs, "OUTPUTS", outputs)
         output_graph_def = optimize_for_inference_lib.optimize_for_inference(
                 input_graph_def,
                 inputs, # an array of the input node(s)

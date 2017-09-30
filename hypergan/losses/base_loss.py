@@ -174,7 +174,6 @@ class BaseLoss(GANComponent):
             interpolates = x + uniform_noise * 0.5 * variance * tf.random_uniform(shape=ops.shape(x), minval=0.,maxval=1.)
         else:
             interpolates = x + uniform_noise * (g - x)
-        print("DISC", discriminator)
         reused_d = discriminator.reuse(interpolates)
         gradients = tf.gradients(reused_d, [interpolates])[0]
         penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))

@@ -30,7 +30,6 @@ class BeganSampler(BaseSampler):
         stacks.append(rx_v)
         stacks.append(g_v)
 
-        #[print(np.shape(s)) for s in stacks]
         images = np.vstack(stacks)
         return { 'generator':images}
 

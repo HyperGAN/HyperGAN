@@ -29,7 +29,6 @@ class FDivergenceLoss(BaseLoss):
             gfx = np.log(2) - tf.log(1+tf.exp(-d_real))
             gfg = np.log(2) - tf.log(1+tf.exp(-d_fake))
         elif config.type == 'js_weighted':
-            print("PI IS", pi)
             gfx = -pi*np.log(pi) - tf.log(1+tf.exp(-d_real))
             gfg = -pi*np.log(pi) - tf.log(1+tf.exp(-d_fake))
         elif config.type == 'gan':
@@ -69,7 +68,6 @@ class FDivergenceLoss(BaseLoss):
             conjugate = -tf.log(2-tf.exp(bounded))
         elif config.type == 'js_weighted':
             c = -pi*np.log(pi)-TINY
-            print("C IS ",c )
             c = tf.constant(c, dtype=tf.float32)
             bounded = gfg#tf.maximum(gfg, c)
             conjugate = (1-pi)*tf.log((1-pi)/((1-pi)*tf.exp(bounded/pi)))
@@ -162,8 +160,6 @@ class FDivergenceLoss(BaseLoss):
 
         self.gfg = gfg
         self.gfx = gfx
-
-        print("G_LOSS IS ", g_loss)
 
         return [d_loss, g_loss]
 

@@ -42,7 +42,6 @@ class AlignedSampler(BaseSampler):
         for i in range(1):
             stacks.append([sampleb[i*width+width+j] for j in range(width)])
 
-        #[print(np.shape(s)) for s in stacks]
         images = np.vstack([np.hstack(s) for s in stacks])
 
         self.plot(images, path, sample_to_file)

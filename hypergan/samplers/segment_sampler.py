@@ -36,8 +36,6 @@ class SegmentSampler(BaseSampler):
                     x_t: self.x_v
                 })
 
-        print("gens", [np.shape(g) for g in gens])
-
         stacks = []
         bs = gan.batch_size() // 2
         width = min(gan.batch_size(), 8)
@@ -45,7 +43,6 @@ class SegmentSampler(BaseSampler):
             for i in range(1):
                 stacks.append([gen[i*width+j] for j in range(width)])
 
-        #[print(np.shape(s)) for s in stacks]
         images = np.vstack(stacks)
         return {'generator':images}
 

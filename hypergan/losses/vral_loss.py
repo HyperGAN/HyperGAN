@@ -78,8 +78,6 @@ class VralLoss(BaseLoss):
             d_loss += 0.5*square(f.reuse(d_real) - target_mean)
                      
 
-        print("DSLOSS", d_loss)
-
         return [d_loss, g_loss]
 
     def N(self, shape, mean, stddev):

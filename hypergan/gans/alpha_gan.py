@@ -150,7 +150,6 @@ class AlphaGAN(BaseGAN):
             z_hat_cycloss = tf.reduce_mean(distance(z_hat,recode_z_hat))
             z_hat_cycloss *= z_hat_cycloss_lambda
         if config.z_cycloss_lambda:
-            print("Z is ", z, encoder.sample)
             recode_z = encoder.reuse(generator.reuse(z))
             z_cycloss = tf.reduce_mean(distance(z,recode_z))
             z_cycloss_lambda = config.z_cycloss_lambda

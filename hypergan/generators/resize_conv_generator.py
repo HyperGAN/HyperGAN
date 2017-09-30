@@ -43,7 +43,7 @@ class ResizeConvGenerator(BaseGenerator):
         final_activation = ops.lookup(config.final_activation)
         block = config.block or standard_block
 
-        if config.skip_linear:
+        if len(ops.shape(net)) == 4:
             net = self.layer_filter(net)
             if config.concat_linear:
                 size = ops.shape(net)[1]*ops.shape(net)[2]*config.concat_linear_filters

@@ -39,11 +39,12 @@ class SegmentGenerator(ResizeConvGenerator):
         def add_mask(gan, config, net):
             mask = mask_single_channel
             s = gan.ops.shape(net)
+            print('s is ', s)
             shape = [s[1], s[2]]
             return tf.image.resize_images(mask, shape, 1)
 
 
-        if config.mask_generator:
+        if config.mask_generator and mask_generator is not None:
             mask = mask_generator.sample
         else:
             mask = mask_single_channel/2.0+0.5

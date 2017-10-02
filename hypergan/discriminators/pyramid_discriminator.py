@@ -40,7 +40,7 @@ class PyramidDiscriminator(BaseDiscriminator):
                 print("[hypergan] adding layer filter", net)
 
             depth = filters + depth_increase
-            net = config.block(self, net, depth)
+            net = config.block(self, net, depth, filter=config.filter or 3)
 
             print('[discriminator] layer', net)
 

@@ -96,6 +96,7 @@ class AlphaGAN(BaseGAN):
         self.x_input = x_input
         self.uniform_sample = generator.sample
         self.autoencoded_x = x_hat
+        self.generator_int = tf.cast((self.generator.sample+1)*255, tf.uint8, name='generator_int')
 
         if hasattr(generator, 'mask_generator'):
             self.mask_generator = generator.mask_generator
@@ -196,9 +197,12 @@ class AlphaGAN(BaseGAN):
 
     def input_nodes(self):
         "used in hypergan build"
-        return [
+        if hasattr(self.generator, 'mask_generator'):
+            extras = [self.mask_generator.sample]
+        else:
+            extras = []
+        return extras + [
                 self.x_input,
-                self.mask_generator.sample,
                 self.slider, 
                 self.direction,
                 self.uniform_encoder.sample
@@ -207,11 +211,19 @@ class AlphaGAN(BaseGAN):
 
     def output_nodes(self):
         "used in hypergan build"
-        return [
+
+    
+        if hasattr(self.generator, 'mask_generator'):
+            extras = [
+                self.mask_generator.sample, 
+                self.generator.g1x,
+                self.generator.g2x
+            ]
+        else:
+            extras = []
+        return extras + [
                 self.encoder.sample,
                 self.generator.sample, 
                 self.uniform_sample,
-                self.mask_generator.sample,
-                self.generator.g1x,
-                self.generator.g2x
+                self.generator_int
         ]

@@ -32,6 +32,8 @@ class SkipConnections:
         return None
 
     def get_shapes(self, name):
+        if name not in self.connections.keys():
+            return None
         shapes = []
         for conn in self.connections[name]:
             if conn[0] not in shapes:

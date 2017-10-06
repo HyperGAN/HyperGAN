@@ -40,6 +40,7 @@ class SkipConnectionsTest(tf.test.TestCase):
         self.assertEqual(len(shapes), 2)
         self.assertEqual(shapes[0], [1,2,3])
         self.assertEqual(shapes[1], [3,2,1])
+        self.assertEqual(sc.get_shapes('non-existant'), None)
 
     def test_clear(self):
         sc = SkipConnections()

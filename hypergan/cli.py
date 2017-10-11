@@ -9,7 +9,6 @@ from .configuration import Configuration
 import hypergan as hg
 import time
 
-import fcntl
 import os
 import shutil
 import sys
@@ -135,6 +134,7 @@ class CLI:
     def train(self):
         i=0
         if(self.args.ipython):
+            import fcntl
             fd = sys.stdin.fileno()
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)

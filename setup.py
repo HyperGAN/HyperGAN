@@ -36,5 +36,5 @@ setup(
       'Operating System :: MacOS',
       ],
   platforms = ["Linux", "Mac OS-X", "Unix"],
-  scripts = ['bin/hypergan']
+  scripts = ['bin/hypergan', 'bin/hypergan.cmd']
 )

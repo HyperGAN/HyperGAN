@@ -96,7 +96,9 @@ class AlphaGAN(BaseGAN):
         self.x_input = x_input
         self.uniform_sample = generator.sample
         self.autoencoded_x = x_hat
-        self.generator_int = tf.cast((self.generator.sample+1)*255, tf.uint8, name='generator_int')
+        rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
+        self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
+        self.random_z = tf.random_uniform(ops.shape(uniform_encoder.sample), -1, 1, name='random_z')
 
         if hasattr(generator, 'mask_generator'):
             self.mask_generator = generator.mask_generator
@@ -225,5 +227,6 @@ class AlphaGAN(BaseGAN):
                 self.encoder.sample,
                 self.generator.sample, 
                 self.uniform_sample,
-                self.generator_int
+                self.generator_int,
+                self.random_z
         ]

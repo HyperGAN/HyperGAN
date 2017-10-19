@@ -330,6 +330,9 @@ class TensorflowOps:
 
         return _prelu
 
+    def swish(self, x):
+        return x * tf.nn.sigmoid(x)
+
     def trelu(self):
         def _trelu(_x):
             activation = self.lookup(self.config.trelu_activation or 'relu')
@@ -439,6 +442,8 @@ class TensorflowOps:
             return self.nsoftplus
         if symbol == "trelu":
             return self.trelu()
+        if symbol == "swish":
+            return self.swish
         if symbol == "selu":
             return selu
         if symbol == "frelu":

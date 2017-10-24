@@ -59,8 +59,6 @@ class PyramidDiscriminator(BaseDiscriminator):
 
         #net = tf.reshape(net, [ops.shape(net)[0], -1])
 
-        if final_activation or (config.fc_layers or 0) > 0:
-            net = self.layer_regularizer(net)
 
         for i in range(config.fc_layers or 0):
             net = self.layer_regularizer(net)
@@ -69,6 +67,7 @@ class PyramidDiscriminator(BaseDiscriminator):
             net = ops.linear(net, config.fc_layer_size or 300)
 
         if final_activation:
+            net = self.layer_regularizer(net)
             net = final_activation(net)
 
         print("[discriminator] output", net)

@@ -19,6 +19,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         depth_increase = config.depth_increase
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
+        total_layers = layers + (config.extra_layers or 0)
 
         x, g = self.split_batch(net)
 
@@ -61,8 +62,10 @@ class PyramidDiscriminator(BaseDiscriminator):
 
 
         for i in range(config.fc_layers or 0):
-            net = self.layer_regularizer(net)
-            net = activation(net)
+            # if no layers, project with linear first
+            if total_layers > 0:
+                net = activation(net)
+                net = self.layer_regularizer(net)
             net = ops.reshape(net, [ops.shape(net)[0], -1])
             net = ops.linear(net, config.fc_layer_size or 300)
 

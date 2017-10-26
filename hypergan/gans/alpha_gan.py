@@ -115,10 +115,10 @@ class AlphaGAN(BaseGAN):
         slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
         return direction, slider
 
-    def create_encoder(self, x_input):
+    def create_encoder(self, x_input, name='input_encoder'):
         config = self.config
         input_encoder = dict(config.input_encoder or config.g_encoder or config.discriminator)
-        encoder = self.create_component(input_encoder, name='input_encoder', input=x_input)
+        encoder = self.create_component(input_encoder, name=name, input=x_input)
         return encoder
 
     def create_z_discriminator(self, z, z_hat):

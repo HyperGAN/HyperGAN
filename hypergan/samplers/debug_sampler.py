@@ -11,11 +11,25 @@ import hypergan as hg
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.generators.segment_generator import SegmentGenerator
 
+class IdentitySampler(BaseSampler):
+    def __init__(self, gan, node, samples_per_row=8):
+        self.node = node
+        BaseSampler.__init__(self, gan, samples_per_row)
+
+    def _sample(self):
+        gan = self.gan
+
+        return {
+            'generator': gan.session.run(self.node)
+        }
+
 
 class DebugSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.samplers = [
+          IdentitySampler(gan, gan.inputs.x, samples_per_row),
+          IdentitySampler(gan, gan.autoencoded_x, samples_per_row),
           StaticBatchSampler(gan, samples_per_row),
           BatchSampler(gan, samples_per_row),
           RandomWalkSampler(gan, samples_per_row)

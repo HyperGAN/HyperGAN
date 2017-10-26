@@ -11,7 +11,6 @@ class MultiComponent():
         self.gan = components[0].gan
         self._combine = combine
         self._cache = {}
-        self.create()
 
     def __getattr__(self, name):
         if len(self.components) == 0:

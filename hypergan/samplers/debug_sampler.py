@@ -11,6 +11,7 @@ import hypergan as hg
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.generators.segment_generator import SegmentGenerator
 
+z = None
 class IdentitySampler(BaseSampler):
     def __init__(self, gan, node, samples_per_row=8):
         self.node = node
@@ -18,9 +19,14 @@ class IdentitySampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
+        z_t = gan.uniform_encoder.sample
+        global z
+
+        if z is None:
+            z = gan.session.run(z_t)
 
         return {
-            'generator': gan.session.run(self.node)
+            'generator': gan.session.run(self.node, {z_t: z})
         }
 
 
@@ -35,8 +41,13 @@ class DebugSampler(BaseSampler):
           RandomWalkSampler(gan, samples_per_row)
         ]
 
+        self.samplers += [IdentitySampler(gan, gan.inputs.x, samples_per_row)]
         if hasattr(gan.generator, 'pe_layers'):
             self.samplers += [IdentitySampler(gan, gx, samples_per_row) for gx in gan.generator.pe_layers]
+            pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+            print("SAMPLERS", pe_layers)
+        self.samplers += [IdentitySampler(gan, gan.inputs.x, samples_per_row)]
+#          IdentitySampler(gan, gan.autoencoded_x, samples_per_row),
         if gan.config.loss['class'] == BoundaryEquilibriumLoss:
           self.samplers += [BeganSampler(gan, samples_per_row)]
 

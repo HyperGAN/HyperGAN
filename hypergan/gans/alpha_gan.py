@@ -133,7 +133,10 @@ class AlphaGAN(BaseGAN):
         config = self.config
         ops = self.ops
         distance = config.distance or ops.lookup('l1_distance')
-        cycloss = tf.reduce_mean(distance(x_input,x_hat))
+        pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+        mask = self.progressive_growing_mask(len(pe_layers))
+        print('pelayers=/==!! ',pe_layers)
+        cycloss = tf.reduce_mean(distance(mask*x_input,mask*x_hat))
         cycloss_lambda = config.cycloss_lambda
         if cycloss_lambda is None:
             cycloss_lambda = 10

@@ -143,15 +143,10 @@ class ResizeConvGenerator(BaseGenerator):
             last_layer = net * self.progressive_growing_mask(len(pe_layers))
             s = ops.shape(last_layer)
             img_dims = [s[1],s[2]]
-            self.pe_layers = [tf.image.resize_images(elem, img_dims)*self.progressive_growing_mask(i) for i, elem in enumerate(pe_layers)]
+            self.pe_layers = [tf.image.resize_images(elem, img_dims) for i, elem in enumerate(pe_layers)] + [net]
             self.debug_pe = [self.progressive_growing_mask(i) for i, elem in enumerate(pe_layers)]
-            print("_>>>_", self.pe_layers)
         #    net = tf.add_n(nets + [last_layer])
 
         return net
 
-    def normalize(self, net):
-        if self.config.local_response_normalization:
-            net = tf.nn.local_response_normalization(net)
-        return net
 

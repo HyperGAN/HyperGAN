@@ -25,13 +25,15 @@ class PyramidDiscriminator(BaseDiscriminator):
 
         net = self.add_noise(net)
 
-        if gan.config.progressive_growing:
-            print("Adding progressive growing mask zero", len(pe_layers))
-            net *= self.progressive_growing_mask(len(pe_layers))
+        if config.progressive_growing:
+            stacks = ops.shape(net)[0] // gan.batch_size()
+            print("Adding progressive growing mask zero", len(pe_layers)//(stacks-1))
+            net *= self.progressive_growing_mask(len(pe_layers)//(stacks-1)) # handle batch stacking
 
         if layers > 0:
             initial_depth = max(ops.shape(net)[3], config.initial_depth or 64)
             net = config.block(self, net, initial_depth, filter=config.initial_filter or 3)
+            net = self.normalize(net)
         for i in range(layers):
             is_last_layer = (i == layers-1)
             filters = ops.shape(net)[3]
@@ -46,6 +48,7 @@ class PyramidDiscriminator(BaseDiscriminator):
 
             depth = filters + depth_increase
             net = config.block(self, net, depth, filter=config.filter or 3)
+            net = self.normalize(net)
 
             print('[discriminator] layer', net)
 
@@ -54,6 +57,7 @@ class PyramidDiscriminator(BaseDiscriminator):
             net = activation(net)
             net = self.layer_regularizer(net)
             net = ops.conv2d(net, 3, 3, 1, 1, output_features//(config.extra_layers_reduction or 1))
+            net = self.normalize(net)
             print('[discriminator] extra layer', net)
         k=-1
 

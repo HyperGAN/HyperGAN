@@ -73,29 +73,39 @@ class BaseDiscriminator(GANComponent):
         else:
             return x, g
 
-    def layer_filter(self, net, layer=None):
+    def layer_filter(self, net, layer=None, total_layers=None):
         config = self.config
         gan = self.gan
         ops = self.ops
-        stacks = ops.shape(net)[0] // gan.batch_size()
 
+        stacks = ops.shape(net)[0] // gan.batch_size()
         split_shape = ops.shape(net)
         split_shape[-1] = gan.channels()
         split_shape[0] //= stacks
         enhancers = gan.skip_connections.get_array('progressive_enhancement', split_shape)
         concats = [net]
 
+        # progressive enhancement
         if len(enhancers) > 0:
-            if stacks > 1:
-                print("Adding " + str(stacks) + " stacks" + str(len(enhancers)))
-                new_shape = [ops.shape(net)[1], ops.shape(net)[2]]
-                x = self.add_noise(self.gan.inputs.x)
-                x = tf.image.resize_images(x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
-                concat_layer = tf.concat(axis=0, values=[x]+enhancers)
-                concats.append(concat_layer)
-            elif stacks == 1:
-                enhance = enhancers[0]
-                concats.append(enhance)
+            print("Adding " + str(stacks) + " stacks" + str(len(enhancers)))
+            new_shape = [ops.shape(net)[1], ops.shape(net)[2]]
+            x = self.add_noise(self.gan.inputs.x)
+            x = tf.image.resize_images(x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
+            enhance = tf.concat(axis=0, values=[x]+enhancers)
+
+            # progressive growing
+            if config.progressive_growing:
+                pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+                step_index = len(pe_layers)//len(enhancers)-layer-1
+                print("CONCAT", layer, step_index, split_shape)
+                if step_index >= 0:
+                    print("Adding progressive growing mask ", step_index)
+                    mask = self.progressive_growing_mask(step_index)
+                    enhance *= mask
+
+            concats.append(enhance)
+        else:
+            print("Skipping progressive enhancement")
 
         if 'layer_filter' in config and config.layer_filter is not None:
             print("[discriminator] applying layer filter", config['layer_filter'])
@@ -108,12 +118,5 @@ class BaseDiscriminator(GANComponent):
 
         if len(concats) > 1:
             net = tf.concat(axis=3, values=concats)
-
-        if gan.config.progressive_growing:
-            pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
-            if len(pe_layers)-layer >= 0:
-                print("Adding progressive growing mask ", 4-layer)
-                mask = self.progressive_growing_mask(len(pe_layers)-layer)
-                net *= mask
 
         return net

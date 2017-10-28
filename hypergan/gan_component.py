@@ -186,6 +186,11 @@ class GANComponent:
 
         return net
 
+    def normalize(self, net):
+        if self.config.local_response_normalization:
+            net = tf.nn.local_response_normalization(net)
+        return net
+
     def progressive_growing_mask(self, index):
         pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
         total_steps = self.gan.config.progressive_growing_steps

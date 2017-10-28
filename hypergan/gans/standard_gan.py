@@ -77,3 +77,14 @@ class StandardGAN(BaseGAN):
 
             self.session.run(tf.global_variables_initializer())
 
+    def input_nodes(self):
+        "used in hypergan build"
+        return [
+                self.uniform_encoder.sample
+        ]
+
+    def output_nodes(self):
+        "used in hypergan build"
+        return [
+                self.uniform_sample
+        ]

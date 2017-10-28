@@ -35,6 +35,8 @@ class SkipConnections:
         if name not in self.connections.keys():
             return None
         shapes = []
+        if name not in self.connections.keys():
+            return []
         for conn in self.connections[name]:
             if conn[0] not in shapes:
                 shapes.append(conn[0])
@@ -57,7 +59,7 @@ class SkipConnections:
             conns = connections[name]
         else:
             conns = []
-        return [con[1] for con in conns if con[0] == shape]
+        return [con[1] for con in conns if shape is None or con[0] == shape]
 
 
     def set(self, name, value):

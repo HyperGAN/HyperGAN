@@ -2,6 +2,7 @@ import hyperchamber as hc
 import inspect
 import itertools
 import types
+import tensorflow as tf
 
 class ValidationException(Exception):
     """
@@ -185,3 +186,19 @@ class GANComponent:
 
         return net
 
+    def progressive_growing_mask(self, index):
+        pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+        total_steps = self.gan.config.progressive_growing_steps
+        fade_amount = total_steps//(len(pe_layers)+1)
+        return self.measure_layers(fade_amount*index, fade_amount*(index+1))
+
+    def measure_layers(self, start, end):
+        global_step = tf.train.get_global_step()
+        global_step += end - start
+        start = tf.cast(start, tf.int32)
+        end = tf.cast(end, tf.int32)
+        ratio = (global_step - start)/(end - start)
+        ratio = tf.cast(ratio, tf.float32)
+        ratio = tf.maximum(tf.minimum(ratio, 1), 0)
+
+        return ratio

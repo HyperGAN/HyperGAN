@@ -29,11 +29,14 @@ class DebugSampler(BaseSampler):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.samplers = [
           IdentitySampler(gan, gan.inputs.x, samples_per_row),
-          IdentitySampler(gan, gan.autoencoded_x, samples_per_row),
+#          IdentitySampler(gan, gan.autoencoded_x, samples_per_row),
           StaticBatchSampler(gan, samples_per_row),
           BatchSampler(gan, samples_per_row),
           RandomWalkSampler(gan, samples_per_row)
         ]
+
+        if hasattr(gan.generator, 'pe_layers'):
+            self.samplers += [IdentitySampler(gan, gx, samples_per_row) for gx in gan.generator.pe_layers]
         if gan.config.loss['class'] == BoundaryEquilibriumLoss:
           self.samplers += [BeganSampler(gan, samples_per_row)]
 

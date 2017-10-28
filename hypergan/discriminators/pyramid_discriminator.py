@@ -21,14 +21,18 @@ class PyramidDiscriminator(BaseDiscriminator):
         final_activation = ops.lookup(config.final_activation)
         total_layers = layers + (config.extra_layers or 0)
 
-        x, g = self.split_batch(net)
+        pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
 
         net = self.add_noise(net)
+
+        if gan.config.progressive_growing:
+            print("Adding progressive growing mask zero", len(pe_layers))
+            net *= self.progressive_growing_mask(len(pe_layers))
+
         if layers > 0:
             initial_depth = max(ops.shape(net)[3], config.initial_depth or 64)
             net = config.block(self, net, initial_depth, filter=config.initial_filter or 3)
         for i in range(layers):
-            xg = None
             is_last_layer = (i == layers-1)
             filters = ops.shape(net)[3]
             net = activation(net)
@@ -37,7 +41,7 @@ class PyramidDiscriminator(BaseDiscriminator):
             if config.skip_layer_filters and (i+1) in config.skip_layer_filters:
                 pass
             else:
-                net = self.layer_filter(net)
+                net = self.layer_filter(net, layer=i)
                 print("[hypergan] adding layer filter", net)
 
             depth = filters + depth_increase

@@ -40,6 +40,7 @@ class BaseGAN(GANComponent):
             with tf.device(self.device):
                 self.session = self.session or tf.Session(config=tfconfig)
 
+        self.global_step = tf.Variable(0, trainable=False, name='global_step')
         # A GAN as a component has a parent of itself
         # gan.gan.gan.gan.gan.gan
         GANComponent.__init__(self, self, config)

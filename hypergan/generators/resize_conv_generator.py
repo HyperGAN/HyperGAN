@@ -99,6 +99,7 @@ class ResizeConvGenerator(BaseGenerator):
             s = ops.shape(net)
             resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
             net = self.layer_regularizer(net)
+            self.add_progressive_enhancement(net)
             net = activation(net)
             if block != 'deconv':
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
@@ -131,4 +132,16 @@ class ResizeConvGenerator(BaseGenerator):
             net = self.layer_regularizer(net)
             net = final_activation(net)
 
+        if gan.config.progressive_growing:
+            pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+            last_layer = net * self.progressive_growing_mask(len(pe_layers))
+            s = ops.shape(last_layer)
+            img_dims = [s[1],s[2]]
+            self.pe_layers = [tf.image.resize_images(elem, img_dims)*self.progressive_growing_mask(i) for i, elem in enumerate(pe_layers)]
+            self.debug_pe = [self.progressive_growing_mask(i) for i, elem in enumerate(pe_layers)]
+            print("_>>>_", self.pe_layers)
+        #    net = tf.add_n(nets + [last_layer])
+
         return net
+
+

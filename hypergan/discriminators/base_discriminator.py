@@ -73,7 +73,7 @@ class BaseDiscriminator(GANComponent):
         else:
             return x, g
 
-    def layer_filter(self, net):
+    def layer_filter(self, net, layer=None):
         config = self.config
         gan = self.gan
         ops = self.ops
@@ -91,12 +91,11 @@ class BaseDiscriminator(GANComponent):
                 new_shape = [ops.shape(net)[1], ops.shape(net)[2]]
                 x = self.add_noise(self.gan.inputs.x)
                 x = tf.image.resize_images(x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
-                layer = tf.concat(axis=0, values=[x]+enhancers)
-                concats.append(layer)
+                concat_layer = tf.concat(axis=0, values=[x]+enhancers)
+                concats.append(concat_layer)
             elif stacks == 1:
                 enhance = enhancers[0]
                 concats.append(enhance)
-
 
         if 'layer_filter' in config and config.layer_filter is not None:
             print("[discriminator] applying layer filter", config['layer_filter'])
@@ -109,5 +108,11 @@ class BaseDiscriminator(GANComponent):
 
         if len(concats) > 1:
             net = tf.concat(axis=3, values=concats)
+
+        if gan.config.progressive_growing:
+            if 4-layer >= 0:
+                print("Adding progressive growing mask ", 4-layer)
+                mask = self.progressive_growing_mask(4-layer)
+                net *= mask
 
         return net

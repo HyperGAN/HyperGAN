@@ -21,7 +21,7 @@ class BaseTrainer(GANComponent):
         g_lr = config.g_learn_rate
         d_lr = config.d_learn_rate
         self.create_called = True
-        self.global_step = tf.Variable(0, trainable=False)
+        self.global_step = tf.train.get_global_step()
         decay_function = config.decay_function
         if decay_function:
             print("using decay function", decay_function)

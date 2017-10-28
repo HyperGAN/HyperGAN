@@ -110,9 +110,10 @@ class BaseDiscriminator(GANComponent):
             net = tf.concat(axis=3, values=concats)
 
         if gan.config.progressive_growing:
-            if 4-layer >= 0:
+            pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+            if len(pe_layers)-layer >= 0:
                 print("Adding progressive growing mask ", 4-layer)
-                mask = self.progressive_growing_mask(4-layer)
+                mask = self.progressive_growing_mask(len(pe_layers)-layer)
                 net *= mask
 
         return net

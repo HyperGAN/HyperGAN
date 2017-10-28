@@ -65,10 +65,12 @@ class ResizeConvGenerator(BaseGenerator):
                 net2 = config.activation(net2)
                 net = tf.concat([net, net2], axis=3)
             net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
+            net = self.normalize(net)
             for i in range(config.extra_layers or 0):
                 net = self.layer_regularizer(net)
                 net = activation(net)
                 net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
+                net = self.normalize(net)
         else:
             net = ops.reshape(net, [ops.shape(net)[0], -1])
             primes = config.initial_dimensions or [4, 4]
@@ -105,9 +107,11 @@ class ResizeConvGenerator(BaseGenerator):
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)
                 net = block(self, net, depth, filter=config.filter or 3)
+                net = self.normalize(net)
             else:
                 net = self.layer_filter(net)
                 net = ops.deconv2d(net, 5, 5, 2, 2, depth)
+                net = self.normalize(net)
 
 
             size = resize[0]*resize[1]*depth
@@ -123,9 +127,11 @@ class ResizeConvGenerator(BaseGenerator):
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(net)
             net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3)
+            net = self.normalize(net)
         else:
             net = self.layer_filter(net)
             net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
+            net = self.normalize(net)
 
 
         if final_activation:
@@ -144,4 +150,8 @@ class ResizeConvGenerator(BaseGenerator):
 
         return net
 
+    def normalize(self, net):
+        if self.config.local_response_normalization:
+            net = tf.nn.local_response_normalization(net)
+        return net
 

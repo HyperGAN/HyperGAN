@@ -30,6 +30,8 @@ class TensorflowOps:
         self.config = config
         if initializer == 'orthogonal':
             self.initializer = self.orthogonal_initializer(orthogonal_gain)
+        elif initializer == 'he_normal':
+            self.initializer = self.he_initializer()
         else:
             self.initializer = self.random_initializer(random_stddev)
 
@@ -53,6 +55,16 @@ class TensorflowOps:
     def orthogonal_initializer(self, gain):
         def _build():
             return tf.orthogonal_initializer(gain)
+        return _build
+
+    def orthogonal_initializer(self, gain):
+        def _build():
+            return tf.orthogonal_initializer(gain)
+        return _build
+
+    def he_initializer(self):
+        def _build():
+            return tf.variance_scaling_initializer(scale=2.0,mode='fan_in',distribution='normal')
         return _build
 
     def describe(self, description):

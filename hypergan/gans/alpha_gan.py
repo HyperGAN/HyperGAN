@@ -140,7 +140,7 @@ class AlphaGAN(BaseGAN):
         if cycloss_lambda is None:
             cycloss_lambda = 10
 
-        cycloss *= cycloss_lambda
+        cycloss *= cycloss_lambda * mask
         return cycloss
 
 

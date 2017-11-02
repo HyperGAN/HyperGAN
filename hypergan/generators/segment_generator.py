@@ -90,5 +90,13 @@ class SegmentGenerator(ResizeConvGenerator):
                 for pe_layer in pe[0:-2]+[combine]:
                     self.gan.skip_connections.set("progressive_enhancement", pe_layer)
 
+        if gan.config.progressive_growing:
+            pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+            last_layer = sample * self.progressive_growing_mask(len(pe_layers))
+            s = ops.shape(last_layer)
+            img_dims = [s[1],s[2]]
+            self.pe_layers = [tf.image.resize_images(elem, img_dims) for i, elem in enumerate(pe_layers)] + [sample]
+            self.debug_pe = [self.progressive_growing_mask(i) for i, elem in enumerate(pe_layers)]
+ 
 
         return sample

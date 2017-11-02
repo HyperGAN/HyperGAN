@@ -17,7 +17,7 @@ class AlphaganRandomWalkSampler(BaseSampler):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
         inputs_t = gan.inputs.x
-        mask_t = gan.mask
+        mask_t = gan.generator.mask
 
         if self.z is None:
             self.input = gan.session.run(gan.inputs.x)

@@ -243,7 +243,7 @@ class TensorflowOps:
             return g*x_init
 
 
-    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
+    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME"):
         self.assert_tensor(net)
 
         if self.config.layer_regularizer == 'cosine_norm':
@@ -257,7 +257,7 @@ class TensorflowOps:
 
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
-            conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding='SAME')
+            conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
             biases = self.get_bias([output_dim])
             conv = tf.nn.bias_add(conv, biases)
             return conv

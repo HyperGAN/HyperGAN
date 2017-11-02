@@ -54,7 +54,7 @@ def repeating_strided_block(component, net, depth, filter=3):
     return net
 
 
-def standard_block(component, net, depth, filter=3, avg_pool=True, activation_regularizer=False):
+def standard_block(component, net, depth, filter=3, avg_pool=True, activation_regularizer=False, padding="SAME"):
     ops = component.ops
     config = component.config
     stride_w = filter-1
@@ -68,15 +68,17 @@ def standard_block(component, net, depth, filter=3, avg_pool=True, activation_re
         if layer_regularizer is not None:
             net = component.layer_regularizer(net)
 
-    net = ops.conv2d(net, filter, filter, 1, 1, depth)
+    print("PREB LOCK IS ", net)
+    net = ops.conv2d(net, filter, filter, 1, 1, depth, padding=padding)
+    print("POST BLOCK IS ", net)
     if avg_pool:
         net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
     print('[discriminator] layer', net)
     return net
 
-def strided_block(component, net, depth, filter=3):
+def strided_block(component, net, depth, filter=3, padding="SAME"):
     ops = component.ops
     config = component.config
-    net = ops.conv2d(net, filter, filter, 2, 2, depth)
+    net = ops.conv2d(net, filter, filter, 2, 2, depth, padding=padding)
     print('[discriminator] layer', net)
     return net

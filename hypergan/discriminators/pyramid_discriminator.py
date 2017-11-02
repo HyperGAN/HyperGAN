@@ -33,6 +33,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
         total_layers = layers + (config.extra_layers or 0)
+        padding = config.padding or "SAME"
 
         pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
 
@@ -46,7 +47,7 @@ class PyramidDiscriminator(BaseDiscriminator):
         if layers > 0:
             initial_depth = max(ops.shape(net)[3], config.initial_depth or 64)
             depth = initial_depth
-            net = config.block(self, net, initial_depth, filter=config.initial_filter or 3)
+            net = config.block(self, net, initial_depth, filter=config.initial_filter or 3, padding=padding)
             net = self.normalize(net)
         for i in range(layers):
             is_last_layer = (i == layers-1)
@@ -62,8 +63,7 @@ class PyramidDiscriminator(BaseDiscriminator):
 
             depth = self.next_depth(depth)
             print("DEPTH ", depth)
-            net = config.block(self, net, depth, filter=config.filter or 3)
-            net = self.normalize(net)
+            net = config.block(self, net, depth, filter=config.filter or 3, padding=padding)
 
             print('[discriminator] layer', net)
 
@@ -71,7 +71,7 @@ class PyramidDiscriminator(BaseDiscriminator):
             output_features = int(int(net.get_shape()[3]))
             net = activation(net)
             net = self.layer_regularizer(net)
-            net = ops.conv2d(net, 3, 3, 1, 1, output_features//(config.extra_layers_reduction or 1))
+            net = ops.conv2d(net, 3, 3, 1, 1, output_features//(config.extra_layers_reduction or 1), padding=padding)
             net = self.normalize(net)
             print('[discriminator] extra layer', net)
         k=-1

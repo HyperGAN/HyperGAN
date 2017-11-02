@@ -23,7 +23,7 @@ def multi_block(component, net, output_channels, filter=None):
     return net+net2+net3
 
 
-def standard_block(component, net, output_channels, filter=None, activation_regularizer=False):
+def standard_block(component, net, output_channels, filter=None, activation_regularizer=False, padding="SAME"):
     config = component.config
     ops = component.ops
     layer_regularizer = config.layer_regularizer
@@ -34,7 +34,7 @@ def standard_block(component, net, output_channels, filter=None, activation_regu
             net = component.layer_regularizer(net)
 
 
-    net = ops.conv2d(net, filter, filter, 1, 1, output_channels)
+    net = ops.conv2d(net, filter, filter, 1, 1, output_channels, padding=padding)
     return net
 
 def inception_block(component, net, output_channels, filter=None):

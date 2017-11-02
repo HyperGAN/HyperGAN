@@ -8,16 +8,13 @@ from .base_generator import BaseGenerator
 class ResizeConvGenerator(BaseGenerator):
 
     def required(self):
-        return "final_depth activation".split()
+        return "final_depth activation depth_increase".split()
 
     def depths(self, initial_width=4):
         gan = self.gan
         ops = self.ops
         config = self.config
-        if config.depth_increase:
-            final_depth = config.final_depth-config.depth_increase
-        elif config.depth_multiple:
-            final_depth = config.final_depth / config.depth_multiple
+        final_depth = config.final_depth-config.depth_increase
         depths = []
 
         target_w = gan.width()
@@ -30,13 +27,7 @@ class ResizeConvGenerator(BaseGenerator):
         while w < target_w:
             w*=2
             i+=1
-            if config.depth_increase:
-                depth = final_depth + i*config.depth_increase + (gan.channels() or config.channels) - 3
-            elif config.depth_multiple:
-                depth = final_depth + config.depth_multiple * 2**i + (gan.channels() or config.channels) - 3
-            if config.depth_max:
-                depth = min(depth, config.depth_max)
-            depths.append(depth)
+            depths.append(final_depth + i*config.depth_increase + (gan.channels() or config.channels) - 3)
         depths = depths[1:]
         depths.reverse()
         return depths

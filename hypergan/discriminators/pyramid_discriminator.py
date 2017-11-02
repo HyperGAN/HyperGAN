@@ -8,20 +8,7 @@ from .base_discriminator import BaseDiscriminator
 class PyramidDiscriminator(BaseDiscriminator):
 
     def required(self):
-        return "activation layers block initial_depth".split()
-
-    def next_depth(self, depth):
-        config = self.config
-        newdepth = depth
-        if config.depth_increase:
-            newdepth = depth + config.depth_increase
-        if config.depth_multiple:
-            newdepth = depth * config.depth_multiple
-
-        if config.depth_max:
-            newdepth = min(newdepth, config.depth_max)
-
-        return newdepth
+        return "activation layers block depth_increase initial_depth".split()
 
     def build(self, net):
         config = self.config
@@ -46,7 +33,6 @@ class PyramidDiscriminator(BaseDiscriminator):
 
         if layers > 0:
             initial_depth = max(ops.shape(net)[3], config.initial_depth or 64)
-            depth = initial_depth
             net = config.block(self, net, initial_depth, filter=config.initial_filter or 3, padding=padding)
             net = self.normalize(net)
         for i in range(layers):
@@ -61,9 +47,9 @@ class PyramidDiscriminator(BaseDiscriminator):
                 net = self.layer_filter(net, layer=i)
                 print("[hypergan] adding layer filter", net)
 
-            depth = self.next_depth(depth)
-            print("DEPTH ", depth)
+            depth = filters + depth_increase
             net = config.block(self, net, depth, filter=config.filter or 3, padding=padding)
+            net = self.normalize(net)
 
             print('[discriminator] layer', net)
 

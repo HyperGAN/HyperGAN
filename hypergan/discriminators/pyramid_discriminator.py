@@ -33,6 +33,7 @@ class PyramidDiscriminator(BaseDiscriminator):
 
         if layers > 0:
             initial_depth = max(ops.shape(net)[3], config.initial_depth or 64)
+
             net = config.block(self, net, initial_depth, filter=config.initial_filter or 3, padding=padding)
             net = self.normalize(net)
         for i in range(layers):
@@ -48,6 +49,8 @@ class PyramidDiscriminator(BaseDiscriminator):
                 print("[hypergan] adding layer filter", net)
 
             depth = filters + depth_increase
+            if padding == "VALID":
+                net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
             net = config.block(self, net, depth, filter=config.filter or 3, padding=padding)
             net = self.normalize(net)
 
@@ -57,14 +60,18 @@ class PyramidDiscriminator(BaseDiscriminator):
             output_features = int(int(net.get_shape()[3]))
             net = activation(net)
             net = self.layer_regularizer(net)
-            net = ops.conv2d(net, 1, 1, 1, 1, output_features//(config.extra_layers_reduction or 1), padding=padding)
+            filter_size_w = min(3, ops.shape(net)[1])
+            filter_size_h = min(3, ops.shape(net)[2])
+            if padding == "VALID":
+                net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
+            net = ops.conv2d(net, filter_size_w, filter_size_h, 1, 1, output_features//(config.extra_layers_reduction or 1), padding=padding)
             net = self.normalize(net)
             print('[discriminator] extra layer', net)
         k=-1
 
         if config.relation_layer:
-            net = activation(net)
-            net = self.layer_regularizer(net)
+            net = activation(net) 
+            net = self.layer_regularizer(net) 
             net = self.relation_layer(net)
 
         #net = tf.reshape(net, [ops.shape(net)[0], -1])

@@ -67,12 +67,16 @@ class ResizeConvGenerator(BaseGenerator):
                 net = tf.concat([net, net2], axis=3)
 
             if config.extra_layers:
-                net = ops.conv2d(net, 1, 1, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
+                if padding == "VALID":
+                    net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
+                net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1), padding=padding)
                 net = self.normalize(net)
                 for i in range(config.extra_layers or 0):
                     net = self.layer_regularizer(net)
                     net = activation(net)
-                    net = ops.conv2d(net, 1, 1, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
+                    if padding == "VALID":
+                        net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
+                    net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1), padding=padding)
                     net = self.normalize(net)
         else:
             net = ops.reshape(net, [ops.shape(net)[0], -1])

@@ -35,7 +35,6 @@ class PyramidDiscriminator(BaseDiscriminator):
             initial_depth = max(ops.shape(net)[3], config.initial_depth or 64)
 
             net = config.block(self, net, initial_depth, filter=config.initial_filter or 3, padding=padding)
-            net = self.normalize(net)
         for i in range(layers):
             is_last_layer = (i == layers-1)
             filters = ops.shape(net)[3]
@@ -65,7 +64,7 @@ class PyramidDiscriminator(BaseDiscriminator):
             if padding == "VALID":
                 net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
             net = ops.conv2d(net, filter_size_w, filter_size_h, 1, 1, output_features//(config.extra_layers_reduction or 1), padding=padding)
-            net = self.normalize(net)
+            #net = self.normalize(net)
             print('[discriminator] extra layer', net)
         k=-1
 

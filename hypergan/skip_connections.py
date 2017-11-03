@@ -31,6 +31,24 @@ class SkipConnections:
                 return con[1]
         return None
 
+    def get_closest(self, name, shape=None):
+        if shape:
+            shape = [int(x) for x in shape]
+        
+        connections = hc.Config(self.connections)
+        if name in connections:
+            conns = connections[name]
+        else:
+            conns = []
+        for con in conns:
+            s1 = con[0]
+            s2 = shape
+            print("---->", s1, s2)
+            if s1[1] >= s2[1]: 
+                return con[1]
+        return None
+
+
     def get_shapes(self, name):
         if name not in self.connections.keys():
             return None

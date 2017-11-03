@@ -77,20 +77,19 @@ class BaseDiscriminator(GANComponent):
         config = self.config
         gan = self.gan
         ops = self.ops
-
-        stacks = ops.shape(net)[0] // gan.batch_size()
-        split_shape = ops.shape(net)
-        split_shape[-1] = gan.channels()
-        split_shape[0] //= stacks
-        enhancers = gan.skip_connections.get_array('progressive_enhancement', split_shape)
         concats = [net]
 
-        # progressive enhancement
-        if len(enhancers) > 0:
-            print("Adding " + str(stacks) + " stacks" + str(len(enhancers)))
+        closest = gan.skip_connections.get_closest('progressive_enhancement', ops.shape(net))
+        print("Looking up shape ", ops.shape(net), 'closest', closest)
+        if closest is not None:
+            enhancers = gan.skip_connections.get_array('progressive_enhancement', ops.shape(closest))
+
+            # progressive enhancement
             new_shape = [ops.shape(net)[1], ops.shape(net)[2]]
             x = self.add_noise(self.gan.inputs.x)
             x = tf.image.resize_images(x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
+            size = [ops.shape(net)[1], ops.shape(net)[2]]
+            enhancers = [tf.image.resize_images(enhance, size, 1) for enhance in enhancers]
             enhance = tf.concat(axis=0, values=[x]+enhancers)
 
             # progressive growing

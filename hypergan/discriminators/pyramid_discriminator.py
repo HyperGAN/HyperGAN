@@ -57,7 +57,7 @@ class PyramidDiscriminator(BaseDiscriminator):
             output_features = int(int(net.get_shape()[3]))
             net = activation(net)
             net = self.layer_regularizer(net)
-            net = ops.conv2d(net, 3, 3, 1, 1, output_features//(config.extra_layers_reduction or 1), padding=padding)
+            net = ops.conv2d(net, 1, 1, 1, 1, output_features//(config.extra_layers_reduction or 1), padding=padding)
             net = self.normalize(net)
             print('[discriminator] extra layer', net)
         k=-1

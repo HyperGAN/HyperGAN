@@ -17,6 +17,20 @@ class SkipConnectionsTest(tf.test.TestCase):
         self.assertEqual(a, sc.get('layer_filter', a.get_shape()))
         self.assertEqual(b, sc.get('layer_filter', b.get_shape()))
 
+    def test_get_closest(self):
+        sc = SkipConnections()
+        b = tf.zeros([1,2,2])
+        a = tf.zeros([1,4,4])
+
+        sc.set('layer_filter', b)
+        sc.set('layer_filter', a)
+        self.assertEqual(a, sc.get_closest('layer_filter', a.get_shape()))
+        self.assertEqual(b, sc.get_closest('layer_filter', b.get_shape()))
+        self.assertEqual(a, sc.get_closest('layer_filter', [1,3,3]))
+        self.assertEqual(b, sc.get_closest('layer_filter', [1,1,1]))
+        self.assertEqual(None, sc.get_closest('layer_filter', [1,5,5]))
+
+
     def test_array(self):
         sc = SkipConnections()
         a = tf.zeros([1,2,3])

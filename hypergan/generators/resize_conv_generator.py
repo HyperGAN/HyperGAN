@@ -70,15 +70,13 @@ class ResizeConvGenerator(BaseGenerator):
             #    net = tf.image.resize_images(net, [ops.shape(net)[1]+2*config.extra_layers, ops.shape(net)[2]+2*config.extra_layers],1)
 
             if config.extra_layers:
-                depth_next = ops.shape(net)[3]
-                depth_next -= config.depth_increase
-                print("[generator] extra layer", depth_next)
+                depth_next = ops.shape(net)[0]
+                depth_next += config.depth_increase
                 net = ops.conv2d(net, 3, 3, 1, 1, depth_next, padding=padding)
                 net = self.normalize(net)
                 for i in range(config.extra_layers or 0):
-                    depth_next -= config.depth_increase
+                    depth_next += config.depth_increase
                     print("[generator] extra layer", depth_next)
-                    net = tf.image.resize_images(net, [ops.shape(net)[1]+4, ops.shape(net)[2]+4], 1)
                     net = self.layer_regularizer(net)
                     net = activation(net)
                     net = ops.conv2d(net, 3, 3, 1, 1, depth_next, padding=padding)

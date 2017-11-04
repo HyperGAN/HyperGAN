@@ -66,17 +66,20 @@ class ResizeConvGenerator(BaseGenerator):
                 net2 = config.activation(net2)
                 net = tf.concat([net, net2], axis=3)
 
+            #if padding == "VALID":
+            #    net = tf.image.resize_images(net, [ops.shape(net)[1]+2*config.extra_layers, ops.shape(net)[2]+2*config.extra_layers],1)
+
             if config.extra_layers:
-                if padding == "VALID":
-                    net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
-                net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1), padding=padding)
+                depth_next = ops.shape(net)[0]
+                depth_next += config.depth_increase
+                net = ops.conv2d(net, 3, 3, 1, 1, depth_next, padding=padding)
                 net = self.normalize(net)
                 for i in range(config.extra_layers or 0):
+                    depth_next += config.depth_increase
+                    print("[generator] extra layer", depth_next)
                     net = self.layer_regularizer(net)
                     net = activation(net)
-                    if padding == "VALID":
-                        net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
-                    net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1), padding=padding)
+                    net = ops.conv2d(net, 3, 3, 1, 1, depth_next, padding=padding)
                     net = self.normalize(net)
         else:
             net = ops.reshape(net, [ops.shape(net)[0], -1])
@@ -105,16 +108,16 @@ class ResizeConvGenerator(BaseGenerator):
 
         net = self.layer_filter(net)
         filter_size = config.filter or 3
-        for i, depth in enumerate(depths[1:]):
+        depth = config.final_depth + (len(depths)-1)*config.depth_increase
+        while(ops.shape(net)[2] < gan.height() and ops.shape(net)[1] < gan.width()):
             s = ops.shape(net)
-            if padding == "VALID":
-                resize = [min(s[1]*2+filter_size//2+1, gan.height()+filter_size//2+1), 
-                        min(s[2]*2+filter_size//2+1, gan.width()+filter_size//2+1)]
-            else:
-                resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
+            resize = [min(s[1]*2, gan.height()+2), min(s[2]*2, gan.width()+2)]
             net = self.layer_regularizer(net)
             self.add_progressive_enhancement(net)
             net = activation(net)
+            depth = depth - config.depth_increase
+            if depth < config.final_depth:
+                depth = gan.channels()
             if block != 'deconv':
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)
@@ -128,23 +131,6 @@ class ResizeConvGenerator(BaseGenerator):
 
             size = resize[0]*resize[1]*depth
             print("[generator] layer", net, size)
-
-        net = self.layer_regularizer(net)
-        self.add_progressive_enhancement(net)
-
-        net = activation(net)
-        if padding == "VALID":
-            resize = [gan.height()+filter_size//2+1, gan.width()+filter_size//2+1]
-        else:
-            resize = [gan.height(), gan.width()]
-
-        if block != 'deconv':
-            net = ops.resize_images(net, resize, config.resize_image_type or 1)
-            net = self.layer_filter(net)
-            net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3, padding=padding)
-        else:
-            net = self.layer_filter(net)
-            net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
 
 
         if final_activation:

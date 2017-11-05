@@ -1,6 +1,23 @@
 import tensorflow as tf
 import hyperchamber as hc
 
+def densenet_block(component, net, depth, filter=3, padding='SAME'):
+    ops = component.ops
+    config = component.config
+    layer_regularizer = config.layer_regularizer
+    net = standard_block(component, net, depth, filter=1, avg_pool=False)
+    for i in range(config.densenet_layers):
+        depth = config.densenet_filters
+        net = config.activation(net)
+        net2 = component.layer_regularizer(net)
+        net2 = ops.conv2d(net2, 3, 3, 1, 1, depth)
+        net = tf.concat([net, net2], 3)
+        print("New densenet layer", net)
+    stride = [1,filter-1,filter-1,1]
+    ksize = [1,filter-1,filter-1,1]
+    net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
+    return net
+
 def repeating_block(component, net, depth, filter=3):
     ops = component.ops
     config = component.config

@@ -192,7 +192,7 @@ class TensorflowOps:
             x_init = tf.reshape(scale_init,[1,1,1,output_dim])*(x_init-tf.reshape(m_init,[1,1,1,output_dim]))
             return g*x_init
 
-    def weightnorm2_conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
+    def weightnorm2_conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME"):
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             # modified from https://github.com/openai/weightnorm/blob/master/tensorflow/nn.py
             # data based initialization of parameters
@@ -200,7 +200,7 @@ class TensorflowOps:
             shape = [filter_h, filter_w, int(net.get_shape()[-1]),output_dim]
             V = self.get_weight(name='v', shape=shape)
             V_norm = tf.nn.l2_normalize(V, [0,1,2])
-            x_init = tf.nn.conv2d(net, V_norm, [1, stride_h, stride_w, 1], padding="SAME")
+            x_init = tf.nn.conv2d(net, V_norm, [1, stride_h, stride_w, 1], padding=padding)
             m_init, v_init = tf.nn.moments(x_init, [0,1,2])
             scale_init = 1.0/tf.sqrt(v_init + 1e-8)
             x_init = tf.reshape(scale_init,[1,1,1,output_dim])*(x_init-tf.reshape(m_init,[1,1,1,output_dim]))
@@ -251,7 +251,7 @@ class TensorflowOps:
         if self.config.layer_regularizer == 'weight_norm3':
             return self.weightnorm3_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
         if self.config.layer_regularizer == 'weight_norm2':
-            return self.weightnorm2_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
+            return self.weightnorm2_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim, padding=padding)
         if self.config.layer_regularizer == 'weight_norm':
             return self.weightnorm_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
 

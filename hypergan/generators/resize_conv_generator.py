@@ -65,19 +65,10 @@ class ResizeConvGenerator(BaseGenerator):
                     net2 = self.layer_regularizer(net2)
                 net2 = config.activation(net2)
                 net = tf.concat([net, net2], axis=3)
+                net = ops.conv2d(net, 1, 1, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1))
+                net = self.layer_regularizer(net)
+                net = activation(net)
 
-            if config.extra_layers:
-                if padding == "VALID":
-                    net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
-                net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1), padding=padding)
-                net = self.normalize(net)
-                for i in range(config.extra_layers or 0):
-                    net = self.layer_regularizer(net)
-                    net = activation(net)
-                    if padding == "VALID":
-                        net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
-                    net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1), padding=padding)
-                    net = self.normalize(net)
         else:
             net = ops.reshape(net, [ops.shape(net)[0], -1])
             primes = config.initial_dimensions or [4, 4]
@@ -89,6 +80,34 @@ class ResizeConvGenerator(BaseGenerator):
 
         shape = ops.shape(net)
 
+        if config.extra_layers:
+            if padding == "VALID":
+                net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
+            net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1), padding=padding)
+            net = self.normalize(net)
+            for i in range(config.extra_layers or 0):
+                net = self.layer_regularizer(net)
+                net = activation(net)
+                if padding == "VALID":
+                    net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
+                net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1), padding=padding)
+                net = self.normalize(net)
+
+        if config.densenet_layers:
+            if padding == "VALID":
+                net = tf.image.resize_images(net, [ops.shape(net)[1]+2, ops.shape(net)[2]+2],1)
+            net = ops.conv2d(net, 3, 3, 1, 1, ops.shape(net)[3]//(config.extra_layers_reduction or 1), padding=padding)
+            net = self.normalize(net)
+            for i in range(config.densenet_layers):
+                net2 = self.layer_regularizer(net)
+                net2 = activation(net2)
+                if padding == "VALID":
+                    net2 = tf.image.resize_images(net2, [ops.shape(net2)[1]+2, ops.shape(net2)[2]+2],1)
+                net2 = ops.conv2d(net2, 3, 3, 1, 1, config.densenet_filters, padding=padding)
+                net2 = self.normalize(net2)
+                net = tf.concat(axis=3, values=[net, net2])
+
+ 
         depths = self.depths(initial_width = shape[1])
         print("[generator] Initial depth", shape)
 
@@ -107,18 +126,14 @@ class ResizeConvGenerator(BaseGenerator):
         filter_size = config.filter or 3
         for i, depth in enumerate(depths[1:]):
             s = ops.shape(net)
-            if padding == "VALID":
-                resize = [min(s[1]*2+filter_size//2+1, gan.height()+filter_size//2+1), 
-                        min(s[2]*2+filter_size//2+1, gan.width()+filter_size//2+1)]
-            else:
-                resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
+            resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
             net = self.layer_regularizer(net)
             self.add_progressive_enhancement(net)
             net = activation(net)
             if block != 'deconv':
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)
-                net = block(self, net, depth, filter=filter_size, padding=padding)
+                net = block(self, net, depth, filter=filter_size)
                 net = self.normalize(net)
             else:
                 net = self.layer_filter(net)

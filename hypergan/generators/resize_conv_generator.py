@@ -148,15 +148,12 @@ class ResizeConvGenerator(BaseGenerator):
         self.add_progressive_enhancement(net)
 
         net = activation(net)
-        if padding == "VALID":
-            resize = [gan.height()+filter_size//2+1, gan.width()+filter_size//2+1]
-        else:
-            resize = [gan.height(), gan.width()]
+        resize = [gan.height(), gan.width()]
 
         if block != 'deconv':
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(net)
-            net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3, padding=padding)
+            net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3)
         else:
             net = self.layer_filter(net)
             net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())

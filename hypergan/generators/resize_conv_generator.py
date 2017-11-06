@@ -133,7 +133,7 @@ class ResizeConvGenerator(BaseGenerator):
             if block != 'deconv':
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)
-                net = block(self, net, depth, filter=filter_size)
+                net = block(self, net, depth, filter=filter_size, padding=padding)
                 net = self.normalize(net)
             else:
                 net = self.layer_filter(net)
@@ -153,7 +153,7 @@ class ResizeConvGenerator(BaseGenerator):
         if block != 'deconv':
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(net)
-            net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3)
+            net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3, padding=padding)
         else:
             net = self.layer_filter(net)
             net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())

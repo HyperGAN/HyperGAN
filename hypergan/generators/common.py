@@ -33,7 +33,9 @@ def standard_block(component, net, output_channels, filter=None, activation_regu
         if layer_regularizer is not None:
             net = component.layer_regularizer(net)
 
-
+    if padding == "VALID":
+        resize = [ops.shape(net)[1]+2, ops.shape(net)[2]+2]
+        net = ops.resize_images(net, resize, config.resize_image_type or 1)
     net = ops.conv2d(net, filter, filter, 1, 1, output_channels, padding=padding)
     return net
 

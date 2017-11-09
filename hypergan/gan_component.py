@@ -193,7 +193,7 @@ class GANComponent:
 
     def progressive_growing_mask(self, index):
         pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
-        total_steps = self.gan.config.progressive_growing_steps
+        total_steps = self.gan.config.progressive_growing_steps or 100000
         fade_amount = total_steps//(len(pe_layers)+1)
         return self.measure_layers(fade_amount*index, fade_amount*(index+1))
 

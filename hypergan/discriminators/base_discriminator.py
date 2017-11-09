@@ -96,7 +96,6 @@ class BaseDiscriminator(GANComponent):
             if config.progressive_growing:
                 pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
                 step_index = len(pe_layers)//len(enhancers)-layer-1
-                print("CONCAT", layer, step_index, split_shape)
                 if step_index >= 0:
                     print("Adding progressive growing mask ", step_index)
                     mask = self.progressive_growing_mask(step_index)

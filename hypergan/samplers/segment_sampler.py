@@ -17,20 +17,21 @@ class SegmentSampler(BaseSampler):
 
         g1x_t = gan.generator.g1x
         g2x_t = gan.generator.g2x
-        mask_t = None
+        self.mask_t = None
 
 
+        if self.mask_t is None:
+            self.mask_t = (gan.generator.mask-0.5*2)
         sess = gan.session
         config = gan.config
         if(not self.created):
             self.x_v = sess.run(x_t)
             self.created=True
-            self.mask_t = (gan.generator.mask-0.5*2)
 
         gens = sess.run(
                 [
                     gan.inputs.x,
-                    mask_t,
+                    self.mask_t,
                     g_t,
                     g1x_t,
                     g2x_t

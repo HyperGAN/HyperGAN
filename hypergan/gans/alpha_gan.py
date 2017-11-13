@@ -60,17 +60,19 @@ class AlphaGAN(BaseGAN):
             z_discriminator = self.create_z_discriminator(uniform_encoder.sample, encoder.sample)
 
             generator = self.create_component(config.generator, input=z)
+            x_hat = generator.reuse(encoder.sample)
             if hasattr(generator, 'mask_single_channel'):
                 mask = generator.mask_single_channel
-            x_hat = generator.reuse(encoder.sample)
 
             encoder_loss = self.create_loss(config.eloss or config.loss, z_discriminator, z, encoder, 2)
 
             if config.segments_included:
-                g1x_hat = generator.g1x
-                g2x_hat = generator.g2x
-                generator.reuse(z, mask=generator.mask_single_channel)
-                stacked = [x_input, g1x_hat, g2x_hat, generator.g1x, generator.g2x]
+                g1x = generator.g1x
+                g2x = generator.g2x
+                newsample = generator.reuse(z, mask=generator.mask_single_channel)
+                stacked = [x_input, g1x, g2x, generator.g1x, generator.g2x, generator.sample, x_hat]
+                #stacked = [x_input, g1x, g2x, generator.sample, x_hat]
+#                stacked = [x_input, generator.g1x, generator.g2x, g1x, g2x]
             else:
                 stacked = [x_input, generator.sample, x_hat]
 

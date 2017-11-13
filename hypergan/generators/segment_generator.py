@@ -53,8 +53,6 @@ class SegmentGenerator(ResizeConvGenerator):
         g1 = ResizeConvGenerator(gan, config, input=net, name='g1', reuse=self.ops._reuse)
         g2 = ResizeConvGenerator(gan, config, input=net, name='g2', reuse=self.ops._reuse)
 
-        sample = (g1.sample * mask) + \
-                      (1.0-mask) * g2.sample 
 
         if not hasattr(self, 'g1'):
             self.ops.add_weights(mask_generator.variables())
@@ -65,17 +63,21 @@ class SegmentGenerator(ResizeConvGenerator):
         self.g1 = g1
         self.g2 = g2
 
-        self.g1x = (g1.sample * mask) + \
-                (1.0-mask) * gan.inputs.x
-        self.g2x = (gan.inputs.x * mask) + \
-                (1.0-mask) * g2.sample
-
         self.mask = tf.tile(mask_single_channel, [1,1,1,3])
         self.mask_single_channel = mask_single_channel
         if mask_generator is not None:
             self.mask_generator = mask_generator
         if config.mask_generator:
             self.mask = self.mask * 2 - 1
+
+        sample = (g1.sample * self.mask) + \
+                      (1.0-self.mask) * g2.sample 
+
+        self.g1x = (g1.sample * (1.0-self.mask)) + \
+                (self.mask) * gan.inputs.x
+        self.g2x = (gan.inputs.x * (1.0-self.mask)) + \
+                (self.mask) * g2.sample
+
 
         pe = self.gan.skip_connections.get_shapes("progressive_enhancement")
         if pe is not None and len(pe) > 0:

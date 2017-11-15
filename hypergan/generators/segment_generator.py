@@ -60,7 +60,7 @@ class SegmentGenerator(ResizeConvGenerator):
         self.g2 = g2
 
         self.mask = tf.tile(mask_single_channel, [1,1,1,3])
-        self.mask = self.mask/2.0+0.5
+       # self.mask = self.mask/2.0+0.5
         self.mask_single_channel = mask_single_channel
         if mask_generator is not None:
             self.mask_generator = mask_generator

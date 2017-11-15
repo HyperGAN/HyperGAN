@@ -72,7 +72,8 @@ class AlphaGAN(BaseGAN):
                 newsample = generator.reuse(z, mask=generator.mask_single_channel)
 #                stacked = [x_input, generator.sample, newsample, x_hat]
                 #stacked = [x_input, g1x, g2x, generator.sample, x_hat]
-                stacked = [x_input, generator.g1x, generator.g2x, g1x, g2x, newsample, generator.sample, x_hat]
+                #stacked = [x_input, generator.g1x, generator.g2x, g1x, g2x, newsample, generator.sample, x_hat]
+                stacked = [x_input, newsample, generator.sample, x_hat]
             else:
                 stacked = [x_input, generator.sample, x_hat]
 
@@ -83,6 +84,12 @@ class AlphaGAN(BaseGAN):
             #loss terms
             cycloss = self.create_cycloss(x_input, x_hat)
             z_cycloss = self.create_z_cycloss(uniform_encoder.sample, encoder.sample, encoder, generator)
+
+            #first_pixel = tf.slice(generator.mask_single_channel, [0,0,0,0], [-1,1,1,-1]) + 1 # we want to minimize range -1 to 1
+            #cycloss += tf.reduce_sum(tf.reshape(first_pixel, [-1]), axis=0)
+
+            cycloss_whitening_lambda = 0.01
+            cycloss += tf.reduce_mean(tf.reshape(-tf.abs(generator.mask-0.5), [-1]), axis=0) * cycloss_whitening_lambda
 
             trainer = self.create_trainer(cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, z_discriminator)
             self.session.run(tf.global_variables_initializer())

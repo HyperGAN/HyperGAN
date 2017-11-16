@@ -60,10 +60,11 @@ class AlphaGAN(BaseGAN):
             z_discriminator = self.create_z_discriminator(uniform_encoder.sample, encoder.sample)
 
             generator = self.create_component(config.generator, input=z)
-            g1x = generator.g1x
-            g2x = generator.g2x
             x_hat = generator.reuse(encoder.sample)
+
             if hasattr(generator, 'mask_single_channel'):
+                g1x = generator.g1x
+                g2x = generator.g2x
                 mask = generator.mask_single_channel
 
             encoder_loss = self.create_loss(config.eloss or config.loss, z_discriminator, z, encoder, 2)
@@ -71,9 +72,9 @@ class AlphaGAN(BaseGAN):
             if config.segments_included:
                 newsample = generator.reuse(z, mask=generator.mask_single_channel)
 #                stacked = [x_input, generator.sample, newsample, x_hat]
-                #stacked = [x_input, g1x, g2x, generator.sample, x_hat]
-                #stacked = [x_input, generator.g1x, generator.g2x, g1x, g2x, newsample, generator.sample, x_hat]
-                stacked = [x_input, newsample, generator.sample, x_hat]
+                stacked = [x_input, g1x, g2x, generator.sample, x_hat]
+                #stacked = [x_input, g1x, g2x, newsample, generator.sample, x_hat]
+                #stacked = [x_input, newsample, generator.sample, x_hat]
             else:
                 stacked = [x_input, generator.sample, x_hat]
 
@@ -89,7 +90,7 @@ class AlphaGAN(BaseGAN):
             #cycloss += tf.reduce_sum(tf.reshape(first_pixel, [-1]), axis=0)
 
             cycloss_whitening_lambda = 0.01
-            cycloss += tf.reduce_mean(tf.reshape(-tf.abs(generator.mask-0.5), [-1]), axis=0) * cycloss_whitening_lambda
+            cycloss += tf.reduce_mean(tf.reshape(0.5-tf.abs(generator.mask), [-1]), axis=0) * cycloss_whitening_lambda
 
             trainer = self.create_trainer(cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, z_discriminator)
             self.session.run(tf.global_variables_initializer())

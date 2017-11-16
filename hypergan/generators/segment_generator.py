@@ -27,13 +27,12 @@ class SegmentGenerator(ResizeConvGenerator):
             mask_config["channels"]=1
             mask_config["layer_filter"]=None
             mask_generator = ResizeConvGenerator(gan, mask_config, name='mask', input=net, reuse=self.ops._reuse)
+            self.mask_generator = mask_generator
 
             mask_single_channel = mask_generator.sample
         else:
-            mask_generator = None
             mask_single_channel = mask
 
-        self.mask_generator = mask_generator
 
         def add_mask(gan, config, net):
             mask = mask_single_channel
@@ -47,7 +46,7 @@ class SegmentGenerator(ResizeConvGenerator):
         g2 = ResizeConvGenerator(gan, config, input=net, name='g2', reuse=self.ops._reuse)
 
         if not self.ops._reuse:
-            self.ops.add_weights(mask_generator.variables())
+            self.ops.add_weights(self.mask_generator.variables())
             self.ops.add_weights(g1.variables())
             self.ops.add_weights(g2.variables())
 

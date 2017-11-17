@@ -73,7 +73,7 @@ class AlphaGAN(BaseGAN):
             if config.segments_included:
                 newsample = generator.reuse(stack_z, mask=generator.mask_single_channel)
 #                stacked = [x_input, generator.sample, newsample, x_hat]
-                stacked = [x_input, newsample, generator.sample, x_hat, generator.g1x, generator.g2x]
+                stacked = [x_input, newsample, generator.sample, x_hat, generator.g1x, generator.g2x, generator.xg1, generator.xg2]
                 #stacked = [x_input, g1x, g2x, newsample, generator.sample, x_hat]
                 #stacked = [x_input, newsample, generator.sample, x_hat]
             else:

@@ -62,12 +62,7 @@ class SegmentGenerator(ResizeConvGenerator):
                    (1.0-self.mask) * gan.inputs.x
         self.g2x = (gan.inputs.x * self.mask) + \
                    (1.0-self.mask) * g2.sample
-        self.xg1 = (g1.sample * (1.0-self.mask)) + \
-                   (self.mask) * gan.inputs.x
-        self.xg2 = (gan.inputs.x * (1.0-self.mask)) + \
-                   (self.mask) * g2.sample
 
- 
         pe = self.gan.skip_connections.get_shapes("progressive_enhancement")
         if pe is not None and len(pe) > 0:
             for shape in pe:

@@ -18,6 +18,7 @@ class SegmentSampler(BaseSampler):
 
         g1x_t = gan.generator.g1x
         g2x_t = gan.generator.g2x
+        g3x_t = gan.generator.g3x
 
 
         if self.mask_t is None:
@@ -34,7 +35,8 @@ class SegmentSampler(BaseSampler):
                     self.mask_t,
                     g_t,
                     g1x_t,
-                    g2x_t
+                    g2x_t,
+                    g3x_t
                 ], {
                     x_t: self.x_v
                 })

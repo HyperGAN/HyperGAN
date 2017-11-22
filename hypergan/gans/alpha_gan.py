@@ -61,8 +61,10 @@ class AlphaGAN(BaseGAN):
             z_discriminator = self.create_z_discriminator(uniform_encoder.sample, encoder.sample)
 
             feature_dim = len(ops.shape(z))-1
-            stack_z = tf.concat([encoder.sample, z], feature_dim)
-            stack_encoded = tf.concat([encoder.sample, encoder.sample], feature_dim)
+            #stack_z = tf.concat([encoder.sample, z], feature_dim)
+            #stack_encoded = tf.concat([encoder.sample, encoder.sample], feature_dim)
+            stack_z = z
+            stack_encoded = encoder.sample
 
             generator = self.create_component(config.generator, input=stack_z)
             x_hat = generator.reuse(stack_encoded)
@@ -104,7 +106,7 @@ class AlphaGAN(BaseGAN):
                 m = tf.reduce_mean(generator.mask, 1, keep_dims=True)
                 m = tf.reduce_mean(m, 2, keep_dims=True)
                 c = 0.1
-                cycloss += (c - tf.minimum(tf.reduce_min(m, 3, keep_dims=True), c))*2
+                cycloss += (c - tf.minimum(tf.reduce_min(m, 3, keep_dims=True), c))
             #    cycloss += tf.reduce_mean(tf.reshape(tf.abs(1.0-m)/ops.shape(generator.mask)[3], [-1]), axis=0) * cycloss_single_channel_lambda
 
             trainer = self.create_trainer(cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, z_discriminator)

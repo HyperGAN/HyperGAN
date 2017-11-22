@@ -19,7 +19,8 @@ class MultisegmentGenerator(SegmentGenerator):
 
         if(mask is None):
             mask_config  = dict(config.mask_generator)
-            mask_config["channels"]=3
+            data_layers = 6
+            mask_config["channels"]=3+data_layers
             mask_config["layer_filter"]=None
             mask_generator = ResizeConvGenerator(gan, mask_config, name='mask', input=net, reuse=self.ops._reuse)
             self.mask_generator = mask_generator

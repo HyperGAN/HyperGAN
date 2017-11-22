@@ -8,6 +8,7 @@ import hypergan
 from hypergan.ops.tensorflow import layer_regularizers
 from hypergan.ops.tensorflow.activations import lrelu, selu
 from hypergan.ops.tensorflow.extended_ops import *
+from hypergan.ops.tensorflow.sn import spectral_normed_weight
 
 class TensorflowOps:
     def __init__(self, config={}, device="/gpu:0"):
@@ -221,6 +222,16 @@ class TensorflowOps:
             return x_init
 
 
+    def spectralnorm_conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding='SAME'):
+        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+            # modified from https://github.com/openai/weightnorm/blob/master/tensorflow/nn.py
+            # data based initialization of parameters
+            w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
+            w = spectral_normed_weight(w, update_collection=None)
+            conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
+            biases = self.get_bias([output_dim])
+            conv = tf.nn.bias_add(conv, biases)
+            return conv
 
     def weightnorm_deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
@@ -254,6 +265,8 @@ class TensorflowOps:
             return self.weightnorm2_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim, padding=padding)
         if self.config.layer_regularizer == 'weight_norm':
             return self.weightnorm_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
+        if self.config.layer_regularizer == 'spectral_norm':
+            return self.spectralnorm_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim, padding=padding)
 
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])

@@ -64,6 +64,7 @@ class StandardGAN(BaseGAN):
                 self.uniform_encoder = self.encoder
             if self.generator is None and config.generator:
                 self.generator = self.create_component(config.generator)
+                self.autoencoded_x = self.generator.sample
                 self.uniform_sample = self.generator.sample
 
             if self.discriminator is None and config.discriminator:

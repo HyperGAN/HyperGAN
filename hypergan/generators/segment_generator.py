@@ -24,7 +24,8 @@ class SegmentGenerator(ResizeConvGenerator):
 
         if(mask is None):
             mask_config  = dict(config.mask_generator)
-            mask_config["channels"]=1
+            data_channels = 6 #todo parameterize
+            mask_config["channels"]=1+data_channels
             mask_config["layer_filter"]=None
             mask_generator = ResizeConvGenerator(gan, mask_config, name='mask', input=net, reuse=self.ops._reuse)
             self.mask_generator = mask_generator
@@ -53,7 +54,8 @@ class SegmentGenerator(ResizeConvGenerator):
         self.g1 = g1
         self.g2 = g2
 
-        self.mask = tf.tile(mask_single_channel, [1,1,1,3])
+        single = tf.slice(mask_generator.sample, [0,0,0,0], [-1,-1,-1,1])
+        self.mask = tf.tile(single, [1,1,1,3])
         self.mask_single_channel = mask_single_channel
 
         sample = (g1.sample * self.mask) + \

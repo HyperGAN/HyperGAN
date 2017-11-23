@@ -1,0 +1,84 @@
+{
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.autoencoder_discriminator.AutoencoderDiscriminator",
+    "encoder": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "encoder_options": {
+      "activation": "crelu",
+      "block": "function:hypergan.discriminators.common.standard_block",
+      "encoder_fc_layers": 0,
+      "extra_layers_reduction": 1,
+      "fc_layer_size": 512,
+      "fc_layers": 1,
+      "initial_depth": 32,
+      "initializer": "he_normal",
+      "depth_increase": 32,
+      "layers": 5,
+      "orthogonal_initializer_gain": 1.0595959595959596,
+      "resize": null
+    },
+    "decoder": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
+    "decoder_options": {
+      "extra_layers": 0,
+      "activation": "prelu",
+      "final_activation": "tanh",
+      "initializer": "he_normal",
+      "final_depth": 32,
+      "depth_increase": 32
+    },
+    "distance": "l1_distance"
+  },
+  "generator": {
+    "extra_layers": 0,
+    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
+    "activation": "prelu",
+    "layer_regularizer": "weight_norm2",
+    "final_activation": "tanh",
+    "initializer": "he_normal",
+    "final_depth": 32,
+    "depth_increase": 32
+  },
+
+  "encoder": {
+    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "max": 1,
+    "min": -1,
+    "modes": "5",
+    "projections": [
+      "function:hypergan.encoders.uniform_encoder.identity"
+    ],
+    "z": "300"
+  },
+  "loss":
+  {
+    "class": "class:hypergan.losses.margin_loss.MarginLoss",
+    "margin": 0.6
+  },
+ 
+  "trainer": {
+    "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "clipped_gradients": false,
+    "d_beta1": 0.10010010010010009,
+    "d_beta2": 0.8978978978978979,
+    "d_clipped_weights": false,
+    "d_decay": 0.0960960960960961,
+    "d_epsilon": 0.08128128315315315,
+    "d_initial_accumulator_value": 0.8368368368368369,
+    "d_initial_gradient_squared_accumulator_value": 0.5855855855855856,
+    "d_learn_rate": 0.0003828828828828829,
+    "d_momentum": 0.984984984984985,
+    "d_rho": 0.8878878878878879,
+    "d_trainer": "function:tensorflow.python.training.adam.AdamOptimizer",
+    "d_update_steps": 8,
+    "g_beta1": 0.2112112112112112,
+    "g_beta2": 0.8918918918918919,
+    "g_decay": 0.7277277277277278,
+    "g_epsilon": 0.027227234504504507,
+    "g_initial_accumulator_value": 0.5275275275275275,
+    "g_initial_gradient_squared_accumulator_value": 0.16316316316316315,
+    "g_learn_rate": 0.000890990990990991,
+    "g_momentum": 0.06606606606606606,
+    "g_rho": 0.18618618618618618,
+    "g_trainer": "function:tensorflow.python.training.adam.AdamOptimizer"
+  }
+}

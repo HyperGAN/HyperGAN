@@ -81,6 +81,12 @@ class BaseLoss(GANComponent):
             self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
             print("Gradient penalty applied")
 
+        if config.repelling_regularizer:
+            d_reg = self.repelling_regularizer(self.discriminator.encoder.sample)
+            d_regularizers.append(tf.ones_like(d_loss) * d_reg * config.repelling_regularizer)
+            self.metrics['repelling_regularizer'] = ops.squash(d_reg, tf.reduce_mean)
+            print("Repelling regularizer penalty applied")
+
         d_regularizers += self.d_regularizers()
         g_regularizers += self.g_regularizers()
 
@@ -113,6 +119,16 @@ class BaseLoss(GANComponent):
     def g_regularizers(self):
         return []
 
+    def repelling_regularizer(self, net):
+        ops = self.gan.ops
+        divisor = ops.shape(net)[0]*(ops.shape(net)[0]-1)
+        
+        nom = tf.matmul(net, tf.transpose(net, perm=[1, 0]))
+        denom = tf.reduce_sum(tf.square(net), reduction_indices=[1], keep_dims=True)
+        pt = tf.square(nom/denom)
+        pt -= tf.diag(tf.diag_part(pt))
+
+        return tf.reduce_sum(pt, keep_dims=True)/divisor
     # This is openai's implementation of minibatch regularization
     def minibatch(self, net):
         discriminator = self.discriminator or self.gan.discriminator

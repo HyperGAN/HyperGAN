@@ -15,20 +15,20 @@ class AutoencoderDiscriminator(BaseDiscriminator):
         gan = self.gan
         ops = self.ops
 
-        generator = config.decoder(gan, gan.config.generator)
-        generator.ops = ops # share variable allocation to make variables part of the discriminator training step
-
-        encoder = config.encoder(gan, config)
-        encoder.ops = ops
-        ops.describe(ops.description+"autoencoder-d")
-        hidden = encoder.build(net)
-        ops.describe(ops.description+"autoencoder-g")
-        reconstruction = generator.build(hidden)
+        encoder = config.encoder(gan, config.encoder_options or config, name=ops.description+"autoencoder-d", input=net)
+        hidden = encoder.sample
+        generator = config.decoder(gan, config.decoder_options or gan.config.generator, input=encoder.sample, name=ops.description+"autoencoder-g")
         print("[autoencoder discriminator] hidden layer ", hidden)
 
-        error = config.distance(net, reconstruction)
+        self.ops.add_weights(encoder.variables())
+        self.ops.add_weights(generator.variables())
 
-        self.reconstruction = reconstruction
+        print("NET - ", net, generator.sample)
+        error = config.distance(net, generator.sample)
+
+        self.reconstruction = generator.sample
+
+        self.encoder = encoder
 
         return error
 

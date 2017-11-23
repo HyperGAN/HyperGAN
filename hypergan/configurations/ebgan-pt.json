@@ -1,0 +1,42 @@
+{
+  "description": "Energy-based GAN",
+  "publication": "https://arxiv.org/pdf/1609.03126.pdf",
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.autoencoder_discriminator.AutoencoderDiscriminator",
+    "encoder": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
+    "decoder": "class:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "distance": "l1_distance",
+    "final_features": 300
+  },
+  "encoder":
+  {
+    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "projections": [
+      "function:hypergan.encoders.uniform_encoder.identity"
+    ],
+    "min": -1,
+    "max": 1,
+    "z": 100
+  },
+  "generator": {
+    "class": "class:hypergan.generators.dcgan_generator.DCGANGenerator"
+  },
+  "loss":
+  {
+    "class": "class:hypergan.losses.margin_loss.MarginLoss",
+    "repelling_regularizer": 0.1,
+    "margin": 0.6
+  },
+  "trainer": {
+    "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "d_beta1": 0.5,
+    "d_beta2": 0.99,
+    "d_learn_rate": 1e-4,
+    "d_trainer": "class:tensorflow.python.training.adam.AdamOptimizer",
+    "g_beta1": 0.5,
+    "g_beta2": 0.99,
+    "g_learn_rate": 1e-4,
+    "g_trainer": "class:tensorflow.python.training.adam.AdamOptimizer"
+  }
+}

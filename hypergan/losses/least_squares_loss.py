@@ -14,6 +14,7 @@ class LeastSquaresLoss(BaseLoss):
 
         a,b,c = config.labels
         square = ops.lookup('square')
+
         d_loss = 0.5*square(d_real - b) + 0.5*square(d_fake - a)
         g_loss = 0.5*square(d_fake - c)
 

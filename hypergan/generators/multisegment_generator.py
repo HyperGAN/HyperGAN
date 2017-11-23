@@ -30,13 +30,9 @@ class MultisegmentGenerator(SegmentGenerator):
             mask_single_channel = mask
             mask_generator = self.mask_generator
 
-
- 
         self.mask_single_channel = mask_generator.sample
         #self.mask = tf.tile(mask_generator.sample, [1,1,1,3])
         self.mask = mask_generator.sample
-
-
 
         def add_mask(gan, config, net):
             mask = mask_single_channel
@@ -44,7 +40,6 @@ class MultisegmentGenerator(SegmentGenerator):
             shape = [s[1], s[2]]
             return tf.image.resize_images(mask, shape, 1)
 
- 
         config['layer_filter'] = add_mask
 
         g1 = ResizeConvGenerator(gan, config, input=net, name='g1', reuse=self.ops._reuse)

@@ -23,7 +23,6 @@ class AutoencoderDiscriminator(BaseDiscriminator):
         self.ops.add_weights(encoder.variables())
         self.ops.add_weights(generator.variables())
 
-        print("NET - ", net, generator.sample)
         error = config.distance(net, generator.sample)
 
         self.reconstruction = generator.sample

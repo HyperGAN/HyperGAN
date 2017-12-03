@@ -93,21 +93,27 @@ class AlphaGAN(BaseGAN):
             #first_pixel = tf.slice(generator.mask_single_channel, [0,0,0,0], [-1,1,1,-1]) + 1 # we want to minimize range -1 to 1
             #cycloss += tf.reduce_sum(tf.reshape(first_pixel, [-1]), axis=0)
 
-            if hasattr(generator, 'mask'): #TODO only segment
-                cycloss_whitening_lambda = config.cycloss_whitening_lambda or 0.01
-                cycloss += tf.reduce_mean(tf.reshape(0.5-tf.abs(generator.mask-0.5), [-1]), axis=0) * cycloss_whitening_lambda
+            #if hasattr(generator, 'mask'): #TODO only segment
+            #    cycloss_whitening_lambda = config.cycloss_whitening_lambda or 0.01
+            #    cycloss += tf.reduce_mean(tf.reshape(0.5-tf.abs(generator.mask-0.5), [-1]), axis=0) * cycloss_whitening_lambda
 
-            #if hasattr(generator, 'mask'): # TODO only multisegment
-            #    cycloss_single_channel_lambda = config.cycloss_single_channel_lambda or 0.01
-            #    m = tf.reduce_sum(generator.mask, 3)
-            #    cycloss += tf.reduce_mean(tf.reshape(tf.abs(1.0-m)/ops.shape(generator.mask)[3], [-1]), axis=0) * cycloss_single_channel_lambda
             if hasattr(generator, 'mask'): # TODO only multisegment
-            #    cycloss_single_channel_lambda = config.cycloss_single_channel_lambda or 0.01
+                cycloss_single_channel_lambda = config.cycloss_single_channel_lambda or 0.01
+                cycloss_single_channel_lambda = tf.constant(cycloss_single_channel_lambda, dtype=tf.float32)
+                cycloss_single_channel_lambda *= tf.minimum((tf.cast(tf.train.get_global_step(), tf.float32) / tf.constant(1000.0)), tf.constant(1.0))
+                m = tf.reduce_max(generator.mask, 3, keep_dims=True)
+                m = tf.reduce_mean(generator.mask, 2, keep_dims=True)
+                m = tf.reduce_mean(generator.mask, 1, keep_dims=True)
+                cycloss += tf.reduce_mean(tf.reshape(1.0-m, [ops.shape(generator.mask)[0], -1]), axis=1) * cycloss_single_channel_lambda
+
+            if hasattr(generator, 'mask'): # TODO only multisegment
+                cycloss_single_channel_lambda = config.cycloss_single_channel_lambda or 0.01
                 m = tf.reduce_mean(generator.mask, 1, keep_dims=True)
                 m = tf.reduce_mean(m, 2, keep_dims=True)
-                c = 0.1
+                c = 0.05
                 cycloss += (c - tf.minimum(tf.reduce_min(m, 3, keep_dims=True), c))
-            #    cycloss += tf.reduce_mean(tf.reshape(tf.abs(1.0-m)/ops.shape(generator.mask)[3], [-1]), axis=0) * cycloss_single_channel_lambda
+
+                #cycloss += tf.reduce_mean(tf.reshape(tf.abs(1.0-m), [ops.shape(generator.mask)[0], -1]), axis=1) * cycloss_single_channel_lambda
 
             trainer = self.create_trainer(cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, z_discriminator)
             self.session.run(tf.global_variables_initializer())

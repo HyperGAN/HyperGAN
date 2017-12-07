@@ -81,6 +81,13 @@ class BaseLoss(GANComponent):
             self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
             print("Gradient penalty applied")
 
+        if config.rothk_penalty:
+            rothk = self.rothk_penalty(d_real, d_fake)
+            self.metrics['rothk_penalty'] = self.gan.ops.squash(rothk)
+            d_regularizers.append(rothk)
+            print("rothk penalty applied")
+
+ 
         d_regularizers += self.d_regularizers()
         g_regularizers += self.g_regularizers()
 
@@ -150,7 +157,32 @@ class BaseLoss(GANComponent):
         generator = self.generator
         g_sample = self.gan.uniform_sample
         gradients = tf.gradients(d_net, [g_sample])[0]
-        return -float(config.gradient_locally_stable) * tf.nn.l2_normalize(gradients, dim=1)
+        return float(config.gradient_locally_stable) * \
+                tf.nn.l2_normalize(gradients, dim=1)
+
+    def rothk_penalty(self, d_real, d_fake):
+        config = self.config
+        g_sample = self.gan.uniform_sample
+        x = self.gan.inputs.x
+        gradx = tf.gradients(d_real, [x])[0]
+        gradg = tf.gradients(d_fake, [g_sample])[0]
+        gradx = tf.reshape(gradx, [self.ops.shape(gradx)[0], -1])
+        gradg = tf.reshape(gradg, [self.ops.shape(gradg)[0], -1])
+        gradx_norm = tf.norm(gradx, axis=1, keep_dims=True)
+        gradg_norm = tf.norm(gradg, axis=1, keep_dims=True)
+        gradx = tf.square(gradx_norm) * tf.square(1-tf.nn.sigmoid(d_real))
+        gradg = tf.square(gradg_norm) * tf.square(tf.nn.sigmoid(d_fake))
+        loss = gradx + gradg
+        loss *= config.rothk_lambda or 1
+        if config.rothk_decay:
+            decay_function = config.decay_function or tf.train.exponential_decay
+            decay_steps = config.decay_steps or 50000
+            decay_rate = config.decay_rate or 0.9
+            decay_staircase = config.decay_staircase or False
+            global_step = tf.train.get_global_step()
+            loss = decay_function(loss, global_step, decay_steps, decay_rate, decay_staircase)
+
+        return loss
 
     def gradient_penalty(self):
         config = self.config

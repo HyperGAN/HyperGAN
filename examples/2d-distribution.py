@@ -28,14 +28,9 @@ def train(config, args):
 
     with tf.device(args.device):
         config.generator['end_features'] = 2
+        config.generator["class"]="class:__main__.Custom2DGenerator" # TODO
+        config.discriminator["class"]="class:__main__.Custom2DDiscriminator" # TODO
         gan = hg.GAN(config, inputs = Custom2DInputDistribution(args))
-        gan.discriminator = Custom2DDiscriminator(gan, config.discriminator)
-        gan.generator = Custom2DGenerator(gan, config.generator)
-        gan.encoder = gan.create_component(gan.config.encoder)
-        gan.encoder.create()
-        gan.generator.create()
-        gan.discriminator.create()
-        gan.create()
 
         accuracy_x_to_g=distribution_accuracy(gan.inputs.x, gan.generator.sample)
         accuracy_g_to_x=distribution_accuracy(gan.generator.sample, gan.inputs.x)

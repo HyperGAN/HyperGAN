@@ -144,9 +144,9 @@ class Custom2DSampler(BaseSampler):
 
         sess = gan.session
         config = gan.config
-        x_v, z_v = sess.run([gan.inputs.x, gan.encoder.z])
+        x_v, z_v = sess.run([gan.inputs.x, gan.encoder.sample])
 
-        sample = sess.run(generator, {gan.inputs.x: x_v, gan.encoder.z: z_v})
+        sample = sess.run(generator, {gan.inputs.x: x_v, gan.encoder.sample: z_v})
 
         plt.clf()
         fig = plt.figure(figsize=(3,3))

@@ -171,6 +171,8 @@ class FDivergenceLoss(BaseLoss):
 
         ddfc = 0
 
+        if config.regularizer is None:
+            return []
         if config.regularizer == 'kl':
             # https://www.wolframalpha.com/input/?i=derivative(derivative(exp(t-1)))
             bounded = tf.minimum(4., self.gfg)

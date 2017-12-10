@@ -8,6 +8,23 @@ from hypergan.trainers.base_trainer import BaseTrainer
 TINY = 1e-12
 
 class ConsensusTrainer(BaseTrainer):
+    def create(self):
+        config = self.config
+        lr = config.learn_rate
+        self.global_step = tf.train.get_global_step()
+        decay_function = config.decay_function
+        if decay_function:
+            print("!!using decay function", decay_function)
+            decay_steps = config.decay_steps or 50000
+            decay_rate = config.decay_rate or 0.9
+            decay_staircase = config.decay_staircase or False
+            self.lr = decay_function(lr, self.global_step, decay_steps, decay_rate, decay_staircase)
+        else:
+            self.lr = lr
+
+        return self._create()
+
+
     def _create(self):
         gan = self.gan
         config = self.config
@@ -44,7 +61,9 @@ class ConsensusTrainer(BaseTrainer):
         ]
 
 
-        optimizer = tf.train.RMSPropOptimizer(self.d_lr)
+        #optimizer = tf.train.RMSPropOptimizer(self.d_lr)
+        defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(config.trainer).args}
+        optimizer = config.trainer(self.lr, **defn)
         optimizer = optimizer.apply_gradients(apply_vec)
         #optimizer = self.build_optimizer(config, '', config.d_trainer, self.d_lr, allvars, allloss)
 
@@ -53,6 +72,9 @@ class ConsensusTrainer(BaseTrainer):
         self.optimizer = optimizer
 
         return optimizer, optimizer
+
+    def required(self):
+        return "trainer learn_rate".split()
 
     def _step(self, feed_dict):
         gan = self.gan

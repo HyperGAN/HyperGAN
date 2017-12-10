@@ -295,7 +295,8 @@ class TensorflowOps:
             g = self.get_weight([1, output_dim], name='weightnorm_g')
             v = self.get_weight([self.shape(net)[1], output_dim], name='weighnorm_v')
             v_norm = tf.nn.l2_normalize(v, [0])
-            return (tf.matmul(net, v_norm) * g)
+            b = self.get_bias([output_dim], constant=0.001)
+            return (tf.matmul(net, v_norm) * g+b)
 
     def linear(self, net, output_dim):
         if self.config.linear_type == 'cosine':

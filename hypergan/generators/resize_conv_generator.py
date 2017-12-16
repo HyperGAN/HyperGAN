@@ -145,23 +145,38 @@ class ResizeConvGenerator(BaseGenerator):
 
         if block != 'deconv':
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
+            print("POST", net)
             net = self.layer_filter(net)
             net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3, padding=padding)
         else:
             net = self.layer_filter(net)
-            net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
+            if resize != [e*2 for e in ops.shape(net)[1:3]]:
+                print("END SIZE", net)
+                #net = ops.deconv2d(net, 5, 5, 2, 2, ops.shape(net)[3]//2)
+                #net = activation(net)
+                print("END SIZE2", net)
+                net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
+                print("END SIZE2", net)
+                net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
+                print("SLICE SIZE2", net)
+            else:
+                net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
 
 
+        for i in range(config.post_extra_layers or 0):
+            net = activation(net)
+            net = ops.conv2d(net, 3, 3, 1, 1, config.channels or gan.channels())
+            print("POSTEXTRA layer", i, net)
         if final_activation:
             net = self.layer_regularizer(net)
             net = final_activation(net)
 
+        pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+        s = ops.shape(net)
+        img_dims = [s[1],s[2]]
+        self.pe_layers = [tf.image.resize_images(elem, img_dims) for i, elem in enumerate(pe_layers)] + [net]
         if gan.config.progressive_growing:
-            pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
             last_layer = net * self.progressive_growing_mask(len(pe_layers))
-            s = ops.shape(last_layer)
-            img_dims = [s[1],s[2]]
-            self.pe_layers = [tf.image.resize_images(elem, img_dims) for i, elem in enumerate(pe_layers)] + [net]
             self.debug_pe = [self.progressive_growing_mask(i) for i, elem in enumerate(pe_layers)]
         #    net = tf.add_n(nets + [last_layer])
 

@@ -29,7 +29,7 @@ class IdentitySampler(BaseSampler):
             x = gan.session.run(x_t)
 
         return {
-            'generator': gan.session.run(self.node, {z_t: z, x_t: x})
+            'generator': gan.session.run(self.node, {z_t: z})
         }
 
 
@@ -57,6 +57,10 @@ class DebugSampler(BaseSampler):
 
         if isinstance(gan.generator, SegmentGenerator):
             self.samplers += [SegmentSampler(gan)]
+
+        if hasattr(gan, 'seq'):
+            self.samplers += [IdentitySampler(gan, gx, samples_per_row) for gx in gan.seq]
+
 
     def _sample(self):
         samples = [sampler._sample()['generator'] for sampler in self.samplers]

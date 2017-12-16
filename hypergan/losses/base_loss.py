@@ -170,6 +170,10 @@ class BaseLoss(GANComponent):
         gradg = tf.reshape(gradg, [self.ops.shape(gradg)[0], -1])
         gradx_norm = tf.norm(gradx, axis=1, keep_dims=True)
         gradg_norm = tf.norm(gradg, axis=1, keep_dims=True)
+        if int(gradx_norm.get_shape()[0]) != int(d_real.get_shape()[0]):
+            print("Condensing along batch for rothk")
+            gradx_norm = tf.reduce_mean(gradx_norm, axis=0)
+            gradg_norm = tf.reduce_mean(gradg_norm, axis=0)
         gradx = tf.square(gradx_norm) * tf.square(1-tf.nn.sigmoid(d_real))
         gradg = tf.square(gradg_norm) * tf.square(tf.nn.sigmoid(d_fake))
         loss = gradx + gradg

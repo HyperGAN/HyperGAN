@@ -75,6 +75,7 @@ class StandardGAN(BaseGAN):
             if self.trainer is None and config.trainer:
                 self.trainer = self.create_component(config.trainer)
 
+            self.random_z = tf.random_uniform(self.ops.shape(self.encoder.sample), -1, 1, name='random_z')
 
             self.session.run(tf.global_variables_initializer())
 
@@ -87,5 +88,6 @@ class StandardGAN(BaseGAN):
     def output_nodes(self):
         "used in hypergan build"
         return [
-                self.uniform_sample
+                self.uniform_sample,
+                self.random_z
         ]

@@ -41,6 +41,7 @@ if args.action == 'search':
 def add_prev_frames_g(gan, config, net):
     x1 = gan.layer_1
     x2 = gan.layer_2
+    print("!!layer", x1, x2)
     s = [int(x) for x in net.get_shape()]
     s[3]*=2
     print("S IS ", s)
@@ -78,14 +79,20 @@ class VideoFrameLoader:
         print("FILENAMES", filenames[:-2][0], filenames[1:-1][0], filenames[2:-2][0])
         if self.file_count == 0:
             raise ValidationException("No images found in '" + directory + "'")
-        filenames = tf.convert_to_tensor(filenames, dtype=tf.string)
 
-        input_queue = tf.train.slice_input_producer([filenames[:-2], filenames[1:-1], filenames[2:-1]], shuffle=False)
+
+        input_t = [filenames[:-2], filenames[1:-1], filenames[2:]]
+        #input_t = [f1 + ',' + f2 + ',' + f3 for f1,f2,f3 in zip(*input_t)]
+        #input_queue = tf.train.string_input_producer(input_t, shuffle=True)
+        #x1,x2,x3 = tf.decode_csv(input_queue.dequeue(), [[""], [""], [""]], ",")
+        input_queue = tf.train.slice_input_producer(input_t, shuffle=True)
+        x1,x2,x3 = input_queue
+        print('---',x1)
 
         # Read examples from files in the filename queue.
-        x1 = self.read_frame(input_queue[0], format, crop, resize)
-        x2 = self.read_frame(input_queue[1], format, crop, resize)
-        x3 = self.read_frame(input_queue[2], format, crop, resize)
+        x1 = self.read_frame(x1, format, crop, resize)
+        x2 = self.read_frame(x2, format, crop, resize)
+        x3 = self.read_frame(x3, format, crop, resize)
         x1,x2,x3 = self._get_data(x1,x2,x3)
         self.x1 = self.x = x1
         self.x2 = x2
@@ -128,8 +135,7 @@ class VideoFrameLoader:
             [x1,x2,x3],
             batch_size=batch_size,
             num_threads=num_preprocess_threads,
-            capacity= batch_size*10,
-            min_after_dequeue=batch_size)
+            capacity= batch_size*2, min_after_dequeue=batch_size)
         return x1,x2,x3
 inputs = VideoFrameLoader(args.batch_size)
 inputs.create(args.directory,
@@ -214,19 +220,29 @@ class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         self.z = None
 
-        #self.last_frame_1 = gan.session.run(tf.zeros_like(gan.inputs.x))
-        #self.last_frame_2 = gan.session.run(tf.zeros_like(gan.inputs.x))
+        #self.last_frame_1 = gan.session.run(tf.ones_like(gan.inputs.x)*-1)
+        #self.last_frame_2 = gan.session.run(tf.ones_like(gan.inputs.x)*-1)
         self.last_frame_1 = gan.session.run(gan.inputs.x1)
         self.last_frame_2 = gan.session.run(gan.inputs.x2)
+        #self.last_frame_1 = gan.session.run(tf.zeros_like(gan.inputs.x))
+        #self.last_frame_2 = gan.session.run(tf.zeros_like(gan.inputs.x))
 
+        self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
 
     def _sample(self):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
-        next_frame = gan.session.run(gan.next_frame, {gan.layer_1: self.last_frame_1, gan.layer_2: self.last_frame_2})
+        next_frame = gan.session.run(gan.g_blank3, {gan.g_blank2: self.last_frame_2, gan.g_blank: self.last_frame_1})
         self.last_frame_1 = self.last_frame_2
         self.last_frame_2 = next_frame
+        self.i += 1
+        if self.i > 600:
+            self.last_frame_1 = np.zeros_like(self.last_frame_1)
+            self.last_frame_2 = np.zeros_like(self.last_frame_1)
+            self.last_frame_1 = gan.session.run(gan.inputs.x1)
+            self.last_frame_2 = gan.session.run(gan.inputs.x2)
+            self.i = 0
 
         return {
             'generator': next_frame
@@ -246,6 +262,7 @@ class ProgressiveNextFrameGAN(BaseGAN):
         self.session = None
         self.layer_1 = kwargs['inputs'].x1
         self.layer_2 = kwargs['inputs'].x2
+
         BaseGAN.__init__(self, *args, **kwargs)
 
     def required(self):
@@ -262,40 +279,86 @@ class ProgressiveNextFrameGAN(BaseGAN):
             if self.encoder is None and config.encoder:
                 self.encoder = self.create_component(config.encoder)
                 self.uniform_encoder = self.encoder
+
+            l1 = self.inputs.x1
+            l2 = self.inputs.x2
+            shape = [int(x) for x in self.inputs.x2.get_shape()]
             if self.generator is None and config.generator:
                 self.generator = self.create_component(config.generator)
                 self.autoencoded_x = self.generator.sample
-                self.uniform_sample = self.generator.sample
 
             if self.discriminator is None and config.discriminator:
                 x1 = self.inputs.x1
                 x2 = self.inputs.x2
                 x3 = self.inputs.x3
-                g = self.generator.sample
+
+                self.layer_1 = tf.zeros_like(x1)
+                self.layer_2 = tf.zeros_like(x2)
+                g_blank = self.generator.reuse(net=self.uniform_encoder.create())
+                self.layer_1 = tf.zeros_like(x1)
+                self.layer_2 = g_blank
+                g_blank2 = self.generator.reuse(net=self.uniform_encoder.create())
+                self.layer_1 = g_blank
+                self.layer_2 = g_blank2
+                g_blank3 = self.generator.reuse(net=self.uniform_encoder.create())
+                self.layer_1 = g_blank2
+                self.layer_2 = g_blank3
+                g_blank4 = self.generator.reuse(net=self.uniform_encoder.create())
+                self.layer_1 = g_blank3
+                self.layer_2 = g_blank4
+                g_blank5 = self.generator.reuse(net=self.uniform_encoder.create())
+                self.layer_1 = g_blank4
+                self.layer_2 = g_blank5
+                g_blank6 = self.generator.reuse(net=self.uniform_encoder.create())
+                gen_blank = [g_blank, g_blank2, g_blank3]
+                gen_blank2 = [g_blank4, g_blank5, g_blank6]
+                gen_blank_frames = tf.concat(gen_blank, axis=3)
+                gen_blank2_frames = tf.concat(gen_blank2, axis=3)
+                #self.layer_1 = tf.assign(self.layer_1, x1)
+                #self.layer_2 = tf.assign(self.layer_2, x2)
+                self.layer_1 = x1
+                self.layer_2 = x2
+                g = self.generator.reuse(net=self.uniform_encoder.create())
                 real_frames = [x1,x2,x3]
                 gen1_frames = [x1,x2,g]
                 real_frames = tf.concat(real_frames, axis=3)
                 gen1_frames = tf.concat(gen1_frames, axis=3)
-                self.layer_1 = self.inputs.x2
+                #self.layer_1 = tf.assign(self.layer_1, x2)
+                #self.layer_2 = tf.assign(self.layer_2, g)
+                self.layer_1 = x2
                 self.layer_2 = g
                 g2 = self.generator.reuse(net=self.uniform_encoder.create())
                 gen2_frames = tf.concat([x2,g,g2], axis=3)
+                #self.layer_1 = tf.assign(self.layer_1, g)
+                #self.layer_2 = tf.assign(self.layer_2, g2)
                 self.layer_1 = g
                 self.layer_2 = g2
                 g3 = self.generator.reuse(net=self.uniform_encoder.create())
                 gen3_frames = tf.concat([g,g2,g3], axis=3)
-                self.layer_1 = tf.zeros_like(g)
-                self.layer_2 = tf.zeros_like(g2)
-                stacked = [real_frames, gen1_frames, gen2_frames, gen3_frames]
-                self.seq = [x1,x2, x3,g,g2,g3]
+                stacked = [real_frames, gen1_frames, gen2_frames, gen3_frames, gen_blank_frames, gen_blank2_frames]
+                self.g_blank3 = g_blank3
+                self.g_blank2 = g_blank2
+                self.g_blank = g_blank
+                self.seq = [x1,x2, x3,g,g2,g3, g_blank, g_blank2, g_blank3, g_blank4, g_blank5, g_blank6]
                 stacked_xg = tf.concat(stacked, axis=0)
                 self.next_frame=g3
                 self.discriminator = self.create_component(config.discriminator, name="discriminator", input=stacked_xg)
             if self.loss is None and config.loss:
-                self.loss = self.create_component(config.loss)
+                self.uniform_sample = g3 #HACK for rothk
+                self.loss = self.create_component(config.loss, split=len(stacked))
+                #self.uniform_sample = g_random
+                #xg_stack = tf.concat([x1,g_random], axis=0)
+                #d2 = self.create_component(config.discriminator, name='d2', input=xg_stack)
+                #loss2 = self.create_component(config.loss, discriminator=d2)
+                #print("D_LOSS", loss2, loss2.d_loss, loss2.g_loss)
+                #self.discriminator = d2
+                #self.loss.sample[0] += loss2.d_loss
+                #self.loss.sample[1] += loss2.g_loss
+                #print("ADDING")
                 self.metrics = self.loss.metrics
             if self.trainer is None and config.trainer:
-                self.trainer = self.create_component(config.trainer)
+                self.trainer = self.create_component(config.trainer, d_vars = self.discriminator.variables())
+                #self.trainer = self.create_component(config.trainer, d_vars = self.discriminator.variables())# + d2.variables())
 
             self.random_z = tf.random_uniform(self.ops.shape(self.encoder.sample), -1, 1, name='random_z')
 
@@ -310,7 +373,6 @@ class ProgressiveNextFrameGAN(BaseGAN):
     def output_nodes(self):
         "used in hypergan build"
         return [
-                self.uniform_sample,
                 self.random_z
         ]
 

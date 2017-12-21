@@ -84,7 +84,8 @@ class BaseLoss(GANComponent):
         if config.rothk_penalty:
             rothk = self.rothk_penalty(d_real, d_fake)
             self.metrics['rothk_penalty'] = self.gan.ops.squash(rothk)
-            d_regularizers.append(rothk)
+            #d_regularizers.append(rothk)
+            d_loss += rothk
             print("rothk penalty applied")
 
  
@@ -100,12 +101,12 @@ class BaseLoss(GANComponent):
             g_loss = tf.reshape(g_loss, [ops.shape(g_loss)[0], -1])
             g_loss = tf.concat([g_loss, regularizer], axis=1)
 
-        d_loss = ops.squash(d_loss, tf.reduce_mean) #linear doesn't work with this, so we cant pass config.reduce
+        d_loss = ops.squash(d_loss, config.reduce or tf.reduce_mean) #linear doesn't work with this
 
         # TODO: Why are we squashing before gradient penalty?
         self.metrics['d_loss'] = d_loss
         if g_loss is not None:
-            g_loss = ops.squash(g_loss, tf.reduce_mean)
+            g_loss = ops.squash(g_loss, config.reduce or tf.reduce_mean)
             self.metrics['g_loss'] = g_loss
 
         self.sample = [d_loss, g_loss]

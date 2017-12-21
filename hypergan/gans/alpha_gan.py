@@ -68,6 +68,7 @@ class AlphaGAN(BaseGAN):
             stack_encoded = encoder.sample
 
             generator = self.create_component(config.generator, input=stack_z)
+            self.uniform_sample = generator.sample
             x_hat = generator.reuse(stack_encoded)
 
             if hasattr(generator, 'mask_single_channel'):
@@ -81,7 +82,7 @@ class AlphaGAN(BaseGAN):
                 #stacked = [x_input, g1x, g2x, newsample, generator.sample, x_hat]
                 #stacked = [x_input, newsample, generator.sample, x_hat]
             else:
-                stacked = [x_input, generator.sample, x_hat]
+                stacked = [x_input, self.uniform_sample, x_hat]
 
             stacked_xg = ops.concat(stacked, axis=0)
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg)
@@ -121,7 +122,6 @@ class AlphaGAN(BaseGAN):
         self.z = z
         self.z_hat = encoder.sample
         self.x_input = x_input
-        self.uniform_sample = generator.sample
         self.autoencoded_x = x_hat
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
@@ -236,6 +236,8 @@ class AlphaGAN(BaseGAN):
             g_vars = generator.variables() + encoder.variables()
             d_loss = standard_loss.d_loss + encoder_loss.d_loss
             g_loss = encoder_loss.g_loss + standard_loss.g_loss + cycloss
+            #d_loss = standard_loss.d_loss
+            #g_loss = standard_loss.g_loss + cycloss
             loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
                 {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
             trainer = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)

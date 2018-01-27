@@ -65,6 +65,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         stride = options.stride or config.defaults.stride or [2,2]
         fltr = options.filter or config.defaults.filter or config.filter or [5,5]
+        if type(fltr) == type(""):
+            fltr = [int(fltr), int(fltr)]
+        if type(stride) == type(""):
+            stride = [int(stride), int(stride)]
         print("ARGS", args)
         depth = int(args[0])
 

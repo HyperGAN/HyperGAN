@@ -63,8 +63,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         activation_s = options.activation or config.defaults.activation or "lrelu"
         activation = self.ops.lookup(activation_s)
 
-        stride = config.stride or [2,2]
-        fltr = config.filter or [5,5]
+        stride = options.stride or config.defaults.stride or [2,2]
+        fltr = options.filter or config.defaults.filter or config.filter or [5,5]
         print("ARGS", args)
         depth = int(args[0])
 

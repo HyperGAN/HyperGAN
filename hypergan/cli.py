@@ -64,6 +64,7 @@ class CLI:
         title = "[hypergan] " + self.config_name
         GlobalViewer.title = title
         GlobalViewer.enabled = self.args.viewer
+        GlobalViewer.zoom = self.args.zoom
 
     def sampler_for(name, default=StaticBatchSampler):
         samplers = {

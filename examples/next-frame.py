@@ -388,6 +388,7 @@ def setup_gan(config, inputs, args):
     config_name = args.config
     GlobalViewer.title = "[hypergan] next-frame " + config_name
     GlobalViewer.enabled = args.viewer
+    GlobalViewer.zoom = 1
 
     return gan
 

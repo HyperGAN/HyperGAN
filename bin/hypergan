@@ -18,6 +18,7 @@ class CommandParser:
     def common_flags(self, parser):
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
+        parser.add_argument('--zoom', '-z', type=int, default=1, help='Zoom level for viewer(does not change graph)')
         parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')

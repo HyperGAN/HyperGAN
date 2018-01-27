@@ -338,6 +338,11 @@ class TensorflowOps:
     def clamped_unit(self, net):
         return tf.maximum(-1., tf.minimum(net, 1.))
 
+    def null(self):
+        def _null(_x):
+            return _x
+        return _null
+
     def prelu(self):
         def _prelu(_x):
             orig_shape = self.shape(_x)
@@ -462,6 +467,8 @@ class TensorflowOps:
             return layer_regularizers.layer_norm_1
         if symbol == "crelu":
             return tf.nn.crelu
+        if symbol == 'null':
+            return self.null()
         if symbol == "prelu":
             return self.prelu()
         if symbol == 'nsoftplus':

@@ -75,6 +75,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         net = self.layer_filter(net)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth)
         avg_pool = options.avg_pool or config.defaults.avg_pool
+        if type(avg_pool) == type(""):
+            avg_pool = [int(avg_pool), int(avg_pool)]
         if avg_pool:
             ksize = [1,avg_pool[0], avg_pool[1],1]
             stride = ksize

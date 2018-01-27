@@ -13,6 +13,7 @@ class ConfigurableGenerator(BaseGenerator):
 
         self.layer_ops = {
             "deconv": self.layer_deconv,
+            "resize_conv": self.layer_resize_conv,
             "linear": self.layer_linear
             }
         BaseGenerator.__init__(self, gan, config, name=name, reuse=reuse,input=input)
@@ -117,3 +118,27 @@ class ConfigurableGenerator(BaseGenerator):
             #net = self.layer_regularizer(net)
             net = activation(net)
         return net
+
+    def layer_resize_conv(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        activation_s = options.activation or config.defaults.activation or "lrelu"
+        activation = self.ops.lookup(activation_s)
+
+        stride = config.stride or [1,1]
+        fltr = config.filter or [5,5]
+        depth = int(args[0])
+
+        print("NET", net)
+        net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth)
+        print("POTNET", net)
+        self.add_progressive_enhancement(net)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+        return net
+
+

@@ -72,8 +72,13 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         print("ARGS", args)
         depth = int(args[0])
 
+        initializer = None # default to global
+        if options.stddev:
+            print("Constucting latyer",options.stddev) 
+            initializer = ops.random_initializer(float(options.stddev))()
+
         net = self.layer_filter(net)
-        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
         avg_pool = options.avg_pool or config.defaults.avg_pool
         if type(avg_pool) == type(""):
             avg_pool = [int(avg_pool), int(avg_pool)]

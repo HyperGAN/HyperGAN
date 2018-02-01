@@ -254,8 +254,11 @@ class TensorflowOps:
             return g*x_init
 
 
-    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME"):
+    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME", initializer=None):
         self.assert_tensor(net)
+
+        if initializer is None:
+            initializer = self.initializer()
 
         if self.config.layer_regularizer == 'cosine_norm':
             return self.cosine_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
@@ -269,15 +272,16 @@ class TensorflowOps:
             return self.spectralnorm_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim, padding=padding)
 
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
-            w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
+            w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim], initializer=initializer)
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
             biases = self.get_bias([output_dim])
             conv = tf.nn.bias_add(conv, biases)
             return conv
 
-    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim):
+    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None):
         self.assert_tensor(net)
-        initializer = self.initializer()
+        if initializer is None:
+            initializer = self.initializer()
         shape = self.shape(net)
         if self.config.layer_regularizer == 'weight_norm':
             return self.weightnorm_deconv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
@@ -285,7 +289,7 @@ class TensorflowOps:
         init_bias = 0.
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             # filter : [height, width, output_channels, in_channels]
-            w = self.get_weight([filter_h, filter_w, output_dim, shape[3]])
+            w = self.get_weight([filter_h, filter_w, output_dim, shape[3]], initializer=initializer)
 
             deconv = tf.nn.conv2d_transpose(net, w, output_shape=output_shape,
                                     strides=[1, stride_h, stride_w, 1])
@@ -311,16 +315,15 @@ class TensorflowOps:
             b = self.get_bias([output_dim], constant=0.001)
             return (tf.matmul(net, v_norm) * g+b)
 
-    def linear(self, net, output_dim):
+    def linear(self, net, output_dim, initializer=None):
         if self.config.linear_type == 'cosine':
             return self.cosine_linear(net, output_dim)
         if self.config.linear_type == 'weight_norm':
             return self.weight_norm_linear(net, output_dim)
         self.assert_tensor(net)
-        initializer = self.initializer()
         shape = self.shape(net)
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
-            w = self.get_weight([shape[1], output_dim])
+            w = self.get_weight([shape[1], output_dim], initializer=initializer)
             bias = self.get_bias([output_dim])
             return tf.matmul(net, w) + bias
 

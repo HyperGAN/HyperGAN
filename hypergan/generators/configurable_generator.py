@@ -87,7 +87,12 @@ class ConfigurableGenerator(BaseGenerator):
         print("ARGS", args)
         depth = int(args[0])
 
-        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth)
+        initializer = None # default to global
+        if options.stddev:
+            print("Constucting latyer",options.stddev) 
+            initializer = ops.random_initializer(float(options.stddev))()
+
+        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
         self.add_progressive_enhancement(net)
         if activation:
             #net = self.layer_regularizer(net)
@@ -131,9 +136,14 @@ class ConfigurableGenerator(BaseGenerator):
         fltr = config.filter or [5,5]
         depth = int(args[0])
 
+        initializer = None # default to global
+        if options.stddev:
+            print("Constucting latyer",options.stddev) 
+            initializer = ops.random_initializer(float(options.stddev))()
+
         print("NET", net)
         net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
-        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
         print("POTNET", net)
         self.add_progressive_enhancement(net)
         if activation:

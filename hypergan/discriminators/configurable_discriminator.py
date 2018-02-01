@@ -60,7 +60,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         config = self.config
         ops = self.ops
 
-        activation_s = options.activation or config.defaults.activation or "lrelu"
+        activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
 
         stride = options.stride or config.defaults.stride or [2,2]
@@ -73,9 +73,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         depth = int(args[0])
 
         initializer = None # default to global
-        if options.stddev:
-            print("Constucting latyer",options.stddev) 
-            initializer = ops.random_initializer(float(options.stddev))()
+        stddev = options.stddev or config.defaults.stddev or 0.02
+        if stddev:
+            print("Constucting latyer",stddev) 
+            initializer = ops.random_initializer(float(stddev))()
 
         net = self.layer_filter(net)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
@@ -100,7 +101,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         config = self.config
         fltr = options.filter or config.defaults.filter
 
-        activation_s = options.activation or config.defaults.activation or "lrelu"
+        activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
 
         print("ARGS", args)

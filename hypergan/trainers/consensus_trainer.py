@@ -55,14 +55,15 @@ class ConsensusTrainer(BaseTrainer):
             print("G", g, "jg", jg)
             return g + alpha * jg
         # Gradient updates
+        jg_alpha = config.jg_alpha or 0.1
         apply_vec = [
-             (applyvec(g, 0.1, Jg), v)
+             (applyvec(g, jg_alpha, Jg), v)
              for (g, Jg, v) in zip(grads, Jgrads, allvars) if Jg is not None
         ]
 
 
         #optimizer = tf.train.RMSPropOptimizer(self.d_lr)
-        defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(config.trainer).args}
+        defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
         optimizer = config.trainer(self.lr, **defn)
         optimizer = optimizer.apply_gradients(apply_vec)
         #optimizer = self.build_optimizer(config, '', config.d_trainer, self.d_lr, allvars, allloss)
@@ -86,5 +87,6 @@ class ConsensusTrainer(BaseTrainer):
         metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)[1:]
 
         if self.current_step % 100 == 0:
+            print("____", self.output_string(metrics), metric_values)
             print(self.output_string(metrics) % tuple([self.current_step] + metric_values))
 

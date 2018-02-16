@@ -14,7 +14,9 @@ class ConfigurableGenerator(BaseGenerator):
         self.layer_ops = {
             "deconv": self.layer_deconv,
             "resize_conv": self.layer_resize_conv,
-            "linear": self.layer_linear
+            "conv": self.layer_conv,
+            "linear": self.layer_linear,
+            "slice": self.layer_slice
             }
         BaseGenerator.__init__(self, gan, config, name=name, reuse=reuse,input=input)
 
@@ -93,6 +95,9 @@ class ConfigurableGenerator(BaseGenerator):
             print("Constucting latyer",stddev) 
             initializer = ops.random_initializer(float(stddev))()
 
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+
         net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
         self.add_progressive_enhancement(net)
         if activation:
@@ -132,9 +137,14 @@ class ConfigurableGenerator(BaseGenerator):
 
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
+        #layer_regularizer = options.layer_regularizer or config.defaults.layer_regularizer or 'null'
+        #layer_regularizer = self.ops.lookup(layer_regularizer)
+        #print("___layer", layer_regularizer)
 
         stride = options.stride or config.defaults.stride or [1,1]
         fltr = options.filter or config.defaults.filter or [5,5]
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
         depth = int(args[0])
 
         initializer = None # default to global
@@ -146,6 +156,7 @@ class ConfigurableGenerator(BaseGenerator):
         print("NET", net)
         net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
+        #net = layer_regularizer(net)
         print("POTNET", net)
         self.add_progressive_enhancement(net)
         if activation:
@@ -153,4 +164,38 @@ class ConfigurableGenerator(BaseGenerator):
             net = activation(net)
         return net
 
+    def layer_conv(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        activation_s = options.activation or config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+
+        stride = options.stride or config.defaults.stride or [1,1]
+        fltr = options.filter or config.defaults.filter or [5,5]
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+        depth = int(args[0])
+
+        initializer = None # default to global
+        stddev = options.stddev or config.defaults.stddev or 0.02
+        if stddev:
+            print("Constucting latyer",stddev) 
+            initializer = ops.random_initializer(float(stddev))()
+
+        print("NET", net)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
+        print("POTNET", net)
+        self.add_progressive_enhancement(net)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+        return net
+
+    def layer_slice(self, net, args, options):
+        w = int(args[0])
+        h = int(args[1])
+        net = tf.slice(net, [0,0,0,0], [-1,h,w,-1])
+        return net
 

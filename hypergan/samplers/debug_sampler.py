@@ -29,7 +29,7 @@ class IdentitySampler(BaseSampler):
             x = gan.session.run(x_t)
 
         return {
-            'generator': gan.session.run(self.node, {z_t: z})
+                'generator': gan.session.run(self.node, {z_t: z, x_t: x})
         }
 
 

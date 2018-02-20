@@ -26,6 +26,7 @@ from .base_gan import BaseGAN
 from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
 from hypergan.encoders.uniform_encoder import UniformEncoder
 from hypergan.trainers.multi_step_trainer import MultiStepTrainer
+from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
 from hypergan.trainers.consensus_trainer import ConsensusTrainer
 
 class AlphaGAN(BaseGAN):
@@ -229,9 +230,7 @@ class AlphaGAN(BaseGAN):
         metrics.append(standard_loss.metrics)
         metrics.append(encoder_loss.metrics)
 
-        if self.config.trainer['class'] == "class:hypergan.trainers.consensus_trainer.ConsensusTrainer":
-            trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists, metrics=metrics)
-        else:
+        if self.config.trainer['class'] == ConsensusTrainer:
             d_vars = standard_discriminator.variables() + encoder_discriminator.variables()
             g_vars = generator.variables() + encoder.variables()
             d_loss = standard_loss.d_loss + encoder_loss.d_loss
@@ -241,7 +240,30 @@ class AlphaGAN(BaseGAN):
             loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
                 {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
             trainer = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+        elif self.config.trainer['class'] == MultiTrainerTrainer:
+            d_vars = standard_discriminator.variables() 
+            g_vars = generator.variables()
+            d_loss = standard_loss.d_loss
+            g_loss = standard_loss.g_loss
+            #d_loss = standard_loss.d_loss
+            #g_loss = standard_loss.g_loss + cycloss
+            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
+                {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
+            trainer1 = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
 
+
+            d_vars = encoder_discriminator.variables()
+            g_vars = encoder.variables()
+            d_loss = encoder_loss.d_loss
+            g_loss = encoder_loss.g_loss + cycloss
+
+            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
+                {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
+            trainer2 = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+
+            trainer = MultiTrainerTrainer([trainer1, trainer2])
+        else:
+            trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists, metrics=metrics)
         return trainer
 
     def input_nodes(self):

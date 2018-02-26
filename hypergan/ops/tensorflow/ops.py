@@ -33,6 +33,8 @@ class TensorflowOps:
             self.initializer = self.orthogonal_initializer(orthogonal_gain)
         elif initializer == 'he_normal':
             self.initializer = self.he_initializer()
+        elif initializer == 'xavier':
+            self.initializer = self.xavier()
         else:
             self.initializer = self.random_initializer(random_stddev)
 
@@ -67,6 +69,13 @@ class TensorflowOps:
         def _build():
             return tf.variance_scaling_initializer(scale=2.0,mode='fan_in',distribution='normal')
         return _build
+
+    def xavier(self):
+        def _build():
+            print("XAVIER")
+            return tf.contrib.layers.xavier_initializer()
+        return _build
+
 
     def describe(self, description):
         self.description = description

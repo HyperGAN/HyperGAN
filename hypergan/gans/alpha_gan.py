@@ -82,6 +82,8 @@ class AlphaGAN(BaseGAN):
                 stacked = [x_input, newsample, generator.sample, x_hat, generator.g1x, generator.g2x, generator.g3x]
                 #stacked = [x_input, g1x, g2x, newsample, generator.sample, x_hat]
                 #stacked = [x_input, newsample, generator.sample, x_hat]
+            elif config.simple_d:
+                stacked = [x_input, self.uniform_sample]
             else:
                 stacked = [x_input, self.uniform_sample, x_hat]
 

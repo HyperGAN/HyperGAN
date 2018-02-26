@@ -161,6 +161,9 @@ class FDivergenceLoss(BaseLoss):
         self.gfg = gfg
         self.gfx = gfx
 
+        self.d_real = d_real
+        self.d_fake = d_fake
+
         return [d_loss, g_loss]
 
     def g_regularizers(self):

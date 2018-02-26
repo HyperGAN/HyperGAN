@@ -78,10 +78,11 @@ class Custom2DGenerator(BaseGenerator):
         ops.describe('custom_generator')
 
         net = gan.encoder.sample
-        net = ops.linear(net, 128)
-        net = ops.lookup('relu')(net)
+        for i in range(2):
+            net = ops.linear(net, 4)
+            net = ops.lookup('crelu')(net)
         net = ops.linear(net, end_features)
-        net = ops.lookup('tanh')(net)
+        print("-- net is ", net)
         self.sample = net
         return net
 
@@ -126,9 +127,10 @@ class Custom2DDiscriminator(BaseGenerator):
 
         end_features = 1
 
-        net = ops.linear(net, 128)
-        net = tf.nn.relu(net)
-        net = ops.linear(net, 2)
+        for i in range(1):
+            net = ops.linear(net, 16)
+            net = ops.lookup('crelu')(net)
+        net = ops.linear(net, 1)
         self.sample = net
 
         return net
@@ -196,6 +198,9 @@ class Custom2DInputDistribution:
                 xcos = tf.cos(x1*np.pi + offset1)*xa
                 xsin = tf.sin(x1*np.pi + offset1)*xb
                 x = tf.transpose(tf.concat([xcos,xsin], 0))/16.0
+
+            elif args.distribution == 'static-point':
+                x = tf.ones([args.batch_size, 2])
 
             self.x = x
             self.xy = tf.zeros_like(self.x)

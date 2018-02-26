@@ -17,8 +17,8 @@ class UniformEncoder(BaseEncoder):
 
     def validate(self):
         errors = BaseEncoder.validate(self)
-        if(self.config.z is not None and int(self.config.z) % 2 != 0):
-            errors.append("z must be a multiple of 2 (was %2d)" % self.config.z)
+        #if(self.config.z is not None and int(self.config.z) % 2 != 0):
+        #    errors.append("z must be a multiple of 2 (was %2d)" % self.config.z)
         return errors
 
     def create(self):

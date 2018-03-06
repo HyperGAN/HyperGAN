@@ -10,7 +10,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def __init__(self, gan, config, name=None, input=None, reuse=None):
         self.layer_ops = {
             "conv": self.layer_conv,
-            "linear": self.layer_linear
+            "linear": self.layer_linear,
+            "resnet": self.layer_resnet
             }
         BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse)
 
@@ -55,6 +56,43 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         return net
 
+    def layer_resnet(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+        depth = int(args[0])
+        activation_s = options.activation or config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+        stride = options.stride or 1
+        stride = int(stride)
+        shortcut = net
+        initializer = None # default to global
+        stddev = options.stddev or config.defaults.stddev or 0.02
+        if stddev:
+            print("Constucting layer",stddev)
+            initializer = ops.random_initializer(float(stddev))()
+
+        if config.defaults.avg_pool:
+            net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
+            if stride != 1:
+                ksize = [1,stride,stride,1]
+                net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
+        else:
+            net = ops.conv2d(net, 3, 3, stride, stride, depth, initializer=initializer)
+        net = activation(net)
+        net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
+        if ops.shape(net)[-1] != ops.shape(shortcut)[-1] or stride != 1:
+            if config.defaults.avg_pool:
+                shortcut = ops.conv2d(shortcut, 3, 3, 1, 1, depth, initializer=initializer)
+                if stride != 1:
+                    ksize = [1,stride,stride,1]
+                    shortcut = tf.nn.avg_pool(shortcut, ksize=ksize, strides=ksize, padding='SAME')
+            else:
+                shortcut = ops.conv2d(shortcut, 3, 3, stride, stride, depth, initializer=initializer)
+        net = shortcut + net
+        net = activation(net)
+
+        return net
     def layer_conv(self, net, args, options):
         options = hc.Config(options)
         config = self.config

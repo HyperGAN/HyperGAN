@@ -247,6 +247,8 @@ class AlphaGAN(BaseGAN):
             g_vars = generator.variables()
             d_loss = standard_loss.d_loss
             g_loss = standard_loss.g_loss
+            if(self.config.cycloss_on_g):
+                g_loss += cycloss * self.config.cycloss_on_g
             #d_loss = standard_loss.d_loss
             #g_loss = standard_loss.g_loss + cycloss
             loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 

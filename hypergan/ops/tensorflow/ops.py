@@ -373,6 +373,33 @@ class TensorflowOps:
 
         return _prelu
 
+    def bipolar(self):
+        def _bipolar(_x):
+            activation = self.lookup(self.config.bipolar_activation or 'relu')
+            ops = self
+            orig_shape = self.shape(_x)
+            net = _x
+            if len(orig_shape) == 2:
+                a = tf.slice(net, [0,0], [ops.shape(net)[0], ops.shape(net)[1]//2])
+                b = tf.slice(net, [0,ops.shape(net)[1]//2],[ops.shape(net)[0], ops.shape(net)[1]//2])
+                a = activation(a)
+                b = -activation(-b)
+                net = tf.concat([a,b],axis=1)
+            elif len(orig_shape) == 4:
+                print("Size is", net)
+                a = tf.slice(net, [0,0,0,0], [-1, -1,-1, ops.shape(net)[3]//2])
+                b = tf.slice(net, [0,0,0,ops.shape(net)[3]//2],[-1, -1,-1,ops.shape(net)[3]//2])
+                a = activation(a)
+                b = -activation(-b)
+                net = tf.concat([a,b],axis=3)
+            else:
+                raise "Bipolar activation requires input dimensions of 2 or 4"
+            return tf.reshape(net, orig_shape)
+
+
+        return _bipolar
+
+
     def swish(self, x):
         return x * tf.nn.sigmoid(x)
 
@@ -487,6 +514,8 @@ class TensorflowOps:
             return self.nsoftplus
         if symbol == "trelu":
             return self.trelu()
+        if symbol == "bipolar":
+            return self.bipolar()
         if symbol == "swish":
             return self.swish
         if symbol == "selu":

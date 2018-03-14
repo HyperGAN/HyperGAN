@@ -119,6 +119,8 @@ class ConfigurableGenerator(BaseGenerator):
         dims = [int(x) for x in args[0].split("*")]
         size = reduce(operator.mul, dims, 1)
 
+        if len(ops.shape(net)) > 2:
+            net = tf.reshape(net, [ops.shape(net)[0], -1])
         net = ops.linear(net, size)
 
         if len(dims) > 1:

@@ -91,8 +91,12 @@ def gaussian(config, gan, net):
     z_dim = int(config.z)
     net = (net + 1) / 2
 
-    za = tf.slice(net, [0,0], [gan.batch_size(), z_dim//2])
-    zb = tf.slice(net, [0,z_dim//2], [gan.batch_size(), z_dim//2])
+    if len(gan.ops.shape(net)) == 4:
+        za = tf.slice(net, [0,0,0,0], [gan.batch_size(), -1, -1, z_dim//2])
+        zb = tf.slice(net, [0,0,0,z_dim//2], [gan.batch_size(), -1, -1, z_dim//2])
+    else:
+        za = tf.slice(net, [0,0], [gan.batch_size(), z_dim//2])
+        zb = tf.slice(net, [0,z_dim//2], [gan.batch_size(), z_dim//2])
 
     pi = np.pi
     ra = tf.sqrt(-2 * tf.log(za+TINY))*tf.cos(2*pi*zb)

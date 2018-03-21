@@ -89,6 +89,9 @@ class ConfigurableGenerator(BaseGenerator):
         print("ARGS", args)
         depth = int(args[0])
 
+        if type(stride) != type([]):
+            stride = [int(stride), int(stride)]
+
         initializer = None # default to global
         stddev = options.stddev or config.defaults.stddev or 0.02
         if stddev:
@@ -175,7 +178,7 @@ class ConfigurableGenerator(BaseGenerator):
         activation = self.ops.lookup(activation_s)
 
         stride = options.stride or config.defaults.stride or [1,1]
-        fltr = options.filter or config.defaults.filter or [5,5]
+        fltr = options.filter or config.defaults.filter or [3,3]
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         depth = int(args[0])

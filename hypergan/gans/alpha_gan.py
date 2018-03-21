@@ -56,9 +56,11 @@ class AlphaGAN(BaseGAN):
             self.encoder = encoder
             z_shape = self.ops.shape(encoder.sample)
 
-            uniform_encoder = UniformEncoder(self, config.encoder, output_shape=z_shape)
-            direction, slider = self.create_controls(z_shape)
+            uniform_encoder = UniformEncoder(self, config.encoder)
+            direction, slider = self.create_controls(self.ops.shape(uniform_encoder.sample))
             z = uniform_encoder.sample + slider * direction
+            
+            #projected_encoder = UniformEncoder(self, config.encoder, z=encoder.sample)
 
             z_discriminator = self.create_z_discriminator(uniform_encoder.sample, encoder.sample)
 
@@ -66,11 +68,10 @@ class AlphaGAN(BaseGAN):
             #stack_z = tf.concat([encoder.sample, z], feature_dim)
             #stack_encoded = tf.concat([encoder.sample, encoder.sample], feature_dim)
             stack_z = z
-            stack_encoded = encoder.sample
 
             generator = self.create_component(config.generator, input=stack_z)
             self.uniform_sample = generator.sample
-            x_hat = generator.reuse(stack_encoded)
+            x_hat = generator.reuse(encoder.sample)
 
             if hasattr(generator, 'mask_single_channel'):
                 mask = generator.mask_single_channel

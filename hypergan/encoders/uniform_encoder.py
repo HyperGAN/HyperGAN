@@ -8,8 +8,9 @@ from ..gan_component import ValidationException
 TINY=1e-12
 
 class UniformEncoder(BaseEncoder):
-    def __init__(self, gan, config, name=None, output_shape=None):
+    def __init__(self, gan, config, name=None, output_shape=None, z=None):
         self.output_shape = output_shape
+        self.z = z
         BaseEncoder.__init__(self, gan, config, name=name)
 
     def required(self):
@@ -27,8 +28,9 @@ class UniformEncoder(BaseEncoder):
         config = self.config
         projections = []
         batch_size = self.gan.batch_size()
-        output_shape = self.output_shape or [batch_size, int(config.z)]
-        self.z = tf.random_uniform(output_shape, config.min or -1, config.max or 1, dtype=ops.dtype)
+        if self.z is None:
+            output_shape = self.output_shape or [batch_size, int(config.z)]
+            self.z = tf.random_uniform(output_shape, config.min or -1, config.max or 1, dtype=ops.dtype)
         for projection in config.projections:
             projections.append(self.lookup(projection)(config, gan, self.z))
         self.sample = tf.concat(axis=1, values=projections)

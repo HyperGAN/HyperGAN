@@ -66,6 +66,9 @@ def binary(config, gan, net):
     net = tf.cast(net, tf.float32)
     return net
 
+def zero(config, gan, net):
+    return tf.zeros_like(net)
+
 def modal_gaussian(config, gan, net):
     a = modal(config, gan, net)
     b = gaussian(config, gan, net)

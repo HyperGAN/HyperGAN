@@ -1,8 +1,6 @@
 from tensorflow.python.ops import gen_image_ops
 from tensorflow.python.framework import ops
 
-print("SETTING UP REZSIIZ")
-
 @ops.RegisterGradient("ResizeNearestNeighborGrad")
 def _ResizeNearestNeighborGrad(op, grad):
     """The derivatives for nearest neighbor resizing.

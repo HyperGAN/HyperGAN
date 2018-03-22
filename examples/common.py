@@ -79,8 +79,8 @@ class Custom2DGenerator(BaseGenerator):
 
         net = gan.encoder.sample
         for i in range(2):
-            net = ops.linear(net, 4)
-            net = ops.lookup('crelu')(net)
+            net = ops.linear(net, 8)
+            net = ops.lookup('relu')(net)
         net = ops.linear(net, end_features)
         print("-- net is ", net)
         self.sample = net
@@ -127,9 +127,9 @@ class Custom2DDiscriminator(BaseGenerator):
 
         end_features = 1
 
-        for i in range(1):
-            net = ops.linear(net, 16)
-            net = ops.lookup('crelu')(net)
+        for i in range(2):
+            net = ops.linear(net, 8)
+            net = ops.lookup('relu')(net)
         net = ops.linear(net, 1)
         self.sample = net
 

@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
 from hypergan.generators.common import *
+from hypergan.ops.tensorflow.extended_ops import bicubic_interp_2d
 
 import operator
 from functools import reduce
@@ -17,8 +18,10 @@ class ConfigurableGenerator(BaseGenerator):
             "conv_double": self.layer_conv_double,
             "conv_reshape": self.layer_conv_reshape,
             "conv": self.layer_conv,
+            "bicubic_conv": self.layer_bicubic_conv,
             "phase_shift": self.layer_phase_shift,
             "linear": self.layer_linear,
+            "reshape": self.layer_resize,
             "slice": self.layer_slice
             }
         BaseGenerator.__init__(self, gan, config, name=name, reuse=reuse,input=input)
@@ -244,6 +247,14 @@ class ConfigurableGenerator(BaseGenerator):
         return net
 
 
+    def layer_bicubic_conv(self, net, args, options):
+        s = self.ops.shape(net)
+        net = bicubic_interp_2d(net, [s[1]*2, s[2]*2])
+        net = self.layer_conv(net, args, options)
+        return net
+
+
+
     def layer_slice(self, net, args, options):
         w = int(args[0])
         h = int(args[1])
@@ -283,3 +294,8 @@ class ConfigurableGenerator(BaseGenerator):
 
         return phase_shift(net, int(args[0]), color=True)
 
+    def layer_resize(self, net, args, options):
+        dims = [int(x) for x in args[0].split("*")]
+        dims = [self.ops.shape(net)[0]] + dims
+        net = tf.reshape(net, dims)
+        return net

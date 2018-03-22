@@ -39,8 +39,6 @@
   {
     "class": "function:hypergan.losses.f_divergence_loss.FDivergenceLoss",
     "type": "gan",
-    "gradient_penalty": 10.0,
-    "gradient_penalty_type": "dragan",
     "reduce": "reduce_mean"
   },
   "trainer": {

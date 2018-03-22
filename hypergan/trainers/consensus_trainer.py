@@ -66,6 +66,7 @@ class ConsensusTrainer(BaseTrainer):
         defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
         optimizer = config.trainer(self.lr, **defn)
         optimizer = optimizer.apply_gradients(apply_vec)
+        #optimizer = optimizer.minimize(allloss, var_list=allvars, global_step=self.global_step)
         #optimizer = self.build_optimizer(config, '', config.d_trainer, self.d_lr, allvars, allloss)
 
         self.g_loss = g_loss

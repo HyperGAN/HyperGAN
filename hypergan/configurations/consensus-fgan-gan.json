@@ -43,8 +43,7 @@
   },
   "trainer": {
     "class": "class:hypergan.trainers.consensus_trainer.ConsensusTrainer",
-    "beta1": 0.5,
-    "learn_rate": 0.0001,
-    "trainer": "function:tensorflow.python.training.adam.AdamOptimizer"
+    "learn_rate": 0.001,
+    "trainer": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer"
   }
 }

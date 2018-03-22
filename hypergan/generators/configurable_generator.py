@@ -14,7 +14,10 @@ class ConfigurableGenerator(BaseGenerator):
         self.layer_ops = {
             "deconv": self.layer_deconv,
             "resize_conv": self.layer_resize_conv,
+            "conv_double": self.layer_conv_double,
+            "conv_reshape": self.layer_conv_reshape,
             "conv": self.layer_conv,
+            "phase_shift": self.layer_phase_shift,
             "linear": self.layer_linear,
             "slice": self.layer_slice
             }
@@ -198,9 +201,85 @@ class ConfigurableGenerator(BaseGenerator):
             net = activation(net)
         return net
 
+    def layer_conv_reshape(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        activation_s = options.activation or config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+
+        stride = options.stride or config.defaults.stride or [1,1]
+        fltr = options.filter or config.defaults.filter or [3,3]
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+        depth = int(args[0])
+
+        initializer = None # default to global
+        stddev = options.stddev or config.defaults.stddev or 0.02
+        if stddev:
+            print("Constucting latyer",stddev) 
+            initializer = ops.random_initializer(float(stddev))()
+
+        print("NET", net)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
+        s = ops.shape(net)
+        net = tf.reshape(net, [s[0], s[1]*2, s[2]*2, depth])
+        print("POTNET", net)
+        self.add_progressive_enhancement(net)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+        return net
+
+
+    def layer_conv_double(self, net, args, options):
+        x1 = self.layer_conv(net, args, options)
+        y1 = self.layer_conv(net, args, options)
+        x2 = self.layer_conv(net, args, options)
+        y2 = self.layer_conv(net, args, options)
+        x = tf.concat([x1,x2],axis=1)
+        y = tf.concat([y1,y2],axis=1)
+        net = tf.concat([x,y],axis=2)
+        return net
+
+
     def layer_slice(self, net, args, options):
         w = int(args[0])
         h = int(args[1])
         net = tf.slice(net, [0,0,0,0], [-1,h,w,-1])
         return net
+
+    def layer_phase_shift(self, net, args, options):
+ 
+        def _phase_shift(I, r):
+            def _squeeze(x):
+                single_batch = (int(x.get_shape()[0]) == 1)
+                x = tf.squeeze(x)
+                if single_batch:
+                    x_shape = [1]+x.get_shape().as_list()
+                    x = tf.reshape(x, x_shape)
+                return x
+
+            # Helper function with main phase shift operation
+            bsize, a, b, c = I.get_shape().as_list()
+            X = tf.reshape(I, (bsize, a, b, r, r))
+            X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
+            X = tf.split(axis=1, num_or_size_splits=a, value=X)  # a, [bsize, b, r, r]
+            X = tf.concat(axis=2, values=[_squeeze(x) for x in X])  # bsize, b, a*r, r
+            X = tf.split(axis=1, num_or_size_splits=b, value=X)  # b, [bsize, a*r, r]
+            X = tf.concat(axis=2, values=[_squeeze(x) for x in X])  #
+            bsize, a*r, b*r
+            return tf.reshape(X, (bsize, a*r, b*r, 1))
+
+        def phase_shift(X, r, color=False):
+          # Main OP that you can arbitrarily use in you tensorflow code
+          if color:
+            Xc = tf.split(axis=3, num_or_size_splits=3, value=X)
+            X = tf.concat(axis=3, values=[_phase_shift(x, r) for x in Xc])
+          else:
+            X = _phase_shift(X, r)
+          return X
+
+        return phase_shift(net, int(args[0]), color=True)
 

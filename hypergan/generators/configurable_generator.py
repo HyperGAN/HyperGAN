@@ -16,6 +16,7 @@ class ConfigurableGenerator(BaseGenerator):
             "deconv": self.layer_deconv,
             "resize_conv": self.layer_resize_conv,
             "conv_double": self.layer_conv_double,
+            "conv_dts": self.layer_conv_dts,
             "conv_reshape": self.layer_conv_reshape,
             "conv": self.layer_conv,
             "bicubic_conv": self.layer_bicubic_conv,
@@ -245,6 +246,38 @@ class ConfigurableGenerator(BaseGenerator):
         y = tf.concat([y1,y2],axis=1)
         net = tf.concat([x,y],axis=2)
         return net
+
+    def layer_conv_dts(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        activation_s = options.activation or config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+
+        stride = options.stride or config.defaults.stride or [1,1]
+        fltr = options.filter or config.defaults.filter or [3,3]
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+        depth = int(args[0])
+
+        initializer = None # default to global
+        stddev = options.stddev or config.defaults.stddev or 0.02
+        if stddev:
+            print("Constucting latyer",stddev) 
+            initializer = ops.random_initializer(float(stddev))()
+
+        print("NET", net)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
+        s = ops.shape(net)
+        net = tf.depth_to_space(net, 2)
+        self.add_progressive_enhancement(net)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+        return net
+
+
 
 
     def layer_bicubic_conv(self, net, args, options):

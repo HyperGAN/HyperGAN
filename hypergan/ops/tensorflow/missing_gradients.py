@@ -1,8 +1,9 @@
 from tensorflow.python.ops import gen_image_ops
 from tensorflow.python.framework import ops
 
-@ops.RegisterGradient("ResizeNearestNeighborGrad")
+#@ops.RegisterGradient("ResizeNearestNeighborGrad")
 def _ResizeNearestNeighborGrad(op, grad):
+    #TODO this is for ResizeNearestNeighbor not ResizeNearestNeighborGrad
     """The derivatives for nearest neighbor resizing.
 
     Args:
@@ -18,7 +19,7 @@ def _ResizeNearestNeighborGrad(op, grad):
     else:
         image_shape = array_ops.shape(image)[1:3]
 
-    grads = gen_image_ops._resize_nearest_neighbor_grad(
+    grads = gen_image_ops.resize_nearest_neighbor_grad(
             grad,
             image_shape,
             align_corners=op.get_attr("align_corners"))

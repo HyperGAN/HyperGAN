@@ -65,7 +65,7 @@ class ConsensusTrainer(BaseTrainer):
         #optimizer = tf.train.RMSPropOptimizer(self.d_lr)
         defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
         optimizer = config.trainer(self.lr, **defn)
-        optimizer = optimizer.apply_gradients(apply_vec)
+        optimizer = optimizer.apply_gradients(apply_vec, global_step=self.global_step)
         #optimizer = optimizer.minimize(allloss, var_list=allvars, global_step=self.global_step)
         #optimizer = self.build_optimizer(config, '', config.d_trainer, self.d_lr, allvars, allloss)
 

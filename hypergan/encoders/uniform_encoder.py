@@ -14,7 +14,7 @@ class UniformEncoder(BaseEncoder):
         BaseEncoder.__init__(self, gan, config, name=name)
 
     def required(self):
-        return "z min max".split()
+        return "min max".split()
 
     def validate(self):
         errors = BaseEncoder.validate(self)

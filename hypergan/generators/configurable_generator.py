@@ -287,10 +287,20 @@ class ConfigurableGenerator(BaseGenerator):
         return net
 
 
+    def layer_pad_conv(self, net, args, options):
+        s = self.ops.shape(net)[1]//2
+        net = tf.pad(net, [[0, s, s, 0], [0,s,s,0]], mode='CONSTANT')
+        net = self.layer_conv(net, args, options)
+        return net
+
 
     def layer_slice(self, net, args, options):
-        w = int(args[0])
-        h = int(args[1])
+        if len(args) == 0:
+            w = self.gan.width()
+            h = self.gan.height()
+        else:
+            w = int(args[0])
+            h = int(args[1])
         net = tf.slice(net, [0,0,0,0], [-1,h,w,-1])
         return net
 

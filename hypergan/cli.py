@@ -24,6 +24,7 @@ from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.autoencode_sampler import AutoencodeSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
 from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
 from hypergan.samplers.debug_sampler import DebugSampler
 from hypergan.samplers.segment_sampler import SegmentSampler
@@ -71,6 +72,7 @@ class CLI:
                 'static_batch': StaticBatchSampler,
                 'random_walk': RandomWalkSampler,
                 'alphagan_random_walk': AlphaganRandomWalkSampler,
+                'batch_walk': BatchWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
                 'began': BeganSampler,

@@ -56,7 +56,9 @@ class AlphaGAN(BaseGAN):
             self.encoder = encoder
             z_shape = self.ops.shape(encoder.sample)
 
-            uniform_encoder = UniformEncoder(self, config.encoder, output_shape=z_shape)
+            uz_shape = z_shape
+            uz_shape[-1] = uz_shape[-1] // len(config.encoder.projections)
+            uniform_encoder = UniformEncoder(self, config.encoder, output_shape=uz_shape)
             direction, slider = self.create_controls(self.ops.shape(uniform_encoder.sample))
             z = uniform_encoder.sample + slider * direction
             

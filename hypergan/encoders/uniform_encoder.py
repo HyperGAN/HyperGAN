@@ -33,7 +33,7 @@ class UniformEncoder(BaseEncoder):
             self.z = tf.random_uniform(output_shape, config.min or -1, config.max or 1, dtype=ops.dtype)
         for projection in config.projections:
             projections.append(self.lookup(projection)(config, gan, self.z))
-        self.sample = tf.concat(axis=1, values=projections)
+        self.sample = tf.concat(axis=len(self.z.get_shape())-1, values=projections)
         return self.sample
 
     def lookup(self, projection):
@@ -55,9 +55,14 @@ def identity(config, gan, net):
 def sphere(config, gan, net):
     net = gaussian(config, gan, net)
     spherenet = tf.square(net)
-    spherenet = tf.reduce_sum(spherenet, 1)
-    lam = tf.sqrt(spherenet+TINY)
-    return net/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
+    if len(spherenet.get_shape()) == 2:
+        spherenet = tf.reduce_sum(spherenet, 1)
+        lam = tf.sqrt(spherenet+TINY)
+        return net/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
+    else:
+        spherenet = tf.reduce_sum(spherenet, 3)
+        lam = tf.sqrt(spherenet+TINY)
+        return net/tf.reshape(lam,[int(lam.get_shape()[0]), int(lam.get_shape()[1]), int(lam.get_shape()[2]), 1])
 
 def modal(config, gan, net):
     net = tf.round(net*float(config.modes))/float(config.modes)
@@ -90,7 +95,7 @@ def modal_sphere_gaussian(config, gan, net):
 
 # creates normal distribution from uniform values https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 def gaussian(config, gan, net):
-    z_dim = int(config.z)
+    z_dim = net.get_shape().as_list()[-1]
     net = (net + 1) / 2
 
     if len(gan.ops.shape(net)) == 4:
@@ -104,7 +109,7 @@ def gaussian(config, gan, net):
     ra = tf.sqrt(-2 * tf.log(za+TINY))*tf.cos(2*pi*zb)
     rb = tf.sqrt(-2 * tf.log(za+TINY))*tf.sin(2*pi*zb)
 
-    return tf.reshape(tf.concat(axis=1, values=[ra, rb]), net.get_shape())
+    return tf.reshape(tf.concat(axis=len(net.get_shape())-1, values=[ra, rb]), net.get_shape())
 
 
 def periodic(config, gan, net):

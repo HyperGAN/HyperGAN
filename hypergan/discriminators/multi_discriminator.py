@@ -62,11 +62,7 @@ class MultiDiscriminator(BaseDiscriminator):
 
         for i,dconfig in enumerate(config.discriminators):
             name=self.ops.description+"_d_"+str(i)
-            print("LLLLLLLLLLLLLL", i, name)
-            disc = dconfig['class'](gan, config, name=name)
-            print("LLLLLLL")
-            projection_g = g#self.project(i, g)
-            projection_x = x#self.project(i, x, reuse=True)
+            disc = dconfig['class'](gan, dconfig, name=name)
 
             self.ops.add_weights(disc.variables())
             discs.append(disc)

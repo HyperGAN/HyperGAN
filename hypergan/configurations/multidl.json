@@ -45,11 +45,13 @@
     "losses": 
     [
       {
-        "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
+        "class": "function:hypergan.losses.f_divergence_loss.FDivergenceLoss",
+        "type": "gan",
         "reduce": "reduce_mean"
       },
       {
-        "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
+        "class": "function:hypergan.losses.f_divergence_loss.FDivergenceLoss",
+        "type": "reverse_kl",
         "reduce": "reduce_mean"
       }
     ]

@@ -88,6 +88,5 @@ class ConsensusTrainer(BaseTrainer):
         metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)[1:]
 
         if self.current_step % 100 == 0:
-            print("____", self.output_string(metrics), metric_values)
             print(self.output_string(metrics) % tuple([self.current_step] + metric_values))
 

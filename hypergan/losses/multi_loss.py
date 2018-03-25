@@ -37,6 +37,9 @@ class MultiLoss(BaseLoss):
             g_loss = self.F(combine.g_loss_features, "g_loss").sample
             d_loss = self.F(combine.d_loss_features, "d_loss").sample
 
+        self.d_loss = d_loss
+        self.g_loss = g_loss
+
         return [d_loss, g_loss]
 
     def F(self, loss, name):

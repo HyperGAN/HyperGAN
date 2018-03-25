@@ -7,14 +7,14 @@ from .base_discriminator import BaseDiscriminator
 
 class ConfigurableDiscriminator(BaseDiscriminator):
 
-    def __init__(self, gan, config, name=None, input=None, reuse=None):
+    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None):
         self.layer_ops = {
             "conv": self.layer_conv,
             "linear": self.layer_linear,
             "reshape": self.layer_resize,
             "resnet": self.layer_resnet
             }
-        BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse)
+        BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse, x=x, g=g)
 
     def required(self):
         return "layers defaults".split()

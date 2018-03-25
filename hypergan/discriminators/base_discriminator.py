@@ -32,10 +32,12 @@ class BaseDiscriminator(GANComponent):
         self.sample = net
         return net
 
-    def reuse(self, net=None, x=None, g=None):
+    def reuse(self, net=None):
         config = self.config
         gan = self.gan
         ops = self.ops
+        x = self.x
+        g = self.g
 
         if net is None:
             if x is None:

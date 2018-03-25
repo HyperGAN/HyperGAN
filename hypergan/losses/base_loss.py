@@ -8,12 +8,12 @@ class BaseLoss(GANComponent):
         self.sample = None
         self.ops = None
         self.x = x
-        self.d_fake = None
-        self.d_real = None
-        if discriminator == None:
-            discriminator = gan.discriminator
-        if generator == None:
-            generator = gan.generator.sample #TODO should not be sample
+        self.d_fake = d_fake
+        self.d_real = d_real
+        #if discriminator == None:
+        #    discriminator = gan.discriminator
+        #if generator == None:
+        #    generator = gan.generator.sample #TODO should not be sample
         self.discriminator = discriminator
         self.generator = generator
         self.split = split

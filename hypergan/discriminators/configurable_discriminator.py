@@ -11,6 +11,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         self.layer_ops = {
             "conv": self.layer_conv,
             "linear": self.layer_linear,
+            "reshape": self.layer_resize,
             "resnet": self.layer_resnet
             }
         BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse)
@@ -153,3 +154,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             net = activation(net)
         return net
 
+    def layer_resize(self, net, args, options):
+        dims = [int(x) for x in args[0].split("*")]
+        dims = [self.ops.shape(net)[0]] + dims
+        net = tf.reshape(net, dims)
+        return net

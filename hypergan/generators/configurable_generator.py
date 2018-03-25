@@ -22,6 +22,7 @@ class ConfigurableGenerator(BaseGenerator):
             "bicubic_conv": self.layer_bicubic_conv,
             "phase_shift": self.layer_phase_shift,
             "linear": self.layer_linear,
+            "linear_plus_deconv": self.layer_linear_plus_deconv,
             "reshape": self.layer_resize,
             "slice": self.layer_slice
             }
@@ -112,6 +113,24 @@ class ConfigurableGenerator(BaseGenerator):
         self.add_progressive_enhancement(net)
         if activation:
             #net = self.layer_regularizer(net)
+            net = activation(net)
+        return net
+
+    def layer_linear_plus_deconv(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+        activation_s = options.activation or config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+
+        options["activation"]="null"
+        deconv = self.layer_deconv(net, args, options)
+        s = self.ops.shape(deconv)
+        text = "%d*%d*%d" % (s[1], s[2], s[3])
+        args = [text]
+        linear = self.layer_linear(net, args, options)
+        net = (deconv + linear)
+        if activation:
             net = activation(net)
         return net
 

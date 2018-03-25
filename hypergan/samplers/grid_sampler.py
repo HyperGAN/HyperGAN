@@ -13,6 +13,7 @@ class GridSampler(BaseSampler):
         y = np.linspace(0,1, 6)
 
         z = np.mgrid[-0.999:0.999:0.6, -0.999:0.999:0.26].reshape(2,-1).T
+        z = np.reshape(z, gan.ops.shape(z_t))
         #z = np.mgrid[-0.499:0.499:0.3, -0.499:0.499:0.13].reshape(2,-1).T
         #z = np.mgrid[-0.299:0.299:0.15, -0.299:0.299:0.075].reshape(2,-1).T
 

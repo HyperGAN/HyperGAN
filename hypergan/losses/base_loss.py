@@ -3,11 +3,13 @@ import numpy as np
 import tensorflow as tf
 
 class BaseLoss(GANComponent):
-    def __init__(self, gan, config, discriminator=None, generator=None, x=None, split=2):
+    def __init__(self, gan, config, discriminator=None, generator=None, x=None, split=2, d_fake=None, d_real=None):
         self.metrics = {}
         self.sample = None
         self.ops = None
         self.x = x
+        self.d_fake = None
+        self.d_real = None
         if discriminator == None:
             discriminator = gan.discriminator
         if generator == None:
@@ -24,11 +26,13 @@ class BaseLoss(GANComponent):
         return net
 
 
-    def create(self, d_real=None, d_fake=None):
+    def create(self):
         gan = self.gan
         config = self.config
         ops = self.gan.ops
         split = self.split
+        d_real = self.d_real
+        d_fake = self.d_fake
 
         d_loss = None
         g_loss = None

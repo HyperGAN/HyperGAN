@@ -12,16 +12,18 @@ class MultiLoss(BaseLoss):
         gan = self.gan
         config = self.config
         losses = []
-        d_real_partitions = tf.split(d_real, len(config.losses), len(gan.ops.shape(d_real))-1)
-        d_fake_partitions = tf.split(d_fake, len(config.losses), len(gan.ops.shape(d_real))-1)
+        if config.partition:
+            d_real_partitions = tf.split(d_real, len(config.losses), len(gan.ops.shape(d_real))-1)
+            d_fake_partitions = tf.split(d_fake, len(config.losses), len(gan.ops.shape(d_real))-1)
         for i, loss in enumerate(config.losses):
-            
-            loss_object = loss['class'](gan, loss, discriminator=self.discriminator, generator=self.generator)
-            # TODO: Split d_fake?
             if config.partition:
-                loss_object.create(d_real=d_real_partitions[i], d_fake=d_fake_partitions[i])
-            else:
-                loss_object.create(d_real=d_real, d_fake=d_fake)
+                d_real = d_real_partitions[i]
+                d_fake = d_fake_partitions[i]
+            if config.swapped:
+                d_swap = d_real
+                d_real = d_fake
+                d_fake = d_swap
+            loss_object = loss['class'](gan, loss, d_real=d_real, d_fake=d_fake)
 
             losses.append(loss_object)
 

@@ -124,7 +124,9 @@ class Custom2DDiscriminator(BaseGenerator):
         gan = self.gan
         config = self.config
         ops = self.ops
-        layers = self.config.layers or 2
+        layers = self.config.layers 
+        if layers is None:
+            layers=2
 
         end_features = 1
 

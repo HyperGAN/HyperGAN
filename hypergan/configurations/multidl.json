@@ -10,14 +10,14 @@
       {
         "class": "class:__main__.Custom2DDiscriminator",
         "initializer": "random_normal",
-        "layers": 1,
+        "layers": 2,
         "random_stddev": 0.02
       },
       {
         "class": "class:__main__.Custom2DDiscriminator",
         "initializer": "random_normal",
         "swapped": true,
-        "layers": 3,
+        "layers": 2,
         "random_stddev": 0.02
       }
     ],
@@ -42,16 +42,22 @@
   {
     "class": "class:hypergan.losses.multi_loss.MultiLoss",
     "combine": "concat",
+    "partition": true,
     "losses": 
     [
       {
-        "class": "function:hypergan.losses.f_divergence_loss.FDivergenceLoss",
-        "type": "gan",
-        "reduce": "reduce_mean"
+    "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
+    "labels": [
+      -1,
+      1,
+      1
+    ],
+    "reduce": "reduce_sum",
+    "use_k": false
       },
       {
         "class": "function:hypergan.losses.f_divergence_loss.FDivergenceLoss",
-        "type": "reverse_kl",
+        "type": "gan",
         "reduce": "reduce_mean"
       }
     ]

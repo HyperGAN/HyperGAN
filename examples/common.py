@@ -91,7 +91,6 @@ class CustomDiscriminator(BaseGenerator):
         gan = self.gan
         config = self.config
         ops = self.ops
-        ops.describe('custom_discriminator')
 
         end_features = 1
 
@@ -110,10 +109,12 @@ class CustomDiscriminator(BaseGenerator):
         return net
 
 class Custom2DDiscriminator(BaseGenerator):
-    def create(self):
+    def create(self, g=None, x=None):
         gan = self.gan
-        x = gan.inputs.x
-        g = gan.generator.sample
+        if x is None:
+            x = gan.inputs.x
+        if g is None:
+            g = gan.generator.sample
         net = tf.concat(axis=0, values=[x,g])
         net = self.build(net)
         self.sample = net
@@ -123,13 +124,13 @@ class Custom2DDiscriminator(BaseGenerator):
         gan = self.gan
         config = self.config
         ops = self.ops
-        ops.describe('custom_discriminator')
+        layers = self.config.layers or 2
 
         end_features = 1
 
-        for i in range(2):
-            net = ops.linear(net, 8)
-            net = ops.lookup('relu')(net)
+        for i in range(layers):
+            net = ops.linear(net, 16)
+            net = ops.lookup('crelu')(net)
         net = ops.linear(net, 1)
         self.sample = net
 
@@ -175,7 +176,8 @@ class Custom2DInputDistribution:
                 return x/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
 
             def modes(x):
-                return tf.round(x*2)/2.0
+                shape = x.get_shape()
+                return tf.round(x*2)/2.0#+tf.random_normal(shape, 0, 0.04)
 
             if args.distribution == 'circle':
                 x = tf.random_normal([args.batch_size, 2])

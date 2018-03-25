@@ -46,7 +46,7 @@ class MultiDiscriminator(BaseDiscriminator):
 
         discs = []
         x, g = self.split_batch(net)
-        for i in range(config.discriminator_count):
+        for i in range(config.discriminator_count or 0):
             projection_g = self.project(i, g)
             projection_x = self.project(i, x, reuse=True)
             disc = config['discriminator_class'](gan, config)
@@ -58,6 +58,17 @@ class MultiDiscriminator(BaseDiscriminator):
                 disc.ops.stop_reuse()
             self.ops.add_weights(disc.variables())
 
+            discs.append(disc)
+
+        for i,dconfig in enumerate(config.discriminators):
+            name=self.ops.description+"_d_"+str(i)
+            print("LLLLLLLLLLLLLL", i, name)
+            disc = dconfig['class'](gan, config, name=name)
+            print("LLLLLLL")
+            projection_g = g#self.project(i, g)
+            projection_x = x#self.project(i, x, reuse=True)
+
+            self.ops.add_weights(disc.variables())
             discs.append(disc)
 
         combine = MultiComponent(combine='concat', components=discs)

@@ -11,7 +11,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         self.layer_ops = {
             "conv": self.layer_conv,
             "linear": self.layer_linear,
-            "reshape": self.layer_resize,
+            "reshape": self.layer_reshape,
+            "squash": self.layer_squash,
+            "avg_pool": self.layer_avg_pool,
+            "image_statistics": self.layer_image_statistics,
             "resnet": self.layer_resnet
             }
         BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse, x=x, g=g)
@@ -154,8 +157,39 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             net = activation(net)
         return net
 
-    def layer_resize(self, net, args, options):
+    def layer_reshape(self, net, args, options):
         dims = [int(x) for x in args[0].split("*")]
         dims = [self.ops.shape(net)[0]] + dims
         net = tf.reshape(net, dims)
+        return net
+
+    def layer_avg_pool(self, net, args, options):
+
+        options = hc.Config(options)
+        stride=options.stride or 2
+        stride=int(stride)
+        ksize = [1,stride,stride,1]
+        net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
+
+        return net 
+
+
+    def layer_image_statistics(self, net, args, options):
+        s = self.ops.shape(net)
+        batch_size = s[0]
+        s[-1]=3
+        s[0]=-1
+        images = tf.reshape(net, s)
+        variance = tf.image.total_variation(images)
+        variance = tf.reshape(variance, [batch_size, -1])
+        
+        return variance
+
+    
+    def layer_squash(self, net, args, options):
+        s = self.ops.shape(net)
+        batch_size = s[0]
+        net = tf.reshape(net, [batch_size, -1])
+        net = tf.reduce_mean(net, axis=1, keepdims=True)
+
         return net

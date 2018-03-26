@@ -3,6 +3,7 @@ import hypergan as hg
 import hyperchamber as hc
 import numpy as np
 import random
+import copy
 
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.losses.wasserstein_loss import WassersteinLoss
@@ -30,48 +31,33 @@ class RandomSearch:
 
     def trainer(self):
         tftrainers = [
-                tf.train.AdadeltaOptimizer,
-                tf.train.AdagradOptimizer,
-                tf.train.GradientDescentOptimizer,
+                #tf.train.AdadeltaOptimizer,
+                #tf.train.AdagradOptimizer,
+                #tf.train.GradientDescentOptimizer,
                 tf.train.AdamOptimizer,
-                tf.train.MomentumOptimizer,
+                #tf.train.MomentumOptimizer,
                 tf.train.RMSPropOptimizer
         ]
 
         selector = hc.Selector({
-            'd_learn_rate': self.range(0.0001, 0.001),
-            'g_learn_rate': self.range(0.0001, 0.001),
-            'd_beta1': self.range(),
-            'd_beta2': self.range(),
-            'g_beta1': self.range(),
-            'g_beta2': self.range(),
-            'd_epsilon': self.range(1e-8, 0.1),
-            'g_epsilon': self.range(1e-8, 0.1),
-            'g_momentum': self.range(),
-            'd_momentum': self.range(),
-            'd_decay': self.range(),
-            'g_decay': self.range(),
-            'd_rho': self.range(),
-            'g_rho': self.range(),
-            'd_initial_accumulator_value': self.range(),
-            'g_initial_accumulator_value': self.range(),
-            'd_initial_gradient_squared_accumulator_value': self.range(),
-            'g_initial_gradient_squared_accumulator_value': self.range(),
-            'd_initial_gradient_squared_accumulator_value': self.range(),
-            'g_initial_gradient_squared_accumulator_value': self.range(),
-            'd_clipped_weights': False,
+            'learn_rate': [1e-3, 1e-4, 5e-3, 5e-4],
+            'beta1': self.range(0.8, 0.9999),
+            'beta2': self.range(0.9, 0.9999),
+            'epsilon': self.range(1e-8, 0.1),
+            'momentum': [0, 0.01, 0.1],
+            'decay': self.range(0.8, 0.9999),
+            'rho': self.range(),
+            'initial_accumulator_value': self.range(),
             'clipped_gradients': False,
-            'd_trainer':tftrainers,
-            'g_trainer':tftrainers,
-            "d_update_steps": [1, 2, 4, 8],
+            'trainer':tftrainers,
             'class': [
                 #hg.trainers.proportional_control_trainer.create,
-                hg.trainers.alternating_trainer.AlternatingTrainer
+                #hg.trainers.alternating_trainer.AlternatingTrainer
+                hg.trainers.consensus_trainer.ConsensusTrainer
             ]
         })
         
         config = selector.random_config()
-        config['d_trainer'] = config['g_trainer']
         return config
      
     def fc_discriminator(self):
@@ -104,18 +90,28 @@ class RandomSearch:
         return  hc.Selector(loss_opts).random_config()
 
     def loss(self):
-        loss_opts = {
-            'class': [
-                    FDivergenceLoss
-            ],
-            "type": ["kl","js","gan","reverse_kl","pearson","squared_hellinger", "total_variation"],
-            'reduce': ['reduce_mean','reduce_sum','reduce_logsumexp']
+        a=self.loss_instance()
+        b=copy.deepcopy(dict(a))
+        b["swapped"]=True
+        
+        loss={
+            "class": "class:hypergan.losses.multi_loss.MultiLoss",
+            "combine": "concat",
+            "partition": True
         }
 
-        gradient_penalty = random.choice([True, False])
-        if gradient_penalty:
-            loss_opts["gradient_penalty_type"]=["improved-wgan","dragan"]
-            loss_opts["gradient_penalty"]=self.range(0.1, 30)
+        loss["losses"]=[a,b]
+        return loss
+
+    def loss_instance(self):
+        loss_opts = {
+            'class': [
+                    FDivergenceLoss, StandardLoss, LeastSquaresLoss, WassersteinLoss
+            ],
+            "type": ["kl","js","gan","reverse_kl","pearson","squared_hellinger", "total_variation"],
+            "labels": [[-1,1,1]],
+            'reduce': ['reduce_mean']#,'reduce_sum']#,'reduce_logsumexp']
+        }
 
         choice = hc.Selector(loss_opts).random_config()
 
@@ -123,27 +119,18 @@ class RandomSearch:
             choice["regularizer"] = choice["type"]
         if random.choice([True, False]):
             choice["g_loss_type"] = choice["type"]
+
         return choice
 
 
     def encoder(self):
         projections = []
         projections.append([hg.encoders.uniform_encoder.identity])
-        projections.append([hg.encoders.uniform_encoder.sphere])
-        projections.append([hg.encoders.uniform_encoder.binary])
-        projections.append([hg.encoders.uniform_encoder.modal])
-        projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.identity])
-        projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity])
-        projections.append([hg.encoders.uniform_encoder.binary, hg.encoders.uniform_encoder.sphere])
-        projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity])
-        projections.append([hg.encoders.uniform_encoder.modal, hg.encoders.uniform_encoder.sphere])
-        projections.append([hg.encoders.uniform_encoder.sphere, hg.encoders.uniform_encoder.identity, hg.encoders.uniform_encoder.gaussian])
         encoder_opts = {
-                'z': list(np.arange(0, 100)*2),
-                'modes': list(np.arange(2,24)),
-                'projections': projections,
+                'z': 1,
                 'min': -1,
                 'max':1,
+                "projections": projections,
                 'class': hg.encoders.uniform_encoder.UniformEncoder
         }
 

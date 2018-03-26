@@ -16,7 +16,6 @@
       {
         "class": "class:__main__.Custom2DDiscriminator",
         "initializer": "random_normal",
-        "swapped": true,
         "layers": 2,
         "random_stddev": 0.02
       }
@@ -46,25 +45,19 @@
     "losses": 
     [
       {
-    "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
-    "labels": [
-      -1,
-      1,
-      1
-    ],
-    "reduce": "reduce_sum",
-    "use_k": false
+        "class": "function:hypergan.losses.standard_loss.StandardLoss",
+        "reduce": "reduce_mean"
       },
       {
-        "class": "function:hypergan.losses.f_divergence_loss.FDivergenceLoss",
-        "type": "gan",
+        "class": "function:hypergan.losses.standard_loss.StandardLoss",
+        "swapped": true,
         "reduce": "reduce_mean"
       }
     ]
   },
   "trainer": {
     "class": "class:hypergan.trainers.consensus_trainer.ConsensusTrainer",
-    "learn_rate": 0.002,
+    "learn_rate": 0.0001,
     "trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer"
   }
 }

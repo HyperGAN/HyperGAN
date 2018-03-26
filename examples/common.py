@@ -79,7 +79,7 @@ class Custom2DGenerator(BaseGenerator):
 
         net = gan.encoder.sample
         for i in range(2):
-            net = ops.linear(net, 8)
+            net = ops.linear(net, 16)
             net = ops.lookup('relu')(net)
         net = ops.linear(net, end_features)
         print("-- net is ", net)

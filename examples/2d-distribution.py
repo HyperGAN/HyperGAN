@@ -20,6 +20,27 @@ if args.action == 'search':
     config = RandomSearch({}).random_config()
     config['loss']['minibatch'] = False # minibatch breaks on this example
 
+    config['discriminator']={
+        "class": "class:hypergan.discriminators.multi_discriminator.MultiDiscriminator",
+        "initializer": "random_normal",
+        "projection_type": "scaled",
+        "discriminators": [
+          {
+            "class": "class:__main__.Custom2DDiscriminator",
+            "initializer": "random_normal",
+            "layers": 2,
+            "random_stddev": 0.02
+          },
+          {
+            "class": "class:__main__.Custom2DDiscriminator",
+            "initializer": "random_normal",
+            "layers": 2,
+            "random_stddev": 0.02
+          }
+        ],
+        "random_stddev": 0.02
+      }
+
 
 def train(config, args):
     title = "[hypergan] 2d-test " + args.config

@@ -40,7 +40,7 @@ class RandomSearch:
         ]
 
         selector = hc.Selector({
-            'learn_rate': [1e-3, 1e-4, 5e-3, 5e-4],
+            'learn_rate': [1e-2, 1e-3, 1e-4, 5e-3, 5e-4],
             'beta1': self.range(0.8, 0.9999),
             'beta2': self.range(0.9, 0.9999),
             'epsilon': self.range(1e-8, 0.1),

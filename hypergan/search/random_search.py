@@ -36,7 +36,8 @@ class RandomSearch:
                 #tf.train.GradientDescentOptimizer,
                 tf.train.AdamOptimizer,
                 #tf.train.MomentumOptimizer,
-                tf.train.RMSPropOptimizer
+                tf.train.RMSPropOptimizer,
+                hg.ops.tensorflow.adamirror.AdamirrorOptimizer
         ]
 
         selector = hc.Selector({

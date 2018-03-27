@@ -10,3 +10,4 @@ __all__ = [ basename(f)[:-3] for f in modules if isfile(f)]
 
 
 from . import missing_gradients
+from . import adamirror

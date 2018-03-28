@@ -20,7 +20,13 @@ class AliLoss(BaseLoss):
         if config.type == 'original':
             d_loss = -tf.log(pq)-tf.log(1-pp)
             g_loss = -tf.log(1-pq)-tf.log(pp)
-        if config.type == 'wasserstein':
+        elif config.type == 'least_squares':
+            a,b,c = config.labels
+            square = ops.lookup('square')
+            d_loss = square(d_real - b) + square(d_fake - a) - square(d_fake - c)
+            g_loss = square(d_fake - c) - (square(d_real - b) + square(d_fake - a))
+
+        elif config.type == 'wasserstein':
             d_loss = -pq+pp
             g_loss = pq-pp
         else:

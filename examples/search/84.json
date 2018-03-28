@@ -1,0 +1,201 @@
+{
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.multi_discriminator.MultiDiscriminator",
+    "initializer": "xavier",
+ 
+    "discriminators": [
+      {
+        "activation": "bipolar",
+        "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+        "initializer": "xavier",
+        "defaults":{
+          "activation": "bipolar",
+          "initializer": "xavier",
+          "filter": [3,3],
+          "stride": [1,1],
+          "avg_pool": [2,2]
+        },
+        "layers":[
+          "conv 32",
+          "conv 64",
+          "conv 128",
+          "conv 256",
+          "conv 512",
+          "conv 512",
+          "conv 512 activation=null"
+        ]
+      },
+      {
+        "activation": "bipolar",
+        "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+        "initializer": "xavier",
+        "defaults":{
+          "activation": "bipolar",
+          "initializer": "xavier",
+          "filter": [3,3],
+          "stride": [1,1],
+          "avg_pool": [2,2]
+        },
+        "layers":[
+          "conv 32",
+          "conv 64",
+          "conv 128",
+          "conv 256",
+          "conv 512",
+          "conv 512",
+          "conv 512 activation=null"
+        ]
+
+      }
+
+    ]
+
+  },
+  "input_encoder": 
+  {
+    "activation": "bipolar",
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "initializer": "xavier",
+    "defaults":{
+      "activation": "bipolar",
+      "initializer": "xavier",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2]
+    },
+    "layers":[
+      "conv 32",
+      "conv 64",
+      "conv 128",
+      "conv 256",
+      "conv 384",
+      "conv 512",
+      "conv 64 activation=null"
+    ]
+  },
+  "z_discriminator": 
+  {
+    "activation": "bipolar",
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "initializer": "xavier",
+    "defaults":{
+      "activation": "bipolar",
+      "initializer": "xavier",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2]
+    },
+    "layers":[
+      "linear 256 activation=bipolar",
+      "linear 256 activation=bipolar",
+      "linear 256"
+    ]
+  },
+  "generator": {
+    "class": "function:hypergan.generators.configurable_generator.ConfigurableGenerator",
+    "initializer": "xavier",
+    "defaults": {
+      "activation": "bipolar",
+      "initializer": "xavier",
+      "filter": [3,3]
+    },
+    "layers": [
+      "conv_dts 128",
+      "conv_dts 128",
+      "conv_dts 128",
+      "conv_dts 128",
+      "conv_dts 64",
+      "conv_dts 32",
+      "conv_dts 3 activation=null"
+
+    ]
+  },
+"eloss": {
+    "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
+    "g_loss_type": "reverse_kl",
+    "labels": [
+      -1,
+      1,
+      1
+    ],
+    "minibatch": false,
+    "reduce": "reduce_mean",
+    "type": "reverse_kl"
+  },
+ 
+  "encoder": {
+    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "max": 1,
+    "min": -1,
+    "modes": "5",
+    "projections": [
+      "function:hypergan.encoders.uniform_encoder.sphere",
+      "function:hypergan.encoders.uniform_encoder.modal"
+    ],
+    "z": 2
+  },
+"loss": {
+    "class": "class:hypergan.losses.multi_loss.MultiLoss",
+    "combine": "concat",
+    "losses": [
+      {
+        "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
+        "labels": [
+          -1,
+          1,
+          1
+        ],
+        "reduce": "reduce_mean",
+        "regularizer": "pearson",
+        "type": "pearson"
+      },
+      {
+        "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
+        "labels": [
+          -1,
+          1,
+          1
+        ],
+        "reduce": "reduce_mean",
+        "regularizer": "pearson",
+        "swapped": true,
+        "type": "pearson"
+      }
+    ],
+    "minibatch": false,
+    "partition": true
+  },
+  "trainer": {
+    "beta1": 0.8886443443443444,
+    "beta2": 0.9891,
+    "class": "function:hypergan.trainers.consensus_trainer.ConsensusTrainer",
+    "clipped_gradients": false,
+    "decay": 0.8740370370370371,
+    "epsilon": 0.00980981882882883,
+    "initial_accumulator_value": 0.4624624624624625,
+    "learn_rate": 0.01,
+    "momentum": 0.01,
+    "rho": 0.2172172172172172,
+    "trainer": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer"
+  },
+  "trainer": {
+    "beta1": 0.8884442442442443,
+    "beta2": 0.997,
+    "class": "function:hypergan.trainers.consensus_trainer.ConsensusTrainer",
+    "clipped_gradients": false,
+    "decay": 0.8248124124124124,
+    "epsilon": 0.08448448603603603,
+    "initial_accumulator_value": 0.7497497497497497,
+    "learn_rate": 0.005,
+    "momentum": 0.01,
+    "rho": 0.8308308308308309,
+    "trainer": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer"
+  },
+  "class": "class:hypergan.gans.alpha_gan.AlphaGAN",
+  "progressive_growing": true,
+  "progressive_growing_steps": 50000,
+  "cycloss_lambda": 1,
+  "cycloss_on_g": 1
+
+}

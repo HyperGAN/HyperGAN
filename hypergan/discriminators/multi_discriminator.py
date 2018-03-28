@@ -8,6 +8,10 @@ from hypergan.multi_component import MultiComponent
 TINY=1e-8
 class MultiDiscriminator(BaseDiscriminator):
 
+    def __init__(self, gan, config, **kwargs):
+        self.kwargs = kwargs
+        kwargs = hc.Config(kwargs)
+        BaseDiscriminator.__init__(self, gan, config, name=kwargs.name, input=kwargs.input,reuse=kwargs.reuse, x=kwargs.x, g=kwargs.g)
     def project(self, i, net, reuse=False):
         filter_w = 4
         filter_h = 4
@@ -61,7 +65,12 @@ class MultiDiscriminator(BaseDiscriminator):
 
         for i,dconfig in enumerate(config.discriminators):
             name=self.ops.description+"_d_"+str(i)
-            disc = dconfig['class'](gan, dconfig, name=name, input=net, reuse=self.ops._reuse)
+            neti = net
+            self.kwargs["input"]=net
+            self.kwargs["reuse"]=self.ops._reuse
+            self.kwargs["name"]=name
+
+            disc = dconfig['class'](gan, dconfig, **self.kwargs)
 
             self.ops.add_weights(disc.variables())
             discs.append(disc)

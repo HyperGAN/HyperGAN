@@ -7,7 +7,7 @@ from .base_discriminator import BaseDiscriminator
 
 class ConfigurableDiscriminator(BaseDiscriminator):
 
-    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None):
+    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[]):
         self.layer_ops = {
             "conv": self.layer_conv,
             "linear": self.layer_linear,
@@ -15,8 +15,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "squash": self.layer_squash,
             "avg_pool": self.layer_avg_pool,
             "image_statistics": self.layer_image_statistics,
+            "combine_features": self.layer_combine_features,
             "resnet": self.layer_resnet
             }
+        self.features = features
         BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse, x=x, g=g)
 
     def required(self):
@@ -173,23 +175,33 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         return net 
 
+    def layer_combine_features(self, net, args, options):
+
+        for feature in self.features:
+            net = tf.concat([net, feature], axis=3)
+        return net
+
 
     def layer_image_statistics(self, net, args, options):
         s = self.ops.shape(net)
+        options = hc.Config(options)
         batch_size = s[0]
         s[-1]=3
         s[0]=-1
-        images = tf.reshape(net, s)
-        variance = tf.image.total_variation(images)
-        variance = tf.reshape(variance, [batch_size, -1])
+
+        mean, variance = tf.nn.moments(net, [1])
+        net = tf.concat([mean,variance], axis=1)
+        net = tf.reshape(net, [batch_size, -1])
+
+        return net
         
-        return variance
 
     
     def layer_squash(self, net, args, options):
         s = self.ops.shape(net)
         batch_size = s[0]
+        mean, variance = tf.nn.moments(net, [1,2])
+        net = tf.concat([mean,variance], axis=1)
         net = tf.reshape(net, [batch_size, -1])
-        net = tf.reduce_mean(net, axis=1, keepdims=True)
 
         return net

@@ -16,7 +16,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "avg_pool": self.layer_avg_pool,
             "image_statistics": self.layer_image_statistics,
             "combine_features": self.layer_combine_features,
-            "resnet": self.layer_resnet
+            "resnet": self.layer_resnet,
+            "activation": self.layer_activation
             }
         self.features = features
         BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse, x=x, g=g)
@@ -196,6 +197,11 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         return net
         
 
+    def layer_activation(self, net, args, options):
+        options = hc.Config(options)
+        activation_s = options.activation or self.config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+        return activation(net)
     
     def layer_squash(self, net, args, options):
         s = self.ops.shape(net)

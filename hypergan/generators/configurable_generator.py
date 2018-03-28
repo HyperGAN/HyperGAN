@@ -42,12 +42,13 @@ class ConfigurableGenerator(BaseGenerator):
 
         pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
         s = ops.shape(net)
-        img_dims = [s[1],s[2]]
-        self.pe_layers = [tf.image.resize_images(elem, img_dims) for i, elem in enumerate(pe_layers)] + [net]
-        if gan.config.progressive_growing:
-            last_layer = net * self.progressive_growing_mask(len(pe_layers))
-            self.debug_pe = [self.progressive_growing_mask(i) for i, elem in enumerate(pe_layers)]
-        #    net = tf.add_n(nets + [last_layer])
+        if len(s) > 2:
+            img_dims = [s[1],s[2]]
+            self.pe_layers = [tf.image.resize_images(elem, img_dims) for i, elem in enumerate(pe_layers)] + [net]
+            if gan.config.progressive_growing:
+                last_layer = net * self.progressive_growing_mask(len(pe_layers))
+                self.debug_pe = [self.progressive_growing_mask(i) for i, elem in enumerate(pe_layers)]
+            #    net = tf.add_n(nets + [last_layer])
 
 
         return net

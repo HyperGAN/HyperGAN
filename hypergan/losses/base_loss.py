@@ -46,19 +46,8 @@ class BaseLoss(GANComponent):
 
             ds = self.split_batch(net, split)
             d_real = ds[0]
-            if config.combine == "legacy":
-                d_loss, g_loss = self._create(d_real, ds[1])
-                for d_f in ds[2:]:
-                    di, gi = self.reuse(d_real, d_f)
-                    d_loss += di
-                    g_loss += gi
-            elif config.combine == "tiled":
-                d_real = tf.tile(d_real, [len(ds)-1, 1])
-                d_fake = tf.concat(values=ds[1:], axis=0)
-                d_loss, g_loss = self._create(d_real, d_fake)
-            else:
-                d_fake = tf.add_n(ds[1:])/(len(ds)-1)
-                d_loss, g_loss = self._create(d_real, d_fake)
+            d_fake = tf.add_n(ds[1:])/(len(ds)-1)
+            d_loss, g_loss = self._create(d_real, d_fake)
         else:
             d_loss, g_loss = self._create(d_real, d_fake)
 

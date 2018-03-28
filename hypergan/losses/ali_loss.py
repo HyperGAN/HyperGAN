@@ -17,8 +17,19 @@ class AliLoss(BaseLoss):
         pp = d_fake
 
 
-        d_loss = -tf.log(pq)-tf.log(1-pp)
-        g_loss = -tf.log(1-pq)-tf.log(pp)
+        if config.type == 'original':
+            d_loss = -tf.log(pq)-tf.log(1-pp)
+            g_loss = -tf.log(1-pq)-tf.log(pp)
+        if config.type == 'wasserstein':
+            d_loss = -pq+pp
+            g_loss = pq-pp
+        else:
+            zeros = tf.zeros_like(d_fake)
+            ones = tf.ones_like(d_fake)
+            g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros) + \
+                     tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=ones)
+            d_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=zeros) + \
+                     tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=ones)
 
         return [d_loss, g_loss]
 

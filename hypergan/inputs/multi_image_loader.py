@@ -69,10 +69,11 @@ class MultiImageLoader:
     def _get_data(self, imgs):
         batch_size = self.batch_size
         num_preprocess_threads = 24
-        xs = tf.train.shuffle_batch(
-            imgs,
+        xs = [tf.train.shuffle_batch(
+            [img],
             batch_size=batch_size,
             num_threads=num_preprocess_threads,
             capacity= batch_size*10,
             min_after_dequeue=batch_size)
+            for img in imgs]
         return xs

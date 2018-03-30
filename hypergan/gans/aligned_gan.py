@@ -60,6 +60,7 @@ class AlignedGAN(BaseGAN):
 
             generator = self.create_component(config.generator, input=z_input)
             self.uniform_sample = generator.sample
+            z_control = generator.controls["z"]
             x_hat = generator.reuse(encoder.sample)
             xba = generator.reuse(z_input)
             xab = encoder.reuse(x_input)
@@ -79,7 +80,7 @@ class AlignedGAN(BaseGAN):
 
         self.trainer = trainer
         self.generator = generator
-        self.uniform_encoder = generator#uniform_encoder
+        self.uniform_encoder = hc.Config({"sample":z_control})#uniform_encoder
         self.z = z_input
         self.z_hat = encoder.sample
         self.x_input = x_input

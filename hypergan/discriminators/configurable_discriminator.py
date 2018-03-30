@@ -10,6 +10,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[]):
         self.layer_ops = {
             "conv": self.layer_conv,
+            "control": self.layer_controls,
             "linear": self.layer_linear,
             "reshape": self.layer_reshape,
             "conv_dts": self.layer_conv_dts,
@@ -21,6 +22,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "activation": self.layer_activation
             }
         self.features = features
+        self.controls = {}
         BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse, x=x, g=g)
 
     def required(self):
@@ -252,4 +254,9 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
+        return net
+
+    def layer_controls(self, net, args, options):
+        self.controls[args[0]] = net
+
         return net

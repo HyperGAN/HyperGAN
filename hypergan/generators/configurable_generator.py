@@ -15,6 +15,7 @@ class ConfigurableGenerator(BaseGenerator):
         self.layer_ops = {
             "deconv": self.layer_deconv,
             "resize_conv": self.layer_resize_conv,
+            "control": self.layer_controls,
             "conv_double": self.layer_conv_double,
             "conv_dts": self.layer_conv_dts,
             "conv_reshape": self.layer_conv_reshape,
@@ -26,6 +27,8 @@ class ConfigurableGenerator(BaseGenerator):
             "reshape": self.layer_resize,
             "slice": self.layer_slice
             }
+
+        self.controls = {}
         BaseGenerator.__init__(self, gan, config, name=name, reuse=reuse,input=input)
 
 
@@ -225,6 +228,7 @@ class ConfigurableGenerator(BaseGenerator):
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
+
         return net
 
     def layer_conv_reshape(self, net, args, options):
@@ -363,4 +367,9 @@ class ConfigurableGenerator(BaseGenerator):
         dims = [int(x) for x in args[0].split("*")]
         dims = [self.ops.shape(net)[0]] + dims
         net = tf.reshape(net, dims)
+        return net
+
+    def layer_controls(self, net, args, options):
+        self.controls[args[0]] = net
+
         return net

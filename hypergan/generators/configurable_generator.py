@@ -205,6 +205,8 @@ class ConfigurableGenerator(BaseGenerator):
         activation = self.ops.lookup(activation_s)
 
         stride = options.stride or config.defaults.stride or [1,1]
+        if type(stride) == type(""):
+            stride = [int(stride),int(stride)]
         fltr = options.filter or config.defaults.filter or [3,3]
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]

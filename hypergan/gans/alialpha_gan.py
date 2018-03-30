@@ -78,15 +78,6 @@ class AliAlphaGAN(BaseGAN):
             # z_hat = z of x
             # g = random generated
             # x_input
-            def combine(z, x):
-                s = x.get_shape().as_list()
-                z = tf.reshape(z, [s[0], -1])
-                padding = s[1]*s[2]-z.get_shape().as_list()[1]
-
-                z = tf.pad(z, [[0, 0], [0, padding]])
-                z = tf.reshape(z, [s[0], s[1], s[2], 1])
-                net = tf.concat([x, z], axis=3)
-                return net
 
             stacked_xg = ops.concat([generator.sample, x_input], axis=0)
             stacked_zs = ops.concat([z, encoder.sample], axis=0)
@@ -203,10 +194,14 @@ class AliAlphaGAN(BaseGAN):
         #g_loss = standard_loss.g_loss + cycloss
         d_loss = standard_loss.d_loss+encoder_loss.d_loss
         g_loss = standard_loss.g_loss+encoder_loss.g_loss
-        loss1 = ("g_loss", g_loss)
-        loss2 = ("d_loss", d_loss)
         loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
-            {'g_loss': loss1[1], 'd_loss': loss2[1]}})
+            {
+                'g_loss': standard_loss.g_loss,
+                'e_loss': encoder_loss.g_loss,
+                'ed_loss': encoder_loss.d_loss,
+                'd_loss': standard_loss.d_loss
+            }
+        })
         trainer = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
         return trainer
 

@@ -12,6 +12,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "conv": self.layer_conv,
             "linear": self.layer_linear,
             "reshape": self.layer_reshape,
+            "conv_dts": self.layer_conv_dts,
             "squash": self.layer_squash,
             "avg_pool": self.layer_avg_pool,
             "image_statistics": self.layer_image_statistics,
@@ -177,9 +178,21 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         return net 
 
     def layer_combine_features(self, net, args, options):
+        op = None
+        if len(args) > 1:
+            op = args[0]
+            layers = int(args[1])
+        print("Combining features", self.features, net)
 
         for feature in self.features:
+            if op == "conv":
+                options['stride']=[1,1]
+                options['avg_pool']=[1,1]
+                feature = self.layer_conv(feature, [layers], options)
+
+            print("Combining features", [net, feature])
             net = tf.concat([net, feature], axis=3)
+
         return net
 
 
@@ -210,4 +223,33 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         net = tf.concat([mean,variance], axis=1)
         net = tf.reshape(net, [batch_size, -1])
 
+        return net
+
+    def layer_conv_dts(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        activation_s = options.activation or config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+
+        stride = options.stride or config.defaults.stride or [1,1]
+        fltr = options.filter or config.defaults.filter or [3,3]
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+        depth = int(args[0])
+
+        initializer = None # default to global
+        stddev = options.stddev or config.defaults.stddev or 0.02
+        if stddev:
+            print("Constucting latyer",stddev) 
+            initializer = ops.random_initializer(float(stddev))()
+
+        print("NET", net)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
+        s = ops.shape(net)
+        net = tf.depth_to_space(net, 2)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
         return net

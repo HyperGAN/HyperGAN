@@ -28,19 +28,19 @@ class AlignedSampler(BaseSampler):
         xab_v, xba_v, samplea, sampleb = sess.run([xab_t, xba_t, cyca, cycb], {xa_t: self.xa_v, xb_t: self.xb_v})
         stacks = []
         bs = gan.batch_size() // 2
-        width = 5
+        width = min(gan.batch_size(), 8)
         for i in range(1):
-            stacks.append([self.xa_v[i*width+width+j] for j in range(width)])
+            stacks.append([self.xa_v[i*width+j] for j in range(width)])
         for i in range(1):
-            stacks.append([xab_v[i*width+width+j] for j in range(width)])
+            stacks.append([xab_v[i*width+j] for j in range(width)])
         for i in range(1):
-            stacks.append([samplea[i*width+width+j] for j in range(width)])
+            stacks.append([samplea[i*width+j] for j in range(width)])
         for i in range(1):
-            stacks.append([self.xb_v[i*width+width+j] for j in range(width)])
+            stacks.append([self.xb_v[i*width+j] for j in range(width)])
         for i in range(1):
-            stacks.append([xba_v[i*width+width+j] for j in range(width)])
+            stacks.append([xba_v[i*width+j] for j in range(width)])
         for i in range(1):
-            stacks.append([sampleb[i*width+width+j] for j in range(width)])
+            stacks.append([sampleb[i*width+j] for j in range(width)])
 
         images = np.vstack([np.hstack(s) for s in stacks])
 

@@ -94,8 +94,8 @@ if not args.align:
         gan = hg.GAN(config=config, inputs=inputs, debug=args.debug)
         gan.name = config_name
 else:
-    inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-    inputs.create(args.directory,
+    inputs = hg.inputs.multi_image_loader.MultiImageLoader(args.batch_size)
+    inputs.create([args.directory, args.align],
           channels=channels, 
           format=args.format,
           crop=args.crop,
@@ -103,25 +103,8 @@ else:
           height=height,
           resize=args.resize)
 
-    inputs2 = hg.inputs.image_loader.ImageLoader(args.batch_size)
-    inputs2.create(args.align,
-          channels=channels, 
-          format=args.format,
-          crop=args.crop,
-          width=width,
-          height=height,
-          resize=args.resize)
-
-    class AlignedInput():
-        def __init__(self, input1, input2):
-            self.x = input1.x
-            self.xa = input1.x
-            self.xb = input2.x
-            self.y = input1.y
-
-    aligned_input = AlignedInput(inputs, inputs2)
-    gan = hg.GAN(config=config, inputs=aligned_input)
-
+    gan = hg.GAN(config=config, inputs=inputs)
+    gan.name = config_name
 
 
 gancli = cli.CLI(gan, args=vars(args))

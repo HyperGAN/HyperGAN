@@ -86,7 +86,6 @@ class BaseDiscriminator(GANComponent):
         concats = [net]
 
         closest = gan.skip_connections.get_closest('progressive_enhancement', ops.shape(net))
-        print("Looking up shape ", ops.shape(net), 'closest', closest)
         if closest is not None:
             enhancers = gan.skip_connections.get_array('progressive_enhancement', ops.shape(closest))
 
@@ -108,8 +107,6 @@ class BaseDiscriminator(GANComponent):
                     enhance *= mask
 
             concats.append(enhance)
-        else:
-            print("Skipping progressive enhancement")
 
         if 'layer_filter' in config and config.layer_filter is not None:
             print("[discriminator] applying layer filter", config['layer_filter'])

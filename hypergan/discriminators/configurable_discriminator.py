@@ -14,6 +14,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "conv": self.layer_conv,
             "control": self.layer_controls,
             "linear": self.layer_linear,
+            "subpixel": self.layer_subpixel,
             "unpool": self.layer_unpool,
             "pad": self.layer_pad,
             "fractional_avg_pool": self.layer_fractional_avg_pool,
@@ -49,7 +50,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def parse_args(self, strs):
         options = {}
         args = []
-        print("STRS", strs)
         for x in strs:
             if '=' in x:
                 lhs, rhs = x.split('=')
@@ -63,7 +63,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         d = layer.split(' ')
         op = d[0]
-        print("layer", layer, d)
         args, options = self.parse_args(d[1:])
         
         return self.build_layer(net, op, args, options)
@@ -89,7 +88,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         initializer = None # default to global
         stddev = options.stddev or config.defaults.stddev or 0.02
         if stddev:
-            print("Constucting layer",stddev)
             initializer = ops.random_initializer(float(stddev))()
 
         if config.defaults.avg_pool:
@@ -127,16 +125,13 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             fltr = [int(fltr), int(fltr)]
         if type(stride) == type(""):
             stride = [int(stride), int(stride)]
-        print("ARGS", args)
         depth = int(args[0])
 
         initializer = None # default to global
         stddev = options.stddev or config.defaults.stddev or 0.02
         if stddev:
-            print("Constucting latyer",stddev) 
             initializer = ops.random_initializer(float(stddev))()
 
-        net = self.layer_filter(net)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
         avg_pool = options.avg_pool or config.defaults.avg_pool
         if type(avg_pool) == type(""):
@@ -145,7 +140,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             ksize = [1,avg_pool[0], avg_pool[1],1]
             stride = ksize
             net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
-            print("AVG POOL", net)
 
         if activation:
             #net = self.layer_regularizer(net)
@@ -162,7 +156,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
 
-        print("ARGS", args)
 
         size = int(args[0])
         net = ops.reshape(net, [ops.shape(net)[0], -1])
@@ -253,10 +246,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         initializer = None # default to global
         stddev = options.stddev or config.defaults.stddev or 0.02
         if stddev:
-            print("Constucting latyer",stddev) 
             initializer = ops.random_initializer(float(stddev))()
 
-        print("NET", net)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
         s = ops.shape(net)
         net = tf.depth_to_space(net, 2)
@@ -279,7 +270,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         activation = self.ops.lookup(activation_s)
         #layer_regularizer = options.layer_regularizer or config.defaults.layer_regularizer or 'null'
         #layer_regularizer = self.ops.lookup(layer_regularizer)
-        #print("___layer", layer_regularizer)
 
         stride = options.stride or config.defaults.stride or [1,1]
         fltr = options.filter or config.defaults.filter or [5,5]
@@ -290,10 +280,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         initializer = None # default to global
         stddev = options.stddev or config.defaults.stddev or 0.02
         if stddev:
-            print("Constucting latyer",stddev) 
             initializer = ops.random_initializer(float(stddev))()
 
-        print("NET", net)
         net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
         #net = layer_regularizer(net)
@@ -318,7 +306,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         stride = options.stride or config.defaults.stride or [2,2]
         fltr = options.filter or config.defaults.filter or [5,5]
-        print("ARGS", args)
         depth = int(args[0])
 
         if type(stride) != type([]):
@@ -327,7 +314,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         initializer = None # default to global
         stddev = options.stddev or config.defaults.stddev or 0.02
         if stddev:
-            print("Constucting latyer",stddev) 
             initializer = ops.random_initializer(float(stddev))()
 
         if type(fltr) == type(""):
@@ -475,5 +461,26 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         return phase_shift(net, int(args[0]), color=True)
 
+
+    def layer_subpixel(self, net, args, options):
+        options = hc.Config(options)
+        depth = int(args[0])
+        r = options.r or 2
+        r = int(r)
+        def _PS(X, r, n_out_channel):
+                if n_out_channel >= 1:
+                    bsize, a, b, c = X.get_shape().as_list()
+                    bsize = tf.shape(X)[0] # Handling Dimension(None) type for undefined batch dim
+                    Xs=tf.split(X,r,3) #b*h*w*r*r
+                    Xr=tf.concat(Xs,2) #b*h*(r*w)*r
+                    X=tf.reshape(Xr,(bsize,r*a,r*b,n_out_channel)) # b*(r*h)*(r*w)*c
+                else:
+                    print("outchannel < 0")
+                return X
+        args[0]=depth*(r**2)
+        y1 = self.layer_conv(net, args, options)
+        ps = _PS(y1, r, depth)
+        print("NETs", ps, net)
+        return ps
 
 

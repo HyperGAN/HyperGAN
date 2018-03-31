@@ -248,15 +248,11 @@ class ConfigurableGenerator(BaseGenerator):
         initializer = None # default to global
         stddev = options.stddev or config.defaults.stddev or 0.02
         if stddev:
-            print("Constucting latyer",stddev) 
             initializer = ops.random_initializer(float(stddev))()
 
-        print("NET", net)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
         s = ops.shape(net)
         net = tf.reshape(net, [s[0], s[1]*2, s[2]*2, depth])
-        print("POTNET", net)
-        self.add_progressive_enhancement(net)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)

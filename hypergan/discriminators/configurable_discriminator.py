@@ -3,17 +3,27 @@ import hyperchamber as hc
 import inspect
 import os
 
+from hypergan.ops.tensorflow.extended_ops import bicubic_interp_2d
 from .base_discriminator import BaseDiscriminator
 
 class ConfigurableDiscriminator(BaseDiscriminator):
 
     def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[]):
         self.layer_ops = {
+            "phase_shift": self.layer_phase_shift,
             "conv": self.layer_conv,
             "control": self.layer_controls,
             "linear": self.layer_linear,
+            "unpool": self.layer_unpool,
+            "pad": self.layer_pad,
+            "fractional_avg_pool": self.layer_fractional_avg_pool,
+            "bicubic_conv": self.layer_bicubic_conv,
+            "conv_double": self.layer_conv_double,
+            "conv_reshape": self.layer_conv_reshape,
             "reshape": self.layer_reshape,
             "conv_dts": self.layer_conv_dts,
+            "deconv": self.layer_deconv,
+            "resize_conv": self.layer_resize_conv,
             "squash": self.layer_squash,
             "avg_pool": self.layer_avg_pool,
             "image_statistics": self.layer_image_statistics,
@@ -221,9 +231,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_squash(self, net, args, options):
         s = self.ops.shape(net)
         batch_size = s[0]
-        mean, variance = tf.nn.moments(net, [1,2])
-        net = tf.concat([mean,variance], axis=1)
         net = tf.reshape(net, [batch_size, -1])
+        net = tf.reduce_mean(net, axis=1, keep_dims=True)
 
         return net
 
@@ -260,3 +269,211 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         self.controls[args[0]] = net
 
         return net
+
+    def layer_resize_conv(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        activation_s = options.activation or config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+        #layer_regularizer = options.layer_regularizer or config.defaults.layer_regularizer or 'null'
+        #layer_regularizer = self.ops.lookup(layer_regularizer)
+        #print("___layer", layer_regularizer)
+
+        stride = options.stride or config.defaults.stride or [1,1]
+        fltr = options.filter or config.defaults.filter or [5,5]
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+        depth = int(args[0])
+
+        initializer = None # default to global
+        stddev = options.stddev or config.defaults.stddev or 0.02
+        if stddev:
+            print("Constucting latyer",stddev) 
+            initializer = ops.random_initializer(float(stddev))()
+
+        print("NET", net)
+        net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
+        #net = layer_regularizer(net)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+        return net
+
+    def layer_bicubic_conv(self, net, args, options):
+        s = self.ops.shape(net)
+        net = bicubic_interp_2d(net, [s[1]*2, s[2]*2])
+        net = self.layer_conv(net, args, options)
+        return net
+
+    def layer_deconv(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        activation_s = options.activation or config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+
+        stride = options.stride or config.defaults.stride or [2,2]
+        fltr = options.filter or config.defaults.filter or [5,5]
+        print("ARGS", args)
+        depth = int(args[0])
+
+        if type(stride) != type([]):
+            stride = [int(stride), int(stride)]
+
+        initializer = None # default to global
+        stddev = options.stddev or config.defaults.stddev or 0.02
+        if stddev:
+            print("Constucting latyer",stddev) 
+            initializer = ops.random_initializer(float(stddev))()
+
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+
+        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+        return net
+
+
+    def layer_conv_double(self, net, args, options):
+        x1 = self.layer_conv(net, args, options)
+        y1 = self.layer_conv(net, args, options)
+        x2 = self.layer_conv(net, args, options)
+        y2 = self.layer_conv(net, args, options)
+        x = tf.concat([x1,x2],axis=1)
+        y = tf.concat([y1,y2],axis=1)
+        net = tf.concat([x,y],axis=2)
+        return net
+
+
+
+    def layer_conv_reshape(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        activation_s = options.activation or config.defaults.activation
+        activation = self.ops.lookup(activation_s)
+
+        stride = options.stride or config.defaults.stride or [1,1]
+        fltr = options.filter or config.defaults.filter or [3,3]
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+        if type(stride) == type(""):
+            stride=[int(stride), int(stride)]
+        depth = int(args[0])
+
+        initializer = None # default to global
+        stddev = options.stddev or config.defaults.stddev or 0.02
+        if stddev:
+            initializer = ops.random_initializer(float(stddev))()
+
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
+        s = ops.shape(net)
+        net = tf.reshape(net, [s[0], s[1]*2, s[2]*2, depth])
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+        return net
+
+    def layer_unpool(self, net, args, options):
+
+        def unpool_2d(pool, 
+                       ind, 
+                       stride=[1, 2, 2, 1], 
+                       scope='unpool_2d'):
+           """Adds a 2D unpooling op.
+           https://arxiv.org/abs/1505.04366
+         
+           Unpooling layer after max_pool_with_argmax.
+                Args:
+                    pool:        max pooled output tensor
+                    ind:         argmax indices
+                    stride:      stride is the same as for the pool
+                Return:
+                    unpool:    unpooling tensor
+           """
+           with tf.variable_scope(scope):
+             input_shape = tf.shape(pool)
+             output_shape = [input_shape[0], input_shape[1] * stride[1], input_shape[2] * stride[2], input_shape[3]]
+         
+             flat_input_size = tf.reduce_prod(input_shape)
+             flat_output_shape = [output_shape[0], output_shape[1] * output_shape[2] * output_shape[3]]
+         
+             pool_ = tf.reshape(pool, [flat_input_size])
+             batch_range = tf.reshape(tf.range(tf.cast(output_shape[0], tf.int64), dtype=ind.dtype), 
+                                               shape=[input_shape[0], 1, 1, 1])
+             b = tf.ones_like(ind) * batch_range
+             b1 = tf.reshape(b, [flat_input_size, 1])
+             ind_ = tf.reshape(ind, [flat_input_size, 1])
+             ind_ = tf.concat([b1, ind_], 1)
+         
+             ret = tf.scatter_nd(ind_, pool_, shape=tf.cast(flat_output_shape, tf.int64))
+             ret = tf.reshape(pool_, output_shape)
+         
+             set_input_shape = pool.get_shape()
+             set_output_shape = [set_input_shape[0], set_input_shape[1] * stride[1], set_input_shape[2] * stride[2], set_input_shape[3]]
+             ret.set_shape(set_output_shape)
+             return ret
+ 
+ 
+        options = hc.Config(options)
+        net = unpool_2d(net, tf.ones_like(net, dtype=tf.int64))
+
+        return net 
+
+
+    def layer_fractional_avg_pool(self, net, args, options):
+        options = hc.Config(options)
+        net,_,_ = tf.nn.fractional_avg_pool(net, [1.0,0.5,0.5,1.0])
+
+        return net 
+    def layer_pad(self, net, args, options):
+        options = hc.Config(options)
+        s = self.ops.shape(net)
+        sizew = s[1]//2
+        sizeh = s[2]//2
+        net,_,_ = tf.pad(net, [[0,0],[ sizew,sizew],[ sizeh,sizeh],[ 0,0]])
+
+        return net 
+
+    def layer_phase_shift(self, net, args, options):
+ 
+        def _phase_shift(I, r):
+            def _squeeze(x):
+                single_batch = (int(x.get_shape()[0]) == 1)
+                x = tf.squeeze(x)
+                if single_batch:
+                    x_shape = [1]+x.get_shape().as_list()
+                    x = tf.reshape(x, x_shape)
+                return x
+
+            # Helper function with main phase shift operation
+            bsize, a, b, c = I.get_shape().as_list()
+            X = tf.reshape(I, (bsize, a, b, r, r))
+            X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
+            X = tf.split(axis=1, num_or_size_splits=a, value=X)  # a, [bsize, b, r, r]
+            X = tf.concat(axis=2, values=[_squeeze(x) for x in X])  # bsize, b, a*r, r
+            X = tf.split(axis=1, num_or_size_splits=b, value=X)  # b, [bsize, a*r, r]
+            X = tf.concat(axis=2, values=[_squeeze(x) for x in X])  #
+            bsize, a*r, b*r
+            return tf.reshape(X, (bsize, a*r, b*r, 1))
+
+        def phase_shift(X, r, color=False):
+          # Main OP that you can arbitrarily use in you tensorflow code
+          if color:
+            Xc = tf.split(axis=3, num_or_size_splits=3, value=X)
+            X = tf.concat(axis=3, values=[_phase_shift(x, r) for x in Xc])
+          else:
+            X = _phase_shift(X, r)
+          return X
+
+        return phase_shift(net, int(args[0]), color=True)
+
+
+

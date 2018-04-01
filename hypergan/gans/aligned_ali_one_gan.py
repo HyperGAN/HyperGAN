@@ -74,12 +74,12 @@ class AlignedAliOneGAN(BaseGAN):
             uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":ue.sample})
             ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":ue.sample})
 
-            xbga = ops.concat([xb_input, ga.sample], axis=3)
-            gbxa = ops.concat([gb.sample, xa_input], axis=3)
+            xbga = ops.concat([xb_input, xa_input], axis=3)
+            gbxa = ops.concat([gb.sample, ga.sample], axis=3)
             gbga = ops.concat([ugb, uga], axis=3)
             stacked = ops.concat([xbga, gbxa, gbga], axis=0)
 
-            features = ops.concat([za, zb, ue.sample], axis=0)
+            features = ops.concat([zb, za, ue.sample], axis=0)
             d = self.create_component(config.discriminator, name='alia_discriminator', input=stacked, features=[features])
             
             l = self.create_loss(config.loss, d, xa_input, ga.sample, 3)

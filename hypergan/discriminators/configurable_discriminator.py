@@ -30,16 +30,19 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "image_statistics": self.layer_image_statistics,
             "combine_features": self.layer_combine_features,
             "resnet": self.layer_resnet,
-            "activation": self.layer_activation
+            "activation": self.layer_activation,
+            'lapsrn': self.layer_lapsrn
             }
         self.features = features
         self.controls = {}
+        
         BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse, x=x, g=g)
 
     def required(self):
         return "layers defaults".split()
 
-    def build(self, net):
+    def build(self, net, replace_controls={}):
+        self.replace_controls=replace_controls
         config = self.config
 
         for layer in config.layers:
@@ -257,6 +260,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         return net
 
     def layer_controls(self, net, args, options):
+        if args[0] in self.replace_controls:
+            return self.replace_controls[args[0]]
         self.controls[args[0]] = net
 
         return net

@@ -32,7 +32,7 @@ class BaseDiscriminator(GANComponent):
         self.sample = net
         return net
 
-    def reuse(self, net=None):
+    def reuse(self, net=None, **opts):
         config = self.config
         gan = self.gan
         ops = self.ops
@@ -50,7 +50,7 @@ class BaseDiscriminator(GANComponent):
             net = self.layer_filter(net)
 
         self.ops.reuse()
-        net = self.build(net)
+        net = self.build(net, **opts)
         self.ops.stop_reuse()
 
         return net

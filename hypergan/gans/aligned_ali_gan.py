@@ -81,8 +81,8 @@ class AlignedAliGAN(BaseGAN):
             if config.ali_z:
                 features_alia = ops.concat([za, ue.sample], axis=0)
                 features_alib = ops.concat([zb, ue.sample], axis=0)
-                uga = gb.reuse(ue.sample)
-                ugb = ga.reuse(ue.sample)
+                uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":ue.sample})
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":ue.sample})
                 stacked_alia = ops.concat([xa_input, uga], axis=0)
                 stacked_alib = ops.concat([xb_input, ugb], axis=0)
 

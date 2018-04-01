@@ -69,10 +69,13 @@ class AlignedGAN(BaseGAN):
             xab = encoder.reuse(x_input)
             cycb = encoder.reuse(xba)
 
-            stacked_xg = ops.concat([generator.sample, x_input], axis=0)
+            features_xg = ops.concat([generator.sample, x_input], axis=0)
+            features_zs = ops.concat([encoder.sample, z_input], axis=0)
+            stacked_xg = ops.concat([x_input, generator.sample], axis=0)
             stacked_zs = ops.concat([z_input, encoder.sample], axis=0)
-            standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[stacked_zs])
-            z_discriminator = self.create_component(config.discriminator, name='z_discriminator', input=stacked_zs, features=[stacked_xg])
+
+            standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
+            z_discriminator = self.create_component(config.discriminator, name='z_discriminator', input=stacked_zs, features=[features_xg])
             #z_discriminator = self.create_z_discriminator(z_input, encoder.sample)
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 2)
 

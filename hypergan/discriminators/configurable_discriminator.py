@@ -18,6 +18,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "linear": self.layer_linear,
             "subpixel": self.layer_subpixel,
             "unpool": self.layer_unpool,
+            "slice": self.layer_slice,
             "pad": self.layer_pad,
             "fractional_avg_pool": self.layer_fractional_avg_pool,
             "bicubic_conv": self.layer_bicubic_conv,

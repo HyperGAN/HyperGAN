@@ -126,7 +126,7 @@ class AliGAN(BaseGAN):
 
     def create_encoder(self, x_input, name='input_encoder'):
         config = self.config
-        input_encoder = dict(config.input_encoder or config.g_encoder or config.discriminator)
+        input_encoder = dict(config.input_encoder or config.g_encoder or config.generator)
         encoder = self.create_component(input_encoder, name=name, input=x_input)
         return encoder
 

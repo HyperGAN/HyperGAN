@@ -64,6 +64,7 @@ class AlignedGAN(BaseGAN):
                 z_control = generator.controls["z"]
             else:
                 z_control = generator.sample
+            zb = encoder.controls["z"]
             x_hat = generator.reuse(encoder.sample)
             xba = generator.reuse(z_input)
             xab = encoder.reuse(x_input)
@@ -88,6 +89,7 @@ class AlignedGAN(BaseGAN):
         self.generator = generator
         self.uniform_encoder = hc.Config({"sample":z_control})#uniform_encoder
         self.z = z_input
+        self.zb = zb
         self.z_hat = encoder.sample
         self.x_input = x_input
         self.autoencoded_x = x_hat

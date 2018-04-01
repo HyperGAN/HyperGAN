@@ -67,7 +67,7 @@ class AlignedAliGAN(BaseGAN):
 
             z_shape = self.ops.shape(za)
             uz_shape = z_shape
-            uz_shape[-1] = uz_shape[-1] // len(config.encoder.projections)
+            uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
             ue = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
             features_a = ops.concat([ga.sample, xa_input], axis=0)
             features_b = ops.concat([gb.sample, xb_input], axis=0)
@@ -78,45 +78,55 @@ class AlignedAliGAN(BaseGAN):
             db = self.create_component(config.discriminator, name='b_discriminator', input=stacked_b, features=[features_a])
             dz = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_z)
 
-            features_alia = ops.concat([zb, ue.sample], axis=0)
-            features_alib = ops.concat([za, ue.sample], axis=0)
-            stacked_alia = ops.concat([xa_input, ga.sample], axis=0)
-            stacked_alib = ops.concat([xb_input, gb.sample], axis=0)
+            if config.ali_z:
+                features_alia = ops.concat([za, ue.sample], axis=0)
+                features_alib = ops.concat([zb, ue.sample], axis=0)
+                uga = gb.reuse(ue.sample)
+                ugb = ga.reuse(ue.sample)
+                stacked_alia = ops.concat([xa_input, uga], axis=0)
+                stacked_alib = ops.concat([xb_input, ugb], axis=0)
 
-            dalia = self.create_component(config.ali_discriminator, name='alia_discriminator', input=stacked_alia, features=[features_alib])
-            dalib = self.create_component(config.ali_discriminator, name='alib_discriminator', input=stacked_alib, features=[features_alia])
+                dalia = self.create_component(config.ali_discriminator, name='alia_discriminator', input=stacked_alia, features=[features_alib])
+                dalib = self.create_component(config.ali_discriminator, name='alib_discriminator', input=stacked_alib, features=[features_alia])
+                lalia = self.create_loss(config.loss, dalia, None, None, 2)
+                lalib = self.create_loss(config.loss, dalib, None, None, 2)
 
             la = self.create_loss(config.loss, da, xa_input, ga.sample, 2)
             lb = self.create_loss(config.loss, db, xb_input, gb.sample, 2)
             lz = self.create_loss(config.loss, dz, None, None, 3)
-            lalia = self.create_loss(config.loss, dalia, None, None, 2)
-            lalib = self.create_loss(config.loss, dalib, None, None, 2)
 
-            d_vars = da.variables() + db.variables() + lz.variables() + dalia.variables() + dalib.variables()
+            d_vars = da.variables() + db.variables() + lz.variables()
+            if config.ali_z:
+                d_vars += dalia.variables() + dalib.variables()
             g_vars = ga.variables() + gb.variables()
 
-            d_loss = la.d_loss+lb.d_loss+lz.d_loss+lalib.d_loss+lalia.d_loss
-            g_loss = la.g_loss+lb.g_loss+lz.g_loss+lalib.g_loss+lalia.g_loss
-            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
-                {
+            d_loss = la.d_loss+lb.d_loss+lz.d_loss
+            g_loss = la.g_loss+lb.g_loss+lz.g_loss
+            metrics = {
                     'ga_loss': la.g_loss,
                     'gb_loss': lb.g_loss,
                     'gz_loss': lz.g_loss,
-                    'galia_loss': lalia.g_loss,
-                    'galib_loss': lalib.g_loss,
                     'da_loss': la.d_loss,
                     'db_loss': lb.d_loss,
-                    'dz_loss': lz.d_loss,
-                    'dalia_loss': lalia.d_loss,
-                    'dalib_loss': lalib.d_loss
+                    'dz_loss': lz.d_loss
                 }
-            })
+            if config.ali_z:
+                d_loss+=lalib.d_loss+lalia.d_loss
+                g_loss+=lalib.g_loss+lalia.g_loss
+                metrics['galia_loss']=lalia.g_loss
+                metrics['galib_loss']=lalib.g_loss
+                metrics['dalia_loss']=lalia.d_loss
+                metrics['dalib_loss']=lalib.d_loss
+
+            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': metrics})
             trainer = ConsensusTrainer(self, config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
         self.generator = ga
+        self.encoder = gb # this is the other gan
         self.uniform_encoder = hc.Config({"sample":za})#uniform_encoder
+        self.zb = zb
         self.z_hat = gb.sample
         self.x_input = xa_input
         self.autoencoded_x = xa_hat

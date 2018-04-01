@@ -30,8 +30,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "image_statistics": self.layer_image_statistics,
             "combine_features": self.layer_combine_features,
             "resnet": self.layer_resnet,
-            "activation": self.layer_activation,
-            'lapsrn': self.layer_lapsrn
+            "activation": self.layer_activation
             }
         self.features = features
         self.controls = {}

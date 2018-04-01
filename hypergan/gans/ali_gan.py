@@ -88,9 +88,9 @@ class AliGAN(BaseGAN):
                 net = tf.concat([x, z], axis=3)
                 return net
 
-            stacked_xg = ops.concat([generator.sample, x_input], axis=0)
-            stacked_zs = ops.concat([z, encoder.sample], axis=0)
-            standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[stacked_zs])
+            features_zs = ops.concat([encoder.sample, z_input], axis=0)
+            stacked_xg = ops.concat([x_input, generator.sample], axis=0)
+            standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 2)
 
             trainer = self.create_trainer(None, None, encoder, generator, None, standard_loss, standard_discriminator, None)

@@ -2,6 +2,8 @@ import tensorflow as tf
 import hyperchamber as hc
 import inspect
 import os
+import operator
+from functools import reduce
 
 from hypergan.ops.tensorflow.extended_ops import bicubic_interp_2d
 from .base_discriminator import BaseDiscriminator
@@ -150,6 +152,11 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
 
     def layer_linear(self, net, args, options):
+        print('--net', net)
+
+        dims = [int(x) for x in args[0].split("*")]
+        size = reduce(operator.mul, dims, 1)
+
         options = hc.Config(options)
         ops = self.ops
         config = self.config
@@ -486,5 +493,15 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         ps = _PS(y1, r, depth)
         print("NETs", ps, net)
         return ps
+
+    def layer_slice(self, net, args, options):
+        if len(args) == 0:
+            w = self.gan.width()
+            h = self.gan.height()
+        else:
+            w = int(args[0])
+            h = int(args[1])
+        net = tf.slice(net, [0,0,0,0], [-1,h,w,-1])
+        return net
 
 

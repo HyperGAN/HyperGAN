@@ -69,6 +69,9 @@ class AlignedAliOneGAN(BaseGAN):
             uz_shape = z_shape
             uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
             ue = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+            ue2 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+            ue3 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+            ue4 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
             print('ue', ue.sample)
 
             uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":ue.sample})
@@ -77,12 +80,20 @@ class AlignedAliOneGAN(BaseGAN):
             xbga = ops.concat([xb_input, xa_input], axis=3)
             gbxa = ops.concat([gb.sample, ga.sample], axis=3)
             gbga = ops.concat([ugb, uga], axis=3)
-            stacked = ops.concat([xbga, gbxa, gbga], axis=0)
 
-            features = ops.concat([zb, za, ue.sample], axis=0)
+            fa = ops.concat([zb, za], axis=3)
+            fb = ops.concat([ue.sample, ue2.sample], axis=3)
+            fc = ops.concat([ue3.sample, ue4.sample], axis=3)
+            if config.use_gbga:
+                features = ops.concat([fa, fb, fc], axis=0)
+                stack = [xbga, gbxa, gbga]
+            else:
+                features = ops.concat([fa, fb], axis=0)
+                stack = [xbga, gbxa]
+            stacked = ops.concat(stack, axis=0)
             d = self.create_component(config.discriminator, name='alia_discriminator', input=stacked, features=[features])
             
-            l = self.create_loss(config.loss, d, xa_input, ga.sample, 3)
+            l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
 
             d_vars = d.variables()
             g_vars = ga.variables() + gb.variables()

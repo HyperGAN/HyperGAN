@@ -65,7 +65,7 @@ class MultiComponent():
         data = [d for d in data if d is not None]
         ops = self.gan.ops
         if self._combine == 'concat':
-            return self.gan.ops.concat(values=data, axis=3)
+            return self.gan.ops.concat(values=data, axis=len(self.gan.ops.shape(data[0]))-1)
         elif self._combine == 'add':
             data = [ops.reshape(d,ops.shape(data[0])) for d in data]
             return self.gan.ops.add_n(data)

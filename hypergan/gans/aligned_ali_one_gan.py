@@ -52,8 +52,12 @@ class AlignedAliOneGAN(BaseGAN):
             xa_input = tf.identity(self.inputs.xa, name='xa_i')
             xb_input = tf.identity(self.inputs.xb, name='xb_i')
 
-            ga = self.create_component(config.generator, input=xb_input, name='a_generator')
-            gb = self.create_component(config.generator, input=xa_input, name='b_generator')
+            if config.same_g:
+                ga = self.create_component(config.generator, input=xb_input, name='a_generator')
+                gb = hc.Config({"sample":ga.reuse(xa_input),"controls":{"z":ga.controls['z']}, "reuse": ga.reuse})
+            else:
+                ga = self.create_component(config.generator, input=xb_input, name='a_generator')
+                gb = self.create_component(config.generator, input=xa_input, name='b_generator')
 
             za = ga.controls["z"]
             zb = gb.controls["z"]
@@ -74,29 +78,36 @@ class AlignedAliOneGAN(BaseGAN):
             ue4 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
             print('ue', ue.sample)
 
-            uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":ue.sample})
-            ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":ue.sample})
+            uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":ue3.sample})
+            ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":ue4.sample})
 
             xbga = ops.concat([xb_input, xa_input], axis=3)
             gbxa = ops.concat([gb.sample, ga.sample], axis=3)
             gbga = ops.concat([ugb, uga], axis=3)
 
             fa = ops.concat([zb, za], axis=3)
-            fb = ops.concat([ue.sample, ue2.sample], axis=3)
-            fc = ops.concat([ue3.sample, ue4.sample], axis=3)
+            fb = ops.concat([za, zb], axis=3)
+            if config.same_g:
+                fc = ops.concat([ue3.sample, ue4.sample], axis=3)
+            else:
+                fc = ops.concat([ue3.sample, ue4.sample], axis=3)
             if config.use_gbga:
                 features = ops.concat([fa, fb, fc], axis=0)
                 stack = [xbga, gbxa, gbga]
             else:
                 features = ops.concat([fa, fb], axis=0)
                 stack = [xbga, gbxa]
+            print("STACK IS", stack)
             stacked = ops.concat(stack, axis=0)
             d = self.create_component(config.discriminator, name='alia_discriminator', input=stacked, features=[features])
-            
+
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
 
             d_vars = d.variables()
-            g_vars = ga.variables() + gb.variables()
+            if config.same_g:
+                g_vars = ga.variables()
+            else:
+                g_vars = ga.variables() + gb.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss

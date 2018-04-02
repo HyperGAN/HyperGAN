@@ -78,26 +78,39 @@ class AlignedAliOneGAN(BaseGAN):
             ue4 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
             print('ue', ue.sample)
 
-            uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":ue3.sample})
-            ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":ue4.sample})
+            zua = ue.sample
+            zub = ue2.sample
 
-            xbga = ops.concat([xb_input, xa_input], axis=3)
-            gbxa = ops.concat([gb.sample, ga.sample], axis=3)
-            gbga = ops.concat([ugb, uga], axis=3)
+            uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":zua})
+            ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
 
-            fa = ops.concat([zb, za], axis=3)
-            fb = ops.concat([za, zb], axis=3)
-            if config.same_g:
-                fc = ops.concat([ue3.sample, ue4.sample], axis=3)
-            else:
-                fc = ops.concat([ue3.sample, ue4.sample], axis=3)
-            if config.use_gbga:
-                features = ops.concat([fa, fb, fc], axis=0)
-                stack = [xbga, gbxa, gbga]
-            else:
+            xa = xa_input
+            xb = xb_input
+
+            t0 = ops.concat([xb, xa], axis=3)
+            t1 = ops.concat([ugb, uga], axis=3)
+            f0 = ops.concat([za, zb], axis=3)
+            f1 = ops.concat([zub, zua], axis=3)
+            features = ops.concat([f0, f1], axis=0)
+            stack = [t0, t1]
+
+
+            if config.mess2:
+                xbxa = ops.concat([xb_input, xa_input], axis=3)
+                gbga = ops.concat([gb.sample, ga.sample], axis=3)
+                fa = ops.concat([za, zb], axis=3)
+                fb = ops.concat([za, zb], axis=3)
                 features = ops.concat([fa, fb], axis=0)
-                stack = [xbga, gbxa]
-            print("STACK IS", stack)
+                stack = [xbxa, gbga]
+ 
+            if config.mess6:
+                t1 = ops.concat([gb.sample, uga], axis=3)
+                t2 = ops.concat([gb.sample, xa], axis=3)
+                t3 = ops.concat([xb, ga.sample], axis=3)
+                t4 = ops.concat([ugb, ga.sample], axis=3)
+                features = None
+                stack = [t1, t2, t3, t4]
+
             stacked = ops.concat(stack, axis=0)
             d = self.create_component(config.discriminator, name='alia_discriminator', input=stacked, features=[features])
 

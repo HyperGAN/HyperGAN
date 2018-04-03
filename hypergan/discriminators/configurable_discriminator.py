@@ -194,19 +194,24 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
     def layer_combine_features(self, net, args, options):
         op = None
-        if len(args) > 1:
-            op = args[0]
-            layers = int(args[1])
         print("Combining features", self.features, net)
+        if(len(args) > 0):
+            op = args[0]
 
         for feature in self.features:
             if op == "conv":
                 options['stride']=[1,1]
                 options['avg_pool']=[1,1]
+                layers = int(args[1])
                 feature = self.layer_conv(feature, [layers], options)
 
-            print("Combining features", [net, feature])
-            net = tf.concat([net, feature], axis=3)
+            if op == "linear":
+                feature = self.layer_linear(feature, [args[1]], options)
+                feature = self.layer_reshape(feature, [args[2]], options)
+
+            if feature is not None:
+                print("Combining features", [net, feature])
+                net = tf.concat([net, feature], axis=3)
 
         return net
 

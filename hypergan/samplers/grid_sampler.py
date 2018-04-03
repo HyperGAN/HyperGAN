@@ -16,7 +16,9 @@ class GridSampler(BaseSampler):
         z = np.reshape(z, gan.ops.shape(z_t))
         #z = np.mgrid[-0.499:0.499:0.3, -0.499:0.499:0.13].reshape(2,-1).T
         #z = np.mgrid[-0.299:0.299:0.15, -0.299:0.299:0.075].reshape(2,-1).T
+        g = gan.session.run(gan.generator.sample, feed_dict={z_t: z})
+        e = gan.session.run(gan.encoder.sample, feed_dict={gan.inputs.xa: g})
 
         return {
-            'generator': gan.session.run(gan.generator.sample, feed_dict={z_t: z})
+            'generator': np.hstack([g,e])
         }

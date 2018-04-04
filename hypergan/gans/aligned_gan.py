@@ -98,6 +98,8 @@ class AlignedGAN(BaseGAN):
         self.cycb = cycb
         self.xba = xba
         self.xab = xab
+        self.uga = self.cyca
+        self.ugb = self.cycb
 
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')

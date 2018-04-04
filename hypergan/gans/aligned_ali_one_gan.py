@@ -160,11 +160,26 @@ class AlignedAliOneGAN(BaseGAN):
                 features = ops.concat([f0, f2], axis=0)
                 stack = [t0, t2]
 
+            if config.mess13:
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zua})
+                features = None
+                t0 = ops.concat([xa, gb.sample], axis=3)
+                t1 = ops.concat([ga.sample, xb], axis=3)
+                t2 = ops.concat([uga, ugb], axis=3)
+                stack = [t0, t1, t2]
+
+
+            if config.mess14:
+                features = None
+                t0 = ops.concat([xa, gb.sample], axis=3)
+                t1 = ops.concat([ga.sample, xb], axis=3)
+                stack = [t0, t1]
+
+
 
 
             stacked = ops.concat(stack, axis=0)
             d = self.create_component(config.discriminator, name='alia_discriminator', input=stacked, features=[features])
-
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
 
             d_vars = d.variables()
@@ -175,10 +190,61 @@ class AlignedAliOneGAN(BaseGAN):
 
             d_loss = l.d_loss
             g_loss = l.g_loss
+
             metrics = {
                     'g_loss': l.g_loss,
                     'd_loss': l.d_loss
                 }
+
+            if(config.alpha):
+                #t0 = ops.concat([zua,zub], axis=3)
+                #t1 = ops.concat([za,zb], axis=3)
+                t0 = zua
+                t1 = za
+                t2 = zb
+                netzd = tf.concat(axis=0, values=[t0,t1,t2])
+                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
+
+                print("Z_D", z_d)
+                lz = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                d_loss += lz.d_loss
+                g_loss += lz.g_loss
+                d_vars += z_d.variables()
+                metrics["a_gloss"]=lz.g_loss
+                metrics["a_dloss"]=lz.d_loss
+
+            if(config.mess13):
+                t0 = ops.concat([xb, ga.sample], axis=3)
+                t1 = ops.concat([gb.sample, xa], axis=3)
+                t2 = ops.concat([ugb, uga], axis=3)
+                stack = [t0, t1, t2]
+                features = None
+                stacked = tf.concat(axis=0, values=stack)
+                d2 = self.create_component(config.discriminator, name='align_2', input=stacked, features=[features])
+                lz = self.create_loss(config.loss, d2, xa_input, ga.sample, len(stack))
+                d_vars += d2.variables()
+
+                d_loss += lz.d_loss
+                g_loss += lz.g_loss
+                metrics["mess13_g"]=lz.g_loss
+                metrics["mess13_d"]=lz.d_loss
+
+            if(config.mess14):
+                t0 = ops.concat([xb, xa], axis=3)
+                t2 = ops.concat([ugb, uga], axis=3)
+                stack = [t0, t2]
+                features = None
+                stacked = tf.concat(axis=0, values=stack)
+                d3 = self.create_component(config.discriminator, name='align_3', input=stacked, features=[features])
+                lz = self.create_loss(config.loss, d3, xa_input, ga.sample, len(stack))
+                d_vars += d3.variables()
+
+                d_loss += lz.d_loss
+                g_loss += lz.g_loss
+                metrics["mess14_g"]=lz.g_loss
+                metrics["mess14_d"]=lz.d_loss
+
+
 
             loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': metrics})
             trainer = ConsensusTrainer(self, config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)

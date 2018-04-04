@@ -152,6 +152,15 @@ class AlignedAliOneGAN(BaseGAN):
                 features = None
                 stack = [t0, t1]
 
+            if config.mess12:
+                t0 = ops.concat([xb, xa], axis=3)
+                t2 = ops.concat([gb.sample, ga.sample], axis=3)
+                f0 = ops.concat([za, zb], axis=3)
+                f2 = ops.concat([zb, za], axis=3)
+                features = ops.concat([f0, f2], axis=0)
+                stack = [t0, t2]
+
+
 
             stacked = ops.concat(stack, axis=0)
             d = self.create_component(config.discriminator, name='alia_discriminator', input=stacked, features=[features])

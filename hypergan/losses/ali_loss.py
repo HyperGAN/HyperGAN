@@ -25,7 +25,11 @@ class AliLoss(BaseLoss):
             square = ops.lookup('square')
             d_loss = 0.5*square(d_real - b) + 0.5*square(d_fake - a)
             g_loss = 0.5*square(d_fake - c) + 0.5*square(d_real - a)
+            #g_loss = 0.5*square(d_fake - c) - d_real
 
+            #g_loss = 0.5*square(d_fake - c) + 0.5*(b-d_real)
+
+            
         elif config.type == 'wasserstein':
             d_loss = -pq+pp
             g_loss = pq-pp

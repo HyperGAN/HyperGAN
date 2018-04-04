@@ -18,6 +18,8 @@ class AlignedSampler(BaseSampler):
         xba_t = gan.xba
         xab_t = gan.xab
         xb_t = gan.inputs.xb
+        uga = gan.uga
+        ugb = gan.ugb
 
         sess = gan.session
         config = gan.config
@@ -25,7 +27,7 @@ class AlignedSampler(BaseSampler):
             self.xa_v, self.xb_v = sess.run([xa_t, xb_t])
             self.created = True
 
-        xab_v, xba_v, samplea, sampleb = sess.run([xab_t, xba_t, cyca, cycb], {xa_t: self.xa_v, xb_t: self.xb_v})
+        xab_v, xba_v, samplea, sampleb, uga_v, ugb_v = sess.run([xab_t, xba_t, cyca, cycb, uga, ugb], {xa_t: self.xa_v, xb_t: self.xb_v})
         stacks = []
         bs = gan.batch_size() // 2
         width = min(gan.batch_size(), 8)
@@ -41,6 +43,10 @@ class AlignedSampler(BaseSampler):
             stacks.append([xba_v[i*width+j] for j in range(width)])
         for i in range(1):
             stacks.append([sampleb[i*width+j] for j in range(width)])
+        for i in range(1):
+            stacks.append([uga_v[i*width+j] for j in range(width)])
+        for i in range(1):
+            stacks.append([ugb_v[i*width+j] for j in range(width)])
 
         images = np.vstack([np.hstack(s) for s in stacks])
 

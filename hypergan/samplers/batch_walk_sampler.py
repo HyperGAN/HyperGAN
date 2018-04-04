@@ -44,7 +44,7 @@ class BatchWalkSampler(BaseSampler):
         with g.as_default():
             tf.set_random_seed(1)
             return {
-                'generator': gan.session.run(gan.generator.sample, feed_dict={z_t: z_interp, inputs_t: self.input})
+                'generator': gan.session.run(gan.encoder.sample, feed_dict={z_t: z_interp, inputs_t: self.input})
             }
 
     def sample(self, path, save_samples):

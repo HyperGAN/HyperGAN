@@ -89,10 +89,12 @@ class AlignedAliOneGAN(BaseGAN):
 
             t0 = ops.concat([xb, xa], axis=3)
             t1 = ops.concat([ugb, uga], axis=3)
+            t2 = ops.concat([gb.sample, ga.sample], axis=3)
             f0 = ops.concat([za, zb], axis=3)
             f1 = ops.concat([zub, zua], axis=3)
-            features = ops.concat([f0, f1], axis=0)
-            stack = [t0, t1]
+            f2 = ops.concat([zb, za], axis=3)
+            features = ops.concat([f0, f1, f2], axis=0)
+            stack = [t0, t1, t2]
 
 
             if config.mess2:
@@ -104,12 +106,52 @@ class AlignedAliOneGAN(BaseGAN):
                 stack = [xbxa, gbga]
  
             if config.mess6:
+                t0 = ops.concat([xb, xa], axis=3)
+
                 t1 = ops.concat([gb.sample, uga], axis=3)
                 t2 = ops.concat([gb.sample, xa], axis=3)
                 t3 = ops.concat([xb, ga.sample], axis=3)
                 t4 = ops.concat([ugb, ga.sample], axis=3)
                 features = None
-                stack = [t1, t2, t3, t4]
+                stack = [t0, t1, t2, t3, t4]
+
+            if config.mess7:
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zua})
+                t0 = ops.concat([xb, ga.sample], axis=3)
+                t1 = ops.concat([ugb, uga], axis=3)
+                t2 = ops.concat([gb.sample, xa], axis=3)
+                features = None
+                stack = [t0, t1, t2]
+ 
+            if config.mess8:
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zua})
+                uga2 = ga.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
+                ugb2 = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
+                t0 = ops.concat([xb, ga.sample, xa, gb.sample], axis=3)
+                t1 = ops.concat([ugb, uga, uga2, ugb2], axis=3)
+                features = None
+                stack = [t0, t1]
+
+
+            if config.mess10:
+                t0 = ops.concat([xb, xa], axis=3)
+
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zua})
+                t1 = ops.concat([ugb, uga], axis=3)
+                t2 = ops.concat([gb.sample, xa], axis=3)
+                t3 = ops.concat([xb, ga.sample], axis=3)
+                features = None
+                stack = [t0, t1, t2, t3]
+
+            if config.mess11:
+                t0 = ops.concat([xa, xb, ga.sample, gb.sample], axis=3)
+                ugbga = ga.reuse(ugb)
+                ugagb = gb.reuse(uga)
+
+                t1 = ops.concat([ga.sample, gb.sample, uga, ugb], axis=3)
+                features = None
+                stack = [t0, t1]
+
 
             stacked = ops.concat(stack, axis=0)
             d = self.create_component(config.discriminator, name='alia_discriminator', input=stacked, features=[features])
@@ -136,7 +178,7 @@ class AlignedAliOneGAN(BaseGAN):
         self.trainer = trainer
         self.generator = ga
         self.encoder = gb # this is the other gan
-        self.uniform_encoder = hc.Config({"sample":za})#uniform_encoder
+        self.uniform_encoder = hc.Config({"sample":zb})#uniform_encoder
         self.zb = zb
         self.z_hat = gb.sample
         self.x_input = xa_input
@@ -146,6 +188,8 @@ class AlignedAliOneGAN(BaseGAN):
         self.cycb = xb_hat
         self.xba = xba
         self.xab = xab
+        self.uga = uga
+        self.ugb = ugb
 
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')

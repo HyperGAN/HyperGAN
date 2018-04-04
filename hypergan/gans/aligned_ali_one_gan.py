@@ -156,7 +156,7 @@ class AlignedAliOneGAN(BaseGAN):
                 t0 = ops.concat([xb, xa], axis=3)
                 t2 = ops.concat([gb.sample, ga.sample], axis=3)
                 f0 = ops.concat([za, zb], axis=3)
-                f2 = ops.concat([zb, za], axis=3)
+                f2 = ops.concat([zua, zub], axis=3)
                 features = ops.concat([f0, f2], axis=0)
                 stack = [t0, t2]
 

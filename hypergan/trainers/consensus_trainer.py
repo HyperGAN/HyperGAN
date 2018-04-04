@@ -43,7 +43,10 @@ class ConsensusTrainer(BaseTrainer):
         grads = d_grads + g_grads
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
-
+        for g, d_v in zip(grads,d_vars):
+            if g is None:
+                print("!!missing gradient")
+                print(d_v)
         reg = 0.5 * sum(
             tf.reduce_sum(tf.square(g)) for g in grads
         )

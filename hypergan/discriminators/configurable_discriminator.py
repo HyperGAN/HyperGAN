@@ -155,9 +155,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_linear(self, net, args, options):
         print('--net', net)
 
-        dims = [int(x) for x in args[0].split("*")]
-        size = reduce(operator.mul, dims, 1)
-
         options = hc.Config(options)
         ops = self.ops
         config = self.config

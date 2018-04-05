@@ -98,6 +98,8 @@ class AlignedAliGAN3(BaseGAN):
             d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
             loss1 = l
+            d_loss1 = l.d_loss
+            g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
             g_vars1 = gb.variables()#ga.variables()#gb.variables()# + gb.variables()
@@ -128,38 +130,69 @@ class AlignedAliGAN3(BaseGAN):
             metrics["ga_gloss"]=l.g_loss
             metrics["ga_dloss"]=l.d_loss
             loss2=l
+            g_loss2 = loss2.g_loss
+            d_loss2 = loss2.d_loss
             trainers = []
 
             if(config.alpha):
-                t0 = ops.concat([zua,zub], axis=3)
-                t1 = ops.concat([za,zb], axis=3)
-                t0 = zua
-                t1 = za
-                netzd = tf.concat(axis=0, values=[t0,t1])
-                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
-
-                print("Z_D", z_d)
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
-                loss3_vars = z_d.variables()
-                metrics["za_gloss"]=loss3.g_loss
-                metrics["za_dloss"]=loss4.d_loss
-
                 t0 = zub
                 t1 = zb
                 netzd = tf.concat(axis=0, values=[t0,t1])
-                z_d = self.create_component(config.z_discriminator, name='z2_discriminator', input=netzd)
+                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
 
-                #print("Z_D", z_d)
-                loss4 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
-                loss4_vars = z_d.variables()
-                loss4_vars += z_d.variables()
-                trainers += [ConsensusTrainer(self, config.trainer, loss = loss2, g_vars = g_vars2, d_vars = d_vars2)]
-                trainers += [ConsensusTrainer(self, config.trainer, loss = loss2, g_vars = g_vars2, d_vars = d_vars2)]
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                d_vars1 += z_d.variables()
+                metrics["za_gloss"]=loss3.g_loss
+                metrics["za_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
 
 
-            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': metrics})
-            trainers += [ConsensusTrainer(self, config.trainer, loss = loss1, g_vars = g_vars1, d_vars = d_vars1)]
-            trainers += [ConsensusTrainer(self, config.trainer, loss = loss2, g_vars = g_vars2, d_vars = d_vars2)]
+            if(config.ug):
+                t0 = xb
+                t1 = ugb
+                netzd = tf.concat(axis=0, values=[t0,t1])
+                z_d = self.create_component(config.discriminator, name='ug_discriminator', input=netzd)
+
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                d_vars1 += z_d.variables()
+                metrics["za_gloss"]=loss3.g_loss
+                metrics["za_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+
+            if(config.alpha2):
+                t0 = zua
+                t1 = za
+                netzd = tf.concat(axis=0, values=[t0,t1])
+                z_d = self.create_component(config.z_discriminator, name='z_discriminator2', input=netzd)
+
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                d_vars2 += z_d.variables()
+                metrics["za_gloss"]=loss3.g_loss
+                metrics["za_dloss"]=loss3.d_loss
+                d_loss2 += loss3.d_loss
+                g_loss2 += loss3.g_loss
+
+            if config.ug2:
+                t0 = xa
+                t1 = uga
+                netzd = tf.concat(axis=0, values=[t0,t1])
+                z_d = self.create_component(config.discriminator, name='ug_discriminator2', input=netzd)
+
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                d_vars2 += z_d.variables()
+                metrics["za_gloss"]=loss3.g_loss
+                metrics["za_dloss"]=loss3.d_loss
+                d_loss2 += loss3.d_loss
+                g_loss2 += loss3.g_loss
+
+
+
+            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
+            lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
+            trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
+            trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
             trainer = MultiTrainerTrainer(trainers)
             self.session.run(tf.global_variables_initializer())
 

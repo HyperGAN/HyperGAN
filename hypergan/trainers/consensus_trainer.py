@@ -47,6 +47,8 @@ class ConsensusTrainer(BaseTrainer):
             if g is None:
                 print("!!missing gradient")
                 print(d_v)
+                return
+        grads = [g for g in grads if g is not None]
         reg = 0.5 * sum(
             tf.reduce_sum(tf.square(g)) for g in grads
         )

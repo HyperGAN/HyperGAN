@@ -102,7 +102,7 @@ class AlignedAliGAN3(BaseGAN):
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            g_vars1 = gb.variables()#ga.variables()#gb.variables()# + gb.variables()
+            g_vars1 = gb.variables()+ga.variables()#gb.variables()# + gb.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -192,7 +192,7 @@ class AlignedAliGAN3(BaseGAN):
             lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
             lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
             trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
-            trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
+            #trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
             trainer = MultiTrainerTrainer(trainers)
             self.session.run(tf.global_variables_initializer())
 

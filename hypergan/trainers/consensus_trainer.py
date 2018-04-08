@@ -48,9 +48,9 @@ class ConsensusTrainer(BaseTrainer):
                 print("!!missing gradient")
                 print(d_v)
                 return
-        grads = [g for g in grads if g is not None]
+        grads = [g for g in grads]
         reg = 0.5 * sum(
-            tf.reduce_sum(tf.square(g)) for g in grads
+            tf.reduce_sum(tf.square(g)) for g in grads if g is not None
         )
         # Jacobian times gradiant
         Jgrads = tf.gradients(reg, allvars)

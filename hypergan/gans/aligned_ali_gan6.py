@@ -131,6 +131,17 @@ class AlignedAliGAN6(BaseGAN):
                 g_loss1 += loss3.g_loss
 
             trainers = []
+            if config.separate_alpha:
+                t0 = zub
+                t1 = zb
+                netzd = tf.concat(axis=0, values=[t0,t1])
+                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                metrics["za_gloss"]=loss3.g_loss
+                metrics["za_dloss"]=loss3.d_loss
+                g_vars1 = gb.variables()+ga.variables()#gb.variables()# + gb.variables()
+                trainers += [ConsensusTrainer(self, config.trainer, loss = loss3, g_vars = uz_to_gz.variables(), d_vars = z_d.variables())]
+
 
             lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
             #lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})

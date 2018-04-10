@@ -494,7 +494,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         args[0]=depth*(r**2)
         y1 = self.layer_conv(net, args, options)
         ps = _PS(y1, r, depth)
-        print("NETs", ps, net)
+        print("NETs", ps, y1, net)
         return ps
 
     def layer_slice(self, net, args, options):

@@ -239,7 +239,7 @@ class AliNextFrameGAN(BaseGAN):
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            g_vars1 = gb.variables()+ga.variables()
+            g_vars1 = gb.variables()+ga.variables()+uzb_to_gzb.variables()+uza_to_gza.variables()#gb.variables()# + gb.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -252,7 +252,9 @@ class AliNextFrameGAN(BaseGAN):
             ueu = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
 
             noise = ueu.sample
-            cbinput = tf.concat(values=[za, noise], axis=3)
+            #~!!!
+            cbinput = za#tf.concat(values=[za, noise], axis=3)
+            #cbinput = tf.concat(values=[za, zb, noise], axis=3)
             cainput = zb#tf.concat(values=[zb,zb,zb], axis=3)
             cb = self.create_component(config.z_generator, input=cbinput, name='zb_generator')
             ca = self.create_component(config.z_generator, input=cainput, name='za_generator')
@@ -264,39 +266,49 @@ class AliNextFrameGAN(BaseGAN):
             ub = cb.controls['u']
             ua = ca.controls['u']
 
+            ue2 = UniformEncoder(self, config.z_distribution, output_shape=[self.ops.shape(zb)[0], config.source_linear])
+            zub = ue2.sample
+            u_to_z = self.create_component(config.gz_to_uz, name='uzb_to_gzb2', input=zub)
+            cub = u_to_z.sample
+
+            zcu = cb.reuse(tf.zeros_like(cbinput), replace_controls={"z":cub})
             zcb = cb.reuse(tf.zeros_like(cbinput), replace_controls={"u":ub})
             gcb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zcb})
             self.gcb = gcb
             self.ub = ub
             t0 = zb
             t1 = cb.sample
+            t2 = zcu
             f0 = ua
             f1 = ub
-            stack = [t0, t1]
+            f2 = cub
+            stack = [t0, t1, t2]
             stacked = ops.concat(stack, axis=0)
-            features = ops.concat([f0, f1], axis=0)
+            features = ops.concat([f0, f1, f2], axis=0)
+            print("UA", features)
 
+            print("-->", stack, stacked, features)
             d2 = self.create_component(config.z_discriminator, name='zd_b', input=stacked, features=[features])
             l2 = self.create_loss(config.loss, d2, xa_input, ga.sample, len(stack))
 
-            d_loss1 += l2.d_loss 
-            g_loss1 += l2.g_loss 
+            d_loss2 = l2.d_loss 
+            g_loss2 = l2.g_loss 
             metrics['zlossd']=l2.d_loss
             metrics['zlossg']=l2.g_loss
             metrics['lossd']=l.d_loss
             metrics['lossg']=l.g_loss
 
-            g_vars1 += cb.variables()
-            d_vars1 += d2.variables()
+            g_vars2 = ca.variables() + cb.variables() + u_to_z.variables()
+            d_vars2 = d2.variables()
 
             ccontrols = cb.reuse(cbinput, replace_controls={"u":ub})
  
             trainers = []
 
             lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
-            #lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
+            lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
             trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
-            #trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
+            trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
             trainer = MultiTrainerTrainer(trainers)
             self.session.run(tf.global_variables_initializer())
 

@@ -15,7 +15,19 @@ from hypergan.search.alphagan_random_search import AlphaGANRandomSearch
 from hypergan.gans.base_gan import BaseGAN
 from common import *
 
+import copy
+
 from hypergan.gans.alpha_gan import AlphaGAN
+
+from hypergan.gan_component import ValidationException, GANComponent
+from hypergan.gans.base_gan import BaseGAN
+
+from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
+from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.trainers.multi_step_trainer import MultiStepTrainer
+from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
+from hypergan.trainers.consensus_trainer import ConsensusTrainer
+
 
 arg_parser = ArgumentParser("render next frame")
 arg_parser.add_image_arguments()
@@ -37,21 +49,6 @@ if args.action == 'search':
         # TODO Other search terms?
     else:
         config = random_config
-
-def add_prev_frames_g(gan, config, net):
-    x1 = gan.layer_1
-    x2 = gan.layer_2
-    print("!!layer", x1, x2)
-    s = [int(x) for x in net.get_shape()]
-    s[3]*=2
-    print("S IS ", s)
-    shape = [s[1], s[2]]
-    x = tf.concat([x1,x2], axis=3)
-    x = tf.image.resize_images(x, shape, 1)
-
-    return x
-
-config['generator']['layer_filter']=add_prev_frames_g
 
 class VideoFrameLoader:
     """
@@ -148,84 +145,276 @@ inputs.create(args.directory,
 
 save_file = "save/model.ckpt"
 
-class NextFrameGAN(BaseGAN):
+class AliNextFrameGAN(BaseGAN):
     """ 
     """
     def __init__(self, *args, **kwargs):
-        self.discriminator = None
-        self.encoder = None
-        self.generator = None
-        self.loss = None
-        self.trainer = None
-        self.session = None
-        self.layer_1 = kwargs['inputs'].x1
-        self.layer_2 = kwargs['inputs'].x2
         BaseGAN.__init__(self, *args, **kwargs)
 
     def required(self):
-        return "generator".split()
+        """
+        `input_encoder` is a discriminator.  It encodes X into Z
+        `discriminator` is a standard discriminator.  It measures X, reconstruction of X, and G.
+        `generator` produces two samples, input_encoder output and a known random distribution.
+        """
+        return "generator discriminator ".split()
 
     def create(self):
         config = self.config
+        ops = self.ops
 
         with tf.device(self.device):
-            if self.session is None: 
-                self.session = self.ops.new_session(self.ops_config)
+            #x_input = tf.identity(self.inputs.x, name='input')
+            last_frame_1 = tf.identity(self.inputs.x1, name='x1_t')
+            last_frame_2 = tf.identity(self.inputs.x2, name='x2_t')
+            xa_input = tf.concat(values=[last_frame_1, last_frame_2], axis=3)#tf.identity(self.inputs.xa, name='xa_i')
+            xb_input = tf.identity(self.inputs.x3, name='xb_i')
 
-            #this is in a specific order
-            if self.encoder is None and config.encoder:
-                self.encoder = self.create_component(config.encoder)
-                self.uniform_encoder = self.encoder
-            if self.generator is None and config.generator:
-                self.generator = self.create_component(config.generator)
-                self.autoencoded_x = self.generator.sample
-                self.uniform_sample = self.generator.sample
+            if config.same_g:
+                ga = self.create_component(config.generator, input=xb_input, name='a_generator')
+                gb = hc.Config({"sample":ga.reuse(xa_input),"controls":{"z":ga.controls['z']}, "reuse": ga.reuse})
+            else:
+                hack_gen = config.generator
+                hack_gen['layers'][-1] = "subpixel 6 avg_pool=1 activation=null"
+                ga = self.create_component(hack_gen, input=xb_input, name='a_generator')
+                hack_gen['layers'][-1] = "subpixel 3 avg_pool=1 activation=null"
+                gb = self.create_component(hack_gen, input=xa_input, name='b_generator')
 
-            if self.discriminator is None and config.discriminator:
-                x1 = self.inputs.x1
-                x2 = self.inputs.x2
-                x3 = self.inputs.x3
-                g = self.generator.sample
-                real_frames = [x1,x2,x3]
-                gen_frames = [x1,x2,g]
-                real_frames = tf.concat(real_frames, axis=3)
-                gen_frames = tf.concat(gen_frames, axis=3)
-                stacked = [real_frames, gen_frames]
-                stacked_xg = tf.concat(stacked, axis=0)
-                self.discriminator = self.create_component(config.discriminator, name="discriminator", input=stacked_xg)
-            if self.loss is None and config.loss:
-                self.loss = self.create_component(config.loss)
-                self.metrics = self.loss.metrics
-            if self.trainer is None and config.trainer:
-                self.trainer = self.create_component(config.trainer)
+            za = ga.controls["z"]
+            zb = gb.controls["z"]
 
-            self.random_z = tf.random_uniform(self.ops.shape(self.encoder.sample), -1, 1, name='random_z')
+            self.uniform_sample = ga.sample
 
+            xba = ga.sample
+            xab = gb.sample
+            #xa_hat = ga.reuse(gb.sample)
+            #xb_hat = gb.reuse(ga.sample)
+
+            z_shape = self.ops.shape(za)
+            uz_shape = z_shape
+            uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
+            ue = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+            ue2 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+            ue3 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+            ue4 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+            print('ue', ue.sample)
+
+            zua = ue.sample
+            zub = ue2.sample
+
+            ue2 = UniformEncoder(self, config.z_distribution, output_shape=[self.ops.shape(zb)[0], config.source_linear])
+            zub = ue2.sample
+            uzb_to_gzb = self.create_component(config.uz_to_gz, name='uzb_to_gzb', input=zub)
+            zub = uzb_to_gzb.sample
+            sourcezub = zub
+
+            ue2 = UniformEncoder(self, config.z_distribution, output_shape=[self.ops.shape(za)[0], config.source_linear])
+            zua = ue2.sample
+            uza_to_gza = self.create_component(config.uz_to_gz, name='uza_to_gza', input=zua)
+            zua = uza_to_gza.sample
+            sourcezua = zua
+ 
+            ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
+            uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":zua})
+
+            xa = xa_input
+            xb = xb_input
+
+            t0 = xb
+            t1 = gb.sample
+            t2 = ugb
+            f0 = za
+            f1 = zb
+            f2 = zub
+            stack = [t0, t1, t2]
+            stacked = ops.concat(stack, axis=0)
+            features = ops.concat([f0, f1, f2], axis=0)
+
+            d = self.create_component(config.discriminator, name='d_b', input=stacked, features=[features])
+            l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
+            loss1 = l
+            d_loss1 = l.d_loss
+            g_loss1 = l.g_loss
+
+            d_vars1 = d.variables()
+
+            d_loss = l.d_loss
+            g_loss = l.g_loss
+
+            metrics = {}
+
+
+
+
+            t0 = xa
+            t1 = ga.sample
+            t2 = uga
+            f0 = zb
+            f1 = za
+            f2 = zua
+            stack = [t0, t1, t2]
+            stacked = ops.concat(stack, axis=0)
+            features = ops.concat([f0, f1, f2], axis=0)
+
+            d = self.create_component(config.discriminator, name='d_a', input=stacked, features=[features])
+            l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
+            loss2 = l
+            d_loss2 = l.d_loss
+            g_loss2 = l.g_loss
+
+            d_vars2 = d.variables()
+            g_vars1 = gb.variables()+ga.variables()+uzb_to_gzb.variables()#gb.variables()# + gb.variables()
+            g_vars2 = gb.variables()+ga.variables()+uza_to_gza.variables()#gb.variables()# + gb.variables()
+
+            metrics['gb_gloss']=g_loss1
+            metrics['gb_dloss']=d_loss1
+            metrics['ga_gloss']=g_loss2
+            metrics['ga_dloss']=d_loss2
+
+            if config.alpha:
+                t0 = zb
+                t1 = zub
+                netzd = tf.concat(axis=0, values=[t0,t1])
+                z_d = self.create_component(config.z_discriminator, name='alpha_discriminator', input=netzd)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                metrics["alpha_gloss"]=loss3.g_loss
+                metrics["alpha_dloss"]=loss3.d_loss
+                d_vars1 += z_d.variables()
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+
+ 
+            trainers = []
+
+            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
+            lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
+            trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
+            trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
+            trainer = MultiTrainerTrainer(trainers)
             self.session.run(tf.global_variables_initializer())
+
+        self.trainer = trainer
+        self.generator = ga
+        self.encoder = hc.Config({"sample":ugb}) # this is the other gan
+        self.uniform_encoder = hc.Config({"sample":zub})#uniform_encoder
+        self.uniform_encoder_source = hc.Config({"sample":sourcezub})#uniform_encoder
+        self.zb = zb
+        self.z_hat = gb.sample
+        self.x_input = xa_input
+
+        self.xba = xba
+        self.xab = xab
+        self.uga = uga
+        self.ugb = ugb
+
+        rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
+        self.last_frame_1 = last_frame_1
+        self.last_frame_2 = last_frame_2
+        self.next_frame = gb.sample
+        self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
+
+
+    def create_loss(self, loss_config, discriminator, x, generator, split):
+        loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator, split=split)
+        return loss
+
+    def create_encoder(self, x_input, name='input_encoder'):
+        config = self.config
+        input_encoder = dict(config.input_encoder or config.g_encoder or config.generator)
+        encoder = self.create_component(input_encoder, name=name, input=x_input)
+        return encoder
+
+    def create_z_discriminator(self, z, z_hat):
+        config = self.config
+        z_discriminator = dict(config.z_discriminator or config.discriminator)
+        z_discriminator['layer_filter']=None
+        net = tf.concat(axis=0, values=[z, z_hat])
+        encoder_discriminator = self.create_component(z_discriminator, name='z_discriminator', input=net)
+        return encoder_discriminator
+
+    def create_cycloss(self, x_input, x_hat):
+        config = self.config
+        ops = self.ops
+        distance = config.distance or ops.lookup('l1_distance')
+        pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+        cycloss_lambda = config.cycloss_lambda
+        if cycloss_lambda is None:
+            cycloss_lambda = 10
+        
+        if(len(pe_layers) > 0):
+            mask = self.progressive_growing_mask(len(pe_layers)//2+1)
+            cycloss = tf.reduce_mean(distance(mask*x_input,mask*x_hat))
+
+            cycloss *= mask
+        else:
+            cycloss = tf.reduce_mean(distance(x_input, x_hat))
+
+        cycloss *= cycloss_lambda
+        return cycloss
+
+
+    def create_z_cycloss(self, z, x_hat, encoder, generator):
+        config = self.config
+        ops = self.ops
+        total = None
+        distance = config.distance or ops.lookup('l1_distance')
+        if config.z_hat_lambda:
+            z_hat_cycloss_lambda = config.z_hat_cycloss_lambda
+            recode_z_hat = encoder.reuse(x_hat)
+            z_hat_cycloss = tf.reduce_mean(distance(z_hat,recode_z_hat))
+            z_hat_cycloss *= z_hat_cycloss_lambda
+        if config.z_cycloss_lambda:
+            recode_z = encoder.reuse(generator.reuse(z))
+            z_cycloss = tf.reduce_mean(distance(z,recode_z))
+            z_cycloss_lambda = config.z_cycloss_lambda
+            if z_cycloss_lambda is None:
+                z_cycloss_lambda = 0
+            z_cycloss *= z_cycloss_lambda
+
+        if config.z_hat_lambda and config.z_cycloss_lambda:
+            total = z_cycloss + z_hat_cycloss
+        elif config.z_cycloss_lambda:
+            total = z_cycloss
+        elif config.z_hat_lambda:
+            total = z_hat_cycloss
+        return total
+
+
 
     def input_nodes(self):
         "used in hypergan build"
-        return [
-                self.uniform_encoder.sample
+        if hasattr(self.generator, 'mask_generator'):
+            extras = [self.mask_generator.sample]
+        else:
+            extras = []
+        return extras + [
+                self.x_input
         ]
+
 
     def output_nodes(self):
         "used in hypergan build"
-        return [
-                self.uniform_sample,
-                self.random_z
-        ]
 
+    
+        if hasattr(self.generator, 'mask_generator'):
+            extras = [
+                self.mask_generator.sample, 
+                self.generator.g1x,
+                self.generator.g2x
+            ]
+        else:
+            extras = []
+        return extras + [
+                self.encoder.sample,
+                self.generator.sample, 
+                self.uniform_sample,
+                self.generator_int
+        ]
 class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         self.z = None
 
-        #self.last_frame_1 = gan.session.run(tf.ones_like(gan.inputs.x)*-1)
-        #self.last_frame_2 = gan.session.run(tf.ones_like(gan.inputs.x)*-1)
-        self.last_frame_1 = gan.session.run(gan.inputs.x1)
-        self.last_frame_2 = gan.session.run(gan.inputs.x2)
-        #self.last_frame_1 = gan.session.run(tf.zeros_like(gan.inputs.x))
-        #self.last_frame_2 = gan.session.run(tf.zeros_like(gan.inputs.x))
+        self.last_frame_1, self.last_frame_2 = gan.session.run([gan.inputs.x1, gan.inputs.x2])
 
         self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
@@ -233,15 +422,13 @@ class VideoFrameSampler(BaseSampler):
     def _sample(self):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
-        next_frame = gan.session.run(gan.g_blank3, {gan.g_blank2: self.last_frame_2, gan.g_blank: self.last_frame_1})
+        next_frame = gan.session.run(gan.next_frame, {gan.last_frame_2: self.last_frame_2, gan.last_frame_1: self.last_frame_1})
         self.last_frame_1 = self.last_frame_2
         self.last_frame_2 = next_frame
         self.i += 1
-        if self.i > 600:
-            self.last_frame_1 = np.zeros_like(self.last_frame_1)
-            self.last_frame_2 = np.zeros_like(self.last_frame_1)
-            self.last_frame_1 = gan.session.run(gan.inputs.x1)
-            self.last_frame_2 = gan.session.run(gan.inputs.x2)
+        if self.i > 120:
+            self.last_frame_1, self.last_frame_2 = gan.session.run([gan.inputs.x1, gan.inputs.x2])
+
             self.i = 0
 
         return {
@@ -249,136 +436,29 @@ class VideoFrameSampler(BaseSampler):
         }
 
 
+class TrainingVideoFrameSampler(BaseSampler):
+    def __init__(self, gan, samples_per_row=8):
+        self.z = None
 
-class ProgressiveNextFrameGAN(BaseGAN):
-    """ 
-    """
-    def __init__(self, *args, **kwargs):
-        self.discriminator = None
-        self.encoder = None
-        self.generator = None
-        self.loss = None
-        self.trainer = None
-        self.session = None
-        self.layer_1 = kwargs['inputs'].x1
-        self.layer_2 = kwargs['inputs'].x2
+        self.last_frame_1, self.last_frame_2 = gan.session.run([gan.inputs.x1, gan.inputs.x2])
 
-        BaseGAN.__init__(self, *args, **kwargs)
+        self.i = 0
+        BaseSampler.__init__(self, gan, samples_per_row)
 
-    def required(self):
-        return "generator".split()
+    def _sample(self):
+        gan = self.gan
+        z_t = gan.uniform_encoder.sample
+        next_frame = gan.session.run(gan.next_frame, {gan.last_frame_2: self.last_frame_2, gan.last_frame_1: self.last_frame_1})
+        self.i += 1
 
-    def create(self):
-        config = self.config
+        return {
+            'generator': np.vstack([self.last_frame_1, self.last_frame_2, next_frame])
+        }
 
-        with tf.device(self.device):
-            if self.session is None: 
-                self.session = self.ops.new_session(self.ops_config)
-
-            #this is in a specific order
-            if self.encoder is None and config.encoder:
-                self.encoder = self.create_component(config.encoder)
-                self.uniform_encoder = self.encoder
-
-            l1 = self.inputs.x1
-            l2 = self.inputs.x2
-            shape = [int(x) for x in self.inputs.x2.get_shape()]
-            if self.generator is None and config.generator:
-                self.generator = self.create_component(config.generator)
-                self.autoencoded_x = self.generator.sample
-
-            if self.discriminator is None and config.discriminator:
-                x1 = self.inputs.x1
-                x2 = self.inputs.x2
-                x3 = self.inputs.x3
-
-                self.layer_1 = tf.zeros_like(x1)
-                self.layer_2 = tf.zeros_like(x2)
-                g_blank = self.generator.reuse(net=self.uniform_encoder.create())
-                self.layer_1 = tf.zeros_like(x1)
-                self.layer_2 = g_blank
-                g_blank2 = self.generator.reuse(net=self.uniform_encoder.create())
-                self.layer_1 = g_blank
-                self.layer_2 = g_blank2
-                g_blank3 = self.generator.reuse(net=self.uniform_encoder.create())
-                self.layer_1 = g_blank2
-                self.layer_2 = g_blank3
-                g_blank4 = self.generator.reuse(net=self.uniform_encoder.create())
-                self.layer_1 = g_blank3
-                self.layer_2 = g_blank4
-                g_blank5 = self.generator.reuse(net=self.uniform_encoder.create())
-                self.layer_1 = g_blank4
-                self.layer_2 = g_blank5
-                g_blank6 = self.generator.reuse(net=self.uniform_encoder.create())
-                gen_blank = [g_blank, g_blank2, g_blank3]
-                gen_blank2 = [g_blank4, g_blank5, g_blank6]
-                gen_blank_frames = tf.concat(gen_blank, axis=3)
-                gen_blank2_frames = tf.concat(gen_blank2, axis=3)
-                #self.layer_1 = tf.assign(self.layer_1, x1)
-                #self.layer_2 = tf.assign(self.layer_2, x2)
-                self.layer_1 = x1
-                self.layer_2 = x2
-                g = self.generator.reuse(net=self.uniform_encoder.create())
-                real_frames = [x1,x2,x3]
-                gen1_frames = [x1,x2,g]
-                real_frames = tf.concat(real_frames, axis=3)
-                gen1_frames = tf.concat(gen1_frames, axis=3)
-                #self.layer_1 = tf.assign(self.layer_1, x2)
-                #self.layer_2 = tf.assign(self.layer_2, g)
-                self.layer_1 = x2
-                self.layer_2 = g
-                g2 = self.generator.reuse(net=self.uniform_encoder.create())
-                gen2_frames = tf.concat([x2,g,g2], axis=3)
-                #self.layer_1 = tf.assign(self.layer_1, g)
-                #self.layer_2 = tf.assign(self.layer_2, g2)
-                self.layer_1 = g
-                self.layer_2 = g2
-                g3 = self.generator.reuse(net=self.uniform_encoder.create())
-                gen3_frames = tf.concat([g,g2,g3], axis=3)
-                stacked = [real_frames, gen1_frames, gen2_frames, gen3_frames, gen_blank_frames, gen_blank2_frames]
-                self.g_blank3 = g_blank3
-                self.g_blank2 = g_blank2
-                self.g_blank = g_blank
-                self.seq = [x1,x2, x3,g,g2,g3, g_blank, g_blank2, g_blank3, g_blank4, g_blank5, g_blank6]
-                stacked_xg = tf.concat(stacked, axis=0)
-                self.next_frame=g3
-                self.discriminator = self.create_component(config.discriminator, name="discriminator", input=stacked_xg)
-            if self.loss is None and config.loss:
-                self.uniform_sample = g3 #HACK for rothk
-                self.loss = self.create_component(config.loss, split=len(stacked))
-                #self.uniform_sample = g_random
-                #xg_stack = tf.concat([x1,g_random], axis=0)
-                #d2 = self.create_component(config.discriminator, name='d2', input=xg_stack)
-                #loss2 = self.create_component(config.loss, discriminator=d2)
-                #print("D_LOSS", loss2, loss2.d_loss, loss2.g_loss)
-                #self.discriminator = d2
-                #self.loss.sample[0] += loss2.d_loss
-                #self.loss.sample[1] += loss2.g_loss
-                #print("ADDING")
-                self.metrics = self.loss.metrics
-            if self.trainer is None and config.trainer:
-                self.trainer = self.create_component(config.trainer, d_vars = self.discriminator.variables())
-                #self.trainer = self.create_component(config.trainer, d_vars = self.discriminator.variables())# + d2.variables())
-
-            self.random_z = tf.random_uniform(self.ops.shape(self.encoder.sample), -1, 1, name='random_z')
-
-            self.session.run(tf.global_variables_initializer())
-
-    def input_nodes(self):
-        "used in hypergan build"
-        return [
-                self.uniform_encoder.sample
-        ]
-
-    def output_nodes(self):
-        "used in hypergan build"
-        return [
-                self.random_z
-        ]
 
 
 def setup_gan(config, inputs, args):
-    gan = ProgressiveNextFrameGAN(config, inputs=inputs)
+    gan = AliNextFrameGAN(config, inputs=inputs)
 
     if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)
@@ -394,11 +474,11 @@ def setup_gan(config, inputs, args):
 
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
-    sampler = lookup_sampler(args.sampler or DebugSampler)(gan)
+    sampler = lookup_sampler(args.sampler or TrainingVideoFrameSampler)(gan)
     samples = 0
 
-    metrics = [batch_accuracy(gan.inputs.x, gan.uniform_sample), batch_diversity(gan.uniform_sample)]
-    sum_metrics = [0 for metric in metrics]
+    #metrics = [batch_accuracy(gan.inputs.x, gan.uniform_sample), batch_diversity(gan.uniform_sample)]
+    #sum_metrics = [0 for metric in metrics]
     for i in range(args.steps):
         gan.step()
 
@@ -411,13 +491,13 @@ def train(config, inputs, args):
             samples += 1
             sampler.sample(sample_file, args.save_samples)
 
-        if i > args.steps * 9.0/10:
-            for k, metric in enumerate(gan.session.run(metrics)):
-                print("Metric "+str(k)+" "+str(metric))
-                sum_metrics[k] += metric 
+        #if i > args.steps * 9.0/10:
+        #    for k, metric in enumerate(gan.session.run(metrics)):
+        #        print("Metric "+str(k)+" "+str(metric))
+        #        sum_metrics[k] += metric 
 
     tf.reset_default_graph()
-    return sum_metrics
+    return []#sum_metrics
 
 def sample(config, inputs, args):
     gan = setup_gan(config, inputs, args)

@@ -255,14 +255,14 @@ class AliNextFrameGAN(BaseGAN):
             cbinput = tf.concat(values=[za, noise], axis=3)
             cainput = zb#tf.concat(values=[zb,zb,zb], axis=3)
             cb = self.create_component(config.z_generator, input=cbinput, name='zb_generator')
-            #ca = self.create_component(config.z_generator, input=cainput, name='za_generator')
+            ca = self.create_component(config.z_generator, input=cainput, name='za_generator')
             z_shape = self.ops.shape(cb.controls['u'])
             uz_shape = z_shape
             uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
             ueu2 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
  
             ub = cb.controls['u']
-            ua = ueu2.sample#ca.controls['u']
+            ua = ca.controls['u']
 
             zcb = cb.reuse(tf.zeros_like(cbinput), replace_controls={"u":ub})
             gcb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zcb})
@@ -435,7 +435,11 @@ class VideoFrameSampler(BaseSampler):
         self.last_frame_1 = self.last_frame_2
         self.last_frame_2 = next_frame
         self.ub = gan.session.run(gan.ub, {gan.last_frame_1: self.last_frame_1, gan.last_frame_2:self.last_frame_2})
+        import time
+        time.sleep(0.1)
         return {
+
+
             'generator': next_frame
         }
 

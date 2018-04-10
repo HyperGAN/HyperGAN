@@ -271,11 +271,12 @@ class AliNextFrameGAN(BaseGAN):
             u_to_z = self.create_component(config.gz_to_uz, name='uzb_to_gzb2', input=zub)
             cub = u_to_z.sample
 
-            zcu = cb.reuse(tf.zeros_like(cbinput), replace_controls={"z":cub})
+            zcu = cb.reuse(tf.zeros_like(cbinput), replace_controls={"u":cub})
             zcb = cb.reuse(tf.zeros_like(cbinput), replace_controls={"u":ub})
             gcb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zcb})
             self.gcb = gcb
-            self.ub = ub
+            self.ub = gb.controls['z']
+            self.za = za
             t0 = zb
             t1 = cb.sample
             t2 = zcu
@@ -434,7 +435,7 @@ class VideoFrameSampler(BaseSampler):
         self.z = None
 
         self.last_frame_1, self.last_frame_2 = gan.session.run([gan.inputs.x1, gan.inputs.x2])
-        self.ub, self.gcb = gan.session.run([gan.ub, gan.gcb])
+        self.ub, self.gcb = gan.session.run([gan.za, gan.gcb])
 
         self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
@@ -444,11 +445,7 @@ class VideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
 
         next_frame = gan.session.run(gan.gcb, {gan.ub: self.ub})
-        self.last_frame_1 = self.last_frame_2
-        self.last_frame_2 = next_frame
-        self.ub = gan.session.run(gan.ub, {gan.last_frame_1: self.last_frame_1, gan.last_frame_2:self.last_frame_2})
-        import time
-        time.sleep(0.1)
+        self.ub = gan.session.run(gan.ub, {gan.za: self.ub})
         return {
 
 

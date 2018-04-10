@@ -230,7 +230,7 @@ class AliNextFrameGAN(BaseGAN):
             f2 = zub
             stack = [t0, t1, t2]
             stacked = ops.concat(stack, axis=0)
-            features = ops.concat([f0, f1, f2], axis=0)
+            features = ops.concat([f0, f1, f2])#, f2], axis=0)
 
             d = self.create_component(config.discriminator, name='d_b', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
@@ -250,14 +250,24 @@ class AliNextFrameGAN(BaseGAN):
             uz_shape = z_shape
             uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
             ueu = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
- 
+
             noise = ueu.sample
-            cb = self.create_component(config.z_generator, input=tf.concat(values=[zb, za, noise], axis=3), name='zb_generator')
-            ca = self.create_component(config.z_generator, input=zb, name='za_generator')
-
+            cbinput = tf.concat(values=[za, noise], axis=3)
+            cainput = zb#tf.concat(values=[zb,zb,zb], axis=3)
+            cb = self.create_component(config.z_generator, input=cbinput, name='zb_generator')
+            #ca = self.create_component(config.z_generator, input=cainput, name='za_generator')
+            z_shape = self.ops.shape(cb.controls['u'])
+            uz_shape = z_shape
+            uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
+            ueu2 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+ 
             ub = cb.controls['u']
-            ua = ca.controls['u']
+            ua = ueu2.sample#ca.controls['u']
 
+            zcb = cb.reuse(tf.zeros_like(cbinput), replace_controls={"u":ub})
+            gcb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zcb})
+            self.gcb = gcb
+            self.ub = ub
             t0 = zb
             t1 = cb.sample
             f0 = ua
@@ -276,10 +286,10 @@ class AliNextFrameGAN(BaseGAN):
             metrics['lossd']=l.d_loss
             metrics['lossg']=l.g_loss
 
-            g_vars1 += cb.variables() + ca.variables()
+            g_vars1 += cb.variables()
             d_vars1 += d2.variables()
 
-            ccontrols = gb.reuse(tf.zeros_like(xa_input), replace_controls={"u":ub})
+            ccontrols = cb.reuse(cbinput, replace_controls={"u":ub})
  
             trainers = []
 
@@ -307,7 +317,7 @@ class AliNextFrameGAN(BaseGAN):
         self.ugb = ugb
 
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
-        self.next_frame = gb.sample
+        self.next_frame = gcb
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
 
 
@@ -411,6 +421,8 @@ class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         self.z = None
 
+        self.last_frame_1, self.last_frame_2 = gan.session.run([gan.inputs.x1, gan.inputs.x2])
+        self.ub, self.gcb = gan.session.run([gan.ub, gan.gcb])
 
         self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
@@ -418,15 +430,11 @@ class VideoFrameSampler(BaseSampler):
     def _sample(self):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
-        next_frame = gan.session.run(gan.next_frame, {gan.last_frame_2: self.last_frame_2, gan.last_frame_1: self.last_frame_1})
+
+        next_frame = gan.session.run(gan.gcb, {gan.ub: self.ub})
         self.last_frame_1 = self.last_frame_2
         self.last_frame_2 = next_frame
-        self.i += 1
-        if self.i > 120:
-            self.last_frame_1, self.last_frame_2 = gan.session.run([gan.inputs.x1, gan.inputs.x2])
-
-            self.i = 0
-
+        self.ub = gan.session.run(gan.ub, {gan.last_frame_1: self.last_frame_1, gan.last_frame_2:self.last_frame_2})
         return {
             'generator': next_frame
         }
@@ -437,6 +445,7 @@ class TrainingVideoFrameSampler(BaseSampler):
         self.z = None
 
         self.last_frame_1, self.last_frame_2 = gan.session.run([gan.inputs.x1, gan.inputs.x2])
+        self.ub, self.gcb = gan.session.run([gan.ub, gan.gcb])
         self.c = gan.c
 
         self.i = 0
@@ -446,13 +455,14 @@ class TrainingVideoFrameSampler(BaseSampler):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
         
-        next_frame = gan.session.run(gan.c, {gan.last_frame_2: self.last_frame_2, gan.last_frame_1: self.last_frame_1})
-        next_frame2 = gan.session.run(gan.c, {gan.last_frame_2: next_frame, gan.last_frame_1: self.last_frame_2})
-        self.i += 1
 
+        next_frame = gan.session.run(gan.gcb, {gan.ub: self.ub})
+        self.ub = gan.session.run(gan.ub, {gan.last_frame_1: self.last_frame_1, gan.last_frame_2:self.last_frame_2})
+        next_frame2 = gan.session.run(gan.gcb, {gan.ub: self.ub})
         return {
             'generator': np.vstack([self.last_frame_1, self.last_frame_2, next_frame, next_frame2])
         }
+
 
 
 

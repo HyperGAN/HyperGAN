@@ -190,13 +190,23 @@ class AliNextFrameGAN(BaseGAN):
             zua = ue.sample
             zub = ue2.sample
 
-            #x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":z})
-            ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":ue2.sample})
+            if config.use_indirect_noise:
+                ue2 = UniformEncoder(self, config.z_distribution, output_shape=[self.ops.shape(z)[0], config.source_linear])
+                uz_to_gz = self.create_component(config.uz_to_gz, name='uz_to_gz', input=ue2.sample)
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":uz_to_gz.sample})
 
-            t0 = x_input
-            t1 = ugb
-            f0 = z
-            f1 = ue2.sample
+                t0 = x_input
+                t1 = ugb
+                f0 = z
+                f1 = uz_to_gz.sample
+            else:
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":ue2.sample})
+
+                t0 = x_input
+                t1 = ugb
+                f0 = z
+                f1 = ue2.sample
+
             stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
@@ -209,6 +219,8 @@ class AliNextFrameGAN(BaseGAN):
 
             d_vars1 = d.variables()
             g_vars1 = generator.variables()
+            if config.use_indirect_noise:
+                g_vars1 += uz_to_gz.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -250,14 +262,28 @@ class AliNextFrameGAN(BaseGAN):
 
             self.cz_next = cz.reuse(c_t_prev)
 
+            if config.use_indirect_noise_c:
+                ue2 = UniformEncoder(self, config.z_distribution, output_shape=[self.ops.shape(c_random)[0], config.u_c_dims])
+                u_to_c = self.create_component(config.u_to_c, name='u_to_c', input=ue2.sample)
 
-            t0 = z
-            t1 = cz.sample
-            f0 = c_t_prev
-            f1 = c_random
-            stack = [t0, t1]
-            stacked = ops.concat(stack, axis=0)
-            features = ops.concat([f0, f1], axis=0)
+                t0 = z
+                t1 = cz.sample
+                f0 = c_t_prev
+                f1 = u_to_c.sample
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+
+                g_vars2 += u_to_c.variables()
+
+            else:
+                t0 = z
+                t1 = cz.sample
+                f0 = c_t_prev
+                f1 = c_random
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
 
             print("sizes", stacked, features)
 

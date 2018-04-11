@@ -252,7 +252,12 @@ class AliNextFrameGAN(BaseGAN):
             ue = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
             c_random = ue.sample
 
-            cz = self.create_component(config.c_to_z, name='c_to_z', input=c_random)
+            if config.use_indirect_noise_c:
+                u_to_c = self.create_component(config.u_to_c, name='u_to_c', input=c_random)
+                cz = self.create_component(config.c_to_z, name='c_to_z', input=u_to_c.sample)
+                print("U_TO", u_to_c.sample, c_random) 
+            else:
+                cz = self.create_component(config.c_to_z, name='c_to_z', input=c_random)
 
             print("CCZ", cz.sample, z)
 
@@ -268,7 +273,6 @@ class AliNextFrameGAN(BaseGAN):
             self.cz_next = cz.reuse(c_t_prev)
 
             if config.use_indirect_noise_c:
-                u_to_c = self.create_component(config.u_to_c, name='u_to_c', input=c_random)
                 c_prev_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(c_t_prev)})
 
                 t0 = z

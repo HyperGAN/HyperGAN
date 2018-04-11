@@ -233,7 +233,10 @@ class AliNextFrameGAN(BaseGAN):
             z2 = generator.controls["z"]
             trash = self.create_component(config.c, name='trash', input=z, features=[])
 
-            x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": z})
+            if config.use_indirect_noise:
+                x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": z})
+            else:
+                x_hat = tf.zeros_like(x_input)
 
 
             def C(z, c, reuse=True):
@@ -278,6 +281,7 @@ class AliNextFrameGAN(BaseGAN):
 
 
             else:
+                c_prev_hat = tf.zeros_like(x_input)
                 t0 = z
                 t1 = cz.sample
                 f0 = c_t_prev

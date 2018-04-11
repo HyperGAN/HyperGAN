@@ -233,6 +233,8 @@ class AliNextFrameGAN(BaseGAN):
             z2 = generator.controls["z"]
             trash = self.create_component(config.c, name='trash', input=z, features=[])
 
+            x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": z})
+
 
             def C(z, c, reuse=True):
                 print("ERUSE", reuse, z, c)
@@ -263,8 +265,8 @@ class AliNextFrameGAN(BaseGAN):
             self.cz_next = cz.reuse(c_t_prev)
 
             if config.use_indirect_noise_c:
-                ue2 = UniformEncoder(self, config.z_distribution, output_shape=[self.ops.shape(c_random)[0], config.u_c_dims])
-                u_to_c = self.create_component(config.u_to_c, name='u_to_c', input=ue2.sample)
+                u_to_c = self.create_component(config.u_to_c, name='u_to_c', input=c_random)
+                c_prev_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(c_t_prev)})
 
                 t0 = z
                 t1 = cz.sample
@@ -274,7 +276,6 @@ class AliNextFrameGAN(BaseGAN):
                 stacked = ops.concat(stack, axis=0)
                 features = ops.concat([f0, f1], axis=0)
 
-                g_vars2 += u_to_c.variables()
 
             else:
                 t0 = z
@@ -292,6 +293,7 @@ class AliNextFrameGAN(BaseGAN):
 
             d_loss2 = l2.d_loss 
             g_loss2 = l2.g_loss 
+
             metrics['zlossd']=l2.d_loss
             metrics['zlossg']=l2.g_loss
             metrics['lossd']=l.d_loss
@@ -300,6 +302,8 @@ class AliNextFrameGAN(BaseGAN):
             g_vars2 = cz.variables() + unrolled_c.variables()
             d_vars2 = d2.variables()
 
+            if config.use_indirect_noise_c:
+                g_vars2+= u_to_c.variables()
             trainers = []
 
             lossa = hc.Config({'sample': [d_loss1+d_loss2, g_loss1+g_loss2], 'metrics': metrics})
@@ -314,7 +318,8 @@ class AliNextFrameGAN(BaseGAN):
         self.encoder = hc.Config({"sample":ugb}) # this is the other gan
         self.uniform_encoder = hc.Config({"sample":zub})#uniform_encoder
         self.x_input = x_input
-        self.x_hat = tf.zeros_like(x_input)#x_hat
+        self.x_hat = x_hat#tf.zeros_like(x_input)
+        self.c_prev_hat = c_prev_hat
 
     def create_loss(self, loss_config, discriminator, x, generator, split):
         loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator, split=split)
@@ -440,7 +445,7 @@ class TrainingVideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         self.z = None
 
-        self.last_frame_1, self.last_frame_2, self.z1, self.z2 = gan.session.run([gan.inputs.x1, gan.inputs.x2, gan.z1, gan.z2])
+        self.x_input, self.last_frame_1, self.last_frame_2, self.z1, self.z2 = gan.session.run([gan.x_input, gan.inputs.x1, gan.inputs.x2, gan.z1, gan.z2])
 
         self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
@@ -450,10 +455,10 @@ class TrainingVideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
         sess = gan.session
         
-        x_hat, self.z, next_frame = sess.run([gan.x_hat, gan.cz_next, gan.video_sample], {gan.z1: self.z1, gan.z2: self.z2})
+        c_prev_hat, x_hat, self.z, next_frame = sess.run([gan.c_prev_hat, gan.x_hat, gan.cz_next, gan.video_sample], {gan.z1: self.z1, gan.z2: self.z2, gan.x_input:self.x_input, gan.last_frame_1:self.last_frame_1, gan.last_frame_2:self.last_frame_2})
  
         return {
-            'generator': np.vstack([self.last_frame_1, self.last_frame_2, next_frame, x_hat])
+            'generator': np.vstack([self.last_frame_1, self.last_frame_2, next_frame, x_hat, c_prev_hat])
         }
 
 

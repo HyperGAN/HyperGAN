@@ -230,34 +230,39 @@ class AliNextFrameGAN(BaseGAN):
             cz = self.create_component(config.c_to_z, name='c_to_z', input=ue.sample)
             ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.sample})
             self.video_sample = ugb
+            x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": cz.reuse(c_t_prev)})
 
-            if config.use_indirect_noise:
-                t0 = x_input
-                t1 = ugb
-                f0 = cz.reuse(x_encoded.sample)
-                f1 = cz.sample
+
+            #f2 = cz.reuse(x_encoded.sample)
+            #ga = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":z})
+            #x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": f2})
+            if config.first_frame:
+                t0 =x_input #self.last_frame_2
             else:
-                t0 = x_input
-                t1 = ugb
-                f0 = x_encoded.sample
-                f1 = ue.sample
-
+                t0 =self.last_frame_2
+            t1 = ugb
+            if config.first_frame:
+                f0 = cz.reuse(c_t_prev)
+            else:
+                f0 = cz.reuse(c_t_current)
+            f1 = cz.sample
+            if config.norandom:
+                t0 = self.last_frame_2
+                t1 = x_hat
+                f0 = cz.reuse(c_t_current)
+                f1 = cz.reuse(c_t_prev)
             stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
-            
-            if config.use_another_z_term2:
-                f2 = cz.reuse(x_encoded.sample)
-                ga = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":z})
-                x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": f2})
-                t0 = x_input
-                t1 = ga
-                t2 = x_hat
-                f0 = z
-                f1 = z
-                stack = [t0, t1, t2]
+
+            if config.nobs:
+                t0 = x_input #self.last_frame_2
+                t1 = ugb
+                f0 = c_t_prev
+                f1 = ue.sample
+                stack = [t0, t1]
                 stacked = ops.concat(stack, axis=0)
-                features = ops.concat([f0, f1, f2], axis=0)
+                features = ops.concat([f0, f1], axis=0)
 
             d = self.create_component(config.discriminator, name='d_b', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, x_input, generator.sample, len(stack))
@@ -274,10 +279,7 @@ class AliNextFrameGAN(BaseGAN):
             metrics = {}
 
 
-            x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": z})
 
-
-            self.z = z
             self.c_t_prev = c_t_prev
             self.c_t_current = c_t_current
 
@@ -401,9 +403,8 @@ class AliNextFrameGAN(BaseGAN):
 class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         sess = gan.session
-        self.z, self.z1, self.z2 = sess.run([gan.z, gan.z1, gan.z2])
 
-        self.z, self.z2, self.x = sess.run([gan.z, gan.z2, gan.x_input])
+        self.z, self.z1, self.z2, self.x = sess.run([gan.z, gan.z1, gan.z2, gan.x_input])
         self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
 
@@ -412,17 +413,17 @@ class VideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
         sess = gan.session
 
-        self.x = sess.run(gan.video_sample, {gan.z: self.z})
+        self.z, self.x = sess.run([gan.z, gan.x_hat], {gan.z2: self.z2, gan.z1: self.z1, gan.x_input: self.x})
         self.z1 = self.z2
         self.z2 = self.z
-        self.z = sess.run(gan.z, {gan.x_input:self.x, gan.z1: self.z1, gan.z2:self.z2})
+        v = sess.run(gan.video_sample)
         #next_z, next_frame = sess.run([gan.cz_next, gan.video_sample])
 
         time.sleep(0.05)
         return {
 
 
-            'generator': self.x
+            'generator': np.hstack([self.x, v])
         }
 
 
@@ -440,7 +441,7 @@ class TrainingVideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
         sess = gan.session
         
-        x_hat,  next_frame = sess.run([gan.x_hat, gan.video_sample], {gan.z1: self.z1, gan.z2: self.z2, gan.x_input:self.x_input, gan.last_frame_1:self.last_frame_1, gan.last_frame_2:self.last_frame_2})
+        x_hat,  next_frame = sess.run([gan.x_hat, gan.video_sample], {gan.x_input:self.x_input, gan.last_frame_1:self.last_frame_1, gan.last_frame_2:self.last_frame_2})
  
         return {
             'generator': np.vstack([self.last_frame_1, self.last_frame_2, next_frame, x_hat])

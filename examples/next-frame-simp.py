@@ -245,6 +245,19 @@ class AliNextFrameGAN(BaseGAN):
             stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
+            
+            if config.use_another_z_term2:
+                f2 = cz.reuse(x_encoded.sample)
+                ga = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":z})
+                x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": f2})
+                t0 = x_input
+                t1 = ga
+                t2 = x_hat
+                f0 = z
+                f1 = z
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
 
             d = self.create_component(config.discriminator, name='d_b', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, x_input, generator.sample, len(stack))

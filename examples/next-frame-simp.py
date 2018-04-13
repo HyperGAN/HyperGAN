@@ -214,6 +214,13 @@ class AliNextFrameGAN(BaseGAN):
             ue = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
             c_random = ue.sample
 
+            def random_like(x):
+                return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
+
+            self.c = c_t_current
+            self.c2 = c_t_prev
+            self.c1 = unrolled_c.sample
+            self.c0 = c_t_rand2
 
 
 
@@ -231,6 +238,9 @@ class AliNextFrameGAN(BaseGAN):
             ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.sample})
             self.video_sample = ugb
             x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": cz.reuse(c_t_prev)})
+            self.x_next = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": cz.reuse(c_t_current)})
+            self.c_next = C(random_like(z), c_t_current, random=config.add_random, reuse=True).sample
+            self.video_next =generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(self.c_next)})
 
 
             #f2 = cz.reuse(x_encoded.sample)
@@ -246,15 +256,82 @@ class AliNextFrameGAN(BaseGAN):
             else:
                 f0 = cz.reuse(c_t_current)
             f1 = cz.sample
-            if config.norandom:
-                t0 = self.last_frame_2
-                t1 = x_hat
-                f0 = cz.reuse(c_t_current)
-                f1 = cz.reuse(c_t_prev)
             stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
+            if config.norandom:
+                t0 = self.last_frame_2
+                t1 = x_hat
+                t2 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":z2})
+                f0 = cz.reuse(c_t_current)
+                f1 = cz.reuse(c_t_prev)
+                f2 = self.z2
 
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
+            if config.current:
+                x_next = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": cz.reuse(c_t_current)})
+                t0 = self.last_frame_1
+                t1 = x_next
+                f0 = cz.reuse(c_t_prev)
+                f1 = cz.reuse(c_t_current)
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+
+            if config.cnobs:
+                t0 = x_input #self.last_frame_2
+                t1 = ugb
+                f0 = cz.reuse(c_t_current)
+                f1 = cz.reuse(ue.sample)
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+
+            if config.cnobs2:
+                t0 = x_input #self.last_frame_2
+                t1 = ugb
+                f0 = c_t_current
+                f1 = ue.sample
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+
+            if config.cnobs3:
+                t0 = x_input #self.last_frame_2
+                t1 = ugb
+                f0 = c_t_current
+                f1 = ue.sample
+                f2 = c_t_prev
+                t2 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(c_t_current)})
+                stack = [t0, t1,t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1,f2], axis=0)
+
+            if config.cnobs4:
+                f1 = random_like(z)
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":f1})
+                t0 = x_input #self.last_frame_2
+                t1 = ugb
+                f0 = cz.reuse(c_t_current)
+                f2 = cz.reuse(c_t_prev)
+                t2 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":f0})
+                stack = [t0, t1,t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1,f2], axis=0)
+ 
+
+            if config.cnobs5:
+                f1 = random_like(z)
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":f1})
+                t0 = x_input #self.last_frame_2
+                t1 = ugb
+                f0 = cz.reuse(c_t_current)
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+ 
             if config.nobs:
                 t0 = x_input #self.last_frame_2
                 t1 = ugb
@@ -263,6 +340,61 @@ class AliNextFrameGAN(BaseGAN):
                 stack = [t0, t1]
                 stacked = ops.concat(stack, axis=0)
                 features = ops.concat([f0, f1], axis=0)
+
+            if config.nobs2:
+                cv0 = c_random
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cv0)})
+                cv1 = C(generator.controls['z'], cv0, random=config.add_random, reuse=True).sample
+                ugbt1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cv1)})
+                cv2 = C(generator.controls['z'], cv1, random=config.add_random, reuse=True).sample
+                ugbt2 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cv2)})
+                cv3 = C(generator.controls['z'], cv2, random=config.add_random, reuse=True).sample
+                
+                t0 = tf.concat([self.last_frame_1, self.last_frame_2, x_input], axis=3)
+                t1 = tf.concat([ugb, ugbt1, ugbt2], axis=3)
+                f0 = tf.concat([unrolled_c.sample, c_t_prev, c_t_current], axis=3)
+                f1 = tf.concat([cv1, cv2, cv3], axis=3)
+                print("TTT", t1, f1)
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)           
+            if config.nobs3:
+                cv0 = c_random
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cv0)})
+                cv1 = C(generator.controls['z'], cv0, random=config.add_random, reuse=True).sample
+                ugbt1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cv1)})
+                cv2 = C(generator.controls['z'], cv1, random=config.add_random, reuse=True).sample
+                ugbt2 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cv2)})
+                cv3 = C(generator.controls['z'], cv2, random=config.add_random, reuse=True).sample
+                
+                t0 = tf.concat([self.last_frame_1, self.last_frame_2, x_input], axis=3)
+                t1 = tf.concat([ugb, ugbt1, ugbt2], axis=3)
+                f0 = tf.concat([unrolled_c.sample, c_t_prev, c_t_current], axis=3)
+                f1 = tf.concat([cv0, cv1, cv2], axis=3)
+                print("TTT", t1, f1)
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)           
+
+            if config.nobs4:
+                cv0 = c_random
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cv0)})
+                cv1 = C(generator.controls['z'], cv0, random=config.add_random, reuse=True).sample
+                ugbt1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cv1)})
+                cv2 = C(generator.controls['z'], cv1, random=config.add_random, reuse=True).sample
+                ugbt2 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cv2)})
+                cv3 = C(generator.controls['z'], cv2, random=config.add_random, reuse=True).sample
+                
+                t0 = tf.concat([self.last_frame_1, self.last_frame_2, x_input], axis=3)
+                t1 = tf.concat([ugb, ugbt1, ugbt2], axis=3)
+                f0 = tf.concat([unrolled_c.sample, c_t_prev, c_t_current], axis=3)
+                f1 = tf.concat([c_random, cv0, cv1], axis=3)
+                print("TTT", t1, f1)
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)           
+
+
 
             d = self.create_component(config.discriminator, name='d_b', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, x_input, generator.sample, len(stack))
@@ -404,7 +536,7 @@ class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         sess = gan.session
 
-        self.z, self.z1, self.z2, self.x = sess.run([gan.z, gan.z1, gan.z2, gan.x_input])
+        self.c, self.x = gan.session.run([gan.c,gan.x_input])
         self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
 
@@ -413,9 +545,7 @@ class VideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
         sess = gan.session
 
-        self.z, self.x = sess.run([gan.z, gan.x_hat], {gan.z2: self.z2, gan.z1: self.z1, gan.x_input: self.x})
-        self.z1 = self.z2
-        self.z2 = self.z
+        self.c, self.x = sess.run([gan.c_next, gan.video_next], {gan.c: self.c, gan.x_input: self.x})
         v = sess.run(gan.video_sample)
         #next_z, next_frame = sess.run([gan.cz_next, gan.video_sample])
 
@@ -441,10 +571,12 @@ class TrainingVideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
         sess = gan.session
         
-        x_hat,  next_frame = sess.run([gan.x_hat, gan.video_sample], {gan.x_input:self.x_input, gan.last_frame_1:self.last_frame_1, gan.last_frame_2:self.last_frame_2})
+        x_hat,  next_frame, c = sess.run([gan.x_hat, gan.x_next, gan.c], {gan.x_input:self.x_input, gan.last_frame_1:self.last_frame_1, gan.last_frame_2:self.last_frame_2})
+        xt1, c = sess.run([gan.x_next, gan.c], {gan.x_input:next_frame, gan.c2:c})
+        xt2, c = sess.run([gan.x_next, gan.c], {gan.x_input:next_frame, gan.c2:c})
  
         return {
-            'generator': np.vstack([self.last_frame_1, self.last_frame_2, next_frame, x_hat])
+            'generator': np.vstack([self.last_frame_1, self.last_frame_2, x_hat, next_frame, xt1, xt2])
         }
 
 

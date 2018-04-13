@@ -298,6 +298,16 @@ class AliNextFrameGAN(BaseGAN):
                 stacked = ops.concat(stack, axis=0)
                 features = ops.concat([f0, f1], axis=0)
 
+            if config.cnobs2a:
+                t0 = x_input #self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(c_t_current)})
+                f0 = c_t_current
+                f1 = c_t_prev
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+
+
             if config.cnobs3:
                 t0 = x_input #self.last_frame_2
                 t1 = ugb

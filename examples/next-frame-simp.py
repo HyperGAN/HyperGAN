@@ -205,7 +205,10 @@ class AliNextFrameGAN(BaseGAN):
             uz_shape = z_shape
 
             c_t_rand2 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape).sample
-            unrolled_c = C(z1, c_t_rand2, reuse=False, random=config.add_random)
+            if config.zeros:
+                unrolled_c = C(z1, tf.zeros_like((c_t_rand2)), reuse=False, random=config.add_random)
+            else:
+                unrolled_c = C(z1, c_t_rand2, reuse=False, random=config.add_random)
             c_t_prev = C(z2, unrolled_c.sample, random=config.add_random, reuse=True).sample
             c2 = c_t_prev
             c_t_current = C(z, c_t_prev, random=config.add_random, reuse=True).sample
@@ -240,7 +243,7 @@ class AliNextFrameGAN(BaseGAN):
             x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": cz.reuse(c_t_prev)})
             self.x_next = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": cz.reuse(c_t_current)})
             self.c_next = C(random_like(z), c_t_current, random=config.add_random, reuse=True).sample
-            self.video_next =generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(self.c_next)})
+            self.video_next =generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(c_t_prev)})
 
 
             #f2 = cz.reuse(x_encoded.sample)
@@ -279,6 +282,135 @@ class AliNextFrameGAN(BaseGAN):
                 stack = [t0, t1]
                 stacked = ops.concat(stack, axis=0)
                 features = ops.concat([f0, f1], axis=0)
+
+            if config.dnobs:
+                cz_prev = cz.reuse(c_t_prev)
+                t0 = x_input #self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz_prev})
+                t2 = ugb
+                f0 = cz_prev 
+                f1 = cz.reuse(c_t_current)
+                f2 = cz.sample
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
+
+            noise = random_like(c_t_prev)
+            cdist = self.create_component(config.u_to_c, name='cdist', input=noise)
+
+            if config.dnobs2:
+                cz_prev = cz.reuse(c_t_prev)
+                t0 = x_input #self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz_prev})
+                t2 = ugb
+                f0 = c_t_prev
+                f1 = c_t_current
+                f2 = ue.sample
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
+
+            if config.dnobs3:
+
+                cz_prev = cz.reuse(c_t_prev)
+                cdist = self.create_component(config.u_to_c, name='z_to_u', input=random_like(cz_prev))
+                t0 = x_input #self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz_prev})
+                t2 = ugb
+                f0 = cz_prev 
+                f1 = cz.reuse(c_t_current)
+                f2 = cdist.sample
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
+
+
+            if config.dnobs4:
+                noise = random_like(c_t_prev)
+                cdist = self.create_component(config.u_to_c, name='z_to_u', input=noise)
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cdist.sample)})
+                t0 = x_input #self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(c_t_prev)})
+                t2 = ugb
+                f0 = c_t_prev
+                f1 = c_t_current
+                f2 = cdist.sample
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
+ 
+            if config.dnobs5:
+                noise = random_like(c_t_prev)
+                cdist = self.create_component(config.u_to_c, name='z_to_u', input=noise)
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cdist.sample)})
+                t0 = x_input #self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(c_t_prev)})
+                f0 = c_t_prev
+                f1 = c_t_current
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+
+            if config.dnobs5a:
+                noise = random_like(c_t_prev)
+                cdist = self.create_component(config.u_to_c, name='z_to_u', input=noise)
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(cdist.sample)})
+                t0 = self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(c_t_current)})
+                f0 = c_t_current
+                f1 = c_t_prev
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+
+
+            if config.dnobs6:
+                cz_current = cz.reuse(c_t_current)
+                t0 = self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz_current})
+                t2 = ugb
+                f0 = c_t_current
+                f1 = c_t_prev
+                f2 = ue.sample
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
+
+            if config.dnobs7:
+                noise = random_like(c_t_current)
+                cz_current = cz.reuse(c_t_current)
+                cz_prev = cz.reuse(c_t_prev)
+                cz_fake = cz.reuse(noise)
+                cdist = self.create_component(config.u_to_c, name='zu', input=noise)
+                cz_fake_next = cz.reuse(C(random_like(z), cdist.sample, random=config.add_random, reuse=True).sample)
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz_fake_next})
+                t0 = self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz_current})
+                t2 = ugb
+                f0 = cz_current
+                f1 = cz_prev
+                f2 = cz_fake
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
+
+
+            if config.dnobs8:
+                cz_current = cz.reuse(c_t_current)
+                cz_prev = cz.reuse(c_t_prev)
+                cz_fake = cz.sample
+                c_t_rand = C(random_like(z), ue.sample, random=config.add_random, reuse=True).sample
+                cz_fake_next = cz.reuse(c_t_rand)
+                ugb = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(ue.sample)})
+                t0 = self.last_frame_2
+                t1 = generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz_prev})
+                t2 = ugb
+                f0 = c_t_prev
+                f1 = c_t_current
+                f2 = c_t_rand
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
 
             if config.cnobs:
                 t0 = x_input #self.last_frame_2
@@ -414,6 +546,7 @@ class AliNextFrameGAN(BaseGAN):
 
             d_vars1 = d.variables()
             g_vars1 = generator.variables() + cz.variables() + x_encoded.variables() + unrolled_c.variables()
+            g_vars1 += cdist.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -555,7 +688,7 @@ class VideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
         sess = gan.session
 
-        self.c, self.x = sess.run([gan.c_next, gan.video_next], {gan.c: self.c, gan.x_input: self.x})
+        self.c, self.x = sess.run([gan.c1, gan.video_next], {gan.c2: self.c, gan.x_input: self.x})
         v = sess.run(gan.video_sample)
         #next_z, next_frame = sess.run([gan.cz_next, gan.video_sample])
 

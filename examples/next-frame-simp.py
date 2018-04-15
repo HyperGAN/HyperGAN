@@ -243,7 +243,7 @@ class AliNextFrameGAN(BaseGAN):
             x_hat = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": cz.reuse(c_t_prev)})
             self.x_next = generator.reuse(tf.zeros_like(x_input), replace_controls={"z": cz.reuse(c_t_current)})
             self.c_next = C(random_like(z), c_t_current, random=config.add_random, reuse=True).sample
-            self.video_next =generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(c_t_prev)})
+            self.video_next =generator.reuse(tf.zeros_like(x_input), replace_controls={"z":cz.reuse(self.c_next)})
 
 
             #f2 = cz.reuse(x_encoded.sample)
@@ -688,7 +688,7 @@ class VideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
         sess = gan.session
 
-        self.c, self.x = sess.run([gan.c1, gan.video_next], {gan.c2: self.c, gan.x_input: self.x})
+        self.c, self.x = sess.run([gan.c_next, gan.video_next], {gan.c: self.c, gan.x_input: self.x})
         v = sess.run(gan.video_sample)
         #next_z, next_frame = sess.run([gan.cz_next, gan.video_sample])
 

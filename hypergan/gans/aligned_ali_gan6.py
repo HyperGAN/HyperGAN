@@ -68,38 +68,53 @@ class AlignedAliGAN6(BaseGAN):
             xab = gb.sample
             xa_hat = ga.reuse(gb.sample)
             xb_hat = gb.reuse(ga.sample)
-
-            z_shape = self.ops.shape(za)
-            uz_shape = z_shape
-            uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
-            ue = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
-            ue2 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
-            ue3 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
-            ue4 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
-            print('ue', ue.sample)
-
-            zua = ue.sample
-            zub = ue2.sample
-
-            ue2 = UniformEncoder(self, config.z_distribution, output_shape=[self.ops.shape(za)[0], config.source_linear])
-            zub = ue2.sample
-            uz_to_gz = self.create_component(config.uz_to_gz, name='uzb_to_gzb', input=zub)
-            zub = uz_to_gz.sample
-            sourcezub = zub
-            ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
-
             xa = xa_input
             xb = xb_input
 
-            t0 = xb
-            t1 = gb.sample
-            t2 = ugb
-            f0 = za
-            f1 = zb
-            f2 = zub
-            stack = [t0, t1, t2]
-            stacked = ops.concat(stack, axis=0)
-            features = ops.concat([f0, f1, f2], axis=0)
+            if config.ignore_random:
+                t0 = xb
+                t1 = gb.sample
+                f0 = za
+                f1 = zb
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+                self.inputs.x = xb
+                ugb = gb.sample
+                zub = zb
+                sourcezub = zb
+                
+
+            else:
+                z_shape = self.ops.shape(za)
+                uz_shape = z_shape
+                uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
+                ue = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+                ue2 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+                ue3 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+                ue4 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+                print('ue', ue.sample)
+
+                zua = ue.sample
+                zub = ue2.sample
+
+                ue2 = UniformEncoder(self, config.z_distribution, output_shape=[self.ops.shape(za)[0], config.source_linear])
+                zub = ue2.sample
+                uz_to_gz = self.create_component(config.uz_to_gz, name='uzb_to_gzb', input=zub)
+                zub = uz_to_gz.sample
+                sourcezub = zub
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
+
+                t0 = xb
+                t1 = gb.sample
+                t2 = ugb
+                f0 = za
+                f1 = zb
+                f2 = zub
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
+
 
             d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
@@ -108,7 +123,9 @@ class AlignedAliGAN6(BaseGAN):
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            g_vars1 = gb.variables()+ga.variables()+uz_to_gz.variables()#gb.variables()# + gb.variables()
+            g_vars1 = gb.variables()+ga.variables()
+            if not config.ignore_random:
+                g_vars1 += uz_to_gz.variables()#gb.variables()# + gb.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss

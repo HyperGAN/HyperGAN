@@ -5,6 +5,7 @@ import numpy as np
 class GridSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         BaseSampler.__init__(self, gan, samples_per_row)
+        self.x = gan.session.run(gan.inputs.x)
 
     def _sample(self):
         gan = self.gan
@@ -17,8 +18,9 @@ class GridSampler(BaseSampler):
         #z = np.mgrid[-0.499:0.499:0.3, -0.499:0.499:0.13].reshape(2,-1).T
         #z = np.mgrid[-0.299:0.299:0.15, -0.299:0.299:0.075].reshape(2,-1).T
         g = gan.session.run(gan.generator.sample, feed_dict={z_t: z})
-        e = gan.session.run(gan.encoder.sample, feed_dict={gan.inputs.xa: g})
+        x_hat = gan.session.run(gan.autoencoded_x, feed_dict={gan.inputs.x: self.x})
+        #e = gan.session.run(gan.encoder.sample, feed_dict={gan.inputs.x: g})
 
         return {
-            'generator': np.hstack([g,e])
+            'generator': np.hstack([g,x_hat])
         }

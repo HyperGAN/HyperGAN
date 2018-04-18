@@ -63,12 +63,12 @@ class StandardGAN(BaseGAN):
                 self.encoder = self.create_component(config.encoder)
                 self.uniform_encoder = self.encoder
             if self.generator is None and config.generator:
-                self.generator = self.create_component(config.generator)
+                self.generator = self.create_component(config.generator, input=self.encoder.sample)
                 self.autoencoded_x = self.generator.sample
                 self.uniform_sample = self.generator.sample
 
             if self.discriminator is None and config.discriminator:
-                self.discriminator = self.create_component(config.discriminator, name="discriminator")
+                self.discriminator = self.create_component(config.discriminator, name="discriminator", g=self.generator.sample, x=self.inputs.x)
             if self.loss is None and config.loss:
                 self.loss = self.create_component(config.loss)
                 self.metrics = self.loss.metrics

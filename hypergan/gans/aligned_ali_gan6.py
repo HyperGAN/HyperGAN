@@ -62,7 +62,7 @@ class AlignedAliGAN6(BaseGAN):
             za = ga.controls["z"]
             zb = gb.controls["z"]
 
-            self.uniform_sample = ga.sample
+            self.uniform_sample = gb.sample
 
             xba = ga.sample
             xab = gb.sample

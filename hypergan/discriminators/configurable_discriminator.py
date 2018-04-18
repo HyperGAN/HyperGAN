@@ -208,7 +208,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
             if feature is not None:
                 print("Combining features", [net, feature])
-                net = tf.concat([net, feature], axis=3)
+                net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)
 
         return net
 

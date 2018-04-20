@@ -19,6 +19,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "subpixel": self.layer_subpixel,
             "unpool": self.layer_unpool,
             "slice": self.layer_slice,
+            "noise": self.layer_noise,
             "pad": self.layer_pad,
             "fractional_avg_pool": self.layer_fractional_avg_pool,
             "bicubic_conv": self.layer_bicubic_conv,
@@ -506,5 +507,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             h = int(args[1])
         net = tf.slice(net, [0,0,0,0], [-1,h,w,-1])
         return net
+
+    def layer_noise(self, net, args, options):
+        net += tf.random_normal(self.ops.shape(net), stddev=0.1)
+        return net
+
 
 

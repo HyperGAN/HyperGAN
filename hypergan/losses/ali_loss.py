@@ -15,6 +15,8 @@ class AliLoss(BaseLoss):
 
         pq = d_real
         pp = d_fake
+        zeros = tf.zeros_like(d_fake)
+        ones = tf.ones_like(d_fake)
 
 
         if config.type == 'original':
@@ -33,9 +35,14 @@ class AliLoss(BaseLoss):
         elif config.type == 'wasserstein':
             d_loss = -pq+pp
             g_loss = pq-pp
+        elif config.type == 'label_smoothing':
+            generator_target_probability = config.generator_target_probability or 0.8
+            label_smooth = config.label_smooth or 0.2
+            g_loss = self.sigmoid_kl_with_logits(d_fake, generator_target_probability) + \
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=zeros)
+            d_loss = self.sigmoid_kl_with_logits(d_real, 1.-label_smooth) + \
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)
         else:
-            zeros = tf.zeros_like(d_fake)
-            ones = tf.ones_like(d_fake)
             g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros) + \
                      tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=ones)
             d_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=zeros) + \

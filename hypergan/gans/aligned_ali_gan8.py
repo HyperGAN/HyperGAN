@@ -70,38 +70,23 @@ class AlignedAliGAN8(BaseGAN):
 
             def random_like(x):
                 return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
-            if config.ignore_random:
-                t0 = xb
-                t1 = gb.sample
-                f0 = za
-                f1 = zb
-                stack = [t0, t1]
-                stacked = ops.concat(stack, axis=0)
-                features = ops.concat([f0, f1], axis=0)
-                self.inputs.x = xb
-                ugb = gb.sample
-                zub = zb
-                sourcezub = zb
 
-            if config.ignore_random2:
-                t0 = xb
-                t1 = gb.sample
-                t2 = gb.reuse(zb)
-                f0 = za
-                f1 = zb
-                f2 = zb
-                stack = [t0, t1, t2]
-                stacked = ops.concat(stack, axis=0)
-                features = ops.concat([f0, f1, f2], axis=0)
-                self.inputs.x = xb
-                ugb = t2
-                zub = zb
-                sourcezub = zb
-                               
-            skip_connections = []
-            for (a,b) in zip(zga.layers,zgb.layers):
-                layer = tf.concat([a,b],axis=0)
-                skip_connections += [layer]
+            t0 = xb
+            t1 = gb.sample
+            f0 = za
+            f1 = zb
+            stack = [t0, t1]
+            stacked = ops.concat(stack, axis=0)
+            features = ops.concat([f0, f1], axis=0)
+            self.inputs.x = xa
+            ugb = gb.sample
+            zub = zb
+            sourcezub = zb
+
+            #skip_connections = []
+            #for (a,b) in zip(zga.layers,zgb.layers):
+            #    layer = tf.concat([a,b],axis=0)
+            #    skip_connections += [layer]
 
             d = self.create_component(config.discriminator, name='d_ab', 
                     #skip_connections=skip_connections,
@@ -157,14 +142,34 @@ class AlignedAliGAN8(BaseGAN):
             if config.alpha:
                 t0 = random_like(zub)
                 t1 = zb
-                netzd = tf.concat(axis=0, values=[t0,t1])
+                t2 = za
+                netzd = tf.concat(axis=0, values=[t0,t1,t2])
                 z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=3)
                 metrics["za_gloss"]=loss3.g_loss
                 metrics["za_dloss"]=loss3.d_loss
                 d_loss1 += loss3.d_loss
                 g_loss1 += loss3.g_loss
                 d_vars1 += z_d.variables()
+
+            if config.mirror_joint:
+                t0 = xa
+                t1 = ga.sample
+                f0 = zb
+                f1 = za
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+                uga = ga.sample
+                zua = za
+                z_d = self.create_component(config.discriminator, name='d_ba', input=stacked, features=[features])
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xb_input, generator=ga, split=2)
+                metrics["ba_gloss"]=loss3.g_loss
+                metrics["ba_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+                d_vars1 += z_d.variables()
+
 
 
             lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
@@ -175,14 +180,14 @@ class AlignedAliGAN8(BaseGAN):
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
-        self.generator = ga
+        self.generator = gb
         self.encoder = hc.Config({"sample":ugb}) # this is the other gan
         self.uniform_encoder = hc.Config({"sample":zub})#uniform_encoder
         self.uniform_encoder_source = hc.Config({"sample":sourcezub})#uniform_encoder
         self.zb = zb
         self.z_hat = gb.sample
         self.x_input = xa_input
-        self.autoencoded_x = xa_hat
+        self.autoencoded_x = xb_hat
 
         self.cyca = xa_hat
         self.cycb = xb_hat

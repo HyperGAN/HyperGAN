@@ -10,7 +10,9 @@ from .base_discriminator import BaseDiscriminator
 
 class ConfigurableDiscriminator(BaseDiscriminator):
 
-    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[]):
+    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[]):
+        self.layers = []
+        self.skip_connections = skip_connections
         self.layer_ops = {
             "phase_shift": self.layer_phase_shift,
             "conv": self.layer_conv,
@@ -19,6 +21,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "subpixel": self.layer_subpixel,
             "unpool": self.layer_unpool,
             "slice": self.layer_slice,
+            "concat_noise": self.layer_noise,
+            "variational_noise": self.layer_variational_noise,
             "noise": self.layer_noise,
             "pad": self.layer_pad,
             "fractional_avg_pool": self.layer_fractional_avg_pool,
@@ -50,6 +54,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         for layer in config.layers:
             net = self.parse_layer(net, layer)
+            self.layers += [net]
 
         return net
 
@@ -125,6 +130,12 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
 
+        print("Looking for skip connection", self.skip_connections)
+        for sk in self.skip_connections:
+            if ops.shape(sk)[1] == ops.shape(net)[1]:
+                print("Adding skip connection")
+                net = tf.concat([net, sk], axis=3)
+
         stride = options.stride or config.defaults.stride or [2,2]
         fltr = options.filter or config.defaults.filter or config.filter or [5,5]
         if type(fltr) == type(""):
@@ -183,7 +194,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_avg_pool(self, net, args, options):
 
         options = hc.Config(options)
-        stride=options.stride or 2
+        stride=options.stride or self.ops.shape(net)[1]
         stride=int(stride)
         ksize = [1,stride,stride,1]
         net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
@@ -511,6 +522,17 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_noise(self, net, args, options):
         net += tf.random_normal(self.ops.shape(net), stddev=0.1)
         return net
+
+    def layer_variational_noise(self, net, args, options):
+        net *= tf.random_normal(self.ops.shape(net), mean=1, stddev=0.02)
+        return net
+
+
+    def layer_concat_noise(self, net, args, options):
+        noise = tf.random_normal(self.ops.shape(net), stddev=0.1)
+        net = tf.concat([net, noise], axis=len(self.ops.shape(net))-1)
+        return net
+
 
 
 

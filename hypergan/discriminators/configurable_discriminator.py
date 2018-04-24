@@ -1,6 +1,7 @@
 import tensorflow as tf
 import hyperchamber as hc
 import inspect
+import copy
 import os
 import operator
 from functools import reduce
@@ -134,7 +135,21 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         for sk in self.skip_connections:
             if len(ops.shape(sk)) == len(ops.shape(net)) and ops.shape(sk)[1] == ops.shape(net)[1]:
                 print("Adding skip connection")
+
                 net = tf.concat([net, sk], axis=3)
+
+        if config.defaults.adaptive_instance_norm:
+            feature = self.features[0]
+            feature = self.layer_linear(feature, [128], options)
+            opts = copy.deepcopy(dict(options))
+            opts['activation']='null'
+            size = self.ops.shape(net)[3]
+            feature = self.layer_linear(feature, [size*2], opts)
+            f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
+            f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
+            net = self.adaptive_instance_norm(net, f1,f2)
+            print("NETTT", net, f1, f2)
+
 
         stride = options.stride or config.defaults.stride or [2,2]
         fltr = options.filter or config.defaults.filter or config.filter or [5,5]
@@ -217,17 +232,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             if op == "linear":
                 feature = self.layer_linear(feature, [args[1]], options)
                 feature = self.layer_reshape(feature, [args[2]], options)
-
-            if op == "adaptive_instance_norm":
-                feature = self.layer_linear(feature, [128], options)
-                options['activation']='null'
-                size = self.ops.shape(net)[3]
-                feature = self.layer_linear(feature, [size*2], options)
-                f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
-                f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
-                net = self.adaptive_instance_norm(net, f1,f2)
-                print("NETTT", net, f1, f2)
-                continue
 
             if feature is not None:
                 print("Combining features", [net, feature])

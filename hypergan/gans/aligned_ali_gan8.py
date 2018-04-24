@@ -64,8 +64,8 @@ class AlignedAliGAN8(BaseGAN):
                 self.stylea = stylea
                 self.styleb = styleb
                 self.random_style = random_like(styleb.sample)
-                ga = self.create_component(config.generator, input=za, name='a_generator', features=[stylea.sample])
-                gb = self.create_component(config.generator, input=zb, name='b_generator', features=[styleb.sample])
+                ga = self.create_component(config.generator, input=za, skip_connections=zga.layers, name='a_generator', features=[stylea.sample])
+                gb = self.create_component(config.generator, input=zb, skip_connections=zgb.layers, name='b_generator', features=[styleb.sample])
             else:
                 ga = self.create_component(config.generator, input=za, skip_connections=zga.layers, name='a_generator')
                 gb = self.create_component(config.generator, input=zb, skip_connections=zgb.layers, name='b_generator')

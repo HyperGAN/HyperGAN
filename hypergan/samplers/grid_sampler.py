@@ -10,6 +10,8 @@ class GridSampler(BaseSampler):
         batch = self.x.shape[0]
         self.x = np.reshape(self.x[0], [1, self.x.shape[1], self.x.shape[2], 3])
         self.x = np.tile(self.x, [batch,1,1,1])
+        self.random_style_v = gan.session.run(gan.random_style)
+        self.styleb_t = gan.styleb.sample
 
     def _sample(self):
         gan = self.gan

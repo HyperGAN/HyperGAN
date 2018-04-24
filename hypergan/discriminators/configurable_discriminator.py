@@ -132,7 +132,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         print("Looking for skip connection", self.skip_connections)
         for sk in self.skip_connections:
-            if ops.shape(sk)[1] == ops.shape(net)[1]:
+            if len(ops.shape(sk)) == len(ops.shape(net)) and ops.shape(sk)[1] == ops.shape(net)[1]:
                 print("Adding skip connection")
                 net = tf.concat([net, sk], axis=3)
 
@@ -218,11 +218,31 @@ class ConfigurableDiscriminator(BaseDiscriminator):
                 feature = self.layer_linear(feature, [args[1]], options)
                 feature = self.layer_reshape(feature, [args[2]], options)
 
+            if op == "adaptive_instance_norm":
+                feature = self.layer_linear(feature, [128], options)
+                options['activation']='null'
+                size = self.ops.shape(net)[3]
+                feature = self.layer_linear(feature, [size*2], options)
+                f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
+                f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
+                net = self.adaptive_instance_norm(net, f1,f2)
+                print("NETTT", net, f1, f2)
+                continue
+
             if feature is not None:
                 print("Combining features", [net, feature])
-                net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)
+                if self.ops.shape(net) == self.ops.shape(feature):
+                    net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)
+                else:
+                    print("NOO")
 
         return net
+
+    def adaptive_instance_norm(self, content, gamma, beta, epsilon=1e-5):
+        c_mean, c_var = tf.nn.moments(content, axes=[1, 2], keep_dims=True)
+        c_std = tf.sqrt(c_var + epsilon)
+        return gamma * ((content - c_mean) / c_std) + beta
+
 
 
     def layer_image_statistics(self, net, args, options):

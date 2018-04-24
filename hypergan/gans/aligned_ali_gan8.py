@@ -52,12 +52,23 @@ class AlignedAliGAN8(BaseGAN):
             xa_input = tf.identity(self.inputs.xa, name='xa_i')
             xb_input = tf.identity(self.inputs.xb, name='xb_i')
 
+            def random_like(x):
+                return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
             zga = self.create_component(config.encoder, input=xb_input, name='xb_to_za')
             zgb = self.create_component(config.encoder, input=xa_input, name='xa_to_zb')
             za = zga.sample
             zb = zgb.sample
-            ga = self.create_component(config.generator, input=za, skip_connections=zga.layers, name='a_generator')
-            gb = self.create_component(config.generator, input=zb, skip_connections=zgb.layers, name='b_generator')
+            if config.style:
+                styleb = self.create_component(config.style_discriminator, input=xb_input, name='xb_style')
+                stylea = self.create_component(config.style_discriminator, input=xa_input, name='xa_style')
+                self.stylea = stylea
+                self.styleb = styleb
+                self.random_style = random_like(styleb.sample)
+                ga = self.create_component(config.generator, input=za, name='a_generator', features=[stylea.sample])
+                gb = self.create_component(config.generator, input=zb, name='b_generator', features=[styleb.sample])
+            else:
+                ga = self.create_component(config.generator, input=za, skip_connections=zga.layers, name='a_generator')
+                gb = self.create_component(config.generator, input=zb, skip_connections=zgb.layers, name='b_generator')
 
             self.uniform_sample = gb.sample
 
@@ -68,8 +79,6 @@ class AlignedAliGAN8(BaseGAN):
             xa = xa_input
             xb = xb_input
 
-            def random_like(x):
-                return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
 
             t0 = xb
             t1 = gb.sample
@@ -79,7 +88,7 @@ class AlignedAliGAN8(BaseGAN):
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
             self.inputs.x = xa
-            ugb = gb.sample
+            ugb = gb.reuse(random_like(zb))
             zub = zb
             sourcezub = zb
 
@@ -138,6 +147,71 @@ class AlignedAliGAN8(BaseGAN):
                 d_vars1 += z_d.variables()
 
 
+            if config.uga2:
+                t0 = xa
+                t1 = ga.sample
+                t2 = ga.reuse(za)
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = None
+                z_d = self.create_component(config.discriminator, name='uga_discriminator', input=stacked)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=3)
+                metrics["uga_gloss"]=loss3.g_loss
+                metrics["uga_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+                d_vars1 += z_d.variables()
+
+
+            if config.ugb2:
+                t0 = xb
+                t1 = gb.sample
+                t2 = gb.reuse(zb)
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = None
+                z_d = self.create_component(config.discriminator, name='ugb_discriminator', input=stacked)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=3)
+                metrics["ugb_gloss"]=loss3.g_loss
+                metrics["ugb_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+                d_vars1 += z_d.variables()
+
+            if config.forcerandom:
+                t0 = random_like(styleb.sample)#tf.concat([random_like(style1), random_like(style1)], axis=1)
+                t1 = styleb.sample#tf.concat([style1, style2], axis=1)
+                stack = [t0,t1]
+                stacked = ops.concat(stack, axis=0)
+                features = None
+                z_d = self.create_component(config.z_discriminator, name='forcerandom_discriminator', input=stacked)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                metrics["forcerandom_gloss"]=loss3.g_loss
+                metrics["forcerandom_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+                d_vars1 += z_d.variables()
+
+
+            if config.forcerandom2:
+                style_reader = self.create_component(config.z_discriminator, name='style_discriminator2', input=zb)
+                style1 = style_reader.sample
+                t0 = random_like(style1)
+                t1 = style1
+                stack = [t0,t1]
+                stacked = ops.concat(stack, axis=0)
+                features = None
+                z_d = self.create_component(config.z_discriminator, name='forcerandom_discriminator2', input=stacked)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                metrics["forcerandom2_gloss"]=loss3.g_loss
+                metrics["forcerandom2_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+                d_vars1 += z_d.variables()
+                g_vars1 += style_reader.variables()
+
+
+ 
             trainers = []
             if config.alpha:
                 t0 = random_like(zub)
@@ -170,6 +244,8 @@ class AlignedAliGAN8(BaseGAN):
                 g_loss1 += loss3.g_loss
                 d_vars1 += z_d.variables()
 
+            if config.style:
+                g_vars1 += stylea.variables() + styleb.variables()
 
 
             lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})

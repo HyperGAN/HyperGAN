@@ -9,6 +9,7 @@ class AlignedSampler(BaseSampler):
         self.xa_v = None
         self.xb_v = None
         self.created = False
+        self.styleb_t = gan.styleb.sample
 
     def sample(self, path, sample_to_file):
         gan = self.gan
@@ -23,11 +24,12 @@ class AlignedSampler(BaseSampler):
 
         sess = gan.session
         config = gan.config
+        self.random_style_v = gan.session.run(gan.random_style)
         if(not self.created):
             self.xa_v, self.xb_v = sess.run([xa_t, xb_t])
             self.created = True
 
-        xab_v, xba_v, samplea, sampleb, uga_v, ugb_v = sess.run([xab_t, xba_t, cyca, cycb, uga, ugb], {xa_t: self.xa_v, xb_t: self.xb_v})
+        xab_v, xba_v, samplea, sampleb, uga_v, ugb_v = sess.run([xab_t, xba_t, cyca, cycb, uga, ugb], {xa_t: self.xa_v, xb_t: self.xb_v, self.styleb_t: self.random_style_v})
         stacks = []
         bs = gan.batch_size() // 2
         width = min(gan.batch_size(), 8)

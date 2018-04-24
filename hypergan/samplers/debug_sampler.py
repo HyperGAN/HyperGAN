@@ -21,7 +21,7 @@ class IdentitySampler(BaseSampler):
     def _sample(self):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
-        x_t = gan.inputs.x
+        x_t = gan.inputs.xa
         global z,x
 
         if z is None:

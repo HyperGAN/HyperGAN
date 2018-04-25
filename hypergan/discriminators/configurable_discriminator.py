@@ -138,7 +138,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
                 net = tf.concat([net, sk], axis=3)
 
-        if config.defaults.adaptive_instance_norm:
+        if config.defaults.adaptive_instance_norm and len(self.features) > 0:
             feature = self.features[0]
             feature = self.layer_linear(feature, [128], options)
             opts = copy.deepcopy(dict(options))
@@ -235,10 +235,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
             if feature is not None:
                 print("Combining features", [net, feature])
-                if self.ops.shape(net) == self.ops.shape(feature):
-                    net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)
-                else:
-                    print("NOO")
+                net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)
 
         return net
 

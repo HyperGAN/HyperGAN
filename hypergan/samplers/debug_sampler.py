@@ -21,7 +21,7 @@ class IdentitySampler(BaseSampler):
     def _sample(self):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
-        x_t = gan.inputs.xa
+        x_t = gan.inputs.x
         global z,x
 
         if z is None:
@@ -38,7 +38,7 @@ class DebugSampler(BaseSampler):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.samplers = [
           IdentitySampler(gan, gan.inputs.x, samples_per_row),
-#          IdentitySampler(gan, gan.autoencoded_x, samples_per_row),
+          IdentitySampler(gan, gan.autoencoded_x, samples_per_row),
           StaticBatchSampler(gan, samples_per_row),
           BatchSampler(gan, samples_per_row),
           RandomWalkSampler(gan, samples_per_row)

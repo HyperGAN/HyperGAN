@@ -37,9 +37,9 @@ class AliGAN(BaseGAN):
 
     def required(self):
         """
-        `input_encoder` is a discriminator.  It encodes X into Z
-        `discriminator` is a standard discriminator.  It measures X, reconstruction of X, and G.
-        `generator` produces two samples, input_encoder output and a known random distribution.
+        `encoder`  encodes X into Z
+        `discriminator`  measures X and G.
+        `generator` produces samples
         """
         return "generator discriminator ".split()
 
@@ -47,6 +47,8 @@ class AliGAN(BaseGAN):
         config = self.config
         ops = self.ops
 
+        def random_like(x):
+            return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
         with tf.device(self.device):
             x_input = tf.identity(self.inputs.x, name='input')
 
@@ -57,8 +59,9 @@ class AliGAN(BaseGAN):
             z_shape = self.ops.shape(encoder.sample)
 
             uz_shape = z_shape
-            uz_shape[-1] = uz_shape[-1] // len(config.encoder.projections)
-            uniform_encoder = UniformEncoder(self, config.encoder, output_shape=uz_shape)
+            uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
+            uniform_encoder = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+ 
             direction, slider = self.create_controls(self.ops.shape(uniform_encoder.sample))
             z = uniform_encoder.sample + slider * direction
             
@@ -74,26 +77,30 @@ class AliGAN(BaseGAN):
             self.uniform_sample = generator.sample
             x_hat = generator.reuse(encoder.sample)
 
-            # z = random uniform
-            # z_hat = z of x
-            # g = random generated
-            # x_input
-            def combine(z, x):
-                s = x.get_shape().as_list()
-                z = tf.reshape(z, [s[0], -1])
-                padding = s[1]*s[2]-z.get_shape().as_list()[1]
-
-                z = tf.pad(z, [[0, 0], [0, padding]])
-                z = tf.reshape(z, [s[0], s[1], s[2], 1])
-                net = tf.concat([x, z], axis=3)
-                return net
-
             features_zs = ops.concat([encoder.sample, z], axis=0)
             stacked_xg = ops.concat([x_input, generator.sample], axis=0)
+
+            if config.u_to_z:
+                u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=random_like(z))
+                gu = generator.reuse(u_to_z.sample)
+                stacked_xg = ops.concat([x_input, gu], axis=0)
+                features_zs = ops.concat([encoder.sample, u_to_z.sample], axis=0)
+
+
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 2)
 
-            trainer = self.create_trainer(None, None, encoder, generator, None, standard_loss, standard_discriminator, None)
+            d_vars = standard_discriminator.variables()
+            g_vars = generator.variables() + encoder.variables()
+            if config.u_to_z:
+                g_vars += u_to_z.variables()
+
+            loss1 = ("g_loss", standard_loss.g_loss)
+            loss2 = ("d_loss", standard_loss.d_loss)
+            loss = hc.Config({'sample': [standard_loss.d_loss, standard_loss.g_loss], 'metrics': 
+                {'g_loss': loss1[1], 'd_loss': loss2[1]}})
+            trainer = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
@@ -124,10 +131,10 @@ class AliGAN(BaseGAN):
         slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
         return direction, slider
 
-    def create_encoder(self, x_input, name='input_encoder'):
+    def create_encoder(self, x_input, name='encoder'):
         config = self.config
-        input_encoder = dict(config.input_encoder or config.g_encoder or config.generator)
-        encoder = self.create_component(input_encoder, name=name, input=x_input)
+        encoder = dict(config.encoder or config.g_encoder or config.generator)
+        encoder = self.create_component(encoder, name=name, input=x_input)
         return encoder
 
     def create_z_discriminator(self, z, z_hat):
@@ -191,18 +198,6 @@ class AliGAN(BaseGAN):
 
         metrics = []
         metrics.append(standard_loss.metrics)
-
-        d_vars = standard_discriminator.variables()
-        g_vars = generator.variables() + encoder.variables()
-        print("D_VARS", d_vars)
-        print("G_VARS", g_vars)
-        #d_loss = standard_loss.d_loss
-        #g_loss = standard_loss.g_loss + cycloss
-        loss1 = ("g_loss", standard_loss.g_loss)
-        loss2 = ("d_loss", standard_loss.d_loss)
-        loss = hc.Config({'sample': [standard_loss.d_loss, standard_loss.g_loss], 'metrics': 
-            {'g_loss': loss1[1], 'd_loss': loss2[1]}})
-        trainer = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
         return trainer
 
     def input_nodes(self):

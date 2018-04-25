@@ -54,11 +54,13 @@ class AliStyleGAN(BaseGAN):
                 return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
             # q(z|x)
             encoder = self.create_component(config.encoder, input=x_input, name='z_encoder')
+            print("ENCODER ", encoder.sample)
 
             self.encoder = encoder
             z_shape = self.ops.shape(encoder.sample)
             style = self.create_component(config.style_encoder, input=x_input, name='style')
             self.style = style
+            self.styleb = style # hack for sampler
             self.random_style = random_like(style.sample)
 
             uz_shape = z_shape
@@ -81,6 +83,14 @@ class AliStyleGAN(BaseGAN):
 
             features_zs = ops.concat([encoder.sample, z], axis=0)
             stacked_xg = ops.concat([x_input, generator.sample], axis=0)
+
+            if config.u_to_z:
+                u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=random_like(z))
+                gu = generator.reuse(u_to_z.sample)
+                stacked_xg = ops.concat([x_input, gu], axis=0)
+                features_zs = ops.concat([encoder.sample, u_to_z.sample], axis=0)
+
+
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 2)
 
@@ -105,10 +115,13 @@ class AliStyleGAN(BaseGAN):
             loss3 = self.create_component(config.loss, discriminator = z_d, x=x_input, generator=generator, split=2)
             metrics["forcerandom_gloss"]=loss3.g_loss
             metrics["forcerandom_dloss"]=loss3.d_loss
-            d_loss1 += loss3.d_loss
-            g_loss1 += loss3.g_loss
-            d_vars1 += z_d.variables()
+            if config.forcerandom:
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+                d_vars1 += z_d.variables()
 
+            if config.u_to_z:
+                g_vars1 += u_to_z.variables()
 
             lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
             trainer = ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)

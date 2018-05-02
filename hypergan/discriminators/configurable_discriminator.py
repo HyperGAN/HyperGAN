@@ -138,7 +138,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
                 net = tf.concat([net, sk], axis=3)
 
-        if config.defaults.adaptive_instance_norm and len(self.features) > 0:
+        if (options.adaptive_instance_norm or config.defaults.adaptive_instance_norm) and len(self.features) > 0:
             feature = self.features[0]
             feature = self.layer_linear(feature, [128], options)
             opts = copy.deepcopy(dict(options))

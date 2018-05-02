@@ -192,15 +192,28 @@ class AliNextFrameGAN(BaseGAN):
             self.last_frame_1 = last_frame_1
             self.last_frame_2 = last_frame_2
 
-            zgx = self.create_component(config.encoder, input=self.last_frame_1, name='xa_to_x')
-            zgy = self.create_component(config.encoder, input=self.last_frame_2, name='xb_to_y')
-            zx = zgx.sample
-            zy = zgy.sample
 
-            z_noise = random_like(zx)
-            n_noise = random_like(zx)
             xa_input = self.inputs.y
             xb_input = self.inputs.x
+            if config.seq:
+                xa_input = last_frame_1
+                xb_input = last_frame_2
+            if config.seq2:
+                xa_input = last_frame_2
+                xb_input = x_input
+
+            zgx = self.create_component(config.encoder, input=xa_input, name='xa_to_x')
+            zgy = self.create_component(config.encoder, input=xb_input, name='xb_to_y')
+            zx = zgx.sample
+            zy = zgy.sample
+            z_noise = random_like(zx)
+            n_noise = random_like(zx)
+            zx_noise = z_noise
+            zy_noise = z_noise
+            
+            if config.unique_noise:
+                zy_noise = random_like(z_noise)
+
             if config.style:
                 stylex = self.create_component(config.style_discriminator, input=xb_input, name='xb_style')
                 styley = self.create_component(config.style_discriminator, input=xa_input, name='xa_style')
@@ -208,15 +221,47 @@ class AliNextFrameGAN(BaseGAN):
                 zx = tf.concat(values=[zx, n_noise], axis=3)
                 gy = self.create_component(config.generator, features=[styley.sample], input=zy, name='gy_generator')
                 y = hc.Config({"sample": xa_input})
-                zx = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
-                zx = tf.concat(values=[zx, z_noise], axis=3)
-                gx = self.create_component(config.generator, features=[stylex.sample], input=zx, name='gx_generator')
+                zx2 = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
+                zx2 = tf.concat(values=[zx2, z_noise], axis=3)
+                gx = self.create_component(config.generator, features=[stylex.sample], input=zx2, name='gx_generator')
             else:
-                gy = self.create_component(config.generator, features=[z_noise], input=zy, name='gy_generator')
-                y = hc.Config({"sample": xa_input})
-                zx = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
-                gx = self.create_component(config.generator, features=[z_noise], input=zx, name='gx_generator')
-                stylex=hc.Config({"sample":random_like(y.sample)})
+                if config.skip_connections:
+                    gy = self.create_component(config.generator, skip_connections=zgy.layers, features=[zy_noise], input=zy, name='gy_generator')
+                    y = hc.Config({"sample": xa_input})
+                    zx2 = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True)
+                    gx = self.create_component(config.generator, skip_connections=zx2.layers, features=[zx_noise], input=zx2.sample, name='gx_generator')
+                    stylex=hc.Config({"sample":random_like(y.sample)})
+
+
+                elif config.fancy_y:
+                    gy = self.create_component(config.generator, features=[zy_noise], input=zy, name='gy_generator')
+                    lfzg = self.create_component(config.encoder, input=last_frame_1, name='lfz')
+                    lfz = lfzg.sample
+                    y = self.create_component(config.generator, features=[random_like(zy_noise)], input=lfz, name='gx_generator')
+                    zx2 = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
+                    gx = self.create_component(config.generator, features=[zx_noise], input=zx2, name='gx_generator', reuse=True)
+                    stylex=hc.Config({"sample":random_like(y.sample)})
+                elif config.history_generator:
+                    lf1 = tf.concat([self.last_frame_1, self.last_frame_2], axis=3)
+                    lf2 = tf.concat([self.last_frame_2, x_input], axis=3)
+                    zgx = self.create_component(config.encoder, input=lf1, name='xa_to_x2')
+                    zgy = self.create_component(config.encoder, input=lf2, name='xb_to_y2')
+                    zx = zgx.sample
+                    zy = zgy.sample
+
+
+                    gy = self.create_component(config.generator, features=[zy_noise], input=zy, name='gy_generator')
+                    y = hc.Config({"sample": xa_input})
+                    zx2 = self.create_component(config.encoder, input=lf1, name='xa_to_x2', reuse=True).sample
+                    gx = self.create_component(config.generator, features=[zx_noise], input=zx2, name='gx_generator')
+                    stylex=hc.Config({"sample":random_like(y.sample)})
+
+                else:
+                    gy = self.create_component(config.generator, features=[zy_noise], input=zy, name='gy_generator')
+                    y = hc.Config({"sample": xa_input})
+                    zx2 = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
+                    gx = self.create_component(config.generator, features=[zx_noise], input=zx2, name='gx_generator')
+                    stylex=hc.Config({"sample":random_like(y.sample)})
 
             self.y = y
             self.gy = gy
@@ -320,16 +365,27 @@ class AliNextFrameGAN(BaseGAN):
             if config.mask_d or config.mask_d2:
                 d_vars1 += d2.variables()
             g_vars1 = gb.variables()+ga.variables()+zgx.variables()+zgy.variables()
-
+            if config.fancy_y:
+                g_vars1 += lfzg.variables() + y.variables()
             d_loss = l.d_loss
             g_loss = l.g_loss
-
-
             metrics = {
                     'g_loss': l.g_loss,
                     'd_loss': l.d_loss
                 }
 
+            if config.alpha:
+                t0 = random_like(zx)
+                t1 = zx
+                t2 = zy
+                netzd = tf.concat(axis=0, values=[t0,t1,t2])
+                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=3)
+                metrics["za_gloss"]=loss3.g_loss
+                metrics["za_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+                d_vars1 += z_d.variables()
 
             trainers = []
 

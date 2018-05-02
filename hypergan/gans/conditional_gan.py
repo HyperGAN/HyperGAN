@@ -57,8 +57,8 @@ class ConditionalGAN(BaseGAN):
                 return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
             #y=a
             #x=b
-            zgx = self.create_component(config.encoder, input=xa_input, name='xb_to_za')
-            zgy = self.create_component(config.encoder, input=xb_input, name='xa_to_zb')
+            zgx = self.create_component(config.encoder, input=xa_input, name='xa_to_x')
+            zgy = self.create_component(config.encoder, input=xb_input, name='xb_to_y')
             zx = zgx.sample
             zy = zgy.sample
 
@@ -70,15 +70,20 @@ class ConditionalGAN(BaseGAN):
                 zy = tf.concat(values=[zy, z_noise], axis=3)
                 zx = tf.concat(values=[zx, n_noise], axis=3)
                 gy = self.create_component(config.generator, features=[styley.sample], input=zy, name='gy_generator')
-                y = self.create_component(config.generator,  features=[styley.sample], input=zx, name='y_generator')
-                zx = self.create_component(config.encoder, input=y.sample, name='xa_to_zb', reuse=True).sample
+                y = hc.Config({"sample": xa_input})
+                zx = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
                 zx = tf.concat(values=[zx, z_noise], axis=3)
                 gx = self.create_component(config.generator, features=[stylex.sample], input=zx, name='gx_generator')
             else:
                 gy = self.create_component(config.generator, features=[z_noise], input=zy, name='gy_generator')
-                y = self.create_component(config.generator, features=[n_noise], input=zx, name='y_generator')
-                zx = self.create_component(config.encoder, input=y.sample, name='xa_to_zb', reuse=True).sample
+                y = hc.Config({"sample": xa_input})
+                zx = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
                 gx = self.create_component(config.generator, features=[z_noise], input=zx, name='gx_generator')
+                stylex=hc.Config({"sample":random_like(y.sample)})
+
+            self.y = y
+            self.gy = gy
+            self.gx = gx
 
             ga = gy
             gb = gx
@@ -99,8 +104,8 @@ class ConditionalGAN(BaseGAN):
 
             t0 = xb
             t1 = gx.sample
-            f0 = y.sample
-            f1 = gy.sample
+            f0 = gy.sample
+            f1 = y.sample
             stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
@@ -118,7 +123,7 @@ class ConditionalGAN(BaseGAN):
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            g_vars1 = gb.variables()+ga.variables()+zgx.variables()+zgy.variables()+y.variables()
+            g_vars1 = gb.variables()+ga.variables()+zgx.variables()+zgy.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss

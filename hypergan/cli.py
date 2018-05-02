@@ -24,11 +24,11 @@ from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.autoencode_sampler import AutoencodeSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
-from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
 from hypergan.samplers.style_walk_sampler import StyleWalkSampler
 from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
 from hypergan.samplers.debug_sampler import DebugSampler
 from hypergan.samplers.segment_sampler import SegmentSampler
+from hypergan.samplers.y_sampler import YSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
@@ -73,13 +73,13 @@ class CLI:
                 'static_batch': StaticBatchSampler,
                 'random_walk': RandomWalkSampler,
                 'alphagan_random_walk': AlphaganRandomWalkSampler,
-                'batch_walk': BatchWalkSampler,
                 'style_walk': StyleWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
                 'began': BeganSampler,
                 'autoencode': AutoencodeSampler,
                 'debug': DebugSampler,
+                'y': YSampler,
                 'segment': SegmentSampler,
                 'aligned': AlignedSampler
         }

@@ -218,11 +218,14 @@ class AliNextFrameGAN(BaseGAN):
                 stylex = self.create_component(config.style_discriminator, input=xb_input, name='xb_style')
                 styley = self.create_component(config.style_discriminator, input=xa_input, name='xa_style')
                 zy = tf.concat(values=[zy, z_noise], axis=3)
-                zx = tf.concat(values=[zx, n_noise], axis=3)
                 gy = self.create_component(config.generator, features=[styley.sample], input=zy, name='gy_generator')
                 y = hc.Config({"sample": xa_input})
                 zx2 = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
-                zx2 = tf.concat(values=[zx2, z_noise], axis=3)
+                if config.add_last_frame:
+                    zx2prime = self.create_component(config.encoder, input=xa_input, name='xb_to_y', reuse=True)
+                    zx2 = tf.concat(values=[zx2, zx2prime.sample, z_noise], axis=3)
+                else:
+                    zx2 = tf.concat(values=[zx2, z_noise], axis=3)
                 gx = self.create_component(config.generator, features=[stylex.sample], input=zx2, name='gx_generator')
             else:
                 gy = self.create_component(config.generator, features=[zy_noise], input=zy, name='gy_generator')
@@ -242,8 +245,6 @@ class AliNextFrameGAN(BaseGAN):
 
             xba = ga.sample
             xab = gb.sample
-            xa_hat = ga.reuse(zx)
-            xb_hat = gb.reuse(zy)
             xa = xa_input
             xb = xb_input
 
@@ -344,7 +345,11 @@ class AliNextFrameGAN(BaseGAN):
             if config.alice:
                 if config.style:
                     xb_hat_z = self.create_component(config.encoder, input=gy.sample, name='xa_to_x', reuse=True).sample
-                    xb_hat_z = tf.concat([xb_hat_z, zx_noise], axis=3)
+                    if config.add_last_frame:
+                        zyy = self.create_component(config.encoder, input=gy.sample, name='xb_to_y', reuse=True)
+                        xb_hat_z = tf.concat([xb_hat_z, zyy.sample, zx_noise], axis=3)
+                    else:
+                        xb_hat_z = tf.concat([xb_hat_z, zx_noise], axis=3)
                     xb_hat = self.create_component(config.generator, features=[stylex.sample], input=xb_hat_z, name='gx_generator', reuse=True)
                 else:
                     xb_hat_z = self.create_component(config.encoder, input=gy.sample, name='xa_to_x', reuse=True).sample
@@ -396,10 +401,7 @@ class AliNextFrameGAN(BaseGAN):
         self.zb = zy
         self.z_hat = gb.sample
         self.x_input = xa_input
-        self.autoencoded_x = xb_hat
 
-        self.cyca = xa_hat
-        self.cycb = xb_hat
         self.xba = xba
         self.xab = xab
         self.uga = y.sample

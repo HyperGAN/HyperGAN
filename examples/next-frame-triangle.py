@@ -225,43 +225,11 @@ class AliNextFrameGAN(BaseGAN):
                 zx2 = tf.concat(values=[zx2, z_noise], axis=3)
                 gx = self.create_component(config.generator, features=[stylex.sample], input=zx2, name='gx_generator')
             else:
-                if config.skip_connections:
-                    gy = self.create_component(config.generator, skip_connections=zgy.layers, features=[zy_noise], input=zy, name='gy_generator')
-                    y = hc.Config({"sample": xa_input})
-                    zx2 = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True)
-                    gx = self.create_component(config.generator, skip_connections=zx2.layers, features=[zx_noise], input=zx2.sample, name='gx_generator')
-                    stylex=hc.Config({"sample":random_like(y.sample)})
-
-
-                elif config.fancy_y:
-                    gy = self.create_component(config.generator, features=[zy_noise], input=zy, name='gy_generator')
-                    lfzg = self.create_component(config.encoder, input=last_frame_1, name='lfz')
-                    lfz = lfzg.sample
-                    y = self.create_component(config.generator, features=[random_like(zy_noise)], input=lfz, name='gx_generator')
-                    zx2 = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
-                    gx = self.create_component(config.generator, features=[zx_noise], input=zx2, name='gx_generator', reuse=True)
-                    stylex=hc.Config({"sample":random_like(y.sample)})
-                elif config.history_generator:
-                    lf1 = tf.concat([self.last_frame_1, self.last_frame_2], axis=3)
-                    lf2 = tf.concat([self.last_frame_2, x_input], axis=3)
-                    zgx = self.create_component(config.encoder, input=lf1, name='xa_to_x2')
-                    zgy = self.create_component(config.encoder, input=lf2, name='xb_to_y2')
-                    zx = zgx.sample
-                    zy = zgy.sample
-
-
-                    gy = self.create_component(config.generator, features=[zy_noise], input=zy, name='gy_generator')
-                    y = hc.Config({"sample": xa_input})
-                    zx2 = self.create_component(config.encoder, input=lf1, name='xa_to_x2', reuse=True).sample
-                    gx = self.create_component(config.generator, features=[zx_noise], input=zx2, name='gx_generator')
-                    stylex=hc.Config({"sample":random_like(y.sample)})
-
-                else:
-                    gy = self.create_component(config.generator, features=[zy_noise], input=zy, name='gy_generator')
-                    y = hc.Config({"sample": xa_input})
-                    zx2 = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
-                    gx = self.create_component(config.generator, features=[zx_noise], input=zx2, name='gx_generator')
-                    stylex=hc.Config({"sample":random_like(y.sample)})
+                gy = self.create_component(config.generator, features=[zy_noise], input=zy, name='gy_generator')
+                y = hc.Config({"sample": xa_input})
+                zx2 = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
+                gx = self.create_component(config.generator, features=[zx_noise], input=zx2, name='gx_generator')
+                stylex=hc.Config({"sample":random_like(y.sample)})
 
             self.y = y
             self.gy = gy
@@ -311,7 +279,6 @@ class AliNextFrameGAN(BaseGAN):
 
 
             self.inputs.x = xa
-            ugb = gb.reuse(random_like(zy))
             zub = zy
             sourcezub = zy
 
@@ -374,6 +341,32 @@ class AliNextFrameGAN(BaseGAN):
                     'd_loss': l.d_loss
                 }
 
+            if config.alice:
+                if config.style:
+                    xb_hat_z = self.create_component(config.encoder, input=gy.sample, name='xa_to_x', reuse=True).sample
+                    xb_hat_z = tf.concat([xb_hat_z, zx_noise], axis=3)
+                    xb_hat = self.create_component(config.generator, features=[stylex.sample], input=xb_hat_z, name='gx_generator', reuse=True)
+                else:
+                    xb_hat_z = self.create_component(config.encoder, input=gy.sample, name='xa_to_x', reuse=True).sample
+                    xb_hat = self.create_component(config.generator, features=[zx_noise], input=xb_hat_z, name='gx_generator', reuse=True)
+
+                t1 = xb
+                t2 = xb_hat.sample
+                f1 = xb
+                f2 = xb
+                stack = [t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f1, f2], axis=0)
+                z_d = self.create_component(config.discriminator, name='alice_discriminator', input=stacked, features=[features])
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                metrics["alice_gloss"]=loss3.g_loss
+                metrics["alice_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+                d_vars1 += z_d.variables()
+
+
+
             if config.alpha:
                 t0 = random_like(zx)
                 t1 = zx
@@ -398,7 +391,6 @@ class AliNextFrameGAN(BaseGAN):
 
         self.trainer = trainer
         self.generator = gb
-        self.encoder = hc.Config({"sample":ugb}) # this is the other gan
         self.uniform_encoder = hc.Config({"sample":zub})#uniform_encoder
         self.uniform_encoder_source = hc.Config({"sample":sourcezub})#uniform_encoder
         self.zb = zy
@@ -411,7 +403,6 @@ class AliNextFrameGAN(BaseGAN):
         self.xba = xba
         self.xab = xab
         self.uga = y.sample
-        self.ugb = ugb
 
 
 

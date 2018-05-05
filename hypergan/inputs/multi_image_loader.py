@@ -19,6 +19,7 @@ class MultiImageLoader:
     def create(self, directories, channels=3, format='jpg', width=64, height=64, crop=False, resize=False):
         directories = [d for d in directories if os.path.isdir(d)]
 
+
         filenames_list = [glob.glob(directory+"/*."+format) for directory in directories]
         [print("Found", len(filenames)) for filenames in filenames_list]
 

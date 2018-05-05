@@ -59,13 +59,21 @@ class AlignedAliGAN8(BaseGAN):
             za = zga.sample
             zb = zgb.sample
             if config.style:
-                styleb = self.create_component(config.style_discriminator, input=xb_input, name='xb_style')
-                stylea = self.create_component(config.style_discriminator, input=xa_input, name='xa_style')
+                if config.swap_style:
+                    stylea = self.create_component(config.style_discriminator, input=xb_input, name='xb_style')
+                    styleb = self.create_component(config.style_discriminator, input=xa_input, name='xa_style')
+                else:
+                    styleb = self.create_component(config.style_discriminator, input=xb_input, name='xb_style')
+                    stylea = self.create_component(config.style_discriminator, input=xa_input, name='xa_style')
                 self.stylea = stylea
                 self.styleb = styleb
                 self.random_style = random_like(styleb.sample)
-                ga = self.create_component(config.generator, input=za, skip_connections=zga.layers, name='a_generator', features=[stylea.sample])
-                gb = self.create_component(config.generator, input=zb, skip_connections=zgb.layers, name='b_generator', features=[styleb.sample])
+                if config.skip_skip_connections:
+                    ga = self.create_component(config.generator, input=za, name='a_generator', features=[stylea.sample])
+                    gb = self.create_component(config.generator, input=zb, name='b_generator', features=[styleb.sample])
+                else:
+                    ga = self.create_component(config.generator, input=za, skip_connections=zga.layers, name='a_generator', features=[stylea.sample])
+                    gb = self.create_component(config.generator, input=zb, skip_connections=zgb.layers, name='b_generator', features=[styleb.sample])
             else:
                 ga = self.create_component(config.generator, input=za, skip_connections=zga.layers, name='a_generator')
                 gb = self.create_component(config.generator, input=zb, skip_connections=zgb.layers, name='b_generator')

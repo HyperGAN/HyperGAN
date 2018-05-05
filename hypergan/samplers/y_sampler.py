@@ -17,22 +17,26 @@ class YSampler(BaseSampler):
         self.target = None
         self.y_t = gan.y.sample
         self.y = gan.session.run(self.y_t)
-        self.input = gan.session.run(gan.inputs.x)
         self.styleb_t = gan.styleb.sample
         self.styleb_v = gan.session.run(gan.styleb.sample)
-        self.last_frame_1 = gan.session.run(gan.last_frame_1)
+        self.stylea_t = gan.stylea.sample
+        self.stylea_v = gan.session.run(gan.stylea.sample)
+        self.last_frame_1, self.last_frame_2, self.last_frame_3, self.y = gan.session.run([gan.last_frame_1, gan.last_frame_2, gan.last_frame_3, gan.y.sample])
+        self.g=tf.get_default_graph()
 
     def _sample(self):
         gan = self.gan
         z_t = gan.uniform_encoder.sample
-        inputs_t = gan.inputs.x
         lf1_t = gan.last_frame_1
+        lf2_t = gan.last_frame_2
+        lf3_t = gan.last_frame_3
         g=tf.get_default_graph()
         with g.as_default():
             tf.set_random_seed(1)
-            sample = gan.session.run(gan.gx.sample, feed_dict={lf1_t: self.last_frame_1, inputs_t: self.input, self.styleb_t: self.styleb_v, self.y_t: self.y})
-            self.last_frame_1 = self.y
-            self.y = sample
+            sample = gan.session.run(gan.gx.sample, feed_dict={lf1_t: self.last_frame_1, lf2_t: self.last_frame_2, self.styleb_t: self.styleb_v, self.stylea_t: self.stylea_v})
+            self.last_frame_1 =self.last_frame_2
+            self.last_frame_2 = sample
+            #self.last_frame_3 = self.y
             return {
                 'generator': sample
             }

@@ -38,6 +38,7 @@ class DebugSampler(BaseSampler):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.samplers = [
           IdentitySampler(gan, gan.inputs.x, samples_per_row),
+          IdentitySampler(gan, gan.inputs.xb, samples_per_row),
           IdentitySampler(gan, gan.autoencoded_x, samples_per_row),
           StaticBatchSampler(gan, samples_per_row),
           BatchSampler(gan, samples_per_row),

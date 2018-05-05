@@ -20,6 +20,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "control": self.layer_controls,
             "linear": self.layer_linear,
             "subpixel": self.layer_subpixel,
+            "gram_matrix": self.layer_gram_matrix,
             "unpool": self.layer_unpool,
             "slice": self.layer_slice,
             "concat_noise": self.layer_noise,
@@ -554,6 +555,21 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         net = tf.concat([net, noise], axis=len(self.ops.shape(net))-1)
         return net
 
+
+    def layer_gram_matrix(self, net, args, options):
+
+        shape = self.ops.shape(net)
+        num_channels = shape[3]
+
+        bs = shape[0]
+        net = tf.reshape(net, shape=[bs, -1, num_channels])
+
+        print("NET NET", net)
+        net = tf.matmul(tf.transpose(net, perm=[0,2,1]), net)
+        print("NET NET2", net)
+        net = tf.reshape(net, shape=[bs, shape[1], shape[1], -1])
+
+        return net
 
 
 

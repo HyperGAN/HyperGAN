@@ -14,6 +14,9 @@ class BatchWalkSampler(BaseSampler):
         self.step = 0
         self.steps = 30
         self.target = None
+        self.style_t = gan.styleb.sample
+        self.style_v = gan.session.run(self.style_t)
+
 
     def _sample(self):
         gan = self.gan
@@ -22,6 +25,9 @@ class BatchWalkSampler(BaseSampler):
 
         if self.z is None:
             self.input = gan.session.run(gan.inputs.x)
+            batch = self.input.shape[0]
+            self.input = np.reshape(self.input[0], [1, self.input.shape[1], self.input.shape[2], 3])
+            self.input = np.tile(self.input, [batch,1,1,1])
 
             self.target = gan.uniform_encoder.sample.eval()[0]
         else:
@@ -44,7 +50,7 @@ class BatchWalkSampler(BaseSampler):
         with g.as_default():
             tf.set_random_seed(1)
             return {
-                'generator': gan.session.run(gan.generator.sample, feed_dict={z_t: z_interp, inputs_t: self.input})
+                    'generator': gan.session.run(gan.generator.sample, feed_dict={z_t: z_interp, inputs_t: self.input, self.style_t: np.zeros_like(self.style_v)})
             }
 
     def sample(self, path, save_samples):

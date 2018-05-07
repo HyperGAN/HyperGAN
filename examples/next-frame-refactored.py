@@ -272,7 +272,7 @@ class AliNextFrameGAN(BaseGAN):
 
             if config.alice_map:
                 for term in config.alice_map:
-                    t1 = self.frames[term]
+                    t1 = self.frames[-1]
                     t2 = x_hat.sample
                     f1 = self.frames[term]
                     f2 = self.frames[term]

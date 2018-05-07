@@ -20,6 +20,7 @@ class BaseSampler:
             data = sample['generator']
 
             width = min(gan.batch_size(), self.samples_per_row)
+            width = min(width, np.shape(data)[0])
             stacks = [np.hstack(data[i*width:i*width+width]) for i in range(np.shape(data)[0]//width)]
             sample_data = np.vstack(stacks)
             self.plot(sample_data, path, save_samples)

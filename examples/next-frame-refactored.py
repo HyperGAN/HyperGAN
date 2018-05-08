@@ -216,10 +216,19 @@ class AliNextFrameGAN(BaseGAN):
                     gx_input = tf.concat(values=[z_g_next.sample, z_noise], axis=3)
                     gx = self.create_component(config.generator, features=[style_next.sample], input=gx_input, name='next_generator')
             else:
-                gy = self.create_component(config.generator, features=[n_noise], input=z_g_prev.sample, name='prev_generator')
-                gx = self.create_component(config.generator, features=[z_noise], input=z_g_next.sample, name='next_generator')
-                style_prev=hc.Config({"sample":random_like(z_g_prev.sample)})
-                style_next=hc.Config({"sample":random_like(z_g_prev.sample)})
+                if config.same_g:
+                    gen = self.create_component(config.generator, features=[n_noise], input=z_g_prev.sample, name='prev_generator')
+                    gx_sample = tf.slice(gen.sample, [0,0,0,0], [-1,-1,-1,3])
+                    gy_sample = tf.slice(gen.sample, [0,0,0,3], [-1,-1,-1,3])
+                    gx = hc.Config({"sample":gx_sample})
+                    gy = hc.Config({"sample":gy_sample})
+                    style_prev=hc.Config({"sample":random_like(z_g_prev.sample)})
+                    style_next=hc.Config({"sample":random_like(z_g_prev.sample)})
+                else:
+                    gy = self.create_component(config.generator, features=[n_noise], input=z_g_prev.sample, name='prev_generator')
+                    gx = self.create_component(config.generator, features=[z_noise], input=z_g_next.sample, name='next_generator')
+                    style_prev=hc.Config({"sample":random_like(z_g_prev.sample)})
+                    style_next=hc.Config({"sample":random_like(z_g_prev.sample)})
 
             self.y = hc.Config({"sample": target_prev})
             self.gy = gy

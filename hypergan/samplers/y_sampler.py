@@ -35,8 +35,6 @@ class YSampler(BaseSampler):
         with g.as_default():
             tf.set_random_seed(1)
             feed_dict = dict(zip(self.frames_t, self.frames))
-            feed_dict[self.styleb_t]=self.styleb_v
-            feed_dict[self.stylea_t]=self.stylea_v
             sample = gan.session.run(gan.gx.sample, feed_dict=feed_dict)
             self.frames = self.frames[1:] + [sample]
 
@@ -51,16 +49,12 @@ class YSampler(BaseSampler):
             if self.i % 100 == 0:
                 self.frames2 = gan.session.run(gan.frames)[:-1]
             feed_dict = dict(zip(self.frames_t, self.frames2))
-            feed_dict[self.styleb_t]=self.styleb_v
-            feed_dict[self.stylea_t]=self.stylea_v
             sample_reset = gan.session.run(gan.gx.sample, feed_dict=feed_dict)
             self.frames2 = self.frames2[1:] + [sample_reset]
 
             if self.i % 100 == 0:
                 self.prev_frames = gan.session.run(gan.frames)[1:]
-            feed_dict = dict(zip(self.frames_t, [self.prev_frames[0]]+self.prev_frames[:-1]))
-            feed_dict[self.styleb_t]=self.styleb_v
-            feed_dict[self.stylea_t]=self.stylea_v
+            feed_dict = dict(zip(gan.frames[1:], [self.prev_frames[0]]+self.prev_frames[:-1]))
             prev_sample = gan.session.run(gan.gy.sample, feed_dict=feed_dict)
             self.prev_frames = [prev_sample] + self.prev_frames[:-1]
 

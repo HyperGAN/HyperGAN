@@ -108,8 +108,8 @@ class VideoFrameLoader:
         y  = tf.train.slice_input_producer([filenames], shuffle=True)[0]
         self.x = self.read_frame(x, format, crop, resize)
         self.y = self.read_frame(y, format, crop, resize)
-        self.x = self._get_data([self.x])[0]
-        self.y = self._get_data([self.y])[0]
+        self.x = self._get_data([self.x])
+        self.y = self._get_data([self.y])
 
 
     def read_frame(self, t, format, crop, resize):
@@ -180,14 +180,6 @@ class AliNextFrameGAN(BaseGAN):
         with tf.device(self.device):
             def random_like(x):
                 return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
-            last_frame_0 = self.inputs.frames[0]
-            last_frame_1 = self.inputs.frames[1]
-            last_frame_2 = self.inputs.frames[2]
-            last_frame_3 = self.inputs.frames[3]
-            self.last_frame_0 = last_frame_0
-            self.last_frame_1 = last_frame_1
-            self.last_frame_2 = last_frame_2
-            self.last_frame_3 = last_frame_3
             self.frame_count = len(self.inputs.frames)
             self.frames = self.inputs.frames
 
@@ -202,8 +194,8 @@ class AliNextFrameGAN(BaseGAN):
             n_noise = random_like(z_g_next.sample)
 
             if config.style:
-                style_prev = self.create_component(config.style_encoder, input=self.frames[-1], name='xb_style')
-                style_next = self.create_component(config.style_encoder, input=self.frames[0], name='xa_style')
+                style_prev = self.create_component(config.style_encoder, input=self.inputs.x, name='xb_style')
+                style_next = self.create_component(config.style_encoder, input=self.inputs.y, name='xa_style')
                 gy_input = tf.concat(values=[z_g_prev.sample, n_noise], axis=3)
                 gy = self.create_component(config.generator, features=[style_prev.sample], input=gy_input, name='prev_generator')
                 gx_input = tf.concat(values=[z_g_next.sample, z_noise], axis=3)
@@ -256,23 +248,21 @@ class AliNextFrameGAN(BaseGAN):
                 }
 
             if config.alice_map:
-                g_frames = []
 
-                for frame in range(self.frame_count-1):
-                    g_frame_encoder_input =  tf.concat((self.frames + g_frames)[(-self.frame_count+1):], axis=3)
-                    g_frame_encoder = self.create_component(config.encoder, input=g_frame_encoder_input, name='next_encoder', reuse=True)
-                    g_frame_input = tf.concat(values=[z_g_prev.sample, random_like(z_noise)], axis=3)
-                    g_frame = self.create_component(config.generator, features=[style_next.sample], input=g_frame_input, name='next_generator', reuse=True)
-                    g_frames += [g_frame.sample]
+                enc_input = tf.concat(self.frames[1:], axis=3)
+                g_frame_encoder = self.create_component(config.encoder, input=enc_input, name='next_encoder', reuse=True)
+                g_frame_input = tf.concat(values=[z_g_prev.sample, z_noise], axis=3)
+                g_frame = self.create_component(config.generator, features=[style_next.sample], input=g_frame_input, name='next_generator', reuse=True)
+                g_frames = self.frames[2:]+[g_frame.sample]
 
                 g_frame_encoder_input = tf.concat(g_frames, axis=3)
                 g_frame_encoder = self.create_component(config.encoder, input=g_frame_encoder_input, name='prev_encoder', reuse=True)
-                x_hat_input = tf.concat([g_frame_encoder.sample, z_noise], axis=3)
+                x_hat_input = tf.concat([g_frame_encoder.sample, n_noise], axis=3)
                 x_hat = self.create_component(config.generator, features=[style_prev.sample], input=x_hat_input, name='prev_generator', reuse=True)
 
             if config.alice_map:
                 for term in config.alice_map:
-                    t1 = self.frames[-1]
+                    t1 = self.frames[1]
                     t2 = x_hat.sample
                     f1 = self.frames[term]
                     f2 = self.frames[term]
@@ -478,7 +468,7 @@ def setup_gan(config, inputs, args):
     config_name = args.config
     GlobalViewer.title = "[hypergan] next-frame " + config_name
     GlobalViewer.enabled = args.viewer
-    GlobalViewer.zoom = 2
+    GlobalViewer.zoom = args.zoom
 
     return gan
 

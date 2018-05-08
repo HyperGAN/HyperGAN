@@ -19,11 +19,14 @@ class YSampler(BaseSampler):
         self.y = gan.session.run(self.y_t)
         self.styleb_t = gan.styleb.sample
         self.styleb_v = gan.session.run(gan.styleb.sample)
+        self.styleb_v = np.zeros_like(self.styleb_v)
         self.stylea_t = gan.stylea.sample
         self.stylea_v = gan.session.run(gan.stylea.sample)
+        self.stylea_v = np.zeros_like(self.stylea_v)
         self.g=tf.get_default_graph()
         self.frames = gan.session.run(gan.frames)[:-1]
         self.frames_t = gan.frames[:-1]
+        self.i=0
 
     def _sample(self):
         gan = self.gan
@@ -36,7 +39,34 @@ class YSampler(BaseSampler):
             feed_dict[self.stylea_t]=self.stylea_v
             sample = gan.session.run(gan.gx.sample, feed_dict=feed_dict)
             self.frames = self.frames[1:] + [sample]
+
+            feed_dict = dict(zip(self.frames_t, self.frames))
+            if self.i % 100 == 0:
+                if self.i == 0:
+                    self.frames3 = gan.session.run(gan.frames)[:-1]
+            feed_dict = dict(zip(self.frames_t, self.frames3))
+            style_reset = gan.session.run(gan.gx.sample, feed_dict=feed_dict)
+            self.frames3 = self.frames3[1:] + [style_reset]
+
+            if self.i % 100 == 0:
+                self.frames2 = gan.session.run(gan.frames)[:-1]
+            feed_dict = dict(zip(self.frames_t, self.frames2))
+            feed_dict[self.styleb_t]=self.styleb_v
+            feed_dict[self.stylea_t]=self.stylea_v
+            sample_reset = gan.session.run(gan.gx.sample, feed_dict=feed_dict)
+            self.frames2 = self.frames2[1:] + [sample_reset]
+
+            if self.i % 100 == 0:
+                self.prev_frames = gan.session.run(gan.frames)[1:]
+            feed_dict = dict(zip(self.frames_t, [self.prev_frames[0]]+self.prev_frames[:-1]))
+            feed_dict[self.styleb_t]=self.styleb_v
+            feed_dict[self.stylea_t]=self.stylea_v
+            prev_sample = gan.session.run(gan.gy.sample, feed_dict=feed_dict)
+            self.prev_frames = [prev_sample] + self.prev_frames[:-1]
+
+
+            self.i+=1
             return {
-                'generator': sample
+                'generator': np.hstack([sample, style_reset, sample_reset, prev_sample])
             }
 

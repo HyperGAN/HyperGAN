@@ -47,6 +47,7 @@ class ArgumentParser:
         parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
+        parser.add_argument('--zoom', '-z', type=int, default=1, help='Zoom level')
         parser.add_argument('--sampler', type=str, default=None, help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         return parser
 

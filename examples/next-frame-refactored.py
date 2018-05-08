@@ -183,23 +183,38 @@ class AliNextFrameGAN(BaseGAN):
             self.frame_count = len(self.inputs.frames)
             self.frames = self.inputs.frames
 
-            z_g_next_input = tf.concat(self.frames[:-1], axis=3)
-            z_g_next = self.create_component(config.encoder, input=z_g_next_input, name='next_encoder')
-            z_g_prev_input = tf.concat(self.frames[1:], axis=3)
-            z_g_prev = self.create_component(config.encoder, input=z_g_prev_input, name='prev_encoder')
+            if config.same_g:
+                z_g_prev_input = tf.concat(self.frames[1:-1], axis=3)
+                z_g_prev = self.create_component(config.encoder, input=z_g_prev_input, name='prev_encoder')
+            else:
+                z_g_next_input = tf.concat(self.frames[:-1], axis=3)
+                z_g_next = self.create_component(config.encoder, input=z_g_next_input, name='next_encoder')
+                z_g_prev_input = tf.concat(self.frames[1:], axis=3)
+                z_g_prev = self.create_component(config.encoder, input=z_g_prev_input, name='prev_encoder')
             target_prev = self.frames[0]
             target_next = self.frames[-1]
 
-            z_noise = random_like(z_g_next.sample)
-            n_noise = random_like(z_g_next.sample)
+            z_noise = random_like(z_g_prev.sample)
+            n_noise = random_like(z_g_prev.sample)
 
             if config.style:
-                style_prev = self.create_component(config.style_encoder, input=self.inputs.x, name='xb_style')
-                style_next = self.create_component(config.style_encoder, input=self.inputs.y, name='xa_style')
-                gy_input = tf.concat(values=[z_g_prev.sample, n_noise], axis=3)
-                gy = self.create_component(config.generator, features=[style_prev.sample], input=gy_input, name='prev_generator')
-                gx_input = tf.concat(values=[z_g_next.sample, z_noise], axis=3)
-                gx = self.create_component(config.generator, features=[style_next.sample], input=gx_input, name='next_generator')
+                if config.same_g:
+                    style_prev = self.create_component(config.style_encoder, input=self.inputs.frames[2], name='xb_style')
+                    style_next = style_prev
+                    gy_input = tf.concat(values=[z_g_prev.sample, n_noise], axis=3)
+                    gen = self.create_component(config.generator, features=[style_prev.sample], input=gy_input, name='prev_generator')
+                    gx_sample = tf.slice(gen.sample, [0,0,0,0], [-1,-1,-1,3])
+                    gy_sample = tf.slice(gen.sample, [0,0,0,3], [-1,-1,-1,3])
+                    gx = hc.Config({"sample":gx_sample})
+                    gy = hc.Config({"sample":gy_sample})
+
+                else:
+                    style_prev = self.create_component(config.style_encoder, input=self.inputs.frames[-1], name='xb_style')
+                    style_next = self.create_component(config.style_encoder, input=self.inputs.frames[0], name='xa_style')
+                    gy_input = tf.concat(values=[z_g_prev.sample, n_noise], axis=3)
+                    gy = self.create_component(config.generator, features=[style_prev.sample], input=gy_input, name='prev_generator')
+                    gx_input = tf.concat(values=[z_g_next.sample, z_noise], axis=3)
+                    gx = self.create_component(config.generator, features=[style_next.sample], input=gx_input, name='next_generator')
             else:
                 gy = self.create_component(config.generator, features=[n_noise], input=z_g_prev.sample, name='prev_generator')
                 gx = self.create_component(config.generator, features=[z_noise], input=z_g_next.sample, name='next_generator')
@@ -238,7 +253,10 @@ class AliNextFrameGAN(BaseGAN):
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            g_vars1 = gx.variables()+gy.variables()+z_g_next.variables()+z_g_prev.variables()
+            if config.same_g:
+                g_vars1 = gen.variables()+z_g_prev.variables()
+            else:
+                g_vars1 = gx.variables()+gy.variables()+z_g_next.variables()+z_g_prev.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -276,6 +294,25 @@ class AliNextFrameGAN(BaseGAN):
                     d_loss1 += loss3.d_loss
                     g_loss1 += loss3.g_loss
                     d_vars1 += z_d.variables()
+
+            if config.align_map:
+                 for term in config.align_map:
+                    t1 = target_next
+                    t2 = gx.sample
+                    f1 = self.frames[term]
+                    f2 = self.frames[term]
+                    stack = [t1, t2]
+                    stacked = ops.concat(stack, axis=0)
+                    features = ops.concat([f1, f2], axis=0)
+                    z_d = self.create_component(config.discriminator, name='alice_discriminator'+str(term), input=stacked, features=[features])
+                    loss3 = self.create_component(config.loss, discriminator = z_d, x=None, generator=None, split=2)
+                    metrics["align_gloss_"+str(term)]=loss3.g_loss
+                    metrics["align_dloss_"+str(term)]=loss3.d_loss
+                    d_loss1 += loss3.d_loss
+                    g_loss1 += loss3.g_loss
+                    d_vars1 += z_d.variables()
+
+
 
 
 

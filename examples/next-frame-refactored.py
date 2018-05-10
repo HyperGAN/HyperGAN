@@ -34,6 +34,7 @@ from hypergan.trainers.consensus_trainer import ConsensusTrainer
 arg_parser = ArgumentParser("render next frame")
 parser = arg_parser.add_image_arguments()
 parser.add_argument('--frames', type=int, default=4, help='Number of frames to embed.')
+parser.add_argument('--shuffle', type=bool, default=False, help='Randomize inputs.')
 args = arg_parser.parse_args()
 
 width, height, channels = parse_size(args.size)
@@ -67,9 +68,10 @@ class VideoFrameLoader:
     """
     """
 
-    def __init__(self, batch_size, frame_count):
+    def __init__(self, batch_size, frame_count, shuffle):
         self.batch_size = batch_size
         self.frame_count = frame_count
+        self.shuffle = shuffle
 
     def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False):
         directories = glob.glob(directory+"/*")
@@ -95,9 +97,12 @@ class VideoFrameLoader:
 
 
         # creates arrays of filenames[:end], filenames[1:end-1], etc for serialized random batching
-        input_t = [filenames[i:i-self.frame_count] for i in range(self.frame_count)]
-        input_queue = tf.train.slice_input_producer(input_t, shuffle=True)
-        frames = input_queue
+        if self.shuffle:
+            frames  = [tf.train.slice_input_producer([filenames], shuffle=True)[0] for i in range(self.frame_count)]
+        else:
+            input_t = [filenames[i:i-self.frame_count] for i in range(self.frame_count)]
+            input_queue = tf.train.slice_input_producer(input_t, shuffle=True)
+            frames = input_queue
 
         # Read examples from files in the filename queue.
         frames = [self.read_frame(frame, format, crop, resize) for frame in frames]
@@ -148,7 +153,7 @@ class VideoFrameLoader:
             batch_size=batch_size,
             num_threads=num_preprocess_threads,
             capacity= batch_size*2, min_after_dequeue=batch_size)
-inputs = VideoFrameLoader(args.batch_size, args.frames)
+inputs = VideoFrameLoader(args.batch_size, args.frames, args.shuffle)
 inputs.create(args.directory,
         channels=channels, 
         format=args.format,
@@ -179,7 +184,9 @@ class AliNextFrameGAN(BaseGAN):
 
         with tf.device(self.device):
             def random_like(x):
-                return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
+                shape = self.ops.shape(x)
+                shape[-1] //= len(config.z_distribution.projections)
+                return UniformEncoder(self, config.z_distribution, output_shape=shape).sample
             self.frame_count = len(self.inputs.frames)
             self.frames = self.inputs.frames
 
@@ -194,15 +201,23 @@ class AliNextFrameGAN(BaseGAN):
             target_prev = self.frames[0]
             target_next = self.frames[-1]
 
-            z_noise = random_like(z_g_prev.sample)
-            n_noise = random_like(z_g_prev.sample)
+            if config.proxy_noise:
+                proxy_noise = self.create_component(config.proxy_noise_generator, input=random_like(z_g_prev.sample), name='proxy_noise')
+                z_noise = proxy_noise.sample
+                n_noise = self.create_component(config.proxy_noise_generator, input=random_like(z_g_prev.sample), name='proxy_noise', reuse=True).sample
+            else:
+                z_noise = random_like(z_g_prev.sample)
+                n_noise = random_like(z_g_prev.sample)
 
             if config.style:
                 if config.same_g:
-                    style_prev = self.create_component(config.style_encoder, input=self.inputs.frames[2], name='xb_style')
+                    style_prev = self.create_component(config.style_encoder, input=self.inputs.frames[1], name='xb_style')
                     style_next = style_prev
                     gy_input = tf.concat(values=[z_g_prev.sample, n_noise], axis=3)
-                    gen = self.create_component(config.generator, features=[style_prev.sample], input=gy_input, name='prev_generator')
+                    if config.skip_connections:
+                        gen = self.create_component(config.generator, skip_connections=z_g_prev.layers, features=[style_prev.sample], input=gy_input, name='prev_generator')
+                    else:
+                        gen = self.create_component(config.generator, features=[style_prev.sample], input=gy_input, name='prev_generator')
                     gx_sample = tf.slice(gen.sample, [0,0,0,0], [-1,-1,-1,3])
                     gy_sample = tf.slice(gen.sample, [0,0,0,3], [-1,-1,-1,3])
                     gx = hc.Config({"sample":gx_sample})
@@ -217,7 +232,12 @@ class AliNextFrameGAN(BaseGAN):
                     gx = self.create_component(config.generator, features=[style_next.sample], input=gx_input, name='next_generator')
             else:
                 if config.same_g:
-                    gen = self.create_component(config.generator, features=[n_noise], input=z_g_prev.sample, name='prev_generator')
+                    print("AOTEUHAONCUHE PR", z_g_prev.sample)
+                    if config.skip_connections:
+                        gen = self.create_component(config.generator, skip_connections=z_g_prev.layers, features=[n_noise], input=z_g_prev.sample, name='prev_generator')
+                    else:
+                        gen = self.create_component(config.generator, features=[n_noise], input=z_g_prev.sample, name='prev_generator')
+                    print("AOTEUHAONCUHE O", gen.sample)
                     gx_sample = tf.slice(gen.sample, [0,0,0,0], [-1,-1,-1,3])
                     gy_sample = tf.slice(gen.sample, [0,0,0,3], [-1,-1,-1,3])
                     gx = hc.Config({"sample":gx_sample})
@@ -267,6 +287,9 @@ class AliNextFrameGAN(BaseGAN):
             else:
                 g_vars1 = gx.variables()+gy.variables()+z_g_next.variables()+z_g_prev.variables()
 
+            if config.proxy_noise:
+                g_vars1 += proxy_noise.variables()
+
             d_loss = l.d_loss
             g_loss = l.g_loss
             metrics = {
@@ -276,21 +299,60 @@ class AliNextFrameGAN(BaseGAN):
 
             if config.alice_map:
 
-                enc_input = tf.concat(self.frames[1:], axis=3)
-                g_frame_encoder = self.create_component(config.encoder, input=enc_input, name='next_encoder', reuse=True)
-                g_frame_input = tf.concat(values=[z_g_prev.sample, z_noise], axis=3)
-                g_frame = self.create_component(config.generator, features=[style_next.sample], input=g_frame_input, name='next_generator', reuse=True)
-                g_frames = self.frames[2:]+[g_frame.sample]
+                if config.same_g:
+                    if config.style:
+                        enc_input = tf.concat(self.frames[1:-1], axis=3)
+                        frame_enc = self.create_component(config.encoder, input=enc_input, name='prev_encoder', reuse=True)
+                        gen_input = tf.concat([frame_enc.sample,random_like(z_noise)],axis=3)
+                        if config.skip_connections:
+                            gen = self.create_component(config.generator, skip_connections=frame_enc.layers, features=[style_next.sample], input=gen_input, name='prev_generator', reuse=True)
+                        else:
+                            gen = self.create_component(config.generator, features=[style_next.sample], input=gen_input, name='prev_generator', reuse=True)
+                        p_frame = tf.slice(gen.sample, [0,0,0,3],[-1,-1,-1,3])
+                        enc_input = tf.concat([p_frame]+self.frames[1:-2], axis=3)
+                        frame_enc = self.create_component(config.encoder, input=enc_input, name='prev_encoder', reuse=True)
+                        if config.skip_connections:
+                            x_hat = self.create_component(config.generator, skip_connections=frame_enc.layers, features=[style_next.sample], input=gen_input, name='prev_generator', reuse=True).sample
+                        else:
+                            x_hat = self.create_component(config.generator, features=[style_next.sample], input=gen_input, name='prev_generator', reuse=True).sample
+                        x_hat = tf.slice(x_hat, [0,0,0,0], [-1,-1,-1,3])
 
-                g_frame_encoder_input = tf.concat(g_frames, axis=3)
-                g_frame_encoder = self.create_component(config.encoder, input=g_frame_encoder_input, name='prev_encoder', reuse=True)
-                x_hat_input = tf.concat([g_frame_encoder.sample, n_noise], axis=3)
-                x_hat = self.create_component(config.generator, features=[style_prev.sample], input=x_hat_input, name='prev_generator', reuse=True)
+
+
+                    else:
+                        enc_input = tf.concat(self.frames[1:-1], axis=3)
+                        frame_enc = self.create_component(config.encoder, input=enc_input, name='prev_encoder', reuse=True)
+
+                        if config.skip_connections:
+                            gen = self.create_component(config.generator, skip_connections=frame_enc.layers, features=[random_like(z_noise)], input=frame_enc.sample, name='prev_generator', reuse=True)
+                        else:
+                            gen = self.create_component(config.generator, features=[random_like(z_noise)], input=frame_enc.sample, name='prev_generator', reuse=True)
+                        p_frame = tf.slice(gen.sample, [0,0,0,3],[-1,-1,-1,3])
+                        enc_input = tf.concat([p_frame]+self.frames[1:-2], axis=3)
+                        frame_enc = self.create_component(config.encoder, input=enc_input, name='prev_encoder', reuse=True)
+                        if config.skip_connections:
+                            x_hat = self.create_component(config.generator, skip_connections=frame_enc.layers,features=[random_like(z_noise)], input=frame_enc.sample, name='prev_generator', reuse=True).sample
+                        else:
+                            x_hat = self.create_component(config.generator, features=[random_like(z_noise)], input=frame_enc.sample, name='prev_generator', reuse=True).sample
+                        x_hat = tf.slice(x_hat, [0,0,0,0], [-1,-1,-1,3])
+
+
+                else:
+                    enc_input = tf.concat(self.frames[1:], axis=3)
+                    g_frame_encoder = self.create_component(config.encoder, input=enc_input, name='next_encoder', reuse=True)
+                    g_frame_input = tf.concat(values=[z_g_prev.sample, z_noise], axis=3)
+                    g_frame = self.create_component(config.generator, features=[style_next.sample], input=g_frame_input, name='next_generator', reuse=True)
+                    g_frames = self.frames[2:]+[g_frame.sample]
+
+                    g_frame_encoder_input = tf.concat(g_frames, axis=3)
+                    g_frame_encoder = self.create_component(config.encoder, input=g_frame_encoder_input, name='prev_encoder', reuse=True)
+                    x_hat_input = tf.concat([g_frame_encoder.sample, n_noise], axis=3)
+                    x_hat = self.create_component(config.generator, features=[style_prev.sample], input=x_hat_input, name='prev_generator', reuse=True)
 
             if config.alice_map:
                 for term in config.alice_map:
-                    t1 = self.frames[1]
-                    t2 = x_hat.sample
+                    t1 = self.frames[-2]
+                    t2 = x_hat
                     f1 = self.frames[term]
                     f2 = self.frames[term]
                     stack = [t1, t2]

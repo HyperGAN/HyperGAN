@@ -183,10 +183,13 @@ class AliNextFrameGAN(BaseGAN):
         ops = self.ops
 
         with tf.device(self.device):
-            def random_like(x):
-                shape = self.ops.shape(x)
+            def random_t(shape):
                 shape[-1] //= len(config.z_distribution.projections)
                 return UniformEncoder(self, config.z_distribution, output_shape=shape).sample
+            def random_like(x):
+                shape = self.ops.shape(x)
+                return random_t(shape)
+
             self.frame_count = len(self.inputs.frames)
             self.frames = self.inputs.frames
 
@@ -202,9 +205,20 @@ class AliNextFrameGAN(BaseGAN):
             target_next = self.frames[-1]
 
             if config.proxy_noise:
-                proxy_noise = self.create_component(config.proxy_noise_generator, input=random_like(z_g_prev.sample), name='proxy_noise')
+                pn_noise = [ops.shape(target_next)[0], config.proxy_z or 128]
+                print("PN PROXY ", pn_noise)
+                print('~~', random_t(pn_noise))
+                pn_input = random_t(pn_noise)
+                if config.proxy_feature:
+                    proxy_noise = self.create_component(config.proxy_noise_generator, features=[z_g_prev.sample], input=pn_input, name='proxy_noise')
+                else:
+                    proxy_noise = self.create_component(config.proxy_noise_generator, input=pn_input, name='proxy_noise')
                 z_noise = proxy_noise.sample
-                n_noise = self.create_component(config.proxy_noise_generator, input=random_like(z_g_prev.sample), name='proxy_noise', reuse=True).sample
+                if config.proxy_feature:
+                    n_noise = self.create_component(config.proxy_noise_generator, features=[z_g_prev.sample], input=random_t(pn_noise), name='proxy_noise', reuse=True).sample
+                else:
+                    n_noise = self.create_component(config.proxy_noise_generator, input=random_t(pn_noise), name='proxy_noise', reuse=True).sample
+                print("n_noise=", n_noise)
             else:
                 z_noise = random_like(z_g_prev.sample)
                 n_noise = random_like(z_g_prev.sample)
@@ -235,6 +249,7 @@ class AliNextFrameGAN(BaseGAN):
                     if config.skip_connections:
                         gen = self.create_component(config.generator, skip_connections=z_g_prev.layers, features=[n_noise], input=z_g_prev.sample, name='prev_generator')
                     else:
+                        print("Combine", z_g_prev.sample, n_noise)
                         gen = self.create_component(config.generator, features=[n_noise], input=z_g_prev.sample, name='prev_generator')
                     gx_sample = tf.slice(gen.sample, [0,0,0,0], [-1,-1,-1,3])
                     gy_sample = tf.slice(gen.sample, [0,0,0,3], [-1,-1,-1,3])
@@ -268,10 +283,70 @@ class AliNextFrameGAN(BaseGAN):
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1, f2], axis=0)
 
+            if config.same_g:
+                g_vars1 = gen.variables()+z_g_prev.variables()
+            else:
+                g_vars1 = gx.variables()+gy.variables()+z_g_next.variables()+z_g_prev.variables()
+
+
+            if config.g_inv:
+                pn_input = random_t(pn_noise)
+                p_noise = self.create_component(config.proxy_noise_generator, input=pn_input, name='p_noise')
+ 
+                end_input = tf.concat([gy.sample, target_next], axis=3)
+                end_encoder = self.create_component(config.encoder, input=end_input, name='inner_encoder')
+                g_inner_frames = self.create_component(config.inner_generator, features=[p_noise.sample], input=end_encoder.sample, name='inner_generator')
+                f2 = tf.concat(self.frames[0:-1], axis=3)
+                f1 = tf.concat([f1, g_inner_frames.sample], axis=3)
+                f0 =  tf.concat(self.frames[0:-1], axis=3)
+
+                #self.inner_frames = []
+                #for i in range(ops.shape(f0)[-1]//3):
+                #    self.inner_frames.append(tf.slice(g_inner_frames.sample, [0,0,0,i*3],[-1,-1,-1,3]))
+
             if config.skip_real:
+
                 stack = [t1, t2]
                 stacked = ops.concat(stack, axis=0)
                 features = ops.concat([f1, f2], axis=0)
+            elif config.random_sample:
+                gn_input = random_t([ops.shape(target_next)[0], config.proxy_z or 128])
+                g_noise = self.create_component(config.proxy_noise_generator, features=[z_noise], input=gn_input, name='g_noise')
+               
+                if config.style:
+                    s_noise = self.create_component(config.proxy_noise_generator, input=random_like(style_next.sample), name='s_noise')
+                    g_input = tf.concat(values=[g_noise.sample, z_noise], axis=3)
+                    gen = self.create_component(config.generator, features=[s_noise.sample], input=g_input, name='prev_generator', reuse=True)
+                else:
+                    print("CREATING", g_noise.sample, z_noise)
+                    gen = self.create_component(config.generator, features=[z_noise], input=g_noise.sample, name='prev_generator', reuse=True)
+                g_n = tf.slice(gen.sample, [0,0,0,0], [-1,-1,-1,3])
+                g_p = tf.slice(gen.sample, [0,0,0,3], [-1,-1,-1,3])
+                t3 = g_n
+                f3 = g_p
+                if config.g_inv:
+
+                    pn_input = random_t(pn_noise)
+                    p_noise = self.create_component(config.proxy_noise_generator, input=pn_input, name='p_noise', reuse=True)
+     
+                    end_input = tf.concat([g_p, g_n], axis=3)
+                    end_encoder = self.create_component(config.encoder, input=end_input, name='inner_encoder', reuse=True)
+                    g_inner_frames = self.create_component(config.inner_generator, features=[p_noise.sample], input=end_encoder.sample, name='inner_generator', reuse=True)
+                    f3 = tf.concat([g_p, g_inner_frames.sample], axis=3)
+                    # add t+1 to t+k-1 elements to joint mapping
+                if config.include_real:
+                    stack = [t0,t1, t2, t3]
+                    stacked = ops.concat(stack, axis=0)
+                    features = ops.concat([f0, f1, f2, f3], axis=0)
+                else:
+                    stack = [t1, t2, t3]
+                    stacked = ops.concat(stack, axis=0)
+                    features = ops.concat([f1, f2, f3], axis=0)
+                g_vars1 += g_noise.variables()
+
+                if config.style:
+                    g_vars1 += s_noise.variables()
+
             d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, None, None, len(stack))
             loss1 = l
@@ -279,14 +354,12 @@ class AliNextFrameGAN(BaseGAN):
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            if config.same_g:
-                g_vars1 = gen.variables()+z_g_prev.variables()
-            else:
-                g_vars1 = gx.variables()+gy.variables()+z_g_next.variables()+z_g_prev.variables()
 
             if config.proxy_noise:
                 g_vars1 += proxy_noise.variables()
 
+            if config.g_inv:
+                g_vars1 += g_inner_frames.variables()+p_noise.variables()+end_encoder.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -307,16 +380,17 @@ class AliNextFrameGAN(BaseGAN):
                     gen = self.create_component(config.generator, features=[z_noise], input=g_noise.sample, name='prev_generator', reuse=True)
                 g_n = tf.slice(gen.sample, [0,0,0,0], [-1,-1,-1,3])
                 g_p = tf.slice(gen.sample, [0,0,0,3], [-1,-1,-1,3])
-                t1 = target_next
-                t2 = g_n
-                t3 = g_p
-                stack = [t1, t2, t3]
+                t0 = target_next
+                f0 = target_prev
+                t1 = g_n
+                f1 = g_p
+                stack = [t0, t1]
                 stacked = ops.concat(stack, axis=0)
-                features = None#ops.concat([f1, f2], axis=0)
+                features = ops.concat([f0, f1], axis=0)
                 z_d = self.create_component(config.discriminator, name='g_random', input=stacked, features=[features])
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=None, generator=None, split=3)
-                metrics["random_g"]=loss3.g_loss
-                metrics["random_d"]=loss3.d_loss
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=None, generator=None, split=2)
+                metrics["random_g"]=loss3.g_loss*(config.g_random_lambda or 1)
+                metrics["random_d"]=loss3.d_loss*(config.g_random_lambda or 1)
                 d_loss1 += loss3.d_loss
                 g_loss1 += loss3.g_loss
                 d_vars1 += z_d.variables()
@@ -416,17 +490,37 @@ class AliNextFrameGAN(BaseGAN):
 
 
             if config.alpha:
-                t0 = random_like(zx)
-                t1 = zx
-                t2 = zy
-                netzd = tf.concat(axis=0, values=[t0,t1,t2])
-                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=3)
-                metrics["za_gloss"]=loss3.g_loss
-                metrics["za_dloss"]=loss3.d_loss
-                d_loss1 += loss3.d_loss
-                g_loss1 += loss3.g_loss
-                d_vars1 += z_d.variables()
+                if config.same_g:
+
+                    #proxy_noise = self.create_component(config.proxy_noise_generator, input=random_like(z_g_prev.sample), name='alpha_proxy_noise')
+                    #proxy_noise_real = self.create_component(config.proxy_noise_generator, input=z_g_prev.sample, name='alpha_proxy_noise', reuse=True)
+                    #t0 = proxy_noise_real.sample
+                    #t1 = proxy_noise.sample
+                    t0 = random_like(z_g_prev.sample)
+                    t1 = z_g_prev.sample
+                    netzd = tf.concat(axis=0, values=[t0,t1])
+                    z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
+                    loss3 = self.create_component(config.loss, discriminator = z_d, x=None, generator=None, split=2)
+                    metrics["alpha_gloss"]=loss3.g_loss
+                    metrics["alpha_dloss"]=loss3.d_loss
+                    d_loss1 += loss3.d_loss * (config.alpha_lambda or 1)
+                    g_loss1 += loss3.g_loss * (config.alpha_lambda or 1)
+                    d_vars1 += z_d.variables()
+                    #g_vars1 += proxy_noise.variables()
+
+
+                else:
+                    t0 = random_like(zx)
+                    t1 = zx
+                    t2 = zy
+                    netzd = tf.concat(axis=0, values=[t0,t1,t2])
+                    z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
+                    loss3 = self.create_component(config.loss, discriminator = z_d, x=None, generator=None, split=3)
+                    metrics["za_gloss"]=loss3.g_loss
+                    metrics["za_dloss"]=loss3.d_loss
+                    d_loss1 += loss3.d_loss
+                    g_loss1 += loss3.g_loss
+                    d_vars1 += z_d.variables()
 
             trainers = []
 

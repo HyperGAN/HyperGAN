@@ -15,6 +15,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         self.layers = []
         self.skip_connections = skip_connections
         self.layer_ops = {
+            "relational": self.layer_relational,
             "phase_shift": self.layer_phase_shift,
             "conv": self.layer_conv,
             "control": self.layer_controls,
@@ -219,7 +220,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
     def layer_combine_features(self, net, args, options):
         op = None
-        print("Combining features", self.features, net)
         if(len(args) > 0):
             op = args[0]
 
@@ -572,4 +572,34 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         return net
 
 
+    def layer_relational(self, net, args, options):
+        def concat_coor(o, i, d):
+            coor = tf.tile(tf.expand_dims(
+                [float(int(i / d)) / d, (i % d) / d], axis=0), [self.ops.shape(net)[0], 1])
+            o = tf.concat([o, tf.to_float(coor)], axis=1)
+            return o
 
+
+        # eq.1 in the paper
+        # g_theta = (o_i, o_j, q)
+        # conv_4 [B, d, d, k]
+        d = net.get_shape().as_list()[1]
+        all_g = []
+        for i in range(d*d):
+            o_i = net[:, int(i / d), int(i % d), :]
+            o_i = concat_coor(o_i, i, d)
+            for j in range(d*d):
+                o_j = net[:, int(j / d), int(j % d), :]
+                o_j = concat_coor(o_j, j, d)
+                r_input = tf.concat([o_i, o_j], axis=1)
+                if i == 0 and j == 0:
+                    g_theta = self.gan.create_component(self.config.relational, name='relational', input=r_input)
+                    g_i_j = g_theta.sample
+                    self.ops.weights += g_theta.variables()
+                else:
+                    g_i_j = g_theta.reuse(r_input)
+                all_g.append(g_i_j)
+
+        all_g = tf.stack(all_g, axis=0)
+        all_g = tf.reduce_mean(all_g, axis=0, name='all_g')
+        return all_g

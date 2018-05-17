@@ -166,26 +166,6 @@ class GANComponent:
             results.append(net)
         return results
 
-    def relation_layer(self, net):
-        ops = self.ops
-
-        #hack
-        shape = ops.shape(net)
-        input_size = shape[1]*shape[2]*shape[3]
-
-        netlist = self.split_by_width_height(net)
-        permutations = self.permute(netlist, 2)
-        permutations = self.fully_connected_from_list(permutations)
-        net = ops.concat(permutations, axis=3)
-
-        #hack
-        bs = ops.shape(net)[0]
-        net = ops.reshape(net, [bs, -1])
-        net = ops.linear(net, input_size)
-        net = ops.reshape(net, shape)
-
-        return net
-
     def normalize(self, net):
         if self.config.local_response_normalization:
             net = tf.nn.local_response_normalization(net)

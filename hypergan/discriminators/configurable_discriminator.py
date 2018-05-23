@@ -20,6 +20,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "conv": self.layer_conv,
             "control": self.layer_controls,
             "linear": self.layer_linear,
+            "attention": self.layer_attention,
             "subpixel": self.layer_subpixel,
             "gram_matrix": self.layer_gram_matrix,
             "unpool": self.layer_unpool,
@@ -383,6 +384,29 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         y = tf.concat([y1,y2],axis=1)
         net = tf.concat([x,y],axis=2)
         return net
+
+    def layer_attention(self, net, args, options):
+        ops = self.ops
+        options = hc.Config(options)
+        oj_lambda = options.oj_lambda or 1
+        print("Size",net)
+
+        def _flatten(network):
+            return tf.reshape(network, [ops.shape(network)[0], -1, ops.shape(network)[-1]])
+        fx = self.layer_conv(net, args, options)
+        gx = self.layer_conv(net, args, options)
+        hx = self.layer_conv(net, args, options)
+        fx = _flatten(fx)
+        gx = _flatten(gx)
+        hx = _flatten(hx)
+        fx = tf.transpose(fx, [0,2,1])
+        bji = tf.nn.softmax(tf.matmul(gx,fx))
+        oj = tf.matmul(bji, hx)
+        oj = tf.reshape(oj, ops.shape(net))
+        if options.only:
+            return oj
+
+        return net+oj*oj_lambda
 
 
 

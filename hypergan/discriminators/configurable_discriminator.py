@@ -388,7 +388,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_attention(self, net, args, options):
         ops = self.ops
         options = hc.Config(options)
-        oj_lambda = options.oj_lambda or 1
+        oj_lambda = float(options.oj_lambda or 1)
         print("Size",net)
 
         def _flatten(network):
@@ -400,11 +400,17 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         gx = _flatten(gx)
         hx = _flatten(hx)
         fx = tf.transpose(fx, [0,2,1])
-        bji = tf.nn.softmax(tf.matmul(gx,fx))
+        if options.dot_product_similarity:
+            f = tf.matmul(gx,fx)
+            bji = f / tf.cast(tf.shape(f)[-1], tf.float32)
+        else:
+            bji = tf.nn.softmax(tf.matmul(gx,fx))
         oj = tf.matmul(bji, hx)
         oj = tf.reshape(oj, ops.shape(net))
         if options.only:
             return oj
+        if options.concat:
+            return tf.concat([net, oj], axis=3)
 
         return net+oj*oj_lambda
 

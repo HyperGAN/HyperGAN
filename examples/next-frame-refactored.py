@@ -193,7 +193,12 @@ class AliNextFrameGAN(BaseGAN):
             self.frame_count = len(self.inputs.frames)
             self.frames = self.inputs.frames
 
-            if config.same_g:
+            if config.only_forwards:
+                index = -config.forward_frames
+                z_g_prev_input = tf.concat(self.frames[:index], axis=3)
+                z_g_prev = self.create_component(config.encoder, input=z_g_prev_input, name='prev_encoder')
+                z_g = z_g_prev
+            elif config.same_g:
                 z_g_prev_input = tf.concat(self.frames[1:-1], axis=3)
                 z_g_prev = self.create_component(config.encoder, input=z_g_prev_input, name='prev_encoder')
             else:
@@ -214,16 +219,22 @@ class AliNextFrameGAN(BaseGAN):
                 else:
                     proxy_noise = self.create_component(config.proxy_noise_generator, input=pn_input, name='proxy_noise')
                 z_noise = proxy_noise.sample
-                if config.proxy_feature:
-                    n_noise = self.create_component(config.proxy_noise_generator, features=[z_g_prev.sample], input=random_t(pn_noise), name='proxy_noise', reuse=True).sample
-                else:
-                    n_noise = self.create_component(config.proxy_noise_generator, input=random_t(pn_noise), name='proxy_noise', reuse=True).sample
+                n_noise = self.create_component(config.proxy_noise_generator, input=random_t(pn_noise), name='proxy_noise', reuse=True).sample
                 print("n_noise=", n_noise)
             else:
                 z_noise = random_like(z_g_prev.sample)
                 n_noise = random_like(z_g_prev.sample)
 
-            if config.style:
+            if config.only_forwards:
+                gen = self.create_component(config.generator, features=[n_noise], input=z_g.sample, name='prev_generator')
+                gx_sample = gen.sample
+                gy_sample = gen.sample
+                gx = hc.Config({"sample":gx_sample})
+                gy = hc.Config({"sample":gy_sample})
+                style_prev = self.create_component(config.style_encoder, input=self.inputs.frames[1], name='xb_style')
+                style_next = style_prev
+
+            elif config.style:
                 if config.same_g:
                     style_prev = self.create_component(config.style_encoder, input=self.inputs.frames[1], name='xb_style')
                     style_next = style_prev
@@ -273,17 +284,20 @@ class AliNextFrameGAN(BaseGAN):
             self.stylea = style_prev
             self.random_style = random_like(style_prev.sample)
 
-            t0 = target_next
-            f0 = target_prev
-            t1 = target_next
-            t2 = gx.sample
-            f1 = gy.sample
-            f2 = target_prev
-            stack = [t0, t1, t2]
-            stacked = ops.concat(stack, axis=0)
-            features = ops.concat([f0, f1, f2], axis=0)
+            if config.vanilla:
+                t0 = target_next
+                f0 = target_prev
+                t1 = target_next
+                t2 = gx.sample
+                f1 = gy.sample
+                f2 = target_prev
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
 
-            if config.same_g:
+            if config.only_forwards:
+                g_vars1 = gen.variables()+z_g.variables()
+            elif config.same_g:
                 g_vars1 = gen.variables()+z_g_prev.variables()
             else:
                 g_vars1 = gx.variables()+gy.variables()+z_g_next.variables()+z_g_prev.variables()
@@ -304,7 +318,75 @@ class AliNextFrameGAN(BaseGAN):
                 #for i in range(ops.shape(f0)[-1]//3):
                 #    self.inner_frames.append(tf.slice(g_inner_frames.sample, [0,0,0,i*3],[-1,-1,-1,3]))
 
-            if config.skip_real:
+            if config.only_forwards:
+                # ali
+                # xnext / xprev
+                # gnext / xprev2 (separate sample?)
+                frames = tf.concat(self.frames, axis=3)
+                orig_size = self.ops.shape(frames)[3] - self.ops.shape(gy.sample)[3]
+                orig = tf.slice(frames, [0,0,0,0], [-1, -1, -1, orig_size])
+                gen = tf.concat([orig,gy.sample], axis=3)
+                target_next = tf.concat(self.frames, axis=3)
+                target_prev = tf.concat([orig, tf.zeros_like(gy.sample)], axis=3)
+                t0 = target_next
+                f0 = target_prev
+                t2 = gen
+                f2 = target_prev
+                print("---0 ", t0, f0)
+                print("---2 ", t2, f2)
+                stack = [t0, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f2], axis=0)
+                s = self.ops.shape(gen)
+                self.preview = tf.concat(tf.split(gen, (self.ops.shape(gen)[3]//3), 3), axis=1)
+
+                if config.random_starting_point:
+                    def g_frames(n):
+                        frames = [tf.zeros_like(x) for x in self.frames[:-1]]
+                        if config.random_first_g:
+                            pn = self.create_component(config.proxy_noise_generator, input=random_t(pn_noise), name='proxy_noise', reuse=True).sample
+                            g = self.create_component(config.generator, features=[pn], input=random_like(z_g.sample), name='prev_generator', reuse=True)
+                            frames = frames[1:]+[g.sample]
+                            g_frames = [g.sample]
+                            n=n-1
+                        else:
+                            g_frames = []
+                        for i in range(n):
+                            frame_input = tf.concat(frames, axis=3)
+                            encoding = self.create_component(config.encoder, input=frame_input, name='prev_encoder', reuse=True)
+                            if config.proxy_noise:
+                                pn = self.create_component(config.proxy_noise_generator, input=random_t(pn_noise), name='proxy_noise', reuse=True).sample
+                            else:
+                                pn = random_like(n_noise)
+                            g = self.create_component(config.generator, features=[pn], input=encoding.sample, name='prev_generator', reuse=True)
+                            frames = frames[1:]+[g.sample]
+                            g_frames.append(g.sample)
+                        return g_frames
+                    gf = g_frames(len(self.frames))
+                    self.g_frames = gf
+                    f3 = tf.concat(gf[:-1]+[tf.zeros_like(gy.sample)], axis=3)
+                    t3 = tf.concat(gf, axis=3)
+                    if config.nogx:
+                        print("***DISABLE GX")
+                        stack = [t0, t3]
+                        stacked = ops.concat(stack, axis=0)
+                        features = ops.concat([f0, f3], axis=0)
+                    else:
+                        stack = [t0, t2, t3]
+                        stacked = ops.concat(stack, axis=0)
+                        features = ops.concat([f0, f2, f3], axis=0)
+
+                if config.rando_timo:
+                    g_noise = self.create_component(config.proxy_noise_generator, input=random_like(z_g_prev.sample), name='g_noise')
+                    gr = self.create_component(config.generator, features=[z_noise], input=g_noise.sample, name='prev_generator', reuse=True)
+                    t3 = gr.sample
+                    t3 = tf.concat([z_noise, t3], axis=3)
+                    f3 = random_like(t3)
+                    stack = [t0, t2, t3]
+                    stacked = ops.concat(stack, axis=0)
+                    features = ops.concat([f0, f2, f3], axis=0)
+
+            elif config.skip_real:
 
                 stack = [t1, t2]
                 stacked = ops.concat(stack, axis=0)
@@ -360,7 +442,8 @@ class AliNextFrameGAN(BaseGAN):
 
             if config.g_inv:
                 g_vars1 += g_inner_frames.variables()+p_noise.variables()+end_encoder.variables()
-
+            if config.rando_timo:
+                g_vars1 += g_noise.variables()
             d_loss = l.d_loss
             g_loss = l.g_loss
             metrics = {
@@ -640,8 +723,11 @@ class AliNextFrameGAN(BaseGAN):
 class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         sess = gan.session
-
-        self.c, self.x = gan.session.run([gan.c,gan.x_input])
+        self.x = gan.session.run(gan.preview)
+        print("__________", np.shape(self.x),'---oo')
+        frames = np.shape(self.x)[1]//height
+        self.frames=frames
+        self.x = np.split(self.x, frames, axis=1)
         self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
 
@@ -650,15 +736,20 @@ class VideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
         sess = gan.session
 
-        self.c, self.x = sess.run([gan.c_next, gan.video_next], {gan.c: self.c, gan.x_input: self.x})
-        v = sess.run(gan.video_sample)
-        #next_z, next_frame = sess.run([gan.cz_next, gan.video_sample])
+        feed_dict = {}
+        for i,f in enumerate(gan.inputs.frames):
+            if(i + self.frames < len(self.x)):
+                feed_dict[f+self.frames]=self.x[i+self.frames]
+            #if(1 + self.frames < len(self.x)):
+            #    feed_dict[f] = self.x[1+self.frames]
+        self.x = sess.run(gan.preview, feed_dict)
+        frames = np.shape(self.x)[1]//height
+        x_ = self.x
+        self.x = np.split(self.x, frames, axis=1)
 
-        time.sleep(0.05)
+        time.sleep(10)
         return {
-
-
-            'generator': np.hstack([self.x, v])
+            'generator': x_
         }
 
 

@@ -232,12 +232,31 @@ class TensorflowOps:
 
 
     def spectralnorm_conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding='SAME'):
+        def spectral_norm(w, iteration=1):
+           w_shape = w.shape.as_list()
+           w = tf.reshape(w, [-1, w_shape[-1]])
+
+           u = tf.get_variable("u", [1, w_shape[-1]], initializer=tf.truncated_normal_initializer(), trainable=False)
+
+           u_hat = u
+           v_hat = None
+           for i in range(iteration):
+               v_ = tf.matmul(u_hat, tf.transpose(w))
+               v_hat =tf.nn.l2_normalize(v_, [0,1])
+
+               u_ = tf.matmul(v_hat, w)
+               u_hat =tf.nn.l2_normalize(u_, [0,1])
+
+           sigma = tf.matmul(tf.matmul(v_hat, w), tf.transpose(u_hat))
+           w_norm = w / sigma
+
+           with tf.control_dependencies([u.assign(u_hat)]):
+               w_norm = tf.reshape(w_norm, w_shape)
+
+           return w_norm
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
-            # modified from https://github.com/openai/weightnorm/blob/master/tensorflow/nn.py
-            # data based initialization of parameters
             w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim])
-            w = spectral_normed_weight(w, update_collection=None)
-            conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
+            conv = tf.nn.conv2d(net, strides=[1, stride_h, stride_w, 1], padding=padding, filter=spectral_norm(w))
             biases = self.get_bias([output_dim])
             conv = tf.nn.bias_add(conv, biases)
             return conv

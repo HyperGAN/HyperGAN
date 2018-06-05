@@ -35,10 +35,17 @@ class KBeamTrainer(BaseTrainer):
         loss = self.loss or gan.loss
         metrics = loss.metrics
         
-        losses = [t.g_loss for t in self.trainers]
-        minis = sess.run(losses)
-        i=np.argmax([float(x) for x in minis])
+        losses_g = [t.g_loss for t in self.trainers]
+        losses_d = [t.d_loss for t in self.trainers]
+        targets_t = losses_g+losses_d
+        targets = sess.run(targets_t)
+        l_g = targets[:len(targets)//2]
+        l_d = targets[len(targets)//2:]
+        i=np.argmax([float(x) for x in l_g])
         optimizer = self.trainers[i].optimizer
+
+        for t_t, t in zip(targets_t, targets):
+            feed_dict[t_t] = t
 
         metric_values = sess.run([optimizer] + self.output_variables(metrics), feed_dict)[1:]
 

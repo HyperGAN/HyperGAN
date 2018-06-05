@@ -14,8 +14,8 @@ class BatchWalkSampler(BaseSampler):
         self.step = 0
         self.steps = 30
         self.target = None
-        self.style_t = gan.styleb.sample
-        self.style_v = gan.session.run(self.style_t)
+        #self.style_t = gan.styleb.sample
+        #self.style_v = gan.session.run(self.style_t)
 
 
     def _sample(self):
@@ -50,7 +50,7 @@ class BatchWalkSampler(BaseSampler):
         with g.as_default():
             tf.set_random_seed(1)
             return {
-                    'generator': gan.session.run(gan.generator.sample, feed_dict={z_t: z_interp, inputs_t: self.input, self.style_t: np.zeros_like(self.style_v)})
+                    'generator': gan.session.run(gan.generator.sample, feed_dict={z_t: z_interp, inputs_t: self.input})
             }
 
     def sample(self, path, save_samples):

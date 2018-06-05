@@ -197,7 +197,10 @@ class AliNextFrameGAN(BaseGAN):
             self.style = style
 
             d = self.create_component(config.discriminator, name='d_ab3', input=self.frames[0], features=[None])
-            ue = random_like(d.sample)
+            if 'fc7' in d.controls:
+                ue = random_like(d.controls['fc7'])
+            else:
+                ue = random_like(d.sample)
             print("UE", ue)
             def generator(c, zs):
                 def g(z, reuse=False):
@@ -235,10 +238,12 @@ class AliNextFrameGAN(BaseGAN):
                 d = self.create_component(config.discriminator, name='d_ab', input=xs_concat, features=[None], reuse=True)
                 if 'fc7' in d.controls:
                     ds = self.split_batch(d.controls['fc7'], len(xs))
+                    print("FC7 activated")
                 else:
                     ds = self.split_batch(d.sample, len(xs))
                 return ds
             ez_frames = reuse_d(self.frames)
+            self.ez_frames = ez_frames
             next_z = next_z(config.next_z, ez_frames[:-1]+[random_like(z_frames[0])])
             self.next_z = next_z
             self.next_g = self.create_component(config.generator, features=[], input=next_z.sample, name='g', reuse=True)
@@ -391,8 +396,9 @@ class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         sess = gan.session
 
-        self.z_frames = gan.session.run(gan.z_frames[:-1])
-        self.next_z = gan.session.run(gan.next_z.sample)
+        self.ez_frames = gan.session.run(gan.ez_frames[:-1])
+        feed_dict = dict(zip(gan.ez_frames, self.ez_frames))
+        self.next_z = gan.session.run(gan.next_z.sample, feed_dict=feed_dict)
         self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
 
@@ -400,9 +406,9 @@ class VideoFrameSampler(BaseSampler):
         gan = self.gan
         sess = gan.session
 
-        feed_dict = dict(zip(gan.z_frames, self.z_frames))
+        feed_dict = dict(zip(gan.ez_frames, self.ez_frames))
         sample, next_z = sess.run([gan.next_g.sample, gan.next_z.sample], feed_dict=feed_dict)
-        self.z_frames = self.z_frames[1:] + [next_z]
+        self.ez_frames = self.ez_frames[1:] + [next_z]
 
         time.sleep(0.05)
         return {

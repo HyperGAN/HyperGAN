@@ -194,14 +194,8 @@ class AliNextFrameGAN(BaseGAN):
 
             self.y = hc.Config({"sample": self.frames[0]})
 
-            style = self.create_component(config.style_encoder, input=self.inputs.y, name='xb_style')
-            self.style = style
-
             batch_size = ops.shape(self.frames[0])[0]
-            if config.style:
-                g_next = self.create_component(config.generator, features=[style.sample], input=random_t([batch_size, config.z_distribution.z]), name='g')
-            else:
-                g_next = self.create_component(config.generator, input=random_t([batch_size, config.z_distribution.z]), name='g')
+            g_next = self.create_component(config.generator, input=random_t([batch_size, config.z_distribution.z]), name='g')
             self.gx = g_next
             self.gy = g_next
 
@@ -209,6 +203,7 @@ class AliNextFrameGAN(BaseGAN):
             for i in range(len(self.frames)):
                 self.g_frames.append(tf.slice(g_next.sample, [0,0,0,i*3], [-1,-1,-1,3]))
 
+            style = g_next
             self.random_style = random_like(style.sample)
             self.styleb = style
             self.stylea = style

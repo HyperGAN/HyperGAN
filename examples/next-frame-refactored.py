@@ -610,7 +610,7 @@ class AliNextFrameGAN(BaseGAN):
             lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
             #lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
             #trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
-            trainer = ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)
+            trainer = self.create_component(config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)
             #trainer = MultiTrainerTrainer(trainers)
             self.session.run(tf.global_variables_initializer())
 
@@ -757,8 +757,6 @@ class TrainingVideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         self.z = None
 
-        self.x_input, self.last_frame_1, self.last_frame_2, self.z1, self.z2 = gan.session.run([gan.x_input, gan.inputs.x1, gan.inputs.x2, gan.z1, gan.z2])
-
         self.i = 0
         BaseSampler.__init__(self, gan, samples_per_row)
 
@@ -767,12 +765,9 @@ class TrainingVideoFrameSampler(BaseSampler):
         z_t = gan.uniform_encoder.sample
         sess = gan.session
         
-        x_hat,  next_frame, c = sess.run([gan.x_hat, gan.x_next, gan.c], {gan.x_input:self.x_input, gan.last_frame_1:self.last_frame_1, gan.last_frame_2:self.last_frame_2})
-        xt1, c = sess.run([gan.x_next, gan.c], {gan.x_input:next_frame, gan.c2:c})
-        xt2, c = sess.run([gan.x_next, gan.c], {gan.x_input:next_frame, gan.c2:c})
  
         return {
-            'generator': np.vstack([self.last_frame_1, self.last_frame_2, x_hat, next_frame, xt1, xt2])
+            'generator': gan.session.run(gan.preview)
         }
 
 

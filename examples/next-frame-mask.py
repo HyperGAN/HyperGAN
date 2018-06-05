@@ -207,7 +207,7 @@ class AliNextFrameGAN(BaseGAN):
                 g_next = self.create_component(config.generator, features=[style.sample], input=random_t([batch_size, config.z_distribution.z]), name='g')
             else:
                 for i in range(len(self.frames)):
-                    m = tf.cast(tf.greater(tf.random_uniform([], 0, 1), 0.5), tf.float32)
+                    m = tf.cast(tf.greater(tf.random_uniform([], 0, 1), config.mask_threshold or 0.5), tf.float32)
                     masks.append(m*tf.ones_like(self.frames[0]))
                 mask = tf.concat(masks, axis=3)
                 next_frame_mask = tf.concat([tf.ones_like(m) for m in masks[:-1]]+ [tf.zeros_like(masks[0])], axis=3)

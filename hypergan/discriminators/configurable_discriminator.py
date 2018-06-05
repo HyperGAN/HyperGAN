@@ -405,8 +405,13 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             bji = f / tf.cast(tf.shape(f)[-1], tf.float32)
         else:
             bji = tf.nn.softmax(tf.matmul(gx,fx))
+
+        if options.h_activation:
+            hx = ops.lookup(options.h_activation)(hx)
         oj = tf.matmul(bji, hx)
         oj = tf.reshape(oj, ops.shape(net))
+        if options.enable_at_step:
+            oj *= tf.cast(tf.greater(tf.train.get_global_step(),int(options.enable_at_step)), tf.float32)
         if options.only:
             return oj
         if options.concat:

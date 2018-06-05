@@ -12,47 +12,32 @@ class MultiLoss(BaseLoss):
         gan = self.gan
         config = self.config
         losses = []
-        if config.partition:
-            d_real_partitions = tf.split(d_real, len(config.losses), len(gan.ops.shape(d_real))-1)
-            d_fake_partitions = tf.split(d_fake, len(config.losses), len(gan.ops.shape(d_real))-1)
-        for i, loss in enumerate(config.losses):
-            if config.partition:
-                d_real = d_real_partitions[i]
-                d_fake = d_fake_partitions[i]
+        split = self.split
+
+        for d in gan.discriminator.children:
             if config.swapped:
                 d_swap = d_real
                 d_real = d_fake
                 d_fake = d_swap
-            loss_object = loss['class'](gan, loss, d_real=d_real, d_fake=d_fake)
+            ds = self.split_batch(d.sample, split)
+            d_real = ds[0]
+            d_fake = tf.add_n(ds[1:])/(len(ds)-1)
+
+            loss_object = self.config['loss_class'](gan, self.config, d_real=d_real, d_fake=d_fake)
 
             losses.append(loss_object)
 
         #relational layer?
         combine = MultiComponent(combine='concat', components=losses)
 
-        if config.combine == 'concat':
-            g_loss = combine.g_loss_features
-            d_loss = combine.d_loss_features
-        elif config.combine == 'linear':
-            g_loss = self.F(combine.g_loss_features, "g_loss").sample
-            d_loss = self.F(combine.d_loss_features, "d_loss").sample
+        g_loss = combine.g_loss_features
+        d_loss = combine.d_loss_features
 
         self.d_loss = d_loss
         self.g_loss = g_loss
 
+        self.losses = losses
+
         return [d_loss, g_loss]
-
-    def F(self, loss, name):
-        f_discriminator = self.gan.create_component(self.config.discriminator)
-        f_discriminator.ops.describe(name)
-        if self.discriminator.ops._reuse:
-            f_discriminator.ops.reuse()
-
-        result = f_discriminator.build(net=loss)
-        self.discriminator.ops.add_weights(f_discriminator.variables())
-        if self.discriminator.ops._reuse:
-            f_discriminator.ops.stop_reuse()
-
-        return f_discriminator
 
 

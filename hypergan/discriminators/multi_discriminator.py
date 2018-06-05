@@ -12,71 +12,38 @@ class MultiDiscriminator(BaseDiscriminator):
         self.kwargs = kwargs
         kwargs = hc.Config(kwargs)
         BaseDiscriminator.__init__(self, gan, config, name=kwargs.name, input=kwargs.input,reuse=kwargs.reuse, x=kwargs.x, g=kwargs.g)
-    def project(self, i, net, reuse=False):
-        filter_w = 4
-        filter_h = 4
-        ops = self.ops
-
-        if self.config.projection_type == 'scaled':
-            width = 32
-            height = 32
-            h = width*height*3
-            batch_size = ops.shape(net)[0]
-            net = tf.reshape(net, [batch_size, -1])
-            w = self.ops.shape(net)[1]
-            scaled = tf.random_uniform([w,h], -1, 1, dtype=self.ops.dtype)
-            net = tf.matmul(net, scaled)
-            net = tf.reshape(net, [batch_size, height, width, 3])
-            return net
-        else:
-            if i == self.config.discriminator_count-1:
-                filter_w = 2
-                filter_h = 2
-
-            f = ((i+1)**2)
-
-
-            sq = np.sqrt(3.0/f)
-
-            w = tf.random_uniform([filter_h, filter_w, self.ops.shape(net)[-1], f],
-                                   -sq, sq, dtype=self.ops.dtype)
-
-            return tf.nn.conv2d(net, w, strides=[1, 1, 1, 1], padding='SAME')
 
     """Takes multiple distributions and does an additional approximator"""
     def build(self, net):
         gan = self.gan
         config = self.config
+        self.d_variables = []
 
         discs = []
+        self.kwargs["input"]=net
+        self.kwargs["reuse"]=self.ops._reuse
         for i in range(config.discriminator_count or 0):
-            projection_g = self.project(i, g)
-            projection_x = self.project(i, x, reuse=True)
-            disc = config['discriminator_class'](gan, config)
-            disc.ops.describe(self.ops.description+"_d_"+str(i))
-            if self.ops._reuse:
-                disc.ops.reuse()
-            d_net = disc.create(g=projection_g, x=projection_x)
-            if self.ops._reuse:
-                disc.ops.stop_reuse()
+            name=self.ops.description+"_d_"+str(i)
+            self.kwargs["name"]=name
+            print(">>CREATING ", i)
+            disc = config['discriminator_class'](gan, config, **self.kwargs)
             self.ops.add_weights(disc.variables())
+            self.d_variables += [disc.variables()]
 
             discs.append(disc)
 
         for i,dconfig in enumerate(config.discriminators):
             name=self.ops.description+"_d_"+str(i)
-            neti = net
-            self.kwargs["input"]=net
-            self.kwargs["reuse"]=self.ops._reuse
             self.kwargs["name"]=name
-
             disc = dconfig['class'](gan, dconfig, **self.kwargs)
 
             self.ops.add_weights(disc.variables())
+            self.d_variables += [disc.variables()]
             discs.append(disc)
 
         combine = MultiComponent(combine='concat', components=discs)
         self.sample = combine.sample
+        self.children = discs
         return self.sample
 
 

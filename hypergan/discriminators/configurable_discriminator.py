@@ -30,6 +30,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "noise": self.layer_noise,
             "pad": self.layer_pad,
             "fractional_avg_pool": self.layer_fractional_avg_pool,
+            "two_sample_stack": self.layer_two_sample_stack,
             "bicubic_conv": self.layer_bicubic_conv,
             "conv_double": self.layer_conv_double,
             "conv_reshape": self.layer_conv_reshape,
@@ -389,13 +390,24 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         ops = self.ops
         options = hc.Config(options)
         oj_lambda = float(options.oj_lambda or 1)
+        c_scale = float(options.c_scale or 8)
         print("Size",net)
 
         def _flatten(network):
             return tf.reshape(network, [ops.shape(network)[0], -1, ops.shape(network)[-1]])
+        def _pool(network, scale):
+            ksize = [1,scale,1,1]
+            network = tf.nn.avg_pool(network, ksize=ksize, strides=ksize, padding='SAME')
+            return network
+        args[0] = ops.shape(net)[-1]//2
         fx = self.layer_conv(net, args, options)
         gx = self.layer_conv(net, args, options)
         hx = self.layer_conv(net, args, options)
+        if options.c_scale:
+            c_scale
+            fx = _pool(fx, c_scale)
+            gx = _pool(gx, c_scale)
+        bottleneck_shape = ops.shape(hx)
         fx = _flatten(fx)
         gx = _flatten(gx)
         hx = _flatten(hx)
@@ -409,7 +421,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         if options.h_activation:
             hx = ops.lookup(options.h_activation)(hx)
         oj = tf.matmul(bji, hx)
-        oj = tf.reshape(oj, ops.shape(net))
+        oj = tf.reshape(oj, bottleneck_shape)
+        #if options.final_conv:
+        args[0] = ops.shape(net)[-1]
+        oj = self.layer_conv(oj, args, options)
         if options.enable_at_step:
             oj *= tf.cast(tf.greater(tf.train.get_global_step(),int(options.enable_at_step)), tf.float32)
         if options.only:
@@ -502,6 +517,22 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         net,_,_ = tf.nn.fractional_avg_pool(net, [1.0,0.5,0.5,1.0])
 
         return net 
+    def layer_two_sample_stack(self, net, args, options):
+        options = hc.Config(options)
+        def _slice(_net):
+            s = self.ops.shape(_net)
+            s[0] = s[0] // 2
+            _net1 = tf.slice(_net, [0,0,0,0], s)
+            _net2 = tf.slice(_net, [s[0],0,0,0], s)
+            return _net1, _net2
+        net1, net2 = _slice(net)
+        net1a, net1b = _slice(net1)
+        net2a, net2b = _slice(net2)
+        t1 = tf.concat([net1a, net1b], axis=3)
+        t2 = tf.concat([net2a, net2b], axis=3)
+        target = tf.concat([t1, t2], axis=0)
+
+        return target
     def layer_pad(self, net, args, options):
         options = hc.Config(options)
         s = self.ops.shape(net)

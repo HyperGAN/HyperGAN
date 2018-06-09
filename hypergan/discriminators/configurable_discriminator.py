@@ -393,46 +393,56 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         c_scale = float(options.c_scale or 8)
         print("Size",net)
 
-        def _flatten(network):
-            return tf.reshape(network, [ops.shape(network)[0], -1, ops.shape(network)[-1]])
-        def _pool(network, scale):
+        def _flatten(_net):
+            return tf.reshape(_net, [ops.shape(_net)[0], -1, ops.shape(_net)[-1]])
+        def _pool(_net, scale):
             ksize = [1,scale,1,1]
-            network = tf.nn.avg_pool(network, ksize=ksize, strides=ksize, padding='SAME')
-            return network
-        args[0] = ops.shape(net)[-1]//2
-        fx = self.layer_conv(net, args, options)
-        gx = self.layer_conv(net, args, options)
-        hx = self.layer_conv(net, args, options)
-        if options.c_scale:
-            c_scale
-            fx = _pool(fx, c_scale)
-            gx = _pool(gx, c_scale)
-        bottleneck_shape = ops.shape(hx)
-        fx = _flatten(fx)
-        gx = _flatten(gx)
-        hx = _flatten(hx)
-        fx = tf.transpose(fx, [0,2,1])
-        if options.dot_product_similarity:
-            f = tf.matmul(gx,fx)
-            bji = f / tf.cast(tf.shape(f)[-1], tf.float32)
-        else:
-            bji = tf.nn.softmax(tf.matmul(gx,fx))
+            _net = tf.nn.avg_pool(_net, ksize=ksize, strides=ksize, padding='SAME')
+            return _net
+        def _attn(_net):
+            args[0] = ops.shape(_net)[-1]//2
+            fx = self.layer_conv(_net, args, options)
+            gx = self.layer_conv(_net, args, options)
+            hx = self.layer_conv(_net, args, options)
+            if options.c_scale:
+                c_scale
+                fx = _pool(fx, c_scale)
+                gx = _pool(gx, c_scale)
+            bottleneck_shape = ops.shape(hx)
+            fx = _flatten(fx)
+            gx = _flatten(gx)
+            hx = _flatten(hx)
+            fx = tf.transpose(fx, [0,2,1])
+            if options.dot_product_similarity:
+                f = tf.matmul(gx,fx)
+                bji = f / tf.cast(tf.shape(f)[-1], tf.float32)
+            else:
+                bji = tf.nn.softmax(tf.matmul(gx,fx))
 
-        if options.h_activation:
-            hx = ops.lookup(options.h_activation)(hx)
-        oj = tf.matmul(bji, hx)
-        oj = tf.reshape(oj, bottleneck_shape)
-        #if options.final_conv:
-        args[0] = ops.shape(net)[-1]
-        oj = self.layer_conv(oj, args, options)
-        if options.enable_at_step:
-            oj *= tf.cast(tf.greater(tf.train.get_global_step(),int(options.enable_at_step)), tf.float32)
-        if options.only:
+            if options.h_activation:
+                hx = ops.lookup(options.h_activation)(hx)
+            oj = tf.matmul(bji, hx)
+            oj = tf.reshape(oj, bottleneck_shape)
+            #if options.final_conv:
+            args[0] = ops.shape(_net)[-1]
+            if options.final_activation == 'crelu':
+                args[0] //= 2
+            oj = self.layer_conv(oj, args, options)
+            if options.final_activation:
+                oj = self.ops.lookup(options.final_activation)(oj)
+            if options.enable_at_step:
+                oj *= tf.cast(tf.greater(tf.train.get_global_step(),int(options.enable_at_step)), tf.float32)
+            if options.only:
+                return oj
             return oj
-        if options.concat:
-            return tf.concat([net, oj], axis=3)
 
-        return net+oj*oj_lambda
+
+        ojs = [_attn(net) for i in range(self.config.heads or 1)]
+        nets = [net] + [oj*oj_lambda for oj in ojs]
+
+        if options.concat:
+            return tf.concat(nets, axis=3)
+        return tf.add_n(nets)
 
 
 

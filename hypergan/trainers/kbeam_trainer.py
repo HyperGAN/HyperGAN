@@ -23,6 +23,7 @@ class KBeamTrainer(BaseTrainer):
             trainers += [ConsensusTrainer(self.gan, self.config, loss=l, d_vars=d, g_vars=g_vars)]
 
         self.trainers = trainers
+        self.hist = [0 for i in range(len(self.trainers))]
         return None, None
 
     def required(self):
@@ -42,13 +43,17 @@ class KBeamTrainer(BaseTrainer):
         l_g = targets[:len(targets)//2]
         l_d = targets[len(targets)//2:]
         i=np.argmax([float(x) for x in l_g])
+        self.hist[i]+=1
+
         optimizer = self.trainers[i].optimizer
 
         for t_t, t in zip(targets_t, targets):
             feed_dict[t_t] = t
 
-        metric_values = sess.run([optimizer] + self.output_variables(metrics), feed_dict)[1:]
+        metric_values = sess.run([t.optimizer for t in self.trainers] + self.output_variables(metrics), feed_dict)[len(self.trainers):]
 
         if self.current_step % 100 == 0:
-            print(self.output_string(metrics) % tuple([self.current_step] + metric_values))
+            hist_output = "  " + "".join(["D"+str(i)+":"+str(v)+" "for i, v in enumerate(self.hist)])
+            print(self.output_string(metrics) % tuple([self.current_step] + metric_values)+hist_output)
+            self.hist = [0 for i in range(len(self.trainers))]
 

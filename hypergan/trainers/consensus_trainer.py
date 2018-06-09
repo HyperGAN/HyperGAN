@@ -53,24 +53,37 @@ class ConsensusTrainer(BaseTrainer):
             tf.reduce_sum(tf.square(g)) for g in grads if g is not None
         )
         # Jacobian times gradiant
-        Jgrads = tf.gradients(reg, allvars)
+        if config.update_rule == "ttur" or config.update_rule == 'single-step':
+            Jgrads = [0 for i in allvars]
+        else:
+            Jgrads = tf.gradients(reg, allvars)
 
+        print("JG", Jgrads)
+
+        self.g_gradient = tf.ones([1])
         def amp_for(v):
             if v in g_vars:
-                return config.g_w_lambda or 2
+                return config.g_w_lambda or 1
             if v in d_vars:
-                return config.d_w_lambda or 1
+                return config.d_w_lambda or 0.3
 
         def applyvec(g, jg, v):
             return g + jg * (config.jg_alpha or 0.1)
 
         def gradient_for(g, jg, v):
             if config.update_rule == "ttur":
-                ng = amp_for(v)*(g + tf.random_normal(self.ops.shape(g), mean=0, stddev=(config.random_stddev or 0.1)))
+                ng = amp_for(v)*g
+            if config.update_rule == "single-step":
+                ng = g
             elif config.update_rule == "ttur-consensus":
-                ng = amp_for(v)*(applyvec(g, jg, v) + tf.random_normal(self.ops.shape(g), mean=0, stddev=(config.random_stddev or 0.1)))
+                ng = amp_for(v)*applyvec(g, jg, v) 
+            elif config.update_rule == "ttur-consensus2":
+                ng = amp_for(v)*g+ jg * (config.jg_alpha or 0.1)
             else:
                 ng = applyvec(g, jg, v)
+
+            if config.g_ttur and v in g_vars:
+                ng = self.g_gradient * g
 
             return ng
 
@@ -83,6 +96,7 @@ class ConsensusTrainer(BaseTrainer):
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.optimizer = optimizer
+
 
         return optimizer, optimizer
 

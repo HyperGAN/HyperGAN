@@ -50,6 +50,10 @@ class KBeamTrainer(BaseTrainer):
         for t_t, t in zip(targets_t, targets):
             feed_dict[t_t] = t
 
+        for j in range(len(self.trainers)):
+            if j != i:
+                feed_dict[self.trainers[j].g_gradient] = np.zeros([1])
+
         metric_values = sess.run([t.optimizer for t in self.trainers] + self.output_variables(metrics), feed_dict)[len(self.trainers):]
 
         if self.current_step % 100 == 0:

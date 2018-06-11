@@ -24,6 +24,9 @@ class KBeamTrainer(BaseTrainer):
 
         self.trainers = trainers
         self.hist = [0 for i in range(len(self.trainers))]
+        self.tfsummary_writer = tf.summary.FileWriter('./logs/sess.graph', tf.get_default_graph())
+        tf.summary.scalar("zero", tf.reduce_mean(gan.loss.losses[0].sample))
+        self.tfmerge_summary = tf.summary.merge_all()
         return None, None
 
     def required(self):
@@ -42,9 +45,19 @@ class KBeamTrainer(BaseTrainer):
         targets = sess.run(targets_t)
         l_g = targets[:len(targets)//2]
         l_d = targets[len(targets)//2:]
+
+        if config.criteria == '<g':
+            i=np.argmin([float(x) for x in l_g])
+        elif config.criteria == '>d':
+            i=np.argax([float(x) for x in l_d])
+        elif config.criteria == '<d':
+            i=np.argmin([float(x) for x in l_d])
+        else:
+            # default from paper
+            i=np.argmax([float(x) for x in l_g])
+
         i=np.argmax([float(x) for x in l_g])
         self.hist[i]+=1
-
         optimizer = self.trainers[i].optimizer
 
         for t_t, t in zip(targets_t, targets):
@@ -56,7 +69,7 @@ class KBeamTrainer(BaseTrainer):
         elif config.train_all:
             metric_values = sess.run([t.optimizer for j, t in enumerate(self.trainers)] + self.output_variables(metrics), feed_dict)[len(self.trainers):]
         else:
-            metric_values = sess.run([t.optimizer if j == 1 else t.d_optimizer for j, t in enumerate(self.trainers)] + self.output_variables(metrics), feed_dict)[len(self.trainers):]
+            metric_values = sess.run([t.optimizer if j == i else t.d_optimizer for j, t in enumerate(self.trainers)] + self.output_variables(metrics), feed_dict)[len(self.trainers):]
 
         if self.current_step % 100 == 0:
             hist_output = "  " + "".join(["D"+str(i)+":"+str(v)+" "for i, v in enumerate(self.hist)])

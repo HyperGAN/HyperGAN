@@ -48,7 +48,6 @@ class ConsensusTrainer(BaseTrainer):
                 print("!!missing gradient")
                 print(d_v)
                 return
-        grads = [g for g in grads]
         reg = 0.5 * sum(
             tf.reduce_sum(tf.square(g)) for g in grads if g is not None
         )
@@ -63,9 +62,9 @@ class ConsensusTrainer(BaseTrainer):
         self.g_gradient = tf.ones([1])
         def amp_for(v):
             if v in g_vars:
-                return config.g_w_lambda or 1
+                return config.g_w_lambda or 3
             if v in d_vars:
-                return config.d_w_lambda or 0.3
+                return config.d_w_lambda or 1
 
         def applyvec(g, jg, v):
             return g + jg * (config.jg_alpha or 0.1)
@@ -82,21 +81,24 @@ class ConsensusTrainer(BaseTrainer):
             else:
                 ng = applyvec(g, jg, v)
 
-            if config.g_ttur and v in g_vars:
-                ng = self.g_gradient * g
 
             return ng
 
         apply_vec = [ (gradient_for(g, Jg, v), v) for (g, Jg, v) in zip(grads, Jgrads, allvars) if Jg is not None ]
+        apply_vec_d = [ (gradient_for(g, Jg, v), v) for (g, Jg, v) in zip(d_grads, Jgrads[:len(d_vars)], d_vars) if Jg is not None ]
+        apply_vec_g = [ (gradient_for(g, Jg, v), v) for (g, Jg, v) in zip(g_grads, Jgrads[len(g_vars):], g_vars) if Jg is not None ]
 
         defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
-        optimizer = config.trainer(self.lr, **defn)
-        optimizer = optimizer.apply_gradients(apply_vec, global_step=self.global_step)
+        tr = config.trainer(self.lr, **defn)
+        optimizer = tr.apply_gradients(apply_vec, global_step=self.global_step)
+        d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
+        g_optimizer = tr.apply_gradients(apply_vec_g, global_step=self.global_step)
 
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.optimizer = optimizer
-
+        self.d_optimizer = d_optimizer
+        self.g_optimizer = g_optimizer
 
         return optimizer, optimizer
 

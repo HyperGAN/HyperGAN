@@ -41,7 +41,7 @@ class MultiDiscriminator(BaseDiscriminator):
             self.d_variables += [disc.variables()]
             discs.append(disc)
 
-        combine = MultiComponent(combine='concat', components=discs)
+        combine = MultiComponent(combine=self.config.combine or "concat", components=discs)
         self.sample = combine.sample
         self.children = discs
         return self.sample

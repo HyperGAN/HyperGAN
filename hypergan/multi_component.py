@@ -69,8 +69,15 @@ class MultiComponent():
         elif self._combine == 'add':
             data = [ops.reshape(d,ops.shape(data[0])) for d in data]
             return self.gan.ops.add_n(data)
+        elif self._combine == 'mask':
+            def _mask(_net):
+                m=tf.slice(_net,[0,0,0,0], [-1,-1,-1,1])
+                d=tf.slice(_net,[0,0,0,1], [-1,-1,-1,ops.shape(_net)[-1]-1])
+                return tf.nn.sigmoid(m)*d
+            data = [_mask(d) for d in data]
+            return self.gan.ops.add_n(data)
 
-        raise "Unknown combine"
+        raise "Unknown combine" + self._combine
 
     def call_each(self, methods):
         def do_call(*args, **kwargs):

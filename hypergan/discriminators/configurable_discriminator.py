@@ -195,10 +195,18 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         activation = self.ops.lookup(activation_s)
 
 
-        size = int(args[0])
+        if "*" in args[0]:
+            reshape = [int(x) for x in args[0].split("*")]
+            size = reduce(operator.mul, reshape)
+        else:
+            size = int(args[0])
+            reshape = None
         net = ops.reshape(net, [ops.shape(net)[0], -1])
         net = ops.linear(net, size)
 
+
+        if reshape is not None:
+            net = tf.reshape(net, [ops.shape(net)[0]] + reshape)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
@@ -608,13 +616,14 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         return ps
 
     def layer_slice(self, net, args, options):
+        options = hc.Config(options)
         if len(args) == 0:
             w = self.gan.width()
             h = self.gan.height()
         else:
             w = int(args[0])
             h = int(args[1])
-        net = tf.slice(net, [0,0,0,0], [-1,h,w,-1])
+        net = tf.slice(net, [0,0,0,int(options.d_offset or 0)], [-1,h,w,-1])
         return net
 
     def layer_noise(self, net, args, options):

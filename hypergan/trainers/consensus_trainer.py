@@ -93,13 +93,18 @@ class ConsensusTrainer(BaseTrainer):
 
         control_dependency = []
 
-        if config.g_exponential_moving_average_decay:
+        if config.g_exponential_moving_average_decay is not None:
             self.var_ema = tf.train.ExponentialMovingAverage(config.g_exponential_moving_average_decay)
             ema = self.var_ema
             ema_op = ema.apply(g_vars)
             control_dependency = [ema_op]
+            with tf.control_dependencies([tr.apply_gradients(apply_vec, global_step=self.global_step)]):
+                optimizer = ema_op
+            with tf.control_dependencies([tr.apply_gradients(apply_vec_g, global_step=self.global_step)]):
+                g_optimizer = tr.apply_gradients(apply_vec_g, global_step=self.global_step)
+            d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
 
-        with tf.control_dependencies(control_dependency):
+        else:
             optimizer = tr.apply_gradients(apply_vec, global_step=self.global_step)
             d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
             g_optimizer = tr.apply_gradients(apply_vec_g, global_step=self.global_step)

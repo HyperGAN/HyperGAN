@@ -66,48 +66,42 @@ class ConsensusTrainer(BaseTrainer):
             if v in d_vars:
                 return config.d_w_lambda or 1
 
-        def applyvec(g, jg, v):
-            return g + jg * (config.jg_alpha or 0.1)
-
-        def gradient_for(g, jg, v):
-            if config.update_rule == "ttur":
-                ng = amp_for(v)*g
-            if config.update_rule == "single-step":
-                ng = g
-            elif config.update_rule == "ttur-consensus":
-                ng = amp_for(v)*applyvec(g, jg, v) 
-            elif config.update_rule == "ttur-consensus2":
-                ng = amp_for(v)*g+ jg * (config.jg_alpha or 0.1)
+        def applyvec(g, jg, v, decay):
+            prev = v
+            nextw = v+g + jg * (config.jg_alpha or 0.1)
+            if decay is not None:
+                return ((decay) * prev + (1.0-decay)*nextw)-v
             else:
-                ng = applyvec(g, jg, v)
+                return nextw-v
 
-
+        def gradient_for(g, jg, v, decay):
+            if config.update_rule == "ttur":
+                if decay is not None:
+                    amp = v+amp_for(v)*g
+                    ng = ((decay) * v + (1.0-decay)*amp)-v
+                else:
+                    ng = amp_for(v)*g
+            else:
+                if decay is not None:
+                    if v in g_vars:
+                        ng = applyvec(g, jg, v, decay)
+                    else:
+                        ng = applyvec(g, jg, v, None)
+                else:
+                    ng = applyvec(g, jg, v, decay)
             return ng
-
-        apply_vec = [ (gradient_for(g, Jg, v), v) for (g, Jg, v) in zip(grads, Jgrads, allvars) if Jg is not None ]
-        apply_vec_d = [ (gradient_for(g, Jg, v), v) for (g, Jg, v) in zip(d_grads, Jgrads[:len(d_vars)], d_vars) if Jg is not None ]
-        apply_vec_g = [ (gradient_for(g, Jg, v), v) for (g, Jg, v) in zip(g_grads, Jgrads[len(g_vars):], g_vars) if Jg is not None ]
+        decay = config.g_exponential_moving_average_decay
+        apply_vec = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(grads, Jgrads, allvars) if Jg is not None ]
+        apply_vec_d = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(d_grads, Jgrads[:len(d_vars)], d_vars) if Jg is not None ]
+        apply_vec_g = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(g_grads, Jgrads[len(g_vars):], g_vars) if Jg is not None ]
 
         defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
         tr = config.trainer(self.lr, **defn)
 
-        control_dependency = []
 
-        if config.g_exponential_moving_average_decay is not None:
-            self.var_ema = tf.train.ExponentialMovingAverage(config.g_exponential_moving_average_decay)
-            ema = self.var_ema
-            ema_op = ema.apply(g_vars)
-            control_dependency = [ema_op]
-            with tf.control_dependencies([tr.apply_gradients(apply_vec, global_step=self.global_step)]):
-                optimizer = ema_op
-            with tf.control_dependencies([tr.apply_gradients(apply_vec_g, global_step=self.global_step)]):
-                g_optimizer = tr.apply_gradients(apply_vec_g, global_step=self.global_step)
-            d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
-
-        else:
-            optimizer = tr.apply_gradients(apply_vec, global_step=self.global_step)
-            d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
-            g_optimizer = tr.apply_gradients(apply_vec_g, global_step=self.global_step)
+        optimizer = tr.apply_gradients(apply_vec, global_step=self.global_step)
+        d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
+        g_optimizer = tr.apply_gradients(apply_vec_g, global_step=self.global_step)
 
         self.g_loss = g_loss
         self.d_loss = d_loss

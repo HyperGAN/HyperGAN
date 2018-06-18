@@ -45,14 +45,14 @@ class EvolutionTrainer(BaseTrainer):
         self.update_parent = update_parent
         f_lambda = config.f_lambda or 1
 
-        grads = tf.gradients(loss.g_loss, d_vars)
-        grad_d = tf.add_n([tf.reshape(gan.ops.squash(g), [1]) for g in grads])
-        fq = loss.g_loss
-        #TODO measure each g
-        #self.measure_g = fq + f_lambda * fd
-        #fd = -tf.log(grad_d - tf.log(tf.nn.sigmoid(loss.d_loss)) - tf.log(1-tf.nn.sigmoid(loss.g_loss)))
-        self.measure_g = [l+f_lambda*(-tf.log(TINY+grad_d - tf.log(TINY+tf.nn.sigmoid(loss.d_loss)) - tf.log(TINY+1-tf.nn.sigmoid(l)))) for l in loss.children_losses]
-        loss.metrics['measure_g'] = loss.g_loss#self.measure_g
+        def _squash(grads):
+            return tf.add_n([tf.reshape(gan.ops.squash(g), [1]) for g in grads])
+        children_grads = [_squash(tf.gradients(l, d_vars)) for l in loss.children_losses]
+        if config.fitness == "g":
+            self.measure_g = [-l for l in loss.children_losses]
+        else:
+            self.measure_g = [-l+f_lambda*(-tf.log(TINY+grad_d - tf.log(TINY+tf.nn.sigmoid(loss.d_loss)) - tf.log(TINY+1-tf.nn.sigmoid(l)))) for l, grad_d in zip(loss.children_losses, children_grads)]
+        loss.metrics['measure_g'] = tf.reduce_mean(self.measure_g)
         loss.metrics['g_loss'] = loss.g_loss
         loss.metrics['d_loss'] = loss.d_loss
 
@@ -70,13 +70,21 @@ class EvolutionTrainer(BaseTrainer):
         config = self.config
         loss = self.loss or gan.loss
         metrics = loss.metrics
+        generator = gan.generator
 
         d_loss, g_loss = loss.sample
 
         #winner = np.random.choice(range(len(gan.generator.children)))
-        winner = np.argmax(sess.run(self.measure_g))
-        sess.run(self.update_parent[winner])
-        self.hist[winner]+=1
+        winners = []
+        
+        for i in range(len(generator.parents)):
+            child_count = generator.config.child_count
+            choices = self.measure_g[i*child_count:(i+1)*child_count]
+            choice = np.argmax(sess.run(choices))
+            winner = i*child_count + choice
+            self.hist[winner]+=1
+            winners.append(winner)
+        sess.run([self.update_parent[winner] for winner in winners])
         for i in range(config.d_update_steps or 1):
             sess.run(self.d_optimizer)
 

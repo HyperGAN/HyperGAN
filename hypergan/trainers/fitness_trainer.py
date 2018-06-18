@@ -7,7 +7,7 @@ from hypergan.trainers.base_trainer import BaseTrainer
 
 TINY = 1e-12
 
-class ConsensusTrainer(BaseTrainer):
+class FitnessTrainer(BaseTrainer):
     def create(self):
         self.hist = [0 for i in range(2)]
         config = self.config

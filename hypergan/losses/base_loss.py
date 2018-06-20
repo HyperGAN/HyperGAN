@@ -105,6 +105,8 @@ class BaseLoss(GANComponent):
         self.sample = [d_loss, g_loss]
         self.d_loss = d_loss
         self.g_loss = g_loss
+        self.d_fake = d_fake
+        self.d_real = d_real
 
         return self.sample
 

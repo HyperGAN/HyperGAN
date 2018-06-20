@@ -273,7 +273,7 @@ class AliNextFrameGAN(BaseGAN):
  
             trainers = []
 
-            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
+            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics, 'd_fake': l.d_fake, 'd_real': l.d_real})
             #lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
             #trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
             trainer = self.create_component(config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)

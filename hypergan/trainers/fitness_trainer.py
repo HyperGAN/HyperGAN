@@ -171,6 +171,7 @@ class FitnessTrainer(BaseTrainer):
                         tf.log(1.0-tf.sigmoid(g_loss)+TINY)))
             else:
                 self.g_fitness = tf.reduce_mean(loss.d_fake) - (config.diversity_importance or 1)* tf.log(tf.abs(self.mean + tf.reduce_mean(loss.d_real) - tf.reduce_mean(loss.d_fake)))
+            self.g_fitness = tf.reduce_mean(self.g_fitness)
 
         if config.g_ema_decay is not None:
             decay2 = config.g_ema_decay

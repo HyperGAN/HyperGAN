@@ -14,7 +14,7 @@ class GangTrainer(BaseTrainer):
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
 
-        self._delegate = self.gan.create_component(config.rbbr)
+        self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars, loss=self.loss)
         self.ug = None#gan.session.run(g_vars)
         self.ud = None#gan.session.run(d_vars)
         self.pg = [tf.zeros_like(v) for v in g_vars]
@@ -45,7 +45,7 @@ class GangTrainer(BaseTrainer):
 
         self._delegate.step(feed_dict)
 
-        if (self.current_step+1) % 100 == 0:
+        if (self.current_step+1) % (config.mix_steps or 100) == 0:
             sg = gan.session.run(g_vars)
             sd = gan.session.run(d_vars)
             # TODO Parallel Nash
@@ -53,7 +53,6 @@ class GangTrainer(BaseTrainer):
             ud = [ (o*0.5 + n*0.5) for o, n in zip(sd, self.ud) ]
             fg = {}
             for v, t in zip(ug, self.pg):
-                print(t, np.shape(sg))
                 fg[t] = v
             gan.session.run(self.assign_g, fg)
             fd = {}
@@ -62,6 +61,7 @@ class GangTrainer(BaseTrainer):
             gan.session.run(self.assign_d, fd)
             self.ug = gan.session.run(g_vars)
             self.ud = gan.session.run(d_vars)
+            print("GANG step")
 
 
 

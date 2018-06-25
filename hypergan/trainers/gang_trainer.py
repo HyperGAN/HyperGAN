@@ -49,8 +49,14 @@ class GangTrainer(BaseTrainer):
             sg = gan.session.run(g_vars)
             sd = gan.session.run(d_vars)
             # TODO Parallel Nash
-            ug = [ (o*0.5 + n*0.5) for o, n in zip(sg, self.ug) ]
-            ud = [ (o*0.5 + n*0.5) for o, n in zip(sd, self.ud) ]
+            def _mixup(o,n):
+                if config.mixup:
+                    p = np.random.uniform(low=0.0, high=1.0, size=1)
+                else:
+                    p = 0.5
+                return (o*p + n*(1-p))
+            ug = [ _mixup(o,n) for o, n in zip(sg, self.ug) ]
+            ud = [ _mixup(o,n) for o, n in zip(sd, self.ud) ]
             fg = {}
             for v, t in zip(ug, self.pg):
                 fg[t] = v

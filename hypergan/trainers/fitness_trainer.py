@@ -108,6 +108,21 @@ class FitnessTrainer(BaseTrainer):
 
         self.g_loss = g_loss
         self.d_loss = d_loss
+        self.slot_vars = tr.variables()
+
+            
+        def _slot_var(x, g_vars):
+            for g in g_vars:
+                print('test', x,g)
+                if x.name.startswith(g.name.split(":")[0]):
+                    return True
+            return False
+        self.slot_vars_g = [x for x in self.slot_vars if _slot_var(x, g_vars)]
+        self.slot_vars_d = [x for x in self.slot_vars if _slot_var(x, d_vars)]
+        print("slot_varg", [v.name for v in self.slot_vars_g])
+        print("----")
+        print("slot_vard", [v.name for v in self.slot_vars_d])
+
         self.optimizer = optimizer
         self.d_optimizer = d_optimizer
         self.g_optimizer = g_optimizer

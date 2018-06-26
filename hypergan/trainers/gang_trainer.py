@@ -111,19 +111,19 @@ class GangTrainer(BaseTrainer):
                     result[j] += p[i] *  w
             return p, result
 
-        if config.nash_method == 'support':
+        if self.config.nash_method == 'support':
             u = next(nash.Game(payoff).support_enumeration())
         else:
             u = next(nash.Game(payoff).vertex_enumeration())
-        if self.config.reverse_results:
-            print("u", u[0], u[1])
+        if self.config.sign_results == 1:
+            print("u", u[0][0], u[1][0])
             p1, p1result = _update(u[0], sgs)
             p2, p2result = _update(u[1], sds)
         else:
-            print("u2", u[0], u[1])
             p1, p1result = _update(u[1], sgs)
             p2, p2result = _update(u[0], sds)
 
+        print("u2", u[0][0], u[1][0])
 
         return p1, p1result, p2, p2result
 
@@ -178,6 +178,9 @@ class GangTrainer(BaseTrainer):
         metrics = loss.metrics
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
+        
+        g_vars += self._delegate.slot_vars_g
+        d_vars += self._delegate.slot_vars_d
         if self.ug == None:
             self.ug = gan.session.run(g_vars)
             self.ud = gan.session.run(d_vars)

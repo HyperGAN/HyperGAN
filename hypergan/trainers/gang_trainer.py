@@ -111,11 +111,16 @@ class GangTrainer(BaseTrainer):
                     result[j] += p[i] *  w
             return p, result
 
-        u = next(nash.Game(payoff).vertex_enumeration())
+        if config.nash_method == 'support':
+            u = next(nash.Game(payoff).support_enumeration())
+        else:
+            u = next(nash.Game(payoff).vertex_enumeration())
         if self.config.reverse_results:
+            print("u", u[0], u[1])
             p1, p1result = _update(u[0], sgs)
             p2, p2result = _update(u[1], sds)
         else:
+            print("u2", u[0], u[1])
             p1, p1result = _update(u[1], sgs)
             p2, p2result = _update(u[0], sds)
 

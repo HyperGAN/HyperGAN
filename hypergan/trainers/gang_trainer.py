@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
 import inspect
+import nashpy as nash
 
 from hypergan.trainers.base_trainer import BaseTrainer
 
@@ -62,8 +63,12 @@ class GangTrainer(BaseTrainer):
 
         a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
 
-        priority_g, new_ug = self.mixture_from_payoff(a, 1, self.sgs)
-        priority_d, new_ud = self.mixture_from_payoff(a, 0, self.sds)
+        if config.use_nash:
+            priority_g, new_ug = self.nash_mixture_from_payoff(a, 1, self.sgs)
+            priority_d, new_ud = self.nash_mixture_from_payoff(a, 0, self.sds)
+        else:
+            priority_g, new_ug = self.mixture_from_payoff(a, 1, self.sgs)
+            priority_d, new_ud = self.mixture_from_payoff(a, 0, self.sds)
 
         memory_size = self.config.nash_memory_size or 10
         sorted_sgs = [[p, v] for p,v in zip(priority_g, self.sgs)]
@@ -97,6 +102,21 @@ class GangTrainer(BaseTrainer):
     def sumdiv(self, x):
         e_x = x
         return e_x / e_x.sum(axis=0)
+
+    def nash_mixture_from_payoff(self, payoff, sum_dim, memory):
+        if sum_dim == 1:
+            payoff = np.transpose(payoff)
+        u = next(nash.Game(payoff).vertex_enumeration())[0]
+        print("U", u)
+        #u = np.sum(payoff, axis=sum_dim)
+        #u = self.softmax(u)
+        u = np.reshape(u, [len(memory)])
+        result = [np.zeros_like(m) for m in memory[0]]
+        for i, s in enumerate(memory):
+            for j, w in enumerate(s):
+                result[j] += u[i] *  w
+        return u, result
+
 
     def mixture_from_payoff(self, payoff, sum_dim, memory):
         u = np.sum(payoff, axis=sum_dim)

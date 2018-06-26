@@ -63,7 +63,7 @@ class GangTrainer(BaseTrainer):
 
         a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
 
-        if config.use_nash:
+        if self.config.use_nash:
             priority_g, new_ug = self.nash_mixture_from_payoff(a, 1, self.sgs)
             priority_d, new_ud = self.nash_mixture_from_payoff(a, 0, self.sds)
         else:

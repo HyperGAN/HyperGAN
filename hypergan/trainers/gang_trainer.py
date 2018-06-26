@@ -64,8 +64,7 @@ class GangTrainer(BaseTrainer):
         a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
 
         if self.config.use_nash:
-            priority_g, new_ug = self.nash_mixture_from_payoff(a, 1, self.sgs)
-            priority_d, new_ud = self.nash_mixture_from_payoff(a, 0, self.sds)
+            priority_g, new_ug, priority_d, new_ud = self.nash_mixture_from_payoff(a, self.sgs, self.sds)
         else:
             priority_g, new_ug = self.mixture_from_payoff(a, 1, self.sgs)
             priority_d, new_ud = self.mixture_from_payoff(a, 0, self.sds)
@@ -103,19 +102,25 @@ class GangTrainer(BaseTrainer):
         e_x = x
         return e_x / e_x.sum(axis=0)
 
-    def nash_mixture_from_payoff(self, payoff, sum_dim, memory):
-        if sum_dim == 1:
-            payoff = np.transpose(payoff)
-        u = next(nash.Game(payoff).vertex_enumeration())[0]
-        print("U", u)
-        #u = np.sum(payoff, axis=sum_dim)
-        #u = self.softmax(u)
-        u = np.reshape(u, [len(memory)])
-        result = [np.zeros_like(m) for m in memory[0]]
-        for i, s in enumerate(memory):
-            for j, w in enumerate(s):
-                result[j] += u[i] *  w
-        return u, result
+    def nash_mixture_from_payoff(self, payoff, sgs, sds):
+        def _update(p, mem):
+            p = np.reshape(p, [len(mem)])
+            result = [np.zeros_like(m) for m in mem[0]]
+            for i, s in enumerate(mem):
+                for j, w in enumerate(s):
+                    result[j] += p[i] *  w
+            return p, result
+
+        u = next(nash.Game(payoff).vertex_enumeration())
+        if self.config.reverse_results:
+            p1, p1result = _update(u[0], sgs)
+            p2, p2result = _update(u[1], sds)
+        else:
+            p1, p1result = _update(u[1], sgs)
+            p2, p2result = _update(u[0], sds)
+
+
+        return p1, p1result, p2, p2result
 
 
     def mixture_from_payoff(self, payoff, sum_dim, memory):

@@ -79,7 +79,7 @@ class StandardGAN(BaseGAN):
 
             self.session.run(tf.global_variables_initializer())
 
-    def inputs(self):
+    def fitness_inputs(self):
         return [
                 self.uniform_encoder.sample
         ]

@@ -16,12 +16,20 @@ class GangTrainer(BaseTrainer):
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
 
         self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars, loss=self.loss)
+        g_vars += self._delegate.slot_vars_g
+        d_vars += self._delegate.slot_vars_d
+        self.all_g_vars = g_vars
+        self.all_d_vars = d_vars
+
         self.ug = None#gan.session.run(g_vars)
         self.ud = None#gan.session.run(d_vars)
         self.pg = [tf.zeros_like(v) for v in g_vars]
         self.assign_g = [v.assign(pv) for v,pv in zip(g_vars, self.pg)]
         self.pd = [tf.zeros_like(v) for v in d_vars]
         self.assign_d = [v.assign(pv) for v,pv in zip(d_vars, self.pd)]
+        self.pm = tf.zeros([1])
+        self.assign_add_d = [v.assign(pv*self.pm+v) for v,pv in zip(d_vars, self.pd)]
+        self.assign_add_g = [v.assign(pv*self.pm+v) for v,pv in zip(g_vars, self.pg)]
 
         self.sgs = []
         self.sds = []
@@ -45,7 +53,21 @@ class GangTrainer(BaseTrainer):
     def rank_ds(self, ds):
         # todo fitness?
         return list(np.flip(ds, axis=0)) # most recent
-    
+
+    def destructive_mixture_g(self, priority_g):
+        g_vars = self.all_g_vars
+        self.gan.session.run(self.assign_g, {}) # zero
+        for i, s in enumerate(self.sgs):
+            self.add_g(priority_g[i], s)
+        return self.gan.session.run(g_vars)
+
+    def destructive_mixture_d(self, priority_d):
+        d_vars = self.all_d_vars
+        self.gan.session.run(self.assign_d, {}) # zero
+        for i, s in enumerate(self.sds):
+            self.add_d(priority_d[i], s)
+        return self.gan.session.run(d_vars)
+
     def nash_memory(self, sg, sd, ug, ud):
         should_include_sg = True#(self.rank_gs([ug, sg])[0])
         should_include_sd = True#(self.rank_ds([ud, sd])[0])
@@ -67,8 +89,11 @@ class GangTrainer(BaseTrainer):
         if self.config.use_nash:
             priority_g, new_ug, priority_d, new_ud = self.nash_mixture_from_payoff(a, self.sgs, self.sds)
         else:
-            priority_g, new_ug = self.mixture_from_payoff(a, 1, self.sgs)
-            priority_d, new_ud = self.mixture_from_payoff(a, 0, self.sds)
+            priority_g = self.mixture_from_payoff(a, 1, self.sgs)
+            new_ug = self.destructive_mixture_g(priority_g)
+
+            priority_d = self.mixture_from_payoff(a, 0, self.sds)
+            new_ud = self.destructive_mixture_d(priority_d)
 
         memory_size = self.config.nash_memory_size or 10
         sorted_sgs = [[p, v] for p,v in zip(priority_g, self.sgs)]
@@ -79,7 +104,6 @@ class GangTrainer(BaseTrainer):
         sorted_sgs = [s[1] for s in sorted_sgs]
         self.sgs = sorted_sgs[:memory_size]
         self.sds = sorted_sds[:memory_size]
-        print("/D")
         new_ug_is_better = True#self.rank_gs([ug, new_ug])[0] == new_ug
         new_ud_is_better = True#self.rank_ds([ud, new_ud])[0] == new_ud
         if(new_ug_is_better):
@@ -104,12 +128,14 @@ class GangTrainer(BaseTrainer):
         return e_x / e_x.sum(axis=0)
 
     def nash_mixture_from_payoff(self, payoff, sgs, sds):
-        def _update(p, mem):
-            p = np.reshape(p, [len(mem)])
-            result = [np.zeros_like(m) for m in mem[0]]
-            for i, s in enumerate(mem):
-                for j, w in enumerate(s):
-                    result[j] += p[i] *  w
+        def _update_g(p):
+            p = np.reshape(p, [-1])
+            result = self.destructive_mixture_g(p)
+            return p, result
+
+        def _update_d(p):
+            p = np.reshape(p, [-1])
+            result = self.destructive_mixture_d(p)
             return p, result
 
         if self.config.nash_method == 'support':
@@ -117,12 +143,11 @@ class GangTrainer(BaseTrainer):
         else:
             u = next(nash.Game(payoff).vertex_enumeration())
         if self.config.sign_results == 1:
-            print("u", u[0][0], u[1][0])
-            p1, p1result = _update(u[0], sgs)
-            p2, p2result = _update(u[1], sds)
+            p1, p1result = _update_g(u[0])
+            p2, p2result = _update_d(u[1])
         else:
-            p1, p1result = _update(u[1], sgs)
-            p2, p2result = _update(u[0], sds)
+            p1, p1result = _update_g(u[1])
+            p2, p2result = _update_d(u[0])
 
         print("u2", u[0][0], u[1][0])
 
@@ -133,19 +158,13 @@ class GangTrainer(BaseTrainer):
         u = np.sum(payoff, axis=sum_dim)
         u = self.softmax(u)
         u = np.reshape(u, [len(memory)])
-        print(u)
-        result = [np.zeros_like(m) for m in memory[0]]
-        for i, s in enumerate(memory):
-            for j, w in enumerate(s):
-                result[j] += u[i] *  w
-        return u, result
+        return u
 
     def payoff_matrix(self, sgs, sds, xs, zs):
         result = np.zeros([len(sgs), len(sds)])
         for i, sg in enumerate(sgs):
             for j, sd in enumerate(sds):
                 result[i, j]=self.fitness_score(sg, sd, xs, zs) # todo fitness ?
-        print(result)
         return result
 
     def fitness_score(self, g, d, xs, zs):
@@ -163,7 +182,6 @@ class GangTrainer(BaseTrainer):
 
         return sum_fitness
 
-
     def assign_gd(self, g, d):
         fg = {}
         for v, t in zip(g, self.pg):
@@ -174,17 +192,29 @@ class GangTrainer(BaseTrainer):
             fd[t] = v
         self.gan.session.run(self.assign_d, fd)
 
+    def add_g(self, pm, g):
+        fg = {}
+        for v, t in zip(g, self.pg):
+            fg[t] = v
+        fg[self.pm] = np.reshape(pm, [1])
+        self.gan.session.run(self.assign_add_g, fg)
+
+    def add_d(self, pm, d):
+        fd = {}
+        for v, t in zip(d, self.pd):
+            fd[t] = v
+        fd[self.pm] = np.reshape(pm, [1])
+        self.gan.session.run(self.assign_add_d, fd)
+  
     def _step(self, feed_dict):
         gan = self.gan
         sess = gan.session
         config = self.config
         loss = self.loss or gan.loss
         metrics = loss.metrics
-        d_vars = self.d_vars or gan.discriminator.variables()
-        g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
+        d_vars = self.all_d_vars
+        g_vars = self.all_g_vars
         
-        g_vars += self._delegate.slot_vars_g
-        d_vars += self._delegate.slot_vars_d
         if self.ug == None:
             self.ug = gan.session.run(g_vars)
             self.ud = gan.session.run(d_vars)

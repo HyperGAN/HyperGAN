@@ -83,6 +83,10 @@ class StandardGAN(BaseGAN):
         return [
                 self.uniform_encoder.sample
         ]
+    def fitness_inputs(self):
+        return [
+                self.uniform_encoder.sample
+        ]
 
     def input_nodes(self):
         "used in hypergan build"

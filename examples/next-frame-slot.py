@@ -220,9 +220,10 @@ class AliNextFrameGAN(BaseGAN):
             gx = hc.Config({"sample":gx_sample})
             gy = hc.Config({"sample":gy_sample})
 
-            self.y = hc.Config({"sample": target_prev})
-            self.gy = gy
-            self.gx = gx
+            last_frame = tf.slice(gy_sample, [0,0,0,0], [-1, -1, -1, 3])
+            self.y = hc.Config({"sample":last_frame})
+            self.gy = self.y
+            self.gx = self.y
 
             self.uniform_sample = gx.sample
 
@@ -273,7 +274,7 @@ class AliNextFrameGAN(BaseGAN):
  
             trainers = []
 
-            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics, 'd_fake': l.d_fake, 'd_real': l.d_real})
+            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics, 'd_fake': l.d_fake, 'd_real': l.d_real, 'config': l.config})
             #lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
             #trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
             trainer = self.create_component(config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)

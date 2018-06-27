@@ -10,6 +10,7 @@ TINY = 1e-12
 class FitnessTrainer(BaseTrainer):
     def create(self):
         self.hist = [0 for i in range(2)]
+        self.steps_since_fit=0
         config = self.config
         lr = config.learn_rate
         self.global_step = tf.train.get_global_step()
@@ -53,7 +54,6 @@ class FitnessTrainer(BaseTrainer):
         reg = 0.5 * sum(
             tf.reduce_sum(tf.square(g)) for g in grads if g is not None
         )
-        # Jacobian times gradiant
         if config.update_rule == "ttur" or config.update_rule == 'single-step':
             Jgrads = [0 for i in allvars]
         else:
@@ -113,15 +113,11 @@ class FitnessTrainer(BaseTrainer):
             
         def _slot_var(x, g_vars):
             for g in g_vars:
-                print('test', x,g)
                 if x.name.startswith(g.name.split(":")[0]):
                     return True
             return False
         self.slot_vars_g = [x for x in self.slot_vars if _slot_var(x, g_vars)]
         self.slot_vars_d = [x for x in self.slot_vars if _slot_var(x, d_vars)]
-        print("slot_varg", [v.name for v in self.slot_vars_g])
-        print("----")
-        print("slot_vard", [v.name for v in self.slot_vars_d])
 
         self.optimizer = optimizer
         self.d_optimizer = d_optimizer
@@ -211,13 +207,16 @@ class FitnessTrainer(BaseTrainer):
         if config.g_ema_decay is not None:
             prev = sess.run(self.g_vars)
         if config.fitness_test is not None:
+            self.steps_since_fit+=1
             
-            gl, dl, fitness,mean, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness, self.mean]+gan.generator.inputs())
-            if(self.min_fitness is None or fitness < self.min_fitness):
+            gl, dl, fitness,mean, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness, self.mean]+gan.fitness_inputs())
+            g = None
+            if(self.min_fitness is None or fitness < self.min_fitness or self.steps_since_fit > 1000):
                 self.hist[0]+=1
                 self.min_fitness = fitness
+                self.steps_since_fit=0
 
-                for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.generator.inputs())]):
+                for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
                     feed_dict[t]=v
                 _, *metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)
             else:

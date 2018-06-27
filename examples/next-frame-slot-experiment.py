@@ -387,6 +387,9 @@ class AliNextFrameGAN(BaseGAN):
                 self.uniform_sample,
                 self.generator_int
         ]
+
+    def fitness_inputs(self):
+        return self.inputs.frames + [self.uniform_encoder.sample]
 class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         sess = gan.session

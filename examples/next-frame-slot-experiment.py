@@ -217,9 +217,9 @@ class AliNextFrameGAN(BaseGAN):
             z_noise = random_like(z_g_prev.sample)
             n_noise = random_like(z_g_prev.sample)
 
-            gen = self.create_component(config.generator, features=[n_noise], input=z_g.sample, name='prev_generator')
-            gx_sample = gen.sample
-            gy_sample = gen.sample
+            generator = self.create_component(config.generator, features=[n_noise], input=z_g.sample, name='prev_generator')
+            gx_sample = generator.sample
+            gy_sample = generator.sample
             gx = hc.Config({"sample":gx_sample})
             gy = hc.Config({"sample":gy_sample})
 
@@ -230,9 +230,9 @@ class AliNextFrameGAN(BaseGAN):
             self.uniform_sample = gx.sample
 
             if config.reuse_encoder:
-                g_vars1 = gen.variables()
+                g_vars1 = generator.variables()
             else:
-                g_vars1 = gen.variables()+z_g.variables()
+                g_vars1 = generator.variables()+z_g.variables()
 
             # ali
             # xnext / xprev
@@ -282,7 +282,7 @@ class AliNextFrameGAN(BaseGAN):
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
-        self.generator = gx
+        self.generator = generator
         self.z_hat = gy.sample
         self.x_input = self.inputs.frames[0]
 

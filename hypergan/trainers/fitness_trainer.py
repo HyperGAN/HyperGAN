@@ -212,12 +212,12 @@ class FitnessTrainer(BaseTrainer):
             prev = sess.run(self.g_vars)
         if config.fitness_test is not None:
             
-            z, gl, dl, fitness,mean = sess.run([gan.uniform_encoder.sample, self.g_loss, self.d_loss, self.g_fitness,self.mean])
+            gl, dl, fitness,mean, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness, self.mean]+gan.generator.inputs())
             if(self.min_fitness is None or fitness < self.min_fitness):
                 self.hist[0]+=1
                 self.min_fitness = fitness
 
-                for v, t in [[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness], [z,gan.uniform_encoder.sample]]:
+                for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.generator.inputs())]):
                     feed_dict[t]=v
                 _, *metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)
             else:

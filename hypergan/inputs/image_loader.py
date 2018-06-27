@@ -100,3 +100,6 @@ class ImageLoader:
             capacity= batch_size*10,
             min_after_dequeue=batch_size)
         return images, tf.reshape(label_batch, [batch_size])
+
+    def inputs(self):
+        return [self.x,self.x]

@@ -187,3 +187,8 @@ class GANComponent:
         ratio = tf.maximum(tf.minimum(ratio, 1), 0)
 
         return ratio
+
+    def inputs(self):
+        """inputs() returns any input tensors"""
+        return []
+

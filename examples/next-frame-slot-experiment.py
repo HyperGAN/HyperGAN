@@ -146,6 +146,9 @@ class VideoFrameLoader:
 
         return float_image
 
+    def inputs(self):
+        return self.frames+self.frames2
+
     def _get_data(self, imgs):
         batch_size = self.batch_size
         num_preprocess_threads = 24
@@ -193,6 +196,7 @@ class AliNextFrameGAN(BaseGAN):
 
             self.frame_count = len(self.inputs.frames)
             self.frames = self.inputs.frames
+            self.frames2 = self.inputs.frames2
 
             index = -config.forward_frames
             if config.reuse_encoder:

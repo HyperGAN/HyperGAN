@@ -49,8 +49,9 @@ class GangTrainer(BaseTrainer):
     def nash_memory(self, sg, sd, ug, ud):
         should_include_sg = True#(self.rank_gs([ug, sg])[0])
         should_include_sd = True#(self.rank_ds([ud, sd])[0])
-        zs = [ self.gan.session.run(self.gan.uniform_encoder.sample) for i in range(self.config.fitness_test_points or 10)]
-        xs = [ self.gan.session.run(self.gan.inputs.x) for i in range(self.config.fitness_test_points or 10)]
+        zs = [ self.gan.session.run(self.gan.generator.inputs()) for i in range(self.config.fitness_test_points or 10)]
+        xs = [ self.gan.session.run(self.gan.inputs.inputs()) for i in range(self.config.fitness_test_points or 10)]
+        print(np.shape(xs))
         if(should_include_sg):
             self.sgs = [sg] + self.sgs
         else:
@@ -152,9 +153,12 @@ class GangTrainer(BaseTrainer):
         sum_fitness = 0
         for x, z in zip(xs, zs):
             loss = self.loss or self.gan.loss
-            #fitness = self.gan.session.run([self._delegate.g_fitness], {self.gan.uniform_encoder.sample: z})
-            #fitness = self.gan.session.run([loss.d_fake], {self.gan.uniform_encoder.sample: z})
-            fitness = self.gan.session.run([self._delegate.d_loss], {self.gan.uniform_encoder.sample: z, self.gan.inputs.x: x})
+            feed_dict = {}
+            for v, t in zip(x, self.gan.inputs.inputs()):
+                feed_dict[t]=v
+            for v, t in zip(z, self.gan.generator.inputs()):
+                feed_dict[t]=v
+            fitness = self.gan.session.run([self._delegate.d_loss], feed_dict)
             sum_fitness += np.average(fitness)
 
         return sum_fitness

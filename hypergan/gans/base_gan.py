@@ -123,3 +123,6 @@ class BaseGAN(GANComponent):
         else:
             return False
 
+    def inputs(self):
+        """inputs() returns any input tensors"""
+        return sum([x.inputs() for x in self.components],[])

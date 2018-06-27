@@ -16,8 +16,9 @@ class GangTrainer(BaseTrainer):
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
 
         self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars, loss=self.loss)
-        #g_vars += self._delegate.slot_vars_g
-        #d_vars += self._delegate.slot_vars_d
+        if config.include_slots:
+            g_vars += self._delegate.slot_vars_g
+            d_vars += self._delegate.slot_vars_d
         self.all_g_vars = g_vars
         self.all_d_vars = d_vars
 
@@ -140,6 +141,8 @@ class GangTrainer(BaseTrainer):
 
         if self.config.nash_method == 'support':
             u = next(nash.Game(payoff).support_enumeration())
+        elif self.config.nash_method == 'lemke_howson':
+            u = next(nash.Game(payoff).lemke_howson_enumeration())
         else:
             u = next(nash.Game(payoff).vertex_enumeration())
         if self.config.sign_results == 1:

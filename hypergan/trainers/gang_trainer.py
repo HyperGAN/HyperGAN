@@ -16,9 +16,8 @@ class GangTrainer(BaseTrainer):
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
 
         self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars, loss=self.loss)
-        if config.include_slots:
-            g_vars += self._delegate.slot_vars_g
-            d_vars += self._delegate.slot_vars_d
+        g_vars = list(g_vars) + self._delegate.slot_vars_g
+        d_vars = list(d_vars) +  self._delegate.slot_vars_d
         self.all_g_vars = g_vars
         self.all_d_vars = d_vars
 

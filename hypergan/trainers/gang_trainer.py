@@ -70,20 +70,18 @@ class GangTrainer(BaseTrainer):
         return self.gan.session.run(d_vars)
 
     def nash_memory(self, sg, sd, ug, ud):
-        should_include_sg = True#(self.rank_gs([ug, sg])[0])
-        should_include_sd = True#(self.rank_ds([ud, sd])[0])
+        should_include_sg = np.isnan(np.sum(np.sum(v) for v in sg)) == False
+        should_include_sd = np.isnan(np.sum(np.sum(v) for v in sd)) == False
         zs = [ self.gan.session.run(self.gan.generator.inputs()) for i in range(self.config.fitness_test_points or 10)]
         xs = [ self.gan.session.run(self.gan.inputs.inputs()) for i in range(self.config.fitness_test_points or 10)]
-        print(np.shape(xs))
         if(should_include_sg):
             self.sgs = [sg] + self.sgs
         else:
-            print("Not updating SGs")
+            print("Skip SG (nan)")
         if(should_include_sd):
-            print("Updating SDs, ")
             self.sds = [sd] + self.sds
         else:
-            print("Not updating SDs")
+            print("Skip SD (nan)")
 
         a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
 
@@ -108,16 +106,10 @@ class GangTrainer(BaseTrainer):
         new_ug_is_better = True#self.rank_gs([ug, new_ug])[0] == new_ug
         new_ud_is_better = True#self.rank_ds([ud, new_ud])[0] == new_ud
         if(new_ug_is_better):
-            print("Using new ug")
             ug = new_ug
-        else:
-            print("Using old ug")
 
         if(new_ud_is_better):
-            print("Using new ud")
             ud = new_ud
-        else:
-            print("Using old ud")
 
         return [ug, ud]
 
@@ -140,19 +132,28 @@ class GangTrainer(BaseTrainer):
             return p, result
 
         if self.config.nash_method == 'support':
-            u = next(nash.Game(payoff).support_enumeration())
-        elif self.config.nash_method == 'lemke_howson':
+            try:
+                u = next(nash.Game(payoff).support_enumeration())
+            except(StopIteration):
+                print("Nashpy 'support' iteration failed, trying 'lemke howson'")
+                u = next(nash.Game(payoff).lemke_howson_enumeration())
+
+        elif self.config.nash_method == 'lemke':
             u = next(nash.Game(payoff).lemke_howson_enumeration())
+
         else:
-            u = next(nash.Game(payoff).vertex_enumeration())
+            try:
+                u = next(nash.Game(payoff).vertex_enumeration())
+            except(StopIteration):
+                print("Nashpy 'support' iteration failed, trying 'lemke howson'")
+                u = next(nash.Game(payoff).lemke_howson_enumeration())
+
         if self.config.sign_results == 1:
             p1, p1result = _update_g(u[0])
             p2, p2result = _update_d(u[1])
         else:
             p1, p1result = _update_g(u[1])
             p2, p2result = _update_d(u[0])
-
-        print("u2", u[0][0], u[1][0])
 
         return p1, p1result, p2, p2result
 
@@ -251,11 +252,6 @@ class GangTrainer(BaseTrainer):
             self.ud = gan.session.run(d_vars)
             if self.current_step < (config.reset_before_step or 0):
                 gan.session.run(tf.global_variables_initializer())
-                print("RESETTING")
-            else:
-                print("NOT RESETTING")
-
-            print("GANG step")
 
 
 

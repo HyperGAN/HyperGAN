@@ -288,6 +288,8 @@ class TextInput:
         self.x = x
         self.table = table
 
+    def inputs(self):
+        return [self.x]
     def get_vocabulary(self):
         vocab = list("~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.")
         return vocab

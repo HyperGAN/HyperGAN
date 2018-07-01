@@ -50,10 +50,10 @@ class AliGAN(BaseGAN):
         def random_like(x):
             return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
         with tf.device(self.device):
-            x_input = tf.identity(self.inputs.x, name='input')
+            x_input = tf.identity(self.inputs.xs[0], name='input')
 
             # q(z|x)
-            encoder = self.create_encoder(x_input)
+            encoder = self.create_encoder(self.inputs.xs[1])
 
             self.encoder = encoder
             z_shape = self.ops.shape(encoder.sample)
@@ -88,7 +88,9 @@ class AliGAN(BaseGAN):
 
 
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
+            self.discriminator = standard_discriminator
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 2)
+            self.loss = standard_loss
 
             d_vars = standard_discriminator.variables()
             g_vars = generator.variables() + encoder.variables()
@@ -97,9 +99,13 @@ class AliGAN(BaseGAN):
 
             loss1 = ("g_loss", standard_loss.g_loss)
             loss2 = ("d_loss", standard_loss.d_loss)
-            loss = hc.Config({'sample': [standard_loss.d_loss, standard_loss.g_loss], 'metrics': 
+            loss = hc.Config({
+                'd_fake':standard_loss.d_fake,
+                'd_real':standard_loss.d_real,
+                'sample': [standard_loss.d_loss, standard_loss.g_loss], 
+                'metrics': 
                 {'g_loss': loss1[1], 'd_loss': loss2[1]}})
-            trainer = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+            trainer = self.create_component(config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
 
             self.session.run(tf.global_variables_initializer())
 
@@ -121,6 +127,13 @@ class AliGAN(BaseGAN):
             self.mask = mask
             self.autoencode_mask = generator.mask_generator.sample
             self.autoencode_mask_3_channel = generator.mask
+
+
+    def fitness_inputs(self):
+        return [
+                self.uniform_encoder.sample, self.inputs.xs[1]
+                ]
+
 
     def create_loss(self, loss_config, discriminator, x, generator, split):
         loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator.sample, split=split)

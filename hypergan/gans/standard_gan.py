@@ -60,7 +60,7 @@ class StandardGAN(BaseGAN):
 
             #this is in a specific order
             if self.encoder is None and config.encoder:
-                self.encoder = self.create_component(config.encoder)
+                self.encoder = self.create_component(config.z_distribution or config.encoder)
                 self.uniform_encoder = self.encoder
             if self.generator is None and config.generator:
                 self.generator = self.create_component(config.generator, input=self.encoder.sample)

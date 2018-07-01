@@ -78,3 +78,6 @@ class MultiImageLoader:
             min_after_dequeue=batch_size)
             for img in imgs]
         return xs
+
+    def inputs(self):
+        return self.xs

@@ -195,7 +195,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         activation = self.ops.lookup(activation_s)
 
 
-        if "*" in args[0]:
+        if "*" in str(args[0]):
             reshape = [int(x) for x in args[0].split("*")]
             size = reduce(operator.mul, reshape)
         else:

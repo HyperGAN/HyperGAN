@@ -96,21 +96,14 @@ class GangTrainer(BaseTrainer):
         memory_size = self.config.nash_memory_size or 10
         sorted_sgs = [[p, v] for p,v in zip(priority_g, self.sgs)]
         sorted_sds = [[p, v] for p,v in zip(priority_d, self.sds)]
-        sorted_sgs.sort(key=lambda x: x[0])
-        sorted_sds.sort(key=lambda x: x[0])
+        sorted_sgs.sort(key=lambda x: -x[0])
+        sorted_sds.sort(key=lambda x: -x[0])
         sorted_sds = [s[1] for s in sorted_sds]
         sorted_sgs = [s[1] for s in sorted_sgs]
         self.sgs = sorted_sgs[:memory_size]
         self.sds = sorted_sds[:memory_size]
-        new_ug_is_better = True#self.rank_gs([ug, new_ug])[0] == new_ug
-        new_ud_is_better = True#self.rank_ds([ud, new_ud])[0] == new_ud
-        if(new_ug_is_better):
-            ug = new_ug
 
-        if(new_ud_is_better):
-            ud = new_ud
-
-        return [ug, ud]
+        return [new_ug, new_ud]
 
     def softmax(self, x):
         e_x = np.exp(x - np.max(x))

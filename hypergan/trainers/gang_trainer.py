@@ -24,9 +24,9 @@ class GangTrainer(BaseTrainer):
         self.ug = None#gan.session.run(g_vars)
         self.ud = None#gan.session.run(d_vars)
         self.pg = [tf.zeros_like(v) for v in g_vars]
-        self.assign_g = [v.assign(pv) for v,pv in zip(g_vars, self.pg)]
+        self._assign_g = [v.assign(pv) for v,pv in zip(g_vars, self.pg)]
         self.pd = [tf.zeros_like(v) for v in d_vars]
-        self.assign_d = [v.assign(pv) for v,pv in zip(d_vars, self.pd)]
+        self._assign_d = [v.assign(pv) for v,pv in zip(d_vars, self.pd)]
         self.pm = tf.zeros([1])
         self.assign_add_d = [v.assign(pv*self.pm+v) for v,pv in zip(d_vars, self.pd)]
         self.assign_add_g = [v.assign(pv*self.pm+v) for v,pv in zip(g_vars, self.pg)]
@@ -56,14 +56,14 @@ class GangTrainer(BaseTrainer):
 
     def destructive_mixture_g(self, priority_g):
         g_vars = self.all_g_vars
-        self.gan.session.run(self.assign_g, {}) # zero
+        self.gan.session.run(self._assign_g, {}) # zero
         for i, s in enumerate(self.sgs):
             self.add_g(priority_g[i], s)
         return self.gan.session.run(g_vars)
 
     def destructive_mixture_d(self, priority_d):
         d_vars = self.all_d_vars
-        self.gan.session.run(self.assign_d, {}) # zero
+        self.gan.session.run(self._assign_d, {}) # zero
         for i, s in enumerate(self.sds):
             self.add_d(priority_d[i], s)
         return self.gan.session.run(d_vars)
@@ -98,6 +98,8 @@ class GangTrainer(BaseTrainer):
         sorted_sds = [[p, v] for p,v in zip(priority_d, self.sds)]
         sorted_sgs.sort(key=lambda x: -x[0])
         sorted_sds.sort(key=lambda x: -x[0])
+        print('mixture g:', [x[0] for x in sorted_sgs])
+        print('mixture d:', [x[0] for x in sorted_sds])
         sorted_sds = [s[1] for s in sorted_sds]
         sorted_sgs = [s[1] for s in sorted_sgs]
         self.sgs = sorted_sgs[:memory_size]
@@ -179,14 +181,20 @@ class GangTrainer(BaseTrainer):
         return sum_fitness
 
     def assign_gd(self, g, d):
+        self.assign_g(g)
+        self.assign_d(d)
+
+    def assign_g(self, g):
         fg = {}
         for v, t in zip(g, self.pg):
             fg[t] = v
-        self.gan.session.run(self.assign_g, fg)
+        self.gan.session.run(self._assign_g, fg)
+
+    def assign_d(self, d):
         fd = {}
         for v, t in zip(d, self.pd):
             fd[t] = v
-        self.gan.session.run(self.assign_d, fd)
+        self.gan.session.run(self._assign_d, fd)
 
     def add_g(self, pm, g):
         fg = {}
@@ -232,14 +240,7 @@ class GangTrainer(BaseTrainer):
                 ug = [ (o*decay + n*(1-decay)) for o, n in zip(sg, self.ug) ]
                 ud = [ (o*decay + n*(1-decay)) for o, n in zip(sd, self.ud) ]
 
-            fg = {}
-            for v, t in zip(ug, self.pg):
-                fg[t] = v
-            gan.session.run(self.assign_g, fg)
-            fd = {}
-            for v, t in zip(ud, self.pd):
-                fd[t] = v
-            gan.session.run(self.assign_d, fd)
+            self.assign_gd(ug, ud)
             self.ug = gan.session.run(g_vars)
             self.ud = gan.session.run(d_vars)
             if self.current_step < (config.reset_before_step or 0):

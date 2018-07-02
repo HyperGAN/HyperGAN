@@ -30,6 +30,7 @@ from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSam
 from hypergan.samplers.debug_sampler import DebugSampler
 from hypergan.samplers.segment_sampler import SegmentSampler
 from hypergan.samplers.y_sampler import YSampler
+from hypergan.samplers.gang_sampler import GangSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
@@ -78,6 +79,7 @@ class CLI:
                 'batch_walk': BatchWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
+                'gang': GangSampler,
                 'began': BeganSampler,
                 'autoencode': AutoencodeSampler,
                 'debug': DebugSampler,

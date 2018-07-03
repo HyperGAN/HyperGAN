@@ -12,10 +12,31 @@ class GangTrainer(BaseTrainer):
     def create(self):
         config = self.config
         gan = self.gan
+        loss = self.gan.loss
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
 
         self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars, loss=self.loss)
+        if self.config.fitness_method == "wasserstein":
+            self.gang_loss = -(loss.d_real-loss.d_fake)
+        elif self.config.fitness_method == "least_squares":
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = (tf.square(loss.d_fake-a)-tf.square(loss.d_real-a))
+        elif self.config.fitness_method == "standard":
+            self.gang_loss = -(tf.log(tf.nn.sigmoid(loss.d_real)+TINY)-tf.log(tf.nn.sigmoid(loss.d_fake)+TINY))
+        elif self.config.fitness_method == "g_loss":
+            self.gang_loss = self._delegate.g_loss
+        elif self.config.fitness_method == "d_loss":
+            self.gang_loss = self._delegate.d_loss
+        elif self.config.fitness_method == "-g_loss":
+            self.gang_loss = -self._delegate.g_loss
+        else:
+            self.gang_loss = loss.d_fake - loss.d_real
+
+
+
+
         g_vars = list(g_vars) + self._delegate.slot_vars_g
         d_vars = list(d_vars) +  self._delegate.slot_vars_d
         self.all_g_vars = g_vars
@@ -73,6 +94,8 @@ class GangTrainer(BaseTrainer):
         should_include_sd = np.isnan(np.sum(np.sum(v) for v in sd)) == False
         zs = [ self.gan.session.run(self.gan.fitness_inputs()) for i in range(self.config.fitness_test_points or 10)]
         xs = [ self.gan.session.run(self.gan.inputs.inputs()) for i in range(self.config.fitness_test_points or 10)]
+        self.xs = xs
+        self.zs = zs
         if(should_include_sg):
             self.sgs = [sg] + self.sgs
         else:
@@ -82,7 +105,9 @@ class GangTrainer(BaseTrainer):
         else:
             print("Skip SD (nan)")
 
+        print("Calculating nash")
         a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
+        print("Payoff:", a)
 
         if self.config.use_nash:
             priority_g, new_ug, priority_d, new_ud = self.nash_mixture_from_payoff(a, self.sgs, self.sds)
@@ -115,6 +140,7 @@ class GangTrainer(BaseTrainer):
         return e_x / e_x.sum(axis=0)
 
     def nash_mixture_from_payoff(self, payoff, sgs, sds):
+        config = self.config
         def _update_g(p):
             p = np.reshape(p, [-1])
             result = self.destructive_mixture_g(p)
@@ -142,32 +168,33 @@ class GangTrainer(BaseTrainer):
                 print("Nashpy 'support' iteration failed, trying 'lemke howson'")
                 u = next(nash.Game(payoff).lemke_howson_enumeration())
 
-        if self.config.sign_results == 1:
-            p1, p1result = _update_g(u[0])
-            p2, p2result = _update_d(u[1])
-        else:
-            p1, p1result = _update_g(u[0])
-            p2, p2result = _update_d(u[1])
+        p1, p1result = _update_g(u[0])
+        p2, p2result = _update_d(u[1])
 
         return p1, p1result, p2, p2result
 
 
     def mixture_from_payoff(self, payoff, sum_dim, memory):
+        if sum_dim == 0:
+            payoff = -payoff
         u = np.sum(payoff, axis=sum_dim)
         u = self.softmax(u)
         u = np.reshape(u, [len(memory)])
         return u
 
-    def payoff_matrix(self, sgs, sds, xs, zs):
-        result = np.zeros([len(sgs), len(sds)])
+    def payoff_matrix(self, sgs, sds, xs, zs, method=None):
+        self._payoff_matrix = np.zeros([len(sgs), len(sds)])
+        result = self._payoff_matrix
         for i, sg in enumerate(sgs):
             for j, sd in enumerate(sds):
-                result[i, j]=self.fitness_score(sg, sd, xs, zs) # todo fitness ?
+                result[i, j]=self.fitness_score(sg, sd, xs, zs, method) # todo fitness ?
         return result
 
-    def fitness_score(self, g, d, xs, zs):
+    def fitness_score(self, g, d, xs, zs, method=None):
         self.assign_gd(g,d)
         sum_fitness = 0
+        if method == None:
+            method = self.gang_loss
         for x, z in zip(xs, zs):
             loss = self.loss or self.gan.loss
             feed_dict = {}
@@ -175,7 +202,7 @@ class GangTrainer(BaseTrainer):
                 feed_dict[t]=v
             for v, t in zip(z, self.gan.fitness_inputs()):
                 feed_dict[t]=v
-            fitness = self.gan.session.run([self._delegate.d_loss], feed_dict)
+            fitness = self.gan.session.run([method], feed_dict)
             sum_fitness += np.average(fitness)
 
         return sum_fitness

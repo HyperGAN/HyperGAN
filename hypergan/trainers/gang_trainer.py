@@ -146,8 +146,8 @@ class GangTrainer(BaseTrainer):
             p1, p1result = _update_g(u[0])
             p2, p2result = _update_d(u[1])
         else:
-            p1, p1result = _update_g(u[1])
-            p2, p2result = _update_d(u[0])
+            p1, p1result = _update_g(u[0])
+            p2, p2result = _update_d(u[1])
 
         return p1, p1result, p2, p2result
 

@@ -169,6 +169,8 @@ class FitnessTrainer(BaseTrainer):
             elif(config.fitness_type == 'ls2-r'):
                 a,b,c = loss.config.labels
                 self.g_fitness = -tf.square(loss.d_fake-c)
+            elif(config.fitness_type == 'std'):
+                self.g_fitness = -loss.d_fake
             elif(config.fitness_type == 'ls3'):
                 self.g_fitness = 1-loss.d_fake
             elif(config.fitness_type == 'ls3-fail'):

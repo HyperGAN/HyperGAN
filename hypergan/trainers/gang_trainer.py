@@ -31,6 +31,9 @@ class GangTrainer(BaseTrainer):
             self.gang_loss = self._delegate.d_loss
         elif self.config.fitness_method == "-g_loss":
             self.gang_loss = -self._delegate.g_loss
+        elif self.config.fitness_method == 'ragan':
+            self.gang_loss = -tf.log(tf.nn.sigmoid(loss.d_real-loss.d_fake)+TINY) + \
+                         tf.log(tf.nn.sigmoid(loss.d_fake-loss.d_real)+TINY)
         else:
             self.gang_loss = loss.d_fake - loss.d_real
 
@@ -175,8 +178,6 @@ class GangTrainer(BaseTrainer):
 
 
     def mixture_from_payoff(self, payoff, sum_dim, memory):
-        if sum_dim == 0:
-            payoff = -payoff
         u = np.sum(payoff, axis=sum_dim)
         u = self.softmax(u)
         u = np.reshape(u, [len(memory)])
@@ -205,6 +206,7 @@ class GangTrainer(BaseTrainer):
             fitness = self.gan.session.run([method], feed_dict)
             sum_fitness += np.average(fitness)
 
+        sum_fitness /= float(len(xs))
         return sum_fitness
 
     def assign_gd(self, g, d):

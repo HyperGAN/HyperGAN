@@ -34,6 +34,18 @@ class GangTrainer(BaseTrainer):
         elif self.config.fitness_method == 'ragan':
             self.gang_loss = -tf.log(tf.nn.sigmoid(loss.d_real-loss.d_fake)+TINY) + \
                          tf.log(tf.nn.sigmoid(loss.d_fake-loss.d_real)+TINY)
+        elif self.config.fitness_method == 'ragan2':
+            self.gang_loss =- tf.log(tf.nn.sigmoid(loss.d_real)+TINY) + \
+                         tf.log(tf.nn.sigmoid(loss.d_fake)+TINY)
+        elif self.config.fitness_method == 'f-r':
+            #self.gang_loss = tf.nn.sigmoid(loss.d_fake - loss.d_real)
+            self.gang_loss = 2*tf.nn.sigmoid(2*(loss.d_fake-loss.d_real))-1
+        elif self.config.fitness_method == 'f-r2':
+            #self.gang_loss = tf.nn.sigmoid(loss.d_fake - loss.d_real)
+            self.gang_loss = tf.nn.sigmoid((loss.d_fake))-tf.nn.sigmoid((loss.d_real))
+        elif self.config.fitness_method == 'f-r3':
+            #self.gang_loss = tf.nn.sigmoid(loss.d_fake - loss.d_real)
+            self.gang_loss = tf.nn.sigmoid(loss.d_fake-loss.d_real)-tf.nn.sigmoid(loss.d_real-loss.d_fake)
         else:
             self.gang_loss = loss.d_fake - loss.d_real
 
@@ -118,7 +130,7 @@ class GangTrainer(BaseTrainer):
             priority_g = self.mixture_from_payoff(a, 1, self.sgs)
             new_ug = self.destructive_mixture_g(priority_g)
 
-            priority_d = self.mixture_from_payoff(a, 0, self.sds)
+            priority_d = self.mixture_from_payoff(-a, 0, self.sds)
             new_ud = self.destructive_mixture_d(priority_d)
 
         memory_size = self.config.nash_memory_size or 10

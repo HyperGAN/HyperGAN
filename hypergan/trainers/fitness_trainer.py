@@ -170,7 +170,7 @@ class FitnessTrainer(BaseTrainer):
                 a,b,c = loss.config.labels
                 self.g_fitness = -tf.square(loss.d_fake-c)
             elif(config.fitness_type == 'std'):
-                self.g_fitness = -loss.d_fake
+                self.g_fitness = -tf.nn.sigmoid(loss.d_fake)
             elif(config.fitness_type == 'ls3'):
                 self.g_fitness = 1-loss.d_fake
             elif(config.fitness_type == 'ls3-fail'):
@@ -215,8 +215,9 @@ class FitnessTrainer(BaseTrainer):
                 self.min_fitness=None
             
             gl, dl, fitness,mean, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness, self.mean]+gan.fitness_inputs())
+            #print("fitness %.2f / %.2f" % (fitness, self.min_fitness or -100.0))
             g = None
-            if(self.min_fitness is None or fitness < self.min_fitness or self.steps_since_fit > 1000):
+            if(self.min_fitness is None or fitness <= self.min_fitness):
                 self.hist[0]+=1
                 self.min_fitness = fitness
                 self.steps_since_fit=0
@@ -227,7 +228,7 @@ class FitnessTrainer(BaseTrainer):
             else:
                 self.hist[1]+=1
                 fitness_decay = config.fitness_decay or 0.99
-                self.min_fitness = fitness_decay*self.min_fitness + (1.001-fitness_decay)*fitness
+                self.min_fitness = fitness_decay*self.min_fitness + (1.00-fitness_decay)*(fitness-self.min_fitness)
                 if(config.train_d_on_fitness_failure):
                     metric_values = sess.run([self.d_optimizer]+self.output_variables(metrics), feed_dict)[1:]
                 else:

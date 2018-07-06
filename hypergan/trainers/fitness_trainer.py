@@ -78,7 +78,10 @@ class FitnessTrainer(BaseTrainer):
                 return nextw-v
 
         def gradient_for(g, jg, v, decay):
-            if config.update_rule == "ttur":
+            print("gv", g, v)
+            if config.update_rule == 'single-step':
+                return g
+            elif config.update_rule == "ttur":
                 if decay is not None:
                     amp = v+amp_for(v)*g
                     ng = ((decay) * v + (1.0-decay)*amp)-v

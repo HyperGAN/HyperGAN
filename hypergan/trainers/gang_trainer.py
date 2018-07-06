@@ -122,6 +122,9 @@ class GangTrainer(BaseTrainer):
 
         print("Calculating nash")
         a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
+        if np.min(a) == np.max(a):
+            print("WARNING: Degenerate game, skipping")
+            return [ug, ud]
         print("Payoff:", a)
 
         if self.config.use_nash:

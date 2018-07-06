@@ -210,6 +210,9 @@ class FitnessTrainer(BaseTrainer):
             prev = sess.run(self.g_vars)
         if config.fitness_test is not None:
             self.steps_since_fit+=1
+            if self.steps_since_fit > 100:
+                print("Fitness failure, skipping")
+                self.min_fitness = None
             if self.min_fitness is not None and np.isnan(self.min_fitness):
                 print("NAN min fitness")
                 self.min_fitness=None

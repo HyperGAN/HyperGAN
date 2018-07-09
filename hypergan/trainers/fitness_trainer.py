@@ -234,7 +234,7 @@ class FitnessTrainer(BaseTrainer):
             else:
                 self.hist[1]+=1
                 fitness_decay = config.fitness_decay or 0.99
-                self.min_fitness = fitness_decay*self.min_fitness + (1.00-fitness_decay)*(fitness-self.min_fitness)
+                self.min_fitness = self.min_fitness + (1.00-fitness_decay)*(fitness-self.min_fitness)
                 if(config.train_d_on_fitness_failure):
                     metric_values = sess.run([self.d_optimizer]+self.output_variables(metrics), feed_dict)[1:]
                 else:

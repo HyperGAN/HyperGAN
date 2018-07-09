@@ -15,6 +15,7 @@ class GangTrainer(BaseTrainer):
         loss = self.gan.loss
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
+        self.reinit = tf.initialize_variables(d_vars+g_vars)
         self.priority_ds = []
         self.priority_gs = []
 
@@ -24,7 +25,13 @@ class GangTrainer(BaseTrainer):
         elif self.config.fitness_method == "least_squares":
             b = gan.loss.config.labels[1]
             a = gan.loss.config.labels[0]
-            self.gang_loss = (tf.square(loss.d_fake-a)-tf.square(loss.d_real-a))
+            self.gang_loss = tf.sign(loss.d_fake + loss.d_real) * tf.square(loss.d_fake+loss.d_real)
+        elif self.config.fitness_method == "raleast_squares":
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = tf.sign(loss.d_fake - loss.d_real - b) * tf.square(loss.d_fake-loss.d_real- b) + \
+                tf.sign(loss.d_real - loss.d_fake - c) * tf.square(loss.d_real-loss.d_fake- c)
         elif self.config.fitness_method == "standard":
             self.gang_loss = -(tf.log(tf.nn.sigmoid(loss.d_real)+TINY)-tf.log(tf.nn.sigmoid(loss.d_fake)+TINY))
         elif self.config.fitness_method == "g_loss":
@@ -33,11 +40,15 @@ class GangTrainer(BaseTrainer):
             self.gang_loss = self._delegate.d_loss
         elif self.config.fitness_method == "-g_loss":
             self.gang_loss = -self._delegate.g_loss
+        elif self.config.fitness_method == 'ralsgan':
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = 0.5*tf.square(loss.d_real - loss.d_fake - b) + 0.5*tf.square(loss.d_fake - loss.d_real - b)
         elif self.config.fitness_method == 'ragan':
-            self.gang_loss = -tf.log(tf.nn.sigmoid(loss.d_real-loss.d_fake)+TINY) + \
-                         tf.log(tf.nn.sigmoid(loss.d_fake-loss.d_real)+TINY)
+            self.gang_loss = -tf.nn.sigmoid(loss.d_real-loss.d_fake)+ \
+                         tf.nn.sigmoid(loss.d_fake-loss.d_real)
         elif self.config.fitness_method == 'ragan2':
-            self.gang_loss =- tf.log(tf.nn.sigmoid(loss.d_real)+TINY) + \
+            self.gang_loss = tf.log(tf.nn.sigmoid(loss.d_real)+TINY) - \
                          tf.log(tf.nn.sigmoid(loss.d_fake)+TINY)
         elif self.config.fitness_method == 'f-r':
             #self.gang_loss = tf.nn.sigmoid(loss.d_fake - loss.d_real)
@@ -151,6 +162,8 @@ class GangTrainer(BaseTrainer):
         sorted_sgs = [s[1] for s in sorted_sgs]
         self.sgs = sorted_sgs[:memory_size]
         self.sds = sorted_sds[:memory_size]
+        self.priority_gs = self.priority_gs[:memory_size]
+        self.priority_ds = self.priority_ds[:memory_size]
 
         return [new_ug, new_ud]
 
@@ -266,14 +279,13 @@ class GangTrainer(BaseTrainer):
         dl = np.zeros(self._delegate.d_loss.shape)
         for i,sd in enumerate(self.sds):
             p= self.priority_ds[i]
-            print("P", p)
             if(p == 0):
                 print("Skipping", i)
                 next
             self.assign_d(sd)
 
             _gl, _dl, fitness,mean, *zs = gan.session.run([self._delegate.g_loss, self._delegate.d_loss, self._delegate.g_fitness]+gan.fitness_inputs())
-            print(i, "GL DL", _gl, _dl)
+            print("Train strategy", i, "P", p, "GL", _gl, "DL", _dl)
             gl += _gl * p
             dl += _dl * p
         feed_dict = {}
@@ -302,14 +314,16 @@ class GangTrainer(BaseTrainer):
 
         self._delegate.step(feed_dict)
 
-        if config.train_g_on_sds and (self.current_step+1) % (config.sds_steps or 100) == 0 and np.max(self.priority_ds) != 0:
-            print("Training delegates")
+        if config.train_g_on_sds and ((self._delegate.current_step+1) % (config.sds_steps or 100) == 0 and self._delegate.steps_since_fit == 0) and np.max(self.priority_ds) != 0:
             self.train_g_on_sds()
         
-        if self.last_fitness_step == self._delegate.current_step:
-            return
+        #if self.last_fitness_step == self._delegate.current_step:
+        #    return
         self.last_fitness_step=self._delegate.current_step
-        if (self._delegate.current_step+1) % (config.mix_steps or 100) == 0:
+        #print("Step", self._delegate.current_step+1)
+        if (self._delegate.current_step+1) % (config.mix_steps or 100) == 0 or self._delegate.mix_threshold_reached:
+            self._delegate.mix_threshold_reached = False
+            self._delegate.current_step = 0
             sg = gan.session.run(g_vars)
             sd = gan.session.run(d_vars)
             if config.nash_memory:

@@ -14,6 +14,7 @@ class FitnessTrainer(BaseTrainer):
         config = self.config
         lr = config.learn_rate
         self.global_step = tf.train.get_global_step()
+        self.mix_threshold_reached = False
         decay_function = config.decay_function
         if decay_function:
             print("!!using decay function", decay_function)
@@ -213,20 +214,39 @@ class FitnessTrainer(BaseTrainer):
             prev = sess.run(self.g_vars)
         if config.fitness_test is not None:
             self.steps_since_fit+=1
-            if self.steps_since_fit > 100:
-                print("Fitness failure, skipping")
-                self.min_fitness = None
+            if config.fitness_failure_threshold and self.steps_since_fit > (config.fitness_failure_threshold or 1000):
+                print("Fitness achieved.", self.hist[0], self.min_fitness)
+                self.min_fitness =  None
+                self.mix_threshold_reached = True
+                self.steps_since_fit = 0
+                return
             if self.min_fitness is not None and np.isnan(self.min_fitness):
                 print("NAN min fitness")
                 self.min_fitness=None
+                return
             
             gl, dl, fitness,mean, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness, self.mean]+gan.fitness_inputs())
-            #print("fitness %.2f / %.2f" % (fitness, self.min_fitness or -100.0))
+            if np.isnan(fitness) or np.isnan(gl) or np.isnan(dl):
+                print("NAN Detected.  Candidate done")
+                self.min_fitness = None
+                self.mix_threshold_reached = True
+                self.steps_since_fit = 0
+                return
+
+
             g = None
             if(self.min_fitness is None or fitness <= self.min_fitness):
                 self.hist[0]+=1
                 self.min_fitness = fitness
                 self.steps_since_fit=0
+                if config.assert_similarity:
+                    if((gl - dl) > ((config.similarity_ratio or 1.8) * ( (gl + dl) / 2.0)) ):
+                        print("g_loss - d_loss > allowed similarity threshold", gl, dl, gl-dl)
+                        self.min_fitness = None
+                        self.mix_threshold_reached = True
+                        self.steps_since_fit = 0
+                        return
+
 
                 for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
                     feed_dict[t]=v
@@ -242,14 +262,21 @@ class FitnessTrainer(BaseTrainer):
                 self.current_step-=1
         else:
             #standard
-            metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)[1:]
+            gl, dl, *metric_values = sess.run([self.g_loss, self.d_loss, self.optimizer] + self.output_variables(metrics), feed_dict)[1:]
+            if(gl == 0 or dl == 0):
+                self.steps_since_fit=0
+                self.mix_threshold_reached = True
+                print("Zero, lne?")
+                return
+            self.steps_since_fit+=1
+
         if config.g_ema_decay is not None:
             feed_dict = {}
             for p,pvalue in zip(self.pg_vars, prev):
                 feed_dict[p]=pvalue
             _ = sess.run(self.g_ema, feed_dict)
 
-        if self.current_step % 100 == 0:
+        if ((self.current_step % 10) == 0 and self.steps_since_fit == 0):
             hist_output = "  " + "".join(["G"+str(i)+":"+str(v)+" "for i, v in enumerate(self.hist)])
             print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)+hist_output))
             self.hist = [0 for i in range(2)]

@@ -15,6 +15,8 @@ class GangTrainer(BaseTrainer):
         loss = self.gan.loss
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
+        self.priority_ds = []
+        self.priority_gs = []
 
         self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars, loss=self.loss)
         if self.config.fitness_method == "wasserstein":
@@ -122,7 +124,7 @@ class GangTrainer(BaseTrainer):
 
         print("Calculating nash")
         a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
-        if np.min(a) == np.max(a):
+        if np.min(a) == np.max(a) or np.isnan(np.sum(a)):
             print("WARNING: Degenerate game, skipping")
             return [ug, ud]
         print("Payoff:", a)
@@ -143,6 +145,8 @@ class GangTrainer(BaseTrainer):
         sorted_sds.sort(key=lambda x: -x[0])
         print('mixture g:', [x[0] for x in sorted_sgs])
         print('mixture d:', [x[0] for x in sorted_sds])
+        self.priority_gs = [x[0] for x in sorted_sgs]
+        self.priority_ds = [x[0] for x in sorted_sds]
         sorted_sds = [s[1] for s in sorted_sds]
         sorted_sgs = [s[1] for s in sorted_sgs]
         self.sgs = sorted_sgs[:memory_size]
@@ -252,7 +256,32 @@ class GangTrainer(BaseTrainer):
         for v, t in zip(d, self.pd):
             fd[t] = v
         fd[self.pm] = np.reshape(pm, [1])
+
         self.gan.session.run(self.assign_add_d, fd)
+
+    def train_g_on_sds(self):
+        gan = self.gan
+        cd = gan.session.run(self._delegate.d_vars)
+        gl = np.zeros(self._delegate.g_loss.shape)
+        dl = np.zeros(self._delegate.d_loss.shape)
+        for i,sd in enumerate(self.sds):
+            p= self.priority_ds[i]
+            print("P", p)
+            if(p == 0):
+                print("Skipping", i)
+                next
+            self.assign_d(sd)
+
+            _gl, _dl, fitness,mean, *zs = gan.session.run([self._delegate.g_loss, self._delegate.d_loss, self._delegate.g_fitness]+gan.fitness_inputs())
+            print(i, "GL DL", _gl, _dl)
+            gl += _gl * p
+            dl += _dl * p
+        feed_dict = {}
+        for v, t in ([[gl*p, self._delegate.g_loss],[dl*p, self._delegate.d_loss],[fitness, self._delegate.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
+            feed_dict[t]=v
+        _ = gan.session.run([self._delegate.g_optimizer], feed_dict)
+        self.assign_d(cd)
+
   
     def _step(self, feed_dict):
         gan = self.gan
@@ -268,8 +297,14 @@ class GangTrainer(BaseTrainer):
             self.ud = gan.session.run(d_vars)
             self.sgs.append(self.ug)
             self.sds.append(self.ud)
+            self.priority_gs = [1]
+            self.priority_ds = [1]
 
         self._delegate.step(feed_dict)
+
+        if config.train_g_on_sds and (self.current_step+1) % (config.sds_steps or 100) == 0 and np.max(self.priority_ds) != 0:
+            print("Training delegates")
+            self.train_g_on_sds()
         
         if self.last_fitness_step == self._delegate.current_step:
             return

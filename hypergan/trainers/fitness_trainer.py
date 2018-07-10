@@ -268,7 +268,7 @@ class FitnessTrainer(BaseTrainer):
                 self.mix_threshold_reached = True
                 print("Zero, lne?")
                 return
-            self.steps_since_fit+=1
+            self.steps_since_fit=0
 
         if config.g_ema_decay is not None:
             feed_dict = {}

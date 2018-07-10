@@ -120,10 +120,12 @@ class GangTrainer(BaseTrainer):
     def nash_memory(self, sg, sd, ug, ud):
         should_include_sg = np.isnan(np.sum(np.sum(v) for v in sg)) == False
         should_include_sd = np.isnan(np.sum(np.sum(v) for v in sd)) == False
-        zs = [ self.gan.session.run(self.gan.fitness_inputs()) for i in range(self.config.fitness_test_points or 10)]
-        xs = [ self.gan.session.run(self.gan.inputs.inputs()) for i in range(self.config.fitness_test_points or 10)]
-        self.xs = xs
-        self.zs = zs
+        #zs = [ self.gan.session.run(self.gan.fitness_inputs()) for i in range(self.config.fitness_test_points or 10)]
+        #xs = [ self.gan.session.run(self.gan.inputs.inputs()) for i in range(self.config.fitness_test_points or 10)]
+        #self.xs = xs
+        #self.zs = zs
+        xs = []
+        zs = []
         if(should_include_sg):
             self.sgs = [sg] + self.sgs
         else:
@@ -236,19 +238,24 @@ class GangTrainer(BaseTrainer):
     def fitness_score(self, g, d, xs, zs, method=None):
         self.assign_gd(g,d)
         sum_fitness = 0
+        test_points = self.config.fitness_test_points or 10
         if method == None:
             method = self.gang_loss
-        for x, z in zip(xs, zs):
-            loss = self.loss or self.gan.loss
-            feed_dict = {}
-            for v, t in zip(x, self.gan.inputs.inputs()):
-                feed_dict[t]=v
-            for v, t in zip(z, self.gan.fitness_inputs()):
-                feed_dict[t]=v
-            fitness = self.gan.session.run([method], feed_dict)
+        for i in range(test_points):
+            df, dr = self.gan.session.run([self.gan.loss.d_fake, self.gan.loss.d_real])
+            fitness = self.gan.session.run(method)
             sum_fitness += np.average(fitness)
+        #for x, z in zip(xs, zs):
+        #    loss = self.loss or self.gan.loss
+        #    feed_dict = {}
+        #    for v, t in zip(x, self.gan.inputs.inputs()):
+        #        feed_dict[t]=v
+        #    for v, t in zip(z, self.gan.fitness_inputs()):
+        #        feed_dict[t]=v
+        #    fitness = self.gan.session.run([method], feed_dict)
+        #    sum_fitness += np.average(fitness)
 
-        sum_fitness /= float(len(xs))
+        sum_fitness /= float(test_points)
         return sum_fitness
 
     def assign_gd(self, g, d):
@@ -294,12 +301,12 @@ class GangTrainer(BaseTrainer):
                 next
             self.assign_d(sd)
 
-            _gl, _dl, fitness,mean, *zs = gan.session.run([self._delegate.g_loss, self._delegate.d_loss, self._delegate.g_fitness]+gan.fitness_inputs())
+            _gl, _dl, *zs = gan.session.run([self._delegate.g_loss, self._delegate.d_loss]+gan.fitness_inputs())
             print("Train strategy", i, "P", p, "GL", _gl, "DL", _dl)
             gl += _gl * p
             dl += _dl * p
         feed_dict = {}
-        for v, t in ([[gl*p, self._delegate.g_loss],[dl*p, self._delegate.d_loss],[fitness, self._delegate.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
+        for v, t in ([[gl*p, self._delegate.g_loss],[dl*p, self._delegate.d_loss]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
             feed_dict[t]=v
         _ = gan.session.run([self._delegate.g_optimizer], feed_dict)
         self.assign_d(cd)

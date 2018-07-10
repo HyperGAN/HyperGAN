@@ -137,11 +137,19 @@ class GangTrainer(BaseTrainer):
         a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
         if np.min(a) == np.max(a) or np.isnan(np.sum(a)):
             print("WARNING: Degenerate game, skipping")
+            print(a)
             return [ug, ud]
         print("Payoff:", a)
 
         if self.config.use_nash:
             priority_g, new_ug, priority_d, new_ud = self.nash_mixture_from_payoff(a, self.sgs, self.sds)
+            if priority_g is None:
+                print("WARNING: Degenerate game (nashpy length mismatch), using softmax")
+                priority_g = self.mixture_from_payoff(a, 1, self.sgs)
+                new_ug = self.destructive_mixture_g(priority_g)
+
+                priority_d = self.mixture_from_payoff(-a, 0, self.sds)
+                new_ud = self.destructive_mixture_d(priority_d)
         else:
             priority_g = self.mixture_from_payoff(a, 1, self.sgs)
             new_ug = self.destructive_mixture_g(priority_g)
@@ -203,6 +211,8 @@ class GangTrainer(BaseTrainer):
                 print("Nashpy 'support' iteration failed, trying 'lemke howson'")
                 u = next(nash.Game(payoff).lemke_howson_enumeration())
 
+        if len(u[0]) != len(self.sgs):
+            return [None,None,None,None]
         p1, p1result = _update_g(u[0])
         p2, p2result = _update_d(u[1])
 

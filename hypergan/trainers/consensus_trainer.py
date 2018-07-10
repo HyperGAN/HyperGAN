@@ -93,7 +93,7 @@ class ConsensusTrainer(BaseTrainer):
         decay = config.g_exponential_moving_average_decay
         apply_vec = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(grads, Jgrads, allvars) if Jg is not None ]
         apply_vec_d = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(d_grads, Jgrads[:len(d_vars)], d_vars) if Jg is not None ]
-        apply_vec_g = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(g_grads, Jgrads[len(g_vars):], g_vars) if Jg is not None ]
+        apply_vec_g = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(g_grads, Jgrads[len(d_vars):], g_vars) if Jg is not None ]
 
         defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
         tr = config.trainer(self.lr, **defn)

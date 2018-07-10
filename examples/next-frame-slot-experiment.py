@@ -258,6 +258,7 @@ class AliNextFrameGAN(BaseGAN):
             else:
                 d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, None, None, len(stack))
+            self.loss = l
             loss1 = l
             d_loss1 = l.d_loss
             g_loss1 = l.g_loss

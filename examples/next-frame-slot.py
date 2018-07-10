@@ -73,6 +73,9 @@ class VideoFrameLoader:
         self.frame_count = frame_count
         self.shuffle = shuffle
 
+    def inputs(self):
+        return self.frames
+
     def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False):
         directories = glob.glob(directory+"/*")
         directories = [d for d in directories if os.path.isdir(d)]
@@ -258,6 +261,7 @@ class AliNextFrameGAN(BaseGAN):
             else:
                 d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, None, None, len(stack))
+            self.loss = l
             loss1 = l
             d_loss1 = l.d_loss
             g_loss1 = l.g_loss
@@ -289,6 +293,8 @@ class AliNextFrameGAN(BaseGAN):
         self.uga = self.y.sample
         self.uniform_encoder = z_g_prev
 
+    def fitness_inputs(self):
+        return self.inputs.frames + [self.uniform_encoder.sample]
 
 
     def create_loss(self, loss_config, discriminator, x, generator, split):

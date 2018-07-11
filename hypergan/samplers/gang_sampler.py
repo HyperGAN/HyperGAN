@@ -12,7 +12,7 @@ import hypergan as hg
 class GangSampler(BaseSampler):
     def __init__(self, gan):
         BaseSampler.__init__(self, gan)
-        self.z = None
+        self.xs = None
         self.samples = 3
 
     def sample(self, path, sample_to_file):
@@ -20,8 +20,8 @@ class GangSampler(BaseSampler):
 
         sess = gan.session
         config = gan.config
-        if self.z is None:
-            self.z = [sess.run(gan.uniform_encoder.sample) for i in range(self.samples)]
+        if self.xs is None:
+            self.xs = [sess.run(gan.fitness_inputs()) for i in range(self.samples)]
 
         current_g = sess.run(gan.trainer.all_g_vars)
         
@@ -30,7 +30,13 @@ class GangSampler(BaseSampler):
             n = 3
             cs = []
             for i in range(self.samples):
-                cs.append(sess.run(gan.generator.sample,{gan.uniform_encoder.sample: self.z[i]}))
+                ts = gan.fitness_inputs()
+                vs = self.xs[i]
+                feed_dict = {}
+                for t,v in zip(ts, vs):
+                    feed_dict[t]=v
+                cs.append(sess.run(gan.generator.sample,feed_dict))
+                #cs.append(sess.run(gan.autoencoded_x,feed_dict))
             return np.vstack(cs)
 
         stacks.append(_samples())

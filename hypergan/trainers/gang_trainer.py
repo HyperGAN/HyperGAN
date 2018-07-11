@@ -26,6 +26,12 @@ class GangTrainer(BaseTrainer):
             b = gan.loss.config.labels[1]
             a = gan.loss.config.labels[0]
             self.gang_loss = tf.sign(loss.d_fake + loss.d_real) * tf.square(loss.d_fake+loss.d_real)
+        elif self.config.fitness_method == "least_squares4":
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = tf.square((-loss.d_fake+1)/2) - tf.square((-loss.d_real+1)/2)
+
         elif self.config.fitness_method == "raleast_squares":
             c = gan.loss.config.labels[2]
             b = gan.loss.config.labels[1]

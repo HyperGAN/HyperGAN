@@ -26,20 +26,66 @@ class GangTrainer(BaseTrainer):
             b = gan.loss.config.labels[1]
             a = gan.loss.config.labels[0]
             self.gang_loss = tf.sign(loss.d_fake + loss.d_real) * tf.square(loss.d_fake+loss.d_real)
+        elif self.config.fitness_method == "least_squares2":
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = loss.d_fake + 2*loss.d_real
+        elif self.config.fitness_method == "least_squares3":
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = tf.square(loss.d_fake)*tf.sign(loss.d_fake) + tf.square(loss.d_real)*tf.sign(d_real)
         elif self.config.fitness_method == "least_squares4":
             c = gan.loss.config.labels[2]
             b = gan.loss.config.labels[1]
             a = gan.loss.config.labels[0]
             self.gang_loss = tf.square((-loss.d_fake+1)/2) - tf.square((-loss.d_real+1)/2)
 
+        elif self.config.fitness_method == 'double':
+            self.gang_loss = [loss.d_fake+loss.d_real, loss.d_real-loss.d_fake]
+        elif self.config.fitness_method == 'double2':
+            a = gan.loss.config.labels[0]
+            b = gan.loss.config.labels[1]
+            self.gang_loss = [tf.square(loss.d_fake-a)+tf.square(loss.d_real-a), tf.square(los++d_real-a)+tf.square(loss.d_fake-b)]
+        elif self.config.fitness_method == "least_squares5":
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = tf.nn.relu(loss.d_real)*loss.d_fake
+        elif self.config.fitness_method == "least_squares7":
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = (tf.nn.relu(loss.d_real)*tf.nn.relu(loss.d_fake))
+        elif self.config.fitness_method == "least_squares8":
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = (loss.d_real-a)*(loss.d_fake-a)
+        elif self.config.fitness_method == "least_squares9":
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = (loss.d_real-a)*(loss.d_fake-a)-(loss.d_real-b)*(loss.d_fake-b)
+        elif self.config.fitness_method == "least_squares6":
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = tf.square(tf.nn.relu(loss.d_real))*tf.sign(loss.d_fake)*tf.square(loss.d_fake)
+
         elif self.config.fitness_method == "raleast_squares":
             c = gan.loss.config.labels[2]
             b = gan.loss.config.labels[1]
             a = gan.loss.config.labels[0]
-            self.gang_loss = tf.sign(loss.d_fake - loss.d_real - b) * tf.square(loss.d_fake-loss.d_real- b) + \
-                tf.sign(loss.d_real - loss.d_fake - c) * tf.square(loss.d_real-loss.d_fake- c)
-        elif self.config.fitness_method == "standard":
-            self.gang_loss = -(tf.log(tf.nn.sigmoid(loss.d_real)+TINY)-tf.log(tf.nn.sigmoid(loss.d_fake)+TINY))
+            self.gang_loss = tf.square((-(loss.d_fake - loss.d_real)+1)/2) - tf.square((-(loss.d_real-loss.d_fake)+1)/2)
+        elif self.config.fitness_method == "jsd":
+            def mean_entropy(p, q):
+                return p * (tf.log(p / (0.5*(p+q))))
+            p = loss.d_fake
+            q = loss.d_real
+            self.gang_loss = -((mean_entropy(q, p) + mean_entropy(p, q)) / 2)
+
         elif self.config.fitness_method == "g_loss":
             self.gang_loss = self._delegate.g_loss
         elif self.config.fitness_method == "d_loss":
@@ -141,28 +187,37 @@ class GangTrainer(BaseTrainer):
         else:
             print("Skip SD (nan)")
 
-        print("Calculating nash")
-        a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
-        if np.min(a) == np.max(a) or np.isnan(np.sum(a)):
-            print("WARNING: Degenerate game, skipping")
-            print(a)
-            return [ug, ud]
-        print("Payoff:", a)
+        if isinstance(self.gang_loss, list):
+            a = self.payoff_matrix(self.sgs, self.sds, xs, zs, self.gang_loss[0])
+            b = self.payoff_matrix(self.sgs, self.sds, xs, zs, self.gang_loss[1])
+            print("Payoffa:", a)
+            print("Payoffb:", b)
+        else:
+            print("Calculating nash")
+            a = self.payoff_matrix(self.sgs, self.sds, xs, zs)
+            if np.min(a) == np.max(a) or np.isnan(np.sum(a)):
+                print("WARNING: Degenerate game, skipping")
+                print(a)
+                self.priority_ds = list(np.zeros(len(self.sds)))
+                self.priority_gs = list(np.zeros(len(self.sgs)))
+                return [ug, ud]
+            print("Payoff:", a)
+            b = -a
 
         if self.config.use_nash:
-            priority_g, new_ug, priority_d, new_ud = self.nash_mixture_from_payoff(a, self.sgs, self.sds)
-            if priority_g is None:
-                print("WARNING: Degenerate game (nashpy length mismatch), using softmax")
-                priority_g = self.mixture_from_payoff(a, 1, self.sgs)
-                new_ug = self.destructive_mixture_g(priority_g)
+            priority_g, new_ug, priority_d, new_ud = self.nash_mixture_from_payoff(a, b, self.sgs, self.sds)
+            #if priority_g is None:
+            #    print("WARNING: Degenerate game (nashpy length mismatch), using softmax")
+            #    priority_g = self.mixture_from_payoff(a, 1, self.sgs)
+            #    new_ug = self.destructive_mixture_g(priority_g)
 
-                priority_d = self.mixture_from_payoff(-a, 0, self.sds)
-                new_ud = self.destructive_mixture_d(priority_d)
+            #    priority_d = self.mixture_from_payoff(-a, 0, self.sds)
+            #    new_ud = self.destructive_mixture_d(priority_d)
         else:
             priority_g = self.mixture_from_payoff(a, 1, self.sgs)
             new_ug = self.destructive_mixture_g(priority_g)
 
-            priority_d = self.mixture_from_payoff(-a, 0, self.sds)
+            priority_d = self.mixture_from_payoff(b, 0, self.sds)
             new_ud = self.destructive_mixture_d(priority_d)
 
         memory_size = self.config.nash_memory_size or 10
@@ -190,7 +245,7 @@ class GangTrainer(BaseTrainer):
         e_x = x
         return e_x / e_x.sum(axis=0)
 
-    def nash_mixture_from_payoff(self, payoff, sgs, sds):
+    def nash_mixture_from_payoff(self, payoffa, payoffb, sgs, sds):
         config = self.config
         def _update_g(p):
             p = np.reshape(p, [-1])
@@ -204,20 +259,24 @@ class GangTrainer(BaseTrainer):
 
         if self.config.nash_method == 'support':
             try:
-                u = next(nash.Game(payoff).support_enumeration())
+                u = next(nash.Game(payoffa, payoffb).support_enumeration())
             except(StopIteration):
                 print("Nashpy 'support' iteration failed, trying 'lemke howson'")
-                u = next(nash.Game(payoff).lemke_howson_enumeration())
+                u = next(nash.Game(payoffa, payoffb).lemke_howson_enumeration())
 
         elif self.config.nash_method == 'lemke':
-            u = next(nash.Game(payoff).lemke_howson_enumeration())
+            u = next(nash.Game(payoffa, payoffb).lemke_howson_enumeration())
 
         else:
             try:
-                u = next(nash.Game(payoff).vertex_enumeration())
+                u = next(nash.Game(payoffa, payoffb).vertex_enumeration())
             except(StopIteration):
-                print("Nashpy 'support' iteration failed, trying 'lemke howson'")
-                u = next(nash.Game(payoff).lemke_howson_enumeration())
+                print("Nashpy 'support' iteration failed.  Using 1,0,0...")
+                u = [list(np.zeros(len(self.sds))), list(np.zeros(len(self.sgs)))]
+                u[0][0]=1.
+                u[1][0]=1.
+
+                print("UU", u)
 
         if len(u[0]) != len(self.sgs):
             return [None,None,None,None]

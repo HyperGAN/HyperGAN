@@ -294,7 +294,7 @@ class AliNextFrameGAN(BaseGAN):
         self.uniform_encoder = z_g_prev
 
     def fitness_inputs(self):
-        return self.inputs.frame
+        return self.inputs.frames
 
 
     def create_loss(self, loss_config, discriminator, x, generator, split):

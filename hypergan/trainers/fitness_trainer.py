@@ -11,6 +11,7 @@ class FitnessTrainer(BaseTrainer):
     def create(self):
         self.hist = [0 for i in range(2)]
         self.steps_since_fit=0
+        self.old_fitness = None
         config = self.config
         lr = config.learn_rate
         self.global_step = tf.train.get_global_step()
@@ -232,6 +233,11 @@ class FitnessTrainer(BaseTrainer):
                 self.mix_threshold_reached = True
                 self.steps_since_fit = 0
                 return
+            if self.old_fitness == fitness:
+                print("Stuck state detected, unsticking")
+                self.min_fitness = None
+                return
+            self.old_fitness = fitness
 
 
             g = None

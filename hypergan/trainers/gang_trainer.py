@@ -44,6 +44,13 @@ class GangTrainer(BaseTrainer):
 
         elif self.config.fitness_method == 'double':
             self.gang_loss = [loss.d_fake+loss.d_real, loss.d_real-loss.d_fake]
+        elif self.config.fitness_method == 'double_ragan':
+            self.gang_loss = [0.7*(loss.d_fake-loss.d_real)+0.3*(loss.d_real-loss.d_fake), 
+                    0.7*(loss.d_real-loss.d_fake)-0.3*(loss.d_fake-loss.d_real)]
+        elif self.config.fitness_method == '-gl-dl':
+            self.gang_loss = [-self._delegate.g_loss, -self._delegate.d_loss]
+        elif self.config.fitness_method == 'gldl':
+            self.gang_loss = [-self._delegate.g_loss, -self._delegate.d_loss]
         elif self.config.fitness_method == 'double2':
             a = gan.loss.config.labels[0]
             b = gan.loss.config.labels[1]

@@ -50,7 +50,8 @@ class GangTrainer(BaseTrainer):
         elif self.config.fitness_method == '-gl-dl':
             self.gang_loss = [-self._delegate.g_loss, -self._delegate.d_loss]
         elif self.config.fitness_method == 'gldl':
-            self.gang_loss = [-self._delegate.g_loss, -self._delegate.d_loss]
+            # breaks
+            self.gang_loss = [self._delegate.g_loss, self._delegate.d_loss]
         elif self.config.fitness_method == 'double2':
             a = gan.loss.config.labels[0]
             b = gan.loss.config.labels[1]

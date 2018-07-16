@@ -269,8 +269,10 @@ class GangTrainer(BaseTrainer):
             try:
                 u = next(nash.Game(payoffa, payoffb).support_enumeration())
             except(StopIteration):
-                print("Nashpy 'support' iteration failed, trying 'lemke howson'")
-                u = next(nash.Game(payoffa, payoffb).lemke_howson_enumeration())
+                print("Nashpy 'support' iteration failed.  Using 1,0,0...")
+                u = [list(np.zeros(len(self.sds))), list(np.zeros(len(self.sgs)))]
+                u[0][0]=1.
+                u[1][0]=1.
 
         elif self.config.nash_method == 'lemke':
             u = next(nash.Game(payoffa, payoffb).lemke_howson_enumeration())
@@ -278,8 +280,8 @@ class GangTrainer(BaseTrainer):
         else:
             try:
                 u = next(nash.Game(payoffa, payoffb).vertex_enumeration())
-            except(StopIteration):
-                print("Nashpy 'support' iteration failed.  Using 1,0,0...")
+            except(StopIteration, scipy.spatial.qhull.QhullError):
+                print("Nashpy 'vertex' iteration failed.  Using 1,0,0...")
                 u = [list(np.zeros(len(self.sds))), list(np.zeros(len(self.sgs)))]
                 u[0][0]=1.
                 u[1][0]=1.
@@ -384,6 +386,21 @@ class GangTrainer(BaseTrainer):
         _ = gan.session.run([self._delegate.g_optimizer], feed_dict)
         self.assign_d(cd)
 
+    def train_d_on_sgs(self):
+        gan = self.gan
+        cg = gan.session.run(self._delegate.g_vars)
+        for i,sg in enumerate(self.sgs):
+            p= self.priority_gs[i]
+            if(p == 0):
+                print("Skipping", i)
+                next
+            self.assign_g(sg)
+
+            _, _gl, _dl, *zs = gan.session.run([self._delegate.d_optimizer, self._delegate.g_loss, self._delegate.d_loss]+gan.fitness_inputs())
+            print("Train strategy", i, "P", p, "GL", _gl, "DL", _dl)
+
+        self.assign_g(cg)
+
   
     def _step(self, feed_dict):
         gan = self.gan
@@ -406,6 +423,8 @@ class GangTrainer(BaseTrainer):
 
         if config.train_g_on_sds and ((self._delegate.current_step+1) % (config.sds_steps or 100) == 0 and self._delegate.steps_since_fit == 0) and np.max(self.priority_ds) != 0:
             self.train_g_on_sds()
+        if config.train_d_on_sgs and ((self._delegate.current_step+1) % (config.sgs_steps or 100) == 0 and self._delegate.steps_since_fit == 0) and np.max(self.priority_gs) != 0:
+            self.train_d_on_sgs()
         
         #if self.last_fitness_step == self._delegate.current_step:
         #    return

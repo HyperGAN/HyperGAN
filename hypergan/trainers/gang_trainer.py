@@ -27,10 +27,7 @@ class GangTrainer(BaseTrainer):
             a = gan.loss.config.labels[0]
             self.gang_loss = tf.sign(loss.d_fake + loss.d_real) * tf.square(loss.d_fake+loss.d_real)
         elif self.config.fitness_method == "least_squares2":
-            c = gan.loss.config.labels[2]
-            b = gan.loss.config.labels[1]
-            a = gan.loss.config.labels[0]
-            self.gang_loss = loss.d_fake + 2*loss.d_real
+            self.gang_loss = tf.square(loss.d_fake)-tf.square(loss.d_real)
         elif self.config.fitness_method == "least_squares3":
             c = gan.loss.config.labels[2]
             b = gan.loss.config.labels[1]
@@ -126,9 +123,13 @@ class GangTrainer(BaseTrainer):
 
 
         g_vars = list(g_vars) + self._delegate.slot_vars_g
-        d_vars = list(d_vars) +  self._delegate.slot_vars_d
+        d_vars = list(d_vars) + self._delegate.slot_vars_d
         self.all_g_vars = g_vars
         self.all_d_vars = d_vars
+
+        def random_like(x):
+            shape = self.ops.shape(x)
+            return tf.random_uniform(shape, minval=-0.01, maxval=0.01)
 
         self.ug = None#gan.session.run(g_vars)
         self.ud = None#gan.session.run(d_vars)
@@ -139,6 +140,8 @@ class GangTrainer(BaseTrainer):
         self.pm = tf.zeros([1])
         self.assign_add_d = [v.assign(pv*self.pm+v) for v,pv in zip(d_vars, self.pd)]
         self.assign_add_g = [v.assign(pv*self.pm+v) for v,pv in zip(g_vars, self.pg)]
+        self.mutate_g = [v.assign(random_like(v)+v) for v in d_vars]
+        self.mutate_d = [v.assign(random_like(v)+v) for v in g_vars]
 
         self.sgs = []
         self.sds = []
@@ -443,6 +446,11 @@ class GangTrainer(BaseTrainer):
                 ud = [ (o*decay + n*(1-decay)) for o, n in zip(sd, self.ud) ]
 
             self.assign_gd(ug, ud)
+
+            if self.config.mutate_child and np.random.rand() > (self.config.mutation_chance or 0.7):
+                print("Mutating child")
+                self.gan.session.run([self.mutate_d, self.mutate_g])
+
             self.ug = gan.session.run(g_vars)
             self.ud = gan.session.run(d_vars)
             if self.current_step < (config.reset_before_step or 0):

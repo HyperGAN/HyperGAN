@@ -131,12 +131,7 @@ class FitnessTrainer(BaseTrainer):
         
         if config.fitness_test is not None:
             mean = tf.zeros([1])
-            if config.d_grads == "all":
-                used_grads = grads
-            elif config.d_grads:
-                used_grads = d_grads
-            else:
-                used_grads = g_grads
+            used_grads = d_grads
             if config.grad_type == "sum":
                 for g in used_grads:
                     mean += tf.reduce_sum(tf.abs(g))
@@ -178,6 +173,45 @@ class FitnessTrainer(BaseTrainer):
                 self.g_fitness = -tf.nn.sigmoid(loss.d_fake)
             elif(config.fitness_type == 'ls3'):
                 self.g_fitness = 1-loss.d_fake
+            elif(config.fitness_type == 'ls4'):
+                self.g_fitness = loss.d_real-loss.d_fake
+            elif(config.fitness_type == 'ls5'):
+                self.g_fitness = tf.square(loss.d_real)-tf.square(loss.d_fake)
+            elif(config.fitness_type == 'fq1'):
+                lam = 0.1
+                self.g_fitness = -loss.d_fake-lam*mean
+            elif(config.fitness_type == 'fq2'):
+                lam = 0.1
+                self.g_fitness = loss.d_real-loss.d_fake-lam*mean
+            elif(config.fitness_type == 'fq3'):
+                lam = 1
+                self.g_fitness = loss.d_real-loss.d_fake+lam*mean
+            elif(config.fitness_type == 'fq4'):
+                lam = 1
+                self.g_fitness = -loss.d_fake+lam*mean
+            elif(config.fitness_type == 'fq5'):
+                lam = 1
+                self.g_fitness = -loss.d_fake-lam*tf.norm(mean)
+            elif(config.fitness_type == 'fq6'):
+                lam = 0.1
+                self.g_fitness = -loss.d_fake-lam*tf.norm(mean+d_loss)
+            elif(config.fitness_type == 'fq7'):
+                lam = 0.1
+                self.g_fitness = -loss.d_fake-lam*tf.norm(-mean-d_loss)
+            elif(config.fitness_type == 'fq8'):
+                lam = 0.1
+                self.g_fitness = -tf.norm(mean+d_loss)
+            elif(config.fitness_type == 'fq9'):
+                lam = 0.1
+                self.g_fitness = lam*mean
+            elif(config.fitness_type == 'fq10'):
+                lam = 0.1
+                self.g_fitness = tf.norm(mean+d_loss)
+            elif(config.fitness_type == 'fq11'):
+                lam = 100.00
+                self.fq = -loss.d_fake
+                self.fd = lam * mean
+                self.g_fitness = -loss.d_fake + lam * mean
             elif(config.fitness_type == 'ls3-fail'):
                 self.g_fitness = -(1-loss.d_fake)
             elif(config.fitness_type == 'gldl'):

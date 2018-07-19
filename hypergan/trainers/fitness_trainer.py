@@ -35,15 +35,27 @@ class FitnessTrainer(BaseTrainer):
 
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
+        g_vars +=  gan.ops.variables()
+        self.prev_zs = []
 
         loss = self.loss or gan.loss
         d_loss, g_loss = loss.sample
+        prev_sample = tf.Variable(gan.generator.sample, dtype=tf.float32)
+        self.prev_sample = prev_sample
+        self.update_prev_sample = tf.assign(prev_sample, gan.generator.sample)
+        self.prev_l2_loss = (self.config.prev_l2_loss_lambda or 0.1)*self.ops.squash(tf.square(gan.generator.sample-prev_sample))
+
+        self.l2_loss = g_loss + self.prev_l2_loss
+
         allloss = d_loss + g_loss
 
         allvars = d_vars + g_vars
 
         d_grads = tf.gradients(d_loss, d_vars)
-        g_grads = tf.gradients(g_loss, g_vars)
+        if config.prev_l2_loss:
+            g_grads = tf.gradients(self.l2_loss, g_vars)
+        else:
+            d_grads = tf.gradients(g_loss, g_vars)
 
         grads = d_grads + g_grads
 
@@ -290,6 +302,22 @@ class FitnessTrainer(BaseTrainer):
 
                 for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
                     feed_dict[t]=v
+                # assign prev sample for previous z
+                # replace previous z with new z
+                prev_feed_dict = {}
+                for v, t in ( [ [v, t] for v, t in zip(self.prev_zs, gan.fitness_inputs())]):
+                    prev_feed_dict[t]=v
+
+                # l2 = ||(pg(z0) - g(z0))||2
+                prev_l2_loss = sess.run(self.prev_l2_loss, prev_feed_dict)
+                # pg(z0) = g(z)
+                self.prev_g = sess.run(self.update_prev_sample, feed_dict)
+                # z0 = z
+                self.prev_zs = zs
+                # optimize(l2, gl, dl)
+
+                feed_dict[self.prev_l2_loss] = prev_l2_loss
+
                 _, *metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)
             else:
                 self.hist[1]+=1

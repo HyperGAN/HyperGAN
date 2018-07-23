@@ -50,17 +50,20 @@ class AliGAN(BaseGAN):
         def random_like(x):
             return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
         with tf.device(self.device):
-            x_input = tf.identity(self.inputs.xs[0], name='input')
+            x_input = tf.identity(self.inputs.x, name='input')
 
             # q(z|x)
-            encoder = self.create_encoder(self.inputs.xs[1])
+            encoder = self.create_encoder(self.inputs.x)
 
             self.encoder = encoder
-            z_shape = self.ops.shape(encoder.sample)
+            if config.u_to_z:
+                uniform_encoder = UniformEncoder(self, config.z_distribution)
+            else:
+                z_shape = self.ops.shape(encoder.sample)
+                uz_shape = z_shape
+                uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
+                uniform_encoder = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
 
-            uz_shape = z_shape
-            uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
-            uniform_encoder = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
  
             direction, slider = self.create_controls(self.ops.shape(uniform_encoder.sample))
             z = uniform_encoder.sample + slider * direction
@@ -73,19 +76,20 @@ class AliGAN(BaseGAN):
             #stack_encoded = tf.concat([encoder.sample, encoder.sample], feature_dim)
             stack_z = z
 
-            generator = self.create_component(config.generator, input=stack_z)
-            self.uniform_sample = generator.sample
-            x_hat = generator.reuse(encoder.sample)
-
-            features_zs = ops.concat([encoder.sample, z], axis=0)
-            stacked_xg = ops.concat([x_input, generator.sample], axis=0)
 
             if config.u_to_z:
-                u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=random_like(z))
-                gu = generator.reuse(u_to_z.sample)
-                stacked_xg = ops.concat([x_input, gu], axis=0)
+                u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=z)
+                generator = self.create_component(config.generator, input=u_to_z.sample)
+                stacked_xg = ops.concat([x_input, generator.sample], axis=0)
                 features_zs = ops.concat([encoder.sample, u_to_z.sample], axis=0)
+            else:
+                generator = self.create_component(config.generator, input=stack_z)
+                stacked_xg = ops.concat([x_input, generator.sample], axis=0)
+                features_zs = ops.concat([encoder.sample, z], axis=0)
 
+            self.generator = generator
+            x_hat = generator.reuse(encoder.sample)
+            self.uniform_sample = generator.sample
 
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
             self.discriminator = standard_discriminator
@@ -131,7 +135,7 @@ class AliGAN(BaseGAN):
 
     def fitness_inputs(self):
         return [
-                self.uniform_encoder.sample, self.inputs.xs[1]
+                self.uniform_encoder.sample
                 ]
 
 

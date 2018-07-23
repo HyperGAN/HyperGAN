@@ -100,10 +100,12 @@ class BaseGAN(GANComponent):
             raise ValidationException("gan.trainer is missing.  Cannot train.")
         return self.trainer.step(feed_dict)
 
+    def variables(self):
+        return self.ops.variables() + self.generator.variables() + self.discriminator.variables()
     def save(self, save_file):
         print("[hypergan] Saving network to ", save_file)
         os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
-        saver = tf.train.Saver()
+        saver = tf.train.Saver(self.variables())
         saver.save(self.session, save_file)
 
     def load(self, save_file):
@@ -114,7 +116,7 @@ class BaseGAN(GANComponent):
             print("[hypergan] |= Loading checkpoint from "+ dir)
             ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
             if ckpt and ckpt.model_checkpoint_path:
-                saver = tf.train.Saver()
+                saver = tf.train.Saver(self.variables())
                 saver.restore(self.session, save_file)
                 loadedFromSave = True
                 return True

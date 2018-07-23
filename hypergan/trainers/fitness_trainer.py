@@ -55,7 +55,8 @@ class FitnessTrainer(BaseTrainer):
         if config.prev_l2_loss:
             g_grads = tf.gradients(self.l2_loss, g_vars)
         else:
-            d_grads = tf.gradients(g_loss, g_vars)
+            g_grads = tf.gradients(g_loss, g_vars)
+
 
         grads = d_grads + g_grads
 

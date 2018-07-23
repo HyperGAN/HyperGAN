@@ -21,6 +21,7 @@ from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
 from hypergan.samplers.grid_sampler import GridSampler
+from hypergan.samplers.sorted_sampler import SortedSampler
 from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.autoencode_sampler import AutoencodeSampler
@@ -79,6 +80,7 @@ class CLI:
                 'batch_walk': BatchWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
+                'sorted': SortedSampler,
                 'gang': GangSampler,
                 'began': BeganSampler,
                 'autoencode': AutoencodeSampler,

@@ -328,9 +328,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         depth = int(args[0])
 
         initializer = None # default to global
-        stddev = options.stddev or config.defaults.stddev or 0.02
-        if stddev:
-            initializer = ops.random_initializer(float(stddev))()
 
         net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)

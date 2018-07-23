@@ -20,7 +20,7 @@ class BatchWalkSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.uniform_encoder.sample
+        z_t = gan.uniform_encoder.z
         inputs_t = gan.inputs.x
 
         if self.z is None:
@@ -29,14 +29,14 @@ class BatchWalkSampler(BaseSampler):
             self.input = np.reshape(self.input[0], [1, self.input.shape[1], self.input.shape[2], 3])
             self.input = np.tile(self.input, [batch,1,1,1])
 
-            self.target = gan.uniform_encoder.sample.eval()[0]
+            self.target = gan.uniform_encoder.z.eval()[0]
         else:
             self.target = self.z
-        self.z = gan.uniform_encoder.sample.eval()[0]
+        self.z = gan.uniform_encoder.z.eval()[0]
 
 
         g=tf.get_default_graph()
-        s=np.shape(gan.uniform_encoder.sample.eval())
+        s=np.shape(gan.uniform_encoder.z.eval())
         bs = s[0]
         mask = np.linspace(0., 1., num=bs)
         self.z = np.tile(np.expand_dims(np.reshape(self.z, [-1]), axis=0), [bs,1])

@@ -125,6 +125,10 @@ class BaseGAN(GANComponent):
         else:
             return False
 
+
+    def variables(self):
+        return self.ops.variables() + sum([c.variables() for c in self.components], [])
+
     def inputs(self):
         """inputs() returns any input tensors"""
         return sum([x.inputs() for x in self.components],[])

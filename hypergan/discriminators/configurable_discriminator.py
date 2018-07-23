@@ -102,9 +102,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         stride = int(stride)
         shortcut = net
         initializer = None # default to global
-        stddev = options.stddev or config.defaults.stddev or 0.02
-        if stddev:
-            initializer = ops.random_initializer(float(stddev))()
 
         if config.defaults.avg_pool:
             net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
@@ -164,9 +161,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         depth = int(args[0])
 
         initializer = None # default to global
-        stddev = options.stddev or config.defaults.stddev or 0.02
-        if stddev:
-            initializer = ops.random_initializer(float(stddev))()
 
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
         avg_pool = options.avg_pool or config.defaults.avg_pool
@@ -180,6 +174,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
+
         return net
 
 
@@ -300,9 +295,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         depth = int(args[0])
 
         initializer = None # default to global
-        stddev = options.stddev or config.defaults.stddev or 0.02
-        if stddev:
-            initializer = ops.random_initializer(float(stddev))()
 
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
         s = ops.shape(net)
@@ -370,10 +362,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             stride = [int(stride), int(stride)]
 
         initializer = None # default to global
-        stddev = options.stddev or config.defaults.stddev or 0.02
-        if stddev:
-            initializer = ops.random_initializer(float(stddev))()
-
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
 
@@ -471,9 +459,6 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         depth = int(args[0])
 
         initializer = None # default to global
-        stddev = options.stddev or config.defaults.stddev or 0.02
-        if stddev:
-            initializer = ops.random_initializer(float(stddev))()
 
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
         s = ops.shape(net)

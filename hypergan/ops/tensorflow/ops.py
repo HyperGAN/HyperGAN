@@ -490,17 +490,20 @@ class TensorflowOps:
 
         return net
 
-    def lookup(self, symbol):
+    def lookup(self, symbol, use_eval=True):
         if symbol == None:
             return None
 
         if type(symbol) == type([]):
-            return [self.lookup(k) for k in symbol]
+            return [self.lookup(k, use_eval=False) for k in symbol]
 
         if type(symbol) == type({}) or type(symbol) == hc.Config:
-            return hc.Config({k: self.lookup(symbol[k]) for k in symbol.keys()})
+            return hc.Config({k: self.lookup(symbol[k], use_eval=False) for k in symbol.keys()})
 
         if type(symbol) != type(""):
+            return symbol
+
+        if not use_eval:
             return symbol
 
         if symbol.startswith('function:'):

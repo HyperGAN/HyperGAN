@@ -85,7 +85,8 @@ class BaseGAN(GANComponent):
             return None
         if defn['class'] == None:
             raise ValidationException("Component definition is missing '" + name + "'")
-        gan_component = defn['class'](self, defn, *args, **kw_args)
+        print('class', defn['class'], self.ops.lookup(defn['class']))
+        gan_component = self.ops.lookup(defn['class'])(self, defn, *args, **kw_args)
         self.components.append(gan_component)
         return gan_component
 

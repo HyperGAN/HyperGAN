@@ -45,8 +45,9 @@ class UniformEncoder(BaseEncoder):
             return sphere
         if projection == 'gaussian':
             return gaussian
-        print("Warning: Encoder could not lookup symbol '"+str(projection)+"'")
-        return None
+        if projection == 'periodic':
+            return periodic
+        return self.ops.lookup(projection)
         
 
 def identity(config, gan, net):

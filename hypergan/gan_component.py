@@ -48,7 +48,10 @@ class GANComponent:
         if self.gan.ops_backend is None:
             return
         self.ops = self.gan.ops_backend(config=self.config, device=self.gan.device)
-        self.config = self.gan.ops.lookup(config)
+        self.config = self.ops.lookup(config)
+        # set functions correctly
+        for k,v in dict(self.config).items():
+            self.config[k] = self.ops.lookup(v)
 
     def create(self, *args):
         raise ValidationException("GANComponent.create() called directly.  Please override.")

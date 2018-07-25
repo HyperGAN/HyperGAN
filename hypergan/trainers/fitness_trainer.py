@@ -76,8 +76,6 @@ class FitnessTrainer(BaseTrainer):
         else:
             Jgrads = tf.gradients(reg, allvars)
 
-        print("JG", Jgrads)
-
         self.g_gradient = tf.ones([1])
         def amp_for(v):
             if v in g_vars:
@@ -87,7 +85,6 @@ class FitnessTrainer(BaseTrainer):
 
         def applyvec(g, jg, v, decay):
             prev = v
-            print("V", v,g,jg)
             nextw = v+g + jg * (config.jg_alpha or 0.1)
             if decay is not None:
                 return ((decay) * prev + (1.0-decay)*nextw)-v
@@ -95,7 +92,6 @@ class FitnessTrainer(BaseTrainer):
                 return nextw-v
 
         def gradient_for(g, jg, v, decay):
-            print("gv", g, v)
             if config.update_rule == 'single-step':
                 return g
             elif config.update_rule == "ttur":

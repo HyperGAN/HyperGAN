@@ -121,7 +121,6 @@ class GangTrainer(BaseTrainer):
 
 
 
-
         g_vars = list(g_vars) + self._delegate.slot_vars_g
         d_vars = list(d_vars) + self._delegate.slot_vars_d
         self.all_g_vars = g_vars
@@ -289,8 +288,6 @@ class GangTrainer(BaseTrainer):
                 u[0][0]=1.
                 u[1][0]=1.
 
-                print("UU", u)
-
         if len(u[0]) != len(self.sgs):
             return [None,None,None,None]
         p1, p1result = _update_g(u[0])
@@ -375,7 +372,6 @@ class GangTrainer(BaseTrainer):
         for i,sd in enumerate(self.sds):
             p= self.priority_ds[i]
             if(p == 0):
-                print("Skipping", i)
                 next
             self.assign_d(sd)
 
@@ -395,7 +391,6 @@ class GangTrainer(BaseTrainer):
         for i,sg in enumerate(self.sgs):
             p= self.priority_gs[i]
             if(p == 0):
-                print("Skipping", i)
                 next
             self.assign_g(sg)
 

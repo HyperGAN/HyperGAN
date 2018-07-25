@@ -15,11 +15,13 @@ class GangTrainer(BaseTrainer):
         loss = self.gan.loss
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
-        self.reinit = tf.initialize_variables(d_vars+g_vars)
+        self.reinit = tf.variables_initializer(d_vars+g_vars)
         self.priority_ds = []
         self.priority_gs = []
 
-        self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars, loss=self.loss)
+
+        self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars, loss=loss)
+        d_loss, g_loss = loss.sample
         if self.config.fitness_method == "wasserstein":
             self.gang_loss = -(loss.d_real-loss.d_fake)
         elif self.config.fitness_method == "least_squares":
@@ -44,11 +46,23 @@ class GangTrainer(BaseTrainer):
         elif self.config.fitness_method == 'double_ragan':
             self.gang_loss = [0.7*(loss.d_fake-loss.d_real)+0.3*(loss.d_real-loss.d_fake), 
                     0.7*(loss.d_real-loss.d_fake)-0.3*(loss.d_fake-loss.d_real)]
+        elif self.config.fitness_method == 'zero_raganls':
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = tf.square(loss.d_real-loss.d_fake-b) - tf.square(loss.d_fake - loss.d_real - b)
+        elif self.config.fitness_method == 'zero_raganls2':
+            c = gan.loss.config.labels[2]
+            b = gan.loss.config.labels[1]
+            a = gan.loss.config.labels[0]
+            self.gang_loss = tf.square(loss.d_real-loss.d_fake-b)
         elif self.config.fitness_method == '-gl-dl':
-            self.gang_loss = [-self._delegate.g_loss, -self._delegate.d_loss]
+            self.gang_loss = [-g_loss, -d_loss]
+        elif self.config.fitness_method == 'gl-dl2':
+            self.gang_loss = [-g_loss, g_loss]
         elif self.config.fitness_method == 'gldl':
             # breaks
-            self.gang_loss = [self._delegate.g_loss, self._delegate.d_loss]
+            self.gang_loss = [g_loss, d_loss]
         elif self.config.fitness_method == 'double2':
             a = gan.loss.config.labels[0]
             b = gan.loss.config.labels[1]
@@ -92,11 +106,11 @@ class GangTrainer(BaseTrainer):
             self.gang_loss = -((mean_entropy(q, p) + mean_entropy(p, q)) / 2)
 
         elif self.config.fitness_method == "g_loss":
-            self.gang_loss = self._delegate.g_loss
+            self.gang_loss = g_loss
         elif self.config.fitness_method == "d_loss":
-            self.gang_loss = self._delegate.d_loss
+            self.gang_loss = d_loss
         elif self.config.fitness_method == "-g_loss":
-            self.gang_loss = -self._delegate.g_loss
+            self.gang_loss = -g_loss
         elif self.config.fitness_method == 'ralsgan':
             b = gan.loss.config.labels[1]
             a = gan.loss.config.labels[0]
@@ -146,12 +160,6 @@ class GangTrainer(BaseTrainer):
         self.sds = []
 
         self.last_fitness_step = 0
-
-        return self._create()
-
-
-    def _create(self):
-        return self._delegate._create()
 
     def required(self):
         return ""

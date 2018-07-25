@@ -231,6 +231,9 @@ class GangTrainer(BaseTrainer):
 
             #    priority_d = self.mixture_from_payoff(-a, 0, self.sds)
             #    new_ud = self.destructive_mixture_d(priority_d)
+        elif self.config.use_crossover:
+            priority_g = self.mixture_from_payoff(a, 1, self.sgs)
+            priority_d = self.mixture_from_payoff(b, 0, self.sds)
         else:
             priority_g = self.mixture_from_payoff(a, 1, self.sgs)
             new_ug = self.destructive_mixture_g(priority_g)
@@ -254,7 +257,21 @@ class GangTrainer(BaseTrainer):
         self.priority_gs = self.priority_gs[:memory_size]
         self.priority_ds = self.priority_ds[:memory_size]
 
+        if self.config.use_crossover:
+            new_ug = self.crossover(self.sgs[0],self.sgs[1])
+            new_ud = self.crossover(self.sds[0],self.sds[1])
+
+
         return [new_ug, new_ud]
+
+    def crossover(self, s1, s2):
+        strat = list(s1)
+        for i,layer in enumerate(s2):
+            mask = np.random.rand(*layer.shape)
+            if self.config.crossover_random == None:
+                mask = np.around(mask)
+            strat[i]=mask*layer + (1-mask)*strat[i]
+        return strat
 
     def softmax(self, x):
         e_x = np.exp(x - np.max(x))

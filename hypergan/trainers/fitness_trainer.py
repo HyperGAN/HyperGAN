@@ -35,12 +35,14 @@ class FitnessTrainer(BaseTrainer):
 
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
-        g_vars +=  gan.ops.variables()
         self.prev_zs = []
 
         loss = self.loss or gan.loss
         d_loss, g_loss = loss.sample
-        prev_sample = tf.Variable(gan.generator.sample, dtype=tf.float32)
+        def random_like(x):
+            shape = self.ops.shape(x)
+            return tf.random_uniform(shape, minval=-0.1, maxval=0.1)
+        prev_sample = tf.Variable(random_like(gan.generator.sample), dtype=tf.float32)
         self.prev_sample = prev_sample
         self.update_prev_sample = tf.assign(prev_sample, gan.generator.sample)
         self.prev_l2_loss = (self.config.prev_l2_loss_lambda or 0.1)*self.ops.squash(tf.square(gan.generator.sample-prev_sample))

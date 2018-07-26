@@ -92,22 +92,42 @@ class FitnessTrainer(BaseTrainer):
                 return nextw-v
 
         def gradient_for(g, jg, v, decay):
-            if config.update_rule == 'single-step':
-                return g
-            elif config.update_rule == "ttur":
-                if decay is not None:
-                    amp = v+amp_for(v)*g
-                    ng = ((decay) * v + (1.0-decay)*amp)-v
-                else:
-                    ng = amp_for(v)*g
-            else:
-                if decay is not None:
-                    if v in g_vars:
-                        ng = applyvec(g, jg, v, decay)
+            def _gradient():
+                if config.update_rule == 'single-step':
+                    return g
+                elif config.update_rule == "ttur":
+                    if decay is not None:
+                        amp = v+amp_for(v)*g
+                        ng = ((decay) * v + (1.0-decay)*amp)-v
                     else:
-                        ng = applyvec(g, jg, v, None)
+                        ng = amp_for(v)*g
                 else:
-                    ng = applyvec(g, jg, v, decay)
+                    if decay is not None:
+                        if v in g_vars:
+                            ng = applyvec(g, jg, v, decay)
+                        else:
+                            ng = applyvec(g, jg, v, None)
+                    else:
+                        ng = applyvec(g, jg, v, decay)
+                return ng
+            ng = _gradient()
+            if config.weight_constraint == 'lipschitz-gradient':
+                ng = 1.0/tf.maximum(1.0,self.ops.squash(tf.abs(ng+v), reduce=tf.reduce_sum))*ng
+            elif config.weight_constraint == 'weight-clip':
+                wi_hat = v + ng
+                wi = tf.maximum(wi_hat, config.weight_min or -0.1)
+                wi = tf.minimum(wi_hat, config.weight_max or 0.1)
+                ng = wi-v
+            elif config.weight_constraint == 'lipschitz':
+                if len(np.shape(v)) > 1:
+                    k = 1.
+                    wi_hat = v + ng
+                    wp = tf.reduce_max(tf.reduce_sum(tf.abs(wi_hat), axis=1))
+                    wi = 1.0/tf.maximum(1.0, wp/k)*wi_hat
+                    ng = wi-v
+                else:
+                    print("Ignoring layer from lipschitz", np.shape(v))
+
             return ng
         decay = config.g_exponential_moving_average_decay
         apply_vec = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(grads, Jgrads, allvars) if Jg is not None ]

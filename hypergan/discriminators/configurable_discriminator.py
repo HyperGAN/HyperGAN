@@ -16,6 +16,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         self.skip_connections = skip_connections
         self.layer_ops = {
             "relational": self.layer_relational,
+            "minibatch": self.layer_minibatch,
             "phase_shift": self.layer_phase_shift,
             "conv": self.layer_conv,
             "control": self.layer_controls,
@@ -638,6 +639,19 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         return net
 
+
+    def layer_minibatch(self, net, args, options):
+        options = hc.Config(options)
+        s = self.ops.shape(net)
+        group_size = options.group_size or self.ops.shape(net)[0]
+        group = tf.reshape(net, [group_size, -1, s[1], s[2], s[3]])
+        group -= tf.reduce_mean(group, axis=0, keep_dims=True)
+        group = tf.reduce_mean(tf.square(group), axis=0)
+        group = tf.sqrt(group+1e-8)
+        group = tf.reduce_mean(group, axis=[1,2,3], keep_dims=True)
+        group = tf.tile(group, [group_size, s[1], s[2], s[3]])
+        group = tf.concat([net, group], axis=3)
+        return group
 
     def layer_relational(self, net, args, options):
         def concat_coor(o, i, d):

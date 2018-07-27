@@ -74,6 +74,12 @@ class BaseLoss(GANComponent):
             self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
             print("Gradient penalty applied")
 
+        if config.k_lipschitz_penalty:
+            lipschitz_penalty = tf.maximum(tf.square(d_real) - 1, 0) + tf.maximum(tf.square(d_fake) - 1, 0)
+            self.metrics['k_lipschitz']=lipschitz_penalty
+
+            d_regularizers.append(lipschitz_penalty)
+
         if config.rothk_penalty:
             rothk = self.rothk_penalty(d_real, d_fake)
             self.metrics['rothk_penalty'] = self.gan.ops.squash(rothk)

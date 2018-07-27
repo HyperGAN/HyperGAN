@@ -67,7 +67,7 @@ class TensorflowOps:
 
     def he_initializer(self):
         def _build():
-            return tf.variance_scaling_initializer(scale=2.0,mode='fan_in',distribution='normal')
+            return tf.variance_scaling_initializer()
         return _build
 
     def xavier(self):

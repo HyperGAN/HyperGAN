@@ -23,6 +23,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "linear": self.layer_linear,
             "attention": self.layer_attention,
             "subpixel": self.layer_subpixel,
+            "pixel_norm": self.layer_pixel_norm,
             "gram_matrix": self.layer_gram_matrix,
             "unpool": self.layer_unpool,
             "slice": self.layer_slice,
@@ -684,3 +685,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         all_g = tf.stack(all_g, axis=0)
         all_g = tf.reduce_mean(all_g, axis=0, name='all_g')
         return all_g
+
+    def layer_pixel_norm(self, net, args, options):
+        epsilon = 1e-8
+        return net * tf.rsqrt(tf.reduce_mean(tf.square(net), axis=1, keepdims=True) + epsilon)

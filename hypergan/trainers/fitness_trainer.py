@@ -119,14 +119,23 @@ class FitnessTrainer(BaseTrainer):
                 wi = tf.minimum(wi_hat, config.weight_max or 0.1)
                 ng = wi-v
             elif config.weight_constraint == 'lipschitz':
-                if len(np.shape(v)) > 1:
-                    k = 1.
+                if len(v.shape) > 1:
+                    k = 1.0000
                     wi_hat = v + ng
-                    wp = tf.reduce_max(tf.reduce_sum(tf.abs(wi_hat), axis=1))
+                    if len(v.shape) == 4:
+                        # conv
+                        fij = tf.reduce_sum(tf.abs(wi_hat), axis=[0,1])
+                        print("CONV", fij)
+                    else:
+                        fij = v
+                        print("LIN", fij)
+                    
+                    wp = tf.reduce_max(tf.reduce_sum(fij, axis=1), axis=0)
                     wi = 1.0/tf.maximum(1.0, wp/k)*wi_hat
                     ng = wi-v
+                    print("Adding lipschitz for", v)
                 else:
-                    print("Ignoring layer from lipschitz", np.shape(v))
+                    print("Ignoring layer from lipschitz", v)
 
             return ng
         decay = config.g_exponential_moving_average_decay

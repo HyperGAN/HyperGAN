@@ -120,6 +120,19 @@ class FitnessTrainer(BaseTrainer):
                 ng = wi-v
             elif config.weight_constraint == 'lipschitz':
                 if len(v.shape) > 1:
+                    k = config.weight_constraint_k or 100.0000
+                    wi_hat = v + ng
+                    if len(v.shape) == 4:
+                        # conv
+                        fij = tf.reduce_sum(tf.abs(wi_hat),  axis=[0,1])
+                        print("CONV", fij)
+                    else:
+                        fij = wi_hat
+                    
+                    wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=1), axis=0)
+                    wi = (1.0/tf.maximum(1.0, wp/k))*wi_hat
+                    ng = wi-v
+                    print("Adding lipschitz for", v)
                     k = 1.0000
                     wi_hat = v + ng
                     if len(v.shape) == 4:

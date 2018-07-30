@@ -87,6 +87,12 @@ class BaseLoss(GANComponent):
             d_loss += rothk
             print("rothk penalty applied")
 
+        if config.k_lipschitz_penalty_ragan:
+            lipschitz_penalty = tf.maximum(tf.square(d_real-d_fake) - 1, 0) + tf.maximum(tf.square(d_fake-d_real) - 1, 0)
+            self.metrics['k_lipschitz_ragan']=lipschitz_penalty
+
+            d_regularizers.append(lipschitz_penalty)
+ 
  
         d_regularizers += self.d_regularizers()
         g_regularizers += self.g_regularizers()

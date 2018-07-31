@@ -111,50 +111,22 @@ class FitnessTrainer(BaseTrainer):
                         ng = applyvec(g, jg, v, decay)
                 return ng
             ng = _gradient()
-            if config.weight_constraint == 'lipschitz-gradient':
-                ng = 1.0/tf.maximum(1.0,self.ops.squash(tf.abs(ng+v), reduce=tf.reduce_sum))*ng
-            elif config.weight_constraint == 'weight-clip':
-                wi_hat = v + ng
-                wi = tf.maximum(wi_hat, config.weight_min or -0.1)
-                wi = tf.minimum(wi_hat, config.weight_max or 0.1)
-                ng = wi-v
-            elif config.weight_constraint == 'lipschitz':
-                if len(v.shape) > 1:
-                    k = config.weight_constraint_k or 100.0000
-                    wi_hat = v + ng
-                    if len(v.shape) == 4:
-                        # conv
-                        fij = tf.reduce_sum(tf.abs(wi_hat),  axis=[0,1])
-                        print("CONV", fij)
-                    else:
-                        fij = wi_hat
-                    
-                    wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=1), axis=0)
-                    wi = (1.0/tf.maximum(1.0, wp/k))*wi_hat
-                    ng = wi-v
-                    print("Adding lipschitz for", v)
-                    k = 1.0000
-                    wi_hat = v + ng
-                    if len(v.shape) == 4:
-                        # conv
-                        fij = tf.reduce_sum(tf.abs(wi_hat), axis=[0,1])
-                        print("CONV", fij)
-                    else:
-                        fij = v
-                        print("LIN", fij)
-                    
-                    wp = tf.reduce_max(tf.reduce_sum(fij, axis=1), axis=0)
-                    wi = 1.0/tf.maximum(1.0, wp/k)*wi_hat
-                    ng = wi-v
-                    print("Adding lipschitz for", v)
-                else:
-                    print("Ignoring layer from lipschitz", v)
-
             return ng
         decay = config.g_exponential_moving_average_decay
-        apply_vec = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(grads, Jgrads, allvars) if Jg is not None ]
-        apply_vec_d = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(d_grads, Jgrads[:len(d_vars)], d_vars) if Jg is not None ]
-        apply_vec_g = [ (gradient_for(g, Jg, v, decay), v) for (g, Jg, v) in zip(g_grads, Jgrads[len(d_vars):], g_vars) if Jg is not None ]
+        apply_vec = []
+        apply_vec_d = []
+        apply_vec_g = []
+        previous_input = self.gan.inputs.x
+        for (i, g, Jg, v) in zip(range(len(grads)), grads, Jgrads, allvars): 
+            if Jg is not None:
+                gradient = gradient_for(g, Jg, v, decay, previous_input)
+                previous_input = v+gradient
+                print("Applying gradient", gradient)
+                apply_vec.append((gradient, v))
+                if i < len(d_vars):
+                    apply_vec_d.append((gradient, v))
+                else:
+                    apply_vec_g.append((gradient, v))
 
         defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
         tr = config.trainer(self.lr, **defn)
@@ -163,6 +135,30 @@ class FitnessTrainer(BaseTrainer):
         optimizer = tr.apply_gradients(apply_vec, global_step=self.global_step)
         d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
         g_optimizer = tr.apply_gradients(apply_vec_g, global_step=self.global_step)
+
+        def _update_weight_constraint(v,i):
+            if len(v.shape) > 1:
+                print("i:",i,v)
+                k = config.weight_constraint_k or 100.0000
+                wi_hat = v
+                if len(v.shape) == 4:
+                    # conv
+                    fij = tf.reduce_sum(tf.abs(wi_hat),  axis=[0,1])
+                else:
+                    fij = wi_hat
+
+                wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=1), axis=0)
+                ratio = (1.0/tf.maximum(1.0, wp/k))
+                wi = ratio*(wi_hat)
+                #self.gan.metrics['wi'+str(i)]=wp
+                #print('v',v,wi)
+                #if i in [7,19,27,39]:
+                #    return None
+                return tf.assign(v, wi)
+            return None
+        self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(allvars)]
+        self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
+        print('UPDATE_WEIGHT', self.update_weight_constraints)
 
         self.g_loss = g_loss
         self.d_loss = d_loss
@@ -360,6 +356,10 @@ class FitnessTrainer(BaseTrainer):
                 feed_dict[self.prev_l2_loss] = prev_l2_loss
 
                 _, *metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)
+                if ((self.current_step % (self.config.constraint_every or 100)) == 0):
+                    if self.config.weight_constraint:
+                        print("Updating constraints")
+                        sess.run(self.update_weight_constraints, feed_dict)
             else:
                 self.hist[1]+=1
                 fitness_decay = config.fitness_decay or 0.99
@@ -370,6 +370,10 @@ class FitnessTrainer(BaseTrainer):
                     metric_values = sess.run(self.output_variables(metrics), feed_dict)
                 self.current_step-=1
         else:
+            if ((self.current_step % (self.config.constraint_every or 100)) == 0):
+                if self.config.weight_constraint:
+                    print("Updating constraints")
+                    sess.run(self.update_weight_constraints, feed_dict)
             #standard
             gl, dl, *metric_values = sess.run([self.g_loss, self.d_loss, self.optimizer] + self.output_variables(metrics), feed_dict)[1:]
             if(gl == 0 or dl == 0):

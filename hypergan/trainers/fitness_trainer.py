@@ -346,6 +346,8 @@ class FitnessTrainer(BaseTrainer):
 
 
             g = None
+            if self.config.skip_fitness:
+                self.min_fitness = None
             if(self.min_fitness is None or fitness <= self.min_fitness):
                 self.hist[0]+=1
                 self.min_fitness = fitness

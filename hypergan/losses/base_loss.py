@@ -76,7 +76,7 @@ class BaseLoss(GANComponent):
 
         if config.k_lipschitz_penalty:
             lipschitz_penalty = tf.maximum(tf.square(d_real) - 1, 0) + tf.maximum(tf.square(d_fake) - 1, 0)
-            self.metrics['k_lipschitz']=lipschitz_penalty
+            self.metrics['k_lipschitz']=ops.squash(lipschitz_penalty)
 
             d_regularizers.append(lipschitz_penalty)
 

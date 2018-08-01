@@ -121,9 +121,21 @@ class FitnessTrainer(BaseTrainer):
         d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
         g_optimizer = tr.apply_gradients(apply_vec_g, global_step=self.global_step)
 
-        def _update_weight_constraint(v,i):
+        def _update_ortho(v,i):
+            if len(v.shape) == 4:
+                identity = tf.cast(tf.diag(np.ones(self.ops.shape(v)[0])), tf.float32)
+                v_transpose = tf.transpose(v, perm=[1,0,2,3])
+                #s = self.ops.shape(v_transpose)
+                #identity = tf.reshape(identity, [s[0],s[1],1,1])
+                #identity = tf.tile(identity, [1,1,s[2],s[3]])
+                decay = 0.9
+                newv=(1+decay)*v - decay*(v*v_transpose*v)
+
+                #newv = tf.transpose(v, perm=[1,0,2,3])
+                return tf.assign(v, newv)
+            return None
+        def _update_lipschitz(v,i):
             if len(v.shape) > 1:
-                print("i:",i,v)
                 k = config.weight_constraint_k or 100.0000
                 wi_hat = v
                 if len(v.shape) == 4:
@@ -134,14 +146,39 @@ class FitnessTrainer(BaseTrainer):
 
                 wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=1), axis=0)
                 ratio = (1.0/tf.maximum(1.0, wp/k))
+                
+                if config.weight_bounce:
+                    bounce = tf.minimum(1.0, tf.ceil(wp/k-0.999))
+                    ratio -= tf.maximum(0.0, bounce) * 0.2
+
+                if config.weight_scaleup:
+                    up = tf.minimum(1.0, tf.ceil(0.02-wp/k))
+                    ratio += tf.maximum(0.0, up) * k/wp * 0.2
+
+                print('--',i,v)
                 wi = ratio*(wi_hat)
-                #self.gan.metrics['wi'+str(i)]=wp
-                #print('v',v,wi)
-                #if i in [7,19,27,39]:
-                #    return None
+                #self.gan.metrics['wi'+str(i)]=ratio
+                #self.gan.metrics['wk'+str(i)]=ratio
+                #self.gan.metrics['bouce'+str(i)]=bounce
                 return tf.assign(v, wi)
             return None
-        self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(allvars)]
+
+        def _update_weight_constraint(v,i):
+            skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
+            for skip in skipped:
+                if self.ops.shape(v) == self.ops.shape(skip):
+                    print("SKIPPIG", v)
+                    return None
+            constraints = config.weight_constraint or []
+            if "lipschitz" in constraints:
+                return _update_lipschitz(v,i)
+            if "ortho" in constraints:
+                return _update_ortho(v,i)
+        self.past_weights = []
+
+        for v in allvars:
+            self.past_weights.append(tf.Variable(v, dtype=tf.float32))
+        self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(allvars + self.past_weights)]
         self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
         print('UPDATE_WEIGHT', self.update_weight_constraints)
 

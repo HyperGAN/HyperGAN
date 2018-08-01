@@ -93,7 +93,14 @@ class BaseLoss(GANComponent):
 
             d_regularizers.append(lipschitz_penalty)
  
- 
+        if config.random_penalty:
+
+            gp = self.random_penalty()
+            d_regularizers.append(gp)
+            self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
+            print("Gradient penalty applied")
+
+
         d_regularizers += self.d_regularizers()
         g_regularizers += self.g_regularizers()
 
@@ -223,6 +230,27 @@ class BaseLoss(GANComponent):
         penalty = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=1))
         penalty = tf.square(penalty - 1.)
         return float(gradient_penalty) * penalty
+
+    def random_penalty(self):
+        config = self.config
+        gan = self.gan
+        ops = self.gan.ops
+        gradient_penalty = config.gradient_penalty
+        x = self.x 
+        if x is None:
+            x=gan.inputs.x
+        g = gan.generator.sample
+        discriminator = self.discriminator or gan.discriminator
+        shape = [1 for t in ops.shape(x)]
+        shape[0] = gan.batch_size()
+        uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
+        mask = tf.cast(tf.greater(0.5, uniform_noise), tf.float32)
+        interpolates = x * mask + g * (1-mask)
+        d = discriminator.reuse(interpolates)
+        offset = config.random_penalty_offset or -0.8
+        penalty = tf.square(d - offset)
+        return penalty
+
 
     def sigmoid_kl_with_logits(self, logits, targets):
        # broadcasts the same target value across the whole batch

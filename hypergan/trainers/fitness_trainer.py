@@ -84,44 +84,28 @@ class FitnessTrainer(BaseTrainer):
             if v in d_vars:
                 return config.d_w_lambda or 1
 
-        def applyvec(g, jg, v, decay):
-            prev = v
-            nextw = v+g + jg * (config.jg_alpha or 0.1)
-            if decay is not None:
-                return ((decay) * prev + (1.0-decay)*nextw)-v
-            else:
-                return nextw-v
+        def applyvec(g, jg, v):
+            print("JG ALPHA", config.jg_alpha)
+            nextw = g + jg * (config.jg_alpha or 0.1)
+            return nextw
 
-        def gradient_for(g, jg, v, decay):
+        def gradient_for(g, jg, v):
             def _gradient():
                 if config.update_rule == 'single-step':
                     return g
                 elif config.update_rule == "ttur":
-                    if decay is not None:
-                        amp = v+amp_for(v)*g
-                        ng = ((decay) * v + (1.0-decay)*amp)-v
-                    else:
-                        ng = amp_for(v)*g
+                    ng = amp_for(v)*g
                 else:
-                    if decay is not None:
-                        if v in g_vars:
-                            ng = applyvec(g, jg, v, decay)
-                        else:
-                            ng = applyvec(g, jg, v, None)
-                    else:
-                        ng = applyvec(g, jg, v, decay)
+                    ng = applyvec(g, jg, v)
                 return ng
             ng = _gradient()
             return ng
-        decay = config.g_exponential_moving_average_decay
         apply_vec = []
         apply_vec_d = []
         apply_vec_g = []
-        previous_input = self.gan.inputs.x
         for (i, g, Jg, v) in zip(range(len(grads)), grads, Jgrads, allvars): 
             if Jg is not None:
-                gradient = gradient_for(g, Jg, v, decay, previous_input)
-                previous_input = v+gradient
+                gradient = gradient_for(g, Jg, v)
                 print("Applying gradient", gradient)
                 apply_vec.append((gradient, v))
                 if i < len(d_vars):

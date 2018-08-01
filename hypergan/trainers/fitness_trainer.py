@@ -145,6 +145,16 @@ class FitnessTrainer(BaseTrainer):
         self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
         print('UPDATE_WEIGHT', self.update_weight_constraints)
 
+
+        def _ema(v, pastv):
+            decay = config.ema_decay
+            if decay is None:
+                decay = 0.9
+            print("DECAY", decay)
+            return tf.assign(v, v*(1-decay)+pastv*decay)
+        self.assign_ema = tf.group([_ema(a,b) for a,b in zip(allvars, self.past_weights)])
+        self.assign_past_weights = tf.group([tf.assign(b,a) for a,b in zip(allvars, self.past_weights)])
+
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.slot_vars = tr.variables()
@@ -259,14 +269,6 @@ class FitnessTrainer(BaseTrainer):
                 self.g_fitness = tf.reduce_mean(loss.d_fake) - (config.diversity_importance or 1)* tf.log(tf.abs(self.mean + tf.reduce_mean(loss.d_real) - tf.reduce_mean(loss.d_fake)))
             self.g_fitness = tf.reduce_mean(self.g_fitness)
 
-        if config.g_ema_decay is not None:
-            decay2 = config.g_ema_decay
-            pg_vars = [tf.zeros_like(v) for v in g_vars]
-            self.pg_vars = pg_vars
-            self.g_vars = g_vars
-            g_emas = [tf.assign(v, (decay2*pv+(1.0-decay2)*v)) for v, pv in zip(g_vars, pg_vars)]
-            self.g_ema = tf.group(g_emas)
-
         return optimizer, optimizer
 
     def required(self):
@@ -279,8 +281,6 @@ class FitnessTrainer(BaseTrainer):
         loss = self.loss or gan.loss
         metrics = loss.metrics
         
-        if config.g_ema_decay is not None:
-            prev = sess.run(self.g_vars)
         if config.fitness_test is not None:
             self.steps_since_fit+=1
             if config.fitness_failure_threshold and self.steps_since_fit > (config.fitness_failure_threshold or 1000):
@@ -343,8 +343,9 @@ class FitnessTrainer(BaseTrainer):
                 _, *metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)
                 if ((self.current_step % (self.config.constraint_every or 100)) == 0):
                     if self.config.weight_constraint:
-                        print("Updating constraints")
                         sess.run(self.update_weight_constraints, feed_dict)
+                sess.run(self.assign_ema)
+                sess.run(self.assign_past_weights)
             else:
                 self.hist[1]+=1
                 fitness_decay = config.fitness_decay or 0.99
@@ -361,6 +362,8 @@ class FitnessTrainer(BaseTrainer):
                     sess.run(self.update_weight_constraints, feed_dict)
             #standard
             gl, dl, *metric_values = sess.run([self.g_loss, self.d_loss, self.optimizer] + self.output_variables(metrics), feed_dict)[1:]
+            sess.run(self.assign_ema)
+            sess.run(self.assign_past_weights)
             if(gl == 0 or dl == 0):
                 self.steps_since_fit=0
                 self.mix_threshold_reached = True

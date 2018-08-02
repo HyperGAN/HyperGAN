@@ -173,31 +173,34 @@ class FitnessTrainer(BaseTrainer):
         def _update_l2nn(v,i):
             if len(v.shape) > 1:
                 w=v
-                w = tf.reduce_sum(tf.abs(w),  axis=[1])
-                w = tf.reduce_max(w,  axis=[0])
-                wt = tf.transpose(w)
+                #w = tf.reduce_sum(tf.abs(w),  axis=[1])
+                #w = tf.reduce_max(w,  axis=[0])
+                #wt = tf.transpose(w)
+                wt = tf.transpose(v, perm=[0,1,3,2])
                 #wt = tf.transpose(w, perm=[1,0,2,3])
                 def _r(m):
                     s = self.ops.shape(m)
                     m = tf.abs(m)
-                    m = tf.reduce_sum(m, axis=1,keep_dims=True)
-                    m = tf.reduce_max(m, axis=0,keep_dims=True)
+                    m = tf.reduce_sum(m, axis=2,keep_dims=True)
+                    m = tf.reduce_max(m, axis=3,keep_dims=True)
                     #m = tf.tile(m,[s[0],s[1],1,1])
                     return m
                 wtw = tf.matmul(wt,w)
                 wwt = tf.matmul(w,wt)
+                print('---', wtw, wwt)
                 bw = tf.minimum(_r(wtw), _r(wwt))
                 print("BW", bw, w, _r(wtw), wtw, wt)
                 decay = self.config.l2nn_decay or 0.0001
                 wi = (v/tf.sqrt(bw))
-                wi = (1-decay)*v+(decay*wi) # [3,3,128,256] / [128, 256]
+                #wi = (1-decay)*v+(decay*wi) # [3,3,128,256] / [128, 256]
                 #self.gan.metrics['l2nn'+str(i)]=self.ops.squash(wi)
                 return tf.assign(v, wi)
             return None
 
         def _update_weight_constraint(v,i):
             #skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
-            skipped = [gan.discriminator.ops.weights[-1]]
+            #skipped = [gan.discriminator.ops.weights[-1]]
+            skipped=[]
             for skip in skipped:
                 if self.ops.shape(v) == self.ops.shape(skip):
                     print("SKIPPIG", v)

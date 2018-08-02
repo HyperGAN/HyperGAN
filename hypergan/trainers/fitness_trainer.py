@@ -124,12 +124,13 @@ class FitnessTrainer(BaseTrainer):
         def _update_ortho(v,i):
             if len(v.shape) == 4:
                 identity = tf.cast(tf.diag(np.ones(self.ops.shape(v)[0])), tf.float32)
-                v_transpose = tf.transpose(v, perm=[1,0,2,3])
+                v_transpose = tf.transpose(v, perm=[0,1,3,2])
                 #s = self.ops.shape(v_transpose)
                 #identity = tf.reshape(identity, [s[0],s[1],1,1])
                 #identity = tf.tile(identity, [1,1,s[2],s[3]])
-                decay = 0.9
-                newv=(1+decay)*v - decay*(v*v_transpose*v)
+                decay = self.config.ortho_decay or 0.01
+                newv = tf.matmul(v, tf.matmul(v_transpose,v))
+                newv=(1+decay)*v - decay*(newv)
 
                 #newv = tf.transpose(v, perm=[1,0,2,3])
                 return tf.assign(v, newv)
@@ -139,12 +140,18 @@ class FitnessTrainer(BaseTrainer):
                 k = config.weight_constraint_k or 100.0000
                 wi_hat = v
                 if len(v.shape) == 4:
-                    # conv
-                    fij = tf.reduce_sum(tf.abs(wi_hat),  axis=[0,1])
+                    #fij = tf.reduce_sum(tf.abs(wi_hat),  axis=[0,1])
+                    fij = wi_hat
+                    fij = tf.reduce_sum(tf.abs(fij),  axis=[1])
+                    fij = tf.reduce_max(fij,  axis=[0])
                 else:
                     fij = wi_hat
 
-                wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=1), axis=0)
+                if self.config.ortho_pnorm == "inf":
+                    wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=0), axis=0)
+                else:
+                    # conv
+                    wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=1), axis=0)
                 ratio = (1.0/tf.maximum(1.0, wp/k))
                 
                 if config.weight_bounce:
@@ -157,27 +164,59 @@ class FitnessTrainer(BaseTrainer):
 
                 print('--',i,v)
                 wi = ratio*(wi_hat)
-                #self.gan.metrics['wi'+str(i)]=ratio
+                #self.gan.metrics['wi'+str(i)]=wp
                 #self.gan.metrics['wk'+str(i)]=ratio
                 #self.gan.metrics['bouce'+str(i)]=bounce
                 return tf.assign(v, wi)
             return None
 
+        def _update_l2nn(v,i):
+            if len(v.shape) > 1:
+                w=v
+                w = tf.reduce_sum(tf.abs(w),  axis=[1])
+                w = tf.reduce_max(w,  axis=[0])
+                wt = tf.transpose(w)
+                #wt = tf.transpose(w, perm=[1,0,2,3])
+                def _r(m):
+                    s = self.ops.shape(m)
+                    m = tf.abs(m)
+                    m = tf.reduce_sum(m, axis=1,keep_dims=True)
+                    m = tf.reduce_max(m, axis=0,keep_dims=True)
+                    #m = tf.tile(m,[s[0],s[1],1,1])
+                    return m
+                wtw = tf.matmul(wt,w)
+                wwt = tf.matmul(w,wt)
+                bw = tf.minimum(_r(wtw), _r(wwt))
+                print("BW", bw, w, _r(wtw), wtw, wt)
+                decay = self.config.l2nn_decay or 0.0001
+                wi = (v/tf.sqrt(bw))
+                wi = (1-decay)*v+(decay*wi) # [3,3,128,256] / [128, 256]
+                #self.gan.metrics['l2nn'+str(i)]=self.ops.squash(wi)
+                return tf.assign(v, wi)
+            return None
+
         def _update_weight_constraint(v,i):
-            skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
+            #skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
+            skipped = [gan.discriminator.ops.weights[-1]]
             for skip in skipped:
                 if self.ops.shape(v) == self.ops.shape(skip):
                     print("SKIPPIG", v)
                     return None
             constraints = config.weight_constraint or []
-            if "lipschitz" in constraints:
-                return _update_lipschitz(v,i)
+            result = []
             if "ortho" in constraints:
-                return _update_ortho(v,i)
+                result.append(_update_ortho(v,i))
+            if "lipschitz" in constraints:
+                result.append(_update_lipschitz(v,i))
+            if "l2nn" in constraints:
+                result.append(_update_l2nn(v,i))
+            result = [r for r in result if r is not None]
+            return tf.group(result)
         self.past_weights = []
 
         for v in allvars:
             self.past_weights.append(tf.Variable(v, dtype=tf.float32))
+        #self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(allvars)]
         self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(allvars + self.past_weights)]
         self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
         print('UPDATE_WEIGHT', self.update_weight_constraints)
@@ -187,7 +226,6 @@ class FitnessTrainer(BaseTrainer):
             decay = config.ema_decay
             if decay is None:
                 decay = 0.9
-            print("DECAY", decay)
             return tf.assign(v, v*(1-decay)+pastv*decay)
         self.assign_ema = tf.group([_ema(a,b) for a,b in zip(allvars, self.past_weights)])
         self.assign_past_weights = tf.group([tf.assign(b,a) for a,b in zip(allvars, self.past_weights)])

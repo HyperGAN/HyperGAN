@@ -377,6 +377,29 @@ class TensorflowOps:
             return _x
         return _null
 
+    def two_sided_relu(self):
+        def _2relu(_x):
+            activation = self.lookup(self.config.subactivation or 'relu')
+            ops = self
+            orig_shape = self.shape(_x)
+            net = _x
+            if len(orig_shape) == 2:
+                a = activation(net)
+                b = a-net
+                net = tf.concat([a,b],axis=1)
+            elif len(orig_shape) == 4:
+                a = activation(net)
+                b = a-net
+                net = tf.concat([a,b],axis=3)
+            else:
+                raise "Two sided relu activation requires input dimensions of 2 or 4"
+            return net
+
+
+        return _2relu
+
+
+
     def prelu(self):
         def _prelu(_x):
             orig_shape = self.shape(_x)
@@ -535,6 +558,8 @@ class TensorflowOps:
             return self.null()
         if symbol == "prelu":
             return self.prelu()
+        if symbol == "2relu":
+            return self.two_sided_relu()
         if symbol == 'nsoftplus':
             return self.nsoftplus
         if symbol == "trelu":

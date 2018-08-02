@@ -355,6 +355,10 @@ class FitnessTrainer(BaseTrainer):
         config = self.config
         loss = self.loss or gan.loss
         metrics = loss.metrics
+
+        if self.current_step == 0 and self.steps_since_fit == 0:
+                sess.run(self.assign_past_weights)
+                sess.run(self.update_prev_sample)
         
         if config.fitness_test is not None:
             self.steps_since_fit+=1
@@ -447,12 +451,6 @@ class FitnessTrainer(BaseTrainer):
                 print("Zero, lne?")
                 return
             self.steps_since_fit=0
-
-        if config.g_ema_decay is not None:
-            feed_dict = {}
-            for p,pvalue in zip(self.pg_vars, prev):
-                feed_dict[p]=pvalue
-            _ = sess.run(self.g_ema, feed_dict)
 
         if ((self.current_step % 10) == 0 and self.steps_since_fit == 0):
             hist_output = "  " + "".join(["G"+str(i)+":"+str(v)+" "for i, v in enumerate(self.hist)])

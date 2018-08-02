@@ -299,6 +299,9 @@ class TensorflowOps:
         if self.config.layer_regularizer == 'spectral_norm':
             return self.spectralnorm_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim, padding=padding)
 
+        if self.config.l2_scaled:
+            net = net / tf.sqrt(float(filter_w)/float(stride_w)*float(filter_h)/float(stride_h))
+
         with tf.variable_scope(self.generate_name(), reuse=self._reuse):
             w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim], initializer=initializer)
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)

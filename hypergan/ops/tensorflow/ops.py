@@ -385,11 +385,11 @@ class TensorflowOps:
             net = _x
             if len(orig_shape) == 2:
                 a = activation(net)
-                b = a-net
+                b = activation(-net)
                 net = tf.concat([a,b],axis=1)
             elif len(orig_shape) == 4:
                 a = activation(net)
-                b = a-net
+                b = activation(-net)
                 net = tf.concat([a,b],axis=3)
             else:
                 raise "Two sided relu activation requires input dimensions of 2 or 4"

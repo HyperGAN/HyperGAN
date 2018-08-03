@@ -95,6 +95,7 @@ class AliGAN(BaseGAN):
             self.discriminator = standard_discriminator
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 2)
             self.loss = standard_loss
+            self.metrics = self.loss.metrics
 
             d_vars = standard_discriminator.variables()
             g_vars = generator.variables() + encoder.variables()

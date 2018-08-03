@@ -123,13 +123,17 @@ class FitnessTrainer(BaseTrainer):
 
         def _update_ortho(v,i):
             if len(v.shape) == 4:
-                identity = tf.cast(tf.diag(np.ones(self.ops.shape(v)[0])), tf.float32)
-                v_transpose = tf.transpose(v, perm=[0,1,3,2])
+                w=v
+                w = tf.reshape(v, [-1, self.ops.shape(w)[-1]])
+                identity = tf.cast(tf.diag(np.ones(self.ops.shape(w)[0])), tf.float32)
+                wt = tf.transpose(w)
                 #s = self.ops.shape(v_transpose)
                 #identity = tf.reshape(identity, [s[0],s[1],1,1])
                 #identity = tf.tile(identity, [1,1,s[2],s[3]])
                 decay = self.config.ortho_decay or 0.01
-                newv = tf.matmul(v, tf.matmul(v_transpose,v))
+                newv = tf.matmul(w, tf.matmul(wt,w))
+                newv = tf.reshape(newv,self.ops.shape(v))
+                print("--->",v,newv)
                 newv=(1+decay)*v - decay*(newv)
 
                 #newv = tf.transpose(v, perm=[1,0,2,3])
@@ -173,16 +177,15 @@ class FitnessTrainer(BaseTrainer):
         def _update_l2nn(v,i):
             if len(v.shape) > 1:
                 w=v
-                #w = tf.reduce_sum(tf.abs(w),  axis=[1])
-                #w = tf.reduce_max(w,  axis=[0])
-                #wt = tf.transpose(w)
-                wt = tf.transpose(v, perm=[0,1,3,2])
+                w = tf.reshape(w, [-1, self.ops.shape(v)[-1]])
+                wt = tf.transpose(w)
+                #wt = tf.transpose(v, perm=[0,1,3,2])
                 #wt = tf.transpose(w, perm=[1,0,2,3])
                 def _r(m):
                     s = self.ops.shape(m)
                     m = tf.abs(m)
-                    m = tf.reduce_sum(m, axis=2,keep_dims=True)
-                    m = tf.reduce_max(m, axis=3,keep_dims=True)
+                    m = tf.reduce_sum(m, axis=0,keep_dims=True)
+                    m = tf.reduce_max(m, axis=1,keep_dims=True)
                     #m = tf.tile(m,[s[0],s[1],1,1])
                     return m
                 wtw = tf.matmul(wt,w)
@@ -190,13 +193,12 @@ class FitnessTrainer(BaseTrainer):
                 print('---', wtw, wwt)
                 bw = tf.minimum(_r(wtw), _r(wwt))
                 print("BW", bw, w, _r(wtw), wtw, wt)
-                decay = self.config.l2nn_decay or 0.0001
+                decay = self.config.l2nn_decay
                 wi = (v/tf.sqrt(bw))
-                #wi = (1-decay)*v+(decay*wi) # [3,3,128,256] / [128, 256]
-                #self.gan.metrics['l2nn'+str(i)]=self.ops.squash(wi)
+                if decay is not None:
+                    wi = (1-decay)*v+(decay*wi)
                 return tf.assign(v, wi)
             return None
-
         def _update_weight_constraint(v,i):
             #skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
             #skipped = [gan.discriminator.ops.weights[-1]]

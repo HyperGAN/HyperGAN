@@ -80,6 +80,45 @@ class BaseLoss(GANComponent):
 
             d_regularizers.append(lipschitz_penalty)
 
+        if config.l2nn_penalty:
+            l2nn_penalties = []
+            for w in self.gan.weights():
+                w = tf.reshape(w, [-1, self.ops.shape(w)[-1]])
+                wt = tf.transpose(w)
+                wtw = tf.matmul(wt,w)
+                wwt = tf.matmul(w,wt)
+                def _l(m):
+                    m = tf.abs(m)
+                    m = tf.reduce_sum(m, axis=0,keep_dims=True)
+                    m = tf.maximum(m-1, 0)
+                    m = tf.reduce_max(m, axis=1,keep_dims=True)
+                    return m
+                l2nn_penalties.append(tf.minimum(_l(wtw), _l(wwt)))
+            l2nn_penalty = self.config.l2nn_penalty * tf.add_n(l2nn_penalties)
+            self.metrics['l2nn_penalty'] = self.gan.ops.squash(l2nn_penalty)
+            l2nn_penalty = tf.tile(l2nn_penalty, [self.gan.batch_size(), 1])
+            d_regularizers.append(l2nn_penalty)
+
+        if config.ortho_penalty:
+            penalties = []
+            for w in self.gan.weights():
+                print("PENALTY", w)
+                w = tf.reshape(w, [-1, self.ops.shape(w)[-1]])
+                wt = tf.transpose(w)
+                wtw = tf.matmul(wt,w)
+                wwt = tf.matmul(w,wt)
+                mwtw = tf.matmul(w, wtw)
+                l = tf.reduce_mean(tf.abs(w - mwtw))
+                penalties.append(l)
+            penalty = self.config.ortho_penalty * tf.add_n(penalties)
+            self.metrics['ortho_penalty'] = self.gan.ops.squash(penalty)
+            print("PENALTY", penalty)
+            penalty = tf.reshape(penalty, [1,1])
+            penalty = tf.tile(penalty, [self.gan.batch_size(), 1])
+            d_regularizers.append(penalty)
+
+
+
         if config.rothk_penalty:
             rothk = self.rothk_penalty(d_real, d_fake)
             self.metrics['rothk_penalty'] = self.gan.ops.squash(rothk)

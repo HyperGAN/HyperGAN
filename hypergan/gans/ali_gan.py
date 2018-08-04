@@ -79,7 +79,7 @@ class AliGAN(BaseGAN):
 
             if config.u_to_z:
                 u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=z)
-                generator = self.create_component(config.generator, input=u_to_z.sample)
+                generator = self.create_component(config.generator, input=u_to_z.sample, name='generator')
                 stacked_xg = ops.concat([x_input, generator.sample], axis=0)
                 features_zs = ops.concat([encoder.sample, u_to_z.sample], axis=0)
             else:

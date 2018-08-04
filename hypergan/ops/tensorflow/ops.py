@@ -377,9 +377,9 @@ class TensorflowOps:
             return _x
         return _null
 
-    def two_sided_relu(self):
-        def _2relu(_x):
-            activation = self.lookup(self.config.subactivation or 'relu')
+    def double_sided(self):
+        def _activation(_x):
+            activation = self.lookup(self.config.double_sided_activation or 'relu')
             ops = self
             orig_shape = self.shape(_x)
             net = _x
@@ -396,7 +396,7 @@ class TensorflowOps:
             return net
 
 
-        return _2relu
+        return _activation
 
 
 
@@ -405,7 +405,9 @@ class TensorflowOps:
             orig_shape = self.shape(_x)
             _x = tf.reshape(_x, [orig_shape[0], -1])
 
-            with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+            name = self.generate_name()
+            with tf.variable_scope(name, reuse=self._reuse):
+                print("Creating variable",name,self._reuse)
                 alphas = tf.get_variable('prelu', 
                           _x.get_shape()[-1],
                           initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
@@ -413,7 +415,8 @@ class TensorflowOps:
                 pos = tf.nn.relu(_x)
                 neg = alphas * (_x - abs(_x)) * 0.5
 
-            self.add_weights(alphas)
+            if not self._reuse:
+                self.biases += [alphas]
             return tf.reshape(pos + neg, orig_shape)
 
         return _prelu
@@ -461,6 +464,7 @@ class TensorflowOps:
                           dtype=tf.float32)
                 net = activation(_x - alphas) + alphas
 
+            #TODO this is wrong - need to add to biases only on no reuse
             self.add_weights(alphas)
             return tf.reshape(net, orig_shape)
 
@@ -479,6 +483,7 @@ class TensorflowOps:
                           dtype=tf.float32)
                 net = activation(_x) + alphas
 
+            #TODO this is wrong - need to add to biases only on no reuse
             self.add_weights(alphas)
             return tf.reshape(net, orig_shape)
 
@@ -558,8 +563,8 @@ class TensorflowOps:
             return self.null()
         if symbol == "prelu":
             return self.prelu()
-        if symbol == "2relu":
-            return self.two_sided_relu()
+        if symbol == "double_sided":
+            return self.double_sided()
         if symbol == 'nsoftplus':
             return self.nsoftplus
         if symbol == "trelu":

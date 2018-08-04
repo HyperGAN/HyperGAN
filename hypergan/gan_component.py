@@ -123,6 +123,7 @@ class GANComponent:
         return nets
 
     def reuse(self, net):
+        self.ops.scope_count=0
         self.ops.reuse()
         net = self.build(net)
         self.ops.stop_reuse()

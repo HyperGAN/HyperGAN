@@ -581,6 +581,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_subpixel(self, net, args, options):
         options = hc.Config(options)
         depth = int(args[0])
+        config = self.config
+        activation = options.activation or config.defaults.activation
         r = options.r or 2
         r = int(r)
         def _PS(X, r, n_out_channel):
@@ -594,6 +596,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
                     print("outchannel < 0")
                 return X
         args[0]=depth*(r**2)
+        if (activation == 'crelu' or activation == 'double_sided'):
+            args[0] //= 2 
         y1 = self.layer_conv(net, args, options)
         ps = _PS(y1, r, depth)
         print("NETs", ps, y1, net)

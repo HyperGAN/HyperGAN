@@ -105,12 +105,12 @@ class AliGAN(BaseGAN):
 
             d_vars = standard_discriminator.variables()
             g_vars = generator.variables() + encoder.variables()
-            if self.config.alpha
+            if self.config.alpha:
                 d_vars += z_discriminator.variables()
             if config.u_to_z:
                 g_vars += u_to_z.variables()
 
-            if self.config.alpha
+            if self.config.alpha:
                 loss1 = ("g_loss", standard_loss.g_loss+l2.g_loss)
                 loss2 = ("d_loss", standard_loss.d_loss+l2.d_loss)
             else:

@@ -108,8 +108,12 @@ class BaseLoss(GANComponent):
                 wtw = tf.matmul(wt,w)
                 wwt = tf.matmul(w,wt)
                 mwtw = tf.matmul(w, wtw)
-                l = tf.reduce_mean(tf.abs(w - mwtw))
-                penalties.append(l)
+                mwwt = tf.matmul(wt, wwt)
+                def _l(w,m):
+                    l = tf.reduce_mean(tf.abs(w - m))
+                    l = self.ops.squash(l)
+                    return l
+                penalties.append(tf.minimum(_l(w, mwtw), _l(wt, mwwt)))
             penalty = self.config.ortho_penalty * tf.add_n(penalties)
             self.metrics['ortho_penalty'] = self.gan.ops.squash(penalty)
             print("PENALTY", penalty)

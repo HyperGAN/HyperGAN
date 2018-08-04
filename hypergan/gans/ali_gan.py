@@ -95,15 +95,28 @@ class AliGAN(BaseGAN):
             self.discriminator = standard_discriminator
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 2)
             self.loss = standard_loss
+            if self.config.alpha:
+                stacked_zs = ops.concat([random_like(u_to_z.sample), u_to_z.sample, encoder.sample], axis=0)
+                z_discriminator = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_zs)
+                l2 = self.create_loss(config.loss, z_discriminator, x_input, generator, 3)
+                self.loss.sample[0] += l2.sample[0]
+                self.loss.sample[1] += l2.sample[1]
             self.metrics = self.loss.metrics
 
             d_vars = standard_discriminator.variables()
             g_vars = generator.variables() + encoder.variables()
+            if self.config.alpha
+                d_vars += z_discriminator.variables()
             if config.u_to_z:
                 g_vars += u_to_z.variables()
 
-            loss1 = ("g_loss", standard_loss.g_loss)
-            loss2 = ("d_loss", standard_loss.d_loss)
+            if self.config.alpha
+                loss1 = ("g_loss", standard_loss.g_loss+l2.g_loss)
+                loss2 = ("d_loss", standard_loss.d_loss+l2.d_loss)
+            else:
+                loss1 = ("g_loss", standard_loss.g_loss)
+                loss2 = ("d_loss", standard_loss.d_loss)
+
             loss = hc.Config({
                 'd_fake':standard_loss.d_fake,
                 'd_real':standard_loss.d_real,

@@ -14,6 +14,7 @@ class FitnessTrainer(BaseTrainer):
         self.old_fitness = None
         config = self.config
         lr = config.learn_rate
+        lr = tf.Variable(lr, name='learning_rate')
         self.global_step = tf.train.get_global_step()
         self.mix_threshold_reached = False
         decay_function = config.decay_function

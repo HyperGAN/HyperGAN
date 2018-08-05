@@ -361,6 +361,7 @@ class FitnessTrainer(BaseTrainer):
         config = self.config
         loss = self.loss or gan.loss
         metrics = loss.metrics
+        lr = self.lr
 
         if self.current_step == 0 and self.steps_since_fit == 0:
                 sess.run(self.assign_past_weights)

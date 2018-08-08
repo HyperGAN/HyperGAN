@@ -332,11 +332,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         initializer = None # default to global
 
         net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
-        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
-        #net = layer_regularizer(net)
-        if activation:
-            #net = self.layer_regularizer(net)
-            net = activation(net)
+        net = self.layer_conv(net, args, options)
         return net
 
     def layer_bicubic_conv(self, net, args, options):

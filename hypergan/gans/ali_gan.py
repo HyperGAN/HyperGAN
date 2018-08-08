@@ -78,44 +78,79 @@ class AliGAN(BaseGAN):
 
 
             if config.u_to_z:
-                u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=z)
-                generator = self.create_component(config.generator, input=u_to_z.sample, name='generator')
-                stacked_xg = ops.concat([x_input, generator.sample], axis=0)
-                features_zs = ops.concat([encoder.sample, u_to_z.sample], axis=0)
+                if config.style_encoder:
+                    style_encoder = self.create_component(config.style_encoder, input=x_input, name='style_encoder')
+                    style = style_encoder.sample
+                    #style_sample = tf.concat(style, axis=0)
+                    style_sample = style
+                    #style_sample=random_like(style_sample)
+                    #x_hat_style = style_sample
+                    x_hat_style = random_like(style_sample)
+                    #style_sample =  random_like(x_hat_style)
+                    u_to_z = self.create_component(config.u_to_z, name='u_to_z', features=[style_sample], input=z)
+                    generator = self.create_component(config.generator, input=u_to_z.sample, features=[style_sample], name='generator')
+                else:
+                    u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=z)
+                    generator = self.create_component(config.generator, input=u_to_z.sample, name='generator')
+                stacked = [x_input, generator.sample]
+                features = [encoder.sample, u_to_z.sample]
             else:
                 generator = self.create_component(config.generator, input=stack_z)
-                stacked_xg = ops.concat([x_input, generator.sample], axis=0)
-                features_zs = ops.concat([encoder.sample, z], axis=0)
+                stacked = ops.concat([x_input, generator.sample], axis=0)
+                features = ops.concat([encoder.sample, z], axis=0)
 
             self.generator = generator
-            x_hat = generator.reuse(encoder.sample)
+            if config.style_encoder:
+                x_hat = self.create_component(config.generator, input=encoder.sample, features=[x_hat_style], reuse=True, name='generator').sample
+                stacked += [x_hat]
+                features += [encoder.sample]
+            else:
+                x_hat = self.create_component(config.generator, input=encoder.sample, reuse=True, name='generator').sample
             self.uniform_sample = generator.sample
+
+            stacked_xg = tf.concat(stacked, axis=0)
+            features_zs = tf.concat(features, axis=0)
 
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
             self.discriminator = standard_discriminator
-            standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 2)
+            standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
             self.loss = standard_loss
             if self.config.alpha:
-                stacked_zs = ops.concat([random_like(u_to_z.sample), u_to_z.sample, encoder.sample], axis=0)
+                #stacked_zs = ops.concat([random_like(u_to_z.sample), u_to_z.sample, encoder.sample], axis=0)
+                stacked_zs = ops.concat([random_like(encoder.sample), encoder.sample, u_to_z.sample], axis=0)
                 z_discriminator = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_zs)
                 l2 = self.create_loss(config.loss, z_discriminator, x_input, generator, 3)
                 self.loss.sample[0] += l2.sample[0]
                 self.loss.sample[1] += l2.sample[1]
+            if self.config.style_encoder_alpha:
+                #stacked_zs = ops.concat([random_like(u_to_z.sample), u_to_z.sample, encoder.sample], axis=0)
+                stacked_zs = ops.concat([random_like(style_encoder.sample), style_encoder.sample], axis=0)
+                z_discriminator = self.create_component(config.z_discriminator, name='style_z_discriminator', input=stacked_zs)
+                l3 = self.create_loss(config.loss, z_discriminator, x_input, generator, 2)
+                self.loss.sample[0] += l3.sample[0]
+                self.loss.sample[1] += l3.sample[1]
+
             self.metrics = self.loss.metrics
 
             d_vars = standard_discriminator.variables()
             g_vars = generator.variables() + encoder.variables()
+            if config.style_encoder:
+                g_vars += style_encoder.variables()
             if self.config.alpha:
                 d_vars += z_discriminator.variables()
             if config.u_to_z:
                 g_vars += u_to_z.variables()
 
             if self.config.alpha:
-                loss1 = ("g_loss", standard_loss.g_loss+l2.g_loss)
-                loss2 = ("d_loss", standard_loss.d_loss+l2.d_loss)
+                loss1 = ["g_loss", standard_loss.g_loss+l2.g_loss]
+                loss2 = ["d_loss", standard_loss.d_loss+l2.d_loss]
             else:
-                loss1 = ("g_loss", standard_loss.g_loss)
-                loss2 = ("d_loss", standard_loss.d_loss)
+                loss1 = ["g_loss", standard_loss.g_loss]
+                loss2 = ["d_loss", standard_loss.d_loss]
+
+            if config.style_encoder_alpha:
+                loss1[1]+= l3.g_loss
+                loss2[1]+= l3.d_loss
 
             loss = hc.Config({
                 'd_fake':standard_loss.d_fake,

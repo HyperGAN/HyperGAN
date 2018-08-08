@@ -138,7 +138,7 @@ class BaseLoss(GANComponent):
  
         if config.random_penalty:
 
-            gp = self.random_penalty()
+            gp = self.random_penalty(d_fake, d_real)
             d_regularizers.append(gp)
             self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
             print("Gradient penalty applied")
@@ -148,7 +148,7 @@ class BaseLoss(GANComponent):
         g_regularizers += self.g_regularizers()
 
         for regularizer in d_regularizers:
-            regularizer = tf.reshape(regularizer, [ops.shape(regularizer)[0],-1])
+            regularizer = tf.reshape(regularizer, [ops.shape(d_loss)[0],-1])
             d_loss = tf.reshape(d_loss, [ops.shape(d_loss)[0], -1])
             d_loss = tf.concat([d_loss, regularizer], axis=1)
         for regularizer in g_regularizers:
@@ -274,7 +274,7 @@ class BaseLoss(GANComponent):
         penalty = tf.square(penalty - 1.)
         return float(gradient_penalty) * penalty
 
-    def random_penalty(self):
+    def random_penalty(self, d_fake, d_real):
         config = self.config
         gan = self.gan
         ops = self.gan.ops
@@ -288,8 +288,8 @@ class BaseLoss(GANComponent):
         shape[0] = gan.batch_size()
         uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)
         mask = tf.cast(tf.greater(0.5, uniform_noise), tf.float32)
-        interpolates = x * mask + g * (1-mask)
-        d = discriminator.reuse(interpolates)
+        #interpolates = x * mask + g * (1-mask)
+        d = d_fake *(1-mask) + d_real * mask#discriminator.reuse(interpolates)
         offset = config.random_penalty_offset or -0.8
         penalty = tf.square(d - offset)
         return penalty

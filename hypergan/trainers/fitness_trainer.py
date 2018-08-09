@@ -87,20 +87,30 @@ class FitnessTrainer(BaseTrainer):
                 else:
                     bjtf += [config.update_rule_b_lambda*j]
 
-            #def random_like(x, mean=0.001,stddev=0.00001):
-            #    shape = self.ops.shape(x)
-            #    return tf.random_normal(shape, mean=mean,stddev=stddev)
-            #mean = 0.0000001
+            def random_like(x, mean=0.001,stddev=0.00001):
+                shape = self.ops.shape(x)
+                return tf.random_uniform(shape, minval=-1, maxval=1)
 
-            eps = self.config.eps or 1e-5#random_like(self.gan.encoder.sample, mean=mean)
+            if self.config.eps_type == 'unit-ball':
+                q= random_like(self.gan.encoder.sample)
+                eps = self.config.eps_scale*(q / tf.sqrt(tf.reduce_sum(tf.square(q))))
+            else:
+                eps = self.config.eps or 1e-8#random_like(self.gan.encoder.sample, mean=mean)
             g2 = self.gan.create_component(self.gan.config.generator, input=(self.gan.encoder.sample+eps), reuse=True)
             #g2 = self.gan.generator
             d2 = self.gan.create_component(self.gan.config.discriminator, name="discriminator", g=g2.sample, x=self.gan.inputs.x, reuse=True)
             loss2 = self.gan.create_component(self.gan.config.loss, discriminator=d2, generator=g2)
             d_loss2, g_loss2 = loss2.sample
-            d_grads2 = tf.gradients(d_loss2+ eps, d_vars)
-            g_grads2 = tf.gradients(g_loss2+ eps, g_vars)
-            grads2 = d_grads2 + g_grads2
+            if self.config.use_dloss:
+                d_grads2 = tf.gradients(d_loss+eps, d_vars)
+                g_grads2 = tf.gradients(g_loss+eps, g_vars)
+                grads2 = d_grads2 + g_grads2
+
+
+            else:
+                d_grads2 = tf.gradients(d_loss2, d_vars)
+                g_grads2 = tf.gradients(g_loss2, g_vars)
+                grads2 = d_grads2 + g_grads2
 
             jf = []
             for j2, j,g in zip(tf.gradients(grads2, allvars), tf.gradients(grads, allvars), grads):

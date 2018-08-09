@@ -75,8 +75,69 @@ class FitnessTrainer(BaseTrainer):
         )
         if config.update_rule == "ttur" or config.update_rule == 'single-step':
             Jgrads = [0 for i in allvars]
+        elif config.update_rule == 'crossing-the-curl':
+            print(grads, '---------')
+            pif = [config.update_rule_i_lambda*g for g in grads]
+            #jtf = [0.5*tf.square(g) for g in grads]
+            jtf = reg
+            bjtf = []
+            for j, g in zip(tf.gradients(jtf, allvars), grads):
+                if j is None:
+                    bjtf += [tf.zeros_like(g)]
+                else:
+                    bjtf += [config.update_rule_b_lambda*j]
+
+            #def random_like(x, mean=0.001,stddev=0.00001):
+            #    shape = self.ops.shape(x)
+            #    return tf.random_normal(shape, mean=mean,stddev=stddev)
+            #mean = 0.0000001
+
+            eps = self.config.eps or 1e-5#random_like(self.gan.encoder.sample, mean=mean)
+            g2 = self.gan.create_component(self.gan.config.generator, input=(self.gan.encoder.sample+eps), reuse=True)
+            #g2 = self.gan.generator
+            d2 = self.gan.create_component(self.gan.config.discriminator, name="discriminator", g=g2.sample, x=self.gan.inputs.x, reuse=True)
+            loss2 = self.gan.create_component(self.gan.config.loss, discriminator=d2, generator=g2)
+            d_loss2, g_loss2 = loss2.sample
+            d_grads2 = tf.gradients(d_loss2+ eps, d_vars)
+            g_grads2 = tf.gradients(g_loss2+ eps, g_vars)
+            grads2 = d_grads2 + g_grads2
+
+            jf = []
+            for j2, j,g in zip(tf.gradients(grads2, allvars), tf.gradients(grads, allvars), grads):
+                if j2 is not None and j is not None:
+                    jf += [(j2 - j)]
+                else:
+                    print("ZEROS LIKE", g)
+                    jf += [tf.zeros_like(g)]
+
+            yjf = [config.update_rule_y_lambda*_jf for _jf in jf]
+
+
+            grads = [ _pif + _jtf - _yjf for _pif, _jtf, _yjf in zip(pif, bjtf, yjf)]
+            #grads = [ _pif + _jtf for _pif, _jtf, _yjf in zip(pif, bjtf, yjf)]
+
+            jfm = tf.zeros([1])
+            for g in yjf:
+                jfm += tf.reduce_mean(tf.abs(g))
+            jfm /= len(yjf)
+            self.gan.metrics['yjf']=jfm*100
+
+            pifm = tf.zeros([1])
+            for g in pif:
+                pifm += tf.reduce_mean(tf.abs(g))
+            pifm /= len(pif)
+            self.gan.metrics['pif']=pifm*100
+
+            jtfm = tf.zeros([1])
+            for g in bjtf:
+                jtfm += tf.reduce_mean(tf.abs(g))
+            jtfm /= len(bjtf)
+            self.gan.metrics['jtf']=jtfm*100
+
+            Jgrads = [0 for i in allvars]
         else:
             Jgrads = tf.gradients(reg, allvars)
+
 
         self.g_gradient = tf.ones([1])
         def amp_for(v):
@@ -92,7 +153,7 @@ class FitnessTrainer(BaseTrainer):
 
         def gradient_for(g, jg, v):
             def _gradient():
-                if config.update_rule == 'single-step':
+                if config.update_rule == 'single-step' or config.update_rule == 'crossing-the-curl':
                     return g
                 elif config.update_rule == "ttur":
                     ng = amp_for(v)*g

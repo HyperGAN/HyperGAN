@@ -50,7 +50,7 @@ def train(config, args):
     with tf.device(args.device):
         config.generator['end_features'] = 2
         config.generator["class"]="class:__main__.Custom2DGenerator" # TODO
-        #config.discriminator["class"]="class:__main__.Custom2DDiscriminator" # TODO
+        config.discriminator["class"]="class:__main__.Custom2DDiscriminator" # TODO
         gan = hg.GAN(config, inputs = Custom2DInputDistribution(args))
 
         accuracy_x_to_g=distribution_accuracy(gan.inputs.x, gan.generator.sample)

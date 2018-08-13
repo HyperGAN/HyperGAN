@@ -2,7 +2,13 @@ import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
 import inspect
+from pympler import refbrowser
 import nashpy as nash
+import hypergan as hg
+import hyperchamber as hc
+import sys
+import gc
+import random
 
 from hypergan.trainers.base_trainer import BaseTrainer
 
@@ -459,11 +465,70 @@ class GangTrainer(BaseTrainer):
             sg = gan.session.run(g_vars)
             sd = gan.session.run(d_vars)
             if config.nash_memory:
+                print("ENAMBLING NASH MEM", len(self.sgs))
                 ug, ud = self.nash_memory(sg, sd, self.ug, self.ud)
+                print("/ENAMBLING NASH MEM", len(self.sgs))
             else:
                 decay = config.decay or 0.5
                 ug = [ (o*decay + n*(1-decay)) for o, n in zip(sg, self.ug) ]
                 ud = [ (o*decay + n*(1-decay)) for o, n in zip(sd, self.ud) ]
+
+            if config.recreate:
+                gan.train_coordinator.request_stop()
+                gan.train_coordinator.join(gan.input_threads)
+                gan.session.close()
+                tf.reset_default_graph()
+                #x = tf.contrib.graph_editor.copy(self.gan.inputs.x)
+                #self.gan.inputs.x = x
+                inputs = hg.inputs.image_loader.ImageLoader(gan.args.batch_size)
+                inputs.create(gan.args.directory,
+                      channels=gan.x_channels, 
+                      format=gan.args.format,
+                      crop=gan.args.crop,
+                      width=gan.x_width,
+                      height=gan.x_height,
+                      resize=gan.args.resize)
+                config_name = random.choice(self.config.mutations)
+
+                newconfig_file = hg.Configuration.find(config_name+'.json')
+                newconfig = hc.Selector().load(newconfig_file)
+
+                newgan = self.gan.config['class'](config=newconfig, inputs=inputs)
+                newgan.args = gan.args
+                newgan.x_width = gan.x_width
+                newgan.x_height = gan.x_height
+                newgan.x_channels = gan.x_channels
+                newgan.cli = self.gan.cli
+                newgan.cli.sampler = None
+                gan.cli.sampler = None
+                newgan.trainer.sds = self.sds
+                newgan.trainer.sgs = self.sgs
+                newgan.train_coordinator = tf.train.Coordinator()
+                self.sds = None
+                self.sgs = None
+                self.ug = None
+                self.ud = None
+                for c in gan.components:
+                    c.gan = None
+                
+                def out(o):
+                    return str(type(o))
+                self.gan=None
+                gc.collect()
+                #for v in gc.get_referrers(gan):
+                #    try:
+                #        print(v.f_locals['self'].__class__) 
+                #    except AttributeError:
+                #        print("!", v) 
+                #print(sys.getrefcount(gan), len(gc.get_referrers(gan)))
+
+                gan.destroy=True
+                gan.newgan=newgan
+                gan=None
+                gc.collect()
+                newgan.input_threads = tf.train.start_queue_runners(sess=newgan.session, coord=newgan.train_coordinator)
+                newgan.trainer.assign_gd(ug, ud)
+                return
 
             self.assign_gd(ug, ud)
 
@@ -471,8 +536,8 @@ class GangTrainer(BaseTrainer):
                 print("Mutating child")
                 self.gan.session.run([self.mutate_d, self.mutate_g])
 
-            self.ug = gan.session.run(g_vars)
-            self.ud = gan.session.run(d_vars)
+            self.ug = gan.session.run(self.all_g_vars)
+            self.ud = gan.session.run(self.all_d_vars)
             if self.current_step < (config.reset_before_step or 0):
                 gan.session.run(tf.global_variables_initializer())
 

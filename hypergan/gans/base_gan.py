@@ -25,6 +25,7 @@ class BaseGAN(GANComponent):
         self.name = "hypergan"
         self.session = session
         self.skip_connections = SkipConnections()
+        self.destroy = False
 
         if config == None:
             config = hg.Configuration.default()

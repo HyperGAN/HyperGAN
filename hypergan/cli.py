@@ -1,6 +1,8 @@
 """
 The command line interface.  Trains a directory of data.
 """
+import gc
+import sys
 import os
 import hyperchamber as hc
 import tensorflow as tf
@@ -45,6 +47,7 @@ class CLI:
         self.samples = 0
         self.steps = 0
         self.gan = gan
+        self.gan.cli = self
 
         args = hc.Config(args)
         self.args = args
@@ -119,7 +122,22 @@ class CLI:
                 raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
     def step(self):
+        bgan = self.gan
         self.gan.step()
+        if bgan.destroy:
+            self.sampler=None
+            self.gan = self.gan.newgan
+            gc.collect()
+            refs = gc.get_referrers(bgan)
+            d = bgan.trainer._delegate
+            bgan.trainer=None
+            gc.collect()
+            del bgan
+            tf.reset_default_graph()
+
+            gc.collect()
+
+
 
         if(self.steps % self.sample_every == 0):
             sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
@@ -270,7 +288,8 @@ class CLI:
                 print("Initializing new model")
             else:
                 print("Model loaded")
-            tf.train.start_queue_runners(sess=self.gan.session)
+            self.gan.train_coordinator = tf.train.Coordinator()
+            self.gan.input_threads = tf.train.start_queue_runners(sess=self.gan.session, coord=self.gan.train_coordinator)
             self.train()
             if not self.args.nosave:
                 self.gan.save(self.save_file)

@@ -92,6 +92,10 @@ if not args.align:
               resize=args.resize)
 
         gan = hg.GAN(config=config, inputs=inputs, debug=args.debug)
+        gan.args = args
+        gan.x_width = width
+        gan.x_height = height
+        gan.x_channels = channels
         gan.name = config_name
 else:
     inputs = hg.inputs.multi_image_loader.MultiImageLoader(args.batch_size)
@@ -104,8 +108,13 @@ else:
           resize=args.resize)
 
     gan = hg.GAN(config=config, inputs=inputs)
+    gan.args = args
+    gan.x_width = width
+    gan.x_height = height
+    gan.x_channels = channels
     gan.name = config_name
 
 
 gancli = cli.CLI(gan, args=vars(args))
+del gan
 gancli.run()

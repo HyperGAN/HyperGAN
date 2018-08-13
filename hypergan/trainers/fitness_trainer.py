@@ -432,12 +432,13 @@ class FitnessTrainer(BaseTrainer):
         config = self.config
         loss = self.loss or gan.loss
         metrics = loss.metrics
-        lr = self.lr
 
+        lr = self.lr
+        feed_dict = {}
         if self.current_step == 0 and self.steps_since_fit == 0:
-                sess.run(self.assign_past_weights)
-                sess.run(self.update_prev_sample)
-        
+            sess.run(self.assign_past_weights)
+            sess.run(self.update_prev_sample)
+
         if config.fitness_test is not None:
             self.steps_since_fit+=1
             if config.fitness_failure_threshold and self.steps_since_fit > (config.fitness_failure_threshold or 1000):

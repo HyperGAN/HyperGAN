@@ -38,7 +38,7 @@ class FitnessTrainer(BaseTrainer):
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
         self.prev_zs = []
 
-        loss = self.loss or gan.loss
+        loss = self.loss 
         d_loss, g_loss = loss.sample
         def random_like(x):
             shape = self.ops.shape(x)
@@ -430,7 +430,7 @@ class FitnessTrainer(BaseTrainer):
         gan = self.gan
         sess = gan.session
         config = self.config
-        loss = self.loss or gan.loss
+        loss = self.loss 
         metrics = loss.metrics
 
         lr = self.lr

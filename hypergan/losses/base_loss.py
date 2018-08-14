@@ -10,10 +10,6 @@ class BaseLoss(GANComponent):
         self.x = x
         self.d_fake = d_fake
         self.d_real = d_real
-        #if discriminator == None:
-        #    discriminator = gan.discriminator
-        #if generator == None:
-        #    generator = gan.generator.sample #TODO should not be sample
         self.discriminator = discriminator
         self.generator = generator
         self.split = split
@@ -39,10 +35,7 @@ class BaseLoss(GANComponent):
         if d_real is None or d_fake is None:
             # Not passed in, lets populate d_real/d_fake
 
-            if self.discriminator is None:
-                net = gan.discriminator.sample
-            else:
-                net = self.discriminator.sample
+            net = self.discriminator.sample
 
             ds = self.split_batch(net, split)
             d_real = ds[0]
@@ -180,7 +173,7 @@ class BaseLoss(GANComponent):
 
     # This is openai's implementation of minibatch regularization
     def minibatch(self, net):
-        discriminator = self.discriminator or self.gan.discriminator
+        discriminator = self.discriminator
         ops = discriminator.ops
         config = self.config
         batch_size = ops.shape(net)[0]

@@ -46,6 +46,8 @@ class AliGAN(BaseGAN):
     def create(self):
         config = self.config
         ops = self.ops
+        d_losses = []
+        g_losses = []
 
         def random_like(x):
             return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
@@ -114,50 +116,45 @@ class AliGAN(BaseGAN):
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
             self.discriminator = standard_discriminator
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
-            self.loss = standard_loss
-            if self.config.alpha:
-                #stacked_zs = ops.concat([random_like(u_to_z.sample), u_to_z.sample, encoder.sample], axis=0)
-                stacked_zs = ops.concat([random_like(encoder.sample), encoder.sample, u_to_z.sample], axis=0)
+            if self.config.manifold_guided:
+                reencode_u_to_z = self.create_encoder(generator.sample, reuse=True)
+                stack_z = [encoder.sample, reencode_u_to_z.sample]
+                stacked_zs = ops.concat(stack_z, axis=0)
                 z_discriminator = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_zs)
-                l2 = self.create_loss(config.loss, z_discriminator, x_input, generator, 3)
-                self.loss.sample[0] += l2.sample[0]
-                self.loss.sample[1] += l2.sample[1]
-            if self.config.style_encoder_alpha:
-                #stacked_zs = ops.concat([random_like(u_to_z.sample), u_to_z.sample, encoder.sample], axis=0)
-                stacked_zs = ops.concat([random_like(style_encoder.sample), style_encoder.sample], axis=0)
-                z_discriminator = self.create_component(config.z_discriminator, name='style_z_discriminator', input=stacked_zs)
-                l3 = self.create_loss(config.loss, z_discriminator, x_input, generator, 2)
-                self.loss.sample[0] += l3.sample[0]
-                self.loss.sample[1] += l3.sample[1]
+                l2 = self.create_loss(config.loss, z_discriminator, x_input, generator, len(stack_z))
+                d_losses.append(l2.d_loss)
+                g_losses.append(l2.g_loss)
 
-            self.metrics = self.loss.metrics
 
             d_vars = standard_discriminator.variables()
             g_vars = generator.variables() + encoder.variables()
             if config.style_encoder:
                 g_vars += style_encoder.variables()
-            if self.config.alpha:
+            if self.config.manifold_guided:
                 d_vars += z_discriminator.variables()
             if config.u_to_z:
                 g_vars += u_to_z.variables()
 
-            if self.config.alpha:
-                loss1 = ["g_loss", standard_loss.g_loss+l2.g_loss]
-                loss2 = ["d_loss", standard_loss.d_loss+l2.d_loss]
-            else:
-                loss1 = ["g_loss", standard_loss.g_loss]
-                loss2 = ["d_loss", standard_loss.d_loss]
+            loss1 = ["g_loss", standard_loss.g_loss]
+            loss2 = ["d_loss", standard_loss.d_loss]
 
             if config.style_encoder_alpha:
                 loss1[1]+= l3.g_loss
                 loss2[1]+= l3.d_loss
-
+            d_losses.append(standard_loss.d_loss)
+            g_losses.append(standard_loss.g_loss)
+            if self.config.autoencode:
+                l2_loss = self.ops.squash(10*tf.square(x_hat - x_input))
+                g_losses+=[l2_loss]
+            print("DLOSSES", d_losses)
             loss = hc.Config({
                 'd_fake':standard_loss.d_fake,
                 'd_real':standard_loss.d_real,
-                'sample': [standard_loss.d_loss, standard_loss.g_loss], 
+                'sample': [tf.add_n(d_losses), tf.add_n(g_losses)], 
                 'metrics': 
                 {'g_loss': loss1[1], 'd_loss': loss2[1]}})
+            self.loss = loss
+            self.metrics = self.loss.metrics
             trainer = self.create_component(config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
 
             self.session.run(tf.global_variables_initializer())
@@ -197,10 +194,10 @@ class AliGAN(BaseGAN):
         slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
         return direction, slider
 
-    def create_encoder(self, x_input, name='encoder'):
+    def create_encoder(self, x_input, name='encoder', reuse=False):
         config = self.config
         encoder = dict(config.encoder or config.g_encoder or config.generator)
-        encoder = self.create_component(encoder, name=name, input=x_input)
+        encoder = self.create_component(encoder, name=name, input=x_input, reuse=reuse)
         return encoder
 
     def create_z_discriminator(self, z, z_hat):

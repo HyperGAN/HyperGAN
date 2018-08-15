@@ -73,6 +73,21 @@ class BaseLoss(GANComponent):
 
             d_regularizers.append(lipschitz_penalty)
 
+        if config.jg_penalty:
+            d_vars = gan.discriminator.variables()
+            g_vars = (gan.encoder.variables() + gan.generator.variables())
+            reg_g_grads = tf.gradients(d_loss, g_vars)
+            reg_d_grads = tf.gradients(g_loss, d_vars)
+            reg_d_grads = tf.square(tf.global_norm(reg_d_grads))
+            reg_g_grads = tf.square(tf.global_norm(reg_g_grads))
+            if config.flip:
+                d_regularizers.append(0.5*0.1*reg_g_grads)
+                g_regularizers.append(0.5*0.1*reg_d_grads)
+            else:
+                d_regularizers.append(0.5*0.1*reg_d_grads)
+                g_regularizers.append(0.5*0.1*reg_g_grads)
+
+
         if config.l2nn_penalty:
             l2nn_penalties = []
             for w in self.gan.weights():

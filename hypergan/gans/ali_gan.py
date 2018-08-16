@@ -115,28 +115,31 @@ class AliGAN(BaseGAN):
 
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
             self.discriminator = standard_discriminator
-            standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
-            if self.config.manifold_guided:
-                reencode_u_to_z = self.create_encoder(generator.sample, reuse=True)
-                stack_z = [encoder.sample, reencode_u_to_z.sample]
-                stacked_zs = ops.concat(stack_z, axis=0)
-                z_discriminator = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_zs)
-                l2 = self.create_loss(config.loss, z_discriminator, x_input, generator, len(stack_z))
-                d_losses.append(l2.d_loss)
-                g_losses.append(l2.g_loss)
-
 
             d_vars = standard_discriminator.variables()
             g_vars = generator.variables() + encoder.variables()
             if config.style_encoder:
                 g_vars += style_encoder.variables()
-            if self.config.manifold_guided:
-                d_vars += z_discriminator.variables()
             if config.u_to_z:
                 g_vars += u_to_z.variables()
 
+            if self.config.manifold_guided:
+                reencode_u_to_z = self.create_encoder(generator.sample, reuse=True)
+                stack_z = [encoder.sample, reencode_u_to_z.sample]
+                stacked_zs = ops.concat(stack_z, axis=0)
+                z_discriminator = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_zs)
+                d_vars += z_discriminator.variables()
+
+            self._g_vars = g_vars
+            self._d_vars = d_vars
+            standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
             loss1 = ["g_loss", standard_loss.g_loss]
             loss2 = ["d_loss", standard_loss.d_loss]
+
+            if self.config.manifold_guided:
+                l2 = self.create_loss(config.loss, z_discriminator, x_input, generator, len(stack_z))
+                d_losses.append(l2.d_loss)
+                g_losses.append(l2.g_loss)
 
             if config.style_encoder_alpha:
                 loss1[1]+= l3.g_loss
@@ -296,3 +299,8 @@ class AliGAN(BaseGAN):
                 self.generator_int,
                 self.random_z
         ]
+
+    def g_vars(self):
+        return self._g_vars
+    def d_vars(self):
+        return self._d_vars

@@ -96,6 +96,7 @@ class FitnessTrainer(BaseTrainer):
                 eps = self.config.eps_scale*(q / tf.sqrt(tf.reduce_sum(tf.square(q))))
             else:
                 eps = self.config.eps or 1e-8#random_like(self.gan.encoder.sample, mean=mean)
+            eps_constant = self.config.eps or 1e-8#random_like(self.gan.encoder.sample, mean=mean)
             g2 = self.gan.create_component(self.gan.config.generator, input=(self.gan.encoder.sample+eps), reuse=True)
             #g2 = self.gan.generator
             d2 = self.gan.create_component(self.gan.config.discriminator, name="discriminator", g=g2.sample, x=self.gan.inputs.x, reuse=True)

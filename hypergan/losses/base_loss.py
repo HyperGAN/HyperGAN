@@ -74,18 +74,20 @@ class BaseLoss(GANComponent):
             d_regularizers.append(lipschitz_penalty)
 
         if config.jg_penalty:
-            d_vars = gan.discriminator.variables()
-            g_vars = (gan.encoder.variables() + gan.generator.variables())
-            reg_g_grads = tf.gradients(d_loss, g_vars)
+            d_vars = gan.d_vars()
+            g_vars = gan.g_vars()
+            reg_g_grads = tf.gradients(g_loss, g_vars)
             reg_d_grads = tf.gradients(g_loss, d_vars)
             reg_d_grads = tf.square(tf.global_norm(reg_d_grads))
             reg_g_grads = tf.square(tf.global_norm(reg_g_grads))
-            d_regularizers.append(0.5*(config.jg_lambda or 0.01)*reg_d_grads)
-            g_regularizers.append(0.5*(config.jg_lambda or 0.01)*reg_g_grads)
+            d_loss += 0.5*(config.jg_lambda or 0.01)*reg_d_grads
+            g_loss += 0.5*(config.jg_lambda or 0.01)*reg_g_grads
 
             self.metrics['reg_d'] = reg_d_grads
             self.metrics['reg_g'] = reg_g_grads
 
+            self.metrics['reg_d']=reg_d_grads
+            self.metrics['reg_g']=reg_g_grads
 
         if config.l2nn_penalty:
             l2nn_penalties = []
@@ -144,7 +146,6 @@ class BaseLoss(GANComponent):
             d_regularizers.append(lipschitz_penalty)
  
         if config.random_penalty:
-
             gp = self.random_penalty(d_fake, d_real)
             d_regularizers.append(gp)
             self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
@@ -155,11 +156,11 @@ class BaseLoss(GANComponent):
         g_regularizers += self.g_regularizers()
 
         for regularizer in d_regularizers:
-            regularizer = tf.reshape(regularizer, [ops.shape(d_loss)[0],-1])
+            regularizer = tf.reshape(regularizer, [gan.batch_size(),-1])
             d_loss = tf.reshape(d_loss, [ops.shape(d_loss)[0], -1])
             d_loss = tf.concat([d_loss, regularizer], axis=1)
         for regularizer in g_regularizers:
-            regularizer = tf.reshape(regularizer, [ops.shape(regularizer)[0],-1])
+            regularizer = tf.reshape(regularizer, [gan.batch_size(),-1])
             g_loss = tf.reshape(g_loss, [ops.shape(g_loss)[0], -1])
             g_loss = tf.concat([g_loss, regularizer], axis=1)
 

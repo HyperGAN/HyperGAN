@@ -70,7 +70,7 @@ class StandardGAN(BaseGAN):
             if self.discriminator is None and config.discriminator:
                 self.discriminator = self.create_component(config.discriminator, name="discriminator", g=self.generator.sample, x=self.inputs.x)
             if self.loss is None and config.loss:
-                self.loss = self.create_component(config.loss)
+                self.loss = self.create_component(config.loss, discriminator=self.discriminator)
                 self.metrics = self.loss.metrics
             if self.trainer is None and config.trainer:
                 self.trainer = self.create_component(config.trainer)
@@ -79,6 +79,11 @@ class StandardGAN(BaseGAN):
 
             self.session.run(tf.global_variables_initializer())
 
+
+    def g_vars(self):
+        return self.encoder.variables() + self.generator.variables()
+    def d_vars(self):
+        return self.discriminator.variables()
     def fitness_inputs(self):
         return [
                 self.uniform_encoder.sample

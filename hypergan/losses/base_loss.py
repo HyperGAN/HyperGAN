@@ -80,12 +80,11 @@ class BaseLoss(GANComponent):
             reg_d_grads = tf.gradients(g_loss, d_vars)
             reg_d_grads = tf.square(tf.global_norm(reg_d_grads))
             reg_g_grads = tf.square(tf.global_norm(reg_g_grads))
-            if config.flip:
-                d_regularizers.append(0.5*0.1*reg_g_grads)
-                g_regularizers.append(0.5*0.1*reg_d_grads)
-            else:
-                d_regularizers.append(0.5*0.1*reg_d_grads)
-                g_regularizers.append(0.5*0.1*reg_g_grads)
+            d_regularizers.append(0.5*(config.jg_lambda or 0.01)*reg_d_grads)
+            g_regularizers.append(0.5*(config.jg_lambda or 0.01)*reg_g_grads)
+
+            self.metrics['reg_d'] = reg_d_grads
+            self.metrics['reg_g'] = reg_g_grads
 
 
         if config.l2nn_penalty:

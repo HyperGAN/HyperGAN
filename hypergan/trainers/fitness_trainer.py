@@ -44,12 +44,14 @@ class FitnessTrainer(BaseTrainer):
             shape = self.ops.shape(x)
             return tf.random_uniform(shape, minval=-0.1, maxval=0.1)
         prev_sample = tf.Variable(random_like(gan.generator.sample), dtype=tf.float32)
-        self.prev_sample = prev_sample
-        self.update_prev_sample = tf.assign(prev_sample, gan.generator.sample)
-        self.prev_l2_loss = (self.config.prev_l2_loss_lambda or 0.1)*self.ops.squash(tf.square(gan.generator.sample-prev_sample))
-        gan.metrics['prev_l2']=self.prev_l2_loss
 
-        self.l2_loss = g_loss + self.prev_l2_loss
+        if config.prev_l2_loss:
+            self.prev_sample = prev_sample
+            self.update_prev_sample = tf.assign(prev_sample, gan.generator.sample)
+            self.prev_l2_loss = (self.config.prev_l2_loss_lambda or 0.1)*self.ops.squash(tf.square(gan.generator.sample-prev_sample))
+            gan.metrics['prev_l2']=self.prev_l2_loss
+
+            self.l2_loss = g_loss + self.prev_l2_loss
 
         allloss = d_loss + g_loss
 
@@ -438,7 +440,8 @@ class FitnessTrainer(BaseTrainer):
         feed_dict = {}
         if self.current_step == 0 and self.steps_since_fit == 0:
             sess.run(self.assign_past_weights)
-            sess.run(self.update_prev_sample)
+            if self.config.prev_l2_loss:
+                sess.run(self.update_prev_sample)
 
         if config.fitness_test is not None:
             self.steps_since_fit+=1
@@ -485,21 +488,22 @@ class FitnessTrainer(BaseTrainer):
 
                 for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
                     feed_dict[t]=v
-                # assign prev sample for previous z
-                # replace previous z with new z
-                prev_feed_dict = {}
-                for v, t in ( [ [v, t] for v, t in zip(self.prev_zs, gan.fitness_inputs())]):
-                    prev_feed_dict[t]=v
 
-                # l2 = ||(pg(z0) - g(z0))||2
-                prev_l2_loss = sess.run(self.prev_l2_loss, prev_feed_dict)
-                # pg(z0) = g(z)
-                self.prev_g = sess.run(self.update_prev_sample, feed_dict)
-                # z0 = z
-                self.prev_zs = zs
-                # optimize(l2, gl, dl)
+                if config.prev_l2_loss:
+                    # assign prev sample for previous z
+                    # replace previous z with new z
+                    prev_feed_dict = {}
+                    for v, t in ( [ [v, t] for v, t in zip(self.prev_zs, gan.fitness_inputs())]):
+                        prev_feed_dict[t]=v
+                    # l2 = ||(pg(z0) - g(z0))||2
+                    prev_l2_loss = sess.run(self.prev_l2_loss, prev_feed_dict)
+                    # pg(z0) = g(z)
+                    self.prev_g = sess.run(self.update_prev_sample, feed_dict)
+                    # z0 = z
+                    self.prev_zs = zs
+                    # optimize(l2, gl, dl)
 
-                feed_dict[self.prev_l2_loss] = prev_l2_loss
+                    feed_dict[self.prev_l2_loss] = prev_l2_loss
 
                 _, *metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)
                 if ((self.current_step % (self.config.constraint_every or 100)) == 0):

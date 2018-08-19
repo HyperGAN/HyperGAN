@@ -8,6 +8,7 @@ import hypergan as hg
 import hyperchamber as hc
 import sys
 import gc
+import os
 import random
 
 from hypergan.trainers.base_trainer import BaseTrainer
@@ -447,6 +448,23 @@ class GangTrainer(BaseTrainer):
             self.sds.append(self.ud)
             self.priority_gs = [1]
             self.priority_ds = [1]
+            if self.config.preload:
+                for preload in self.config.preload:
+                    print("Preloading ", preload)
+                    default_save_path = os.path.abspath("saves/"+preload)
+                    save_file = default_save_path + "/model.ckpt"
+                    gan.session.run(tf.global_variables_initializer())
+                    if not self.gan.load(save_file):
+                        sys.exit("Could not load " + save_file)
+                    print("Assigning to sds")
+                    preload_ug = gan.session.run(g_vars)
+                    preload_ud = gan.session.run(d_vars)
+                    self.sgs.append(preload_ug)
+                    self.sds.append(preload_ud)
+                    self.priority_gs += [0]
+                    self.priority_ds += [0]
+ 
+                self.assign_gd(self.ug, self.ud)
 
         self._delegate.step(feed_dict)
 

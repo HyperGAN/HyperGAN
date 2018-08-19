@@ -141,30 +141,33 @@ class AliGAN(BaseGAN):
                 d_losses.append(l2.d_loss)
                 g_losses.append(l2.g_loss)
 
-            if config.style_encoder_alpha:
-                loss1[1]+= l3.g_loss
-                loss2[1]+= l3.d_loss
             d_losses.append(standard_loss.d_loss)
             g_losses.append(standard_loss.g_loss)
             if self.config.autoencode:
                 l2_loss = self.ops.squash(10*tf.square(x_hat - x_input))
-                g_losses+=[l2_loss]
-            print("DLOSSES", d_losses)
+                g_losses=[l2_loss]
+                d_losses=[l2_loss]
+
+            self.gan.metrics={}
+            for i,l in enumerate(g_losses):
+                self.gan.metrics['gl'+str(i)]= l
+            for i,l in enumerate(d_losses):
+                self.gan.metrics['dl'+str(i)]= l
             loss = hc.Config({
                 'd_fake':standard_loss.d_fake,
                 'd_real':standard_loss.d_real,
                 'sample': [tf.add_n(d_losses), tf.add_n(g_losses)], 
-                'metrics': 
-                {'g_loss': loss1[1], 'd_loss': loss2[1]}})
+                'metrics': self.gan.metrics
+            })
             self.loss = loss
             self.metrics = self.loss.metrics
+            self.uniform_encoder = uniform_encoder
             trainer = self.create_component(config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
 
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
         self.generator = generator
-        self.uniform_encoder = uniform_encoder
         self.slider = slider
         self.direction = direction
         self.z = z

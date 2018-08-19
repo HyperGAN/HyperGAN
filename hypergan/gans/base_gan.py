@@ -118,15 +118,28 @@ class BaseGAN(GANComponent):
             print("[hypergan] |= Loading checkpoint from "+ dir)
             ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
             if ckpt and ckpt.model_checkpoint_path:
-                saver = tf.train.Saver(self.variables())
-                saver.restore(self.session, save_file)
-                loadedFromSave = True
+                self.optimistic_restore(self.session, save_file, self.variables())
                 return True
             else:
                 return False
         else:
             return False
 
+    def optimistic_restore(self, session, save_file, variables):
+        reader = tf.train.NewCheckpointReader(save_file)
+        saved_shapes = reader.get_variable_to_shape_map()
+        var_names = sorted([(var.name, var.name.split(':')[0]) for var in variables
+                if var.name.split(':')[0] in saved_shapes])
+        restore_vars = []
+        name2var = dict(zip(map(lambda x:x.name.split(':')[0], variables), variables))
+        with tf.variable_scope('', reuse=True):
+            for var_name, saved_var_name in var_names:
+                curr_var = name2var[saved_var_name]
+                var_shape = curr_var.get_shape().as_list()
+                if var_shape == saved_shapes[saved_var_name]:
+                    restore_vars.append(curr_var)
+        saver = tf.train.Saver(restore_vars)
+        saver.restore(session, save_file)
 
     def variables(self):
         return self.ops.variables() + sum([c.variables() for c in self.components], [])

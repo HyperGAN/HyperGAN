@@ -222,6 +222,7 @@ class AliNextFrameGAN(BaseGAN):
             gy_sample = gen.sample
             gx = hc.Config({"sample":gx_sample})
             gy = hc.Config({"sample":gy_sample})
+            self.generator = gy
 
             last_frame = tf.slice(gy_sample, [0,0,0,0], [-1, -1, -1, 3])
             self.y = hc.Config({"sample":last_frame})
@@ -231,9 +232,9 @@ class AliNextFrameGAN(BaseGAN):
             self.uniform_sample = gx.sample
 
             if config.reuse_encoder:
-                g_vars1 = gen.variables()
+                g_vars = gen.variables()
             else:
-                g_vars1 = gen.variables()+z_g.variables()
+                g_vars = gen.variables()+z_g.variables()
 
             # ali
             # xnext / xprev
@@ -261,28 +262,41 @@ class AliNextFrameGAN(BaseGAN):
             else:
                 d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, None, None, len(stack))
-            self.loss = l
-            loss1 = l
-            d_loss1 = l.d_loss
-            g_loss1 = l.g_loss
 
-            d_vars1 = d.variables()
+            if self.config.manifold_guided:
+                stacked_reencode = tf.concat(self.frames[1:index] + [gy.sample],axis=3)
+                print("Z_G_PRLEZ2", stacked_reencode)
+                reencode_u_to_z = self.create_component(config.encoder, input=stacked_reencode, name='prev_encoder', reuse=True)
+                stack_z = [z_g_prev.sample, reencode_u_to_z.sample]
+                stacked_zs = ops.concat(stack_z, axis=0)
+                z_discriminator = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_zs)
+                self.z_discriminator = z_discriminator
+ 
 
+            d_vars = d.variables()
             d_loss = l.d_loss
             g_loss = l.g_loss
+            if self.config.manifold_guided:
+                d_vars += z_discriminator.variables()
+                l2 = self.create_loss(config.loss, z_discriminator, None, None, len(stack_z))
+                g_loss += l2.g_loss
+                d_loss += l2.d_loss
+
+
+
             metrics = {
-                    'g_loss': l.g_loss,
-                    'd_loss': l.d_loss
+                    'g_loss': g_loss,
+                    'd_loss': d_loss
                 }
 
  
             trainers = []
 
-            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics, 'd_fake': l.d_fake, 'd_real': l.d_real, 'config': l.config})
-            #lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
-            #trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
-            trainer = self.create_component(config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)
-            #trainer = MultiTrainerTrainer(trainers)
+            lossa = hc.Config({'sample': [d_loss, g_loss], 'metrics': metrics, 'd_fake': l.d_fake, 'd_real': l.d_real, 'config': l.config})
+            self.loss = lossa
+            self._g_vars = g_vars
+            self._d_vars = d_vars
+            trainer = self.create_component(config.trainer, loss = lossa, g_vars = g_vars, d_vars = d_vars)
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
@@ -293,18 +307,22 @@ class AliNextFrameGAN(BaseGAN):
         self.uga = self.y.sample
         self.uniform_encoder = z_g_prev
 
+    def g_vars(self):
+        return self._g_vars
+    def d_vars(self):
+        return self._d_vars
+
     def fitness_inputs(self):
         return self.inputs.frames
-
 
     def create_loss(self, loss_config, discriminator, x, generator, split):
         loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator, split=split)
         return loss
 
-    def create_encoder(self, x_input, name='input_encoder'):
+    def create_encoder(self, x_input, name='input_encoder', reuse=False):
         config = self.config
         input_encoder = dict(config.input_encoder or config.g_encoder or config.generator)
-        encoder = self.create_component(input_encoder, name=name, input=x_input)
+        encoder = self.create_component(input_encoder, name=name, input=x_input, reuse=reuse)
         return encoder
 
     def create_z_discriminator(self, z, z_hat):

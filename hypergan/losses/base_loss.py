@@ -155,17 +155,20 @@ class BaseLoss(GANComponent):
             self.metrics['random_penalty'] = ops.squash(gp, tf.reduce_mean)
 
 
-        if self.gan.config.infogan:
+        if self.gan.config.infogan and not hasattr(self.gan, 'infogan_q'):
             sample = self.gan.generator.sample
             d = self.gan.create_component(self.gan.config.discriminator, name="discriminator", input=sample, reuse=True, features=[tf.zeros([1,16,16,256])])
             last_layer = d.controls['infogan']
-            q = self.gan.create_component(self.gan.config.infogan, input=(self.gan.discriminator.controls['infogan']), name='infogan', reuse=self.reuse)
+            q = self.gan.create_component(self.gan.config.infogan, input=(self.gan.discriminator.controls['infogan']), name='infogan')
+            self.gan.infogan_q=q
             std_cont = tf.sqrt(tf.exp(q.sample))
             true = self.gan.uniform_encoder.z
             mean = tf.reshape(q.sample, self.ops.shape(true))
             std_cont = tf.reshape(std_cont, self.ops.shape(true))
             eps = (true - mean) / (std_cont + 1e-8)
-            continuous = tf.reduce_sum( -0.5 * np.log(2*np.pi)- tf.log(std_cont+1e-8)*tf.square(eps), reduction_indices=1)
+            continuous = -tf.reduce_mean( -0.5 * np.log(2*np.pi)- tf.log(std_cont+1e-8)*tf.square(eps), reduction_indices=1)
+            if self.gan.config.infogan.flipped:
+                continuous = -continuous
 
             self.metrics['cinfo']=ops.squash(continuous)
             d_regularizers.append(continuous)

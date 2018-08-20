@@ -128,11 +128,15 @@ class AliGAN(BaseGAN):
                 stack_z = [encoder.sample, reencode_u_to_z.sample]
                 stacked_zs = ops.concat(stack_z, axis=0)
                 z_discriminator = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_zs)
+                self.z_discriminator = z_discriminator
                 d_vars += z_discriminator.variables()
 
             self._g_vars = g_vars
             self._d_vars = d_vars
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
+            if self.gan.config.infogan:
+                d_vars += self.gan.infogan_q.variables()
+
             loss1 = ["g_loss", standard_loss.g_loss]
             loss2 = ["d_loss", standard_loss.d_loss]
 

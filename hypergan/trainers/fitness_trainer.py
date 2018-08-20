@@ -43,9 +43,9 @@ class FitnessTrainer(BaseTrainer):
         def random_like(x):
             shape = self.ops.shape(x)
             return tf.random_uniform(shape, minval=-0.1, maxval=0.1)
-        prev_sample = tf.Variable(random_like(gan.generator.sample), dtype=tf.float32)
 
         if config.prev_l2_loss:
+            prev_sample = tf.Variable(random_like(gan.generator.sample), dtype=tf.float32)
             self.prev_sample = prev_sample
             self.update_prev_sample = tf.assign(prev_sample, gan.generator.sample)
             self.prev_l2_loss = (self.config.prev_l2_loss_lambda or 0.1)*self.ops.squash(tf.square(gan.generator.sample-prev_sample))
@@ -78,7 +78,6 @@ class FitnessTrainer(BaseTrainer):
         if config.update_rule == "ttur" or config.update_rule == 'single-step':
             Jgrads = [0 for i in allvars]
         elif config.update_rule == 'crossing-the-curl':
-            print(grads, '---------')
             pif = [config.update_rule_i_lambda*g for g in grads]
             #jtf = [0.5*tf.square(g) for g in grads]
             jtf = reg

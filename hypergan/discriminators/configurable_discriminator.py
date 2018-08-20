@@ -131,6 +131,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         config = self.config
         ops = self.ops
 
+        self.ops.activation_name = options.activation_name
+
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
 
@@ -164,7 +166,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         initializer = None # default to global
 
-        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name)
         avg_pool = options.avg_pool or config.defaults.avg_pool
         if type(avg_pool) == type(""):
             avg_pool = [int(avg_pool), int(avg_pool)]
@@ -177,6 +179,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             #net = self.layer_regularizer(net)
             net = activation(net)
 
+        self.ops.activation_name = None
+
         return net
 
 
@@ -187,6 +191,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         ops = self.ops
         config = self.config
         fltr = options.filter or config.defaults.filter
+
+        self.ops.activation_name = options.activation_name
 
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
@@ -199,7 +205,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             size = int(args[0])
             reshape = None
         net = ops.reshape(net, [ops.shape(net)[0], -1])
-        net = ops.linear(net, size)
+        net = ops.linear(net, size, name=options.name)
 
 
         if reshape is not None:
@@ -207,6 +213,9 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
+
+        self.ops.activation_name = None
+
         return net
 
     def layer_reshape(self, net, args, options):
@@ -346,6 +355,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         config = self.config
         ops = self.ops
 
+        self.ops.activation_name = options.activation_name
+
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
 
@@ -360,10 +371,12 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
 
-        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer)
+        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
+
+        self.ops.activation_name = None
         return net
 
 
@@ -380,7 +393,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_attention(self, net, args, options):
         ops = self.ops
         options = hc.Config(options)
-        oj_lambda = float(options.oj_lambda or 1)
+        oj_lambda = options.oj_lambda
+        if oj_lambda is None:
+            oj_lambda = 1
+        oj_lambda = float(oj_lambda)
         c_scale = float(options.c_scale or 8)
         print("Size",net)
 
@@ -390,10 +406,14 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             ksize = [1,scale,1,1]
             _net = tf.nn.avg_pool(_net, ksize=ksize, strides=ksize, padding='SAME')
             return _net
-        def _attn(_net):
+        def _attn(_net, name=None):
             args[0] = ops.shape(_net)[-1]//2
+            name = name or self.ops.generate_name()
+            options.name=name+'_fx'
             fx = self.layer_conv(_net, args, options)
+            options.name=name+'_gx'
             gx = self.layer_conv(_net, args, options)
+            options.name=name+'_hx'
             hx = self.layer_conv(_net, args, options)
             if options.c_scale:
                 c_scale
@@ -418,6 +438,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             args[0] = ops.shape(_net)[-1]
             if options.final_activation == 'crelu':
                 args[0] //= 2
+            options.name=name+'_oj'
             oj = self.layer_conv(oj, args, options)
             if options.final_activation:
                 oj = self.ops.lookup(options.final_activation)(oj)
@@ -428,12 +449,15 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             return oj
 
 
-        ojs = [_attn(net) for i in range(self.config.heads or 1)]
-        nets = [net] + [oj*oj_lambda for oj in ojs]
+        ojs = [_attn(net, options.name) for i in range(self.config.heads or 1)]
 
         if options.concat:
+            nets = [net] + [oj*oj_lambda for oj in ojs]
             return tf.concat(nets, axis=3)
-        return tf.add_n(nets)
+        else:
+            for oj in ojs:
+                net += oj*oj_lambda
+            return net
 
 
 

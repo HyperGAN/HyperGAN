@@ -282,7 +282,7 @@ class TensorflowOps:
             return g*x_init
 
 
-    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME", initializer=None):
+    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME", initializer=None, name=None):
         self.assert_tensor(net)
 
         if initializer is None:
@@ -302,14 +302,14 @@ class TensorflowOps:
         if self.config.l2_scaled:
             net = net / tf.sqrt(float(filter_w)/float(stride_w)*float(filter_h)/float(stride_h))
 
-        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+        with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
             w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim], initializer=initializer)
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
             biases = self.get_bias([output_dim])
             conv = tf.nn.bias_add(conv, biases)
             return conv
 
-    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None):
+    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None, name=None):
         self.assert_tensor(net)
         if initializer is None:
             initializer = self.initializer()
@@ -318,7 +318,7 @@ class TensorflowOps:
             return self.weightnorm_deconv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
         output_shape = [shape[0], shape[1]*stride_h, shape[2]*stride_w, output_dim]
         init_bias = 0.
-        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+        with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
             # filter : [height, width, output_channels, in_channels]
             w = self.get_weight([filter_h, filter_w, output_dim, shape[3]], initializer=initializer)
 
@@ -346,14 +346,14 @@ class TensorflowOps:
             b = self.get_bias([output_dim], constant=0.001)
             return (tf.matmul(net, v_norm) * g+b)
 
-    def linear(self, net, output_dim, initializer=None):
+    def linear(self, net, output_dim, initializer=None, name=None):
         if self.config.linear_type == 'cosine':
             return self.cosine_linear(net, output_dim)
         if self.config.linear_type == 'weight_norm':
             return self.weight_norm_linear(net, output_dim)
         self.assert_tensor(net)
         shape = self.shape(net)
-        with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+        with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
             w = self.get_weight([shape[1], output_dim], initializer=initializer)
             bias = self.get_bias([output_dim])
             return tf.matmul(net, w) + bias
@@ -383,16 +383,27 @@ class TensorflowOps:
             ops = self
             orig_shape = self.shape(_x)
             net = _x
+            namesstr = self.activation_name
+            names = None
+            if namesstr is not None:
+                names = namesstr.split(",")
+            names = names or [None, None]
+
             if len(orig_shape) == 2:
+                self.activation_name = names[0]
                 a = activation(net)
+                self.activation_name = names[1]
                 b = activation(-net)
                 net = tf.concat([a,b],axis=1)
             elif len(orig_shape) == 4:
+                self.activation_name = names[0]
                 a = activation(net)
+                self.activation_name = names[1]
                 b = activation(-net)
                 net = tf.concat([a,b],axis=3)
             else:
                 raise "Two sided relu activation requires input dimensions of 2 or 4"
+            self.activation_name = namesstr
             return net
 
 
@@ -404,8 +415,11 @@ class TensorflowOps:
         def _prelu(_x):
             orig_shape = self.shape(_x)
             _x = tf.reshape(_x, [orig_shape[0], -1])
+            name = None
+            if hasattr(self, 'activation_name'):
+                name = self.activation_name # TODO Hack, cant send through function params b/c must match tensorflow activations
 
-            name = self.generate_name()
+            name = name or self.generate_name()
             with tf.variable_scope(name, reuse=self._reuse):
                 print("Creating variable",name,self._reuse)
                 alphas = tf.get_variable('prelu', 
@@ -422,7 +436,7 @@ class TensorflowOps:
         return _prelu
 
     def bipolar(self):
-        def _bipolar(_x):
+        def _bipolar(_x, name=None):
             activation = self.lookup(self.config.bipolar_activation or 'relu')
             ops = self
             orig_shape = self.shape(_x)
@@ -452,12 +466,12 @@ class TensorflowOps:
         return x * tf.nn.sigmoid(x)
 
     def trelu(self):
-        def _trelu(_x):
+        def _trelu(_x, name=None):
             activation = self.lookup(self.config.trelu_activation or 'relu')
             orig_shape = self.shape(_x)
             _x = tf.reshape(_x, [orig_shape[0], -1])
 
-            with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+            with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
                 alphas = tf.get_variable('trelu', 
                           _x.get_shape()[-1],
                           initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
@@ -471,12 +485,12 @@ class TensorflowOps:
         return _trelu
 
     def frelu(self):
-        def _frelu(_x):
+        def _frelu(_x, name=None):
             activation = self.lookup(self.config.frelu_activation or 'relu')
             orig_shape = self.shape(_x)
             _x = tf.reshape(_x, [orig_shape[0], -1])
 
-            with tf.variable_scope(self.generate_name(), reuse=self._reuse):
+            with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
                 alphas = tf.get_variable('frelu', 
                           [1],
                           initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),

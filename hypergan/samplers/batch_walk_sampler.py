@@ -12,59 +12,50 @@ class BatchWalkSampler(BaseSampler):
         self.y = None
         self.x = None
         self.step = 0
-        self.steps = 30
+        self.steps = []
+        self.step_count = 30
         self.target = None
         #self.style_t = gan.styleb.sample
         #self.style_v = gan.session.run(self.style_t)
 
 
-    def _sample(self):
+    def regenerate_steps(self):
         gan = self.gan
         z_t = gan.uniform_encoder.z
         inputs_t = gan.inputs.x
 
+        s=np.shape(gan.session.run(gan.uniform_encoder.z))
+        bs = 32
         if self.z is None:
-            self.input = gan.session.run(gan.inputs.x)
-            batch = self.input.shape[0]
-            self.input = np.reshape(self.input[0], [1, self.input.shape[1], self.input.shape[2], 3])
-            self.input = np.tile(self.input, [batch,1,1,1])
-
-            self.target = gan.uniform_encoder.z.eval()[0]
-        else:
-            self.target = self.z
-        self.z = gan.uniform_encoder.z.eval()[0]
-
-
-        g=tf.get_default_graph()
-        s=np.shape(gan.uniform_encoder.z.eval())
-        bs = s[0]
+            self.z = gan.session.run(gan.uniform_encoder.z)[0]
         mask = np.linspace(0., 1., num=bs)
-        self.z = np.tile(np.expand_dims(np.reshape(self.z, [-1]), axis=0), [bs,1])
-        targ = np.tile(np.expand_dims(np.reshape(self.target, [-1]), axis=0), [bs,1])
-        print("SHAPES", np.shape(mask), np.shape(self.z), np.shape(targ))
+        z = np.tile(np.expand_dims(np.reshape(self.z, [-1]), axis=0), [bs,1])
+        targ = gan.session.run(gan.uniform_encoder.z)[0]
+        targ = np.tile(np.expand_dims(np.reshape(targ, [-1]), axis=0), [bs,1])
         mask = np.tile(np.expand_dims(mask, axis=1), [1, np.shape(targ)[1]])
         z_interp = np.multiply(mask,self.z) + (1-mask)*targ
-        z_interp = np.reshape(z_interp, s)
-        print("Z_I", np.shape(z_interp), np.shape(self.z))
-        self.z = z_interp[-1]
-        with g.as_default():
-            tf.set_random_seed(1)
-            return {
-                    'generator': gan.session.run(gan.generator.sample, feed_dict={z_t: z_interp, inputs_t: self.input})
-            }
+        z_interp = np.reshape(z_interp, [bs, -1])
+        self.z = targ
+        return z_interp
 
     def sample(self, path, save_samples):
         gan = self.gan
+        z_t = gan.uniform_encoder.z
+        inputs_t = gan.inputs.x
+        self.step+=1
+
+        if(self.step >= len(self.steps)):
+            self.steps = self.regenerate_steps()
+            self.step=0
+        z = self.steps[self.step]
+
 
         with gan.session.as_default():
 
-            sample = self._sample()
-
-            data = sample['generator']
-            for i in range(np.shape(data)[0]):
-                sample_data = data[i:i+1]
-                self.plot(sample_data, path, save_samples)
-                time.sleep(0.018)
+            z = np.reshape(z, [1, -1])
+            sample_data = gan.session.run(gan.generator.sample, feed_dict={z_t: z})
+            self.plot(sample_data, path, save_samples)
+            time.sleep(0.018)
 
             return []
 

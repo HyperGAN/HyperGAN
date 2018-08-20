@@ -3,10 +3,11 @@ import numpy as np
 import tensorflow as tf
 
 class BaseLoss(GANComponent):
-    def __init__(self, gan, config, discriminator=None, generator=None, x=None, split=2, d_fake=None, d_real=None):
+    def __init__(self, gan, config, discriminator=None, generator=None, x=None, split=2, d_fake=None, d_real=None, reuse=False):
         self.metrics = {}
         self.sample = None
         self.ops = None
+        self.reuse=reuse
         self.x = x
         self.d_fake = d_fake
         self.d_real = d_real
@@ -151,21 +152,36 @@ class BaseLoss(GANComponent):
         if config.random_penalty:
             gp = self.random_penalty(d_fake, d_real)
             d_regularizers.append(gp)
-            self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
-            print("Gradient penalty applied")
+            self.metrics['random_penalty'] = ops.squash(gp, tf.reduce_mean)
 
+
+        if self.gan.config.infogan:
+            sample = self.gan.generator.sample
+            d = self.gan.create_component(self.gan.config.discriminator, name="discriminator", input=sample, reuse=True, features=[tf.zeros([1,16,16,256])])
+            last_layer = d.controls['infogan']
+            print("REULSE", self.reuse)
+            q = self.gan.create_component(self.gan.config.infogan, input=(self.gan.discriminator.controls['infogan']), name='infogan', reuse=self.reuse)
+            std_cont = tf.sqrt(tf.exp(q.sample))
+            true = self.gan.uniform_encoder.z
+            mean = tf.reshape(q.sample, self.ops.shape(true))
+            std_cont = tf.reshape(std_cont, self.ops.shape(true))
+            print(true, mean, "+++++++++++++++++++++++++")
+            eps = (true - mean) / (std_cont + 1e-8)
+            continuous = tf.reduce_sum( -0.5 * np.log(2*np.pi)- tf.log(std_cont+1e-8)*tf.square(eps), reduction_indices=1)
+            if not self.reuse:
+                self.gan.discriminator.ops.weights += q.ops.weights
+
+            self.metrics['cinfo']=ops.squash(continuous)
+            d_regularizers.append(continuous)
 
         d_regularizers += self.d_regularizers()
         g_regularizers += self.g_regularizers()
 
-        for regularizer in d_regularizers:
-            regularizer = tf.reshape(regularizer, [gan.batch_size(),-1])
-            d_loss = tf.reshape(d_loss, [ops.shape(d_loss)[0], -1])
-            d_loss = tf.concat([d_loss, regularizer], axis=1)
-        for regularizer in g_regularizers:
-            regularizer = tf.reshape(regularizer, [gan.batch_size(),-1])
-            g_loss = tf.reshape(g_loss, [ops.shape(g_loss)[0], -1])
-            g_loss = tf.concat([g_loss, regularizer], axis=1)
+        print("prereg", d_loss)
+        if len(d_regularizers) > 0:
+            d_loss += tf.add_n(d_regularizers)
+        if len(g_regularizers) > 0:
+            g_loss += tf.add_n(g_regularizers)
 
         d_loss = ops.squash(d_loss, config.reduce or tf.reduce_mean) #linear doesn't work with this
 

@@ -65,7 +65,7 @@ class AliGAN(BaseGAN):
                 uz_shape = z_shape
                 uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
                 uniform_encoder = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
-
+            self.uniform_encoder = uniform_encoder
  
             direction, slider = self.create_controls(self.ops.shape(uniform_encoder.sample))
             z = uniform_encoder.sample + slider * direction
@@ -137,7 +137,7 @@ class AliGAN(BaseGAN):
             loss2 = ["d_loss", standard_loss.d_loss]
 
             if self.config.manifold_guided:
-                l2 = self.create_loss(config.loss, z_discriminator, x_input, generator, len(stack_z))
+                l2 = self.create_loss(config.loss, z_discriminator, x_input, generator, len(stack_z), reuse=True)
                 d_losses.append(l2.d_loss)
                 g_losses.append(l2.g_loss)
 
@@ -159,6 +159,9 @@ class AliGAN(BaseGAN):
                 'sample': [tf.add_n(d_losses), tf.add_n(g_losses)], 
                 'metrics': self.gan.metrics
             })
+            print(standard_loss.metrics)
+            for k,v in standard_loss.metrics.items():
+                loss.metrics[k]=v
             self.loss = loss
             self.metrics = self.loss.metrics
             self.uniform_encoder = uniform_encoder
@@ -191,8 +194,8 @@ class AliGAN(BaseGAN):
                 ]
 
 
-    def create_loss(self, loss_config, discriminator, x, generator, split):
-        loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator.sample, split=split)
+    def create_loss(self, loss_config, discriminator, x, generator, split, reuse=False):
+        loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator.sample, split=split, reuse=reuse)
         return loss
 
     def create_controls(self, z_shape):

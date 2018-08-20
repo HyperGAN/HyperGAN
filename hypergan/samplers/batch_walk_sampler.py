@@ -8,7 +8,7 @@ import time
 class BatchWalkSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8, session=None):
         BaseSampler.__init__(self, gan, samples_per_row)
-        self.z = None
+        self.z_start = None
         self.y = None
         self.x = None
         self.step = 0
@@ -26,16 +26,19 @@ class BatchWalkSampler(BaseSampler):
 
         s=np.shape(gan.session.run(gan.uniform_encoder.z))
         bs = 32
-        if self.z is None:
-            self.z = gan.session.run(gan.uniform_encoder.z)[0]
+        if self.z_start is None:
+            self.z_start = gan.session.run(gan.uniform_encoder.z)[0]
+            targ = gan.session.run(gan.uniform_encoder.z)[0]
+        else:
+            self.z_start = self.steps[-1]
+            targ = gan.session.run(gan.uniform_encoder.z)[0]
         mask = np.linspace(0., 1., num=bs)
-        z = np.tile(np.expand_dims(np.reshape(self.z, [-1]), axis=0), [bs,1])
-        targ = gan.session.run(gan.uniform_encoder.z)[0]
+        z = np.tile(np.expand_dims(np.reshape(self.z_start, [-1]), axis=0), [bs,1])
         targ = np.tile(np.expand_dims(np.reshape(targ, [-1]), axis=0), [bs,1])
         mask = np.tile(np.expand_dims(mask, axis=1), [1, np.shape(targ)[1]])
-        z_interp = np.multiply(mask,self.z) + (1-mask)*targ
+        z_interp = np.multiply(1.0-mask,z) + mask*targ
         z_interp = np.reshape(z_interp, [bs, -1])
-        self.z = targ
+        #self.z_start = targ[-1]
         return z_interp
 
     def sample(self, path, save_samples):

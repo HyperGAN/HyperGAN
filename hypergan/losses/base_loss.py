@@ -308,8 +308,6 @@ class BaseLoss(GANComponent):
         x = self.x 
         if x is None:
             x=gan.inputs.x
-        g = gan.generator.sample
-        discriminator = self.discriminator or gan.discriminator
         shape = [1 for t in ops.shape(x)]
         shape[0] = gan.batch_size()
         uniform_noise = tf.random_uniform(shape=shape,minval=0.,maxval=1.)

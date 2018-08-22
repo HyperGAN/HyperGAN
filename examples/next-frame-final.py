@@ -265,10 +265,27 @@ class AliNextFrameGAN(BaseGAN):
                 g_loss += l.g_loss
 
 
-            #if config.ali_zc:
-            #dist = UniformEncoder(self, config.z_distribution)
-            #uc = self.create_component(config.uc, name='u_to_c', input=dist.sample)
-            #    Ali((zs, c_hat), (gz(uc,n), uc))
+            if config.ali_zc:
+                dist = UniformEncoder(self, config.z_distribution)
+                uc = self.create_component(config.uc, name='u_to_c', input=dist.sample)
+                #Ali((zs, c_hat), (gz(uc,n), uc))
+
+                t0 = zs[-1]
+                f0 = video_encoder.sample
+                vg_input = tf.concat([random_like(uc.sample), uc.sample], axis=3)
+                t2 = self.create_component(config.video_generator, input=vg_input, name='video_generator', reuse=True).sample
+                f2 = uc.sample
+                stack = [t0, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f2], axis=0)
+
+
+                d = self.create_component(config.zc_discriminator, name='d_zc', input=stacked, features=[features])
+                d_vars += d.variables()
+                l = self.create_loss(config.loss, d, None, None, len(stack))
+                d_loss += l.d_loss
+                g_loss += l.g_loss
+
 
             gx_sample = gen.sample
             gy_sample = gen.sample

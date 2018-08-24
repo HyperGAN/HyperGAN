@@ -210,13 +210,15 @@ class AliNextFrameGAN(BaseGAN):
 
             img_generator = self.create_component(config.image_generator, input=uz.sample, name='image_generator')
             g_vars += img_generator.variables()
-            v_input = tf.concat([video_encoder.sample,random_like(video_encoder.sample)], axis=3)
+            #v_input = tf.concat([video_encoder.sample,random_like(video_encoder.sample)], axis=3)
+            v_input = video_encoder.sample
             video_generator = self.create_component(config.video_generator, input=v_input, name='video_generator')
             self.video_generator = video_generator
             g_vars += video_generator.variables()
 
 
-            ucz_input = tf.concat([uc.sample,random_like(uc.sample)], axis=3)
+            #ucz_input = tf.concat([uc.sample,random_like(uc.sample)], axis=3)
+            ucz_input = uc.sample
             uc_to_z = self.create_component(config.video_generator, input=ucz_input, name='video_generator', reuse=True)
             shape = ops.shape(uc_to_z.sample)
             start=[0 for x in shape]
@@ -227,6 +229,7 @@ class AliNextFrameGAN(BaseGAN):
             uc_gen = self.create_component(config.image_generator, input=last_z, name='image_generator', reuse=True)
 
             vg = tf.slice(video_generator.sample,start,end)
+            self.video_generator_last_z = vg
             gen = self.create_component(config.image_generator, input=vg, name='image_generator', reuse=True)
             self.generator = gen
 
@@ -247,17 +250,41 @@ class AliNextFrameGAN(BaseGAN):
             g_loss = l.g_loss
 
             if config.manifold_guided:
-
-                ez = self.create_component(config.image_encoder, input=gen.sample, name='image_encoder', reuse=True)
+                # encoded_zs = [encode(g) for g in g(uc)]
+                # gc(ucz[:-1] + ez(gz(ucz[-1]))
                 s=[0 for x in shape] 
+                uz_s=[0 for x in shape] 
                 e=[-1 for x in shape]
+                s[-1] = shape[-1]//len(self.frames) 
                 e[-1]= shape[-1] - shape[-1]//len(self.frames)
                 ezs = tf.slice(uc_to_z.sample, s, e)
                 zs_concat = tf.concat(ezs, axis=3)
                 reencode_c = self.create_component(config.video_encoder, input=zs_concat, name='video_encoder', reuse=True)
+                e2 = e 
+                e2[-1] =shape[-1] - 2*shape[-1]//len(self.frames) 
+                uz_input = tf.slice(uc_to_z.sample, uz_s, e2)
+                s2 = s
+                last_uz =  tf.slice(uc_to_z.sample, s2, end)
+                g_frame = self.create_component(config.image_generator, input=last_uz, name='image_generator', reuse=True)
+                z_reencode = self.create_component(config.image_encoder, input=g_frame.sample, name='image_encoder', reuse=True)
+                uz_input = tf.concat([uz_input, z_reencode.sample], axis=3)
+                reencode_c_reencode = self.create_component(config.video_encoder, input=uz_input, name='video_encoder', reuse=True)
+
+                s=[0 for x in shape] 
+                uz_s=[0 for x in shape] 
+                e=[-1 for x in shape]
+                s[-1] = shape[-1]//len(self.frames) 
+                e[-1]= shape[-1] - shape[-1]//len(self.frames)
+                ucz2 = self.create_component(config.video_generator, input=reencode_c.sample, name='video_generator', reuse=True)
+                ezs = tf.slice(ucz2.sample, s, e)
+                zs_concat = tf.concat(ezs, axis=3)
+                reencode_c2 = self.create_component(config.video_encoder, input=zs_concat, name='video_encoder', reuse=True)
+
                 t0 = video_encoder.sample
                 t2 = reencode_c.sample#tf.concat(zs[1:-1] + [ez.sample], axis=3)
-                stack = [t0, t2]
+                t3 = reencode_c_reencode.sample
+                t4 = reencode_c2.sample
+                stack = [t0, t2, t3]
                 stacked = ops.concat(stack, axis=0)
                 d = self.create_component(config.z_discriminator, name='d_manifold', input=stacked)
                 d_vars += d.variables()

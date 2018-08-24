@@ -210,16 +210,24 @@ class AliNextFrameGAN(BaseGAN):
 
             img_generator = self.create_component(config.image_generator, input=uz.sample, name='image_generator')
             g_vars += img_generator.variables()
-            video_generator = self.create_component(config.video_generator, input=video_encoder.sample, name='video_generator')
+            v_input = tf.concat([video_encoder.sample,random_like(video_encoder.sample)], axis=3)
+            video_generator = self.create_component(config.video_generator, input=v_input, name='video_generator')
             self.video_generator = video_generator
             g_vars += video_generator.variables()
 
 
-            print("sizez", uc.sample, video_encoder.sample)
-            uc_to_z = self.create_component(config.video_generator, input=uc.sample, name='video_generator', reuse=True)
-            uc_gen = self.create_component(config.image_generator, input=uc_to_z.sample, name='image_generator', reuse=True)
+            ucz_input = tf.concat([uc.sample,random_like(uc.sample)], axis=3)
+            uc_to_z = self.create_component(config.video_generator, input=ucz_input, name='video_generator', reuse=True)
+            shape = ops.shape(uc_to_z.sample)
+            start=[0 for x in shape]
+            start[-1] = shape[-1] - shape[-1]//len(self.frames)
+            end = [-1 for x in shape]
+            end[-1] = shape[-1]//len(self.frames)
+            last_z = tf.slice(uc_to_z.sample,start,end)
+            uc_gen = self.create_component(config.image_generator, input=last_z, name='image_generator', reuse=True)
 
-            gen = self.create_component(config.image_generator, input=video_generator.sample, name='image_generator', reuse=True)
+            vg = tf.slice(video_generator.sample,start,end)
+            gen = self.create_component(config.image_generator, input=vg, name='image_generator', reuse=True)
             self.generator = gen
 
             #Dimg((x,z_hat), (G, uz))
@@ -229,9 +237,9 @@ class AliNextFrameGAN(BaseGAN):
             f2 = uc.sample
             t3 = gen.sample
             f3 = video_encoder.sample
-            stack = [t0, t2,t3]
+            stack = [t0, t2, t3]
             stacked = ops.concat(stack, axis=0)
-            features = ops.concat([f0, f2,f3], axis=0)
+            features = ops.concat([f0, f2, f3], axis=0)
             d = self.create_component(config.image_discriminator, name='d_img', input=stacked, features=[features])
             d_vars += d.variables()
             l = self.create_loss(config.loss, d, None, None, len(stack))
@@ -241,8 +249,14 @@ class AliNextFrameGAN(BaseGAN):
             if config.manifold_guided:
 
                 ez = self.create_component(config.image_encoder, input=gen.sample, name='image_encoder', reuse=True)
-                t0 = tf.concat(zs[:-1], axis=3)
-                t2 = tf.concat(zs[1:-1] + [ez.sample], axis=3)
+                s=[0 for x in shape] 
+                e=[-1 for x in shape]
+                e[-1]= shape[-1] - shape[-1]//len(self.frames)
+                ezs = tf.slice(uc_to_z.sample, s, e)
+                zs_concat = tf.concat(ezs, axis=3)
+                reencode_c = self.create_component(config.video_encoder, input=zs_concat, name='video_encoder', reuse=True)
+                t0 = video_encoder.sample
+                t2 = reencode_c.sample#tf.concat(zs[1:-1] + [ez.sample], axis=3)
                 stack = [t0, t2]
                 stacked = ops.concat(stack, axis=0)
                 d = self.create_component(config.z_discriminator, name='d_manifold', input=stacked)

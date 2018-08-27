@@ -67,7 +67,12 @@ channels = size[2] or 3
 
 config_name = args.config or 'default'
 config_filename = hg.Configuration.find(config_name+'.json')
+
 config = hc.Selector().load(config_filename)
+if config["inherit"]:
+    base_filename = hg.Configuration.find(config['inherit']+'.json')
+    base_config = hc.Selector().load(base_filename)
+    config = {**base_config, **config}
 
 
 if args.list_templates:

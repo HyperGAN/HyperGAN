@@ -274,11 +274,16 @@ class AliNextFrameGAN(BaseGAN):
             re_uc_with_g = build_c(uc.sample, use_g=True)
             re_ec_with_g_next = build_c(ec, advance=True, use_g=True)
             re_uc_with_g_next = build_c(uc.sample, advance=True, use_g=True)
-            t0 = tf.concat([ec,         ec,         ec], axis=axis)
-            t1 = tf.concat([uc.sample,  re_uc,      re_uc_with_g], axis=axis)
-            t3 = tf.concat([re_uc_next, re_uc_next, re_uc_with_g_next], axis=axis)
-            t4 = tf.concat([ec_next,    re_ec_next, re_ec_with_g_next], axis=axis)
-            stack = [t0, t1, t4]
+            t0 = tf.concat([ec,            ec], axis=axis)
+            t1 = tf.concat([uc.sample,   re_uc_with_g], axis=axis)
+            #t3 = tf.concat([re_uc_next, re_uc_next, re_uc_with_g_next], axis=axis)
+            t4 = tf.concat([ec_next,   re_ec_with_g_next], axis=axis)
+            t5 = tf.concat([ec, re_ec_with_g], axis=axis)
+            stack = [t0, t1, t4, t5]
+            if config.c_next_c:
+                t0 = tf.concat([ec,            ec_next], axis=axis)
+                t1 = tf.concat([uc.sample,   re_uc_with_g_next], axis=axis)
+                stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
             features = None#ops.concat([f0, f2, f3], axis=0)
             d = self.create_component(config.c_discriminator, name='d_img', input=stacked, features=[features])
@@ -288,16 +293,17 @@ class AliNextFrameGAN(BaseGAN):
             g_loss = l.g_loss
 
 
-            t0 = self.frames[-1]
-            t2 = gen.sample
-            t3 = img_generator.sample
-            stack = [t0, t2]
-            stacked = ops.concat(stack, axis=0)
-            d = self.create_component(config.image_discriminator, name='d_manifold', input=stacked)
-            d_vars += d.variables()
-            l = self.create_loss(config.loss, d, None, None, len(stack))
-            d_loss += l.d_loss
-            g_loss += l.g_loss
+            if config.use_x:
+                t0 = tf.concat([self.frames[-1], self.frames[-1]], axis=3)
+                t2 = tf.concat([self.frames[-1], gen.sample], axis=3)#self.create_component(config.image_generator, input=zs[-1], name='image_generator', reuse=True).sample
+                #t3 = img_generator.sample
+                stack = [t0, t2]
+                stacked = ops.concat(stack, axis=0)
+                d = self.create_component(config.image_discriminator, name='d_manifold', input=stacked)
+                d_vars += d.variables()
+                l = self.create_loss(config.loss, d, None, None, len(stack))
+                d_loss += l.d_loss
+                g_loss += l.g_loss
 
 
             gx_sample = gen.sample

@@ -55,9 +55,6 @@ class AliGAN(BaseGAN):
             x_input = tf.identity(self.inputs.x, name='input')
 
             # q(z|x)
-            encoder = self.create_encoder(self.inputs.x)
-
-            self.encoder = encoder
             if config.u_to_z:
                 uniform_encoder = UniformEncoder(self, config.z_distribution)
             else:
@@ -93,15 +90,24 @@ class AliGAN(BaseGAN):
                     generator = self.create_component(config.generator, input=u_to_z.sample, features=[style_sample], name='generator')
                 else:
                     u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=z)
+                    print(" U Z ", u_to_z.sample)
                     generator = self.create_component(config.generator, input=u_to_z.sample, name='generator')
                 stacked = [x_input, generator.sample]
+                self.generator = generator
+
+                encoder = self.create_encoder(self.inputs.x)
+
+                self.encoder = encoder
                 features = [encoder.sample, u_to_z.sample]
             else:
                 generator = self.create_component(config.generator, input=stack_z)
+                self.generator = generator
                 stacked = ops.concat([x_input, generator.sample], axis=0)
+                encoder = self.create_encoder(self.inputs.x)
+
+                self.encoder = encoder
                 features = ops.concat([encoder.sample, z], axis=0)
 
-            self.generator = generator
             if config.style_encoder:
                 x_hat = self.create_component(config.generator, input=encoder.sample, features=[x_hat_style], reuse=True, name='generator').sample
                 stacked += [x_hat]

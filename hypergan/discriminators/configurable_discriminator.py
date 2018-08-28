@@ -19,8 +19,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "minibatch": self.layer_minibatch,
             "phase_shift": self.layer_phase_shift,
             "conv": self.layer_conv,
+            "zeros": self.layer_zeros,
             "control": self.layer_controls,
             "linear": self.layer_linear,
+            "identity": self.layer_identity,
             "attention": self.layer_attention,
             "subpixel": self.layer_subpixel,
             "pixel_norm": self.layer_pixel_norm,
@@ -42,6 +44,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "resize_conv": self.layer_resize_conv,
             "squash": self.layer_squash,
             "avg_pool": self.layer_avg_pool,
+            "reference": self.layer_reference,
             "image_statistics": self.layer_image_statistics,
             "combine_features": self.layer_combine_features,
             "resnet": self.layer_resnet,
@@ -49,11 +52,17 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             }
         self.features = features
         self.controls = {}
+        self.named_layers = {}
         
         BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse, x=x, g=g)
 
     def required(self):
         return "layers defaults".split()
+
+    def layer(self, name):
+        if name in self.named_layers:
+            return self.named_layers[name]
+        return None
 
     def build(self, net, replace_controls={}):
         self.replace_controls=replace_controls
@@ -79,11 +88,33 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def parse_layer(self, net, layer):
         config = self.config
 
-        d = layer.split(' ')
-        op = d[0]
-        args, options = self.parse_args(d[1:])
+        if isinstance(layer, list):
+            ns = []
+            axis = -1
+            print("NET IS ", net)
+            for l in layer:
+                if isinstance(l, int):
+                    axis = l
+                    continue
+                n = self.parse_layer(net, l)
+                ns += [n]
+            print("NS IS ", ns)
+            net = tf.concat(ns, axis=axis)
+
+            return net
+
+        else:
+            print("LAYER   SSS ", layer)
+            d = layer.split(' ')
+            op = d[0]
+            args, options = self.parse_args(d[1:])
         
-        return self.build_layer(net, op, args, options)
+            net = self.build_layer(net, op, args, options)
+            if 'name' in options:
+                self.named_layers[options['name']] = net
+                print("-> SET", options['name'], "TO", net)
+            return net
+            
 
     def build_layer(self, net, op, args, options):
         if self.layer_ops[op]:
@@ -126,12 +157,29 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         net = activation(net)
 
         return net
+    
+    def layer_zeros(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        self.ops.activation_name = options.activation_name
+        reshape = [ops.shape(net)[0]] + [int(x) for x in args[0].split("*")]
+        size = reduce(operator.mul, reshape)
+        net = tf.zeros(reshape)
+
+        return net
+
+    def layer_identity(self, net, args, options):
+        return net
+
     def layer_conv(self, net, args, options):
         options = hc.Config(options)
         config = self.config
         ops = self.ops
 
         self.ops.activation_name = options.activation_name
+        self.ops.activation_trainable = options.trainable
 
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
@@ -166,7 +214,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         initializer = None # default to global
 
-        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name)
+        trainable = True
+        if options.trainable == 'false':
+            trainable = False
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
         avg_pool = options.avg_pool or config.defaults.avg_pool
         if type(avg_pool) == type(""):
             avg_pool = [int(avg_pool), int(avg_pool)]
@@ -180,6 +231,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             net = activation(net)
 
         self.ops.activation_name = None
+        self.ops.activation_trainable = None
 
         return net
 
@@ -193,6 +245,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         fltr = options.filter or config.defaults.filter
 
         self.ops.activation_name = options.activation_name
+        self.ops.activation_trainable = options.trainable
 
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
@@ -205,7 +258,11 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             size = int(args[0])
             reshape = None
         net = ops.reshape(net, [ops.shape(net)[0], -1])
-        net = ops.linear(net, size, name=options.name)
+
+        trainable = True
+        if options.trainable == 'false':
+            trainable = False
+        net = ops.linear(net, size, name=options.name, trainable=trainable)
 
 
         if reshape is not None:
@@ -215,6 +272,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             net = activation(net)
 
         self.ops.activation_name = None
+        self.ops.activation_trainable = None
 
         return net
 
@@ -230,7 +288,14 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         stride=options.stride or self.ops.shape(net)[1]
         stride=int(stride)
         ksize = [1,stride,stride,1]
+        size = [int(x) for x in options.slice.replace("batch_size",str(self.gan.batch_size())).split("*")]
+
+        print("PRESLICE", net)
+        if options.slice:
+            net = tf.slice(net, [0,0,0,0], size)
+        print("/lPRESLICE", net)
         net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
+        print("POST ", net)
 
         return net 
 
@@ -307,7 +372,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         initializer = None # default to global
 
-        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
+        trainable = True
+        if options.trainable == 'false':
+            trainable = False
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer, trainable=trainable)
         s = ops.shape(net)
         net = tf.depth_to_space(net, 2)
         if activation:
@@ -356,6 +424,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         ops = self.ops
 
         self.ops.activation_name = options.activation_name
+        self.ops.activation_trainable = options.trainable
 
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
@@ -371,11 +440,15 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
 
-        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name)
+        trainable = True
+        if options.trainable == 'false':
+            trainable = False
+        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
 
+        self.ops.activation_trainable = None
         self.ops.activation_name = None
         return net
 
@@ -479,7 +552,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
         initializer = None # default to global
 
-        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer)
+        trainable = True
+        if options.trainable == 'false':
+            trainable = False
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer, trainable=trainable)
         s = ops.shape(net)
         net = tf.reshape(net, [s[0], s[1]*2, s[2]*2, depth])
         if activation:
@@ -713,3 +789,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_pixel_norm(self, net, args, options):
         epsilon = 1e-8
         return net * tf.rsqrt(tf.reduce_mean(tf.square(net), axis=1, keepdims=True) + epsilon)
+
+    def layer_reference(self, net, args, options):
+        options = hc.Config(options)
+
+        return getattr(self.gan, options.src).layer(options.name)

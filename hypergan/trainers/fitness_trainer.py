@@ -36,6 +36,9 @@ class FitnessTrainer(BaseTrainer):
 
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
+
+        d_vars = list(set(d_vars).intersection(tf.trainable_variables()))
+        g_vars = list(set(g_vars).intersection(tf.trainable_variables()))
         self.prev_zs = []
 
         loss = self.loss 

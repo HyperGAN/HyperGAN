@@ -112,23 +112,23 @@ class TensorflowOps:
         else:
             raise Exception("dtype not defined: "+str(dtype))
 
-    def get_weight(self, shape=None, name=None, initializer=None):
+    def get_weight(self, shape=None, name=None, initializer=None, trainable=None):
         if name == None:
             name = "w"
         if initializer == None:
             initializer = self.initializer()
         if shape is not None:
-            weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer)
+            weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
         else:
-            weight = tf.get_variable(name, dtype=self.dtype, initializer=initializer)
+            weight = tf.get_variable(name, dtype=self.dtype, initializer=initializer, trainable=trainable)
         if not self._reuse:
             self.weights.append(weight)
         return weight
 
-    def get_bias(self, shape, constant=0.0, name=None):
+    def get_bias(self, shape, constant=0.0, name=None, trainable=None):
         if name == None:
             name='b'
-        bias = tf.get_variable(name, shape, initializer=tf.constant_initializer(constant, dtype=self.dtype), dtype=self.dtype)
+        bias = tf.get_variable(name, shape, initializer=tf.constant_initializer(constant, dtype=self.dtype), dtype=self.dtype, trainable=trainable)
         if not self._reuse:
             self.biases.append(bias)
         return bias
@@ -282,7 +282,7 @@ class TensorflowOps:
             return g*x_init
 
 
-    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME", initializer=None, name=None):
+    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME", initializer=None, name=None, trainable=True):
         self.assert_tensor(net)
 
         if initializer is None:
@@ -303,13 +303,14 @@ class TensorflowOps:
             net = net / tf.sqrt(float(filter_w)/float(stride_w)*float(filter_h)/float(stride_h))
 
         with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
-            w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim], initializer=initializer)
+            w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim], initializer=initializer, trainable=trainable)
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
-            biases = self.get_bias([output_dim])
+            biases = self.get_bias([output_dim], trainable=trainable)
             conv = tf.nn.bias_add(conv, biases)
+            self.conv_layers += [conv]
             return conv
 
-    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None, name=None):
+    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None, name=None, trainable=True):
         self.assert_tensor(net)
         if initializer is None:
             initializer = self.initializer()
@@ -320,7 +321,7 @@ class TensorflowOps:
         init_bias = 0.
         with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
             # filter : [height, width, output_channels, in_channels]
-            w = self.get_weight([filter_h, filter_w, output_dim, shape[3]], initializer=initializer)
+            w = self.get_weight([filter_h, filter_w, output_dim, shape[3]], initializer=initializer, trainable=trainable)
 
             deconv = tf.nn.conv2d_transpose(net, w, output_shape=output_shape,
                                     strides=[1, stride_h, stride_w, 1])
@@ -346,7 +347,7 @@ class TensorflowOps:
             b = self.get_bias([output_dim], constant=0.001)
             return (tf.matmul(net, v_norm) * g+b)
 
-    def linear(self, net, output_dim, initializer=None, name=None):
+    def linear(self, net, output_dim, initializer=None, name=None, trainable=True):
         if self.config.linear_type == 'cosine':
             return self.cosine_linear(net, output_dim)
         if self.config.linear_type == 'weight_norm':
@@ -354,7 +355,7 @@ class TensorflowOps:
         self.assert_tensor(net)
         shape = self.shape(net)
         with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
-            w = self.get_weight([shape[1], output_dim], initializer=initializer)
+            w = self.get_weight([shape[1], output_dim], initializer=initializer, trainable=trainable)
             bias = self.get_bias([output_dim])
             return tf.matmul(net, w) + bias
 
@@ -415,17 +416,27 @@ class TensorflowOps:
         def _prelu(_x):
             orig_shape = self.shape(_x)
             _x = tf.reshape(_x, [orig_shape[0], -1])
+
+            # TODO Hack, cant send through function params b/c must match tensorflow activations
             name = None
+            trainable = None
             if hasattr(self, 'activation_name'):
-                name = self.activation_name # TODO Hack, cant send through function params b/c must match tensorflow activations
+                name = self.activation_name 
+
+            if hasattr(self, 'activation_trainable'):
+                if self.activation_trainable == 'false':
+                    self.activation_trainable = False
+                trainable = self.activation_trainable
+            # /TODO
 
             name = name or self.generate_name()
             with tf.variable_scope(name, reuse=self._reuse):
-                print("Creating variable",name,self._reuse)
+                print("Creating variable",name,self._reuse, trainable)
                 alphas = tf.get_variable('prelu', 
                           _x.get_shape()[-1],
                           initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
-                          dtype=tf.float32)
+                          dtype=tf.float32,
+                          trainable=trainable)
                 pos = tf.nn.relu(_x)
                 neg = alphas * (_x - abs(_x)) * 0.5
 

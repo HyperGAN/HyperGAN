@@ -232,6 +232,10 @@ class AliNextFrameGAN(BaseGAN):
             last_z = tf.slice(uc_to_z.sample,start,end)
             uc_gen = self.create_component(config.image_generator, input=last_z, name='image_generator', reuse=True)
 
+            all_zs = tf.split(uc_to_z.sample, len(self.frames), axis=3)
+            all_zs = tf.concat(all_zs, axis=0)
+            uc_gen_all = self.create_component(config.image_generator, input=all_zs, name='image_generator', reuse=True)
+
             vg = tf.slice(video_generator.sample,start,end)
             self.video_generator_last_z = vg
             gen = self.create_component(config.image_generator, input=vg, name='image_generator', reuse=True)
@@ -294,10 +298,13 @@ class AliNextFrameGAN(BaseGAN):
 
 
             if config.use_x:
-                t0 = tf.concat([self.frames[-1], self.frames[-1]], axis=3)
-                t2 = tf.concat([self.frames[-1], gen.sample], axis=3)#self.create_component(config.image_generator, input=zs[-1], name='image_generator', reuse=True).sample
+                t0 = tf.concat(self.frames, axis=3)
+                t2 = tf.concat(self.frames[:-1]+[gen.sample], axis=3)#self.create_component(config.image_generator, input=zs[-1], name='image_generator', reuse=True).sample
+                t3 = tf.concat(self.split_batch(uc_gen_all.sample, len(self.frames)), axis=3)
+                #t0 = tf.concat([self.frames[-1], self.frames[-1]], axis=3)
+                #t2 = tf.concat([self.frames[-1], gen.sample], axis=3)#self.create_component(config.image_generator, input=zs[-1], name='image_generator', reuse=True).sample
                 #t3 = img_generator.sample
-                stack = [t0, t2]
+                stack = [t0, t2, t3]
                 stacked = ops.concat(stack, axis=0)
                 d = self.create_component(config.image_discriminator, name='d_manifold', input=stacked)
                 d_vars += d.variables()

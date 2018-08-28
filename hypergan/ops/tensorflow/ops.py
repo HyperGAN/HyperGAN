@@ -307,7 +307,6 @@ class TensorflowOps:
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
             biases = self.get_bias([output_dim], trainable=trainable)
             conv = tf.nn.bias_add(conv, biases)
-            self.conv_layers += [conv]
             return conv
 
     def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None, name=None, trainable=True):

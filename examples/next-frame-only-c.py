@@ -278,6 +278,7 @@ class AliNextFrameGAN(BaseGAN):
             re_uc_with_g = build_c(uc.sample, use_g=True)
             re_ec_with_g_next = build_c(ec, advance=True, use_g=True)
             re_uc_with_g_next = build_c(uc.sample, advance=True, use_g=True)
+            re_re_uc_next = build_c(re_uc, advance=True)
             t0 = tf.concat([ec,            ec], axis=axis)
             t1 = tf.concat([uc.sample,   re_uc_with_g], axis=axis)
             #t3 = tf.concat([re_uc_next, re_uc_next, re_uc_with_g_next], axis=axis)
@@ -286,7 +287,8 @@ class AliNextFrameGAN(BaseGAN):
             stack = [t0, t1, t4, t5]
             if config.c_next_c:
                 t0 = tf.concat([ec,            ec_next], axis=axis)
-                t1 = tf.concat([uc.sample,   re_uc_with_g_next], axis=axis)
+                t1 = tf.concat([re_uc,   re_re_uc_next], axis=axis)
+
                 stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
             features = None#ops.concat([f0, f2, f3], axis=0)

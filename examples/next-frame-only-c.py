@@ -232,8 +232,8 @@ class AliNextFrameGAN(BaseGAN):
             last_z = tf.slice(uc_to_z.sample,start,end)
             uc_gen = self.create_component(config.image_generator, input=last_z, name='image_generator', reuse=True)
 
-            all_zs = tf.split(uc_to_z.sample, len(self.frames), axis=3)
-            all_zs = tf.concat(all_zs, axis=0)
+            uc_zs = tf.split(uc_to_z.sample, len(self.frames), axis=3)
+            all_zs = tf.concat(uc_zs, axis=0)
             uc_gen_all = self.create_component(config.image_generator, input=all_zs, name='image_generator', reuse=True)
 
             vg = tf.slice(video_generator.sample,start,end)
@@ -279,18 +279,23 @@ class AliNextFrameGAN(BaseGAN):
             re_ec_with_g_next = build_c(ec, advance=True, use_g=True)
             re_uc_with_g_next = build_c(uc.sample, advance=True, use_g=True)
             re_re_uc_next = build_c(re_uc, advance=True)
+            re_re_uc_next_with_g = build_c(re_uc_with_g, advance=True, use_g=True)
             t0 = tf.concat([ec,            ec], axis=axis)
             t1 = tf.concat([uc.sample,   re_uc_with_g], axis=axis)
             #t3 = tf.concat([re_uc_next, re_uc_next, re_uc_with_g_next], axis=axis)
             t4 = tf.concat([ec_next,   re_ec_with_g_next], axis=axis)
             t5 = tf.concat([ec, re_ec_with_g], axis=axis)
-            stack = [t0, t1, t4, t5]
+            stack = [t0, t1]#, t4, t5]
             if config.c_next_c:
                 t0 = tf.concat([ec,            ec_next], axis=axis)
                 #t1 = tf.concat([re_uc,   re_uc_next], axis=axis)
                 t1 = tf.concat([re_uc_with_g,   re_uc_with_g_next], axis=axis)
 
                 stack = [t0, t1]
+            if config.c_next_c_with_g:
+                t2 = tf.concat([re_uc_with_g,   re_re_uc_next_with_g], axis=axis)
+
+                stack = [t0, t1, t2]
             stacked = ops.concat(stack, axis=0)
             features = None#ops.concat([f0, f2, f3], axis=0)
             d = self.create_component(config.c_discriminator, name='d_img', input=stacked, features=[features])

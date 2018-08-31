@@ -313,13 +313,18 @@ class AliNextFrameGAN(BaseGAN):
             if config.use_x:
                 t0 = tf.concat(self.frames, axis=3)
                 t2 = tf.concat(self.frames[:-1]+[gen.sample], axis=3)#self.create_component(config.image_generator, input=zs[-1], name='image_generator', reuse=True).sample
-                #t3 = tf.concat(self.split_batch(re_uc_gen_all.sample, len(self.frames)), axis=3)
-                #t0 = tf.concat([self.frames[-1], self.frames[-1]], axis=3)
-                #t2 = tf.concat([self.frames[-1], gen.sample], axis=3)#self.create_component(config.image_generator, input=zs[-1], name='image_generator', reuse=True).sample
-                #t3 = img_generator.sample
-                stack = [t0, t2]#, t3]
+                t3 = tf.concat(self.split_batch(uc_gen_all.sample, len(self.frames)), axis=3)
+                #f0 = tf.concat(zs, axis=3)
+                #f2 = tf.concat(zs[:-1]+[vg], axis=3)
+                #f3 = tf.concat(uc_zs, axis=3)
+                f0 = video_encoder.sample
+                f2 = video_encoder.sample
+                f3 = uc.sample
+                stack = [t0, t2,t3]
+                features = [f0,f2,f3]
+                features = tf.concat(features, axis=0)
                 stacked = ops.concat(stack, axis=0)
-                d = self.create_component(config.image_discriminator, name='d_manifold', input=stacked)
+                d = self.create_component(config.image_discriminator, name='d_manifold', input=stacked, features=[features])
                 d_vars += d.variables()
                 l = self.create_loss(config.loss, d, None, None, len(stack))
                 d_loss += l.d_loss

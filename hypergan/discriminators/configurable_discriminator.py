@@ -707,7 +707,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         else:
             w = int(args[0])
             h = int(args[1])
-        net = tf.slice(net, [0,0,0,int(options.d_offset or 0)], [-1,h,w,-1])
+            d = int(args[2])
+        net = tf.slice(net, [0,0,0,int(options.d_offset or 0)], [-1,h,w,d])
         return net
 
     def layer_noise(self, net, args, options):

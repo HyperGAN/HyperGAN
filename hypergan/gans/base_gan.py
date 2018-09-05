@@ -136,6 +136,10 @@ class BaseGAN(GANComponent):
             for var_name, saved_var_name in var_names:
                 curr_var = name2var[saved_var_name]
                 var_shape = curr_var.get_shape().as_list()
+                if saved_shapes[saved_var_name] is None:
+                    print(" (load) No variable found, weights discarded", saved_var_name)
+                if saved_shapes[saved_var_name] != var_shape:
+                    print(" (load) Shapes do not match, weights discarded", var_shape, " vs loaded ", saved_shapes[saved_var_name])
                 if var_shape == saved_shapes[saved_var_name]:
                     restore_vars.append(curr_var)
         saver = tf.train.Saver(restore_vars)

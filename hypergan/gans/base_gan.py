@@ -131,6 +131,7 @@ class BaseGAN(GANComponent):
         var_names = sorted([(var.name, var.name.split(':')[0]) for var in variables
                 if var.name.split(':')[0] in saved_shapes])
         restore_vars = []
+        post_restore_vars = []
         name2var = dict(zip(map(lambda x:x.name.split(':')[0], variables), variables))
         with tf.variable_scope('', reuse=True):
             for var_name, saved_var_name in var_names:
@@ -139,11 +140,30 @@ class BaseGAN(GANComponent):
                 if saved_shapes[saved_var_name] is None:
                     print(" (load) No variable found, weights discarded", saved_var_name)
                 if saved_shapes[saved_var_name] != var_shape:
-                    print(" (load) Shapes do not match, weights discarded", saved_var_name, var_shape, " vs loaded ", saved_shapes[saved_var_name])
+                    #print(" (load) Shapes do not match, weights discarded", saved_var_name, var_shape, " vs loaded ", saved_shapes[saved_var_name])
+                    print(" (load) Shapes do not match, extra reinitialized", saved_var_name, var_shape, " vs loaded ", saved_shapes[saved_var_name], curr_var)
+                    saved_var = tf.zeros(saved_shapes[saved_var_name])
+                    s1 = self.ops.shape(curr_var)
+                    s2 = saved_shapes[saved_var_name]
+                    new_var = curr_var
+
+                    for i, (_s1, _s2) in enumerate(zip(s1, s2)):
+                        if _s1 != _s2:
+                            ns = [-1 for i in s1]
+                            ns[-1] = s1[-1] - s2[-1]
+
+                            curr_var_remainder = tf.slice(new_var, [0 for i in s1], ns)
+                            new_var = tf.concat([saved_var, curr_var_remainder], axis=i)
+                    post_restore_op = tf.assign(curr_var, new_var)
+                    post_restore_vars.append([post_restore_op, saved_var, reader.get_tensor(saved_var_name)])
+
                 if var_shape == saved_shapes[saved_var_name]:
                     restore_vars.append(curr_var)
         saver = tf.train.Saver(restore_vars)
         saver.restore(session, save_file)
+
+        for op, var, val in post_restore_vars:
+            self.gan.session.run(op, {var: val})
 
     def variables(self):
         return self.ops.variables() + sum([c.variables() for c in self.components], [])

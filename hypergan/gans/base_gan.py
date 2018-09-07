@@ -148,12 +148,19 @@ class BaseGAN(GANComponent):
                     new_var = curr_var
 
                     for i, (_s1, _s2) in enumerate(zip(s1, s2)):
-                        if _s1 != _s2:
+                        if _s1 > _s2:
                             ns = [-1 for i in s1]
-                            ns[-1] = s1[-1] - s2[-1]
+                            ns[i] = s1[i] - s2[i]
 
                             curr_var_remainder = tf.slice(new_var, [0 for i in s1], ns)
                             new_var = tf.concat([saved_var, curr_var_remainder], axis=i)
+
+                        elif _s2 > _s1:
+                            ns = [-1 for i in s1]
+                            ns[i] = s1[i]
+
+                            new_var = tf.slice(new_var, [0 for i in s1], ns)
+
                     post_restore_op = tf.assign(curr_var, new_var)
                     post_restore_vars.append([post_restore_op, saved_var, reader.get_tensor(saved_var_name)])
 

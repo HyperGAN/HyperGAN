@@ -145,15 +145,16 @@ class BaseGAN(GANComponent):
                     saved_var = tf.zeros(saved_shapes[saved_var_name])
                     s1 = self.ops.shape(curr_var)
                     s2 = saved_shapes[saved_var_name]
-                    new_var = curr_var
+                    new_var = saved_var
 
                     for i, (_s1, _s2) in enumerate(zip(s1, s2)):
                         if _s1 > _s2:
-                            ns = [-1 for i in s1]
+                            s3 = self.ops.shape(new_var)
+                            ns = [i for i in s3]
                             ns[i] = s1[i] - s2[i]
 
-                            curr_var_remainder = tf.slice(new_var, [0 for i in s1], ns)
-                            new_var = tf.concat([saved_var, curr_var_remainder], axis=i)
+                            curr_var_remainder = tf.slice(curr_var, [0 for i in s1], ns)
+                            new_var = tf.concat([new_var, curr_var_remainder], axis=i)
 
                         elif _s2 > _s1:
                             ns = [-1 for i in s1]

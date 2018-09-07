@@ -48,6 +48,7 @@ class CurriculumTrainer(BaseTrainer):
             config_name = self.curriculum[self.curriculum_index][1]
 
             newconfig_file = hg.Configuration.find(config_name+'.json')
+            print("=> Loading config file", newconfig_file)
             newconfig = hc.Selector().load(newconfig_file)
             if 'inherit' in newconfig:
                 base_filename = hg.Configuration.find(newconfig['inherit']+'.json')

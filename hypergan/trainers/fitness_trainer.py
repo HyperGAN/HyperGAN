@@ -96,16 +96,39 @@ class FitnessTrainer(BaseTrainer):
                 return tf.random_uniform(shape, minval=-1, maxval=1)
 
             if self.config.eps_type == 'unit-ball':
-                q= random_like(self.gan.encoder.sample)
+                if self.gan.config.u_to_z:
+                    q= random_like(self.gan.uniform_encoder.sample)
+                else:
+                    q= random_like(self.gan.encoder.sample)
                 eps = self.config.eps_scale*(q / tf.sqrt(tf.reduce_sum(tf.square(q))))
             else:
                 eps = self.config.eps or 1e-8#random_like(self.gan.encoder.sample, mean=mean)
             eps_constant = self.config.eps or 1e-8#random_like(self.gan.encoder.sample, mean=mean)
-            g2 = self.gan.create_component(self.gan.config.generator, input=(self.gan.encoder.sample+eps), reuse=True)
-            #g2 = self.gan.generator
-            d2 = self.gan.create_component(self.gan.config.discriminator, name="discriminator", g=g2.sample, x=self.gan.inputs.x, reuse=True)
+            if self.gan.config.u_to_z:
+                u1 = self.gan.uniform_encoder.sample
+                u2 = u1 + eps
+                u_to_z2 = self.gan.create_component(self.gan.config.u_to_z, name='u_to_z', input=u2, reuse=True)
+                g2 = self.gan.create_component(self.gan.config.generator, input=u_to_z2.sample, name='generator', reuse=True)
+
+                features = tf.concat([self.gan.encoder.sample, u_to_z2.sample], axis=0)
+                d2 = self.gan.create_component(self.gan.config.discriminator, name="discriminator", g=g2.sample, x=self.gan.inputs.x, features=[features], reuse=True)
+
+                encode_g2 = self.gan.create_encoder(g2.sample, reuse=True)
+                stack_z = [self.gan.encoder.sample, encode_g2.sample]
+                stacked_zs = self.ops.concat(stack_z, axis=0)
+                z_discriminator = self.gan.create_component(self.gan.config.z_discriminator, name='z_discriminator', input=stacked_zs, reuse=True)
+ 
+            else:
+                g2 = self.gan.create_component(self.gan.config.generator, input=(self.gan.encoder.sample+eps), reuse=True)
+                #g2 = self.gan.generator
+                features = tf.concat([self.gan.encoder.sample, self.gan.encoder.sample+eps], axis=0)
+                d2 = self.gan.create_component(self.gan.config.discriminator, name="discriminator", g=g2.sample, x=self.gan.inputs.x, features=[features], reuse=True)
             loss2 = self.gan.create_component(self.gan.config.loss, discriminator=d2, generator=g2)
             d_loss2, g_loss2 = loss2.sample
+            if self.gan.config.u_to_z:
+                l2 = self.gan.create_component(self.gan.config.loss, discriminator=z_discriminator, reuse=True)
+                d_loss2 += l2.sample[0]
+                g_loss2 += l2.sample[1]
             if self.config.use_dloss:
                 d_grads2 = tf.gradients(d_loss+eps, d_vars)
                 g_grads2 = tf.gradients(g_loss+eps, g_vars)
@@ -118,8 +141,19 @@ class FitnessTrainer(BaseTrainer):
                 grads2 = d_grads2 + g_grads2
 
             jf = []
-            for j2, j,g in zip(tf.gradients(grads2, allvars), tf.gradients(grads, allvars), grads):
-                if j2 is not None and j is not None:
+
+            filtered_grads2 = []
+            for g,v in zip(grads2, d_vars+g_vars):
+                if g is not None:
+                    filtered_grads2 += [g]
+                else:
+                    filtered_grads2 += [tf.zeros_like(v)]
+            ag2 = tf.gradients(filtered_grads2, allvars)
+
+            for i, g in enumerate(grads):
+                if ag2[i] is not None:
+                    j = ag1[i]
+                    j2 = ag2[i]
                     jf += [(j2 - j)]
                 else:
                     print("ZEROS LIKE", g)

@@ -141,6 +141,7 @@ class FitnessTrainer(BaseTrainer):
                 grads2 = d_grads2 + g_grads2
 
             jf = []
+            ag1 = tf.gradients(grads, allvars)
 
             filtered_grads2 = []
             for g,v in zip(grads2, d_vars+g_vars):

@@ -158,9 +158,9 @@ class BaseGAN(GANComponent):
 
                         elif _s2 > _s1:
                             ns = [-1 for i in s1]
-                            ns[i] = s1[i]
+                            ns[i] = _s1
 
-                            new_var = tf.slice(new_var, [0 for i in s1], ns)
+                            new_var = tf.slice(curr_var, [0 for i in s1], ns)
 
                     post_restore_op = tf.assign(curr_var, new_var)
                     post_restore_vars.append([post_restore_op, saved_var, reader.get_tensor(saved_var_name)])

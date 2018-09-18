@@ -218,7 +218,7 @@ class CLI:
 
     def sample_forever(self):
         while True:
-            sample_file="samples/%06d.png" % (self.samples)
+            sample_file="samples/"+self.config_name +"/%06d.png" % (self.samples)
             self.create_path(sample_file)
             self.sample(sample_file)
             self.samples += 1

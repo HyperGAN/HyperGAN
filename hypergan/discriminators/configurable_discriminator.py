@@ -43,6 +43,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "deconv": self.layer_deconv,
             "resize_conv": self.layer_resize_conv,
             "squash": self.layer_squash,
+            "add": self.layer_add,
             "avg_pool": self.layer_avg_pool,
             "reference": self.layer_reference,
             "image_statistics": self.layer_image_statistics,
@@ -53,6 +54,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         self.features = features
         self.controls = {}
         self.named_layers = {}
+        self.subnets = hc.Config(hc.Config(config).subnets or {})
         
         BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse, x=x, g=g)
 
@@ -210,8 +212,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             fltr = [int(fltr), int(fltr)]
         if type(stride) == type(""):
             stride = [int(stride), int(stride)]
-        depth = int(args[0])
-
+        if len(args) > 0:
+            depth = int(args[0])
+        else:
+            depth = self.ops.shape(net)[-1]
         initializer = None # default to global
 
         trainable = True
@@ -355,6 +359,18 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         net = tf.reduce_mean(net, axis=1, keep_dims=True)
 
         return net
+    
+    def layer_add(self, net, args, options):
+        subnet = self.subnets[args[0]]
+        orig = net
+        for layer in subnet:
+            net = self.parse_layer(net, layer)
+            self.layers += [net]
+        if "lambda" in options:
+            lam = self.parse_lambda(options)
+            return orig + lam * net
+        else:
+            return orig + net
 
     def layer_conv_dts(self, net, args, options):
         options = hc.Config(options)
@@ -463,15 +479,31 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         net = tf.concat([x,y],axis=2)
         return net
 
+    def parse_lambda(self, options):
+        gan = self.gan
+        lam = options['lambda']
+        if ":" in lam:
+            lambda_steps = 0
+            if "lambda_steps" in options:
+                lambda_steps = float(options["lambda_steps"])
+            oj_s = lam.split(':')
+            #min + (max - min)*step/total_steps
+            progress = tf.minimum(1.0, tf.cast(gan.global_step, dtype=tf.float32)/tf.constant(lambda_steps))
+            oj_min = float(oj_s[0])
+            oj_max = float(oj_s[1])
+            oj_lambda = oj_min +(oj_max-oj_min)*progress
+            gan.oj_lambda = oj_lambda
+        else:
+            oj_lambda = float(lam)
+        return oj_lambda
+
+
     def layer_attention(self, net, args, options):
         ops = self.ops
         options = hc.Config(options)
-        oj_lambda = options.oj_lambda
-        if oj_lambda is None:
-            oj_lambda = 1
-        oj_lambda = float(oj_lambda)
+        gan = self.gan
+        oj_lambda = self.parse_lambda(options)
         c_scale = float(options.c_scale or 8)
-        print("Size",net)
 
         def _flatten(_net):
             return tf.reshape(_net, [ops.shape(_net)[0], -1, ops.shape(_net)[-1]])
@@ -480,7 +512,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             _net = tf.nn.avg_pool(_net, ksize=ksize, strides=ksize, padding='SAME')
             return _net
         def _attn(_net, name=None):
-            args[0] = ops.shape(_net)[-1]//2
+            args = [ops.shape(_net)[-1]//2]
             name = name or self.ops.generate_name()
             options.name=name+'_fx'
             fx = self.layer_conv(_net, args, options)

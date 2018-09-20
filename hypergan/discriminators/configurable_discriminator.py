@@ -501,9 +501,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
                 lambda_steps = float(options["lambda_steps"])
             oj_s = lam.split(':')
             #min + (max - min)*step/total_steps
-            progress = tf.minimum(1.0, tf.cast(gan.global_step, dtype=tf.float32)/tf.constant(lambda_steps))
             oj_min = float(oj_s[0])
             oj_max = float(oj_s[1])
+            progress = tf.minimum(oj_max, tf.cast(gan.global_step, dtype=tf.float32)/tf.constant(lambda_steps, dtype=tf.float32))
+            progress = tf.maximum(oj_min, progress)
             oj_lambda = oj_min +(oj_max-oj_min)*progress
             gan.oj_lambda = oj_lambda
         else:

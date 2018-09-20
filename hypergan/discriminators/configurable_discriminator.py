@@ -363,6 +363,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_add(self, net, args, options):
         subnet = self.subnets[args[0]]
         orig = net
+        if "input" in options:
+            net = self.layer(options["input"])
         for layer in subnet:
             net = self.parse_layer(net, layer)
             self.layers += [net]

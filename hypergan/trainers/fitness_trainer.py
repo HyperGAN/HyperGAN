@@ -80,6 +80,7 @@ class FitnessTrainer(BaseTrainer):
         )
         if config.update_rule == "ttur" or config.update_rule == 'single-step':
             Jgrads = [0 for i in allvars]
+
         elif config.update_rule == 'crossing-the-curl':
             pif = [config.update_rule_i_lambda*g for g in grads]
             #jtf = [0.5*tf.square(g) for g in grads]
@@ -546,8 +547,9 @@ class FitnessTrainer(BaseTrainer):
                 if ((self.current_step % (self.config.constraint_every or 100)) == 0):
                     if self.config.weight_constraint:
                         sess.run(self.update_weight_constraints, feed_dict)
-                sess.run(self.assign_ema)
-                sess.run(self.assign_past_weights)
+                if(self.config.skip_ema is None):
+                    sess.run(self.assign_ema)
+                    sess.run(self.assign_past_weights)
             else:
                 self.hist[1]+=1
                 fitness_decay = config.fitness_decay or 0.99

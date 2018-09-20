@@ -379,10 +379,12 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         config = self.config
         ops = self.ops
 
+        self.ops.activation_name = options.activation_name
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or config.defaults.stride or [1,1]
+        stride = options.stride or config.defaults.stride[0] or 1
+        stride = int(stride)
         fltr = options.filter or config.defaults.filter or [3,3]
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
@@ -393,12 +395,21 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         trainable = True
         if options.trainable == 'false':
             trainable = False
-        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer, trainable=trainable)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride, stride, depth*4, initializer=initializer, trainable=trainable)
         s = ops.shape(net)
         net = tf.depth_to_space(net, 2)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
+
+        avg_pool = options.avg_pool or config.defaults.avg_pool
+        if type(avg_pool) == type(""):
+            avg_pool = [int(avg_pool), int(avg_pool)]
+        if avg_pool:
+            ksize = [1,avg_pool[0], avg_pool[1],1]
+            stride = ksize
+            net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
+
         return net
 
     def layer_controls(self, net, args, options):

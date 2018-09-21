@@ -23,6 +23,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "control": self.layer_controls,
             "linear": self.layer_linear,
             "identity": self.layer_identity,
+            "double_resolution": self.layer_double_resolution,
             "attention": self.layer_attention,
             "subpixel": self.layer_subpixel,
             "pixel_norm": self.layer_pixel_norm,
@@ -836,6 +837,27 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_pixel_norm(self, net, args, options):
         epsilon = 1e-8
         return net * tf.rsqrt(tf.reduce_mean(tf.square(net), axis=1, keepdims=True) + epsilon)
+
+    def layer_double_resolution(self, net, args, options):
+
+        def scale_up(piece):
+            orig_shape = self.ops.shape(piece)
+            orig_piece = piece
+            piece = tf.reshape(piece, [-1, 1, 1])
+            piece = tf.tile(piece, [1,2,2])
+            ns = []
+            squares = tf.reshape(piece, [-1, 2])
+            cells = tf.split(squares, self.ops.shape(squares)[0], axis=0)
+            for i in range(0,self.ops.shape(squares)[0],orig_shape[1]*2):
+                ra = cells[i:(i+orig_shape[1]*2)]
+                ns += ra[::2]+ra[1::2]
+            ns = tf.concat(ns, axis=0)
+            new_shape = [orig_shape[0], orig_shape[1]*2, orig_shape[2]*2, 1]
+            result = tf.reshape(ns, new_shape)
+            return result
+        pieces = tf.split(net, self.ops.shape(net)[3], 3)
+        pieces = [scale_up(piece) for piece in pieces]
+        return tf.concat(pieces, axis=3)
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

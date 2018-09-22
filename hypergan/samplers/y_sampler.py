@@ -18,8 +18,12 @@ class YSampler(BaseSampler):
         self.y_t = gan.y.sample
         self.y = gan.session.run(self.y_t)
         self.g=tf.get_default_graph()
-        self.frames = gan.session.run(gan.frames)[:-1]
-        self.frames_t = gan.frames[:-1]
+        self.frames = gan.session.run(gan.frames)
+        self.frames_t = gan.frames
+        self.zs_t = [gan.video_generator_last_z]
+        self.zs = gan.session.run([gan.video_generator_last_z])
+        self.cs_t = [gan.video_generator_last_c]
+        self.cs = gan.session.run([gan.video_generator_last_c])
         self.i=0
 
     def _sample(self):
@@ -29,30 +33,37 @@ class YSampler(BaseSampler):
         with g.as_default():
             tf.set_random_seed(1)
             feed_dict = dict(zip(self.frames_t, self.frames))
-            sample = gan.session.run(gan.gx.sample, feed_dict=feed_dict)
+            sample = gan.session.run(gan.gs_next[0], feed_dict=feed_dict)
             self.frames = self.frames[1:] + [sample]
 
             feed_dict = dict(zip(self.frames_t, self.frames))
             if self.i % 100 == 0:
                 if self.i == 0:
-                    self.frames3 = gan.session.run(gan.frames)[:-1]
+                    self.frames3 = gan.session.run(gan.frames)
             feed_dict = dict(zip(self.frames_t, self.frames3))
 
             if self.i % 100 == 0:
-                self.frames2 = gan.session.run(gan.frames)[:-1]
+                self.frames2 = gan.session.run(gan.frames)
             feed_dict = dict(zip(self.frames_t, self.frames2))
-            sample_reset = gan.session.run(gan.gx.sample, feed_dict=feed_dict)
+            sample_reset = gan.session.run(gan.gs_next[0], feed_dict=feed_dict)
             self.frames2 = self.frames2[1:] + [sample_reset]
 
             if self.i % 100 == 0:
-                self.prev_frames = gan.session.run(gan.frames)[1:]
+                self.prev_frames = gan.session.run(gan.frames)
             feed_dict = dict(zip(gan.frames[1:], [self.prev_frames[0]]+self.prev_frames[:-1]))
             prev_sample = gan.session.run(gan.gy.sample, feed_dict=feed_dict)
             self.prev_frames = [prev_sample] + self.prev_frames[:-1]
 
+            feed_dict = dict(zip(self.zs_t, self.zs))
+            feed_dict.update(dict(zip(self.cs_t,self.cs)))
+            gx, z_sample, c_sample = gan.session.run([gan.generator.sample, gan.video_generator_last_zn, gan.video_generator_last_cn], feed_dict=feed_dict)
+            self.zs = self.zs[1:] + [z_sample]
+            self.cs = self.cs[1:] + [c_sample]
 
+            feed_dict = dict(zip(self.zs_t, self.zs))
+            x = gan.session.run(gan.generator.sample)
             self.i+=1
             return {
-                'generator': np.hstack([sample,  sample_reset, prev_sample])
+                'generator': np.hstack([sample,  sample_reset, gx])
             }
 

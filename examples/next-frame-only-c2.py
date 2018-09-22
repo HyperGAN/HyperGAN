@@ -200,9 +200,19 @@ class AliNextFrameGAN(BaseGAN):
             self.g_vars += uc.variables()
 
             def ec(zt, cp,reuse=True):
+                if config.noise:
+                    randt = random_like(zt)
+                    if config.proxy:
+                        dist3 = UniformEncoder(self, config.z_distribution)
+                        rand_zt = self.create_component(config.uc, name='rand_zt', input=dist3.sample, reuse=reuse)
+                        randt = rand_zt.sample
+                    zt = tf.concat([zt, randt], axis=3)
+
                 #cp = tf.concat([cp, random_like(cp)], axis=3)
                 c = self.create_component(config.ec, name='ec', input=zt, features=[cp], reuse=reuse)
                 if not reuse:
+                    if config.proxy:
+                        self.g_vars += rand_ct.variables()
                     self.g_vars += c.variables()
                 return c.sample
             def ez(ft, zp,reuse=True):
@@ -213,18 +223,9 @@ class AliNextFrameGAN(BaseGAN):
 
             def build_g(zt, ct, reuse=True):
                 print("Gb", reuse)
-                if config.noise:
-                    randt = random_like(ct)
-                    if config.proxy:
-                        dist3 = UniformEncoder(self, config.z_distribution)
-                        rand_ct = self.create_component(config.uc, name='rand_ct', input=dist3.sample, reuse=reuse)
-                        randt = rand_ct.sample
-                    ct = tf.concat([ct, randt], axis=3)
                 g = self.create_component(config.generator, name='generator', input=ct, features=[zt], reuse=reuse)
                 if not reuse:
                     self.g_vars += g.variables()
-                    if config.proxy:
-                        self.g_vars += rand_ct.variables()
                 return g.sample
 
             def encode_frames(fs, c0, z0, reuse=True):
@@ -257,7 +258,7 @@ class AliNextFrameGAN(BaseGAN):
 
                 return gs, cs, zs
 
-            cs, zs, x_hats = encode_frames(self.frames, uc.sample,uz.sample, reuse=False)
+            cs, zs, x_hats = encode_frames(self.frames, tf.zeros_like(uc.sample),tf.zeros_like(uz.sample), reuse=False)
             self.zs = zs
             self.cs = cs
             ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames)-2)
@@ -272,9 +273,9 @@ class AliNextFrameGAN(BaseGAN):
             f1 = tf.concat(re_ucs, axis=3)
             f2 = tf.concat(re_cs_next, axis=3)
 
-            stack = [t0,t1]#, t4, t5]
+            stack = [t0,t1,t2]#, t4, t5]
             stacked = ops.concat(stack, axis=0)
-            features =ops.concat([f0,f1], axis=0)
+            features =ops.concat([f0,f1,f2], axis=0)
             d = self.create_component(config.z_discriminator, name='d_img', input=stacked, features=[features])
             d_vars += d.variables()
             l = self.create_loss(config.loss, d, None, None, len(stack))
@@ -310,11 +311,14 @@ class AliNextFrameGAN(BaseGAN):
                 #f4 = tf.concat(zs[-2], axis=3)
                 #f5 = tf.concat(zs[-2], axis=3)
  
-                stack = [t0, t2]
-                features = [f0, f2]
+                stack = [t0]
+                features = [f0]
                 if config.encode_forward:
                     stack += [t3,t6]
                     features += [f3,f6]
+                if config.encode_ug:
+                    stack += [t2]
+                    features += [f2]
 
                 stacked = ops.concat(stack, axis=0)
                 features = tf.concat(features, axis=0)

@@ -201,18 +201,18 @@ class AliNextFrameGAN(BaseGAN):
 
             def ec(zt, cp,reuse=True):
                 if config.noise:
-                    randt = random_like(zt)
+                    randt = random_like(cp)
                     if config.proxy:
                         dist3 = UniformEncoder(self, config.z_distribution)
-                        rand_zt = self.create_component(config.uc, name='rand_zt', input=dist3.sample, reuse=reuse)
-                        randt = rand_zt.sample
-                    zt = tf.concat([zt, randt], axis=3)
+                        proxy_c = self.create_component(config.proxy_c, name='rand_ct', input=dist3.sample, reuse=reuse)
+                        randt = proxy_c.sample
+                    cp = tf.concat([cp, randt], axis=3)
 
                 #cp = tf.concat([cp, random_like(cp)], axis=3)
                 c = self.create_component(config.ec, name='ec', input=zt, features=[cp], reuse=reuse)
                 if not reuse:
                     if config.proxy:
-                        self.g_vars += rand_ct.variables()
+                        self.g_vars += procxy_c.variables()
                     self.g_vars += c.variables()
                 return c.sample
             def ez(ft, zp,reuse=True):

@@ -212,7 +212,7 @@ class AliNextFrameGAN(BaseGAN):
                 c = self.create_component(config.ec, name='ec', input=zt, features=[cp], reuse=reuse)
                 if not reuse:
                     if config.proxy:
-                        self.g_vars += procxy_c.variables()
+                        self.g_vars += proxy_c.variables()
                     self.g_vars += c.variables()
                 return c.sample
             def ez(ft, zp,reuse=True):

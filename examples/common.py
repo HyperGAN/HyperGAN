@@ -381,7 +381,7 @@ def parse_size(size):
     return [width, height, channels]
 
 def lookup_config(args):
-    if args.action == 'train' or args.action == 'sample':
+    if args.action == 'train' or args.action == 'sample' or args.action == 'metrics':
         return hg.configuration.Configuration.load(args.config+".json")
     
 def random_config_from_list(config_list_file):

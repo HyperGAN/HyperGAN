@@ -296,29 +296,17 @@ class AliNextFrameGAN(BaseGAN):
             self.video_generator_last_cn = ctn
             gen = hc.Config({"sample":ugs[0]})
             if config.use_x:
-                t0 = tf.concat(self.frames[1:], axis=3)#self.frames[-1]#tf.concat(self.frames, axis=3)
-                t2 = tf.concat(ugs, axis=3)#ugs[-1]#tf.concat(ugs[:-1], axis=3)
-                t3 = tf.concat(gs_next, axis=3)#gs_next[-1]#tf.concat(gs_next, axis=3)
-                t6 = tf.concat(self.frames[2:]+[gs_next[0]], axis=3)#gs_next[1]#tf.concat(self.frames[1:]+[gs_next[1]], axis=3)
-                t7 = tf.concat(ugs_next, axis=3)#gs_next[1]#tf.concat(self.frames[1:]+[gs_next[1]], axis=3)
-                t8 = tf.concat(ugs[:-1], axis=3)#gs_next[1]#tf.concat(self.frames[1:]+[gs_next[1]], axis=3)
-                # c0 -> f1
-                # c1 -> f2
-                # c2 -> f3
+                t0 = tf.concat(self.frames[1:], axis=3)
+                t2 = tf.concat(ugs[:-1], axis=3)
+                t3 = tf.concat(gs_next, axis=3)
+                t6 = tf.concat(self.frames[2:]+[gs_next[0]], axis=3)
+                t7 = tf.concat(ugs_next, axis=3)
 
-                # c0 -> g1
-                # c1 -> g2
-                # c2 -> g3
-                #t4 = tf.concat(x_hats[1:], axis=3)
-                #t5 = tf.concat(self.frames[1:] + [gs_next[1]], axis=3)
-                f0 = tf.concat(cs[1:-1], axis=3)#cs[-1]#tf.concat(zs[-1], axis=3)
-                f2 = tf.concat(ucs, axis=3)#ucs[-1]#tf.concat(uzs[-2], axis=3)
-                f3 = tf.concat(cs_next, axis=3)#cs_next[-1]#tf.concat(cs_next[1:-1], axis=3)
-                f6 = tf.concat(cs[2:], axis=3)#cs_next[1]#tf.concat(zs[-1], axis=3)
+                f0 = tf.concat(cs[1:-1], axis=3)
+                f2 = tf.concat(ucs[:-1], axis=3)
+                f3 = tf.concat(cs_next, axis=3)
+                f6 = tf.concat(cs[2:], axis=3)
                 f7 = tf.concat(ucs_next, axis=3)
-                f8 = tf.concat(ucs[:-1], axis=3)
-                #f4 = tf.concat(zs[-2], axis=3)
-                #f5 = tf.concat(zs[-2], axis=3)
  
                 stack = [t0]
                 features = [f0]
@@ -326,8 +314,8 @@ class AliNextFrameGAN(BaseGAN):
                     stack += [t3,t6]
                     features += [f3,f6]
                 if config.encode_ug:
-                    stack += [t8]
-                    features += [f8]
+                    stack += [t2]
+                    features += [f2]
 
                 stacked = ops.concat(stack, axis=0)
                 features = tf.concat(features, axis=0)

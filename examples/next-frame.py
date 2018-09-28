@@ -194,8 +194,12 @@ class AliNextFrameGAN(BaseGAN):
 
             dist = UniformEncoder(self, config.z_distribution)
             dist2 = UniformEncoder(self, config.z_distribution)
+            dist3 = UniformEncoder(self, config.z_distribution)
+            dist4 = UniformEncoder(self, config.z_distribution)
             uz = self.create_component(config.uz, name='u_to_z', input=dist.sample)
             uc = self.create_component(config.uc, name='u_to_c', input=dist2.sample)
+            uz2 = self.create_component(config.uz, name='u_to_z', input=dist3.sample, reuse=True)
+            uc2 = self.create_component(config.uc, name='u_to_c', input=dist4.sample, reuse=True)
 
             self.g_vars += uz.variables()
             self.g_vars += uc.variables()
@@ -259,7 +263,7 @@ class AliNextFrameGAN(BaseGAN):
 
                 return gs, cs, zs
 
-            cs, zs, x_hats = encode_frames(self.frames, tf.zeros_like(uc.sample),tf.zeros_like(uz.sample), reuse=False)
+            cs, zs, x_hats = encode_frames(self.frames, uc2.sample, uz2.sample)
             self.zs = zs
             self.cs = cs
             ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames)-1)
@@ -273,8 +277,8 @@ class AliNextFrameGAN(BaseGAN):
             t1 = tf.concat(re_uzs[1:], axis=3)
             t2 = tf.concat(re_zs_next[1:], axis=3)
             t3 = tf.concat(re_uzs_next[1:], axis=3)
-            f0 = tf.concat(cs[2:-1], axis=3)
-            f1 = tf.concat(re_ucs[1:-1], axis=3)
+            f0 = tf.concat(cs[1:-1], axis=3)
+            f1 = tf.concat(re_ucs[:-1], axis=3)
             f2 = tf.concat(re_cs_next[1:-1], axis=3)
             f3 = tf.concat(re_ucs_next[1:-1], axis=3)
 

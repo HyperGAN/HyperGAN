@@ -165,7 +165,8 @@ inputs.create(args.directory,
         height=height,
         resize=True)
 
-save_file = "save/model.ckpt"
+save_file = "saves/" + args.config + "/model.ckpt"
+os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
 class AliNextFrameGAN(BaseGAN):
     """ 
@@ -559,7 +560,8 @@ def train(config, inputs, args):
             gan.save(save_file)
 
         if i % args.sample_every == 0:
-            sample_file="samples/%06d.png" % (samples)
+            sample_file="samples/"+args.config+"/%06d.png" % (samples)
+            os.makedirs(os.path.expanduser(os.path.dirname(sample_file)), exist_ok=True)
             samples += 1
             sampler.sample(sample_file, args.save_samples)
 
@@ -576,7 +578,8 @@ def sample(config, inputs, args):
     sampler = lookup_sampler(args.sampler or VideoFrameSampler)(gan)
     samples = 0
     for i in range(args.steps):
-        sample_file="samples/%06d.png" % (samples)
+        sample_file="samples/"+args.config+"/%06d.png" % (samples)
+        os.makedirs(os.path.expanduser(os.path.dirname(sample_file)), exist_ok=True)
         samples += 1
         sampler.sample(sample_file, args.save_samples)
 

@@ -268,7 +268,7 @@ class AliNextFrameGAN(BaseGAN):
             ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames)-1)
             ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames)-1)
             re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:], ucs_next[0], uzs_next[0])
-            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames)-2)
+            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames)-1)
             re_ucs, re_uzs, ugs_hat = encode_frames(ugs[1:], ucs[0], uzs[0])
             re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:], cs_next[0], zs_next[0])
 
@@ -278,12 +278,12 @@ class AliNextFrameGAN(BaseGAN):
             t3 = tf.concat(re_uzs_next[1:], axis=3)
             f0 = tf.concat(cs[1:-1], axis=3)
             f1 = tf.concat(re_ucs[:-1], axis=3)
-            f2 = tf.concat(re_cs_next[1:-1], axis=3)
+            f2 = tf.concat(re_cs_next[:-1], axis=3)
             f3 = tf.concat(re_ucs_next[1:-1], axis=3)
 
-            stack = [t0,t1]#, t4, t5]
+            stack = [t0,t1, t2]#, t4, t5]
             stacked = ops.concat(stack, axis=0)
-            features =ops.concat([f0,f1], axis=0)
+            features =ops.concat([f0,f1,f2], axis=0)
             d = self.create_component(config.z_discriminator, name='d_img', input=stacked, features=[features])
             d_vars += d.variables()
             l = self.create_loss(config.loss, d, None, None, len(stack))
@@ -301,21 +301,27 @@ class AliNextFrameGAN(BaseGAN):
             if config.use_x:
                 t0 = tf.concat(self.frames[1:], axis=3)
                 t2 = tf.concat(ugs[:-1], axis=3)
-                t3 = tf.concat(gs_next, axis=3)
-                t6 = tf.concat(self.frames[2:]+[gs_next[0]], axis=3)
                 t7 = tf.concat(ugs_next, axis=3)
+                t3 = tf.concat(gs_next[:-1], axis=3)
+                t4 = tf.concat(self.frames[3:]+gs_next[:2], axis=3)
+                t5 = tf.concat(self.frames[4:]+gs_next[:3], axis=3)
+                t8 = tf.concat(self.frames[5:]+gs_next[:4], axis=3)
+                t6 = tf.concat(self.frames[2:]+[gs_next[0]], axis=3)
 
                 f0 = tf.concat(cs[1:-1], axis=3)
                 f2 = tf.concat(ucs[:-1], axis=3)
-                f3 = tf.concat(cs_next, axis=3)
-                f6 = tf.concat(cs[2:], axis=3)
                 f7 = tf.concat(ucs_next, axis=3)
+                f3 = tf.concat(cs_next[:-1], axis=3)
+                f4 = tf.concat(cs[3:]+[cs_next[0]], axis=3)
+                f5 = tf.concat(cs[4:]+cs_next[0:2], axis=3)
+                f8 = tf.concat(cs[5:]+cs_next[0:3], axis=3)
+                f6 = tf.concat(cs[2:], axis=3)
  
                 stack = [t0]
                 features = [f0]
                 if config.encode_forward:
-                    stack += [t3,t6]
-                    features += [f3,f6]
+                    stack += [t3,t4,t5,t6]
+                    features += [f3,f4,f5,f6]
                 if config.encode_ug:
                     stack += [t2]
                     features += [f2]

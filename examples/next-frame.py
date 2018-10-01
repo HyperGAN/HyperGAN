@@ -270,6 +270,7 @@ class AliNextFrameGAN(BaseGAN):
 
                 return gs, cs, zs
 
+            #self.frames = [f+tf.random_uniform(self.ops.shape(f), minval=-0.1, maxval=0.1) for f in self.frames ]
             cs, zs, x_hats = encode_frames(self.frames, uc2.sample, uz2.sample, reuse=False)
             self.zs = zs
             self.cs = cs
@@ -280,6 +281,7 @@ class AliNextFrameGAN(BaseGAN):
             gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames))
             re_ucs, re_uzs, ugs_hat = encode_frames(ugs[1:], ucs[0], uzs[0])
             re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:], cs_next[0], zs_next[0])
+            self.x_hats = x_hats
 
             # uz, re_uz, uc, re_uc
             # uz, re_uz[1], uc, re_uc[1]

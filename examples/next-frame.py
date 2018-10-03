@@ -196,10 +196,12 @@ class AliNextFrameGAN(BaseGAN):
             dist2 = UniformEncoder(self, config.z_distribution)
             dist3 = UniformEncoder(self, config.z_distribution)
             dist4 = UniformEncoder(self, config.z_distribution)
+            dist5 = UniformEncoder(self, config.z_distribution)
             uz = self.create_component(config.uz, name='u_to_z', input=dist.sample)
             uc = self.create_component(config.uc, name='u_to_c', input=dist2.sample)
             uz2 = self.create_component(config.uz, name='u_to_z', input=dist3.sample, reuse=True)
             uc2 = self.create_component(config.uc, name='u_to_c', input=dist4.sample, reuse=True)
+            uc3 = self.create_component(config.uc, name='u_to_c', input=dist5.sample, reuse=True)
 
             self.g_vars += uz.variables()
             self.g_vars += uc.variables()
@@ -261,31 +263,58 @@ class AliNextFrameGAN(BaseGAN):
                     cs.append(c)
                     gs.append(g)
 
+                z = ez(gs[-1], zs[-1], reuse=_reuse)
+                c = ec(z, cs[-1], reuse=_reuse)
+                zs.append(z)
+                cs.append(c)
+
                 return gs, cs, zs
 
             cs, zs, x_hats = encode_frames(self.frames, uc2.sample, uz2.sample, reuse=False)
             self.zs = zs
             self.cs = cs
-            ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames)-1)
-            ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames)-1)
+            ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
+            re_ugs, re_uzs, re_ugs = encode_frames(ugs[1:], ucs[0], uzs[0])
+            ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames))
             re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:], ucs_next[0], uzs_next[0])
-            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames)-1)
+            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames))
             re_ucs, re_uzs, ugs_hat = encode_frames(ugs[1:], ucs[0], uzs[0])
             re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:], cs_next[0], zs_next[0])
 
-            t0 = tf.concat(zs[2:], axis=3)
-            t1 = tf.concat(re_uzs[1:], axis=3)
-            t2 = tf.concat(re_zs_next[1:], axis=3)
-            t3 = tf.concat(re_uzs_next[1:], axis=3)
-            f0 = tf.concat(cs[1:-1], axis=3)
-            f1 = tf.concat(re_ucs[:-1], axis=3)
-            f2 = tf.concat(re_cs_next[:-1], axis=3)
-            f3 = tf.concat(re_ucs_next[1:-1], axis=3)
+            # uz, re_uz, uc, re_uc
+            # uz, re_uz[1], uc, re_uc[1]
+            # zs[1], re_uz[1], uc[1]?, re_uc[1]?
 
-            stack = [t0,t1, t2]#, t4, t5]
+            # zs = [uz, z0, z1]
+            # cs = [c0, c1, c2]
+            # gs = [g0, g1, g2]
+
+            # uzs = [uz, z0, z1, z2]
+
+            # re_uzs = [reuz0, reuz1]
+            # re_ucs = [re_uc, reuc0]
+
+            def rotate(first, second, offset=None):
+                rotations = [tf.concat(first[:offset], axis=3)]
+                elem = first
+                for e in second:
+                    elem = elem[1:]+[e]
+                    rotations.append(tf.concat(elem[:offset], axis=3))
+                return rotations
+
+            t0 = tf.concat(self.frames[1:], axis=3)
+            z0 = tf.concat(zs[1:-1], axis=3)
+            f0 = tf.concat(cs[1:-1], axis=3)
+
+
+            stack = [t0] + rotate(ugs, ugs_next, offset=-2) +      rotate(re_ugs, re_ugs_next, offset=-2) 
+            zfs = [z0]   + rotate(uzs, uzs_next[:-1], offset=-3) + rotate(re_uzs, re_uzs_next, offset=-2)
+            cfs = [f0]   + rotate(ucs, ucs_next[:-1], offset=-3) + rotate(re_ucs, re_ucs_next, offset=-2)
+
             stacked = ops.concat(stack, axis=0)
-            features =ops.concat([f0,f1,f2], axis=0)
-            d = self.create_component(config.z_discriminator, name='d_img', input=stacked, features=[features])
+            zfs = ops.concat(zfs, axis=0)
+            cfs = ops.concat(cfs, axis=0)
+            d = self.create_component(config.discriminator, name='d_img', input=stacked, features={"z":zfs, "c":cfs})
             d_vars += d.variables()
             l = self.create_loss(config.loss, d, None, None, len(stack))
             d_loss = l.d_loss
@@ -298,44 +327,9 @@ class AliNextFrameGAN(BaseGAN):
             ctn = ucs[1]
             self.video_generator_last_zn = ztn
             self.video_generator_last_cn = ctn
+            self.c_drift = self.ops.squash(tf.abs(ucs[1]-ucs[0]))
             gen = hc.Config({"sample":ugs[0]})
-            if config.use_x:
-                t0 = tf.concat(self.frames[1:], axis=3)
-                t2 = tf.concat(ugs[:-1], axis=3)
-                t7 = tf.concat(ugs_next, axis=3)
-                t3 = tf.concat(gs_next[:-1], axis=3)
-                t4 = tf.concat(self.frames[3:]+gs_next[:2], axis=3)
-                t5 = tf.concat(self.frames[4:]+gs_next[:3], axis=3)
-                t8 = tf.concat(self.frames[5:]+gs_next[:4], axis=3)
-                t6 = tf.concat(self.frames[2:]+[gs_next[0]], axis=3)
 
-                f0 = tf.concat(cs[1:-1], axis=3)
-                f2 = tf.concat(ucs[:-1], axis=3)
-                f7 = tf.concat(ucs_next, axis=3)
-                f3 = tf.concat(cs_next[:-1], axis=3)
-                f4 = tf.concat(cs[3:]+[cs_next[0]], axis=3)
-                f5 = tf.concat(cs[4:]+cs_next[0:2], axis=3)
-                f8 = tf.concat(cs[5:]+cs_next[0:3], axis=3)
-                f6 = tf.concat(cs[2:], axis=3)
- 
-                stack = [t0]
-                features = [f0]
-                if config.encode_forward:
-                    stack += [t3,t4,t5,t6]
-                    features += [f3,f4,f5,f6]
-                if config.encode_ug:
-                    stack += [t2]
-                    features += [f2]
-
-                stacked = ops.concat(stack, axis=0)
-                features = tf.concat(features, axis=0)
-                d = self.create_component(config.discriminator, name='d_manifold', input=stacked, features=[features])
-                d_vars += d.variables()
-                l = self.create_loss(config.loss, d, None, None, len(stack))
-                d_loss += l.d_loss
-                g_loss += l.g_loss
-
-    
             gx_sample = gen.sample
             gy_sample = gen.sample
             gx = hc.Config({"sample":gx_sample})

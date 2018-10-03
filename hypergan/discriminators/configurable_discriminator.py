@@ -308,6 +308,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         op = None
         if(len(args) > 0):
             op = args[0]
+        if 'name' in options:
+            print("Combining features----", [net, self.features[options["name"]]], self.features)
+            net = tf.concat([net, self.features[options['name']]], axis=len(self.ops.shape(net))-1)
+            return net
 
         for feature in self.features:
             if op == "conv":

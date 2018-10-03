@@ -304,51 +304,29 @@ class AliNextFrameGAN(BaseGAN):
             self.video_generator_last_zn = ztn
             self.video_generator_last_cn = ctn
             gen = hc.Config({"sample":ugs[0]})
+
             if config.use_x:
+                def rotate(first, second, offset=None):
+                    rotations = [tf.concat(first[:offset], axis=3)]
+                    elem = first
+                    for e in second:
+                        elem = elem[1:]+[e]
+                        rotations.append(tf.concat(elem[:offset], axis=3))
+                    return rotations
+
+
                 t0 = tf.concat(self.frames[1:], axis=3)
-                t2 = tf.concat(ugs[:-2], axis=3)
-                t2n = tf.concat(ugs[1:-1], axis=3)
-
-                t7 = tf.concat(ugs_next, axis=3)
-                t3 = tf.concat(gs_next[:-2], axis=3)
-                t4 = tf.concat(self.frames[3:]+gs_next[:2], axis=3)
-                t5 = tf.concat(self.frames[4:]+gs_next[:3], axis=3)
-                t8 = tf.concat(self.frames[5:]+gs_next[:4], axis=3)
-                t6 = tf.concat(self.frames[2:]+[gs_next[0]], axis=3)
-
-                f0 = tf.concat(cs[1:-1], axis=3)
-                f2 = tf.concat(ucs[:-2], axis=3)
-                f2n = tf.concat(ucs[1:-1], axis=3)
-                f7 = tf.concat(ucs_next, axis=3)
-                f3 = tf.concat(cs_next[:-2], axis=3)
-                f4 = tf.concat(cs[3:]+[cs_next[0]], axis=3)
-                f5 = tf.concat(cs[4:]+cs_next[0:2], axis=3)
-                f8 = tf.concat(cs[5:]+cs_next[0:3], axis=3)
-                f6 = tf.concat(cs[2:], axis=3)
 
                 stack = [t0]
                 features = [f0]
-                def interp(start, end):
-                    ts = []
-                    ts.append(start[:-1])
-                    ts.append(start[1:])
-                    ts.append(start[2:]+[end[1]])
-                    ts.append(start[3:]+end[1:3])
-                    ts.append(start[4:]+end[1:4])
-                    ts.append(end[:-1])
-                    ts.append(end[1:])
-                    ts = [tf.concat(t,axis=3) for t in ts]
-                    return ts
 
 
                 if config.encode_forward:
-                    #stack += [t3,t4,t5,t6]
-                    #features += [f3,f4,f5,f6]
-                    stack += [t3,t4,t5,t6]
-                    features += [f3,f4,f5,f6]
+                    stack += rotate(self.frames[2:]+[gs_next[0], gs_next[1:])
+                    features += rotate(cs[2:], cs_next[:-1])
                 if config.encode_ug:
-                    stack += [t2,t2n]
-                    features += [f2,f2n]
+                    stack += rotate(ugs[:-2], ugs[2:]+ugs_next[:-2])
+                    features += rotate(ucs[:-2], ucs[2:]+ucs_next[:-2])
 
                 stacked = ops.concat(stack, axis=0)
                 features = tf.concat(features, axis=0)

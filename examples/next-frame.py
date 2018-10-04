@@ -263,11 +263,6 @@ class AliNextFrameGAN(BaseGAN):
                     cs.append(c)
                     gs.append(g)
 
-                z = ez(gs[-1], zs[-1], reuse=_reuse)
-                c = ec(z, cs[-1], reuse=_reuse)
-                zs.append(z)
-                cs.append(c)
-
                 return gs, cs, zs
 
             #self.frames = [f+tf.random_uniform(self.ops.shape(f), minval=-0.1, maxval=0.1) for f in self.frames ]
@@ -275,7 +270,6 @@ class AliNextFrameGAN(BaseGAN):
             self.zs = zs
             self.cs = cs
             ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
-            re_ugs, re_uzs, re_ugs = encode_frames(ugs[1:], ucs[0], uzs[0])
             ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames))
             re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:], ucs_next[0], uzs_next[0])
             gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames))
@@ -283,40 +277,15 @@ class AliNextFrameGAN(BaseGAN):
             re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:], cs_next[0], zs_next[0])
             self.x_hats = x_hats
 
-            # uz, re_uz, uc, re_uc
-            # uz, re_uz[1], uc, re_uc[1]
-            # zs[1], re_uz[1], uc[1]?, re_uc[1]?
+            f0 = cs[1]#tf.concat(cs, axis=3)
+            f1 = re_ucs#tf.concat(re_ucs, axis=3)
+            f2 = re_cs_next#tf.concat(re_cs_next, axis=3)
+            f3 = re_ucs_next#tf.concat(re_ucs_next, axis=3)
 
-            # zs = [uz, z0, z1]
-            # cs = [c0, c1, c2]
-            # gs = [g0, g1, g2]
-
-            # uzs = [uz, z0, z1, z2]
-
-            # re_uzs = [reuz0, reuz1]
-            # re_ucs = [re_uc, reuc0]
-
-            def rotate(first, second, offset=None):
-                rotations = [tf.concat(first[:offset], axis=3)]
-                elem = first
-                for e in second:
-                    elem = elem[1:]+[e]
-                    rotations.append(tf.concat(elem[:offset], axis=3))
-                return rotations
-
-            t0 = tf.concat(self.frames[1:], axis=3)
-            z0 = tf.concat(zs[1:-1], axis=3)
-            f0 = tf.concat(cs[1:-1], axis=3)
-
-
-            stack = [t0] + rotate(ugs, ugs_next, offset=-2) +      rotate(re_ugs, re_ugs_next, offset=-2) 
-            zfs = [z0]   + rotate(uzs, uzs_next[:-1], offset=-3) + rotate(re_uzs, re_uzs_next, offset=-2)
-            cfs = [f0]   + rotate(ucs, ucs_next[:-1], offset=-3) + rotate(re_ucs, re_ucs_next, offset=-2)
-
+            stack = [f0]+f1+f2+f3
             stacked = ops.concat(stack, axis=0)
-            zfs = ops.concat(zfs, axis=0)
-            cfs = ops.concat(cfs, axis=0)
-            d = self.create_component(config.discriminator, name='d_img', input=stacked, features={"z":zfs, "c":cfs})
+            features =None#ops.concat([f0,f1,f2], axis=0)
+            d = self.create_component(config.c_discriminator, name='d_img', input=stacked, features=[features])
             d_vars += d.variables()
             l = self.create_loss(config.loss, d, None, None, len(stack))
             d_loss = l.d_loss
@@ -332,6 +301,39 @@ class AliNextFrameGAN(BaseGAN):
             self.c_drift = self.ops.squash(tf.abs(ucs[1]-ucs[0]))
             gen = hc.Config({"sample":ugs[0]})
 
+            if config.use_x:
+                def rotate(first, second, offset=None):
+                    rotations = [tf.concat(first[:offset], axis=3)]
+                    elem = first
+                    for e in second:
+                        elem = elem[1:]+[e]
+                        rotations.append(tf.concat(elem[:offset], axis=3))
+                    return rotations
+
+
+                t0 = tf.concat(self.frames[1:], axis=3)
+                f0 = tf.concat(cs[1:-1], axis=3)
+
+                stack = [t0]
+                features = [f0]
+
+
+                if config.encode_forward:
+                    stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
+                    features += rotate(cs[2:], cs_next[:-1])
+                if config.encode_ug:
+                    stack += rotate(ugs[:-2], ugs[2:]+ugs_next[:-2])
+                    features += rotate(ucs[:-2], ucs[2:]+ucs_next[:-2])
+
+                stacked = ops.concat(stack, axis=0)
+                features = tf.concat(features, axis=0)
+                d = self.create_component(config.discriminator, name='d_manifold', input=stacked, features=[features])
+                d_vars += d.variables()
+                l = self.create_loss(config.loss, d, None, None, len(stack))
+                d_loss += l.d_loss
+                g_loss += l.g_loss
+
+    
             gx_sample = gen.sample
             gy_sample = gen.sample
             gx = hc.Config({"sample":gx_sample})

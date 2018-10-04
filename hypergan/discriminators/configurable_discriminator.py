@@ -308,12 +308,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         op = None
         if(len(args) > 0):
             op = args[0]
-        if 'name' in options:
-            print("Combining features----", [net, self.features[options["name"]]], self.features)
-            net = tf.concat([net, self.features[options['name']]], axis=len(self.ops.shape(net))-1)
-            return net
 
-        for feature in self.features:
+        def _combine_feature(net, feature, op=None):
             if op == "conv":
                 options['stride']=[1,1]
                 options['avg_pool']=[1,1]
@@ -325,21 +321,34 @@ class ConfigurableDiscriminator(BaseDiscriminator):
                 feature = self.layer_reshape(feature, [args[2]], options)
 
             if op == 'gru':
-                def _conv(_net):
+                tanh = tf.tanh
+                tanh = self.ops.double_sided(default_activation=tanh)
+                sigmoid = tf.sigmoid
+                sigmoid = self.ops.double_sided(default_activation=sigmoid)
+                def _conv(_net,name):
                     _options = dict(options)
                     _options['activation']=None
                     _options['stride']=[1,1]
                     _options['avg_pool']=[1,1]
-                    return self.layer_conv(_net, [int(args[1])*2], _options)
-                z = tf.sigmoid(_conv(net))
-                r = tf.sigmoid(_conv(net))
-                h = tf.tanh(_conv(net) + _conv(feature) * r)
-                net = tf.multiply( (1-z), h) + tf.multiply(feature, z)
+                    _options['name']=self.ops.description+name
+                    return self.layer_conv(_net, [int(args[1])], _options)
+                z = sigmoid(_conv(net,'z'))
+                r = tf.sigmoid(_conv(net,'r'))
+                print("varsgru", z,r,_conv(net,'nt'),_conv(feature,'fture'))
+                h = tanh(_conv(net,'net') + _conv(feature,'feature') * r)
+                net = tf.multiply( (1-z), h) + tf.multiply(tf.tile(feature, [1,1,1,2]), z)
 
 
             if feature is not None:
                 print("Combining features", [net, feature])
                 net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)
+            return net
+
+        if 'name' in options:
+            return _combine_feature(net, self.features[options['name']], op)
+
+        for feature in self.features:
+            net = _combine_feature(net, feature, op)
 
         return net
 
@@ -512,6 +521,8 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
     def parse_lambda(self, options):
         gan = self.gan
+        if 'lambda' not in options:
+            return 1
         lam = options['lambda']
         if ":" in lam:
             lambda_steps = 0
@@ -690,9 +701,21 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         net1, net2 = _slice(net)
         net1a, net1b = _slice(net1)
         net2a, net2b = _slice(net2)
-        t1 = tf.concat([net1a, net1b], axis=3)
-        t2 = tf.concat([net2a, net2b], axis=3)
+        print("____________", options)
+        if options.mixup:
+            alpha = tf.random_uniform([1], 0, 1)
+            t1 = alpha * net1a + (1-alpha) * net1b
+            t2 = alpha * net2a + (1-alpha) * net2b
+            t1 = tf.reshape(t1, self.ops.shape(net1b))
+            t2 = tf.reshape(t2, self.ops.shape(net2b))
+        else:
+            t1 = tf.concat([net1a, net1b], axis=3)
+            t2 = tf.concat([net2a, net2b], axis=3)
+        # hack fixes shape expectations
+        #t1 = tf.concat([t1,t1], axis=0)
+        #t2 = tf.concat([t2,t2], axis=0)
         target = tf.concat([t1, t2], axis=0)
+        s = self.ops.shape(net)
 
         return target
     def layer_pad(self, net, args, options):
@@ -872,9 +895,10 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             new_shape = [orig_shape[0], orig_shape[1]*2, orig_shape[2]*2, 1]
             result = tf.reshape(ns, new_shape)
             return result
-        pieces = tf.split(net, self.ops.shape(net)[3], 3)
-        pieces = [scale_up(piece) for piece in pieces]
-        return tf.concat(pieces, axis=3)
+        return scale_up(piece)
+        #pieces = tf.split(net, self.ops.shape(net)[3], 3)
+        #pieces = [scale_up(piece) for piece in pieces]
+        #return tf.concat(pieces, axis=3)
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

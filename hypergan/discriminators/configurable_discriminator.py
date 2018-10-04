@@ -324,6 +324,19 @@ class ConfigurableDiscriminator(BaseDiscriminator):
                 feature = self.layer_linear(feature, [args[1]], options)
                 feature = self.layer_reshape(feature, [args[2]], options)
 
+            if op == 'gru':
+                def _conv(_net):
+                    _options = dict(options)
+                    _options['activation']=None
+                    _options['stride']=[1,1]
+                    _options['avg_pool']=[1,1]
+                    return self.layer_conv(_net, [int(args[1])*2], _options)
+                z = tf.sigmoid(_conv(net))
+                r = tf.sigmoid(_conv(net))
+                h = tf.tanh(_conv(net) + _conv(feature) * r)
+                net = tf.multiply( (1-z), h) + tf.multiply(feature, z)
+
+
             if feature is not None:
                 print("Combining features", [net, feature])
                 net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)

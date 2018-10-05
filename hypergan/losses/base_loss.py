@@ -4,7 +4,6 @@ import tensorflow as tf
 
 class BaseLoss(GANComponent):
     def __init__(self, gan, config, discriminator=None, generator=None, x=None, split=2, d_fake=None, d_real=None, reuse=False):
-        self.metrics = {}
         self.sample = None
         self.ops = None
         self.reuse=reuse
@@ -62,18 +61,18 @@ class BaseLoss(GANComponent):
             gls = tf.gradients(d_loss, d_vars+g_vars)
             gls = tf.square(tf.global_norm(gls))
             g_regularizers.append(config.gradient_locally_stable * gls)
-            self.metrics['gradient_locally_stable'] = ops.squash(gls, tf.reduce_mean)
+            self.add_metric('gradient_locally_stable', ops.squash(gls, tf.reduce_mean))
             print("Gradient locally stable applied")
 
         if config.gradient_penalty:
             gp = self.gradient_penalty()
             d_regularizers.append(gp)
-            self.metrics['gradient_penalty'] = ops.squash(gp, tf.reduce_mean)
+            self.add_metric('gradient_penalty', ops.squash(gp, tf.reduce_mean))
             print("Gradient penalty applied")
 
         if config.k_lipschitz_penalty:
             lipschitz_penalty = tf.maximum(tf.square(d_real) - 1, 0) + tf.maximum(tf.square(d_fake) - 1, 0)
-            self.metrics['k_lipschitz']=ops.squash(lipschitz_penalty)
+            self.add_metric('k_lipschitz', s.squash(lipschitz_penalty))
 
             d_regularizers.append(lipschitz_penalty)
 
@@ -87,11 +86,11 @@ class BaseLoss(GANComponent):
             d_loss += 0.5*(config.jg_lambda or 0.01)*reg_d_grads
             g_loss += 0.5*(config.jg_lambda or 0.01)*reg_g_grads
 
-            self.metrics['reg_d'] = reg_d_grads
-            self.metrics['reg_g'] = reg_g_grads
+            self.add_metric('reg_d', reg_d_grads)
+            self.add_metric('reg_g', reg_g_grads)
 
-            self.metrics['reg_d']=reg_d_grads
-            self.metrics['reg_g']=reg_g_grads
+            self.add_metric('reg_d', g_d_grads)
+            self.add_metric('reg_g', g_g_grads)
 
         if config.l2nn_penalty:
             l2nn_penalties = []
@@ -108,7 +107,7 @@ class BaseLoss(GANComponent):
                     return m
                 l2nn_penalties.append(tf.minimum(_l(wtw), _l(wwt)))
             l2nn_penalty = self.config.l2nn_penalty * tf.add_n(l2nn_penalties)
-            self.metrics['l2nn_penalty'] = self.gan.ops.squash(l2nn_penalty)
+            self.add_metric('l2nn_penalty', self.gan.ops.squash(l2nn_penalty))
             l2nn_penalty = tf.tile(l2nn_penalty, [self.gan.batch_size(), 1])
             d_regularizers.append(l2nn_penalty)
 
@@ -128,7 +127,7 @@ class BaseLoss(GANComponent):
                     return l
                 penalties.append(tf.minimum(_l(w, mwtw), _l(wt, mwwt)))
             penalty = self.config.ortho_penalty * tf.add_n(penalties)
-            self.metrics['ortho_penalty'] = self.gan.ops.squash(penalty)
+            self.add_metric('ortho_penalty', self.gan.ops.squash(penalty))
             print("PENALTY", penalty)
             penalty = tf.reshape(penalty, [1,1])
             penalty = tf.tile(penalty, [self.gan.batch_size(), 1])
@@ -185,10 +184,10 @@ class BaseLoss(GANComponent):
         d_loss = ops.squash(d_loss, config.reduce or tf.reduce_mean) #linear doesn't work with this
 
         # TODO: Why are we squashing before gradient penalty?
-        self.metrics['d_loss'] = d_loss
+        self.add_metric('d_loss', d_loss)
         if g_loss is not None:
             g_loss = ops.squash(g_loss, config.reduce or tf.reduce_mean)
-            self.metrics['g_loss'] = g_loss
+            self.add_metric('g_loss', g_loss)
 
         self.sample = [d_loss, g_loss]
         self.d_loss = d_loss

@@ -33,6 +33,7 @@ class GANComponent:
             raise ValidationException(self.__class__.__name__+": " +"\n".join(errors))
         self.create_ops(config)
         self.ops.describe(name or self.__class__.__name__)
+        self._metrics = []
 
         if reuse:
             self.ops.reuse()
@@ -196,3 +197,21 @@ class GANComponent:
         """inputs() returns any input tensors"""
         return []
 
+    def add_metric(self, name, value):
+        """adds metric to monitor during training
+            name:string
+            value:Tensor
+        """
+        self._metrics.append({
+            "description": self.ops.description,
+            "name": name,
+            "value": value
+        })
+        return self._metrics
+
+    def metrics(self):
+        """returns a metric : tensor hash"""
+        metrics = {}
+        for metric in self._metrics:
+            metrics[metric['name']]=metric['value']
+        return metrics

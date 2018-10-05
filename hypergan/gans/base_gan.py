@@ -182,3 +182,12 @@ class BaseGAN(GANComponent):
     def inputs(self):
         """inputs() returns any input tensors"""
         return sum([x.inputs() for x in self.components],[])
+
+
+    def metrics(self):
+        metrics = {}
+        for c in self.components:
+            metrics.update(c.metrics())
+        return metrics
+
+

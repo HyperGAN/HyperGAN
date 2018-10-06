@@ -272,20 +272,20 @@ class AliNextFrameGAN(BaseGAN):
             ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames))
             re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:], ucs_next[0], uzs_next[0])
             gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames))
+            #gs_next_next, cs_next_next, zs_next_next = build_sim(zs[-1], cs[-1], 21)
             re_ucs, re_uzs, ugs_hat = encode_frames(ugs[1:], ucs[0], uzs[0])
             re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:], cs_next[0], zs_next[0])
             self.x_hats = x_hats
 
-            t0 = tf.concat(zs, axis=3)
-            t1 = tf.concat(re_uzs, axis=3)
-            t2 = tf.concat(re_zs_next, axis=3)
-            t3 = tf.concat(re_uzs_next, axis=3)
-            t4 = tf.concat(re_uzs, axis=3)
-            f0 = tf.concat(cs, axis=3)
-            f1 = tf.concat(re_ucs, axis=3)
-            f2 = tf.concat(re_cs_next, axis=3)
-            f3 = tf.concat(re_ucs_next, axis=3)
-            f4 = tf.concat([uc3.sample]+re_ucs[:-2], axis=3)
+            t0 = tf.concat(zs[1:], axis=3)
+            t1 = tf.concat(re_uzs[:-1], axis=3)
+            t2 = tf.concat(re_zs_next[:-1], axis=3)
+            t3 = tf.concat(re_uzs_next[:-1], axis=3)
+            t4 = tf.concat(re_uzs[:-1], axis=3)
+            f0 = tf.concat(cs[1:], axis=3)
+            f1 = tf.concat(re_ucs[:-1], axis=3)
+            f2 = tf.concat(re_cs_next[:-1], axis=3)
+            f3 = tf.concat(re_ucs_next[:-1], axis=3)
 
             stack = [t0,t1, t2]#, t4, t5]
             stacked = ops.concat(stack, axis=0)
@@ -327,8 +327,8 @@ class AliNextFrameGAN(BaseGAN):
                     features += rotate(cs[2:], cs_next[1:])
                     #stack += [gs_next_next[-frames:]]
                 if config.encode_ug:
-                    stack += rotate(ugs[:-2], ugs[2:]+ugs_next[:-2])
-                    features += rotate(ucs[:-2], ucs[2:]+ucs_next[:-2])
+                    stack += rotate(ugs[:-2], ugs[-2:]+ugs_next[1:])
+                    features += rotate(ucs[:-2], ucs[-2:]+ucs_next[1:])
 
                 stacked = ops.concat(stack, axis=0)
                 features = tf.concat(features, axis=0)

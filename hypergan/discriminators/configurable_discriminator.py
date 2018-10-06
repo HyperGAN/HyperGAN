@@ -322,23 +322,27 @@ class ConfigurableDiscriminator(BaseDiscriminator):
 
             if op == 'gru':
                 tanh = tf.tanh
-                tanh = self.ops.double_sided(default_activation=tanh)
+                #tanh = self.ops.prelu()
+               # tanh = self.ops.double_sided(default_activation=tanh)
                 sigmoid = tf.sigmoid
-                sigmoid = self.ops.double_sided(default_activation=sigmoid)
-                def _conv(_net,name):
+               # sigmoid = self.ops.double_sided(default_activation=sigmoid)
+                def _conv(_net,name, scale=1):
                     _options = dict(options)
                     _options['activation']=None
-                    _options['stride']=[1,1]
-                    _options['avg_pool']=[1,1]
                     _options['name']=self.ops.description+name
-                    return self.layer_conv(_net, [int(args[1])], _options)
-                z = sigmoid(_conv(net,'z'))
-                r = tf.sigmoid(_conv(net,'r'))
-                print("varsgru", z,r,_conv(net,'nt'),_conv(feature,'fture'))
-                h = tanh(_conv(net,'net') + _conv(feature,'feature') * r)
-                net = tf.multiply( (1-z), h) + tf.multiply(tf.tile(feature, [1,1,1,2]), z)
+                    return self.layer_conv(_net, [int(args[1])//scale], _options)
+                z = sigmoid(_conv(net,'z',scale=2))
+                r = tf.sigmoid(_conv(net,'r',scale=2))
+                th = _conv(net,'net',scale=2)
+                fh = _conv(feature,'feature',scale=2)
+                print("varsgru2", r,z, feature, th, fh)
+                h = tanh(th + fh  * r)
+                print("varsgru2.5", h, r,z, feature)
+                net = tf.multiply( (1-z), h) + tf.multiply(feature, z)
+                print("varsgru3", net)
 
-
+            if 'only' in options:
+                return net
             if feature is not None:
                 print("Combining features", [net, feature])
                 net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)

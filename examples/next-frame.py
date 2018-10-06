@@ -320,7 +320,7 @@ class AliNextFrameGAN(BaseGAN):
 
                 if config.encode_forward:
                     stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
-                    features += rotate(cs[2:], cs_next[:-1])
+                    features += rotate(cs[2:], cs_next[1:])
                 if config.encode_ug:
                     stack += rotate(ugs[:-2], ugs[2:]+ugs_next[:-2])
                     features += rotate(ucs[:-2], ucs[2:]+ucs_next[:-2])

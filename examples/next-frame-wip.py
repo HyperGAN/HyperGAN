@@ -212,10 +212,10 @@ class AliNextFrameGAN(BaseGAN):
                         dist3 = UniformEncoder(self, config.z_distribution)
                         proxy_c = self.create_component(config.proxy_c, name='rand_ct', input=dist3.sample, reuse=reuse)
                         randt = proxy_c.sample
-                    cp = tf.concat([cp, randt], axis=3)
-
-                #cp = tf.concat([cp, random_like(cp)], axis=3)
-                c = self.create_component(config.ec, name='ec', input=zt, features=[cp], reuse=reuse)
+                    print("CC", zt, randt)
+                    c = self.create_component(config.ec, name='ec', input=zt, features={'ct-1':cp, 'n':randt}, reuse=reuse)
+                else:
+                    c = self.create_component(config.ec, name='ec', input=zt, features=[cp], reuse=reuse)
                 if not reuse:
                     if config.proxy:
                         self.g_vars += proxy_c.variables()
@@ -324,7 +324,8 @@ class AliNextFrameGAN(BaseGAN):
 
                 if config.encode_forward:
                     stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
-                    features += rotate(cs[2:], cs_next[:-1])
+                    features += rotate(cs[2:], cs_next[1:])
+                    #stack += [gs_next_next[-frames:]]
                 if config.encode_ug:
                     stack += rotate(ugs[:-2], ugs[2:]+ugs_next[:-2])
                     features += rotate(ucs[:-2], ucs[2:]+ucs_next[:-2])

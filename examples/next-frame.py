@@ -230,7 +230,7 @@ class AliNextFrameGAN(BaseGAN):
                 return z.sample
 
             def build_g(zt, ct, reuse=True):
-                print("Gb", reuse)
+                print("Gb", reuse,zt,ct)
                 g = self.create_component(config.generator, name='generator', input=ct, features=[zt], reuse=reuse)
                 if not reuse:
                     self.g_vars += g.variables()
@@ -272,12 +272,12 @@ class AliNextFrameGAN(BaseGAN):
             self.zs = zs
             self.cs = cs
             ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
-            ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames)+6)
+            ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames))
             re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:len(self.frames)], ucs_next[0], uzs_next[0])
-            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames))
-            re_ucs, re_uzs, ugs_hat = encode_frames(ugs[1:], ucs[0], uzs[0])
-            re_cs, re_zs, re_gs = encode_frames(x_hats[1:], cs[0], zs[0])
-            re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:], cs_next[0], zs_next[0])
+            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames)+6)
+            re_ucs, re_uzs, ugs_hat = encode_frames(ugs[1:len(self.frames)], ucs[0], uzs[0])
+            re_cs, re_zs, re_gs = encode_frames(x_hats[1:len(self.frames)], cs[0], zs[0])
+            re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:len(self.frames)], cs_next[0], zs_next[0])
             self.x_hats = x_hats
             t0 = zs[1]#tf.concat(cs, axis=3)
             t1 = re_uzs#tf.concat(re_ucs, axis=3)

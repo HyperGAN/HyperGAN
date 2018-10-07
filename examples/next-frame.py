@@ -267,12 +267,13 @@ class AliNextFrameGAN(BaseGAN):
                 return gs, cs, zs
 
             #self.frames = [f+tf.random_uniform(self.ops.shape(f), minval=-0.1, maxval=0.1) for f in self.frames ]
+            #cs, zs, x_hats = encode_frames(self.frames, tf.zeros_like(uc2.sample), tf.zeros_like(uz2.sample), reuse=False)
             cs, zs, x_hats = encode_frames(self.frames, uc2.sample, uz2.sample, reuse=False)
             self.zs = zs
             self.cs = cs
             ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
-            ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames))
-            re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:], ucs_next[0], uzs_next[0])
+            ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames)+6)
+            re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:len(self.frames)], ucs_next[0], uzs_next[0])
             gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames))
             re_ucs, re_uzs, ugs_hat = encode_frames(ugs[1:], ucs[0], uzs[0])
             re_cs, re_zs, re_gs = encode_frames(x_hats[1:], cs[0], zs[0])
@@ -280,18 +281,18 @@ class AliNextFrameGAN(BaseGAN):
             self.x_hats = x_hats
             t0 = zs[1]#tf.concat(cs, axis=3)
             t1 = re_uzs#tf.concat(re_ucs, axis=3)
-            t2 = re_zs_next#tf.concat(re_cs_next, axis=3)
+            t2 = [re_zs_next[1]]#tf.concat(re_cs_next, axis=3)
             t3 = re_uzs_next#tf.concat(re_ucs_next, axis=3)
 
 
             f0 = cs[1]#tf.concat(cs, axis=3)
             f1 = re_ucs#tf.concat(re_ucs, axis=3)
-            f2 = re_cs_next#tf.concat(re_cs_next, axis=3)
+            f2 = [re_cs_next[1]]#tf.concat(re_cs_next, axis=3)
             f3 = re_ucs_next#tf.concat(re_ucs_next, axis=3)
 
-            stack = [t0]+t1+t2
+            stack = [t0]+t2
             stacked = ops.concat(stack, axis=0)
-            features =ops.concat([f0]+f1+f2, axis=0)
+            features =ops.concat([f0]+f2, axis=0)
             d = self.create_component(config.z_discriminator, name='d_img', input=stacked, features=[features])
             d_vars += d.variables()
             l = self.create_loss(config.loss, d, None, None, len(stack))
@@ -329,8 +330,8 @@ class AliNextFrameGAN(BaseGAN):
                     stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
                     features += rotate(cs[2:], cs_next[1:])
                 if config.encode_ug:
-                    stack += rotate(ugs[:-2], ugs[2:]+ugs_next)
-                    features += rotate(ucs[:-2], ucs[2:]+ucs_next)
+                    stack += rotate(ugs[:-2], ugs[-2:]+ugs_next)
+                    features += rotate(ucs[:-2], ucs[-2:]+ucs_next)
 
                 stacked = ops.concat(stack, axis=0)
                 features = tf.concat(features, axis=0)

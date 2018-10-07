@@ -78,8 +78,8 @@ def train(config, args):
                 for k, metric in enumerate(gan.session.run(metrics)):
                     sum_metrics[k] += metric 
             if i % 300 == 0:
-                for k, metric in enumerate(gan.metrics.keys()):
-                    metric_value = gan.session.run(gan.metrics[metric])
+                for k, metric in enumerate(gan.metrics().keys()):
+                    metric_value = gan.session.run(gan.metrics()[metric])
                     print("--", metric,  metric_value)
                     if math.isnan(metric_value) or math.isinf(metric_value):
                         print("Breaking due to invalid metric")

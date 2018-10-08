@@ -2,7 +2,6 @@ import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
 import inspect
-from pympler import refbrowser
 import nashpy as nash
 import hypergan as hg
 import hyperchamber as hc

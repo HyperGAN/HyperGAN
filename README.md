@@ -1,7 +1,7 @@
 # HyperGAN 0.9 
 
 [![CircleCI](https://circleci.com/gh/255BITS/HyperGAN/tree/master.svg?style=svg)](https://circleci.com/gh/255BITS/HyperGAN/tree/master)
-[![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/nthXNEv)
+[![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists.
 

@@ -1,4 +1,4 @@
-# HyperGAN 0.9 
+# HyperGAN 0.10.0-alpha1
 
 [![CircleCI](https://circleci.com/gh/255BITS/HyperGAN/tree/master.svg?style=svg)](https://circleci.com/gh/255BITS/HyperGAN/tree/master)
 [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
@@ -10,6 +10,7 @@ HyperGAN is currently in open beta.
 ![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
 
 _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the RandomWalk sampler_
+
 
 # Table of contents
 

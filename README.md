@@ -63,28 +63,27 @@ Generative Adversarial Networks consist of 2 learning systems that learn togethe
 For an introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
 
 
-HyperGAN is currently in open beta.
+HyperGAN is a community project.  GANs are a very new and active field of research.  Join the community [discord](https://discord.gg/t4WWBPF).
 
 ## Features
 
+* 100% community project
 * Reproducible architectures using json configurations
-* Platform independent
+* Domain Specific Language to define custom architectures
+* API
+* Builds graphs that can run on consumer hardware, like phones and web browsers
+* Trainable on consumer hardware
 * Dataset agnostic
-* Hyperparameter search built in(see examples)
 * Combine different components to build your own GAN
-* Unsupervised & supervised learning options
+* Transfer learning
+* Optimistic loading allows for network changes at train time
+
 
 # Showcase
 
-![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-1.gif)
-![Colorizer 0.9 3](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-3.gif)
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/face-manifold-0.8.png'/>
-
-0.9 samples are still training.
+Coming... eventually
 
 # Documentation
-
 
 ## API Documentation
 
@@ -265,30 +264,11 @@ To build a new network you need a dataset.  Your data should be structured like:
 
 Datasets in HyperGAN are meant to be simple to create.  Just use a folder of images.
 
-## Unsupervised learning
-
-The default mode of hypergan.
-
 ```
  [folder]/*.png
 ```
 
 For jpg(pass `-f jpg`)
-
-
-## Supervised learning
-
-Training with labels allows you to train a `classifier`.
-
-Each directory in your dataset represents a classification.  
-
-Example:  Dataset setup for classification of apple and orange images:
-```
- /dataset/apples
- /dataset/oranges
-```
-
-You must pass `--classloss` to hypergan cli to activate this feature.
 
 # Configuration
 
@@ -303,7 +283,7 @@ A hypergan configuration contains all hyperparameters for reproducing the full G
 
 In the original DCGAN you will have one of the following components:
 
-* Encoder
+* Distribution(latent space)
 * Generator
 * Discriminator
 * Loss
@@ -320,40 +300,14 @@ A base class for each of the component types listed below.
 
 A generator is responsible for projecting an encoding (sometimes called *z space*) to an output (normally an image).  A single GAN object from HyperGAN has one generator.
 
-### Resize Conv
+## Distributions
 
-This generator supports any resolution.  Works using a combination of `final_depth` and `depth_increase` in order to scale output size.
-
-
-For example: the shape of `final_depth=16` and `depth_increase=16` when working on images of `64x64x3`
-```
-  64x64x3 -> 32x32x16 -> 16x16x32 -> 8x8x48 -> 4x4x64
-```
-
-The same network on `128x128x3`:
-```
-  128x128x3 -> 64x64x16 -> 32x32x32 -> 16x16x48 -> 8x8x64 -> 4x4x80
-```
-
-| attribute   | description | type
-|:----------:|:------------:|:----:|
-| final_depth | The features for the last convolution layer(before projecting to final output). | int > 0
-| depth_increase | Working backwards, each previous layer will contain this many more features.| int > 0
-| activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
-| final_activation | Final activation to use.  This is usually set to tanh to squash the output range. See <a href="#configuration-activations">activations</a>.| f(net):net
-| layer_filter | On each resize of G, we call this method.  Anything returned from this method is added to the graph before the next convolution block.  See <a href='#configuration-layer-filters'>common layer filters</a> | f(net):net
-| layer_regularizer | This "regularizes" each layer of the generator with a type.  See <a href='#layer-regularizers'>layer regularizers</a>| f(name)(net):net
-| block | This is called at each layer of the generator, after the resize. Can also be the string `deconv`| f(...) see source code
-| resize_image_type | See [tf.resize_images](https://www.tensorflow.org/api_docs/python/tf/image/resize_images) for values | enum(int)
-
-## Encoders
-
-Sometimes referred to as the `z-space` representation or `latent space`.  In `dcgan` the 'encoder' is random uniform noise.
+Sometimes referred to as the `z-space` representation or `latent space`.  In `dcgan` the 'distribution' is random uniform noise.
 
 Can be thought of as input to the `generator`.
 
 
-### Uniform Encoder
+### Uniform Distribution
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
@@ -366,7 +320,7 @@ Can be thought of as input to the `generator`.
 
 ### Projections
 
-This encoder takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
+This distribution takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
 
 Some projection types are listed below.
 
@@ -391,7 +345,7 @@ One of many
 On/Off
 
 
-### Category Encoder
+### Category Distribution
 
 Uses categorical prior to choose 'one-of-many' options.
 
@@ -401,37 +355,10 @@ Uses categorical prior to choose 'one-of-many' options.
 A discriminator's main purpose(sometimes called a critic) is to separate out G from X, and to give the Generator
 a useful error signal to learn from.
 
-Note a discriminator can be an encoder sometimes(like in the case of AlphaGAN)
 
-### Pyramid Discriminator
+## DSL
 
-Architecturally similar to the ResizeConvGenerator.
-
-For example: the shape of `initial_depth=16` and `depth_increase=16` when working on images of `64x64x3`
-```
-  64x64x3 -> 32x32x16 -> 16x16x32 -> 8x8x48 -> 4x4x64
-```
-
-The same network on `128x128x3`:
-```
-  128x128x3 -> 64x64x16 -> 32x32x32 -> 16x16x48 -> 8x8x64 -> 4x4x80
-```
-
-
-| attribute   | description | type
-|:----------:|:------------:|:----:|
-| activation |  Activations to use.  See <a href='#configuration-activations'>activations</a> | f(net):net
-| initial_depth | The initial number of filters to use. | int > 0
-| depth_increase | Increases the filter sizes on each convolution by this amount | int > 0
-| final_activation | Final activation to use.  None is common here, and is required for several loss functions. | f(net):net
-| layers | The number of convolution layers | int > 0
-| layer_filter | Append information to each layer of the discriminator | f(config, net):net
-| layer_regularizer | batch_norm_1, layer_norm_1, or None | f(batch_size, name)(net):net
-| fc_layer_size | The size of the linear layers at the end of this network(if any). | int > 0
-| fc_layers | fully connected layers at the end of the discriminator(standard dcgan is 0) | int >= 0
-| noise | Instance noise.  Can be added to the input X | float >= 0
-| progressive_enhancement | If true, enable [progressive enhancement](#progressive-enhancement) | boolean
-
+Each component in the GAN can be specified with a flexible DSL inside the JSON file.
 
 ## Losses
 
@@ -459,22 +386,6 @@ a, b, and c are all hyperparameters.
 
 Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` for details.
 
-### Supervised loss
-
-Supervised loss is for labeled datasets.  This uses a standard softmax loss function on the outputs of the discriminator.
-
-### Categorical loss
-
-This is currently untested.
-
-### Cramer loss
-
-No good results yet
-
-### Softmax loss
-
-Not working as well as the others
-
 ### Boundary Equilibrium Loss
 
 Use with the `AutoencoderDiscriminator`.
@@ -497,7 +408,27 @@ See the `began` configuration template.
 
 Determined by the GAN implementation.  These variables are the same across all trainers.
 
-### Configuration
+### Consensus
+
+Consensus trainers trains G and D at the same time.  Resize Conv is known to not work with this technique(PR welcome).
+
+#### Configuration
+
+| attribute   | description | type
+|:----------:|:------------:|:----:|
+| learn_rate | Learning rate for the generator | float >= 0
+| beta1 | (adam) | float >= 0
+| beta2 | (adam)  | float >= 0
+| epsilon | (adam)  | float >= 0
+| decay | (rmsprop)  | float >= 0
+| momentum | (rmsprop)  | float >= 0
+
+
+### Alternating
+
+Original GAN training.  Locks generator weights while training the discriminator, and vice-versa.
+
+#### Configuration
 
 | attribute   | description | type
 |:----------:|:------------:|:----:|
@@ -517,11 +448,25 @@ Determined by the GAN implementation.  These variables are the same across all t
 | d_clipped_weights | If set, the discriminator will be clipped by value. |float > 0 or None
 
 
+### Fitness
+
+Only trains on good z candidates.
+
+### Curriculum
+
+Train on a schedule.
+
+### Gang
+
+An evolution based trainer that plays a subgame between multiple generators/discriminators.
+
+
 ## Downloadable datasets
 
 * CelebA aligned faces http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
 * MS Coco http://mscoco.org/
 * ImageNet http://image-net.org/
+* youtube-dl (see [examples/Readme.md](examples/Readme.md))
 
 # Contributing
 
@@ -558,6 +503,7 @@ Generative Adversarial Networks - https://arxiv.org/pdf/1706.04987.pdf
 * Softmax GAN - https://arxiv.org/abs/1704.06191
 * The Cramer Distance as a Solution to Biased Wasserstein Gradients - https://arxiv.org/abs/1705.10743
 * Improved Training of Wasserstein GANs - https://arxiv.org/abs/1704.00028
+* More...
 
 ## Sources
 
@@ -571,9 +517,10 @@ Generative Adversarial Networks - https://arxiv.org/pdf/1706.04987.pdf
 If you wish to cite this project, do so like this:
 
 ```
-  255bits(Martyn, Mikkel et al),
-  HyperGAN, (2017), 
+  HyperGAN Community
+  HyperGAN, (2017-2018+), 
   GitHub repository, 
   https://github.com/255BITS/HyperGAN
 ```
 
+HyperGAN comes with no warranty or support.

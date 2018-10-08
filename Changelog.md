@@ -1,11 +1,20 @@
+## 0.10 ~ Community Project release
+
+* HyperGAN 0.10 released as a community project
+* Configurable network architectures using a simple DSL
+* Lots of new regularizers and losses
+* Evolution based GangTrainer
+* Curriculum trainer with progressive growing
+* Optimistic loading
+* New next-frame example
+* More...
+
 ## 0.9 ~ Refactorings and optimizations
 
 * API Documentation - https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
 * Prepackaged configurations
 * New viewer front-end!
 * Examples, including the ability to randomly search for good configurations
-
-Samples coming soon.
 
 See more here https://github.com/255BITS/HyperGAN/pull/66
 

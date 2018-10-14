@@ -52,7 +52,7 @@ class FitnessTrainer(BaseTrainer):
             self.prev_sample = prev_sample
             self.update_prev_sample = tf.assign(prev_sample, gan.generator.sample)
             self.prev_l2_loss = (self.config.prev_l2_loss_lambda or 0.1)*self.ops.squash(tf.square(gan.generator.sample-prev_sample))
-            gan.metrics['prev_l2']=self.prev_l2_loss
+            self.add_metric('prev_l2', self.prev_l2_loss)
 
             self.l2_loss = g_loss + self.prev_l2_loss
 
@@ -472,7 +472,7 @@ class FitnessTrainer(BaseTrainer):
         sess = gan.session
         config = self.config
         loss = self.loss 
-        metrics = loss.metrics
+        metrics = gan.metrics()
 
         lr = self.lr
         feed_dict = {}

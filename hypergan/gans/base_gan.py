@@ -186,6 +186,8 @@ class BaseGAN(GANComponent):
 
     def metrics(self):
         metrics = {}
+        for metric in self._metrics:
+            metrics[metric['name']]=metric['value']
         for c in self.components:
             metrics.update(c.metrics())
         return metrics

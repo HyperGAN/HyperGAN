@@ -119,7 +119,7 @@ class ConsensusTrainer(BaseTrainer):
         sess = gan.session
         config = self.config
         loss = self.loss or gan.loss
-        metrics = loss.metrics
+        metrics = gan.metrics()
 
         metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)[1:]
 

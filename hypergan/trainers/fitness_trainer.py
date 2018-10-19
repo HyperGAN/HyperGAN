@@ -328,10 +328,16 @@ class FitnessTrainer(BaseTrainer):
                 result.append(_update_lipschitz(v,i))
             if "l2nn" in constraints:
                 result.append(_update_l2nn(v,i))
+            if "l2nn-d" in constraints:
+                if v in d_vars:
+                    result.append(_update_l2nn(v,i))
             result = [r for r in result if r is not None]
             return tf.group(result)
         self.past_weights = []
 
+        emavars = allvars
+        if config.ema_only_d:
+            emavars = d_vars
         for v in allvars:
             self.past_weights.append(tf.Variable(v, dtype=tf.float32))
         #self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(allvars)]

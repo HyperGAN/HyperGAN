@@ -158,22 +158,16 @@ class AliGAN(BaseGAN):
                 g_losses=[l2_loss]
                 d_losses=[l2_loss]
 
-            self.gan.metrics={}
             for i,l in enumerate(g_losses):
-                self.gan.metrics['gl'+str(i)]= l
+                self.add_metric('gl'+str(i), l)
             for i,l in enumerate(d_losses):
-                self.gan.metrics['dl'+str(i)]= l
+                self.add_metric('dl'+str(i),l)
             loss = hc.Config({
                 'd_fake':standard_loss.d_fake,
                 'd_real':standard_loss.d_real,
-                'sample': [tf.add_n(d_losses), tf.add_n(g_losses)], 
-                'metrics': self.gan.metrics
+                'sample': [tf.add_n(d_losses), tf.add_n(g_losses)]
             })
-            print(standard_loss.metrics)
-            for k,v in standard_loss.metrics.items():
-                loss.metrics[k]=v
             self.loss = loss
-            self.metrics = self.loss.metrics
             self.uniform_encoder = uniform_encoder
             trainer = self.create_component(config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
 
@@ -275,12 +269,6 @@ class AliGAN(BaseGAN):
         return total
 
 
-
-    def create_trainer(self, cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, encoder_discriminator):
-
-        metrics = []
-        metrics.append(standard_loss.metrics)
-        return trainer
 
     def input_nodes(self):
         "used in hypergan build"

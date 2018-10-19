@@ -113,6 +113,9 @@ class AliVibGAN(BaseGAN):
             if self.gan.config.infogan:
                 d_vars += self.gan.infogan_q.variables()
 
+            self.add_metric("ali_g_loss", standard_loss.g_loss)
+            self.add_metric("ali_d_loss", standard_loss.d_loss)
+
             d_losses.append(standard_loss.d_loss)
             g_losses.append(standard_loss.g_loss)
             if self.config.autoencode:
@@ -146,15 +149,12 @@ class AliVibGAN(BaseGAN):
                 l2 = self.create_loss(config.loss, bdisc2, x_input, generator, len(_inputs), reuse=True)
                 self.add_metric('ib_dloss2', ib_2_c * beta * l2.d_loss)
                 self.add_metric('ib_gloss2', ib_2_c * beta * l2.g_loss)
-                d_losses.append(beta * l2.d_loss)
-                g_losses.append(beta * l2.g_loss)
+                d_losses.append(beta * ib_2_c * l2.d_loss)
+                g_losses.append(beta * ib_2_c * l2.g_loss)
+
+                self.infoplane_x = ib_2_c *l2.d_loss
 
 
-
-            for i,l in enumerate(g_losses):
-                self.add_metric('gl'+str(i),l)
-            for i,l in enumerate(d_losses):
-                self.add_metric('dl'+str(i),l)
             loss = hc.Config({
                 'd_fake':standard_loss.d_fake,
                 'd_real':standard_loss.d_real,

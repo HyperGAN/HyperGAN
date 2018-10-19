@@ -94,7 +94,10 @@ class BaseLoss(GANComponent):
 
         if config.l2nn_penalty:
             l2nn_penalties = []
-            for w in self.gan.weights():
+            weights = self.gan.weights()
+            if config.l2nn_penalty_only_d:
+                weights = self.gan.discriminator.weights()
+            for w in weights:
                 w = tf.reshape(w, [-1, self.ops.shape(w)[-1]])
                 wt = tf.transpose(w)
                 wtw = tf.matmul(wt,w)

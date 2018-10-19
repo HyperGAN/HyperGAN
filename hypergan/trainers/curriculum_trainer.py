@@ -18,14 +18,13 @@ class CurriculumTrainer(BaseTrainer):
     def create(self):
         self.curriculum = self.config.curriculum
         self.curriculum_index = 0
-        self.transition_step = self.curriculum[0][0]
         d_vars = self.d_vars or gan.discriminator.variables()
         g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
         loss = self.gan.loss
         self._delegate = self.gan.create_component(self.config.delegate, d_vars=d_vars, g_vars=g_vars, loss=loss)
 
     def required(self):
-        return ["curriculum"]
+        return []
 
     def _step(self, feed_dict):
         gan = self.gan
@@ -34,11 +33,11 @@ class CurriculumTrainer(BaseTrainer):
 
         self._delegate.step(feed_dict)
 
-        if self.current_step == self.transition_step:
+        transition_step = self.curriculum[self.curriculum_index][0]
+        if self.current_step == transition_step:
 
             gan.save("saves/curriculum")
             self.curriculum_index+=1
-            self.transition_step = self.curriculum[self.curriculum_index][0]
             gan.train_coordinator.request_stop()
             gan.train_coordinator.join(gan.input_threads)
             gan.session.close()
@@ -66,8 +65,8 @@ class CurriculumTrainer(BaseTrainer):
             newgan = gan.config['class'](config=newconfig, inputs=inputs)
             newgan.args = gan.args
             newgan.cli = self.gan.cli
+            newgan.trainer.curriculum= self.curriculum
             newgan.trainer.curriculum_index= self.curriculum_index
-            newgan.trainer.transition_step = self.transition_step
             newgan.cli.sampler = None
             gan.cli.sampler = None
             gan.destroy=True

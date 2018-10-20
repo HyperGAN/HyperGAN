@@ -269,33 +269,56 @@ class AliNextFrameGAN(BaseGAN):
             #self.frames = [f+tf.random_uniform(self.ops.shape(f), minval=-0.1, maxval=0.1) for f in self.frames ]
             #cs, zs, x_hats = encode_frames(self.frames, tf.zeros_like(uc2.sample), tf.zeros_like(uz2.sample), reuse=False)
             cs, zs, x_hats = encode_frames(self.frames, uc2.sample, uz2.sample, reuse=False)
+            extra_frames = config.extra_frames or 2
             self.zs = zs
             self.cs = cs
             ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
             ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames))
             re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:len(self.frames)], ucs_next[0], uzs_next[0])
-            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames)+6)
+            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames))
             re_ucs, re_uzs, ugs_hat = encode_frames(ugs[1:len(self.frames)], ucs[0], uzs[0])
             re_cs, re_zs, re_gs = encode_frames(x_hats[1:len(self.frames)], cs[0], zs[0])
             re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:len(self.frames)], cs_next[0], zs_next[0])
             self.x_hats = x_hats
-            t0 = zs[1]#tf.concat(cs, axis=3)
-            t1 = re_uzs#tf.concat(re_ucs, axis=3)
-            t2 = [re_zs_next[1]]#tf.concat(re_cs_next, axis=3)
-            t3 = re_uzs_next#tf.concat(re_ucs_next, axis=3)
+            axis = len(ops.shape(zs[1]))-1
+            t0 = tf.concat(zs[1:-1], axis=axis)
+            t1 = tf.concat(uzs[1:-1], axis=axis)
+            t2 = tf.concat(zs_next[1:len(cs)-1], axis=axis)
+            if config.manifold_guided:
+                t1 = tf.concat(re_uzs[1:], axis=axis)
+                t2 = tf.concat(re_zs_next[1:len(cs)-1], axis=axis)
+            t3 = re_uzs_next#tf.concat(re_ucs_next, axis=axis)
 
 
-            f0 = cs[1]#tf.concat(cs, axis=3)
-            f1 = re_ucs#tf.concat(re_ucs, axis=3)
-            f2 = [re_cs_next[1]]#tf.concat(re_cs_next, axis=3)
-            f3 = re_ucs_next#tf.concat(re_ucs_next, axis=3)
+            f0 = tf.concat(cs[1:-1], axis=axis)
+            f1 = tf.concat(ucs[1:-1], axis=axis)
+            if config.manifold_guided:
+                f1 = tf.concat(re_ucs[1:], axis=axis)
+            _t0 =t0
+            _t1 = t1
+            _f0 = f0
+            _f1 = f1
+            f2 = tf.concat(cs_next[1:len(cs)-1], axis=axis)
+            if config.manifold_guided:
+                f2 = tf.concat(re_cs_next[1:len(cs)-1], axis=axis)
+            f3 = re_ucs_next#tf.concat(re_ucs_next, axis=axis)
 
-            stack = [t0]+t2
+            stack = [t0]
+            features = [f0]
+            if config.bottleneckx:
+                stack += [t1]
+                features += [f1]
+            else:
+                stack += [t1] + [t2]
+                features += [f1] + [f2]
+            _stack = stack
+            features = ops.concat(features, axis=0)
             stacked = ops.concat(stack, axis=0)
-            features =ops.concat([f0]+f2, axis=0)
             d = self.create_component(config.z_discriminator, name='d_img', input=stacked, features=[features])
+            _d = d
             d_vars += d.variables()
             l = self.create_loss(config.loss, d, None, None, len(stack))
+            Ic =0.1 
             d_loss = l.d_loss
             g_loss = l.g_loss
 
@@ -309,30 +332,32 @@ class AliNextFrameGAN(BaseGAN):
             self.c_drift = self.ops.squash(tf.abs(ucs[1]-ucs[0]))
             gen = hc.Config({"sample":ugs[0]})
 
+
             if config.use_x:
                 def rotate(first, second, offset=None):
-                    rotations = [tf.concat(first[:offset], axis=3)]
+                    rotations = [tf.concat(first[:offset], axis=axis)]
                     elem = first
                     for e in second:
                         elem = elem[1:]+[e]
-                        rotations.append(tf.concat(elem[:offset], axis=3))
+                        rotations.append(tf.concat(elem[:offset], axis=axis))
                     return rotations
 
 
-                t0 = tf.concat(self.frames[1:], axis=3)
-                f0 = tf.concat(cs[1:-1], axis=3)
+                t0 = tf.concat(self.frames[1:], axis=axis)
+                f0 = tf.concat(cs[1:-1], axis=axis)
 
                 stack = [t0]
                 features = [f0]
 
 
-                if config.encode_forward:
-                    stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
-                    features += rotate(cs[2:], cs_next[1:])
                 if config.encode_ug:
                     stack += rotate(ugs[:-2], ugs[-2:]+ugs_next)
                     features += rotate(ucs[:-2], ucs[-2:]+ucs_next)
+                if config.encode_forward:
+                    stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
+                    features += rotate(cs[2:], cs_next[1:])
 
+                print("-->", stacked, features)
                 stacked = ops.concat(stack, axis=0)
                 features = tf.concat(features, axis=0)
                 d = self.create_component(config.discriminator, name='d_manifold', input=stacked, features=[features])
@@ -342,6 +367,135 @@ class AliNextFrameGAN(BaseGAN):
                 g_loss += l.g_loss
 
     
+            if config.bottleneck:
+                ib_1_c = config.ib_1_c or 10
+                ib_2_c = config.ib_2_c or -1
+                bottle = _d.named_layers['zd3']
+                x_bottle,g_bottle,*_ =tf.split(bottle, len(_stack), axis=0)
+                _inputs = [x_bottle, g_bottle]
+                inputs = tf.concat(_inputs, axis=0)
+                features = None
+                bdisc = self.create_component(config.ib_discriminator1, name='b_discriminator', input=inputs, features=[features])
+                d_vars += bdisc.variables()
+                l2 = self.create_loss(config.loss, bdisc, None, None, len(_inputs))
+                self.add_metric('ib_dloss1', l2.d_loss)
+                self.add_metric('ib_gloss1', l2.g_loss)
+                #d_losses.append(ib_1_c * l2.d_loss)
+                #g_losses.append(ib_1_c * l2.g_loss)
+                d_loss+= ib_1_c * l2.d_loss
+                g_loss+=ib_1_c * l2.g_loss
+
+                beta = config.bottleneck_beta or 1
+                _inputs = [_t0, _t1]
+                _features = [x_bottle, g_bottle]
+                inputs = tf.concat(_inputs, axis=0)
+                features = tf.concat(_features, axis=0)
+                bdisc2 = self.create_component(config.ib_discriminator2, name='b_discriminator2', input=inputs, features=[features])
+                d_vars += bdisc2.variables()
+                l2 = self.create_loss(config.loss, bdisc2, None, None, len(_inputs))
+                self.add_metric('ib_dloss2', ib_2_c * beta * l2.d_loss)
+                self.add_metric('ib_gloss2', ib_2_c * beta * l2.g_loss)
+                d_loss += ib_2_c * beta * l2.d_loss
+                g_loss += ib_2_c * beta * l2.g_loss
+                
+            if config.bottleneckz:
+                def bottleneck(metric, name, term1, term2):
+                    dvs = []
+                    _inputs = term1
+                    inputs = tf.concat(term2, axis=0)
+                    features = None
+                    bdisc = self.create_component(config[name+'1'], name=name+'1', input=inputs, features=[features])
+                    dvs += bdisc.variables()
+                    l2 = self.create_loss(config.loss, bdisc, None, None, len(_inputs))
+                    self.add_metric(metric+'_dl1', l2.d_loss)
+                    self.add_metric(metric+'_gl1', l2.g_loss)
+                    dl= ib_1_c * l2.d_loss
+                    gl=ib_1_c * l2.g_loss
+
+                    beta = config.bottleneck_beta or 1
+                    _features = term2
+                    inputs = tf.concat(_inputs, axis=0)
+                    features = tf.concat(_features, axis=0)
+                    bdisc2 = self.create_component(config[name+'2'], name=name+'2', input=inputs, features=[features])
+                    dvs += bdisc2.variables()
+                    l2 = self.create_loss(config.loss, bdisc2, None, None, len(_inputs))
+                    self.add_metric(metric+'_dl2',  ib_2_c * beta * l2.d_loss)
+                    self.add_metric(metric+'_gl2',  ib_2_c * beta * l2.g_loss)
+                    dl += ib_2_c * beta * l2.d_loss
+                    gl += ib_2_c * beta * l2.g_loss
+                    return gl, dl, dvs
+ 
+                _x = t0
+                _g = tf.concat(ugs[1:-1],axis=3)
+                _z = tf.concat(zs[1:-1], axis=3)
+                _gz = tf.concat(uzs[1:-1], axis=3)
+                gl, dl, dvs = bottleneck('ibz', 'ibz_discriminator', [_x,_g], [_z,_gz])
+                g_loss += gl
+                d_loss += dl
+                d_vars += dvs
+
+            if config.bottleneckc:
+                ib_1_c = config.ib_1_c or 10
+                ib_2_c = config.ib_2_c or -1
+                _inputs = [_f0, _f1]
+                inputs = tf.concat(_inputs, axis=0)
+                features = None
+                bdisc = self.create_component(config.ibc_discriminator1, name='bc_discriminator', input=inputs, features=[features])
+                d_vars += bdisc.variables()
+                l2 = self.create_loss(config.loss, bdisc, None, None, len(_inputs))
+                self.add_metric('ib_dloss1', l2.d_loss)
+                self.add_metric('ib_gloss1', l2.g_loss)
+                #d_losses.append(ib_1_c * l2.d_loss)
+                #g_losses.append(ib_1_c * l2.g_loss)
+                d_loss+= ib_1_c * l2.d_loss
+                g_loss+=ib_1_c * l2.g_loss
+
+                beta = config.bottleneck_beta or 1
+                _inputs = [_t0, _t1]
+                _features = [_f0, _f1]
+                inputs = tf.concat(_inputs, axis=0)
+                features = tf.concat(_features, axis=0)
+                bdisc2 = self.create_component(config.ibc_discriminator2, name='bc_discriminator2', input=inputs, features=[features])
+                d_vars += bdisc2.variables()
+                l2 = self.create_loss(config.loss, bdisc2, None, None, len(_inputs))
+                self.add_metric('ib_dloss2', ib_2_c * beta * l2.d_loss)
+                self.add_metric('ib_gloss2', ib_2_c * beta * l2.g_loss)
+                d_loss += ib_2_c * beta * l2.d_loss
+                g_loss += ib_2_c * beta * l2.g_loss
+
+            if config.bottleneckx:
+                ib_1_c = config.ib_1_c or 10
+                ib_2_c = config.ib_2_c or -1
+                bottle = d.named_layers['bottleneck']
+                x_bottle,g_bottle,*_ =tf.split(bottle, len(stack), axis=0)
+                _inputs = [x_bottle, g_bottle]
+                inputs = tf.concat(_inputs, axis=0)
+                features = None
+                bdisc = self.create_component(config.ibx_discriminator1, name='b_discriminator', input=inputs, features=[features])
+                d_vars += bdisc.variables()
+                l2 = self.create_loss(config.loss, bdisc, None, None, len(_inputs))
+                self.add_metric('ibx_dloss1', l2.d_loss)
+                self.add_metric('ibx_gloss1', l2.g_loss)
+                #d_losses.append(ib_1_c * l2.d_loss)
+                #g_losses.append(ib_1_c * l2.g_loss)
+                d_loss+= ib_1_c * l2.d_loss
+                g_loss+=ib_1_c * l2.g_loss
+
+                beta = config.bottleneck_beta or 1
+                _inputs = [stack[0], stack[1]]
+                _features = [x_bottle, g_bottle]
+                inputs = tf.concat(_inputs, axis=0)
+                features = tf.concat(_features, axis=0)
+                bdisc2 = self.create_component(config.ibx_discriminator2, name='b_discriminator2', input=inputs, features=[features])
+                d_vars += bdisc2.variables()
+                l2 = self.create_loss(config.loss, bdisc2, None, None, len(_inputs))
+                self.add_metric('ibx_dloss2', ib_2_c * beta * l2.d_loss)
+                self.add_metric('ibx_gloss2', ib_2_c * beta * l2.g_loss)
+                d_loss += ib_2_c * beta * l2.d_loss
+                g_loss += ib_2_c * beta * l2.g_loss
+
+
+
             gx_sample = gen.sample
             gy_sample = gen.sample
             gx = hc.Config({"sample":gx_sample})
@@ -356,15 +510,9 @@ class AliNextFrameGAN(BaseGAN):
             self.preview = tf.concat(self.inputs.frames[:-1] + [gen.sample], axis=1)#tf.concat(tf.split(gen.sample, (self.ops.shape(gen.sample)[3]//3), 3), axis=1)
 
 
-            metrics = {
-                    'g_loss': g_loss,
-                    'd_loss': d_loss
-                }
-
- 
             trainers = []
 
-            lossa = hc.Config({'sample': [d_loss, g_loss], 'metrics': metrics, 'd_fake': l.d_fake, 'd_real': l.d_real, 'config': l.config})
+            lossa = hc.Config({'sample': [d_loss, g_loss], 'd_fake': l.d_fake, 'd_real': l.d_real, 'config': l.config})
             self.loss = lossa
             self._g_vars = self.g_vars
             self._d_vars = d_vars

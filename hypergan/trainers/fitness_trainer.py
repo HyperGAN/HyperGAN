@@ -78,117 +78,16 @@ class FitnessTrainer(BaseTrainer):
         reg = 0.5 * sum(
             tf.reduce_sum(tf.square(g)) for g in grads if g is not None
         )
-        if config.update_rule == "ttur" or config.update_rule == 'single-step':
+        if config.update_rule == 'consensus-d':
+            reg = 0.5 * sum(
+                tf.reduce_sum(tf.square(g)) for g in d_grads if g is not None
+            )
+        if config.update_rule == "ttur":
             Jgrads = [0 for i in allvars]
-
-        elif config.update_rule == 'crossing-the-curl':
-            pif = [config.update_rule_i_lambda*g for g in grads]
-            #jtf = [0.5*tf.square(g) for g in grads]
-            jtf = reg
-            bjtf = []
-            for j, g in zip(tf.gradients(jtf, allvars), grads):
-                if j is None:
-                    bjtf += [tf.zeros_like(g)]
-                else:
-                    bjtf += [config.update_rule_b_lambda*j]
-
-            def random_like(x, mean=0.001,stddev=0.00001):
-                shape = self.ops.shape(x)
-                return tf.random_uniform(shape, minval=-1, maxval=1)
-
-            if self.config.eps_type == 'unit-ball':
-                if self.gan.config.u_to_z:
-                    q= random_like(self.gan.uniform_encoder.sample)
-                else:
-                    q= random_like(self.gan.encoder.sample)
-                eps = self.config.eps_scale*(q / tf.sqrt(tf.reduce_sum(tf.square(q))))
-            else:
-                eps = self.config.eps or 1e-8#random_like(self.gan.encoder.sample, mean=mean)
-            eps_constant = self.config.eps or 1e-8#random_like(self.gan.encoder.sample, mean=mean)
-            if self.gan.config.u_to_z:
-                u1 = self.gan.uniform_encoder.sample
-                u2 = u1 + eps
-                u_to_z2 = self.gan.create_component(self.gan.config.u_to_z, name='u_to_z', input=u2, reuse=True)
-                g2 = self.gan.create_component(self.gan.config.generator, input=u_to_z2.sample, name='generator', reuse=True)
-
-                features = tf.concat([self.gan.encoder.sample, u_to_z2.sample], axis=0)
-                d2 = self.gan.create_component(self.gan.config.discriminator, name="discriminator", g=g2.sample, x=self.gan.inputs.x, features=[features], reuse=True)
-
-                encode_g2 = self.gan.create_encoder(g2.sample, reuse=True)
-                stack_z = [self.gan.encoder.sample, encode_g2.sample]
-                stacked_zs = self.ops.concat(stack_z, axis=0)
-                z_discriminator = self.gan.create_component(self.gan.config.z_discriminator, name='z_discriminator', input=stacked_zs, reuse=True)
- 
-            else:
-                g2 = self.gan.create_component(self.gan.config.generator, input=(self.gan.encoder.sample+eps), reuse=True)
-                #g2 = self.gan.generator
-                features = tf.concat([self.gan.encoder.sample, self.gan.encoder.sample+eps], axis=0)
-                d2 = self.gan.create_component(self.gan.config.discriminator, name="discriminator", g=g2.sample, x=self.gan.inputs.x, features=[features], reuse=True)
-            loss2 = self.gan.create_component(self.gan.config.loss, discriminator=d2, generator=g2)
-            d_loss2, g_loss2 = loss2.sample
-            if self.gan.config.u_to_z:
-                l2 = self.gan.create_component(self.gan.config.loss, discriminator=z_discriminator, reuse=True)
-                d_loss2 += l2.sample[0]
-                g_loss2 += l2.sample[1]
-            if self.config.use_dloss:
-                d_grads2 = tf.gradients(d_loss+eps, d_vars)
-                g_grads2 = tf.gradients(g_loss+eps, g_vars)
-                grads2 = d_grads2 + g_grads2
-
-
-            else:
-                d_grads2 = tf.gradients(d_loss2, d_vars)
-                g_grads2 = tf.gradients(g_loss2, g_vars)
-                grads2 = d_grads2 + g_grads2
-
-            jf = []
-            ag1 = tf.gradients(grads, allvars)
-
-            filtered_grads2 = []
-            for g,v in zip(grads2, d_vars+g_vars):
-                if g is not None:
-                    filtered_grads2 += [g]
-                else:
-                    filtered_grads2 += [tf.zeros_like(v)]
-            ag2 = tf.gradients(filtered_grads2, allvars)
-
-            for i, g in enumerate(grads):
-                if ag2[i] is not None:
-                    j = ag1[i]
-                    j2 = ag2[i]
-                    jf += [(j2 - j)]
-                else:
-                    print("ZEROS LIKE", g)
-                    jf += [tf.zeros_like(g)]
-
-            yjf = [config.update_rule_y_lambda*_jf for _jf in jf]
-
-
-            grads = [ _pif + _jtf - _yjf for _pif, _jtf, _yjf in zip(pif, bjtf, yjf)]
-            #grads = [ _pif + _jtf for _pif, _jtf, _yjf in zip(pif, bjtf, yjf)]
-
-            jfm = tf.zeros([1])
-            for g in yjf:
-                jfm += tf.reduce_mean(tf.abs(g))
-            jfm /= len(yjf)
-            self.gan.metrics['yjf']=jfm*100
-
-            pifm = tf.zeros([1])
-            for g in pif:
-                pifm += tf.reduce_mean(tf.abs(g))
-            pifm /= len(pif)
-            self.gan.metrics['pif']=pifm*100
-
-            jtfm = tf.zeros([1])
-            for g in bjtf:
-                jtfm += tf.reduce_mean(tf.abs(g))
-            jtfm /= len(bjtf)
-            self.gan.metrics['jtf']=jtfm*100
-
-            Jgrads = [0 for i in allvars]
+        elif config.update_rule == "consensus-d":
+            Jgrads = tf.gradients(reg, d_vars)+g_vars
         else:
             Jgrads = tf.gradients(reg, allvars)
-
 
         self.g_gradient = tf.ones([1])
         def amp_for(v):
@@ -198,16 +97,26 @@ class FitnessTrainer(BaseTrainer):
                 return config.d_w_lambda or 1
 
         def applyvec(g, jg, v):
-            print("JG ALPHA", config.jg_alpha)
-            nextw = g + jg * (config.jg_alpha or 0.1)
+            if jg is None:
+                return g
+            jg_alpha = config.jg_alpha or 0.1
+            if "jg_alpha_time_decay" in config:
+                time = config.jg_alpha_time_decay
+                jg_alpha = tf.train.polynomial_decay(time[0], self.global_step, time[2], end_learning_rate=time[1], power=time[3])
+            nextw = g + jg * jg_alpha
             return nextw
 
         def gradient_for(g, jg, v):
             def _gradient():
-                if config.update_rule == 'single-step' or config.update_rule == 'crossing-the-curl':
+                if config.update_rule == 'single-step':
                     return g
                 elif config.update_rule == "ttur":
                     ng = amp_for(v)*g
+                elif config.update_rule == 'consensus-d':
+                    if v in d_vars:
+                        ng = applyvec(g, jg, v)
+                    else:
+                        ng = g
                 else:
                     ng = applyvec(g, jg, v)
                 return ng
@@ -217,14 +126,17 @@ class FitnessTrainer(BaseTrainer):
         apply_vec_d = []
         apply_vec_g = []
         for (i, g, Jg, v) in zip(range(len(grads)), grads, Jgrads, allvars): 
-            if Jg is not None:
-                gradient = gradient_for(g, Jg, v)
-                print("Applying gradient", gradient)
-                apply_vec.append((gradient, v))
-                if i < len(d_vars):
-                    apply_vec_d.append((gradient, v))
-                else:
-                    apply_vec_g.append((gradient, v))
+            if Jg is None:
+                print("Warning: None found in Jg", i, g, Jg, v)
+
+            gradient = gradient_for(g, Jg, v)
+            print("Applying gradient", gradient)
+            apply_vec.append((gradient, v))
+            if v in d_vars:
+                apply_vec_d.append((gradient, v))
+            else:
+                apply_vec_g.append((gradient, v))
+
 
         defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
         tr = config.trainer(self.lr, **defn)

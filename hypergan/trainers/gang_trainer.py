@@ -194,22 +194,21 @@ class GangTrainer(BaseTrainer):
         return self.gan.session.run(d_vars)
 
     def nash_memory(self, sg, sd, ug, ud):
-        should_include_sg = np.isnan(np.sum(np.sum(v) for v in sg)) == False
-        should_include_sd = np.isnan(np.sum(np.sum(v) for v in sd)) == False
+        is_sd_nan = np.isnan(np.sum(np.sum(v) for v in sg))
+        is_sg_nan = np.isnan(np.sum(np.sum(v) for v in sd))
+
+        if is_sd_nan or is_sg_nan:
+            print("NAN detected, falling back to best candidate")
+            return [self.sgs[0], self.sds[0]]
+        
         #zs = [ self.gan.session.run(self.gan.fitness_inputs()) for i in range(self.config.fitness_test_points or 10)]
         #xs = [ self.gan.session.run(self.gan.inputs.inputs()) for i in range(self.config.fitness_test_points or 10)]
         #self.xs = xs
         #self.zs = zs
         xs = []
         zs = []
-        if(should_include_sg):
-            self.sgs = [sg] + self.sgs
-        else:
-            print("Skip SG (nan)")
-        if(should_include_sd):
-            self.sds = [sd] + self.sds
-        else:
-            print("Skip SD (nan)")
+        self.sgs = [sg] + self.sgs
+        self.sds = [sd] + self.sds
 
         if isinstance(self.gang_loss, list):
             a = self.payoff_matrix(self.sgs, self.sds, xs, zs, self.gang_loss[0])
@@ -228,6 +227,15 @@ class GangTrainer(BaseTrainer):
             print("Payoff:", a)
             b = -a
 
+        is_a_nan = np.isnan(np.sum(np.sum(v) for v in a))
+        is_b_nan = np.isnan(np.sum(np.sum(v) for v in b))
+
+        if is_a_nan or is_b_nan:
+            print("NAN detected in payoff matrix, falling back to best candidate")
+            self.sgs = self.sgs[1:]
+            self.sds = self.sds[1:]
+            return [self.sgs[0], self.sds[0]]
+ 
         if self.config.use_nash:
             priority_g, new_ug, priority_d, new_ud = self.nash_mixture_from_payoff(a, b, self.sgs, self.sds)
             #if priority_g is None:

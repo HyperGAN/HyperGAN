@@ -139,6 +139,7 @@ class FitnessTrainer(BaseTrainer):
 
 
         defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
+        defn['gan']=self.gan
         tr = config.trainer(self.lr, **defn)
 
 

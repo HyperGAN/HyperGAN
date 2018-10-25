@@ -104,6 +104,12 @@ class BaseGAN(GANComponent):
 
     def variables(self):
         return self.ops.variables() + self.generator.variables() + self.discriminator.variables()
+
+    def g_vars(self):
+        return self.generator.variables()
+    def d_vars(self):
+        return self.discriminator.variables()
+
     def save(self, save_file):
         print("[hypergan] Saving network to ", save_file)
         os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)

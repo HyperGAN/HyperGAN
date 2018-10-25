@@ -15,11 +15,17 @@ import tensorflow as tf
 
 class GradientDescentMirrorOptimizer(GradientDescentOptimizer):
 
-
-  def __init__(self, learning_rate=0.001, use_locking=False, name="GradientDescentMirror", p=0.1):
+  def __init__(self, learning_rate=0.001, use_locking=False, name="GradientDescentMirror", p=0.1, gan=None):
     super().__init__(learning_rate, use_locking=use_locking, name=name)
-    self.p = p
+    self.gan = gan
+    self._p = p
 
+  def _prepare(self):
+    super()._prepare()
+    if self._p == "rand":
+        self._p_t = tf.random_uniform([1], minval=0.0, maxval=1.0)
+    else:
+        self._p_t = ops.convert_to_tensor(self._p, name="p")
   def _create_slots(self, var_list):
     super()._create_slots(var_list)
     # Create slots for the first and second moments.
@@ -28,6 +34,7 @@ class GradientDescentMirrorOptimizer(GradientDescentOptimizer):
       
   def _apply_dense(self, grad, var):
     lr_t = math_ops.cast(self._learning_rate_tensor, var.dtype.base_dtype)
+    p_t = math_ops.cast(self._p_t, var.dtype.base_dtype)
 
     g_t = lr_t * grad
 
@@ -35,8 +42,10 @@ class GradientDescentMirrorOptimizer(GradientDescentOptimizer):
     g_t = g_t_1.assign( g_t )
 
     #movement = 2. * lr_t * g_t - lr_t * g_t_1
-    movement = lr_t * g_t - self.p * lr_t * (g_t_1 - g_t)
-    var_update = state_ops.assign_sub(var, movement) #Adam would be lr_t * g_t
+    movement = lr_t * g_t 
+    if var in self.gan.d_vars():
+        movement -= p_t * lr_t * (g_t_1 - g_t)
+    var_update = state_ops.assign_sub(var, movement)
     return control_flow_ops.group(*[var_update, g_t])
 
   def _apply_sparse(self, grad, var):

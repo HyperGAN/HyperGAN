@@ -274,7 +274,7 @@ class AliNextFrameGAN(BaseGAN):
                     rotations.append(tf.concat(elem[:offset], axis=axis))
                 return rotations
 
-           def d(metric, name, _inputs, _features, reuse=False):
+            def disc(metric, name, _inputs, _features, reuse=False):
                _is = tf.concat(_inputs,axis=0)
                _fs = tf.concat(_features,axis=0)
                disc = self.create_component(config[name], name=name, input=_is, features=[_fs], reuse=reuse)
@@ -283,16 +283,16 @@ class AliNextFrameGAN(BaseGAN):
                self.add_metric(metric, l2.g_loss)
                return l2.d_loss, l2.g_loss, disc.variables()
 
-           def mi(metric, name, _inputs, _features):
+            def mi(metric, name, _inputs, _features):
                 _inputsb = [tf.zeros_like(x) for x in _inputs]
                 _featuresb = [tf.zeros_like(x) for x in _features]
                 beta = config.bottleneck_beta or 1
                 ib_2_c = config.ib_2_c or 1
                 inputs = tf.concat(_inputs, axis=0)
                 features = tf.concat(_features, axis=0)
-                gl,dl,d_vars = d(metric+'1', name, _inputs, _features)
-                gl2,dl2, _ = d(metric+'2', name, _inputs, _features, reuse=True)
-                gl3,dl3, _ = d(metric+'3', name, _inputs, _features, reuse=True)
+                gl,dl,d_vars = disc(metric+'1', name, _inputs, _features)
+                gl2,dl2, _ = disc(metric+'2', name, _inputs, _features, reuse=True)
+                gl3,dl3, _ = disc(metric+'3', name, _inputs, _features, reuse=True)
                 dls = ib_2_c * beta *tf.add_n([dl,-dl2,-dl3])
                 gls = ib_2_c * beta *tf.add_n([gl,-gl2,-gl3])
 

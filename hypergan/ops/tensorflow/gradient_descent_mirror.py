@@ -30,7 +30,8 @@ class GradientDescentMirrorOptimizer(GradientDescentOptimizer):
     super()._create_slots(var_list)
     # Create slots for the first and second moments.
     for v in var_list:
-      self._zeros_slot(v, "g", self._name)
+        if v in self.gan.d_vars():
+          self._zeros_slot(v, "g", self._name)
       
   def _apply_dense(self, grad, var):
     lr_t = math_ops.cast(self._learning_rate_tensor, var.dtype.base_dtype)
@@ -38,10 +39,10 @@ class GradientDescentMirrorOptimizer(GradientDescentOptimizer):
 
     g_t = lr_t * grad
 
-    g_t_1 = self.get_slot(var, "g")
-    g_t = g_t_1.assign( g_t )
+    if var in self.gan.d_vars():
+        g_t_1 = self.get_slot(var, "g")
+        g_t = g_t_1.assign( g_t )
 
-    #movement = 2. * lr_t * g_t - lr_t * g_t_1
     movement = lr_t * g_t 
     if var in self.gan.d_vars():
         movement -= p_t * lr_t * (g_t_1 - g_t)

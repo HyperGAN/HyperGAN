@@ -245,6 +245,8 @@ class FitnessTrainer(BaseTrainer):
                 if v in d_vars:
                     result.append(_update_l2nn(v,i))
             result = [r for r in result if r is not None]
+            if(len(result) == 0):
+                return None
             return tf.group(result)
         self.past_weights = []
 
@@ -254,7 +256,7 @@ class FitnessTrainer(BaseTrainer):
         for v in allvars:
             self.past_weights.append(tf.Variable(v, dtype=tf.float32))
         #self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(allvars)]
-        self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(allvars + self.past_weights)]
+        self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(emavars + self.past_weights)]
         self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
         print('UPDATE_WEIGHT', self.update_weight_constraints)
 

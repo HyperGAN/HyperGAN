@@ -69,8 +69,7 @@ class AdamirrorOptimizer(optimizer.Optimizer):
         cf = control_flow_ops.group(*[var_update, m_t, v_t, g_t])
     else:
         lr_g = self.gan.config.trainer.g_learn_rate or 0.25
-        g_t = lr_g * grad
-        movement = lr_g * g_t 
+        movement = lr_g * grad
         var_update = state_ops.assign_sub(var, movement)
         cf = control_flow_ops.group(*[var_update])
     return cf

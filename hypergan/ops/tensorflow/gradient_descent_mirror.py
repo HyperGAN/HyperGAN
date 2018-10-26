@@ -37,17 +37,20 @@ class GradientDescentMirrorOptimizer(GradientDescentOptimizer):
     lr_t = math_ops.cast(self._learning_rate_tensor, var.dtype.base_dtype)
     p_t = math_ops.cast(self._p_t, var.dtype.base_dtype)
 
-    g_t = lr_t * grad
 
     if var in self.gan.d_vars():
+        g_t = lr_t * grad
         g_t_1 = self.get_slot(var, "g")
         g_t = g_t_1.assign( g_t )
-
-    movement = lr_t * g_t 
-    if var in self.gan.d_vars():
+        movement = lr_t * g_t 
         movement -= p_t * lr_t * (g_t_1 - g_t)
-    var_update = state_ops.assign_sub(var, movement)
-    return control_flow_ops.group(*[var_update, g_t])
+        var_update = state_ops.assign_sub(var, movement)
+        return control_flow_ops.group(*[var_update, g_t])
+    else:
+        movement = (self.gan.config.trainer.g_learn_rate or lr_t) * grad
+        var_update = state_ops.assign_sub(var, movement)
+        return control_flow_ops.group(*[var_update])
+
 
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")

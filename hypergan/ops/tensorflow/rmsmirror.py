@@ -48,7 +48,7 @@ class RMSMirrorOptimizer(RMSPropOptimizer):
         momentum = self.get_slot(var, "momentum")
 
         rms_t = rms.assign(decay_t*rms + (1-decay_t)*tf.square(grad))
-        g_t = lr_t * grad / tf.sqrt(rms_t + epsilon_t)
+        g_t = grad / tf.sqrt(rms_t + epsilon_t)
 
         g_t_1 = self.get_slot(var, "g")
         g_t = g_t_1.assign( g_t )

@@ -39,7 +39,7 @@ class GradientDescentMirrorOptimizer(GradientDescentOptimizer):
 
 
     if var in self.gan.d_vars():
-        g_t = lr_t * grad
+        g_t = grad
         g_t_1 = self.get_slot(var, "g")
         g_t = g_t_1.assign( g_t )
         movement = lr_t * g_t 

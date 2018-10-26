@@ -96,23 +96,25 @@ class BaseLoss(GANComponent):
             l2nn_penalties = []
             weights = self.gan.weights()
             if config.l2nn_penalty_only_d:
-                weights = self.gan.discriminator.weights()
-            for w in weights:
-                w = tf.reshape(w, [-1, self.ops.shape(w)[-1]])
-                wt = tf.transpose(w)
-                wtw = tf.matmul(wt,w)
-                wwt = tf.matmul(w,wt)
-                def _l(m):
-                    m = tf.abs(m)
-                    m = tf.reduce_sum(m, axis=0,keep_dims=True)
-                    m = tf.maximum(m-1, 0)
-                    m = tf.reduce_max(m, axis=1,keep_dims=True)
-                    return m
-                l2nn_penalties.append(tf.minimum(_l(wtw), _l(wwt)))
-            l2nn_penalty = self.config.l2nn_penalty * tf.add_n(l2nn_penalties)
-            self.add_metric('l2nn_penalty', self.gan.ops.squash(l2nn_penalty))
-            l2nn_penalty = tf.tile(l2nn_penalty, [self.gan.batch_size(), 1])
-            d_regularizers.append(l2nn_penalty)
+                weights = self.discriminator.weights()
+            if len(weights) > 0:
+                for w in weights:
+                    w = tf.reshape(w, [-1, self.ops.shape(w)[-1]])
+                    wt = tf.transpose(w)
+                    wtw = tf.matmul(wt,w)
+                    wwt = tf.matmul(w,wt)
+                    def _l(m):
+                        m = tf.abs(m)
+                        m = tf.reduce_sum(m, axis=0,keep_dims=True)
+                        m = tf.maximum(m-1, 0)
+                        m = tf.reduce_max(m, axis=1,keep_dims=True)
+                        return m
+                    l2nn_penalties.append(tf.minimum(_l(wtw), _l(wwt)))
+                print('l2nn_penalty', self.config.l2nn_penalty, l2nn_penalties)
+                l2nn_penalty = self.config.l2nn_penalty * tf.add_n(l2nn_penalties)
+                self.add_metric('l2nn_penalty', self.gan.ops.squash(l2nn_penalty))
+                l2nn_penalty = tf.tile(l2nn_penalty, [self.gan.batch_size(), 1])
+                d_regularizers.append(l2nn_penalty)
 
         if config.ortho_penalty:
             penalties = []

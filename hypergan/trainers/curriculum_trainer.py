@@ -38,6 +38,9 @@ class CurriculumTrainer(BaseTrainer):
 
             gan.save("saves/curriculum")
             self.curriculum_index+=1
+            if self.config.cycle:
+                self.curriculum_index = self.curriculum_index % len(self.curriculum)
+            print("Loading index", self.curriculum_index, self.curriculum, self.curriculum[self.curriculum_index])
             gan.train_coordinator.request_stop()
             gan.train_coordinator.join(gan.input_threads)
             gan.session.close()
@@ -46,6 +49,9 @@ class CurriculumTrainer(BaseTrainer):
             config_name = self.curriculum[self.curriculum_index][1]
 
             newconfig_file = hg.Configuration.find(config_name+'.json')
+            if newconfig_file is None:
+                print("Could not find file ", config_name+".json")
+                raise("missing file")
             print("=> Loading config file", newconfig_file)
             newconfig = hc.Selector().load(newconfig_file)
             if 'inherit' in newconfig:
@@ -67,6 +73,7 @@ class CurriculumTrainer(BaseTrainer):
             newgan.cli = self.gan.cli
             newgan.trainer.curriculum= self.curriculum
             newgan.trainer.curriculum_index= self.curriculum_index
+            newgan.trainer.config.cycle = self.config.cycle
             newgan.cli.sampler = None
             gan.cli.sampler = None
             gan.destroy=True

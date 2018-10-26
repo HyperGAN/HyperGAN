@@ -14,7 +14,8 @@ class FitnessTrainer(BaseTrainer):
         self.old_fitness = None
         config = self.config
         lr = config.learn_rate
-        lr = tf.Variable(lr, name='learning_rate')
+        if lr is not None:
+            lr = tf.Variable(lr, name='learning_rate')
         self.global_step = tf.train.get_global_step()
         self.mix_threshold_reached = False
         decay_function = config.decay_function
@@ -137,15 +138,14 @@ class FitnessTrainer(BaseTrainer):
             else:
                 apply_vec_g.append((gradient, v))
 
-
-        defn = {k: v for k, v in config.items() if k in inspect.getargspec(config.trainer).args}
-        defn['gan']=self.gan
-        tr = config.trainer(self.lr, **defn)
-
+        optimizer = (config.optimizer or config.trainer)
+        config['gan']=self.gan
+        config['config']=config
+        defn = {k: v for k, v in config.items() if k in inspect.getargspec(optimizer).args}
+        tr = optimizer(self.lr, **defn)
 
         optimizer = tr.apply_gradients(apply_vec, global_step=self.global_step)
         d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
-        g_optimizer = tr.apply_gradients(apply_vec_g, global_step=self.global_step)
 
         def _update_ortho(v,i):
             if len(v.shape) == 4:
@@ -282,7 +282,6 @@ class FitnessTrainer(BaseTrainer):
 
         self.optimizer = optimizer
         self.d_optimizer = d_optimizer
-        self.g_optimizer = g_optimizer
         self.min_fitness=None
         
         if config.fitness_test is not None:
@@ -384,7 +383,7 @@ class FitnessTrainer(BaseTrainer):
         return optimizer, optimizer
 
     def required(self):
-        return "trainer learn_rate".split()
+        return "".split()
 
     def _step(self, feed_dict):
         gan = self.gan

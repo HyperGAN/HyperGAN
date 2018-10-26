@@ -301,14 +301,15 @@ class AliNextFrameGAN(BaseGAN):
 
             #self.frames = [f+tf.random_uniform(self.ops.shape(f), minval=-0.1, maxval=0.1) for f in self.frames ]
             #cs, zs, x_hats = encode_frames(self.frames, tf.zeros_like(uc2.sample), tf.zeros_like(uz2.sample), reuse=False)
-            cs, zs, x_hats = encode_frames(self.frames, uc2.sample, uz2.sample, reuse=False)
+            cs, zs, x_hats = encode_frames(self.frames, tf.zeros_like(uc2.sample), tf.zeros_like(uz2.sample), reuse=False)
             extra_frames = config.extra_frames or 2
             self.zs = zs
             self.cs = cs
             ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
             ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames))
+            re_ucs, re_uzs, re_ugs = encode_frames(ugs[1:len(self.frames)], ucs[0], uzs[0])
             re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:len(self.frames)], ucs_next[0], uzs_next[0])
-            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames))
+            gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames)+extra_frames)
             re_ucs, re_uzs, ugs_hat = encode_frames(ugs[1:len(self.frames)], ucs[0], uzs[0])
             re_cs, re_zs, re_gs = encode_frames(x_hats[1:len(self.frames)], cs[0], zs[0])
             re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:len(self.frames)], cs_next[0], zs_next[0])
@@ -331,12 +332,23 @@ class AliNextFrameGAN(BaseGAN):
 
 
             if config.encode_ug:
-                stack += rotate(ugs[1:-1], ugs[-1:]+ugs_next)
-                features += rotate(ucs[1:-1], ucs[-1:]+ucs_next)
+                stack += rotate(ugs[:-2], ugs[-2:]+ugs_next)
+                features += rotate(ucs[:-2], ucs[-2:]+ucs_next)
+                #stack.append(tf.concat(ugs[:-2], axis=axis))
+                #features.append(tf.concat(ucs[:-2], axis=axis))
+                
             if config.encode_forward:
                 stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
                 features += rotate(cs[2:], cs_next[1:])
-            print("'LEN", len(stack), len(features))
+
+            if config.encode_forward_next:
+
+                stack += [tf.concat(gs_next[:-4],axis=axis)]
+                features += [tf.concat(cs_next[:-4],axis=axis)]
+
+            if config.encode_re_ug:
+                stack += [tf.concat(re_ugs[1:],axis=axis)]
+                features += [tf.concat(re_ucs[1:],axis=axis)]
 
 
 

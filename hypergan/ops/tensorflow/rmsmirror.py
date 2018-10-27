@@ -33,8 +33,10 @@ class RMSMirrorOptimizer(RMSPropOptimizer):
     super()._create_slots(var_list)
     # Create slots for the first and second moments.
     for v in var_list:
-        if v in self.gan.d_vars():
-          self._zeros_slot(v, "g", self._name)
+      #  if v in self.gan.d_vars():
+      self._zeros_slot(v, "v", self._name)
+      self._zeros_slot(v, "rms", self._name)
+      self._zeros_slot(v, "momentum", self._name)
       
   def _apply_dense(self, grad, var):
     lr_t = math_ops.cast(self._learning_rate_tensor, var.dtype.base_dtype)
@@ -43,25 +45,29 @@ class RMSMirrorOptimizer(RMSPropOptimizer):
     epsilon_t = math_ops.cast(self._epsilon_tensor, var.dtype.base_dtype)
     momentum_t = math_ops.cast(self._momentum_tensor, var.dtype.base_dtype)
 
+    #if var in self.gan.d_vars():
+    rms = self.get_slot(var, "rms")
+    momentum = self.get_slot(var, "momentum")
+
+    v = self.get_slot(var, "v")
+    store_v = v.assign(var)
+    rms_t = rms.assign(decay_t*rms + (1-decay_t)*tf.square(grad))
+    movement = lr_t * grad/ tf.sqrt(rms_t + epsilon_t)
+    var_update1 = state_ops.assign_sub(var, movement)
+
+    #movement = 2. * lr_t * g_t - lr_t * g_t_1
+
     if var in self.gan.d_vars():
-        rms = self.get_slot(var, "rms")
-        momentum = self.get_slot(var, "momentum")
-
-        rms_t = rms.assign(decay_t*rms + (1-decay_t)*tf.square(grad))
-        g_t = grad / tf.sqrt(rms_t + epsilon_t)
-
-        g_t_1 = self.get_slot(var, "g")
-        g_t = g_t_1.assign( g_t )
-
-        #movement = 2. * lr_t * g_t - lr_t * g_t_1
-        movement = lr_t * g_t - p_t * lr_t * (g_t_1 - g_t)
-        var_update = state_ops.assign_sub(var, movement)
-        return control_flow_ops.group(*[var_update, rms_t, g_t])
+        grad2 = tf.gradients(self.gan.trainer.d_loss, var)[0]
+    elif var in self.gan.g_vars():
+        grad2 = tf.gradients(self.gan.trainer.g_loss, var)[0]
     else:
-        lr_g = self.gan.config.trainer.g_learn_rate or 0.25
-        movement = lr_g * grad
-        var_update = state_ops.assign_sub(var, movement)
-        return control_flow_ops.group(*[var_update])
+        raise("Couldn't find var in g_vars or d_vars")
+
+    movement2 = lr_t * (grad/ tf.sqrt(rms_t + epsilon_t)  - p_t * (grad2/ tf.sqrt(rms_t + epsilon_t) - grad/ tf.sqrt(rms_t + epsilon_t)))# * (magnitude / magnitude_diff))
+    reset_v = var.assign(v)
+    var_update2 = state_ops.assign_sub(var, movement2)
+    return control_flow_ops.group(*[store_v, var_update1, reset_v, var_update2])
 
 
   def _apply_sparse(self, grad, var):

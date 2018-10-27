@@ -26,30 +26,52 @@ class GradientDescentMirrorOptimizer(GradientDescentOptimizer):
         self._p_t = tf.random_uniform([1], minval=0.0, maxval=1.0)
     else:
         self._p_t = ops.convert_to_tensor(self._p, name="p")
+
   def _create_slots(self, var_list):
     super()._create_slots(var_list)
     # Create slots for the first and second moments.
     for v in var_list:
-        if v in self.gan.d_vars():
-          self._zeros_slot(v, "g", self._name)
+        #if v in self.gan.d_vars():
+        #self._zeros_slot(v, "w", self._name)
+        self._get_or_make_slot(v, v, "v", self._name)
+    #self.sum = tf.zeros([1])
+    #self.sum2 = tf.zeros([1])
       
   def _apply_dense(self, grad, var):
     lr_t = math_ops.cast(self._learning_rate_tensor, var.dtype.base_dtype)
     p_t = math_ops.cast(self._p_t, var.dtype.base_dtype)
 
 
+    #if var in self.gan.d_vars():
+    v = self.get_slot(var, "v")
+    store_v = v.assign(var)
+    #magnitude = tf.sqrt(tf.reduce_sum(tf.square(grad)))
+    #magnitude_diff = tf.sqrt(tf.reduce_sum(tf.square(grad - g_t_1)))
+    movement = lr_t * grad
+    #movement = lr_t * (grad - p_t * (grad - g_t_1))# * (magnitude / magnitude_diff))
+    #self.gan.add_metric('sum', magnitude_diff)
+    #self.gan.add_metric('sum2', magnitude)
+    #self.gan.add_metric('p', p_t)
+    var_update1 = state_ops.assign_sub(var, movement)
+
     if var in self.gan.d_vars():
-        g_t = grad
-        g_t_1 = self.get_slot(var, "g")
-        g_t = g_t_1.assign( g_t )
-        movement = lr_t * g_t 
-        movement -= p_t * lr_t * (g_t_1 - g_t)
-        var_update = state_ops.assign_sub(var, movement)
-        return control_flow_ops.group(*[var_update, g_t])
+        grad2 = tf.gradients(self.gan.trainer.d_loss, var)[0]
+    elif var in self.gan.g_vars():
+        grad2 = tf.gradients(self.gan.trainer.g_loss, var)[0]
     else:
-        movement = (self.gan.config.trainer.g_learn_rate or lr_t) * grad
-        var_update = state_ops.assign_sub(var, movement)
-        return control_flow_ops.group(*[var_update])
+        raise("Couldn't find var in g_vars or d_vars")
+
+    movement2 = lr_t * (grad - p_t * (grad2 - grad))# * (magnitude / magnitude_diff))
+    #self.gan.add_metric('m1', tf.reduce_sum(movement))
+    #self.gan.add_metric('m2', tf.reduce_sum(movement2))
+    #self.gan.add_metric('diff', tf.reduce_sum(grad2-grad))
+    reset_v = var.assign(v)
+    var_update2 = state_ops.assign_sub(var, movement2)
+    return control_flow_ops.group(*[store_v, var_update1, reset_v, var_update2])
+    #else:
+    #    movement = (self.gan.config.trainer.g_learn_rate or lr_t) * grad
+    #    var_update = state_ops.assign_sub(var, movement)
+    #    return control_flow_ops.group(*[var_update])
 
 
   def _apply_sparse(self, grad, var):

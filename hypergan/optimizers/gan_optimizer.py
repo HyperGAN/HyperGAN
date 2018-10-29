@@ -9,6 +9,7 @@ from tensorflow.python.ops import state_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.training import optimizer
 import tensorflow as tf
+import hyperchamber as hc
 import inspect
 
 class GANOptimizer(optimizer.Optimizer):
@@ -20,15 +21,17 @@ class GANOptimizer(optimizer.Optimizer):
     super().__init__(config.learn_rate, name=name)
     self.gan = gan
     self.config = config
-    def create_optimizer(klass, _learn_rate):
-        config['gan']=self.gan
-        config['config']=config
-        defn = {k: v for k, v in config.items() if k in inspect.getargspec(klass).args}
-        return klass(_learn_rate, **defn)
+    def create_optimizer(klass, options):
+        options['gan']=self.gan
+        options['config']=options
+        defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
+        return klass(options["learn_rate"], **defn)
 
+    d_optimizer = hc.lookup_functions(d_optimizer)
+    g_optimizer = hc.lookup_functions(g_optimizer)
 
-    self.d_optimizer = create_optimizer(d_optimizer, config.d_learn_rate or config.learn_rate)
-    self.g_optimizer = create_optimizer(g_optimizer, config.g_learn_rate or config.learn_rate)
+    self.d_optimizer = create_optimizer(d_optimizer["class"], d_optimizer)
+    self.g_optimizer = create_optimizer(g_optimizer["class"], g_optimizer)
 
   def _prepare(self):
     super()._prepare()

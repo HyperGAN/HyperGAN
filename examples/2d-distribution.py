@@ -6,6 +6,7 @@ import uuid
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
+import json
 from hypergan.generators import *
 from hypergan.search.random_search import RandomSearch
 from hypergan.viewer import GlobalViewer
@@ -17,30 +18,17 @@ args = arg_parser.parse_args()
 
 config = lookup_config(args)
 if args.action == 'search':
-    config = RandomSearch({}).random_config()
-    config['loss']['minibatch'] = False # minibatch breaks on this example
-
-    config['discriminator']={
-        "class": "class:hypergan.discriminators.multi_discriminator.MultiDiscriminator",
-        "initializer": "random_normal",
-        "projection_type": "scaled",
-        "discriminators": [
-          {
-            "class": "class:__main__.Custom2DDiscriminator",
-            "initializer": "random_normal",
-            "layers": 2,
-            "random_stddev": 0.02
-          },
-          {
-            "class": "class:__main__.Custom2DDiscriminator",
-            "initializer": "random_normal",
-            "layers": 2,
-            "random_stddev": 0.02
-          }
-        ],
-        "random_stddev": 0.02
-      }
-
+    config = hc.Config(json.loads(open(os.getcwd()+'/randomsearch.json', 'r').read()))
+    config['trainer']['rbbr']['d_optimizer']['optimizer']['learn_rate'] = random.choice([0.1,0.01,0.001, 0.005, 0.0001])
+    config['trainer']['rbbr']['g_optimizer']['optimizer']['learn_rate'] = config['trainer']['rbbr']['d_optimizer']['learn_rate']
+    config['trainer']['rbbr']['d_optimizer']['optimizer']['beta1'] = random.choice([0.1, 0.0001, 0.5, 0.9, 0.999])
+    config['trainer']['rbbr']['g_optimizer']['optimizer']['beta1'] = config['trainer']['rbbr']['d_optimizer']['optimizer']['beta1']
+    config['trainer']['rbbr']['d_optimizer']['optimizer']['beta2'] = random.choice([0.1, 0.0001, 0.5, 0.9, 0.999])
+    config['trainer']['rbbr']['g_optimizer']['optimizer']['beta2'] = config['trainer']['rbbr']['d_optimizer']['optimizer']['beta2']
+    config['trainer']['rbbr']['d_optimizer']['p'] = random.choice(["rand", 0, 1, 0.5, 0.99, 0.1])
+    config['trainer']['rbbr']['g_optimizer']['p'] = config['trainer']['rbbr']['d_optimizer']['p']
+    config['trainer']['rbbr']['d_optimizer']['learn_rate'] = random.choice([0, 1, 0.5, 0.1, 0.001, 0.01])
+    config['trainer']['rbbr']['g_optimizer']['learn_rate'] = config['trainer']['rbbr']['d_optimizer']['learn_rate']
 
 def train(config, args):
     title = "[hypergan] 2d-test " + args.config

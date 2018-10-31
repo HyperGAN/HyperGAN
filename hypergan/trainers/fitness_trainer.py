@@ -76,79 +76,35 @@ class FitnessTrainer(BaseTrainer):
                 print("!!missing gradient")
                 print(d_v)
                 return
-        reg = 0.5 * sum(
-            tf.reduce_sum(tf.square(g)) for g in grads if g is not None
-        )
-        if config.update_rule == 'consensus-d':
-            reg = 0.5 * sum(
-                tf.reduce_sum(tf.square(g)) for g in d_grads if g is not None
-            )
-        if config.update_rule == "ttur":
-            Jgrads = [0 for i in allvars]
-        elif config.update_rule == "consensus-d":
-            Jgrads = tf.gradients(reg, d_vars)+g_vars
-        else:
-            Jgrads = tf.gradients(reg, allvars)
-
-        self.g_gradient = tf.ones([1])
-        def amp_for(v):
-            if v in g_vars:
-                return config.g_w_lambda or 3
-            if v in d_vars:
-                return config.d_w_lambda or 1
-
-        def applyvec(g, jg, v):
-            if jg is None:
-                return g
-            jg_alpha = config.jg_alpha or 0.1
-            if "jg_alpha_time_decay" in config:
-                time = config.jg_alpha_time_decay
-                jg_alpha = tf.train.polynomial_decay(time[0], self.global_step, time[2], end_learning_rate=time[1], power=time[3])
-            nextw = g + jg * jg_alpha
-            return nextw
-
-        def gradient_for(g, jg, v):
-            def _gradient():
-                if config.update_rule == 'single-step':
-                    return g
-                elif config.update_rule == "ttur":
-                    ng = amp_for(v)*g
-                elif config.update_rule == 'consensus-d':
-                    if v in d_vars:
-                        ng = applyvec(g, jg, v)
-                    else:
-                        ng = g
-                else:
-                    ng = applyvec(g, jg, v)
-                return ng
-            ng = _gradient()
-            return ng
         apply_vec = []
         apply_vec_d = []
         apply_vec_g = []
-        for (i, g, Jg, v) in zip(range(len(grads)), grads, Jgrads, allvars): 
-            if Jg is None:
-                print("Warning: None found in Jg", i, g, Jg, v)
+        for (i, grad, v) in zip(range(len(grads)), grads, allvars): 
 
-            gradient = gradient_for(g, Jg, v)
-            print("Applying gradient", gradient)
-            apply_vec.append((gradient, v))
+            apply_vec.append((grad, v))
             if v in d_vars:
-                apply_vec_d.append((gradient, v))
+                apply_vec_d.append((grad, v))
             else:
-                apply_vec_g.append((gradient, v))
+                apply_vec_g.append((grad, v))
 
-        optimizer = (config.optimizer or config.trainer)
-        config['gan']=self.gan
-        config['config']=config
-        defn = {k: v for k, v in config.items() if k in inspect.getargspec(optimizer).args}
-        tr = optimizer(self.lr, **defn)
+        optimizer = hc.lookup_functions(config.optimizer)
+        optimizer['gan']=self.gan
+        optimizer['config']=optimizer
+        defn = {k: v for k, v in optimizer.items() if k in inspect.getargspec(optimizer['class']).args}
+        tr = optimizer['class'](self.lr, **defn)
 
         self.gan.trainer = self
         self.g_loss = g_loss
         self.d_loss = d_loss
+        
+        self.hooks = []
+        for hook_config in (self.config.hooks or []):
+            hook = hook["class"](optimizer=tr, gan=gan, config=hook_config)
+            self.hooks.append(hook)
+
+        print("AAA", tr)
         optimizer = tr.apply_gradients(apply_vec, global_step=self.global_step)
-        d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
+        #d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
 
         def _update_ortho(v,i):
             if len(v.shape) == 4:
@@ -286,7 +242,7 @@ class FitnessTrainer(BaseTrainer):
         self.slot_vars_d = [x for x in self.slot_vars if _slot_var(x, d_vars)]
 
         self.optimizer = optimizer
-        self.d_optimizer = d_optimizer
+        #self.d_optimizer = d_optimizer
         self.min_fitness=None
         
         if config.fitness_test is not None:
@@ -480,10 +436,7 @@ class FitnessTrainer(BaseTrainer):
                     self.hist[1]+=1
                     fitness_decay = config.fitness_decay or 0.99
                     self.min_fitness = self.min_fitness + (1.00-fitness_decay)*(fitness-self.min_fitness)
-                    if(config.train_d_on_fitness_failure):
-                        metric_values = sess.run([self.d_optimizer]+self.output_variables(metrics), feed_dict)[1:]
-                    else:
-                        metric_values = sess.run(self.output_variables(metrics), feed_dict)
+                    metric_values = sess.run(self.output_variables(metrics), feed_dict)
             else:
                 if ((self.current_step % (self.config.constraint_every or 100)) == 0):
                     if self.config.weight_constraint:

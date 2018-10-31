@@ -61,5 +61,15 @@ class GANOptimizer(optimizer.Optimizer):
         return self.g_optimizer._apply_dense(grad, var)
     raise("Unable to handle", var)
 
+
+  def get_slot_names(self):
+      return list(set(self.d_optimizer.get_slot_names() + self.g_optimizer.get_slot_names()))
+
+  def get_slot(self, var, name):
+      return self.d_optimizer.get_slot(var, name) or self.g_optimizer.get_slot(var, name)
+  
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")
+
+  def apply_gradients(grads_and_vars, global_step=None, name=None):
+    return tf.group(self.d_optimizer.apply_gradients(grads_and_vars, global_step, name), self.g_optimizer.apply_gradients(grads_and_vars, global_step, name))

@@ -19,16 +19,12 @@ args = arg_parser.parse_args()
 config = lookup_config(args)
 if args.action == 'search':
     config = hc.Config(json.loads(open(os.getcwd()+'/randomsearch.json', 'r').read()))
-    config['trainer']['rbbr']['d_optimizer']['optimizer']['learn_rate'] = random.choice([0.1,0.01,0.001, 0.005, 0.0001])
-    config['trainer']['rbbr']['g_optimizer']['optimizer']['learn_rate'] = config['trainer']['rbbr']['d_optimizer']['learn_rate']
-    config['trainer']['rbbr']['d_optimizer']['optimizer']['beta1'] = random.choice([0.1, 0.0001, 0.5, 0.9, 0.999])
-    config['trainer']['rbbr']['g_optimizer']['optimizer']['beta1'] = config['trainer']['rbbr']['d_optimizer']['optimizer']['beta1']
-    config['trainer']['rbbr']['d_optimizer']['optimizer']['beta2'] = random.choice([0.1, 0.0001, 0.5, 0.9, 0.999])
-    config['trainer']['rbbr']['g_optimizer']['optimizer']['beta2'] = config['trainer']['rbbr']['d_optimizer']['optimizer']['beta2']
-    config['trainer']['rbbr']['d_optimizer']['p'] = random.choice(["rand", 0, 1, 0.5, 0.99, 0.1])
-    config['trainer']['rbbr']['g_optimizer']['p'] = config['trainer']['rbbr']['d_optimizer']['p']
-    config['trainer']['rbbr']['d_optimizer']['learn_rate'] = random.choice([0, 1, 0.5, 0.1, 0.001, 0.01])
-    config['trainer']['rbbr']['g_optimizer']['learn_rate'] = config['trainer']['rbbr']['d_optimizer']['learn_rate']
+    config['trainer']['rbbr']['optimizer']['optimizer']['learn_rate'] = random.choice([0.1,0.01,0.001, 0.005, 0.0001])
+    config['trainer']['rbbr']['optimizer']['optimizer']['beta1'] = random.choice([0.1, 0.0001, 0.5, 0.9, 0.999])
+    config['trainer']['rbbr']['optimizer']['optimizer']['beta2'] = random.choice([0.1, 0.0001, 0.5, 0.9, 0.999])
+    config['trainer']['rbbr']['optimizer']['beta'] = random.choice([0, 1, 0.5, 0.99, 0.1])
+    config['trainer']['rbbr']['optimizer']['gamma'] = random.choice([0, 1, 0.5, 0.99, 0.1, 10])
+    config['trainer']['rbbr']['optimizer']['rho'] = random.choice([0, 1, 0.5, 0.99, 0.1])
 
 def train(config, args):
     title = "[hypergan] 2d-test " + args.config

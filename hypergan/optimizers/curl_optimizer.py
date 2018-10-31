@@ -13,9 +13,11 @@ import hyperchamber as hc
 import inspect
 
 class CurlOptimizer(optimizer.Optimizer):
-  def __init__(self, learning_rate=0.001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None):
+  def __init__(self, learning_rate=0.001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=1, gamma=1):
     super().__init__(use_locking, name)
-    self._p = p
+    self._beta = beta
+    self._rho = rho
+    self._gamma = gamma
     self.gan = gan
     self.config = config
     self._lr_t = learning_rate
@@ -31,40 +33,81 @@ class CurlOptimizer(optimizer.Optimizer):
   def _prepare(self):
     super()._prepare()
     self.optimizer._prepare()
-    if self._p == "rand":
-        self._p_t = tf.random_uniform([1], minval=0.0, maxval=1.0)
-    else:
-        self._p_t = ops.convert_to_tensor(self._p, name="p")
-
 
   def _create_slots(self, var_list):
     super()._create_slots(var_list)
     self.optimizer._create_slots(var_list)
-    # Create slots for the first and second moments.
-    for v in var_list:
-      self._zeros_slot(v, "oldv", self._name)
-      
+
   def _apply_dense(self, grad, var):
-    lr_t = math_ops.cast(self._lr_t, var.dtype.base_dtype)
-    p_t = math_ops.cast(self._p_t, var.dtype.base_dtype)
+    return self.optimizer._apply_dense(grad, var)
 
-    v = self.get_slot(var, "oldv")
-    reset_v = var.assign(v)
-    store_v = v.assign(var)
-    movement = grad * lr_t 
-    var_update1 = state_ops.assign_sub(var, movement)
+  def apply_gradients(self, grads_and_vars, global_step=None, name=None):
+    var_list = [ v for _,v in grads_and_vars]
+    d_vars = []
+    g_vars = []
+    for grad,var in grads_and_vars:
+        if var in self.gan.d_vars():
+            d_vars += [var]
+        elif var in self.gan.g_vars():
+            g_vars += [var]
+        else:
+            raise("Couldn't find var in g_vars or d_vars")
 
-    if var in self.gan.d_vars():
-        grad2 = tf.gradients(self.gan.trainer.d_loss, var)[0]
-    elif var in self.gan.g_vars():
-        grad2 = tf.gradients(self.gan.trainer.g_loss, var)[0]
-    else:
-        raise("Couldn't find var in g_vars or d_vars")
+    with ops.init_scope():
+        gswap = [self._zeros_slot(v, "gswap", self._name) for _,v in grads_and_vars]
+        v1 = [self._zeros_slot(v, "v1", self._name) for _,v in grads_and_vars]
+        slots_list = []
+        self.optimizer._create_slots(v1)
+        for name in self.optimizer.get_slot_names():
+            for var in self.optimizer.variables():
+                print("FIND VAR", var)
+                slots_list.append(self.optimizer._zeros_slot(var, name+"_curl", self.optimizer._name))
 
-    grad3 = (grad - p_t * (grad2 - grad))
+    gswap = [self.get_slot(v, "gswap") for _,v in grads_and_vars]
+    v1 = [self.get_slot(v, "v1") for _,v in grads_and_vars]
+    slots_list = []
+    slots_vars = []
+    for name in self.optimizer.get_slot_names():
+        for var in self.optimizer.variables():
+            slots_vars += [var]
+            slots_list.append(self.optimizer.get_slot(var, name+"_curl"))
 
-    var_update2 =self.optimizer._apply_dense(grad3, var)
-    return control_flow_ops.group(*[store_v, var_update1, reset_v, var_update2])
+
+    restored_vars = var_list + slots_vars
+    tmp_vars = v1 + slots_list
+    tmp_grads = gswap
+    all_grads = [ g for g, _ in grads_and_vars ]
+    step1 = grads_and_vars
+    # store variables for resetting
+    tmp_vars = restored_vars
+
+    consensus_reg = 0.5 * sum(
+            tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
+    )
+    Jgrads = tf.gradients(consensus_reg, d_vars)+[tf.zeros_like(g) for g in g_vars]
+
+    op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
+    op2 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_grads, all_grads)]) # store gradients
+    # step 1
+    op3 = super().apply_gradients(step1, global_step=global_step, name=name)
+    # store g2
+
+    grads2 = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
+
+    def curlcombine(g1,g2):
+        return self._gamma*g1-self._rho*(g2-g1)
+    g1s = gswap
+    g2s = grads2
+    g3s = [curlcombine(g1,g2) for g1,g2 in zip(g1s,g2s)]
+    op4 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, g3s)])
+    # restore v1, slots
+    op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
+    # step 3
+    flin = gswap
+    flin = [(grad + jg * self._beta) for grad, jg in zip(gswap, Jgrads)]
+    step3 = zip(flin, var_list)
+    op6 = super().apply_gradients(step3, global_step=global_step, name=name)
+    return tf.group(op1,op2,op3,op4,op5,op6)
 
   
   def _apply_sparse(self, grad, var):

@@ -71,5 +71,8 @@ class GANOptimizer(optimizer.Optimizer):
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")
 
-  def apply_gradients(grads_and_vars, global_step=None, name=None):
-    return tf.group(self.d_optimizer.apply_gradients(grads_and_vars, global_step, name), self.g_optimizer.apply_gradients(grads_and_vars, global_step, name))
+  def apply_gradients(self, grads_and_vars, global_step=None, name=None):
+    args = []
+    args += [self.g_optimizer.apply_gradients(grads_and_vars, global_step, name)]
+    args += [self.d_optimizer.apply_gradients(grads_and_vars, global_step, name)]
+    return tf.group(*args)

@@ -81,11 +81,14 @@ class FitnessTrainer(BaseTrainer):
         apply_vec_g = []
         for (i, grad, v) in zip(range(len(grads)), grads, allvars): 
 
-            apply_vec.append((grad, v))
-            if v in d_vars:
-                apply_vec_d.append((grad, v))
+            if grad == None:
+                print("WARNING: grad none", grad, v)
             else:
-                apply_vec_g.append((grad, v))
+                apply_vec.append((grad, v))
+                if v in d_vars:
+                    apply_vec_d.append((grad, v))
+                else:
+                    apply_vec_g.append((grad, v))
 
         optimizer = hc.lookup_functions(config.optimizer)
         optimizer['gan']=self.gan

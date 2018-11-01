@@ -245,7 +245,7 @@ class FitnessTrainer(BaseTrainer):
         self.slot_vars_g = [x for x in self.slot_vars if _slot_var(x, g_vars)]
         self.slot_vars_d = [x for x in self.slot_vars if _slot_var(x, d_vars)]
 
-        self.optimizer = optimizer
+        self.optimize_t = optimize_t
         #self.d_optimizer = d_optimizer
         self.min_fitness=None
         
@@ -345,7 +345,7 @@ class FitnessTrainer(BaseTrainer):
                 self.g_fitness = tf.reduce_mean(loss.d_fake) - (config.diversity_importance or 1)* tf.log(tf.abs(self.mean + tf.reduce_mean(loss.d_real) - tf.reduce_mean(loss.d_fake)))
             self.g_fitness = tf.reduce_mean(self.g_fitness)
 
-        return optimizer, optimizer
+        return optimize_t, optimize_t
 
     def required(self):
         return "".split()
@@ -428,7 +428,7 @@ class FitnessTrainer(BaseTrainer):
 
                         feed_dict[self.prev_l2_loss] = prev_l2_loss
 
-                    _, *metric_values = sess.run([self.optimizer] + self.output_variables(metrics), feed_dict)
+                    _, *metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)
                     fit=True
                     if ((self.current_step % (self.config.constraint_every or 100)) == 0):
                         if self.config.weight_constraint:
@@ -447,7 +447,7 @@ class FitnessTrainer(BaseTrainer):
                         print("Updating constraints")
                         sess.run(self.update_weight_constraints, feed_dict)
                 #standard
-                gl, dl, *metric_values = sess.run([self.g_loss, self.d_loss, self.optimizer] + self.output_variables(metrics), feed_dict)[1:]
+                gl, dl, *metric_values = sess.run([self.g_loss, self.d_loss, self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]
                 fit=True
                 sess.run(self.assign_ema)
                 sess.run(self.assign_past_weights)

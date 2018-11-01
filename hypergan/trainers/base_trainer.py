@@ -95,7 +95,7 @@ class BaseTrainer(GANComponent):
 
 
     def required(self):
-        return "d_trainer g_trainer d_learn_rate g_learn_rate".split()
+        return "d_optimizer g_optimizer d_learn_rate g_learn_rate".split()
 
     def output_string(self, metrics):
         name = self.gan.name or ""

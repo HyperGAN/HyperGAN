@@ -42,6 +42,31 @@ class AliVibGAN(BaseGAN):
         `generator` produces samples
         """
         return "generator discriminator ".split()
+    def bottleneck(self, metric, name, term1, term2):
+        dvs = []
+        _inputs = term1
+        inputs = tf.concat(term2, axis=0)
+        features = None
+        bdisc = self.create_component(config[name+'1'], name=name+'1', input=inputs, features=[features])
+        dvs += bdisc.variables()
+        l2 = self.create_loss(config.loss, bdisc, None, None, len(_inputs))
+        self.add_metric(metric+'_dl1', l2.d_loss)
+        self.add_metric(metric+'_gl1', l2.g_loss)
+        dl= ib_1_c * l2.d_loss
+        gl=ib_1_c * l2.g_loss
+
+        beta = config.bottleneck_beta or 1
+        _features = term2
+        inputs = tf.concat(_inputs, axis=0)
+        features = tf.concat(_features, axis=0)
+        bdisc2 = self.create_component(config[name+'2'], name=name+'2', input=inputs, features=[features])
+        dvs += bdisc2.variables()
+        l2 = self.create_loss(config.loss, bdisc2, None, None, len(_inputs))
+        self.add_metric(metric+'_dl2',  ib_2_c * beta * l2.d_loss)
+        self.add_metric(metric+'_gl2',  ib_2_c * beta * l2.g_loss)
+        dl += ib_2_c * beta * l2.d_loss
+        gl += ib_2_c * beta * l2.g_loss
+        return gl, dl, dvs
 
     def create(self):
         config = self.config
@@ -97,11 +122,12 @@ class AliVibGAN(BaseGAN):
                 return loss,discriminator
 
             def d(name, stack):
+                if name is None:
+                    name = config
                 stacked = tf.concat(stack,axis=0)
                 discriminator = self.create_component(config[name], name=name, input=stacked)
                 loss = self.create_loss(config.loss, discriminator, None, None, len(stack))
                 return loss,discriminator
-
 
             l1, d1 = ali([self.inputs.x,encoder.sample],[generator.sample,u_to_z.sample],[reencode_u_to_z_to_g.sample, reencode_u_to_z.sample])
             l2, d2 = ali([self.inputs.x,tf.zeros_like(encoder.sample)],[generator.sample,tf.zeros_like(u_to_z.sample)],[reencode_u_to_z_to_g.sample, tf.zeros_like(reencode_u_to_z.sample)], reuse=True)
@@ -116,11 +142,20 @@ class AliVibGAN(BaseGAN):
             d_losses = [beta * (l1.d_loss - l2.d_loss - l3.d_loss) + l4.d_loss + 2*l5.d_loss]
             g_losses = [beta * (l1.g_loss - l2.g_loss - l3.g_loss) + l4.g_loss + 2*l5.g_loss]
 
+            if config.alternate:
+                d_losses = [beta * (l1.d_loss - l2.d_loss - l3.d_loss) + l2.d_loss + 2*l3.d_loss]
+                g_losses = [beta * (l1.g_loss - l2.g_loss - l3.g_loss) + l2.g_loss + 2*l3.g_loss]
+
+
             self.add_metric("ld", d_losses[0])
             self.add_metric("lg", g_losses[0])
 
-            for d in [d1,d4,d5]:
-                d_vars += d.variables()
+            if config.alternate:
+                for d in [d1]:
+                    d_vars += d.variables()
+            else:
+                for d in [d1,d4,d5]:
+                    d_vars += d.variables()
 
             self._g_vars = g_vars
             self._d_vars = d_vars

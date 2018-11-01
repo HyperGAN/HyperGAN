@@ -25,7 +25,7 @@ class CurlOptimizer(optimizer.Optimizer):
         options['gan']=self.gan
         options['config']=options
         defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-        return klass(options["learn_rate"], **defn)
+        return klass(options.learn_rate, **defn)
 
     optimizer = hc.lookup_functions(optimizer)
     self.optimizer = create_optimizer(optimizer['class'], optimizer)
@@ -94,17 +94,25 @@ class CurlOptimizer(optimizer.Optimizer):
 
     grads2 = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
 
-    def curlcombine(g1,g2):
-        return self._gamma*g1-self._rho*(g2-g1)
+    def curlcombine(g1,g2,_v1,_v2):
+        return self._gamma*g1-self._rho*(g2-g1)/((_v2-_v1)+1e-8)*g1
     g1s = gswap
     g2s = grads2
-    g3s = [curlcombine(g1,g2) for g1,g2 in zip(g1s,g2s)]
+    g3s = [curlcombine(g1,g2,v1,v2) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
     op4 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, g3s)])
     # restore v1, slots
     op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
     # step 3
     flin = gswap
-    flin = [(grad + jg * self._beta) for grad, jg in zip(gswap, Jgrads)]
+    print("BETA", self._beta)
+    flin = []
+    for grad, jg in zip(gswap, Jgrads):
+        if jg is None:
+            print("JG NONE", grad)
+            flin += [grad]
+        else:
+            flin += [grad + jg * self._beta]
+        
     step3 = zip(flin, var_list)
     op6 = super().apply_gradients(step3, global_step=global_step, name=name)
     return tf.group(op1,op2,op3,op4,op5,op6)
@@ -112,3 +120,5 @@ class CurlOptimizer(optimizer.Optimizer):
   
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")
+  def variables(self):
+      return super().variables() + self.optimizer.variables()

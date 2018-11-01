@@ -92,7 +92,7 @@ class ImageLoader:
 
     def _get_data(self, image, label):
         batch_size = self.batch_size
-        num_preprocess_threads = 24
+        num_preprocess_threads = 4
         images, label_batch = tf.train.shuffle_batch(
             [image, label],
             batch_size=batch_size,

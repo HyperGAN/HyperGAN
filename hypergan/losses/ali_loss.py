@@ -20,8 +20,8 @@ class AliLoss(BaseLoss):
 
 
         if config.type == 'original':
-            d_loss = -tf.log(pq)-tf.log(1-pp)
-            g_loss = -tf.log(1-pq)-tf.log(pp)
+            d_loss = -tf.log(tf.nn.sigmoid(pq))-tf.log(1-tf.nn.sigmoid(pp))
+            g_loss = -tf.log(1-tf.nn.sigmoid(pq))-tf.log(tf.nn.sigmoid(pp))
         elif config.type == 'least_squares':
             a,b,c = config.labels
             square = ops.lookup('square')

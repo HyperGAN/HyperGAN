@@ -66,7 +66,7 @@ class DebugSampler(BaseSampler):
         if hasattr(gan, 'seq'):
             self.samplers += [IdentitySampler(gan, tf.image.resize_images(gx, [128,128], method=1), samples_per_row) for gx in gan.seq]
 
-        default = tf.zeros_like(gan.generator.layer('gend8x8'))
+        default = gan.generator.sample#tf.zeros_like(gan.generator.layer('gend8x8'))
         def add_samples(layer):
             layer = gan.generator.layer(layer)
             if layer is None:

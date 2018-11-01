@@ -105,8 +105,9 @@ class FitnessTrainer(BaseTrainer):
             hook = hook["class"](optimizer=tr, gan=gan, config=hook_config)
             self.hooks.append(hook)
 
-        print("AAA", tr)
-        optimizer = tr.apply_gradients(apply_vec, global_step=self.global_step)
+        self.gan.optimizer = tr
+
+        optimize_t = tr.apply_gradients(apply_vec, global_step=self.global_step)
         #d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
 
         def _update_ortho(v,i):

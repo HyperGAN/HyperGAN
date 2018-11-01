@@ -113,7 +113,7 @@ class BaseGAN(GANComponent):
     def save(self, save_file):
         print("[hypergan] Saving network to ", save_file)
         os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
-        saver = tf.train.Saver(self.variables())
+        saver = tf.train.Saver(self.variables()+self.optimizer.variables())
         saver.save(self.session, save_file)
 
     def load(self, save_file):

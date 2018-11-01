@@ -54,6 +54,10 @@ class ConsensusOptimizer(optimizer.Optimizer):
         else:
             raise("Couldn't find var in g_vars or d_vars")
 
+    with ops.init_scope():
+        self.optimizer._create_slots([v for g,v in grads_and_vars])
+
+    self._prepare()
     consensus_reg = 0.5 * sum(
             tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
     )
@@ -61,7 +65,7 @@ class ConsensusOptimizer(optimizer.Optimizer):
 
     flin = [(grad + jg * self._beta) for grad, jg in zip(all_grads, Jgrads)]
     step3 = zip(flin, var_list)
-    op6 = super().apply_gradients(step3, global_step=global_step, name=name)
+    op6 = self.optimizer.apply_gradients(step3, global_step=global_step, name=name)
     return op6
 
   

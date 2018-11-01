@@ -62,6 +62,7 @@ class CurlOptimizer(optimizer.Optimizer):
             for var in self.optimizer.variables():
                 print("FIND VAR", var)
                 slots_list.append(self.optimizer._zeros_slot(var, name+"_curl", self.optimizer._name))
+    self._prepare()
 
     gswap = [self.get_slot(v, "gswap") for _,v in grads_and_vars]
     v1 = [self.get_slot(v, "v1") for _,v in grads_and_vars]
@@ -87,34 +88,41 @@ class CurlOptimizer(optimizer.Optimizer):
     Jgrads = tf.gradients(consensus_reg, d_vars)+[tf.zeros_like(g) for g in g_vars]
 
     op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
-    op2 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_grads, all_grads)]) # store gradients
-    # step 1
-    op3 = super().apply_gradients(step1, global_step=global_step, name=name)
-    # store g2
 
-    grads2 = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
+    with tf.get_default_graph().control_dependencies(op1):
+        op2 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_grads, all_grads)]) # store gradients
+        with tf.get_default_graph().control_dependencies(op2):
+            # step 1
+            op3 = self.optimizer.apply_gradients(step1, global_step=global_step, name=name)
+            with tf.get_default_graph().control_dependencies(op3):
+                # store g2
 
-    def curlcombine(g1,g2,_v1,_v2):
-        return self._gamma*g1-self._rho*(g2-g1)/((_v2-_v1)+1e-8)*g1
-    g1s = gswap
-    g2s = grads2
-    g3s = [curlcombine(g1,g2,v1,v2) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
-    op4 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, g3s)])
-    # restore v1, slots
-    op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
-    # step 3
-    flin = gswap
-    flin = []
-    for grad, jg in zip(gswap, Jgrads):
-        if jg is None:
-            print("JG NONE", grad)
-            flin += [grad]
-        else:
-            flin += [grad + jg * self._beta]
-        
-    step3 = zip(flin, var_list)
-    op6 = super().apply_gradients(step3, global_step=global_step, name=name)
-    return tf.group(op1,op2,op3,op4,op5,op6)
+                grads2 = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
+
+                def curlcombine(g1,g2,_v1,_v2):
+                    return self._gamma*g1-self._rho*(g2-g1)/((_v2-_v1)+1e-8)*g1
+                g1s = gswap
+                g2s = grads2
+                g3s = [curlcombine(g1,g2,v1,v2) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
+                op4 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, g3s)])
+                with tf.get_default_graph().control_dependencies(op4):
+                    # restore v1, slots
+                    op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
+                    with tf.get_default_graph().control_dependencies(op5):
+                        # step 3
+                        flin = gswap
+                        flin = []
+                        for grad, jg in zip(gswap, Jgrads):
+                            if jg is None:
+                                print("JG NONE", grad)
+                                flin += [grad]
+                            else:
+                                flin += [grad + jg * self._beta]
+                            
+                        step3 = zip(flin, var_list)
+                        op6 = self.optimizer.apply_gradients(step3, global_step=global_step, name=name)
+                        with tf.get_default_graph().control_dependencies(op6):
+                            return tf.no_op()
 
   
   def _apply_sparse(self, grad, var):

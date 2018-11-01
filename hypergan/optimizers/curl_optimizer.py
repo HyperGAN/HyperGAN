@@ -104,7 +104,6 @@ class CurlOptimizer(optimizer.Optimizer):
     op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
     # step 3
     flin = gswap
-    print("BETA", self._beta)
     flin = []
     for grad, jg in zip(gswap, Jgrads):
         if jg is None:

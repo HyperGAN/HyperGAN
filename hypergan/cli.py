@@ -20,7 +20,6 @@ import shutil
 import sys
 
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
-from hypergan.samplers.infoplane_sampler import InfoPlaneSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
 from hypergan.samplers.grid_sampler import GridSampler

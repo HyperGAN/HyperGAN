@@ -100,28 +100,25 @@ class CurlOptimizer(optimizer.Optimizer):
                 grads2 = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
 
                 def curlcombine(g1,g2,_v1,_v2):
-                    return self._gamma*g1-self._rho*(g2-g1)/((_v2-_v1)+1e-8)*g1
+                    return g1+self._rho*(g2-g1)/((_v2-_v1)+1e-8)*g1
                 g1s = gswap
                 g2s = grads2
                 g3s = [curlcombine(g1,g2,v1,v2) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
-                op4 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, g3s)])
+                op4 = tf.group(*[tf.assign_sub(w, v) for w,v in zip(gswap, g3s)])
                 with tf.get_default_graph().control_dependencies([op4]):
                     # restore v1, slots
                     op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
                     with tf.get_default_graph().control_dependencies([op5]):
-                        flin = gswap
-                        flin = []
-                        for grad, jg in zip(gswap, Jgrads):
-                            if jg is None:
-                                print("JG NONE", grad)
-                                flin += [grad]
-                            else:
-                                flin += [grad + jg * self._beta]
-                            
-                        step3 = zip(flin, var_list)
-                        op6 = self.optimizer.apply_gradients(step3, global_step=global_step, name=name)
+
+                        op6 = self.optimizer.apply_gradients(grads_and_vars, global_step=global_step, name=name)
                         with tf.get_default_graph().control_dependencies([op6]):
-                            return tf.no_op()
+                            consensus_reg = 0.5 * sum(
+                                    tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
+                            )
+                            Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
+                            op7 = [tf.assign_sub(v, (jg * self._beta)) if jg is not None else tf.assign_sub(v,grad) for v,grad, jg in zip(var_list, all_grads, Jgrads)]
+                            with tf.get_default_graph().control_dependencies(op7):
+                                return tf.no_op()
 
   
   def _apply_sparse(self, grad, var):

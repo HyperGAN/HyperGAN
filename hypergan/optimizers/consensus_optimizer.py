@@ -58,15 +58,15 @@ class ConsensusOptimizer(optimizer.Optimizer):
         self.optimizer._create_slots([v for g,v in grads_and_vars])
 
     self._prepare()
-    consensus_reg = 0.5 * sum(
-            tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
-    )
-    Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
-
-    flin = [(grad + jg * self._beta) for grad, jg in zip(all_grads, Jgrads)]
-    step3 = zip(flin, var_list)
-    op6 = self.optimizer.apply_gradients(step3, global_step=global_step, name=name)
-    return op6
+    op6 = self.optimizer.apply_gradients(grads_and_vars, global_step=global_step, name=name)
+    with tf.get_default_graph().control_dependencies([op6]):
+        consensus_reg = 0.5 * sum(
+                tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
+        )
+        Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
+        op7 = [tf.assign_sub(v, (jg * self._beta)) if jg is not None else tf.assign_sub(v,grad) for v,grad, jg in zip(var_list, all_grads, Jgrads)]
+        with tf.get_default_graph().control_dependencies(op7):
+            return tf.no_op()
 
   
   def _apply_sparse(self, grad, var):

@@ -89,12 +89,12 @@ class CurlOptimizer(optimizer.Optimizer):
 
     op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
 
-    with tf.get_default_graph().control_dependencies(op1):
+    with tf.get_default_graph().control_dependencies([op1]):
         op2 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_grads, all_grads)]) # store gradients
-        with tf.get_default_graph().control_dependencies(op2):
+        with tf.get_default_graph().control_dependencies([op2]):
             # step 1
             op3 = self.optimizer.apply_gradients(step1, global_step=global_step, name=name)
-            with tf.get_default_graph().control_dependencies(op3):
+            with tf.get_default_graph().control_dependencies([op3]):
                 # store g2
 
                 grads2 = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
@@ -105,11 +105,10 @@ class CurlOptimizer(optimizer.Optimizer):
                 g2s = grads2
                 g3s = [curlcombine(g1,g2,v1,v2) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
                 op4 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, g3s)])
-                with tf.get_default_graph().control_dependencies(op4):
+                with tf.get_default_graph().control_dependencies([op4]):
                     # restore v1, slots
                     op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
-                    with tf.get_default_graph().control_dependencies(op5):
-                        # step 3
+                    with tf.get_default_graph().control_dependencies([op5]):
                         flin = gswap
                         flin = []
                         for grad, jg in zip(gswap, Jgrads):
@@ -121,7 +120,7 @@ class CurlOptimizer(optimizer.Optimizer):
                             
                         step3 = zip(flin, var_list)
                         op6 = self.optimizer.apply_gradients(step3, global_step=global_step, name=name)
-                        with tf.get_default_graph().control_dependencies(op6):
+                        with tf.get_default_graph().control_dependencies([op6]):
                             return tf.no_op()
 
   

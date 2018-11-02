@@ -83,7 +83,6 @@ class CLI:
                 'batch_walk': BatchWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
-                'infoplane': InfoPlaneSampler,
                 'sorted': SortedSampler,
                 'gang': GangSampler,
                 'began': BeganSampler,

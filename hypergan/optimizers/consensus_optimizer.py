@@ -62,7 +62,8 @@ class ConsensusOptimizer(optimizer.Optimizer):
             tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
     )
     Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
-    op7 = tf.group([tf.assign_sub(v, (jg * self._beta)) if jg is not None else tf.assign_sub(v,grad) for v,grad, jg in zip(var_list, all_grads, Jgrads)])
+    print("LR_T", self._lr_t)
+    op7 = tf.group([tf.assign_sub(v, self._lr_t*(grad+(jg * self._beta))) if jg is not None else tf.assign_sub(v,self._lr_t*grad+tf.zeros_like(v)) for v,grad, jg in zip(var_list, all_grads, Jgrads)])
     with tf.get_default_graph().control_dependencies([op7]):
 
         op6 = tf.group([self.optimizer._apply_dense(g,v) for g,v in grads_and_vars])

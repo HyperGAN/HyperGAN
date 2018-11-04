@@ -1,17 +1,32 @@
 from hypergan.gan_component import GANComponent
+import hyperchamber as hc
 import tensorflow as tf
 import inspect
 
 class BaseTrainer(GANComponent):
-
-    def __init__(self, gan, config, d_vars=None, g_vars=None, loss=None):
+    def __init__(self, gan, config, d_vars=None, g_vars=None, loss=None, name="BaseTrainer"):
         self.current_step = 0
         self.g_vars = g_vars
         self.d_vars = d_vars
         self.loss = loss
         self.d_shake = None
         self.g_shake = None
-        GANComponent.__init__(self, gan, config)
+        self.train_hooks = []
+        for hook_config in (config.hooks or []):
+            hook_config = hc.lookup_functions(hook_config.copy())
+            defn = {k: v for k, v in hook_config.items() if k in inspect.getargspec(hook_config['class']).args}
+            defn['gan']=gan
+            defn['config']=hook_config
+            defn['trainer']=self
+            hook = hook_config["class"](**defn)
+            losses = hook.losses()
+            if losses[0] is not None:
+                self.loss.sample[0] += losses[0]
+            if losses[1] is not None:
+                self.loss.sample[1] += losses[1]
+            self.train_hooks.append(hook)
+ 
+        GANComponent.__init__(self, gan, config, name=name)
 
     def _step(self, feed_dict):
         raise Exception('BaseTrainer _step called directly.  Please override.')
@@ -33,7 +48,6 @@ class BaseTrainer(GANComponent):
         else:
             self.d_lr = d_lr
             self.g_lr = g_lr
-
 
         return self._create()
 
@@ -135,4 +149,10 @@ class BaseTrainer(GANComponent):
         return apply_gradients
 
 
+    def before_step(self, step, feed_dict):
+        for component in self.train_hooks:
+            component.before_step(step, feed_dict)
 
+    def after_step(self, step, feed_dict):
+        for component in self.train_hooks:
+            component.after_step(step, feed_dict)

@@ -10,8 +10,6 @@ TINY = 1e-12
 class FitnessTrainer(BaseTrainer):
     def create(self):
         self.hist = [0 for i in range(2)]
-        self.steps_since_fit=0
-        self.old_fitness = None
         config = self.config
         lr = config.learn_rate
         if lr is not None:
@@ -40,32 +38,16 @@ class FitnessTrainer(BaseTrainer):
 
         d_vars = list(set(d_vars).intersection(tf.trainable_variables()))
         g_vars = list(set(g_vars).intersection(tf.trainable_variables()))
-        self.prev_zs = []
 
-        loss = self.loss 
+        loss = self.gan.loss
         d_loss, g_loss = loss.sample
-        def random_like(x):
-            shape = self.ops.shape(x)
-            return tf.random_uniform(shape, minval=-0.1, maxval=0.1)
-
-        if config.prev_l2_loss:
-            prev_sample = tf.Variable(random_like(gan.generator.sample), dtype=tf.float32)
-            self.prev_sample = prev_sample
-            self.update_prev_sample = tf.assign(prev_sample, gan.generator.sample)
-            self.prev_l2_loss = (self.config.prev_l2_loss_lambda or 0.1)*self.ops.squash(tf.square(gan.generator.sample-prev_sample))
-            self.add_metric('prev_l2', self.prev_l2_loss)
-
-            self.l2_loss = g_loss + self.prev_l2_loss
 
         allloss = d_loss + g_loss
 
         allvars = d_vars + g_vars
 
         d_grads = tf.gradients(d_loss, d_vars)
-        if config.prev_l2_loss:
-            g_grads = tf.gradients(self.l2_loss, g_vars)
-        else:
-            g_grads = tf.gradients(g_loss, g_vars)
+        g_grads = tf.gradients(g_loss, g_vars)
 
 
         grads = d_grads + g_grads
@@ -100,137 +82,13 @@ class FitnessTrainer(BaseTrainer):
         self.g_loss = g_loss
         self.d_loss = d_loss
         
-        self.hooks = []
-        for hook_config in (self.config.hooks or []):
-            hook = hook["class"](optimizer=tr, gan=gan, config=hook_config)
-            self.hooks.append(hook)
 
         self.gan.optimizer = tr
 
         optimize_t = tr.apply_gradients(apply_vec, global_step=self.global_step)
         #d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
 
-        def _update_ortho(v,i):
-            if len(v.shape) == 4:
-                w=v
-                w = tf.reshape(v, [-1, self.ops.shape(w)[-1]])
-                identity = tf.cast(tf.diag(np.ones(self.ops.shape(w)[0])), tf.float32)
-                wt = tf.transpose(w)
-                #s = self.ops.shape(v_transpose)
-                #identity = tf.reshape(identity, [s[0],s[1],1,1])
-                #identity = tf.tile(identity, [1,1,s[2],s[3]])
-                decay = self.config.ortho_decay or 0.01
-                newv = tf.matmul(w, tf.matmul(wt,w))
-                newv = tf.reshape(newv,self.ops.shape(v))
-                print("--->",v,newv)
-                newv=(1+decay)*v - decay*(newv)
-
-                #newv = tf.transpose(v, perm=[1,0,2,3])
-                return tf.assign(v, newv)
-            return None
-        def _update_lipschitz(v,i):
-            if len(v.shape) > 1:
-                k = config.weight_constraint_k or 100.0000
-                wi_hat = v
-                if len(v.shape) == 4:
-                    #fij = tf.reduce_sum(tf.abs(wi_hat),  axis=[0,1])
-                    fij = wi_hat
-                    fij = tf.reduce_sum(tf.abs(fij),  axis=[1])
-                    fij = tf.reduce_max(fij,  axis=[0])
-                else:
-                    fij = wi_hat
-
-                if self.config.ortho_pnorm == "inf":
-                    wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=0), axis=0)
-                else:
-                    # conv
-                    wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=1), axis=0)
-                ratio = (1.0/tf.maximum(1.0, wp/k))
-                
-                if config.weight_bounce:
-                    bounce = tf.minimum(1.0, tf.ceil(wp/k-0.999))
-                    ratio -= tf.maximum(0.0, bounce) * 0.2
-
-                if config.weight_scaleup:
-                    up = tf.minimum(1.0, tf.ceil(0.02-wp/k))
-                    ratio += tf.maximum(0.0, up) * k/wp * 0.2
-
-                print('--',i,v)
-                wi = ratio*(wi_hat)
-                #self.gan.metrics['wi'+str(i)]=wp
-                #self.gan.metrics['wk'+str(i)]=ratio
-                #self.gan.metrics['bouce'+str(i)]=bounce
-                return tf.assign(v, wi)
-            return None
-
-        def _update_l2nn(v,i):
-            if len(v.shape) > 1:
-                w=v
-                w = tf.reshape(w, [-1, self.ops.shape(v)[-1]])
-                wt = tf.transpose(w)
-                #wt = tf.transpose(v, perm=[0,1,3,2])
-                #wt = tf.transpose(w, perm=[1,0,2,3])
-                def _r(m):
-                    s = self.ops.shape(m)
-                    m = tf.abs(m)
-                    m = tf.reduce_sum(m, axis=0,keep_dims=True)
-                    m = tf.reduce_max(m, axis=1,keep_dims=True)
-                    #m = tf.tile(m,[s[0],s[1],1,1])
-                    return m
-                wtw = tf.matmul(wt,w)
-                wwt = tf.matmul(w,wt)
-                print('---', wtw, wwt)
-                bw = tf.minimum(_r(wtw), _r(wwt))
-                print("BW", bw, w, _r(wtw), wtw, wt)
-                decay = self.config.l2nn_decay
-                wi = (v/tf.sqrt(bw))
-                if decay is not None:
-                    wi = (1-decay)*v+(decay*wi)
-                return tf.assign(v, wi)
-            return None
-        def _update_weight_constraint(v,i):
-            #skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
-            #skipped = [gan.discriminator.ops.weights[-1]]
-            skipped=[]
-            for skip in skipped:
-                if self.ops.shape(v) == self.ops.shape(skip):
-                    print("SKIPPIG", v)
-                    return None
-            constraints = config.weight_constraint or []
-            result = []
-            if "ortho" in constraints:
-                result.append(_update_ortho(v,i))
-            if "lipschitz" in constraints:
-                result.append(_update_lipschitz(v,i))
-            if "l2nn" in constraints:
-                result.append(_update_l2nn(v,i))
-            if "l2nn-d" in constraints:
-                if v in d_vars:
-                    result.append(_update_l2nn(v,i))
-            result = [r for r in result if r is not None]
-            if(len(result) == 0):
-                return None
-            return tf.group(result)
         self.past_weights = []
-
-        emavars = allvars
-        if config.ema_only_d:
-            emavars = d_vars
-        for v in allvars:
-            self.past_weights.append(tf.Variable(v, dtype=tf.float32))
-        #self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(allvars)]
-        self.update_weight_constraints = [_update_weight_constraint(v,i) for i,v in enumerate(emavars + self.past_weights)]
-        self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
-        print('UPDATE_WEIGHT', self.update_weight_constraints)
-
-
-        def _ema(v, pastv):
-            decay = config.ema_decay
-            if decay is None:
-                decay = 0.9
-            return tf.assign(v, v*(1-decay)+pastv*decay)
-        self.assign_ema = tf.group([_ema(a,b) for a,b in zip(allvars, self.past_weights)])
-        self.assign_past_weights = tf.group([tf.assign(b,a) for a,b in zip(allvars, self.past_weights)])
 
         self.g_loss = g_loss
         self.d_loss = d_loss
@@ -359,107 +217,82 @@ class FitnessTrainer(BaseTrainer):
 
         lr = self.lr
         feed_dict = {}
-        if self.current_step == 0 and self.steps_since_fit == 0:
-            sess.run(self.assign_past_weights)
-            if self.config.prev_l2_loss:
-                sess.run(self.update_prev_sample)
 
         fit = False
+        steps_since_fit = 0
+        old_fitness = None
         while not fit:
-            if config.fitness_test is not None:
-                self.steps_since_fit+=1
-                if config.fitness_failure_threshold and self.steps_since_fit > (config.fitness_failure_threshold or 1000):
-                    print("Fitness achieved.", self.hist[0], self.min_fitness)
-                    self.min_fitness =  None
-                    self.mix_threshold_reached = True
-                    self.steps_since_fit = 0
-                    return
-                if self.min_fitness is not None and np.isnan(self.min_fitness):
-                    print("NAN min fitness")
-                    self.min_fitness=None
-                    return
-                
-                gl, dl, fitness,mean, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness, self.mean]+gan.fitness_inputs())
-                if np.isnan(fitness) or np.isnan(gl) or np.isnan(dl):
-                    print("NAN Detected.  Candidate done")
-                    self.min_fitness = None
-                    self.mix_threshold_reached = True
-                    self.steps_since_fit = 0
-                    return
-                if self.old_fitness == fitness:
-                    print("Stuck state detected, unsticking")
-                    self.min_fitness = None
-                    return
-                self.old_fitness = fitness
+            steps_since_fit+=1
+            if config.fitness_failure_threshold and steps_since_fit > (config.fitness_failure_threshold or 1000):
+                print("Fitness achieved.", self.hist[0], self.min_fitness)
+                self.min_fitness =  None
+                self.mix_threshold_reached = True
+                steps_since_fit = 0
+                return
+            if self.min_fitness is not None and np.isnan(self.min_fitness):
+                print("NAN min fitness")
+                self.min_fitness=None
+                return
+            
+            gl, dl, fitness,mean, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness, self.mean]+gan.fitness_inputs())
+            if np.isnan(fitness) or np.isnan(gl) or np.isnan(dl):
+                print("NAN Detected.  Candidate done")
+                self.min_fitness = None
+                self.mix_threshold_reached = True
+                return
+            if old_fitness == fitness:
+                print("Stuck state detected, unsticking")
+                self.min_fitness = None
+                return
+            old_fitness = fitness
 
 
-                g = None
-                if self.config.skip_fitness:
-                    self.min_fitness = None
-                if(self.min_fitness is None or fitness <= self.min_fitness):
-                    self.hist[0]+=1
-                    self.min_fitness = fitness
-                    self.steps_since_fit=0
-                    if config.assert_similarity:
-                        if((gl - dl) > ((config.similarity_ratio or 1.8) * ( (gl + dl) / 2.0)) ):
-                            print("g_loss - d_loss > allowed similarity threshold", gl, dl, gl-dl)
-                            self.min_fitness = None
-                            self.mix_threshold_reached = True
-                            self.steps_since_fit = 0
-                            return
+            g = None
+            if self.config.skip_fitness:
+                self.min_fitness = None
+            if(self.min_fitness is None or fitness <= self.min_fitness):
+                self.hist[0]+=1
+                self.min_fitness = fitness
+                steps_since_fit=0
+                if config.assert_similarity:
+                    if((gl - dl) > ((config.similarity_ratio or 1.8) * ( (gl + dl) / 2.0)) ):
+                        print("g_loss - d_loss > allowed similarity threshold", gl, dl, gl-dl)
+                        self.min_fitness = None
+                        self.mix_threshold_reached = True
+                        return
 
 
-                    for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
-                        feed_dict[t]=v
+                for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
+                    feed_dict[t]=v
 
-                    if config.prev_l2_loss:
-                        # assign prev sample for previous z
-                        # replace previous z with new z
-                        prev_feed_dict = {}
-                        for v, t in ( [ [v, t] for v, t in zip(self.prev_zs, gan.fitness_inputs())]):
-                            prev_feed_dict[t]=v
-                        # l2 = ||(pg(z0) - g(z0))||2
-                        prev_l2_loss = sess.run(self.prev_l2_loss, prev_feed_dict)
-                        # pg(z0) = g(z)
-                        self.prev_g = sess.run(self.update_prev_sample, feed_dict)
-                        # z0 = z
-                        self.prev_zs = zs
-                        # optimize(l2, gl, dl)
-
-                        feed_dict[self.prev_l2_loss] = prev_l2_loss
-
-                    _, *metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)
-                    fit=True
-                    if ((self.current_step % (self.config.constraint_every or 100)) == 0):
-                        if self.config.weight_constraint:
-                            sess.run(self.update_weight_constraints, feed_dict)
-                    if(self.config.skip_ema is None):
-                        sess.run(self.assign_ema)
-                        sess.run(self.assign_past_weights)
-                else:
-                    self.hist[1]+=1
-                    fitness_decay = config.fitness_decay or 0.99
-                    self.min_fitness = self.min_fitness + (1.00-fitness_decay)*(fitness-self.min_fitness)
-                    metric_values = sess.run(self.output_variables(metrics), feed_dict)
-            else:
-                if ((self.current_step % (self.config.constraint_every or 100)) == 0):
-                    if self.config.weight_constraint:
-                        print("Updating constraints")
-                        sess.run(self.update_weight_constraints, feed_dict)
-                #standard
-                gl, dl, *metric_values = sess.run([self.g_loss, self.d_loss, self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]
+                self.before_step(self.current_step, feed_dict)
+                _, *metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)
+                self.after_step(self.current_step, feed_dict)
                 fit=True
-                sess.run(self.assign_ema)
-                sess.run(self.assign_past_weights)
-                if(gl == 0 or dl == 0):
-                    self.steps_since_fit=0
-                    self.mix_threshold_reached = True
-                    print("Zero, lne?")
-                    return
-                self.steps_since_fit=0
+            else:
+                self.hist[1]+=1
+                fitness_decay = config.fitness_decay or 0.99
+                self.min_fitness = self.min_fitness + (1.00-fitness_decay)*(fitness-self.min_fitness)
+                metric_values = sess.run(self.output_variables(metrics), feed_dict)
+        else:
+            if ((self.current_step % (self.config.constraint_every or 100)) == 0):
+                if self.config.weight_constraint:
+                    print("Updating constraints")
+                    sess.run(self.update_weight_constraints, feed_dict)
+            #standard
+            self.before_step(self.current_step, feed_dict)
+            gl, dl, *metric_values = sess.run([self.g_loss, self.d_loss, self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]
+            self.after_step(self.current_step, feed_dict)
+            fit=True
+            if(gl == 0 or dl == 0):
+                steps_since_fit=0
+                self.mix_threshold_reached = True
+                print("Zero, lne?")
+                return
+            steps_since_fit=0
 
-            if ((self.current_step % 10) == 0 and self.steps_since_fit == 0):
-                hist_output = "  " + "".join(["G"+str(i)+":"+str(v)+" "for i, v in enumerate(self.hist)])
-                print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)+hist_output))
-                self.hist = [0 for i in range(2)]
+        if ((self.current_step % 10) == 0):
+            hist_output = "  " + "".join(["G"+str(i)+":"+str(v)+" "for i, v in enumerate(self.hist)])
+            print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)+hist_output))
+            self.hist = [0 for i in range(2)]
 

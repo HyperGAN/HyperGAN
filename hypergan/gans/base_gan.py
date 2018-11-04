@@ -44,7 +44,7 @@ class BaseGAN(GANComponent):
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         # A GAN as a component has a parent of itself
         # gan.gan.gan.gan.gan.gan
-        GANComponent.__init__(self, self, config)
+        GANComponent.__init__(self, self, config, name=self.name)
         self.ops.debug = debug
 
     def batch_size(self):

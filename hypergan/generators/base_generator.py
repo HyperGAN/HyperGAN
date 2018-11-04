@@ -2,7 +2,7 @@ from hypergan.gan_component import GANComponent
 
 class BaseGenerator(GANComponent):
 
-    def __init__(self, gan, config, name=None, input=None, reuse=False):
+    def __init__(self, gan, config, name="BaseGenerator", input=None, reuse=False):
         self.input = input
         self.name = name
 

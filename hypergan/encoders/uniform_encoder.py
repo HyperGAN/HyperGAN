@@ -8,7 +8,7 @@ from ..gan_component import ValidationException
 TINY=1e-12
 
 class UniformEncoder(BaseEncoder):
-    def __init__(self, gan, config, name=None, output_shape=None, z=None):
+    def __init__(self, gan, config, name="LatentDistribution", output_shape=None, z=None):
         self.output_shape = output_shape
         self.z = z
         BaseEncoder.__init__(self, gan, config, name=name)

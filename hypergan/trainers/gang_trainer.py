@@ -475,9 +475,9 @@ class GangTrainer(BaseTrainer):
 
         self._delegate.step(feed_dict)
 
-        if config.train_g_on_sds and ((self._delegate.current_step+1) % (config.sds_steps or 100) == 0 and self._delegate.steps_since_fit == 0) and np.max(self.priority_ds) != 0:
+        if config.train_g_on_sds and ((self._delegate.current_step+1) % (config.sds_steps or 100) == 0) and np.max(self.priority_ds) != 0:
             self.train_g_on_sds()
-        if config.train_d_on_sgs and ((self._delegate.current_step+1) % (config.sgs_steps or 100) == 0 and self._delegate.steps_since_fit == 0) and np.max(self.priority_gs) != 0:
+        if config.train_d_on_sgs and ((self._delegate.current_step+1) % (config.sgs_steps or 100) == 0) and np.max(self.priority_gs) != 0:
             self.train_d_on_sgs()
         
         #if self.last_fitness_step == self._delegate.current_step:

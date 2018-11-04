@@ -51,3 +51,6 @@ class MemoryTrainHook(BaseTrainHook):
     if (step % (self.config.stepsize or 1)) == 0:
         _, *self.prev_zs = self.gan.session.run([self.update_prev_sample]+self.gan.fitness_inputs())
 
+    # optimize(l2, gl, dl)
+    feed_dict[self.gan.loss.sample[1]] = prev_l2_loss
+

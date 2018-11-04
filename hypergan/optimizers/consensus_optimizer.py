@@ -64,7 +64,7 @@ class ConsensusOptimizer(optimizer.Optimizer):
     Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
     print("LR_T", self._lr_t)
 
-    op6 = [tf.assign_sub(v, (jg * self._beta)) if jg is not None else tf.no_op() for v,grad, jg in zip(var_list, all_grads, Jgrads)]
+    op6 = [tf.assign_sub(v, grad*self._lr_t+(jg * self._beta)) if jg is not None else tf.no_op() for v,grad, jg in zip(var_list, all_grads, Jgrads)]
     op6 += [self.optimizer._apply_dense(g,v) for g,v in grads_and_vars]
     with tf.get_default_graph().control_dependencies(op6):
         return tf.no_op()

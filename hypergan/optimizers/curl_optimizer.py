@@ -146,7 +146,7 @@ class CurlOptimizer(optimizer.Optimizer):
                                     tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
                             )
                             Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
-                            op7 = [tf.assign_sub(v, (jg * self._beta)) if jg is not None else tf.assign_sub(v,grad) for v,grad, jg in zip(var_list, all_grads, Jgrads)]
+                            op7 = [tf.assign_sub(v, grad*self._lr_t+(jg * self._beta)) if jg is not None else tf.no_op() for v,grad, jg in zip(var_list, all_grads, Jgrads)]
                             with tf.get_default_graph().control_dependencies(op7):
                                 return tf.no_op()
 

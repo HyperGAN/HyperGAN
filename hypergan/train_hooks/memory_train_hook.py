@@ -19,23 +19,24 @@ class MemoryTrainHook(BaseTrainHook):
     self.past_weights = []
     self.prev_sample = tf.Variable(self.gan.generator.sample, dtype=tf.float32)
     self.prev_zs = []
-    print("PREV ", self.prev_zs)
+    self.update_prev_sample = tf.assign(self.prev_sample, self.gan.generator.sample)
+    self.prev_l2_loss = self.ops.squash(tf.square(self.gan.generator.sample-self.prev_sample))
+    self.g_loss = self.prev_l2_loss * (self.config['lambda'] or 1)
+    self.gan.add_metric('mem', self.g_loss)
 
   def losses(self):
-    self.update_prev_sample = tf.assign(self.prev_sample, self.gan.generator.sample)
-    self.prev_l2_loss = (self.config.prev_l2_loss_lambda or 0.1)*self.ops.squash(tf.square(self.gan.generator.sample-self.prev_sample))
-    self.add_metric('prev_l2', self.prev_l2_loss)
-    g_loss = self.prev_l2_loss * (self.config['lambda'] or 1)
 
-    return [None, g_loss]
+    return [None, self.g_loss]
+
+  def after_step(self, step, feed_dict):
+    pass
 
   def before_step(self, step, feed_dict):
     if step == 0:
-        self.prev_zs = self.gan.session.run(self.gan.fitness_inputs(), feed_dict)
-
-  def after_step(self, step, feed_dict):
+        # z0 = z
+        _, *self.prev_zs = self.gan.session.run([self.update_prev_sample]+self.gan.fitness_inputs(), feed_dict)
+        return
     gan = self.gan
-    gan.session.run(self.update_prev_sample)
 
     # assign prev sample for previous z
     # replace previous z with new z
@@ -43,12 +44,10 @@ class MemoryTrainHook(BaseTrainHook):
     for v, t in ( [ [v, t] for v, t in zip(self.prev_zs, gan.fitness_inputs())]):
         prev_feed_dict[t]=v
     # l2 = ||(pg(z0) - g(z0))||2
-    prev_l2_loss = gan.session.run(self.prev_l2_loss, prev_feed_dict)
+    prev_l2_loss = gan.session.run(self.g_loss, prev_feed_dict)
     # pg(z0) = g(z)
-    self.prev_g = gan.session.run(self.update_prev_sample, feed_dict)
-    # z0 = z
-    self.prev_zs = gan.session.run(gan.fitness_inputs(), feed_dict)
-    # optimize(l2, gl, dl)
 
-    feed_dict[self.prev_l2_loss] = prev_l2_loss
+    # z0 = z
+    if (step % (self.config.stepsize or 1)) == 0:
+        _, *self.prev_zs = self.gan.session.run([self.update_prev_sample]+self.gan.fitness_inputs())
 

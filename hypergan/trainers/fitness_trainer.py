@@ -28,7 +28,6 @@ class FitnessTrainer(BaseTrainer):
 
         return self._create()
 
-
     def _create(self):
         gan = self.gan
         config = self.config
@@ -81,7 +80,6 @@ class FitnessTrainer(BaseTrainer):
         self.gan.trainer = self
         self.g_loss = g_loss
         self.d_loss = d_loss
-        
 
         self.gan.optimizer = tr
 
@@ -107,7 +105,7 @@ class FitnessTrainer(BaseTrainer):
         #self.d_optimizer = d_optimizer
         self.min_fitness=None
         
-        if config.fitness_test is not None:
+        if config.fitness_type is not None:
             mean = tf.zeros([1])
             used_grads = d_grads
             if config.grad_type == "sum":
@@ -221,7 +219,7 @@ class FitnessTrainer(BaseTrainer):
         fit = False
         steps_since_fit = 0
         old_fitness = None
-        while not fit:
+        while self.config.skip_fitness is not None and not fit:
             steps_since_fit+=1
             if config.fitness_failure_threshold and steps_since_fit > (config.fitness_failure_threshold or 1000):
                 print("Fitness achieved.", self.hist[0], self.min_fitness)
@@ -261,7 +259,6 @@ class FitnessTrainer(BaseTrainer):
                         self.mix_threshold_reached = True
                         return
 
-
                 for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
                     feed_dict[t]=v
 
@@ -275,10 +272,6 @@ class FitnessTrainer(BaseTrainer):
                 self.min_fitness = self.min_fitness + (1.00-fitness_decay)*(fitness-self.min_fitness)
                 metric_values = sess.run(self.output_variables(metrics), feed_dict)
         else:
-            if ((self.current_step % (self.config.constraint_every or 100)) == 0):
-                if self.config.weight_constraint:
-                    print("Updating constraints")
-                    sess.run(self.update_weight_constraints, feed_dict)
             #standard
             self.before_step(self.current_step, feed_dict)
             gl, dl, *metric_values = sess.run([self.g_loss, self.d_loss, self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]

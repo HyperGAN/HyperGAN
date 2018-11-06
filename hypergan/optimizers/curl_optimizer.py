@@ -87,70 +87,52 @@ class CurlOptimizer(optimizer.Optimizer):
     Jgrads = tf.gradients(consensus_reg, d_vars)+[tf.zeros_like(g) for g in g_vars]
 
     op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
+    op2 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, all_grads)]) # store gradients
 
-    with tf.get_default_graph().control_dependencies([op1]):
-        op2 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_grads, all_grads)]) # store gradients
-        with tf.get_default_graph().control_dependencies([op2]):
-            # step 1
-            op3 = self.optimizer.apply_gradients(list(grads_and_vars).copy(), global_step=global_step, name=name)
-            with tf.get_default_graph().control_dependencies([op3]):
-                # store g2
+    with tf.get_default_graph().control_dependencies([op1, op2]):
+        # store g2
+        #op3 = self.optimizer.apply_gradients(list(grads_and_vars).copy(), global_step=global_step, name=name)
+        op3 = tf.group(*[tf.assign_sub(v, self._lr_t*grad) for grad,v in grads_and_vars])
+        with tf.get_default_graph().control_dependencies([op3]):
 
-                grads2 = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
-
-                def curlcombine(g1,g2,_v1,_v2):
-                    J = (g2-g1)/((_v2-_v1)+1e-8)
-                    if self.config.curl == 'reverse':
-                        return self._gamma*g1-self._rho*(g1-g2)/((_v1-_v2)+1e-8)*g1
-                    elif self.config.curl == "certain":
-                        p1 = tf.nn.relu(tf.sign(g1))
-                        p2 = tf.nn.relu(tf.sign(g2))
-                        isone = p1 * p2
-                        iszero = (1-p1)*(1-p2)
-                        move = iszero * (g2-g1)
-                        move += isone * (g2-g1)
-                        #move = tf.sign(g2-g1) * tf.square(g2 - g1)
-                        m=move/((_v2-_v1) +1e-8)
-                        v = self._gamma*g1-self._rho*m*g1
-                        return tf.nn.softmax(v)*g1
-                    elif self.config.curl == "softmax":
-                        return self._gamma*g1-tf.nn.softmax(J)*g1*self._rho
-                    elif self.config.curl == "softmax-abs":
-                        return self._gamma*g1-(1.0-tf.nn.softmax(J))*g1*self._rho
-                    elif self.config.curl == "mirror":
-                        return self._gamma*(g1 + 2*g2)
-                    else:
-                        return self._gamma*g1-self._rho*(g2-g1)/((_v2-_v1)+1e-8)*g1
-                g1s = gswap
-                g2s = grads2
-                g3s = [curlcombine(g1,g2,v1,v2) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
-                op4 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, g3s)])
-                with tf.get_default_graph().control_dependencies([op4]):
-                    # restore v1, slots
-                    op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
-                    with tf.get_default_graph().control_dependencies([op5]):
-                        flin = gswap
-                        flin = []
-                        for grad, jg in zip(gswap, Jgrads):
-                            if jg is None:
-                                print("JG NONE", grad)
-                                flin += [grad]
-                            else:
-                                flin += [grad + jg * self._beta]
-                            
-                        step3 = list(zip(flin, var_list))
-                        op6 = self.optimizer.apply_gradients(step3.copy(), global_step=global_step, name=name)
-                        with tf.get_default_graph().control_dependencies([op6]):
+            def curlcombine(g1,g2,_v1,_v2):
+                J = (g2-g1)/((_v2-_v1)+1e-8)
+                if self.config.curl == 'reverse':
+                    return self._gamma*g1-self._rho*(g1-g2)/((_v1-_v2)+1e-8)*g1
+                elif self.config.curl == "certain":
+                    p1 = tf.nn.relu(tf.sign(g1))
+                    p2 = tf.nn.relu(tf.sign(g2))
+                    isone = p1 * p2
+                    iszero = (1-p1)*(1-p2)
+                    move = iszero * (g2-g1)
+                    move += isone * (g2-g1)
+                    #move = tf.sign(g2-g1) * tf.square(g2 - g1)
+                    m=move/((_v2-_v1) +1e-8)
+                    v = self._gamma*g1-self._rho*m*g1
+                    return tf.nn.softmax(v)*g1
+                elif self.config.curl == "softmax":
+                    return self._gamma*g1-tf.nn.softmax(J)*g1*self._rho
+                elif self.config.curl == "softmax-abs":
+                    return self._gamma*g1-(1.0-tf.nn.softmax(J))*g1*self._rho
+                elif self.config.curl == "mirror":
+                    return self._gamma*(g1 + 2*g2)
+                else:
+                    return self._gamma*g1-self._rho*(g2-g1)/((_v2-_v1)+1e-8)*g1
+            g2s = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
+            g3s = [curlcombine(g1,g2,v1,v2) for g1,g2,v1,v2 in zip(gswap,g2s,v1,var_list)]
+            op4 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, g3s)])
+            with tf.get_default_graph().control_dependencies([op4]):
+                # restore v1, slots
+                op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
+                with tf.get_default_graph().control_dependencies([op5]):
+                    # Flin = gamma * IF - rho * JF + beta * JtF
+                    op7 = tf.group(*[tf.assign_add(gsw, (jg * self._beta)) if jg is not None else tf.no_op() for gsw, jg in zip(gswap, Jgrads)])
+                    with tf.get_default_graph().control_dependencies([op7]):
+                        flin_grads_and_vars = zip(gswap, var_list)
+                        # step 1
+                        op8 = self.optimizer.apply_gradients(list(flin_grads_and_vars).copy(), global_step=global_step, name=name)
+                        with tf.get_default_graph().control_dependencies([op8]):
                             return tf.no_op()
-                            consensus_reg = 0.5 * sum(
-                                    tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
-                            )
-                            Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
-                            op7 = [tf.assign_sub(v, grad*self._lr_t+(jg * self._beta)) if jg is not None else tf.no_op() for v,grad, jg in zip(var_list, all_grads, Jgrads)]
-                            with tf.get_default_graph().control_dependencies(op7):
-                                return tf.no_op()
-
-  
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")
   def variables(self):

@@ -25,7 +25,7 @@ class GANOptimizer(optimizer.Optimizer):
         options['gan']=self.gan
         options['config']=options
         defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-        return klass(options["learn_rate"], **defn)
+        return klass(options.learn_rate, **defn)
 
     d_optimizer = hc.lookup_functions(d_optimizer)
     g_optimizer = hc.lookup_functions(g_optimizer)

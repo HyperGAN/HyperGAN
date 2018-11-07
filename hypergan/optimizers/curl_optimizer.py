@@ -91,8 +91,8 @@ class CurlOptimizer(optimizer.Optimizer):
 
     with tf.get_default_graph().control_dependencies([op1, op2]):
         # store g2
-        #op3 = self.optimizer.apply_gradients(list(grads_and_vars).copy(), global_step=global_step, name=name)
-        op3 = tf.group(*[tf.assign_sub(v, self._lr_t*grad) for grad,v in grads_and_vars])
+        op3 = self.optimizer.apply_gradients(list(grads_and_vars).copy(), global_step=global_step, name=name)
+        #op3 = tf.group(*[tf.assign_sub(v, self._lr_t*grad) for grad,v in grads_and_vars])
         with tf.get_default_graph().control_dependencies([op3]):
 
             def curlcombine(g1,g2,_v1,_v2):
@@ -125,14 +125,27 @@ class CurlOptimizer(optimizer.Optimizer):
                 # restore v1, slots
                 op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
                 with tf.get_default_graph().control_dependencies([op5]):
+                    flin = []
+                    for grad, jg in zip(gswap, Jgrads):
+                        if jg is None:
+                            print("JG NONE", grad)
+                            flin += [grad]
+                        else:
+                            flin += [grad + jg * self._beta]
+
+                    step3 = list(zip(flin, var_list))
+                    op6 = self.optimizer.apply_gradients(step3.copy(), global_step=global_step, name=name)
+                    with tf.get_default_graph().control_dependencies([op6]):
+                        return tf.no_op()
+
                     # Flin = gamma * IF - rho * JF + beta * JtF
-                    op7 = tf.group(*[tf.assign_add(gsw, (jg * self._beta)) if jg is not None else tf.no_op() for gsw, jg in zip(gswap, Jgrads)])
-                    with tf.get_default_graph().control_dependencies([op7]):
-                        flin_grads_and_vars = zip(gswap, var_list)
-                        # step 1
-                        op8 = self.optimizer.apply_gradients(list(flin_grads_and_vars).copy(), global_step=global_step, name=name)
-                        with tf.get_default_graph().control_dependencies([op8]):
-                            return tf.no_op()
+                    #op7 = tf.group(*[tf.assign_add(gsw, (jg * self._beta)) if jg is not None else tf.no_op() for gsw, jg in zip(gswap, Jgrads)])
+                    #with tf.get_default_graph().control_dependencies([op7]):
+                    #    flin_grads_and_vars = zip(gswap, var_list)
+                    #    # step 1
+                    #    op8 = self.optimizer.apply_gradients(list(flin_grads_and_vars).copy(), global_step=global_step, name=name)
+                    #    with tf.get_default_graph().control_dependencies([op8]):
+                    #        return tf.no_op()
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")
   def variables(self):

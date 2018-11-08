@@ -81,10 +81,17 @@ class CurlOptimizer(optimizer.Optimizer):
     all_grads = [ g for g, _ in grads_and_vars ]
     # store variables for resetting
 
-    consensus_reg = 0.5 * sum(
-            tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
-    )
-    Jgrads = tf.gradients(consensus_reg, d_vars)+[tf.zeros_like(g) for g in g_vars]
+    d_grads = all_grads[:len(d_vars)]
+    if self.config.beta_type == 'sga':
+        Jgrads = tf.gradients(d_grads, d_vars, grad_ys=d_grads, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
+    elif self.config.beta_type == 'magnitude':
+        consensus_reg = [tf.square(g) for g in d_grads if g is not None]
+        Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
+    else:
+        consensus_reg = 0.5 * sum(
+                tf.reduce_sum(tf.square(g)) for g in d_grads if g is not None
+        )
+        Jgrads = tf.gradients(consensus_reg, d_vars, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
 
     op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
     op2 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, all_grads)]) # store gradients
@@ -117,7 +124,7 @@ class CurlOptimizer(optimizer.Optimizer):
                 elif self.config.curl == "mirror":
                     return self._gamma*(g1 + 2*g2)
                 else:
-                    return self._gamma*g1-self._rho*(g2-g1)/((_v2-_v1)+1e-8)*g1
+                    return self._gamma*g1-self._rho*tf.abs((g2-g1)/((_v2-_v1)+1e-8))*g1
             g2s = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
             g3s = [curlcombine(g1,g2,v1,v2) for g1,g2,v1,v2 in zip(gswap,g2s,v1,var_list)]
             op4 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, g3s)])

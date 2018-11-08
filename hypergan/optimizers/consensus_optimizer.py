@@ -13,11 +13,9 @@ import hyperchamber as hc
 import inspect
 
 class ConsensusOptimizer(optimizer.Optimizer):
-  def __init__(self, learning_rate=0.001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=1, gamma=1):
+  def __init__(self, learning_rate=0.001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, beta=1):
     super().__init__(use_locking, name)
     self._beta = beta
-    self._rho = rho
-    self._gamma = gamma
     self.gan = gan
     self.config = config
     self._lr_t = learning_rate
@@ -25,7 +23,7 @@ class ConsensusOptimizer(optimizer.Optimizer):
         options['gan']=self.gan
         options['config']=options
         defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-        return klass(options["learn_rate"], **defn)
+        return klass(options.learn_rate, **defn)
 
     optimizer = hc.lookup_functions(optimizer)
     self.optimizer = create_optimizer(optimizer['class'], optimizer)
@@ -58,16 +56,20 @@ class ConsensusOptimizer(optimizer.Optimizer):
         self.optimizer._create_slots([v for g,v in grads_and_vars])
 
     self._prepare()
-    consensus_reg = 0.5 * sum(
-            tf.reduce_sum(tf.square(g)) for g in all_grads[:len(d_vars)] if g is not None
-    )
-    Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
-    print("LR_T", self._lr_t)
-
-    op6 = [tf.assign_sub(v, grad*self._lr_t+(jg * self._beta)) if jg is not None else tf.no_op() for v,grad, jg in zip(var_list, all_grads, Jgrads)]
-    op6 += [self.optimizer._apply_dense(g,v) for g,v in grads_and_vars]
-    with tf.get_default_graph().control_dependencies(op6):
-        return tf.no_op()
+    d_grads = all_grads[:len(d_vars)]
+    if self.config.type == 'sga':
+        Jgrads = tf.gradients(d_grads, d_vars, grad_ys=d_grads, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
+    elif self.config.type == 'magnitude':
+        consensus_reg = [tf.square(g) for g in d_grads if g is not None]
+        Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
+    else:
+        consensus_reg = 0.5 * sum(
+                tf.reduce_sum(tf.square(g)) for g in d_grads if g is not None
+        )
+        Jgrads = tf.gradients(consensus_reg, d_vars, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
+    new_grads = [g+jg*self._beta if jg is not None else g for g,v,jg in zip(all_grads, var_list, Jgrads)]
+    new_grads_and_vars = list(zip(new_grads, var_list)).copy()
+    return self.optimizer.apply_gradients(new_grads_and_vars, global_step=global_step, name=name)
 
   
   def _apply_sparse(self, grad, var):

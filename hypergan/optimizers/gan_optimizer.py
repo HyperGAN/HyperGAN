@@ -41,6 +41,9 @@ class GANOptimizer(optimizer.Optimizer):
   def variables(self):
     return self.d_optimizer.variables() + self.g_optimizer.variables()
 
+  def get_slot_names(self):
+    return self.d_optimizer.get_slot_names() + self.g_optimizer.get_slotnames()
+
   def _create_slots(self, var_list):
     super()._create_slots(var_list)
     d_vars = [v for v in var_list if v in self.gan.d_vars()]

@@ -21,6 +21,12 @@ class CurlOptimizer(optimizer.Optimizer):
     self.gan = gan
     self.config = config
     self._lr_t = learning_rate
+    self.g_rho = gan.configurable_param(self.config.g_rho)
+    self.d_rho = gan.configurable_param(self.config.d_rho)
+    if tf.contrib.framework.is_tensor(self.g_rho):
+        self.gan.add_metric("g_rho", self.g_rho)
+    if tf.contrib.framework.is_tensor(self.d_rho):
+        self.gan.add_metric("d_rho", self.d_rho)
     def create_optimizer(klass, options):
         options['gan']=self.gan
         options['config']=options

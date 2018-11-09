@@ -198,4 +198,9 @@ class BaseGAN(GANComponent):
             metrics.update(c.metrics())
         return metrics
 
+    def configurable_param(self, string):
+        if isinstance(string, str):
+            name, *args = string.split(" ")
+            return hg.ops.decay(self, *args)
+        return string
 

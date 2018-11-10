@@ -159,11 +159,14 @@ class CurlOptimizer(optimizer.Optimizer):
                         v = [tf.reshape(l, [-1]) for l in Jgrads]
                         
                         def proj(u, v,shape):
-                            dot = tf.tensordot(v, u, 1) / (tf.square(u)+1e-8) * u
+                            dot = tf.tensordot(v, u, 1) / (tf.square(u)+1e-8)
+                            dot = tf.maximum(-1.0, dot)
+                            dot = tf.minimum(1.0, dot)
+                            dot = dot * u
                             dot = tf.reshape(dot, shape)
                             return dot
                         proj_u1_v2 = [proj(_u, _v, _s) for _u, _v, _s in zip(u, v, shapes)]
-                        flin = [_flin + self.config.ortholambda * proj for _flin, proj in zip(flin, proj_u1_v2)]
+                        flin = [_flin + self.config.ortholambda * proj for _flin, proj in zip(flin, proj_u1_v2)] + flin[:len(d_vars)]
 
                     step3 = list(zip(flin, var_list))
                     op6 = self.optimizer.apply_gradients(step3.copy(), global_step=global_step, name=name)

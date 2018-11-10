@@ -133,6 +133,11 @@ class CurlOptimizer(optimizer.Optimizer):
                     return self._gamma*(g1 + 2*g2)
                 elif curl == "regular":
                     return self._gamma*g1-rho*(g2-g1)/((_v2-_v1)+1e-8)*g1
+                elif curl == "bound":
+                    bound = (g2-g1)/((_v2-_v1)+1e-8)
+                    bound = tf.maximum(0.0, bound)
+                    bound = tf.minimum(1.0, bound)
+                    return self._gamma*g1-rho*bound*g1
                 elif curl == "mult":
                     return self._gamma*g1 * (rho * tf.nn.softmax(J))
                 elif curl == "revmult":

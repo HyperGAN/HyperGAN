@@ -155,8 +155,8 @@ class CurlOptimizer(optimizer.Optimizer):
 
                     if self.config.orthonormal:
                         shapes = [self.gan.ops.shape(l) for l in flin]
-                        u = [tf.reshape(l, [-1]) for l in flin]
-                        v = [tf.reshape(l, [-1]) for l in Jgrads]
+                        u = [tf.reshape(l, [-1]) for l in flin[:len(d_vars)]]
+                        v = [tf.reshape(l, [-1]) for l in Jgrads[:len(d_vars)]]
                         
                         def proj(u, v,shape):
                             dot = tf.tensordot(v, u, 1) / (tf.square(u)+1e-8)
@@ -166,7 +166,7 @@ class CurlOptimizer(optimizer.Optimizer):
                             dot = tf.reshape(dot, shape)
                             return dot
                         proj_u1_v2 = [proj(_u, _v, _s) for _u, _v, _s in zip(u, v, shapes)]
-                        flin = [_flin + self.config.ortholambda * proj for _flin, proj in zip(flin, proj_u1_v2)] + flin[:len(d_vars)]
+                        flin = [_flin + self.gan.configurable_param(self.config.ortholambda) * proj for _flin, proj in zip(flin, proj_u1_v2)] + flin[len(d_vars):]
 
                     step3 = list(zip(flin, var_list))
                     op6 = self.optimizer.apply_gradients(step3.copy(), global_step=global_step, name=name)

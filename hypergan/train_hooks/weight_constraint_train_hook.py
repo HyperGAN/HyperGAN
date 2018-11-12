@@ -39,6 +39,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
       return tf.assign(v, newv)
     return None
   def _update_lipschitz(self,v,i):
+    config = self.config
     if len(v.shape) > 1:
       k = config.weight_constraint_k or 100.0000
       wi_hat = v
@@ -74,6 +75,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
     return None
 
   def _update_l2nn(self,v,i):
+    config = self.config
     if len(v.shape) > 1:
       w=v
       w = tf.reshape(w, [-1, self.ops.shape(v)[-1]])
@@ -99,12 +101,13 @@ class WeightConstraintTrainHook(BaseTrainHook):
       return tf.assign(v, wi)
     return None
   def _update_weight_constraint(self,v,i):
+    config = self.config
     #skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
     #skipped = [gan.discriminator.ops.weights[-1]]
     skipped=[]
     for skip in skipped:
       if self.ops.shape(v) == self.ops.shape(skip):
-        print("SKIPPIG", v)
+        print("Skipping constraints on", v)
         return None
     constraints = config.weight_constraint or []
     result = []
@@ -123,8 +126,15 @@ class WeightConstraintTrainHook(BaseTrainHook):
     return tf.group(result)
 
   def before_step(self, step, feed_dict):
-    if ((step % (self.config.constraint_every or 100)) == 0):
-        sess.run(self.update_weight_constraints, feed_dict)
+    if self.config.order == "after":
+        pass
+    else:
+        if ((step % (self.config.constraint_every or 100)) == 0):
+            print("Applying weight constraint (pre)")
+            self.gan.session.run(self.update_weight_constraints, feed_dict)
 
   def after_step(self, step, feed_dict):
-    pass
+    if self.config.order == "after":
+        if ((step % (self.config.constraint_every or 100)) == 0):
+            print("Applying weight constraint (post)")
+            self.gan.session.run(self.update_weight_constraints, feed_dict)

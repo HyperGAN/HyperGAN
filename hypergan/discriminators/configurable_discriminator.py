@@ -32,6 +32,7 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             "slice": self.layer_slice,
             "concat_noise": self.layer_noise,
             "variational_noise": self.layer_variational_noise,
+            "variational": self.layer_variational,
             "noise": self.layer_noise,
             "pad": self.layer_pad,
             "fractional_avg_pool": self.layer_fractional_avg_pool,
@@ -809,6 +810,18 @@ class ConfigurableDiscriminator(BaseDiscriminator):
     def layer_variational_noise(self, net, args, options):
         net *= tf.random_normal(self.ops.shape(net), mean=1, stddev=0.02)
         return net
+
+    def layer_variational(self, net, args, options):
+        ops = self.ops
+        options['name']=self.ops.description+"k1"
+        mu = self.layer_conv(net, args, options)
+        options['name']=self.ops.description+"k2"
+        sigma = self.layer_conv(net, args, options)
+        z = mu + sigma * tf.random_normal(tf.shape(mu), 0, 1, dtype=tf.float32)
+        self.variational=[mu,sigma]
+        self.gan.variational=[mu,sigma]
+        print("-->", z)
+        return z
 
 
     def layer_concat_noise(self, net, args, options):

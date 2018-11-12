@@ -10,6 +10,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.training import optimizer
 import tensorflow as tf
 import hyperchamber as hc
+import numpy as np
 import inspect
 
 class GradientMagnitudeOptimizer(optimizer.Optimizer):
@@ -42,6 +43,7 @@ class GradientMagnitudeOptimizer(optimizer.Optimizer):
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     var_list = [v for _, v in grads_and_vars]
+    grad_list = [g for g, _ in grads_and_vars]
 
     lam = self.gan.configurable_param(self.config["lambda"])
 
@@ -49,7 +51,17 @@ class GradientMagnitudeOptimizer(optimizer.Optimizer):
     def project_gradient_layer(gs):
         return gs / (tf.sqrt(tf.reduce_sum(tf.square(gs)))+1e-8)
 
-    newgrads = [lam * project_gradient_layer(g) for g, _ in grads_and_vars]
+    lam = [lam for g, _ in grads_and_vars]
+
+    def number_weights(v):
+        count = np.prod(self.gan.ops.shape(v))
+        return count
+    if self.config.per_weight:
+        newlam = []
+        for _lam, v in zip(lam,grad_list):
+            newlam.append(_lam * number_weights(v))
+        lam = newlam
+    newgrads = [_lam * project_gradient_layer(g) for _lam, g in zip(lam, grad_list)]
     newgrads_and_vars = list(zip(newgrads, var_list)).copy()
     op = self.optimizer.apply_gradients(newgrads_and_vars, global_step=global_step, name=name)
     with tf.get_default_graph().control_dependencies([op]):

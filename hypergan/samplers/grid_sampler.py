@@ -13,7 +13,7 @@ class GridSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.uniform_encoder.z
+        z_t = gan.uniform_distribution.z
         #This isn't doing any gridlike stuff.  Need to feed this into feed dict(also check size)
         y = np.linspace(0,1, 6)
 

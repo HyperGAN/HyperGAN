@@ -28,9 +28,9 @@
 
   "encoder":
   {
-    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
     "projections": [
-      "function:hypergan.encoders.uniform_encoder.identity"
+      "function:hypergan.distributions.uniform_distribution.identity"
     ],
     "min": -1,
     "max": 1,

@@ -166,7 +166,7 @@ class BaseLoss(GANComponent):
             q = self.gan.create_component(self.gan.config.infogan, input=(self.gan.discriminator.controls['infogan']), name='infogan')
             self.gan.infogan_q=q
             std_cont = tf.sqrt(tf.exp(q.sample))
-            true = self.gan.uniform_encoder.z
+            true = self.gan.uniform_distribution.z
             mean = tf.reshape(q.sample, self.ops.shape(true))
             std_cont = tf.reshape(std_cont, self.ops.shape(true))
             eps = (true - mean) / (std_cont + 1e-8)

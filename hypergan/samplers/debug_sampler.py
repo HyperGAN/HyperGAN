@@ -20,7 +20,7 @@ class IdentitySampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.uniform_encoder.sample
+        z_t = gan.uniform_distribution.sample
         x_t = gan.inputs.x
         global z,x
 

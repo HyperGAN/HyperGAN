@@ -8,7 +8,7 @@ import uuid
 import copy
 
 from hypergan.discriminators import *
-from hypergan.encoders import *
+from hypergan.distributions import *
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
@@ -24,7 +24,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from .base_gan import BaseGAN
 
 from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
-from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
 from hypergan.trainers.consensus_trainer import ConsensusTrainer
@@ -58,13 +58,13 @@ class AlphaGAN(BaseGAN):
 
             uz_shape = z_shape
             uz_shape[-1] = uz_shape[-1] // len(config.encoder.projections)
-            uniform_encoder = UniformEncoder(self, config.encoder, output_shape=uz_shape)
-            direction, slider = self.create_controls(self.ops.shape(uniform_encoder.sample))
-            z = uniform_encoder.sample + slider * direction
+            UniformDistribution = UniformDistribution(self, config.encoder, output_shape=uz_shape)
+            direction, slider = self.create_controls(self.ops.shape(UniformDistribution.sample))
+            z = UniformDistribution.sample + slider * direction
             
-            #projected_encoder = UniformEncoder(self, config.encoder, z=encoder.sample)
+            #projected_encoder = UniformDistribution(self, config.encoder, z=encoder.sample)
 
-            z_discriminator = self.create_z_discriminator(uniform_encoder.sample, encoder.sample)
+            z_discriminator = self.create_z_discriminator(UniformDistribution.sample, encoder.sample)
 
             feature_dim = len(ops.shape(z))-1
             #stack_z = tf.concat([encoder.sample, z], feature_dim)
@@ -96,7 +96,7 @@ class AlphaGAN(BaseGAN):
 
             #loss terms
             cycloss = self.create_cycloss(x_input, x_hat)
-            z_cycloss = self.create_z_cycloss(uniform_encoder.sample, encoder.sample, encoder, generator)
+            z_cycloss = self.create_z_cycloss(UniformDistribution.sample, encoder.sample, encoder, generator)
 
             #first_pixel = tf.slice(generator.mask_single_channel, [0,0,0,0], [-1,1,1,-1]) + 1 # we want to minimize range -1 to 1
             #cycloss += tf.reduce_sum(tf.reshape(first_pixel, [-1]), axis=0)
@@ -122,7 +122,7 @@ class AlphaGAN(BaseGAN):
 
         self.trainer = trainer
         self.generator = generator
-        self.uniform_encoder = uniform_encoder
+        self.uniform_distribution = uniform_encoder
         self.slider = slider
         self.direction = direction
         self.z = z
@@ -131,7 +131,7 @@ class AlphaGAN(BaseGAN):
         self.autoencoded_x = x_hat
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
-        self.random_z = tf.random_uniform(ops.shape(uniform_encoder.sample), -1, 1, name='random_z')
+        self.random_z = tf.random_uniform(ops.shape(UniformDistribution.sample), -1, 1, name='random_z')
 
         if hasattr(generator, 'mask_generator'):
             self.mask_generator = generator.mask_generator
@@ -283,7 +283,7 @@ class AlphaGAN(BaseGAN):
                 self.x_input,
                 self.slider, 
                 self.direction,
-                self.uniform_encoder.sample
+                self.uniform_distribution.sample
         ]
 
 

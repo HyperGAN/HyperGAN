@@ -8,7 +8,7 @@ import uuid
 import copy
 
 from hypergan.discriminators import *
-from hypergan.encoders import *
+from hypergan.distributions import *
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
@@ -23,7 +23,7 @@ import hypergan as hg
 from hypergan.gan_component import ValidationException, GANComponent
 from .base_gan import BaseGAN
 
-from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 
 class MultiGeneratorGAN(BaseGAN):

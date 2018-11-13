@@ -8,7 +8,7 @@ import uuid
 import copy
 
 from hypergan.discriminators import *
-from hypergan.encoders import *
+from hypergan.distributions import *
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
@@ -61,7 +61,7 @@ class StandardGAN(BaseGAN):
             #this is in a specific order
             if self.encoder is None and config.encoder:
                 self.encoder = self.create_component(config.z_distribution or config.encoder)
-                self.uniform_encoder = self.encoder
+                self.uniform_distribution = self.encoder
             if self.generator is None and config.generator:
                 self.generator = self.create_component(config.generator, input=self.encoder.sample)
                 self.autoencoded_x = self.generator.sample
@@ -85,17 +85,17 @@ class StandardGAN(BaseGAN):
         return self.discriminator.variables()
     def fitness_inputs(self):
         return [
-                self.uniform_encoder.sample
+                self.uniform_distribution.sample
         ]
     def fitness_inputs(self):
         return [
-                self.uniform_encoder.sample
+                self.uniform_distribution.sample
         ]
 
     def input_nodes(self):
         "used in hypergan build"
         return [
-                self.uniform_encoder.sample
+                self.uniform_distribution.sample
         ]
 
     def output_nodes(self):

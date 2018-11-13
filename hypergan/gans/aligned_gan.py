@@ -8,7 +8,7 @@ import uuid
 import copy
 
 from hypergan.discriminators import *
-from hypergan.encoders import *
+from hypergan.distributions import *
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
@@ -24,7 +24,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from .base_gan import BaseGAN
 
 from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
-from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
 from hypergan.trainers.consensus_trainer import ConsensusTrainer
@@ -87,7 +87,7 @@ class AlignedGAN(BaseGAN):
 
         self.trainer = trainer
         self.generator = generator
-        self.uniform_encoder = hc.Config({"sample":z_control})#uniform_encoder
+        self.uniform_distribution = hc.Config({"sample":z_control})#uniform_encoder
         self.z = z_input
         self.zb = zb
         self.z_hat = encoder.sample

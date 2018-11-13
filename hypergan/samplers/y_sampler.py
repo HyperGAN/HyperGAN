@@ -31,7 +31,7 @@ class YSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.uniform_encoder.sample
+        z_t = gan.uniform_distribution.sample
         g=tf.get_default_graph()
         with g.as_default():
             tf.set_random_seed(1)

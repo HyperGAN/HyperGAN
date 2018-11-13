@@ -8,7 +8,7 @@ import uuid
 import copy
 
 from hypergan.discriminators import *
-from hypergan.encoders import *
+from hypergan.distributions import *
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
@@ -24,7 +24,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from .base_gan import BaseGAN
 
 from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
-from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
 from hypergan.trainers.consensus_trainer import ConsensusTrainer
@@ -50,24 +50,24 @@ class AliGANCombined(BaseGAN):
         g_losses = []
 
         def random_like(x):
-            return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
+            return UniformDistribution(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
         with tf.device(self.device):
             x_input = tf.identity(self.inputs.x, name='input')
 
             # q(z|x)
             if config.u_to_z:
-                uniform_encoder = UniformEncoder(self, config.z_distribution)
+                UniformDistribution = UniformDistribution(self, config.z_distribution)
             else:
                 z_shape = self.ops.shape(encoder.sample)
                 uz_shape = z_shape
                 uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
-                uniform_encoder = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
-            self.uniform_encoder = uniform_encoder
+                UniformDistribution = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+            self.uniform_distribution = uniform_encoder
  
-            direction, slider = self.create_controls(self.ops.shape(uniform_encoder.sample))
-            z = uniform_encoder.sample + slider * direction
+            direction, slider = self.create_controls(self.ops.shape(UniformDistribution.sample))
+            z = UniformDistribution.sample + slider * direction
             
-            #projected_encoder = UniformEncoder(self, config.encoder, z=encoder.sample)
+            #projected_encoder = UniformDistribution(self, config.encoder, z=encoder.sample)
 
 
             feature_dim = len(ops.shape(z))-1
@@ -132,7 +132,7 @@ class AliGANCombined(BaseGAN):
                 'sample': [tf.add_n(d_losses), tf.add_n(g_losses)]
             })
             self.loss = loss
-            self.uniform_encoder = uniform_encoder
+            self.uniform_distribution = uniform_encoder
             trainer = self.create_component(config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
 
             self.session.run(tf.global_variables_initializer())
@@ -147,7 +147,7 @@ class AliGANCombined(BaseGAN):
         self.autoencoded_x = x_hat
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
-        self.random_z = tf.random_uniform(ops.shape(uniform_encoder.sample), -1, 1, name='random_z')
+        self.random_z = tf.random_uniform(ops.shape(UniformDistribution.sample), -1, 1, name='random_z')
 
         if hasattr(generator, 'mask_generator'):
             self.mask_generator = generator.mask_generator
@@ -159,7 +159,7 @@ class AliGANCombined(BaseGAN):
 
     def fitness_inputs(self):
         return [
-                self.uniform_encoder.sample
+                self.uniform_distribution.sample
                 ]
 
 
@@ -245,7 +245,7 @@ class AliGANCombined(BaseGAN):
                 self.x_input,
                 self.slider, 
                 self.direction,
-                self.uniform_encoder.sample
+                self.uniform_distribution.sample
         ]
 
 

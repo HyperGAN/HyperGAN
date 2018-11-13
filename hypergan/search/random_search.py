@@ -125,13 +125,13 @@ class RandomSearch:
 
     def encoder(self):
         projections = []
-        projections.append([hg.encoders.uniform_encoder.identity])
+        projections.append([hg.encoders.uniform_distribution.identity])
         encoder_opts = {
                 'z': 1,
                 'min': -1,
                 'max':1,
                 "projections": projections,
-                'class': hg.encoders.uniform_encoder.UniformEncoder
+                'class': hg.encoders.uniform_distribution.UniformDistribution
         }
 
         return hc.Selector(encoder_opts).random_config()

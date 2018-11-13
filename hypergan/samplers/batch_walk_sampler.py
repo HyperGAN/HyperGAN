@@ -21,17 +21,17 @@ class BatchWalkSampler(BaseSampler):
 
     def regenerate_steps(self):
         gan = self.gan
-        z_t = gan.uniform_encoder.z
+        z_t = gan.uniform_distribution.z
         inputs_t = gan.inputs.x
 
-        s=np.shape(gan.session.run(gan.uniform_encoder.z))
+        s=np.shape(gan.session.run(gan.uniform_distribution.z))
         bs = 32
         if self.z_start is None:
-            self.z_start = gan.session.run(gan.uniform_encoder.z)[0]
-            targ = gan.session.run(gan.uniform_encoder.z)[0]
+            self.z_start = gan.session.run(gan.uniform_distribution.z)[0]
+            targ = gan.session.run(gan.uniform_distribution.z)[0]
         else:
             self.z_start = self.steps[-1]
-            targ = gan.session.run(gan.uniform_encoder.z)[0]
+            targ = gan.session.run(gan.uniform_distribution.z)[0]
         mask = np.linspace(0., 1., num=bs)
         z = np.tile(np.expand_dims(np.reshape(self.z_start, [-1]), axis=0), [bs,1])
         targ = np.tile(np.expand_dims(np.reshape(targ, [-1]), axis=0), [bs,1])
@@ -43,7 +43,7 @@ class BatchWalkSampler(BaseSampler):
 
     def sample(self, path, save_samples):
         gan = self.gan
-        z_t = gan.uniform_encoder.z
+        z_t = gan.uniform_distribution.z
         inputs_t = gan.inputs.x
         self.step+=1
 

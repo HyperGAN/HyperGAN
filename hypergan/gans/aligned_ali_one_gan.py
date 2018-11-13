@@ -8,7 +8,7 @@ import uuid
 import copy
 
 from hypergan.discriminators import *
-from hypergan.encoders import *
+from hypergan.distributions import *
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
@@ -24,7 +24,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from .base_gan import BaseGAN
 
 from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
-from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
 from hypergan.trainers.consensus_trainer import ConsensusTrainer
@@ -72,10 +72,10 @@ class AlignedAliOneGAN(BaseGAN):
             z_shape = self.ops.shape(za)
             uz_shape = z_shape
             uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
-            ue = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
-            ue2 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
-            ue3 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
-            ue4 = UniformEncoder(self, config.z_distribution, output_shape=uz_shape)
+            ue = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+            ue2 = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+            ue3 = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+            ue4 = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
             print('ue', ue.sample)
 
             zua = ue.sample
@@ -253,7 +253,7 @@ class AlignedAliOneGAN(BaseGAN):
         self.trainer = trainer
         self.generator = ga
         self.encoder = gb # this is the other gan
-        self.uniform_encoder = hc.Config({"sample":zb})#uniform_encoder
+        self.uniform_distribution = hc.Config({"sample":zb})#uniform_encoder
         self.zb = zb
         self.z_hat = gb.sample
         self.x_input = xa_input

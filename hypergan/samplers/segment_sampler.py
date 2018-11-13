@@ -14,7 +14,7 @@ class SegmentSampler(BaseSampler):
         gan = self.gan
         x_t = gan.inputs.x
         g_t = gan.autoencoded_x
-        z_t = gan.uniform_encoder.sample
+        z_t = gan.uniform_distribution.sample
 
         g1x_t = gan.generator.g1x
         g2x_t = gan.generator.g2x

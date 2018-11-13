@@ -75,12 +75,12 @@
 
 
   "encoder": {
-    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
     "max": 1,
     "min": -1,
     "modes": "5",
     "projections": [
-      "function:hypergan.encoders.uniform_encoder.identity"
+      "function:hypergan.distributions.uniform_distribution.identity"
     ],
     "z": "2"
   },

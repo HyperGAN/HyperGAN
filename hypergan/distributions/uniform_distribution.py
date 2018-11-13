@@ -1,23 +1,23 @@
 import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
-from .base_encoder import BaseEncoder
+from .base_distribution import BaseDistribution
 
 from ..gan_component import ValidationException
 
 TINY=1e-12
 
-class UniformEncoder(BaseEncoder):
+class UniformDistribution(BaseDistribution):
     def __init__(self, gan, config, name="LatentDistribution", output_shape=None, z=None):
         self.output_shape = output_shape
         self.z = z
-        BaseEncoder.__init__(self, gan, config, name=name)
+        BaseDistribution.__init__(self, gan, config, name=name)
 
     def required(self):
         return "min max".split()
 
     def validate(self):
-        errors = BaseEncoder.validate(self)
+        errors = BaseDistribution.validate(self)
         #if(self.config.z is not None and int(self.config.z) % 2 != 0):
         #    errors.append("z must be a multiple of 2 (was %2d)" % self.config.z)
         return errors

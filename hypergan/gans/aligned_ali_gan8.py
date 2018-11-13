@@ -8,7 +8,7 @@ import uuid
 import copy
 
 from hypergan.discriminators import *
-from hypergan.encoders import *
+from hypergan.distributions import *
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
@@ -24,7 +24,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from .base_gan import BaseGAN
 
 from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
-from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
 from hypergan.trainers.consensus_trainer import ConsensusTrainer
@@ -50,7 +50,7 @@ class AlignedAliGAN8(BaseGAN):
         with tf.device(self.device):
             #x_input = tf.identity(self.inputs.x, name='input')
             def random_like(x):
-                return UniformEncoder(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
+                return UniformDistribution(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
             zga = self.create_component(config.encoder, input=self.inputs.xb, name='xb_to_za')
             zgb = self.create_component(config.encoder, input=self.inputs.xa, name='xa_to_zb')
             za = zga.sample
@@ -266,8 +266,8 @@ class AlignedAliGAN8(BaseGAN):
         self.trainer = trainer
         self.generator = gb
         self.encoder = hc.Config({"sample":ugb}) # this is the other gan
-        self.uniform_encoder = hc.Config({"sample":zub})#uniform_encoder
-        self.uniform_encoder_source = hc.Config({"sample":sourcezub})#uniform_encoder
+        self.uniform_distribution = hc.Config({"sample":zub})#uniform_encoder
+        self.uniform_distribution_source = hc.Config({"sample":sourcezub})#uniform_encoder
         self.zb = zb
         self.z_hat = gb.sample
         self.x_input = self.inputs.xa
@@ -285,7 +285,7 @@ class AlignedAliGAN8(BaseGAN):
 
     def fitness_inputs(self):
         return [
-                self.uniform_encoder.sample, self.inputs.xa
+                self.uniform_distribution.sample, self.inputs.xa
                 ]
 
 

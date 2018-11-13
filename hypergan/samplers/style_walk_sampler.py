@@ -14,7 +14,7 @@ class StyleWalkSampler(BaseSampler):
         self.step = 0
         self.steps = 30
         self.target = None
-        self.z_t = gan.uniform_encoder.sample
+        self.z_t = gan.uniform_distribution.sample
         self.z_v = gan.session.run(self.z_t)
         self.styleb_t = gan.styleb.sample
 

@@ -157,6 +157,16 @@ class AliGAN(BaseGAN):
                 l2_loss = self.ops.squash(10*tf.square(x_hat - x_input))
                 g_losses=[l2_loss]
                 d_losses=[l2_loss]
+            if self.config.vae:
+                mu,sigma = self.encoder.variational
+                eps = 1e-8
+                lam = config.vae_lambda or 0.001
+                latent_loss = lam*(0.5 *self.ops.squash(tf.square(mu)-tf.square(sigma) - tf.log(tf.square(sigma)+eps) - 1, tf.reduce_sum ))
+                g_losses.append(latent_loss)
+                mu,sigma = u_to_z.variational
+                latent_loss = lam*(0.5 *self.ops.squash(tf.square(mu)-tf.square(sigma) - tf.log(tf.square(sigma)+eps) - 1, tf.reduce_sum ))
+                g_losses.append(latent_loss)
+
 
             for i,l in enumerate(g_losses):
                 self.add_metric('gl'+str(i), l)

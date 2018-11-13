@@ -55,7 +55,7 @@ class OrthonormalOptimizer(optimizer.Optimizer):
     Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
     shapes = [self.gan.ops.shape(l) for l in flin]
     u = [tf.reshape(l, [-1]) for l in flin[:len(d_vars)]]
-    v = [tf.reshape(l, [-1]) for l in Jgrads[:len(d_vars)]]
+    v = [tf.reshape(l, [-1]) if l is not None else tf.reshape(tf.zeros_like(v), [-1]) for l,v in zip(Jgrads[:len(d_vars)], d_vars)]
     
     def proj(u, v,shape):
         dot = tf.tensordot(v, u, 1) / (tf.square(u)+1e-8)

@@ -11,6 +11,7 @@ from tensorflow.python.training import optimizer
 import tensorflow as tf
 import hyperchamber as hc
 import inspect
+import numpy as np
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class WeightConstraintTrainHook(BaseTrainHook):
@@ -32,7 +33,6 @@ class WeightConstraintTrainHook(BaseTrainHook):
       decay = self.config.ortho_decay or 0.01
       newv = tf.matmul(w, tf.matmul(wt,w))
       newv = tf.reshape(newv,self.ops.shape(v))
-      print("--->",v,newv)
       newv=(1+decay)*v - decay*(newv)
 
       #newv = tf.transpose(v, perm=[1,0,2,3])
@@ -41,7 +41,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
   def _update_lipschitz(self,v,i):
     config = self.config
     if len(v.shape) > 1:
-      k = config.weight_constraint_k or 100.0000
+      k = self.config.weight_constraint_k or 100.0000
       wi_hat = v
       if len(v.shape) == 4:
         #fij = tf.reduce_sum(tf.abs(wi_hat),  axis=[0,1])
@@ -58,15 +58,14 @@ class WeightConstraintTrainHook(BaseTrainHook):
         wp = tf.reduce_max(tf.reduce_sum(tf.abs(fij), axis=1), axis=0)
       ratio = (1.0/tf.maximum(1.0, wp/k))
       
-      if config.weight_bounce:
+      if self.config.weight_bounce:
         bounce = tf.minimum(1.0, tf.ceil(wp/k-0.999))
         ratio -= tf.maximum(0.0, bounce) * 0.2
 
-      if config.weight_scaleup:
+      if self.config.weight_scaleup:
         up = tf.minimum(1.0, tf.ceil(0.02-wp/k))
         ratio += tf.maximum(0.0, up) * k/wp * 0.2
 
-      print('--',i,v)
       wi = ratio*(wi_hat)
       #self.gan.metrics['wi'+str(i)]=wp
       #self.gan.metrics['wk'+str(i)]=ratio
@@ -91,9 +90,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
         return m
       wtw = tf.matmul(wt,w)
       wwt = tf.matmul(w,wt)
-      print('---', wtw, wwt)
       bw = tf.minimum(_r(wtw), _r(wwt))
-      print("BW", bw, w, _r(wtw), wtw, wt)
       decay = self.config.l2nn_decay
       wi = (v/tf.sqrt(bw))
       if decay is not None:
@@ -109,7 +106,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
       if self.ops.shape(v) == self.ops.shape(skip):
         print("Skipping constraints on", v)
         return None
-    constraints = config.weight_constraint or []
+    constraints = self.config.weight_constraint or []
     result = []
     if "ortho" in constraints:
       result.append(self._update_ortho(v,i))

@@ -59,7 +59,7 @@ class OrthonormalOptimizer(optimizer.Optimizer):
     
     def proj(u, v,shape):
         dot = tf.tensordot(v, u, 1) / (tf.square(u)+1e-8)
-        dot = tf.maximum(-1.0, dot)
+        dot = tf.maximum(0.0, dot)
         dot = tf.minimum(1.0, dot)
         dot = dot * u
         dot = tf.reshape(dot, shape)

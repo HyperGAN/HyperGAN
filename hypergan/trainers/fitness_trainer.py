@@ -72,9 +72,9 @@ class FitnessTrainer(BaseTrainer):
                     apply_vec_g.append((grad, v))
 
         optimizer = hc.lookup_functions(config.optimizer)
-        optimizer['gan']=self.gan
-        optimizer['config']=optimizer
         defn = {k: v for k, v in optimizer.items() if k in inspect.getargspec(optimizer['class']).args}
+        defn['gan']=self.gan
+        defn['config']=optimizer
         tr = optimizer['class'](self.lr, **defn)
 
         self.gan.trainer = self

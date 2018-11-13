@@ -14,7 +14,7 @@ import numpy as np
 import inspect
 
 class GradientMagnitudeOptimizer(optimizer.Optimizer):
-  """Projects layer gradients to unit ball then multiplies by a constant"""
+  """Projects layer gradients to a norm then multiplies by a constant"""
   def __init__(self, learning_rate=0.001, decay=0.9, gan=None, config=None, use_locking=False, name="EmaOptimizer", optimizer=None):
     super().__init__(use_locking, name)
     self._decay = decay
@@ -49,7 +49,14 @@ class GradientMagnitudeOptimizer(optimizer.Optimizer):
 
     self._prepare()
     def project_gradient_layer(gs):
-        return gs / (tf.sqrt(tf.reduce_sum(tf.square(gs)))+1e-8)
+        if self.config.norm == 'softmax':
+            return tf.nn.softmax(gs)
+        elif self.config.norm == 'euclidean':
+            return gs / (tf.sqrt(tf.reduce_sum(tf.square(gs)))+1e-8)
+        elif self.config.norm == 'inf':
+            return gs / (tf.norm(gs, ord=np.inf)+1e-8)
+        else:
+            return gs / (tf.norm(gs, ord=self.config.norm)+1e-8)
 
     lam = [lam for g, _ in grads_and_vars]
 

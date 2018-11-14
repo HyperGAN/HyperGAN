@@ -37,7 +37,7 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
   * [Architecture](#architecture)
   * [GANComponent](#GANComponent)
   * [Generator](#generator)
-  * [Encoders](#encoders)
+  * [Distributions](#distributions)
   * [Discriminators](#discriminators)
   * [Losses](#losses)
    * [WGAN](#wgan)

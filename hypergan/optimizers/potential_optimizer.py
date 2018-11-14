@@ -24,6 +24,7 @@ class PotentialOptimizer(optimizer.Optimizer):
         return klass(options.learn_rate, **defn)
 
     optimizer = hc.lookup_functions(optimizer)
+    self.name = name
     self.optimizer = create_optimizer(optimizer['class'], optimizer)
  
   def _prepare(self):
@@ -75,14 +76,25 @@ class PotentialOptimizer(optimizer.Optimizer):
     v = [tf.reshape(l, [-1]) for l in Jgrads[:len(d_vars)]]
     
     def proj(u, v,shape):
+        bounds = [-1.0,1.0]
+        if self.config.ortho_bounds:
+            bounds = self.config.ortho_bounds
         dot = tf.tensordot(v, u, 1) / (tf.square(u)+1e-8)
-        dot = tf.maximum(0.0, dot)
-        dot = tf.minimum(1.0, dot)
+        dot = tf.maximum(bounds[0], dot)
+        dot = tf.minimum(bounds[1], dot)
         dot = dot * u
         dot = tf.reshape(dot, shape)
         return dot
     projs = [proj(_u, _v, _s) for _u, _v, _s in zip(u, v, shapes)]
-    if self.config.formulation == 'g-p,p':
+    if self.config.formulation == 'g-p,-p':
+        h_grads = [grad-proj for grad, proj in zip(grad_list, projs)]
+    elif self.config.formulation == 'g-p,g-p':
+        h_grads = [grad-proj for grad, proj in zip(grad_list, projs)]
+    elif self.config.formulation == 'g-p,g+p':
+        h_grads = [grad-proj for grad, proj in zip(grad_list, projs)]
+    elif self.config.formulation == 'p,-p':
+        h_grads = [proj for grad, proj in zip(grad_list, projs)]
+    elif self.config.formulation == 'g-p,p':
         h_grads = [grad-proj for grad, proj in zip(grad_list, projs)]
     else:
         h_grads = [grad+proj for grad, proj in zip(grad_list, projs)]
@@ -100,7 +112,15 @@ class PotentialOptimizer(optimizer.Optimizer):
             with tf.get_default_graph().control_dependencies([op3]):
                 op4 = tf.group(*[tf.assign(w, v) for w,v in zip(var_list, start_slots)])
                 with tf.get_default_graph().control_dependencies([op4]):
-                    if self.config.formulation == 'g-p,p':
+                    if self.config.formulation == 'p,-p':
+                        p_grads = [-proj for _g, proj in zip(grad_list, projs)]
+                    elif self.config.formulation == 'g-p,g-p':
+                        p_grads = [_g-proj for _g, proj in zip(grad_list, projs)]
+                    elif self.config.formulation == 'g-p,g+p':
+                        p_grads = [_g+proj for _g, proj in zip(grad_list, projs)]
+                    elif self.config.formulation == 'g-p,-p':
+                        p_grads = [-proj for _g, proj in zip(grad_list, projs)]
+                    elif self.config.formulation == 'g-p,p':
                         p_grads = [proj for _g, proj in zip(grad_list, projs)]
                     else:
                         p_grads = [proj for _g, proj in zip(grad_list, projs)]
@@ -108,7 +128,10 @@ class PotentialOptimizer(optimizer.Optimizer):
                     step2 = list(zip(step2_grads, var_list))
                     op5 = self.optimizer.apply_gradients(step2.copy(), global_step=global_step, name=name)
                     with tf.get_default_graph().control_dependencies([op5]):
-                        op6 = tf.group(*[tf.assign(w, mlam*h+(1-mlam)*p) for w,h,p in zip(var_list, var_list, potential_slots)])
+                        if self.config.ema:
+                            op6 = tf.group(*[tf.assign(w, self.config.ema*start + (1.0-self.config.ema)*(mlam*h+(1-mlam)*p)) for start,w,h,p in zip(start_slots, var_list, var_list, potential_slots)])
+                        else:
+                            op6 = tf.group(*[tf.assign(w, mlam*h+(1-mlam)*p) for w,h,p in zip(var_list, var_list, potential_slots)])
                         with tf.get_default_graph().control_dependencies([op6]):
                             return tf.no_op()
 

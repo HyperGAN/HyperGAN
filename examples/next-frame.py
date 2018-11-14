@@ -25,7 +25,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.gans.base_gan import BaseGAN
 
 from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
-from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.trainers.multi_step_trainer import MultiStepTrainer
 from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
 from hypergan.trainers.consensus_trainer import ConsensusTrainer
@@ -184,7 +184,7 @@ class AliNextFrameGAN(BaseGAN):
         with tf.device(self.device):
             def random_t(shape):
                 shape[-1] //= len(config.z_distribution.projections)
-                return UniformEncoder(self, config.z_distribution, output_shape=shape).sample
+                return UniformDistribution(self, config.z_distribution, output_shape=shape).sample
             def random_like(x):
                 shape = self.ops.shape(x)
                 return random_t(shape)
@@ -192,11 +192,11 @@ class AliNextFrameGAN(BaseGAN):
             self.frame_count = len(self.inputs.frames)
             self.frames = self.inputs.frames
 
-            dist = UniformEncoder(self, config.z_distribution)
-            dist2 = UniformEncoder(self, config.z_distribution)
-            dist3 = UniformEncoder(self, config.z_distribution)
-            dist4 = UniformEncoder(self, config.z_distribution)
-            dist5 = UniformEncoder(self, config.z_distribution)
+            dist = UniformDistribution(self, config.z_distribution)
+            dist2 = UniformDistribution(self, config.z_distribution)
+            dist3 = UniformDistribution(self, config.z_distribution)
+            dist4 = UniformDistribution(self, config.z_distribution)
+            dist5 = UniformDistribution(self, config.z_distribution)
             uz = self.create_component(config.uz, name='u_to_z', input=dist.sample)
             uc = self.create_component(config.uc, name='u_to_c', input=dist2.sample)
             uz2 = self.create_component(config.uz, name='u_to_z', input=dist3.sample, reuse=True)
@@ -210,7 +210,7 @@ class AliNextFrameGAN(BaseGAN):
                 if config.noise:
                     randt = random_like(cp)
                     if config.proxy:
-                        dist3 = UniformEncoder(self, config.z_distribution)
+                        dist3 = UniformDistribution(self, config.z_distribution)
                         proxy_c = self.create_component(config.proxy_c, name='rand_ct', input=dist3.sample, reuse=reuse)
                         randt = proxy_c.sample
 
@@ -444,7 +444,7 @@ class AliNextFrameGAN(BaseGAN):
         self.x_input = self.inputs.frames[0]
 
         self.uga = self.y.sample
-        self.uniform_encoder = dist
+        self.uniform_distribution = dist
 
     def g_vars(self):
         return self._g_vars
@@ -563,7 +563,7 @@ class VideoFrameSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.uniform_encoder.sample
+        z_t = gan.uniform_distribution.sample
         sess = gan.session
 
         feed_dict = {}
@@ -592,7 +592,7 @@ class TrainingVideoFrameSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.uniform_encoder.sample
+        z_t = gan.uniform_distribution.sample
         sess = gan.session
         
  

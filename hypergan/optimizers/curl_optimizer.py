@@ -151,43 +151,11 @@ class CurlOptimizer(optimizer.Optimizer):
                 # restore v1, slots
                 op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
                 with tf.get_default_graph().control_dependencies([op5]):
-                    flin = []
-                    for grad, jg in zip(gswap, Jgrads):
-                        if jg is None or self._beta <= 0:
-                            flin += [grad]
-                        else:
-                            flin += [grad + jg * self._beta]
-
-                    if self.config.orthonormal:
-                        shapes = [self.gan.ops.shape(l) for l in flin]
-                        u = [tf.reshape(l, [-1]) for l in flin[:len(d_vars)]]
-                        v = [tf.reshape(l, [-1]) for l in Jgrads[:len(d_vars)]]
-                        
-                        def proj(u, v,shape):
-                            dot = tf.tensordot(v, u, 1) / (tf.square(u)+1e-8)
-                            dot = tf.maximum(-1.0, dot)
-                            dot = tf.minimum(1.0, dot)
-                            dot = dot * u
-                            dot = tf.reshape(dot, shape)
-                            return dot
-                        proj_u1_v2 = [proj(_u, _v, _s) for _u, _v, _s in zip(u, v, shapes)]
-                        flin = [_flin + self.gan.configurable_param(self.config.ortholambda) * proj for _flin, proj in zip(flin, proj_u1_v2)] + flin[len(d_vars):]
-
-                    step3 = list(zip(flin, var_list))
+                    step3 = list(zip(gswap, var_list))
                     op6 = self.optimizer.apply_gradients(step3.copy(), global_step=global_step, name=name)
-
-
                     with tf.get_default_graph().control_dependencies([op6]):
                         return tf.no_op()
 
-                    # Flin = gamma * IF - rho * JF + beta * JtF
-                    #op7 = tf.group(*[tf.assign_add(gsw, (jg * self._beta)) if jg is not None else tf.no_op() for gsw, jg in zip(gswap, Jgrads)])
-                    #with tf.get_default_graph().control_dependencies([op7]):
-                    #    flin_grads_and_vars = zip(gswap, var_list)
-                    #    # step 1
-                    #    op8 = self.optimizer.apply_gradients(list(flin_grads_and_vars).copy(), global_step=global_step, name=name)
-                    #    with tf.get_default_graph().control_dependencies([op8]):
-                    #        return tf.no_op()
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")
   def variables(self):

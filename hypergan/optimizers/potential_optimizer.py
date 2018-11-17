@@ -71,9 +71,10 @@ class PotentialOptimizer(optimizer.Optimizer):
 
     consensus_reg = [tf.square(g) for g in grad_list[:len(d_vars)] if g is not None]
     Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
+
     shapes = [self.gan.ops.shape(l) for l in grad_list]
     u = [tf.reshape(l, [-1]) for l in grad_list[:len(d_vars)]]
-    v = [tf.reshape(l, [-1]) for l in Jgrads[:len(d_vars)]]
+    v = [tf.reshape(l, [-1]) if l is not None else tf.reshape(tf.zeros_like(v), [-1]) for l,v in zip(Jgrads[:len(d_vars)], d_vars)]
     
     def proj(u, v,shape):
         bounds = [-1.0,1.0]

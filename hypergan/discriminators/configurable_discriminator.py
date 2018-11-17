@@ -819,8 +819,11 @@ class ConfigurableDiscriminator(BaseDiscriminator):
         sigma = self.layer_conv(net, args, options)
         z = mu + sigma * tf.random_normal(tf.shape(mu), 0, 1, dtype=tf.float32)
         self.variational=[mu,sigma]
-        self.gan.variational=[mu,sigma]
-        print("-->", z)
+        if not self.ops._reuse:
+            if(hasattr(self.gan, "variational")):
+                self.gan.variational += [[mu,sigma]]
+            else:
+                self.gan.variational=[[mu,sigma]]
         return z
 
 

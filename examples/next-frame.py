@@ -314,9 +314,14 @@ class AliNextFrameGAN(BaseGAN):
             extra_frames = config.extra_frames or 2
             self.zs = zs
             self.cs = cs
-            ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
+            if config.zerod:
+                ugs, ucs, uzs = build_sim(uz.sample, tf.zeros_like(uc.sample), len(self.frames))
+            else:
+                ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
             alt_gs, alt_cs, alt_zs = build_sim(zs[1], cs[1], len(self.frames))
             self.ucs = ucs
+            self.alt_cs = alt_cs
+            self.alt_zs = alt_zs
             ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames))
             re_ucs_next, re_uzs_next, re_ugs_next = encode_frames(ugs_next[1:len(self.frames)], ucs_next[0], uzs_next[0])
             gs_next, cs_next, zs_next = build_sim(zs[-1], cs[-1], len(self.frames)+extra_frames)
@@ -355,8 +360,8 @@ class AliNextFrameGAN(BaseGAN):
             if config.encode_ug:
                 #stack += rotate(ugs[:-2], ugs[-2:]+ugs_next)
                 #features += rotate(ucs[:-2], ucs[-2:]+ucs_next)
-                stack.append(tf.concat(ugs[:-2], axis=axis))
-                features.append(tf.concat(ucs[:-2], axis=axis))
+                stack.append(tf.concat(ugs[1:-1], axis=axis))
+                features.append(tf.concat(ucs[1:-1], axis=axis))
             if config.encode_re_ug:
                 stack.append(tf.concat(re_ugs[1:], axis=axis))
                 features.append(tf.concat(re_ucs[1:], axis=axis))
@@ -408,12 +413,15 @@ class AliNextFrameGAN(BaseGAN):
             d_vars += dvs
 
             if config.vae:
-                mu,sigma = self.variational
-                eps = 1e-8
-                lam = config.vae_lambda or 0.01
-                latent_loss = lam*(0.5 *self.ops.squash(tf.square(mu)-tf.square(sigma) - tf.log(tf.square(sigma)+eps) - 1, tf.reduce_sum ))
-                #d_loss += latent_loss
-                g_loss -= latent_loss
+                if(hasattr(self, "variational")):
+                    for i,var in enumerate(self.variational):
+                        mu,sigma = var
+                        eps = 1e-8
+                        lam = config.vae_lambda or 0.01
+                        latent_loss = lam*(0.5 *self.ops.squash(tf.square(mu)-tf.square(sigma) - tf.log(tf.square(sigma)+eps) - 1, tf.reduce_sum ))
+                        self.add_metric("vae"+str(i), latent_loss)
+                        #d_loss += latent_loss
+                        g_loss -= latent_loss
 
 
             gx_sample = gen.sample

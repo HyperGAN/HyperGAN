@@ -156,7 +156,7 @@ class BaseLoss(GANComponent):
         if config.random_penalty:
             gp = self.random_penalty(d_fake, d_real)
             d_regularizers.append(gp)
-            self.metrics['random_penalty'] = ops.squash(gp, tf.reduce_mean)
+            self.add_metric('random_penalty', ops.squash(gp, tf.reduce_mean))
 
 
         if self.gan.config.infogan and not hasattr(self.gan, 'infogan_q'):

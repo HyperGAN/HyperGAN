@@ -142,7 +142,11 @@ class CurlOptimizer(optimizer.Optimizer):
                     return self._gamma*g1 * (rho * tf.nn.softmax(J))
                 elif curl == "revmult":
                     return self._gamma*g1 * (rho * (1.-tf.nn.softmax(J)))
+                elif curl == "simple":
+                    return 2*g2-g1
                 else:
+                    if self._rho <= 0:
+                        return g1
                     return self._gamma*g1-self._rho*tf.abs((g2-g1)/((_v2-_v1)+1e-8))*g1
             g2s = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
             g3s = [curlcombine(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombine(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(gswap,g2s,v1,var_list)]

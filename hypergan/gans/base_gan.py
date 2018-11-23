@@ -75,6 +75,12 @@ class BaseGAN(GANComponent):
             raise ValidationException("gan.height() requested but no inputs provided")
         return self.ops.shape(self.inputs.x)[1]
 
+    def output_shape(self):
+        return [self.width(), self.height(), self.channels()]
+
+    def l1_distance(self):
+        return self.inputs.x - self.generator.sample
+
     def get_config_value(self, symbol):
         if symbol in self.config:
             config = hc.Config(hc.lookup_functions(self.config[symbol]))

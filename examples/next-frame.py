@@ -226,6 +226,7 @@ class AliNextFrameGAN(BaseGAN):
                     if config.proxy:
                         self._g_vars += proxy_c.variables()
                     self._g_vars += c.variables()
+                    self.encoder = c
                 return c.sample
             def ez(ft, zp,reuse=True):
                 z = self.create_component(config.ez, name='ez', input=ft, features=[zp], reuse=reuse)
@@ -285,7 +286,7 @@ class AliNextFrameGAN(BaseGAN):
                l2 = self.create_loss(config.loss, disc, None, None, len(_inputs))
                self.add_metric(metric, l2.d_loss)
                self.add_metric(metric, l2.g_loss)
-               return l2, disc.variables()
+               return l2, disc.variables(), disc
 
             def mi(metric, name, _inputs, _features):
                 _inputsb = [tf.zeros_like(x) for x in _inputs]
@@ -294,9 +295,9 @@ class AliNextFrameGAN(BaseGAN):
                 ib_2_c = config.ib_2_c or 1
                 inputs = tf.concat(_inputs, axis=0)
                 features = tf.concat(_features, axis=0)
-                gl,dl,d_vars = disc(metric+'1', name, _inputs, _features)
-                gl2,dl2, _ = disc(metric+'2', name, _inputs, _features, reuse=True)
-                gl3,dl3, _ = disc(metric+'3', name, _inputs, _features, reuse=True)
+                gl,dl,d_vars,_ = disc(metric+'1', name, _inputs, _features)
+                gl2,dl2, _,_ = disc(metric+'2', name, _inputs, _features, reuse=True)
+                gl3,dl3, _,_ = disc(metric+'3', name, _inputs, _features, reuse=True)
                 dls = ib_2_c * beta *tf.add_n([dl,-dl2,-dl3])
                 gls = ib_2_c * beta *tf.add_n([gl,-gl2,-gl3])
 
@@ -315,7 +316,7 @@ class AliNextFrameGAN(BaseGAN):
             self.zs = zs
             self.cs = cs
             if config.zerod:
-                ugs, ucs, uzs = build_sim(uz.sample, tf.zeros_like(uc.sample), len(self.frames))
+                ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
             else:
                 ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
             alt_gs, alt_cs, alt_zs = build_sim(zs[1], cs[1], len(self.frames))
@@ -341,6 +342,7 @@ class AliNextFrameGAN(BaseGAN):
 
             t0 = tf.concat(self.frames[1:], axis=axis)
             f0 = tf.concat(cs[1:-1], axis=axis)
+            self.x0 = t0
 
             stack = [t0]
             features = [f0]
@@ -360,18 +362,20 @@ class AliNextFrameGAN(BaseGAN):
             if config.encode_ug:
                 #stack += rotate(ugs[:-2], ugs[-2:]+ugs_next)
                 #features += rotate(ucs[:-2], ucs[-2:]+ucs_next)
-                stack.append(tf.concat(ugs[1:-1], axis=axis))
-                features.append(tf.concat(ucs[1:-1], axis=axis))
+                self.g0 = tf.concat(ugs[1:-1], axis=axis)
+                self.c0 = tf.concat(ucs[1:-1], axis=axis)
+                stack.append(self.g0)
+                features.append(self.c0)
             if config.encode_re_ug:
                 stack.append(tf.concat(re_ugs[1:], axis=axis))
                 features.append(tf.concat(re_ucs[1:], axis=axis))
                 
             if config.encode_forward:
-                #stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
-                #features += rotate(cs[2:], cs_next[1:])
-                print("GS", gs_next, features)
-                stack += rotate(gs_next[:-4], gs_next[-4:])
-                features += rotate(cs_next[:-4], cs_next[-4:])
+                stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
+                features += rotate(cs[2:], cs_next[1:])
+                #print("GS", gs_next, features)
+                #stack += rotate(gs_next[:-4], gs_next[-4:])
+                #features += rotate(cs_next[:-4], cs_next[-4:])
             #if config.encode_forward_next:
             #    stack += [tf.concat(gs_next[:-4],axis=axis)]
             #    features += [tf.concat(cs_next[:-4],axis=axis)]
@@ -407,7 +411,8 @@ class AliNextFrameGAN(BaseGAN):
             #g_loss += gl
             #d_loss += dl
             #d_vars += dvs
-            l,dvs = disc('m1', 'b_discriminator2', stack, features)
+            l,dvs,disc = disc('m1', 'discriminator', stack, features)
+            self.discriminator = disc
             g_loss = l.g_loss
             d_loss = l.d_loss
             d_vars += dvs
@@ -458,6 +463,11 @@ class AliNextFrameGAN(BaseGAN):
         return self._g_vars
     def d_vars(self):
         return self._d_vars
+
+    def sample_mixture(self):
+        diff = self.x0 - self.g0
+        alpha = tf.random_uniform(shape=self.ops.shape(self.g0), minval=0., maxval=1.0)
+        return self.x0 + alpha * diff
 
     def fitness_inputs(self):
         return self.inputs.frames

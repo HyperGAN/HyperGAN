@@ -18,15 +18,20 @@ from hypergan.train_hooks.base_train_hook import BaseTrainHook
 class GpSnMemoryTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="GpSnMemoryTrainHook", memory_size=2, top_k=1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
-    self.s_max = [ tf.Variable( tf.zeros_like(self.gan.inputs.x)) for i in range(memory_size)]
+    gan_inputs = self.gan.inputs.x
+    encoder_sample = self.gan.encoder.sample
+    if hasattr(self.gan.inputs, 'frames'):
+        gan_inputs = tf.concat(self.gan.inputs.frames[1:], axis=3)
+        encoder_sample = self.gan.c0
+    self.s_max = [ tf.Variable( tf.zeros_like(gan_inputs)) for i in range(memory_size)]
     self.d_lambda = config['lambda'] or 1
 
     self.assign_s_max_new_entries = [ tf.assign(self.s_max[i], self.gan.sample_mixture()) for i in range(memory_size) ]
     self.memory_size = memory_size
     self.top_k = top_k
 
-    self.current = tf.Variable(tf.zeros_like(self.gan.inputs.x))
-    d = self.gan.create_component(self.gan.config.discriminator, name='discriminator', input=self.current, features=[tf.zeros_like(self.gan.encoder.sample)], reuse=True)
+    self.current = tf.Variable(tf.zeros_like(gan_inputs))
+    d = self.gan.create_component(self.gan.config.discriminator, name='discriminator', input=self.current, features=[tf.zeros_like(encoder_sample)], reuse=True)
     self.assign_current = [ self.current.assign(self.s_max[i]) for i in range(memory_size) ]
     gd = tf.gradients(d.sample, [self.current])[0]
     self.d_loss = tf.reduce_mean(tf.square(tf.norm(gd, ord=2)))

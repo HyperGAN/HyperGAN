@@ -54,6 +54,11 @@ class BaseGAN(GANComponent):
             raise ValidationException("gan.batch_size() requested but no inputs provided")
         return self.ops.shape(self.inputs.x)[0]
 
+    def sample_mixture(self):
+        diff = self.inputs.x - self.generator.sample
+        alpha = tf.random_uniform(shape=self.ops.shape(self.generator.sample), minval=0., maxval=1.0)
+        return self.inputs.x + alpha * diff
+
     def channels(self):
         if self._channels:
             return self._channels

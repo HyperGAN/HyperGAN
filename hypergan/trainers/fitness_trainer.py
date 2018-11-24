@@ -11,20 +11,9 @@ class FitnessTrainer(BaseTrainer):
     def create(self):
         self.hist = [0 for i in range(2)]
         config = self.config
-        lr = config.learn_rate
-        if lr is not None:
-            lr = tf.Variable(lr, name='learning_rate')
         self.global_step = tf.train.get_global_step()
         self.mix_threshold_reached = False
         decay_function = config.decay_function
-        if decay_function:
-            print("!!using decay function", decay_function)
-            decay_steps = config.decay_steps or 50000
-            decay_rate = config.decay_rate or 0.9
-            decay_staircase = config.decay_staircase or False
-            self.lr = decay_function(lr, self.global_step, decay_steps, decay_rate, decay_staircase)
-        else:
-            self.lr = lr
 
         return self._create()
 
@@ -72,10 +61,11 @@ class FitnessTrainer(BaseTrainer):
                     apply_vec_g.append((grad, v))
 
         optimizer = hc.lookup_functions(config.optimizer)
+        optimizer['gan']=self.gan
+        optimizer['config']=optimizer
         defn = {k: v for k, v in optimizer.items() if k in inspect.getargspec(optimizer['class']).args}
-        defn['gan']=self.gan
-        defn['config']=optimizer
-        tr = optimizer['class'](self.lr, **defn)
+        lr = optimizer.learn_rate or optimizer.learning_rate
+        tr = optimizer['class'](lr, **defn)
 
         self.gan.trainer = self
         self.g_loss = g_loss
@@ -213,7 +203,6 @@ class FitnessTrainer(BaseTrainer):
         loss = self.loss 
         metrics = gan.metrics()
 
-        lr = self.lr
         feed_dict = {}
 
         fit = False

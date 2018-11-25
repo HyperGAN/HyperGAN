@@ -560,9 +560,11 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             _net = tf.nn.avg_pool(_net, ksize=ksize, strides=ksize, padding='SAME')
             return _net
         def _attn(_net, name=None):
-            args = [ops.shape(_net)[-1]//2]
+            args = [ops.shape(_net)[-1]]
             name = name or self.ops.generate_name()
             options.name=name+'_fx'
+            options['activation']=None
+            options['avg_pool']=[1,1]
             fx = self.layer_conv(_net, args, options)
             options.name=name+'_gx'
             gx = self.layer_conv(_net, args, options)
@@ -588,11 +590,11 @@ class ConfigurableDiscriminator(BaseDiscriminator):
             oj = tf.matmul(bji, hx)
             oj = tf.reshape(oj, bottleneck_shape)
             #if options.final_conv:
-            args[0] = ops.shape(_net)[-1]
-            if options.final_activation == 'crelu':
-                args[0] //= 2
-            options.name=name+'_oj'
-            oj = self.layer_conv(oj, args, options)
+            #args[0] = ops.shape(_net)[-1]
+            #if options.final_activation == 'crelu':
+            #    args[0] //= 2
+            #options.name=name+'_oj'
+            #oj = self.layer_conv(oj, args, options)
             if options.final_activation:
                 oj = self.ops.lookup(options.final_activation)(oj)
             if options.enable_at_step:

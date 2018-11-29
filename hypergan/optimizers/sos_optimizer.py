@@ -69,19 +69,23 @@ class SOSOptimizer(optimizer.Optimizer):
 
     d_grads = all_grads[:len(d_vars)]
     g_grads = all_grads[len(d_vars):]
+    dc_grads = [tf.reduce_sum(tf.square(d)) for d in d_grads]
+    gc_grads = [tf.reduce_sum(tf.square(g)) for g in g_grads]
     l1 = self.gan.trainer.d_loss# + lookahead_l2
     l2 = self.gan.trainer.g_loss# + lookahead_l1
     #h11 = tf.gradients(d_grads, d_vars) + tf.gradients(d_grads, g_vars, stop_gradients=g_vars)
     h11 = tf.gradients(d_grads, d_vars) + [tf.zeros_like(g) for g in g_vars]
-    h12 = tf.gradients(g_grads, d_vars) + [tf.zeros_like(g) for g in g_vars]
-    h21 = [tf.zeros_like(d) for d in d_vars] + tf.gradients(d_grads, g_vars)
+    h12 = tf.gradients(gc_grads, d_vars) + [tf.zeros_like(g) for g in g_vars]
+    h21 = [tf.zeros_like(d) for d in d_vars] + tf.gradients(dc_grads, g_vars)
     #h22 = tf.gradients(g_grads, d_vars) + tf.gradients(g_grads, g_vars, stop_gradients=d_vars)
     h22 = [tf.zeros_like(d) for d in d_vars] + tf.gradients(g_grads, g_vars)
     #h22 = [tf.zeros_like(d) for d in all_vars]
-    h11 = [ tf.zeros_like(_dg) if ddg is None else ddg for ddg, _dg in zip(all_vars, h11) ]
-    h12 = [ tf.zeros_like(_dg) if ddg is None else ddg for ddg, _dg in zip(all_vars, h12) ]
-    h21 = [ tf.zeros_like(_dg) if ddg is None else ddg for ddg, _dg in zip(all_vars, h21) ]
-    h22 = [ tf.zeros_like(_dg) if ddg is None else ddg for ddg, _dg in zip(all_vars, h22) ]
+    h11 = [ tf.zeros_like(_dg) if ddg is None else _dg for ddg, _dg in zip(all_vars, h11) ]
+    h12 = [ tf.zeros_like(_dg) if ddg is None else _dg for ddg, _dg in zip(all_vars, h12) ]
+    h21 = [ tf.zeros_like(_dg) if ddg is None else _dg for ddg, _dg in zip(all_vars, h21) ]
+    h22 = [ tf.zeros_like(_dg) if ddg is None else _dg for ddg, _dg in zip(all_vars, h22) ]
+    h21 = [ -_dg for _dg in h12 ]
+    h22 = [ -_dg for _dg in h12 ]
     __h11 = [ tf.reduce_sum(_h11) for _h11 in h11 ]
     __h12 = [ tf.reduce_sum(_h12) for _h12 in h12 ]
     __h21 = [ tf.reduce_sum(_h21) for _h21 in h21 ]
@@ -100,24 +104,19 @@ class SOSOptimizer(optimizer.Optimizer):
         zero = tf.zeros_like(_h12)
         shape = self.gan.ops.shape(_h12)
         #_ho = tf.stack([zero, _h11, _h22, zero])
-        _ho = tf.stack([zero, _h12, _h21, zero])
-        _ho = tf.reshape(_ho, [ 2, 2 ] + shape)
+        _ho = tf.stack([tf.stack([zero, _h12]),tf.stack([_h21, zero])])
         ho.append(_ho)
 
    
     eps = []
     m = tf.constant(0.0)
-    for _grads, _ho in zip(all_grads, ho):
-        #Eo = tf.reduce_sum((tf.diag([1.0,1.0]) - self._alpha*_ho)) * _grads
-        Eo = (1.0 - self._alpha*_ho[0][0]) * _grads + \
-             (0.0 - self._alpha*_ho[1][0]) * _grads + \
-             (0.0 - self._alpha*_ho[0][1]) * _grads + \
-             (1.0 - self._alpha*_ho[1][1]) * _grads
+    for _h12, _h21, _grads, _ho in zip(h12, h21, all_grads, ho):
+        # (I - alpha*Ho)
+        Eo = 2.0 * _grads - \
+             self._alpha*_h21 * _grads -\
+             self._alpha*_h12 * _grads
         m += tf.reduce_sum(Eo)
-        eps += [ Eo ]# - tf.reduce_sum(_diag) * self._alpha]
-        #eps += [ Eo - tf.reduce_sum(_diag) * self._alpha]
-        #p1 = tf.maximum(tf.sign(tf.dotproduct(-self._alpha*_diag,part1
-        #eps += [ part1 - tf.reduce_sum(_diag) * self._alpha]
+        eps += [ Eo ]
 
     self.gan.add_metric('m', m)
     new_grads = eps
@@ -125,6 +124,7 @@ class SOSOptimizer(optimizer.Optimizer):
 
     diag = []
     ho_t = []
+
 
     op1 = tf.group(*[tf.assign(w, v) for w,v in zip(restore_slots, restore_vars)]) # store variables
     with tf.get_default_graph().control_dependencies([op1]):

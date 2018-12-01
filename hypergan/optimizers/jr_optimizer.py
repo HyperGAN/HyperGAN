@@ -62,8 +62,8 @@ class JROptimizer(optimizer.Optimizer):
     gc_grads = [tf.square(tf.norm(g)) for g in g_grads]
     gamma12 = tf.gradients(gc_grads, d_vars) + [tf.zeros_like(g) for g in g_vars]
     gamma21 = [tf.zeros_like(d) for d in d_vars] + tf.gradients(dc_grads, g_vars)
-    gamma12 = [ tf.zeros_like(_dg) if ddg is None else _dg for ddg, _dg in zip(all_vars, gamma12) ]
-    gamma21 = [ tf.zeros_like(_dg) if ddg is None else _dg for ddg, _dg in zip(all_vars, gamma21) ]
+    gamma12 = [ tf.zeros_like(ddg) if _dg is None else _dg for ddg, _dg in zip(all_vars, gamma12) ]
+    gamma21 = [ tf.zeros_like(ddg) if _dg is None else _dg for ddg, _dg in zip(all_vars, gamma21) ]
     __gamma12 = [ tf.reduce_sum(_gamma12) for _gamma12 in gamma12 ]
     __gamma21 = [ tf.reduce_sum(_gamma21) for _gamma21 in gamma21 ]
     #gamma12_metric = self.gan.ops.squash(sum(gamma12))

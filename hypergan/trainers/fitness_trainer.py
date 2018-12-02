@@ -65,6 +65,8 @@ class FitnessTrainer(BaseTrainer):
         optimizer['config']=optimizer
         defn = {k: v for k, v in optimizer.items() if k in inspect.getargspec(optimizer['class']).args}
         lr = optimizer.learn_rate or optimizer.learning_rate
+        if 'learning_rate' in optimizer:
+            del defn['learning_rate']
         tr = optimizer['class'](lr, **defn)
 
         self.gan.trainer = self

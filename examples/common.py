@@ -80,7 +80,7 @@ class Custom2DGenerator(BaseGenerator):
 
         ops.describe('custom_generator')
 
-        net = gan.encoder.sample
+        net = gan.latent.sample
         for i in range(2):
             net = ops.linear(net, 16)
             net = ops.lookup('bipolar')(net)
@@ -155,9 +155,9 @@ class Custom2DSampler(BaseSampler):
 
         sess = gan.session
         config = gan.config
-        x_v, z_v = sess.run([gan.inputs.x, gan.encoder.sample])
+        x_v, z_v = sess.run([gan.inputs.x, gan.latent.sample])
 
-        sample = sess.run(generator, {gan.inputs.x: x_v, gan.encoder.sample: z_v})
+        sample = sess.run(generator, {gan.inputs.x: x_v, gan.latent.sample: z_v})
 
         X, Y = np.meshgrid(np.arange(-1.2, 1.2, .1), np.arange(-1.2, 1.2, .1))
         U = np.cos(X)

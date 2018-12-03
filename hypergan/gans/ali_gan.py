@@ -62,7 +62,7 @@ class AliGAN(BaseGAN):
                 uz_shape = z_shape
                 uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
                 latent = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
-            self.uniform_distribution = latent
+            self.latent = latent
  
             direction, slider = self.create_controls(self.ops.shape(latent.sample))
             z = latent.sample + slider * direction
@@ -203,7 +203,7 @@ class AliGAN(BaseGAN):
 
     def fitness_inputs(self):
         return [
-                self.uniform_distribution.sample
+                self.latent.sample
                 ]
 
 
@@ -289,7 +289,7 @@ class AliGAN(BaseGAN):
                 self.x_input,
                 self.slider, 
                 self.direction,
-                self.uniform_distribution.sample
+                self.latent.sample
         ]
 
 

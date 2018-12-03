@@ -29,7 +29,7 @@ class StandardGAN(BaseGAN):
     
     *required to sample*
     
-    * encoder
+    * latent
     * generator
     * sampler
 
@@ -41,7 +41,7 @@ class StandardGAN(BaseGAN):
     """
     def __init__(self, *args, **kwargs):
         self.discriminator = None
-        self.encoder = None
+        self.latent = None
         self.generator = None
         self.loss = None
         self.trainer = None
@@ -59,11 +59,11 @@ class StandardGAN(BaseGAN):
                 self.session = self.ops.new_session(self.ops_config)
 
             #this is in a specific order
-            if self.encoder is None and config.encoder:
-                self.encoder = self.create_component(config.z_distribution or config.encoder)
-                self.uniform_distribution = self.encoder
+            if self.latent is None:
+                self.latent = self.create_component(config.z_distribution or config.latent)
+                self.uniform_distribution = self.latent
             if self.generator is None and config.generator:
-                self.generator = self.create_component(config.generator, input=self.encoder.sample)
+                self.generator = self.create_component(config.generator, input=self.latent.sample)
                 self.autoencoded_x = self.generator.sample
                 self.uniform_sample = self.generator.sample
 
@@ -74,13 +74,13 @@ class StandardGAN(BaseGAN):
             if self.trainer is None and config.trainer:
                 self.trainer = self.create_component(config.trainer)
 
-            self.random_z = tf.random_uniform(self.ops.shape(self.encoder.sample), -1, 1, name='random_z')
+            self.random_z = tf.random_uniform(self.ops.shape(self.latent.sample), -1, 1, name='random_z')
 
             self.session.run(tf.global_variables_initializer())
 
 
     def g_vars(self):
-        return self.encoder.variables() + self.generator.variables()
+        return self.latent.variables() + self.generator.variables()
     def d_vars(self):
         return self.discriminator.variables()
     def fitness_inputs(self):

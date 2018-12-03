@@ -85,6 +85,7 @@ class AliVibGAN(BaseGAN):
                 uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
                 latent = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
             self.uniform_distribution = latent 
+            self.latent = latent
             direction, slider = self.create_controls(self.ops.shape(latent.sample))
             z = latent.sample + slider * direction
 

@@ -76,7 +76,7 @@ class FitnessTrainer(BaseTrainer):
         self.gan.optimizer = tr
 
         optimize_t = tr.apply_gradients(apply_vec, global_step=self.global_step)
-        #d_optimizer = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
+        d_optimize_t = tr.apply_gradients(apply_vec_d, global_step=self.global_step)
 
         self.past_weights = []
 
@@ -94,7 +94,7 @@ class FitnessTrainer(BaseTrainer):
         self.slot_vars_d = [x for x in self.slot_vars if _slot_var(x, d_vars)]
 
         self.optimize_t = optimize_t
-        #self.d_optimizer = d_optimizer
+        self.d_optimize_t = d_optimize_t
         self.min_fitness=None
         
         if config.fitness_type is not None:
@@ -212,17 +212,6 @@ class FitnessTrainer(BaseTrainer):
         old_fitness = None
         while self.config.skip_fitness is not None and not fit:
             steps_since_fit+=1
-            if config.fitness_failure_threshold and steps_since_fit > (config.fitness_failure_threshold or 1000):
-                print("Fitness achieved.", self.hist[0], self.min_fitness)
-                self.min_fitness =  None
-                self.mix_threshold_reached = True
-                steps_since_fit = 0
-                return
-            if self.min_fitness is not None and np.isnan(self.min_fitness):
-                print("NAN min fitness")
-                self.min_fitness=None
-                return
-            
             gl, dl, fitness,mean, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness, self.mean]+gan.fitness_inputs())
             if np.isnan(fitness) or np.isnan(gl) or np.isnan(dl):
                 print("NAN Detected.  Candidate done")
@@ -253,6 +242,11 @@ class FitnessTrainer(BaseTrainer):
                 for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
                     feed_dict[t]=v
 
+                for i in range(self.config.d_update_steps or 0):
+                    self.before_step(self.current_step, feed_dict)
+                    _, *metric_values = sess.run([self.d_optimize_t], feed_dict)
+                    self.after_step(self.current_step, feed_dict)
+
                 self.before_step(self.current_step, feed_dict)
                 _, *metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)
                 self.after_step(self.current_step, feed_dict)
@@ -262,17 +256,7 @@ class FitnessTrainer(BaseTrainer):
                 fitness_decay = config.fitness_decay or 0.99
                 self.min_fitness = self.min_fitness + (1.00-fitness_decay)*(fitness-self.min_fitness)
                 metric_values = sess.run(self.output_variables(metrics), feed_dict)
-        else:
-            #standard
-            self.before_step(self.current_step, feed_dict)
-            gl, dl, *metric_values = sess.run([self.g_loss, self.d_loss, self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]
-            self.after_step(self.current_step, feed_dict)
-            fit=True
-            if(gl == 0 or dl == 0):
-                steps_since_fit=0
-                self.mix_threshold_reached = True
-                print("Zero, lne?")
-                return
+
             steps_since_fit=0
 
         if ((self.current_step % 10) == 0):

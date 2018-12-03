@@ -57,7 +57,7 @@ class DepthOptimizer(optimizer.Optimizer):
     else:
         depth_vars = d_vars + g_vars
     with ops.init_scope():
-        [self._get_or_make_slot(v, v, "depth", self._name) for v in depth_vars]
+        [self._get_or_make_slot(v, v, "depth", self.name) for v in depth_vars]
         self.optimizer._create_slots([v for g,v in grads_and_vars])
         for name in self.optimizer.get_slot_names():
             for var in self.optimizer.variables():
@@ -76,7 +76,7 @@ class DepthOptimizer(optimizer.Optimizer):
 
         op2 = self.optimizer.apply_gradients(grads_and_vars_k, global_step=global_step, name=name)
         with tf.get_default_graph().control_dependencies([op2]):
-            w_k_combined = [self._decay *w_k_1 + (1-self._decay)*w_hat for w_hat, w_k_1 in zip(depth_slots, depth_vars)]
+            w_k_combined = [self._decay *w_k_1 + (1.-self._decay)*w_hat for w_hat, w_k_1 in zip(depth_slots, depth_vars)]
             op3 = tf.group(*[tf.assign(w, v) for w,v in zip(depth_slots, w_k_combined)]) # store variables
             with tf.get_default_graph().control_dependencies([op3]):
                 d_loss, g_loss = self.gan.loss.sample
@@ -100,4 +100,4 @@ class DepthOptimizer(optimizer.Optimizer):
     raise NotImplementedError("_apply_dense not callable.")
 
   def variables(self):
-      return super().variables() + self.optimizer.variables()
+      return self.optimizer.variables()

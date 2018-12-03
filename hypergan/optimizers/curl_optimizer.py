@@ -69,7 +69,7 @@ class CurlOptimizer(optimizer.Optimizer):
         if self.config.include_slots:
             for name in self.optimizer.get_slot_names():
                 for var in self.optimizer.variables():
-                    slots_list.append(self.optimizer._zeros_slot(var, "curl", "curl"))
+                    slots_list.append(self._zeros_slot(var, "curl", "curl"))
     self._prepare()
 
     gswap = [self.get_slot(v, "gswap") for _,v in grads_and_vars]
@@ -80,7 +80,7 @@ class CurlOptimizer(optimizer.Optimizer):
         for name in self.optimizer.get_slot_names():
             for var in self.optimizer.variables():
                 slots_vars += [var]
-                slots_list.append(self.optimizer._zeros_slot(var, "curl", "curl"))
+                slots_list.append(self._zeros_slot(var, "curl", "curl"))
 
 
     restored_vars = var_list + slots_vars
@@ -196,4 +196,4 @@ class CurlOptimizer(optimizer.Optimizer):
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")
   def variables(self):
-      return super().variables() + self.optimizer.variables()
+      return self.optimizer.variables()

@@ -77,6 +77,7 @@ class GANOptimizer(optimizer.Optimizer):
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     d_vars = self.gan.d_vars()
     args = []
-    args += [self.g_optimizer.apply_gradients(grads_and_vars[len(d_vars):], global_step, name)]
+    if len(grads_and_vars) > len(d_vars):
+        args += [self.g_optimizer.apply_gradients(grads_and_vars[len(d_vars):], global_step, name)]
     args += [self.d_optimizer.apply_gradients(grads_and_vars[:len(d_vars)], global_step, name)]
     return tf.group(*args)

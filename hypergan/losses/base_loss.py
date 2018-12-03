@@ -142,7 +142,7 @@ class BaseLoss(GANComponent):
 
         if config.rothk_penalty:
             rothk = self.rothk_penalty(d_real, d_fake)
-            self.metrics['rothk_penalty'] = self.gan.ops.squash(rothk)
+            self.add_metric('rothk_penalty', self.gan.ops.squash(rothk))
             #d_regularizers.append(rothk)
             d_loss += rothk
             print("rothk penalty applied")

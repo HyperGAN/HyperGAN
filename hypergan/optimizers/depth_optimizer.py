@@ -25,7 +25,10 @@ class DepthOptimizer(optimizer.Optimizer):
         options['gan']=self.gan
         options['config']=options
         defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-        return klass(options.learn_rate, **defn)
+        learn_rate = options.learn_rate or options.learning_rate
+        if 'learning_rate' in options:
+            del defn['learning_rate']
+        return klass(learn_rate, **defn)
 
     optimizer = hc.lookup_functions(optimizer)
     self.optimizer = create_optimizer(optimizer['class'], optimizer)

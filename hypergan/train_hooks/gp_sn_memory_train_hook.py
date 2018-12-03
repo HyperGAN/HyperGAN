@@ -34,13 +34,13 @@ class GpSnMemoryTrainHook(BaseTrainHook):
     d = self.gan.create_component(self.gan.config.discriminator, name='discriminator', input=self.current, features=[tf.zeros_like(encoder_sample)], reuse=True)
     self.assign_current = [ self.current.assign(self.s_max[i]) for i in range(memory_size) ]
     gd = tf.gradients(d.sample, [self.current])[0]
-    self.d_loss = tf.reduce_mean(tf.square(tf.norm(gd, ord=2)))
+    self.d_loss = self.d_lambda * tf.reduce_mean(tf.square(tf.norm(gd, ord=2)))
     self.gan.add_metric('gpsn', self.d_loss)
     if self.config.from_source:
         self.d_loss = tf.reduce_mean(tf.reduce_sum(tf.square(gd), axis=[1]))
 
   def losses(self):
-    return [self.d_lambda * self.d_loss, None]
+    return [self.d_loss, None]
 
   def after_step(self, step, feed_dict):
     pass

@@ -114,27 +114,32 @@ class JROptimizer(optimizer.Optimizer):
                                     det = tf.square(_gboth)-(_gg*_gd)+1e-8
                                     h_1 = 1.0/det * (2*_gboth - _gd - _gg)
                                     if self.config.hessian:
-                                        a = (_gd - _g) / self._lr_t
-                                        c = (_gg - _g) / self._lr_t
-                                        b = (_gboth - _g) / self._lr_t
-                                        d = b
+                                        #v = (g(x + hjej)-g(x)))/(2hj) + \
+                                        #    (g(x + hiei)-g(x))/(2hi)
+                                        a = (_gboth - _g) / self._lr_t # d2f/dx2i
+                                        c = (_gboth - _g) / self._lr_t # d2f/dx2j
+                                        b = (_gg - _g) / (2*self._lr_t)+(_gd-_g)/(2*self._lr_t) # d2f/dx1dx2
+                                        d = b # d2f/dx2dx1
                                         det = a*d-b*c+1e-8
                                         #h_1 = 1.0/det * (b+d-a-c)
                                         h_1_a = d/det
                                         h_1_b = -b/det
                                         h_1_c = -c/det
                                         h_1_d = a/det
+
                                         h_1 = h_1_a*h_1_d-h_1_b*h_1_c
-                                    new_grads.append( h_1*_g )
+                                    new_grads.append( _g*h_1 )
 
                                 for _gboth, _gd, _gg, _g in zip(gboth[len(d_vars):],new_d_grads[len(d_vars):],new_g_grads[len(d_vars):],g_grads):
                                     det = tf.square(_gboth)-(_gg*_gd)+1e-8
                                     h_1 = 1.0/det * (2*_gboth - _gd - _gg)
                                     if self.config.hessian:
-                                        a = (_gd - _g) / self._lr_t
-                                        c = (_gg - _g) / self._lr_t
-                                        b = (_gboth - _g) / self._lr_t
-                                        d = b
+                                        #v = (g(x + hjej)-g(x)))/(2hj) + \
+                                        #    (g(x + hiei)-g(x))/(2hi)
+                                        a = (_gboth - _g) / self._lr_t # d2f/dx2i
+                                        c = (_gboth - _g) / self._lr_t # d2f/dx2j
+                                        b = (_gg - _g) / (2*self._lr_t)+(_gd-_g)/(2*self._lr_t) # d2f/dx1dx2
+                                        d = b # d2f/dx2dx1
                                         det = a*d-b*c+1e-8
                                         #h_1 = 1.0/det * (b+d-a-c)
                                         h_1_a = d/det
@@ -142,7 +147,7 @@ class JROptimizer(optimizer.Optimizer):
                                         h_1_c = -c/det
                                         h_1_d = a/det
                                         h_1 = h_1_a*h_1_d-h_1_b*h_1_c
-                                    new_grads.append( h_1*_g )
+                                    new_grads.append( _g*h_1 )
 
                                 new_grads_and_vars = list(zip(new_grads, all_vars)).copy()
                                 return self.optimizer.apply_gradients(new_grads_and_vars, global_step=global_step, name=name)

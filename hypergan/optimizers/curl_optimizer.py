@@ -109,50 +109,38 @@ class CurlOptimizer(optimizer.Optimizer):
 
     with tf.get_default_graph().control_dependencies([op1, op2]):
         # store g2
-        #op3 = self.optimizer.apply_gradients(list(grads_and_vars).copy(), global_step=global_step, name=name)
         op3 = tf.group(*[tf.assign_sub(v, self._lr_t*grad) for grad,v in grads_and_vars])
         with tf.get_default_graph().control_dependencies([op3]):
 
             def curlcombine(g1,g2,_v1,_v2,curl,rho):
                 #stepsize = (_v2-_v1)/(g1+1e-8)
                 stepsize = self._lr_t
-                J = (g2-g1)/self._lr_t
-                if curl == 'reverse':
-                    return self._gamma*g1-rho*(g1-g2)/stepsize
-                elif curl == "certain":
-                    p1 = tf.nn.relu(tf.sign(g1))
-                    p2 = tf.nn.relu(tf.sign(g2))
-                    isone = p1 * p2
-                    iszero = (1-p1)*(1-p2)
-                    move = iszero * (g2-g1)
-                    move += isone * (g2-g1)
-                    #move = tf.sign(g2-g1) * tf.square(g2 - g1)
-                    m=move/stepsize
-                    v = self._gamma*g1-rho*m
-                    return tf.nn.softmax(v)*g1
-                elif curl == "softmax":
-                    return self._gamma*g1-tf.nn.softmax(J)*rho
-                elif curl == "softmax-abs":
-                    return self._gamma*g1-(1.0-tf.nn.softmax(J))*rho
-                elif curl == "mirror":
+                if curl == "mirror":
                     return self._gamma*(g1 + 2*g2)
-                elif curl == "simple":
-                    return self._gamma*(2*g2 - g1)
-                elif curl == "regular":
-                    return self._gamma*g1-rho*(g2-g1)/stepsize
-                elif curl == "bound":
-                    bound = (g2-g1)/stepsize
-                    bound = tf.maximum(0.0, bound)
-                    bound = tf.minimum(1.0, bound)
-                    return self._gamma*g1-rho*bound
-                elif curl == "mult":
-                    return self._gamma*g1 * (rho * tf.nn.softmax(J))
-                elif curl == "revmult":
-                    return self._gamma*g1 * (rho * (1.-tf.nn.softmax(J)))
                 else:
-                    return self._gamma*g1-self._rho*tf.abs((g2-g1)/((_v2-_v1)+1e-8))
+                    return self._gamma*g1-rho*(g2-g1)/stepsize
             g2s = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
-            g3s = [curlcombine(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombine(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(gswap,g2s,v1,var_list)]
+            if self.config.form == 'central':
+                def central_step():
+                    # restore v1, slots
+                    op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
+                    with tf.get_default_graph().control_dependencies([op5]):
+                        back =  tf.group(*[tf.assign_sub(v, -self._lr_t*grad) for grad,v in grads_and_vars])
+                        with tf.get_default_graph().control_dependencies([back]):
+                            return tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
+                def curlcombinecentral(g1,g2,_v1,_v2,curl,rho):
+                    #stepsize = (_v2-_v1)/(g1+1e-8)
+                    stepsize = self._lr_t
+                    if curl == "mirror":
+                        return self._gamma*(g1 + 2*g2)
+                    else:
+                        return self._gamma*g1-rho*(g2-g1)/(2*stepsize)
+
+                g1s  = central_step()
+                g3s = [curlcombinecentral(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombinecentral(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
+            else:
+                #forward
+                g3s = [curlcombine(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombine(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(gswap,g2s,v1,var_list)]
             # restore v1, slots
             op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
             with tf.get_default_graph().control_dependencies([op5]):
@@ -181,18 +169,9 @@ class CurlOptimizer(optimizer.Optimizer):
                 step3 = list(zip(flin, var_list))
                 op6 = self.optimizer.apply_gradients(step3.copy(), global_step=global_step, name=name)
 
-
                 with tf.get_default_graph().control_dependencies([op6]):
                     return tf.no_op()
 
-                # Flin = gamma * IF - rho * JF + beta * JtF
-                #op7 = tf.group(*[tf.assign_add(gsw, (jg * self._beta)) if jg is not None else tf.no_op() for gsw, jg in zip(gswap, Jgrads)])
-                #with tf.get_default_graph().control_dependencies([op7]):
-                #    flin_grads_and_vars = zip(gswap, var_list)
-                #    # step 1
-                #    op8 = self.optimizer.apply_gradients(list(flin_grads_and_vars).copy(), global_step=global_step, name=name)
-                #    with tf.get_default_graph().control_dependencies([op8]):
-                #        return tf.no_op()
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")
   def variables(self):

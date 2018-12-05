@@ -15,7 +15,7 @@ import inspect
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
-class GpSnMemoryTrainHook(BaseTrainHook):
+class GradientPenaltyTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="GpSnMemoryTrainHook", memory_size=2, top_k=1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     gan_inputs = self.gan.inputs.x
@@ -30,15 +30,10 @@ class GpSnMemoryTrainHook(BaseTrainHook):
     self.memory_size = memory_size
     self.top_k = top_k
 
-    self.current = tf.Variable(tf.zeros_like(gan_inputs))
-    d = self.gan.create_component(self.gan.config.discriminator, name='discriminator', input=self.current, features=[tf.zeros_like(encoder_sample)], reuse=True)
-    self.assign_current = [ self.current.assign(self.s_max[i]) for i in range(memory_size) ]
-    gd = tf.gradients(d.sample, gan.d_vars())
+    gd = tf.gradients(gan.discriminator.sample, gan.d_vars())
     r = tf.add_n([tf.square(tf.norm(_gd, ord=2)) for _gd in gd])
     self.d_loss = self.d_lambda * tf.reduce_mean(r)
-    self.gan.add_metric('gpsn', self.d_loss)
-    if self.config.from_source:
-        self.d_loss = tf.reduce_mean(tf.reduce_sum(tf.square(gd), axis=[1]))
+    self.gan.add_metric('gp', self.d_loss)
 
   def losses(self):
     return [self.d_loss, None]
@@ -47,24 +42,4 @@ class GpSnMemoryTrainHook(BaseTrainHook):
     pass
 
   def before_step(self, step, feed_dict):
-    # get (memory_size - topk) x_hats
-    for i,s in enumerate(self.assign_s_max_new_entries[self.top_k:]):
-        self.gan.session.run(s)
-    # sort memory
-    scores = []
-    for i in range(self.memory_size):
-        self.gan.session.run(self.assign_current[i])
-        s = self.gan.session.run(self.d_loss)
-        scores.append(s)
-    sort = zip(scores, self.s_max, self.assign_s_max_new_entries)
-    sort2 = sorted(sort, key=itemgetter(0), reverse=True)
-    new_s_max = [s_max for _, s_max,_ in sort2]
-    new_assign = [a for _, _,a in sort2]
-    self.s_max = new_s_max
-    self.assign_s_max_new_entries = new_assign
-    # get max
-    winner = scores[np.argmax(scores)]
-
-    # truncate memory to top_k
-    feed_dict[self.d_loss] = winner
-
+    pass

@@ -147,11 +147,15 @@ class AliVibGAN(BaseGAN):
                 d_losses = [beta * (l1.d_loss - l2.d_loss - l3.d_loss) + l2.d_loss + 2*l3.d_loss]
                 g_losses = [beta * (l1.g_loss - l2.g_loss - l3.g_loss) + l2.g_loss + 2*l3.g_loss]
 
+            if config.mutual_only:
+                d_losses = [2*l1.d_loss - l2.d_loss - l3.d_loss)]
+                g_losses = [2*l1.g_loss - l2.g_loss - l3.g_loss)]
+
 
             self.add_metric("ld", d_losses[0])
             self.add_metric("lg", g_losses[0])
 
-            if config.alternate:
+            if config.mutual_only or config.alternate:
                 for d in [d1]:
                     d_vars += d.variables()
             else:

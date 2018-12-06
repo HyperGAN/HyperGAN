@@ -15,16 +15,16 @@ class ConfigurableComponent:
         self.layers = []
         self.skip_connections = skip_connections
         self.layer_ops = {
-            "relational": self.layer_relational,
-            "minibatch": self.layer_minibatch,
-            "phase_shift": self.layer_phase_shift,
-            "conv": self.layer_conv,
-            "zeros": self.layer_zeros,
-            "control": self.layer_controls,
-            "linear": self.layer_linear,
-            "identity": self.layer_identity,
-            "double_resolution": self.layer_double_resolution,
-            "attention": self.layer_attention,
+                "relational": self.layer_relational,
+                "minibatch": self.layer_minibatch,
+                "phase_shift": self.layer_phase_shift,
+                "conv": self.layer_conv,
+                "zeros": self.layer_zeros,
+                "control": self.layer_controls,
+                "linear": self.layer_linear,
+                "identity": self.layer_identity,
+                "double_resolution": self.layer_double_resolution,
+                "attention": self.layer_attention,
             "subpixel": self.layer_subpixel,
             "pixel_norm": self.layer_pixel_norm,
             "gram_matrix": self.layer_gram_matrix,
@@ -94,20 +94,17 @@ class ConfigurableComponent:
         if isinstance(layer, list):
             ns = []
             axis = -1
-            print("NET IS ", net)
             for l in layer:
                 if isinstance(l, int):
                     axis = l
                     continue
                 n = self.parse_layer(net, l)
                 ns += [n]
-            print("NS IS ", ns)
             net = tf.concat(ns, axis=axis)
 
             return net
 
         else:
-            print("LAYER   SSS ", layer)
             d = layer.split(' ')
             op = d[0]
             args, options = self.parse_args(d[1:])
@@ -115,7 +112,6 @@ class ConfigurableComponent:
             net = self.build_layer(net, op, args, options)
             if 'name' in options:
                 self.named_layers[options['name']] = net
-                print("-> SET", options['name'], "TO", net)
             return net
             
 
@@ -123,7 +119,7 @@ class ConfigurableComponent:
         if self.layer_ops[op]:
             net = self.layer_ops[op](net, args, options)
         else:
-            print("ConfigurableGenerator Op not defined", op)
+            print("ConfigurableComponent: Op not defined", op)
 
         return net
     def layer_filter(self, net, args=[], options={}):
@@ -134,7 +130,6 @@ class ConfigurableComponent:
         ops = self.ops
         gan = self.gan
         config = self.config
-        print("[base generator] applying layer filter", config['layer_filter'])
         fltr = config.layer_filter(gan, self.config, net)
         if fltr is not None:
             net = ops.concat(axis=3, values=[net, fltr])
@@ -201,10 +196,8 @@ class ConfigurableComponent:
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
 
-        print("Looking for skip connection", self.skip_connections)
         for sk in self.skip_connections:
             if len(ops.shape(sk)) == len(ops.shape(net)) and ops.shape(sk)[1] == ops.shape(net)[1]:
-                print("Adding skip connection")
 
                 net = tf.concat([net, sk], axis=3)
 
@@ -218,7 +211,6 @@ class ConfigurableComponent:
             f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
             f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
             net = self.adaptive_instance_norm(net, f1,f2)
-            print("NETTT", net, f1, f2)
 
 
         stride = options.stride or config.defaults.stride or [2,2]
@@ -256,7 +248,6 @@ class ConfigurableComponent:
 
 
     def layer_linear(self, net, args, options):
-        print('--net', net)
 
         options = hc.Config(options)
         ops = self.ops
@@ -309,12 +300,9 @@ class ConfigurableComponent:
         ksize = [1,stride,stride,1]
         size = [int(x) for x in options.slice.replace("batch_size",str(self.gan.batch_size())).split("*")]
 
-        print("PRESLICE", net)
         if options.slice:
             net = tf.slice(net, [0,0,0,0], size)
-        print("/lPRESLICE", net)
         net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
-        print("POST ", net)
 
         return net 
 
@@ -349,16 +337,12 @@ class ConfigurableComponent:
                 r = tf.sigmoid(_conv(net,'r',scale=2))
                 th = _conv(net,'net',scale=2)
                 fh = _conv(feature,'feature',scale=2)
-                print("varsgru2", r,z, feature, th, fh)
                 h = tanh(th + fh  * r)
-                print("varsgru2.5", h, r,z, feature)
                 net = tf.multiply( (1-z), h) + tf.multiply(feature, z)
-                print("varsgru3", net)
 
             if 'only' in options:
                 return net
             if feature is not None:
-                print("Combining features", [net, feature])
                 net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)
             return net
 
@@ -721,7 +705,6 @@ class ConfigurableComponent:
         net1, net2 = _slice(net)
         net1a, net1b = _slice(net1)
         net2a, net2b = _slice(net2)
-        print("____________", options)
         if options.mixup:
             alpha = tf.random_uniform([1], 0, 1)
             t1 = alpha * net1a + (1-alpha) * net1b
@@ -795,15 +778,12 @@ class ConfigurableComponent:
                     Xs=tf.split(X,r,3) #b*h*w*r*r
                     Xr=tf.concat(Xs,2) #b*h*(r*w)*r
                     X=tf.reshape(Xr,(bsize,r*a,r*b,n_out_channel)) # b*(r*h)*(r*w)*c
-                else:
-                    print("outchannel < 0")
                 return X
         args[0]=depth*(r**2)
         if (activation == 'crelu' or activation == 'double_sided'):
             args[0] //= 2 
         y1 = self.layer_conv(net, args, options)
         ps = _PS(y1, r, depth)
-        print("NETs", ps, y1, net)
         return ps
 
     def layer_slice(self, net, args, options):
@@ -856,9 +836,7 @@ class ConfigurableComponent:
         bs = shape[0]
         net = tf.reshape(net, shape=[bs, -1, num_channels])
 
-        print("NET NET", net)
         net = tf.matmul(tf.transpose(net, perm=[0,2,1]), net)
-        print("NET NET2", net)
         net = tf.reshape(net, shape=[bs, shape[1], shape[1], -1])
 
         return net

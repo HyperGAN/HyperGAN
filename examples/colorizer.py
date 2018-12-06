@@ -22,8 +22,9 @@ class Sampler(BaseSampler):
     def sample(self, path, save_samples):
         gan = self.gan
         generator = gan.uniform_sample
-        z_t = gan.uniform_encoder.sample
+        z_t = gan.latent.sample
         x_t = gan.inputs.x
+        n_samples = 25
         
         sess = gan.session
         config = gan.config
@@ -33,19 +34,24 @@ class Sampler(BaseSampler):
         x_v = sess.run(x_t)
         x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
         if layer_filter == None:
-            layer_filter = gan.generator.layer_filter(x_t)
+            layer_filter = gan.generator.config.layer_filter(gan, gan.generator.config, x_t)
+            if(gan.ops.shape(layer_filter)[-1] == 1):
+                layer_filter = tf.tile(layer_filter,[1,1,1,3])
+
         
         layer_filter_v = sess.run(layer_filter, {x_t: x_v})
 
-        sample = sess.run(generator, {x_t: x_v})
+        samples = [sess.run(generator, {x_t: x_v})[0] for n in range(n_samples)]
         stacks = []
-        bs = gan.batch_size()
         width = 5
-        print(np.shape(x_v[1]), np.shape(sample[2]), np.shape(layer_filter_v[1]))
-        stacks.append([x_v[1], layer_filter_v[1], sample[2], sample[3], sample[4]])
+        #stacks.append([x_v[0], layer_filter_v[0]] + samples[-4:0])
  
-        for i in range(bs//width-1):
-            stacks.append([sample[i*width+width+j] for j in range(width)])
+        for i in range(n_samples//width-1):
+            stacks.append([samples[i*width+width+j] for j in range(width)])
+
+        stacks[0][0]=x_v[0]
+        print(np.shape(layer_filter),"----")
+        stacks[0][1]=layer_filter_v[0]
         images = np.vstack([np.hstack(s) for s in stacks])
 
         self.plot(images, path, save_samples)
@@ -140,7 +146,9 @@ inputs.create(args.directory,
         height=height,
         resize=True)
 
-save_file = "save/model.ckpt"
+config_name = args.config
+save_file = "saves/"+config_name+"/model.ckpt"
+os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
 def setup_gan(config, inputs, args):
     gan = hg.GAN(config, inputs=inputs)
@@ -158,6 +166,7 @@ def setup_gan(config, inputs, args):
 
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
+    gan.name = config_name
     sampler = lookup_sampler(args.sampler or Sampler)(gan)
     samples = 0
 
@@ -171,7 +180,8 @@ def train(config, inputs, args):
             gan.save(save_file)
 
         if i % args.sample_every == 0:
-            sample_file="samples/%06d.png" % (samples)
+            sample_file="samples/"+config_name+"/%06d.png" % (samples)
+            os.makedirs(os.path.expanduser(os.path.dirname(sample_file)), exist_ok=True)
             samples += 1
             sampler.sample(sample_file, args.save_samples)
 

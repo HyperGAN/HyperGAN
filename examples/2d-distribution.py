@@ -36,6 +36,7 @@ def train(config, args):
         config.generator["class"]="class:__main__.Custom2DGenerator" # TODO
         config.discriminator["class"]="class:__main__.Custom2DDiscriminator" # TODO
         gan = hg.GAN(config, inputs = Custom2DInputDistribution(args))
+        gan.name = config_name
 
         accuracy_x_to_g=distribution_accuracy(gan.inputs.x, gan.generator.sample)
         accuracy_g_to_x=distribution_accuracy(gan.generator.sample, gan.inputs.x)

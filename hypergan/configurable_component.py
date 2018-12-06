@@ -346,7 +346,7 @@ class ConfigurableComponent:
                 net = tf.concat([net, feature], axis=len(self.ops.shape(net))-1)
             return net
 
-        if 'name' in options:
+        if 'name' in options and type(self.features) == type({}):
             return _combine_feature(net, self.features[options['name']], op)
 
         for feature in self.features:

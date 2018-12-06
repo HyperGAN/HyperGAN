@@ -19,8 +19,8 @@ class GangTrainer(BaseTrainer):
         config = self.config
         gan = self.gan
         loss = self.gan.loss
-        d_vars = self.d_vars or gan.discriminator.variables()
-        g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
+        d_vars = gan.d_vars()
+        g_vars = gan.g_vars()
         self.reinit = tf.variables_initializer(d_vars+g_vars)
         self.priority_ds = []
         self.priority_gs = []

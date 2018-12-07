@@ -14,17 +14,17 @@ class RandomWalkSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.uniform_distribution.sample
+        z_t = gan.latent.sample
         inputs_t = gan.inputs.x
 
         if self.z is None:
-            self.z = gan.uniform_distribution.sample.eval()
-            self.target = gan.uniform_distribution.sample.eval()
+            self.z = gan.latent.sample.eval()
+            self.target = gan.latent.sample.eval()
             self.input = gan.session.run(gan.inputs.x)
 
         if self.step > self.steps:
             self.z = self.target
-            self.target = gan.uniform_distribution.sample.eval()
+            self.target = gan.latent.sample.eval()
             self.step = 0
 
         percent = float(self.step)/self.steps

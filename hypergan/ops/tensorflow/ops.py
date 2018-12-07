@@ -377,9 +377,8 @@ class TensorflowOps:
             return _x
         return _null
 
-    def groupsort(self):
+    def groupsort(self, n=2):
         def _activation(v):
-            n = 2
             fv = tf.reshape(v,[-1])
             length = self.shape(fv)[0]
             if(length < n or length % n != 0):
@@ -590,7 +589,7 @@ class TensorflowOps:
             return self.lookup_class(symbol)
 
         if symbol == 'groupsort':
-            return self.groupsort()
+            return self.groupsort(self.config.defaults.groupsort_n or 2)
         if symbol == 'tanh':
             return tf.nn.tanh
         if symbol == 'sigmoid':

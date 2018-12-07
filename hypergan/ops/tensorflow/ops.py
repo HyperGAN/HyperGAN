@@ -377,6 +377,28 @@ class TensorflowOps:
             return _x
         return _null
 
+    def groupsort(self):
+        def _activation(v):
+            n = 2
+            fv = tf.reshape(v,[-1])
+            length = self.shape(fv)[0]
+            if(length < n or length % n != 0):
+                print("not sorting", length)
+                return v
+            fv = tf.reshape(v,[-1, n])
+            if n == 2:
+                b,c = tf.split(fv, 2, 1)
+                newv = tf.concat([tf.minimum(b, c), tf.maximum(b,c)], axis=1)
+                newv = tf.reshape(newv,self.shape(v))
+                return newv
+
+            newv = tf.contrib.framework.sort(fv)
+            newv = tf.reshape(newv,self.shape(v))
+            return newv
+
+        return _activation
+
+
     def double_sided(self):
         def _activation(_x):
             activation = self.lookup(self.config.double_sided_activation or 'relu')
@@ -567,6 +589,8 @@ class TensorflowOps:
         if symbol.startswith('class:'):
             return self.lookup_class(symbol)
 
+        if symbol == 'groupsort':
+            return self.groupsort()
         if symbol == 'tanh':
             return tf.nn.tanh
         if symbol == 'sigmoid':

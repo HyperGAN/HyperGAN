@@ -17,6 +17,10 @@ class DepthTrainer(BaseTrainer):
         self.ema = [ tf.Variable(_v) for _v in self.gan.variables() ]
         self.store_v = [ _v.assign(_v2) for _v,_v2 in zip(self.ema, self.gan.variables()) ]
         self.combine = [ _v.assign(config.decay *_ema + (1.-config.decay)*_new) for _v, _ema, _new in zip(self.gan.variables(), self.ema, self.gan.variables())]
+        self._delegate = self.gan.create_component(config.trainer, d_vars=self.d_vars, g_vars=self.g_vars, loss=self.loss)
+        self._delegate.create()
+        self.slot_vars_g = self._delegate.slot_vars_g
+        self.slot_vars_d = self._delegate.slot_vars_g
 
     def required(self):
         return "".split()
@@ -27,8 +31,7 @@ class DepthTrainer(BaseTrainer):
         config = self.config
         loss = self.loss 
 
-        self._delegate = self.gan.create_component(config.trainer, d_vars=d_vars, g_vars=g_vars, loss=loss)
         gan.session.run(self.store_v)
-        for i in enumerate(config.depth or 2):
-            self._delegate._step(feed_dict)
+        for i in range(config.depth or 2):
+            self._delegate.step(feed_dict)
         gan.session.run(self.combine)

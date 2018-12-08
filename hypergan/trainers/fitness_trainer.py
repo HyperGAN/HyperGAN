@@ -97,6 +97,7 @@ class FitnessTrainer(BaseTrainer):
         self.d_optimize_t = d_optimize_t
         self.min_fitness=None
         
+        print("CONFIG ", config)
         if config.fitness_type is not None:
             mean = tf.zeros([1])
             used_grads = d_grads
@@ -210,9 +211,9 @@ class FitnessTrainer(BaseTrainer):
         fit = False
         steps_since_fit = 0
         old_fitness = None
-        while self.config.skip_fitness is not None and not fit:
+        while not fit:
             steps_since_fit+=1
-            gl, dl, fitness,mean, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness, self.mean]+gan.fitness_inputs())
+            gl, dl, fitness, *zs = sess.run([self.g_loss, self.d_loss, self.g_fitness]+gan.fitness_inputs())
             if np.isnan(fitness) or np.isnan(gl) or np.isnan(dl):
                 print("NAN Detected.  Candidate done")
                 self.min_fitness = None
@@ -239,7 +240,7 @@ class FitnessTrainer(BaseTrainer):
                         self.mix_threshold_reached = True
                         return
 
-                for v, t in ([[gl, self.g_loss],[dl, self.d_loss],[fitness, self.g_fitness]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
+                for v, t in ([[gl, self.g_loss],[dl, self.d_loss]] + [ [v, t] for v, t in zip(zs, gan.fitness_inputs())]):
                     feed_dict[t]=v
 
                 for i in range(self.config.d_update_steps or 0):

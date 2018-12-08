@@ -66,7 +66,7 @@ class DepthTrainer(BaseTrainer):
             d1 = d_fake1a + d_fake1b
             d2 = d_fake2a + d_fake2b
             g1 = d_fake1a + d_fake2a
-            g2 = d_fake2b + d_fake2b
+            g2 = d_fake1b + d_fake2b
             mixd = d2/(d1 + d2)
             mixg = g1/(g1 + g2)
             if self.config.reverse:

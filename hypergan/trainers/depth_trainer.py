@@ -77,8 +77,6 @@ class DepthTrainer(BaseTrainer):
             mixg = np.minimum(1.0, mixg)
             mixg = np.maximum(0.0, mixg)
             gan.session.run([self.combine_d, self.combine_g], {self.mixd: mixd, self.mixg: mixg})
-            feed_dict[self.mixd]=mixd
-            feed_dict[self.mixg]=mixg
         else:
             gan.session.run(self.combine)
 

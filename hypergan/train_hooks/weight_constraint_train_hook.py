@@ -45,6 +45,9 @@ class WeightConstraintTrainHook(BaseTrainHook):
       newv = w
 
       newv = tf.reshape(newv,self.ops.shape(v))
+      return newv
+    else:
+      return None
 
 
   #def _update_ortho(self,v,i):

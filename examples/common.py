@@ -1,9 +1,12 @@
 import matplotlib.pyplot as plt
+import matplotlib.style
+import matplotlib as mpl
 import argparse
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 import numpy as np
+import random
 
 from hypergan.cli import CLI
 from hypergan.gan_component import GANComponent
@@ -46,6 +49,7 @@ class ArgumentParser:
         parser.add_argument('--crop', type=bool, default=False, help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
+        parser.add_argument('--zoom', '-z', type=int, default=1, help='Zoom level')
         parser.add_argument('--sampler', type=str, default=None, help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         return parser
 
@@ -76,11 +80,12 @@ class Custom2DGenerator(BaseGenerator):
 
         ops.describe('custom_generator')
 
-        net = gan.encoder.sample
-        net = ops.linear(net, 128)
-        net = ops.lookup('relu')(net)
+        net = gan.latent.sample
+        for i in range(2):
+            net = ops.linear(net, 16)
+            net = ops.lookup('bipolar')(net)
         net = ops.linear(net, end_features)
-        net = ops.lookup('tanh')(net)
+        print("-- net is ", net)
         self.sample = net
         return net
 
@@ -89,7 +94,6 @@ class CustomDiscriminator(BaseGenerator):
         gan = self.gan
         config = self.config
         ops = self.ops
-        ops.describe('custom_discriminator')
 
         end_features = 1
 
@@ -108,11 +112,18 @@ class CustomDiscriminator(BaseGenerator):
         return net
 
 class Custom2DDiscriminator(BaseGenerator):
+    def __init__(self, gan, config, g=None, x=None, name=None, input=None, reuse=None, features=[], skip_connections=[]):
+        self.x = x
+        self.g = g
+
+        GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
     def create(self):
         gan = self.gan
-        x = gan.inputs.x
-        g = gan.generator.sample
-        net = tf.concat(axis=0, values=[x,g])
+        if self.x is None:
+            self.x = gan.inputs.x
+        if self.g is None:
+            self.g = gan.generator.sample
+        net = tf.concat(axis=0, values=[self.x,self.g])
         net = self.build(net)
         self.sample = net
         return net
@@ -121,13 +132,14 @@ class Custom2DDiscriminator(BaseGenerator):
         gan = self.gan
         config = self.config
         ops = self.ops
-        ops.describe('custom_discriminator')
+        layers=2
 
         end_features = 1
 
-        net = ops.linear(net, 128)
-        net = tf.nn.relu(net)
-        net = ops.linear(net, 2)
+        for i in range(layers):
+            net = ops.linear(net, 16)
+            net = ops.lookup('bipolar')(net)
+        net = ops.linear(net, 1)
         self.sample = net
 
         return net
@@ -143,17 +155,27 @@ class Custom2DSampler(BaseSampler):
 
         sess = gan.session
         config = gan.config
-        x_v, z_v = sess.run([gan.inputs.x, gan.encoder.z])
+        x_v, z_v = sess.run([gan.inputs.x, gan.latent.sample])
 
-        sample = sess.run(generator, {gan.inputs.x: x_v, gan.encoder.z: z_v})
+        sample = sess.run(generator, {gan.inputs.x: x_v, gan.latent.sample: z_v})
 
+        X, Y = np.meshgrid(np.arange(-1.2, 1.2, .1), np.arange(-1.2, 1.2, .1))
+        U = np.cos(X)
+        V = np.sin(Y)
+
+        mpl.style.use('classic')
         plt.clf()
-        fig = plt.figure(figsize=(3,3))
+
+        #fig = plt.figure(figsize=(3,3))
+        fig = plt.figure()
         plt.scatter(*zip(*x_v), c='b')
         plt.scatter(*zip(*sample), c='r')
-        plt.xlim([-2, 2])
-        plt.ylim([-2, 2])
-        plt.ylabel("z")
+        q = plt.quiver(X,Y,U,V, color='k', units='width')
+        qk = plt.quiverkey(q, 0.9, 0.9, 2, r'$2 \frac{m}{s}$', labelpos='E', coordinates='figure')
+
+        #plt.xlim([-2, 2])
+        #plt.ylim([-2, 2])
+        #plt.ylabel("z")
         fig.canvas.draw()
         data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
         data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
@@ -172,7 +194,8 @@ class Custom2DInputDistribution:
                 return x/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
 
             def modes(x):
-                return tf.round(x*2)/2.0
+                shape = x.get_shape()
+                return tf.round(x*2)/2.0#+tf.random_normal(shape, 0, 0.04)
 
             if args.distribution == 'circle':
                 x = tf.random_normal([args.batch_size, 2])
@@ -196,6 +219,9 @@ class Custom2DInputDistribution:
                 xsin = tf.sin(x1*np.pi + offset1)*xb
                 x = tf.transpose(tf.concat([xcos,xsin], 0))/16.0
 
+            elif args.distribution == 'static-point':
+                x = tf.ones([args.batch_size, 2])
+
             self.x = x
             self.xy = tf.zeros_like(self.x)
 
@@ -212,8 +238,11 @@ def batch_diversity(net):
     net -= avg
     return tf.reduce_sum(tf.abs(net))
 
-def batch_accuracy(a, b):
-    "Each point of a is measured against the closest point on b.  Distance differences are added together."
+def distribution_accuracy(a, b):
+    """
+    Each point of a is measured against the closest point on b.  Distance differences are added together.  
+    
+    This works best on a large batch of small inputs."""
     tiled_a = a
     tiled_a = tf.reshape(tiled_a, [int(tiled_a.get_shape()[0]), 1, int(tiled_a.get_shape()[1])])
 
@@ -228,8 +257,8 @@ def batch_accuracy(a, b):
     difference = tf.reduce_sum(difference, axis=1)
     return tf.reduce_sum(difference, axis=0) 
 
-def accuracy(a, b):
-    "Each point of a is measured against the closest point on b.  Distance differences are added together."
+def batch_accuracy(a, b):
+    "Difference from a to b.  Meant for reconstruction measurements."
     difference = tf.abs(a-b)
     difference = tf.reduce_min(difference, axis=1)
     difference = tf.reduce_sum(difference, axis=1)
@@ -276,6 +305,8 @@ class TextInput:
         self.x = x
         self.table = table
 
+    def inputs(self):
+        return [self.x]
     def get_vocabulary(self):
         vocab = list("~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.")
         return vocab
@@ -341,7 +372,7 @@ class TextInput:
 
 
 def lookup_sampler(name):
-    return CLI.sampler_for(name)
+    return CLI.sampler_for(name, name)
 
 def parse_size(size):
     width = int(size.split("x")[0])
@@ -350,7 +381,7 @@ def parse_size(size):
     return [width, height, channels]
 
 def lookup_config(args):
-    if args.action == 'train' or args.action == 'sample':
+    if args.action == 'train' or args.action == 'sample' or args.action == 'metrics':
         return hg.configuration.Configuration.load(args.config+".json")
     
 def random_config_from_list(config_list_file):

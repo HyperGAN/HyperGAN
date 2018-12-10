@@ -66,7 +66,7 @@ def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     static_x, static_z = gan.session.run([gan.inputs.x, gan.encoder.sample])
 
-    accuracy_x_to_g=accuracy(static_x, gan.generator.sample)
+    accuracy_x_to_g=batch_accuracy(static_x, gan.generator.sample)
     diversity_g = batch_diversity(gan.generator.sample)
 
     metrics = [accuracy_x_to_g, diversity_g]

@@ -1,0 +1,166 @@
+{
+  "discriminator": 
+  {
+    "activation": "crelu",
+    "distance": "l2_distance",
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "block": "function:hypergan.discriminators.common.standard_block",
+    "encoder_fc_layers": 0,
+    "extra_layers": 2,
+    "extra_layers_reduction": 1,
+    "fc_layer_size": 300,
+    "final_activation": "tanh",
+    "layer_regularizer": "layer_norm",
+    "fc_layers": 1,
+    "initial_depth": 32,
+    "depth_increase": 32,
+    "layers": 5,
+    "orthogonal_initializer_gain": 1.0595959595959596,
+    "skip_layer_filters": [0],
+    "resize": null
+  },
+  "z_discriminator": 
+  {
+    "activation": "crelu",
+    "distance": "l2_distance",
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "block": "function:hypergan.discriminators.common.standard_block",
+    "encoder_fc_layers": 0,
+    "extra_layers": 3,
+    "extra_layers_reduction": 1,
+    "fc_layer_size": 300,
+    "final_activation": "tanh",
+    "layer_regularizer": "layer_norm",
+    "fc_layers": 1,
+    "initial_depth": 32,
+    "depth_increase": 32,
+    "layers": 0,
+    "orthogonal_initializer_gain": 1.0595959595959596,
+    "resize": null
+  },
+  "g_encoder": 
+  {
+    "activation": "crelu",
+    "distance": "l2_distance",
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "block": "function:hypergan.discriminators.common.standard_block",
+    "encoder_fc_layers": 0,
+    "extra_layers": 2,
+    "extra_layers_reduction": 1,
+    "fc_layer_size": 300,
+    "final_activation": "tanh",
+    "layer_regularizer": "layer_norm",
+    "fc_layers": 0,
+    "initial_depth": 32,
+    "depth_increase": 32,
+    "layers": 2,
+    "orthogonal_initializer_gain": 1.0595959595959596,
+    "resize": null
+  },
+
+
+
+  "generator": {
+    "extra_layers": 2,
+    "skip_linear": true,
+    "concat_linear": 100,
+    "concat_linear_filters": 32,
+      "class": "function:hypergan.generators.multisegment_generator.MultisegmentGenerator",
+    "activation": "prelu",
+    "layer_regularizer": "weight_norm2",
+    "final_activation": "tanh",
+    "final_depth": 32,
+    "depth_increase": 32
+  },
+
+
+  "encoder": {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "max": 1,
+    "min": -1,
+    "modes": "5",
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "z": "2"
+  },
+
+  "loss": {
+    "alpha": 0.4224842248422484,
+    "beta": 0.34507345073450735,
+    "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
+    "gamma": 0.7328373283732837,
+    "initial_k": 0.5024350243502435,
+    "k_lambda": 8.040080400804008e-05,
+    "label_smooth": 0.010890108901089011,
+    "labels": [
+      -1,
+      1,
+      1
+    ],
+    "minibatch": false,
+    "reduce": "reduce_sum",
+    "reverse": true,
+    "type": "softmax",
+    "use_k": false
+  },
+ 
+  "eloss":
+  {
+    "r_discriminator": 
+    {
+      "activation": "crelu",
+      "class": "class:hypergan.discriminators.fully_connected_discriminator.FullyConnectedDiscriminator"
+    },
+
+    "f_discriminator": 
+    {
+      "activation": "crelu",
+      "class": "class:hypergan.discriminators.fully_connected_discriminator.FullyConnectedDiscriminator"
+    },
+    "target_mean": 0,
+    "fake_mean": -1,
+    "class": "function:hypergan.losses.vral_loss.VralLoss",
+    "reduce": "reduce_mean",
+    "labels": [0,1,1],
+    "type": "l2",
+    "g_loss": "l2",
+    "value_function": "l2",
+    "distribution": "uniform"
+  },
+  "trainer": {
+    "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "clipped_gradients": false,
+    "decay_function": "function:tensorflow.python.training.learning_rate_decay.exponential_decay",
+    "decay_steps": 50000,
+    "decay_rate": 0.96,
+    "d_beta1": 0.1051710517105171,
+    "d_beta2": 0.7203172031720317,
+    "d_clipped_weights": false,
+    "d_decay": 0.6478364783647836,
+    "d_epsilon": 0.007500075000750007,
+    "d_global_step": 0.5866358663586636,
+    "d_initial_accumulator_value": 0.3673636736367364,
+    "d_initial_gradient_squared_accumulator_value": 0.8661486614866148,
+    "d_learn_rate": 0.003947939479394794,
+    "d_momentum": 0.5922759227592276,
+    "d_rho": 0.5358953589535895,
+    "d_trainer": "function:tensorflow.python.training.adam.AdamOptimizer",
+    "g_beta1": 0.6119661196611966,
+    "g_beta2": 0.5612256122561226,
+    "g_decay": 0.6771767717677176,
+    "g_epsilon": 0.3087330873308733,
+    "g_global_step": 0.931239312393124,
+    "g_initial_accumulator_value": 0.6465564655646556,
+    "g_initial_gradient_squared_accumulator_value": 0.969479694796948,
+    "g_learn_rate": 0.008020980209802098,
+    "g_momentum": 0.06887068870688706,
+    "g_rho": 0.43922439224392246,
+    "g_trainer": "function:tensorflow.python.training.adam.AdamOptimizer"
+  },
+  "cycloss_lambda": 10,
+  "d_layer_filter": false,
+  "g_layer_filter": true,
+  "class": "class:hypergan.gans.alpha_gan.AlphaGAN",
+  "encode_layer_filter": true
+}

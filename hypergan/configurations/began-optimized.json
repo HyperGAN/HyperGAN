@@ -14,14 +14,14 @@
     "depth_increase": 64
   },
   "encoder": {
-    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
     "max": 1,
     "min": -1,
     "modes": "9",
     "projections": [
-      "function:hypergan.encoders.uniform_encoder.modal",
-      "function:hypergan.encoders.uniform_encoder.sphere",
-      "function:hypergan.encoders.uniform_encoder.identity"
+      "function:hypergan.distributions.uniform_distribution.modal",
+      "function:hypergan.distributions.uniform_distribution.sphere",
+      "function:hypergan.distributions.uniform_distribution.identity"
     ],
     "z": "118"
   },
@@ -29,6 +29,7 @@
   "generator": {
     "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
     "activation": "selu",
+    "layer_regularizer": "weight_conv",
     "depth_increase": 64,
     "final_depth": 64,
     "final_activation": "tanh",

@@ -1,3 +1,6 @@
+"""
+Trainers run on gan.step and define how the network trains.
+"""
 from os.path import dirname, basename, isfile
 import glob
 modules = glob.glob(dirname(__file__)+"/*.py")

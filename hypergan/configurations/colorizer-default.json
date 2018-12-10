@@ -48,6 +48,7 @@
     "extra_layers_reduction": 1,
     "fc_layer_size": 300,
     "final_activation": "tanh",
+    "layer_filter": "function:__main__.add_bw",
     "layer_regularizer": "layer_norm",
     "fc_layers": 0,
     "initial_depth": 32,
@@ -60,6 +61,7 @@
 
 
   "generator": {
+    "layer_filter": "function:__main__.add_bw",
     "extra_layers": 2,
     "skip_linear": true,
     "concat_linear": 100,
@@ -74,12 +76,12 @@
 
 
   "encoder": {
-    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
     "max": 1,
     "min": -1,
     "modes": "5",
     "projections": [
-      "function:hypergan.encoders.uniform_encoder.identity"
+      "function:hypergan.distributions.uniform_distribution.identity"
     ],
     "z": "2"
   },
@@ -130,8 +132,6 @@
     "g_rho": 0.43922439224392246,
     "g_trainer": "function:tensorflow.python.training.adam.AdamOptimizer"
   },
-  "cycloss_lambda": 0.1,
-  "d_layer_filter": true,
-  "g_layer_filter": true,
-  "encode_layer_filter": false
+  "class": "class:hypergan.gans.alpha_gan.AlphaGAN",
+  "cycloss_lambda": 0.1
 }

@@ -7,9 +7,6 @@ class BatchSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.encoder.z
-        inputs_t = gan.inputs.x
-
 
         return {
             'generator': gan.session.run(gan.uniform_sample)

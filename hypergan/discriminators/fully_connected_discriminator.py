@@ -14,13 +14,22 @@ class FullyConnectedDiscriminator(BaseDiscriminator):
         gan = self.gan
         ops = self.ops
         activation = ops.lookup(config.activation or 'lrelu')
-        final_activation = ops.lookup(config.final_activation or 'tanh')
+        final_activation = ops.lookup(config.final_activation or None)
 
-        net = ops.linear(net, 512)
-        net = activation(net)
-        net = ops.linear(net, 512)
+        net = ops.reshape(net, [ops.shape(net)[0], -1])
+
+        print("[fully connected discriminator] creating FC layer from ", net)
+        net = ops.linear(net, config.features or ops.shape(net)[-1])
+        for i in range(config.layers or 1):
+            net = self.layer_regularizer(net)
+            net = activation(net)
+            net = ops.linear(net, config.features or ops.shape(net)[-1])
+
         if final_activation:
+            net = self.layer_regularizer(net)
             net = final_activation(net)
+
+        self.sample = net
 
         return net
 

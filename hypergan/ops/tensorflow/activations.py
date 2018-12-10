@@ -84,28 +84,6 @@ def masked_relu(x, name="ignored"):
     second_half = tf.slice(x, prefix + [half], most + [half])
     return tf.nn.relu(first_half) * tf.nn.sigmoid(second_half)
 
-
-def _phase_shift(I, r):
-    # Helper function with main phase shift operation
-    bsize, a, b, c = I.get_shape().as_list()
-    X = tf.reshape(I, (bsize, a, b, r, r))
-    X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
-    X = tf.split(axis=1, num_or_size_splits=a, value=X)  # a, [bsize, b, r, r]
-    X = tf.concat(axis=2, values=[tf.squeeze(x) for x in X])  # bsize, b, a*r, r
-    X = tf.split(axis=1, num_or_size_splits=b, value=X)  # b, [bsize, a*r, r]
-    X = tf.concat(axis=2, values=[tf.squeeze(x) for x in X])  #
-    bsize, a*r, b*r
-    return tf.reshape(X, (bsize, a*r, b*r, 1))
-
-def phase_shift(X, r, color=False):
-  # Main OP that you can arbitrarily use in you tensorflow code
-  if color:
-    Xc = tf.split(axis=3, num_or_size_splits=3, value=X)
-    X = tf.concat(axis=3, values=[_phase_shift(x, r) for x in Xc])
-  else:
-    X = _phase_shift(X, r)
-  return X
-
 def minmax(net):
     net = tf.minimum(net, 1)
     net = tf.maximum(net, -1)

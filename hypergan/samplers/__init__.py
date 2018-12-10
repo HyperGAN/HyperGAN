@@ -1,3 +1,6 @@
+"""
+Samplers create images from generators.
+"""
 from os.path import dirname, basename, isfile
 import glob
 modules = glob.glob(dirname(__file__)+"/*.py")

@@ -59,11 +59,11 @@ class QualifiedStepTrainer(BaseTrainer):
         b2 = np.mean([gan.session.run(self.candidate_loss, {gan.latent.sample: self.zs[i]}) for i in range(self.config.candidate_tests)])
         gan.session.run(self.store_candidate)
         gan.session.run(self.reset_discriminator)
-        a2 = np.mean([gan.session.run(self.candidate_loss, {gan.latent.sample: self.zs[i]}) for i in range(self.config.candidate_tests)])
+        b1 = np.mean([gan.session.run(self.candidate_loss, {gan.latent.sample: self.zs[i]}) for i in range(self.config.candidate_tests)])
         gan.session.run(self.reset_generator)
         a1 = np.mean([gan.session.run(self.candidate_loss, {gan.latent.sample: self.zs[i]}) for i in range(self.config.candidate_tests)])
         gan.session.run(self.reset_candidate_discriminator)
-        b1 = np.mean([gan.session.run(self.candidate_loss, {gan.latent.sample: self.zs[i]}) for i in range(self.config.candidate_tests)])
+        a2 = np.mean([gan.session.run(self.candidate_loss, {gan.latent.sample: self.zs[i]}) for i in range(self.config.candidate_tests)])
         gan.session.run(self.reset_candidate_generator)
 
         #    D1 D2
@@ -71,10 +71,10 @@ class QualifiedStepTrainer(BaseTrainer):
         # G2 a2 b2
         payoff = [[a1, b1],[a2, b2]]
 
-        d1 = a1 + b1
-        d2 = a2 + b2
-        g1 = a1 + a2
-        g2 = b1 + b2
+        d1 = a1 + a2
+        d2 = b1 + b2
+        g1 = a1 + b1
+        g2 = a2 + b2
         if self.config.negate:
             g1 = -g1
             g2 = -g2
@@ -97,12 +97,12 @@ class QualifiedStepTrainer(BaseTrainer):
             mixd = d1/(d1 + d2)
             mixg = g1/(g1 + g2)
         if self.config.zero:
-            if d2 <= d1:
+            if np.abs(d2) >= np.abs(d1):
                 mixd = 1.0
                 self.d_rate += 1
             else:
                 mixd = 0.0
-            if g2 < g1:
+            if np.abs(g2) < np.abs(g1):
                 self.g_rate += 1
                 mixg = 1.0
             else:

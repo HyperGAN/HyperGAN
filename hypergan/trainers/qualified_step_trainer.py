@@ -24,8 +24,8 @@ class QualifiedStepTrainer(BaseTrainer):
 
         self.mixg = tf.Variable(1, dtype=tf.float32)
         self.mixd = tf.Variable(1, dtype=tf.float32)
-        self.combine_d = [ _v.assign(self.mixd *_ema + (1.-self.mixd)*_new) for _v, _ema, _new in zip(self.gan.d_vars(), self.ema, self.gan.d_vars())]
-        self.combine_g = [ _v.assign(self.mixg *_ema + (1.-self.mixg)*_new) for _v, _ema, _new in zip(self.gan.g_vars(), self.ema[len(self.gan.d_vars()):], self.gan.g_vars())]
+        self.combine_d = [ _v.assign((1.-self.mixd) *_ema + self.mixd*_new) for _v, _ema, _new in zip(self.gan.d_vars(), self.ema, self.gan.d_vars())]
+        self.combine_g = [ _v.assign((1.-self.mixg) *_ema + self.mixg*_new) for _v, _ema, _new in zip(self.gan.g_vars(), self.ema[len(self.gan.d_vars()):], self.gan.g_vars())]
 
         self.candidate = [ tf.Variable(_v) for _v in variables ]
         self.store_candidate = [ _v.assign(_v2) for _v,_v2 in zip(self.candidate, variables) ]
@@ -51,6 +51,11 @@ class QualifiedStepTrainer(BaseTrainer):
 
         gan.session.run(self.store_v)
         self._delegate.step(feed_dict)
+        if(self.config.turn_off_step):
+            if(self.config.turn_off_step < self.current_step):
+                return
+            else:
+                print(str(-self.current_step+self.config.turn_off_step) + " qualified steps remain")
 
         # b = generator at new step
         # a = generator at past step
@@ -97,12 +102,12 @@ class QualifiedStepTrainer(BaseTrainer):
             mixd = d1/(d1 + d2)
             mixg = g1/(g1 + g2)
         if self.config.zero:
-            if np.abs(d2) >= np.abs(d1):
+            if np.abs(d2) <= np.abs(d1):
                 mixd = 1.0
                 self.d_rate += 1
             else:
                 mixd = 0.0
-            if np.abs(g2) < np.abs(g1):
+            if np.abs(g2) >= np.abs(g1):
                 self.g_rate += 1
                 mixg = 1.0
             else:

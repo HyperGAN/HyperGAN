@@ -925,7 +925,6 @@ class ConfigurableComponent:
             w = 128
         f2 = self.layer_linear(f, [w], options)
         opts = copy.deepcopy(dict(options))
-        opts['activation']='null'
         size = self.ops.shape(net)[3]
         feature = self.layer_linear(f2, [size*2], opts)
         f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])

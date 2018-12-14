@@ -25,6 +25,7 @@ class ConfigurableComponent:
                 "identity": self.layer_identity,
                 "double_resolution": self.layer_double_resolution,
                 "attention": self.layer_attention,
+                "adaptive_instance_norm": self.layer_adaptive_instance_norm,
             "subpixel": self.layer_subpixel,
             "pixel_norm": self.layer_pixel_norm,
             "gram_matrix": self.layer_gram_matrix,
@@ -912,6 +913,28 @@ class ConfigurableComponent:
         #pieces = tf.split(net, self.ops.shape(net)[3], 3)
         #pieces = [scale_up(piece) for piece in pieces]
         #return tf.concat(pieces, axis=3)
+
+    def layer_adaptive_instance_norm(self, net, args, options):
+        if 'w' not in self.named_layers:
+            print("ERROR: Could not find named generator layer 'w', add name=w to the input layer in your generator")
+            return None
+        f = self.named_layers['w']
+        if len(args) > 0:
+            w = args[0]
+        else:
+            w = 128
+        f2 = self.layer_linear(f, [w], options)
+        opts = copy.deepcopy(dict(options))
+        opts['activation']='null'
+        size = self.ops.shape(net)[3]
+        feature = self.layer_linear(f2, [size*2], opts)
+        f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
+        f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
+        net = self.adaptive_instance_norm(net, f1,f2)
+        return net
+
+    def layer_zeros(self, net, args, options):
+        return tf.zeros_like(net)
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

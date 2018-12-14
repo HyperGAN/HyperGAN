@@ -53,7 +53,8 @@ class ConfigurableComponent:
             "combine_features": self.layer_combine_features,
             "resnet": self.layer_resnet,
             "layer_filter": self.layer_filter,
-            "activation": self.layer_activation
+            "activation": self.layer_activation,
+            "const": self.layer_const
             }
         self.features = features
         self.controls = {}
@@ -943,6 +944,12 @@ class ConfigurableComponent:
 
     def layer_zeros(self, net, args, options):
         return tf.zeros_like(net)
+
+    def layer_const(self, net, args, options):
+        s  = [1] + [int(x) for x in args[0].split("*")]
+        
+        with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+            return tf.tile(self.ops.get_weight(s, name='const'), [self.gan.batch_size(), 1,1,1])
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

@@ -358,7 +358,7 @@ class ConfigurableComponent:
     def adaptive_instance_norm(self, content, gamma, beta, epsilon=1e-5):
         c_mean, c_var = tf.nn.moments(content, axes=[1, 2], keep_dims=True)
         c_std = tf.sqrt(c_var + epsilon)
-        return gamma * ((content - c_mean) / c_std) + beta
+        return (1+gamma) * ((content - c_mean) / c_std) + beta
 
 
 
@@ -800,7 +800,15 @@ class ConfigurableComponent:
         return net
 
     def layer_noise(self, net, args, options):
-        net += tf.random_normal(self.ops.shape(net), stddev=0.1)
+        options = hc.Config(options)
+        if options.learned:
+            channels = self.ops.shape(net)[-1]
+            shape = [1,1,channels]
+            with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+                weights = self.ops.get_weight(shape, 'B')
+            net += tf.random_normal(self.ops.shape(net), stddev=0.1) * weights
+        else:
+            net += tf.random_normal(self.ops.shape(net), stddev=0.1)
         return net
 
     def layer_variational_noise(self, net, args, options):
@@ -923,10 +931,11 @@ class ConfigurableComponent:
             w = args[0]
         else:
             w = 128
-        f2 = self.layer_linear(f, [w], options)
+        #f2 = self.layer_linear(f, [w], options)
         opts = copy.deepcopy(dict(options))
         size = self.ops.shape(net)[3]
-        feature = self.layer_linear(f2, [size*2], opts)
+        opts["activation"]="null"
+        feature = self.layer_linear(f, [size*2], opts)
         f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
         f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
         net = self.adaptive_instance_norm(net, f1,f2)

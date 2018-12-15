@@ -207,6 +207,7 @@ class AliNextFrameGAN(BaseGAN):
             self._g_vars += uc.variables()
 
             def ec(zt, cp,reuse=True):
+
                 if config.noise:
                     randt = random_like(cp)
                     if config.proxy:
@@ -272,11 +273,12 @@ class AliNextFrameGAN(BaseGAN):
                 return gs, cs, zs
 
             def rotate(first, second, offset=None):
-                rotations = [tf.concat(first[:offset], axis=axis)]
+                ax = len(self.ops.shape(first[0]))-1
+                rotations = [tf.concat(first[:offset], axis=ax)]
                 elem = first
                 for e in second:
                     elem = elem[1:]+[e]
-                    rotations.append(tf.concat(elem[:offset], axis=axis))
+                    rotations.append(tf.concat(elem[:offset], axis=ax))
                 return rotations
 
             def disc(metric, name, _inputs, _features, reuse=False):
@@ -331,6 +333,7 @@ class AliNextFrameGAN(BaseGAN):
             re_cs_next, re_zs_next, re_gs_next = encode_frames(gs_next[1:len(self.frames)], cs_next[0], zs_next[0])
             self.x_hats = x_hats
             axis = len(ops.shape(zs[1]))-1
+            caxis = len(ops.shape(cs[1]))-1
             t0 = tf.concat(zs[1:-1], axis=axis)
             t1 = tf.concat(uzs[1:-1], axis=axis)
             t2 = tf.concat(zs_next[1:len(cs)-1], axis=axis)
@@ -341,7 +344,7 @@ class AliNextFrameGAN(BaseGAN):
 
 
             t0 = tf.concat(self.frames[1:], axis=axis)
-            f0 = tf.concat(cs[1:-1], axis=axis)
+            f0 = tf.concat(cs[1:-1], axis=caxis)
             self.x0 = t0
 
             stack = [t0]
@@ -358,14 +361,6 @@ class AliNextFrameGAN(BaseGAN):
                 stack.append(tf.concat([self.frames[1]]+alt_gs[1:-2], axis=axis))
                 features.append(tf.concat(alt_cs[:-2], axis=axis))
      
-
-            if config.encode_ug:
-                #stack += rotate(ugs[:-2], ugs[-2:]+ugs_next)
-                #features += rotate(ucs[:-2], ucs[-2:]+ucs_next)
-                self.g0 = tf.concat(ugs[1:-1], axis=axis)
-                self.c0 = tf.concat(ucs[1:-1], axis=axis)
-                stack.append(self.g0)
-                features.append(self.c0)
             if config.encode_re_ug:
                 stack.append(tf.concat(re_ugs[1:], axis=axis))
                 features.append(tf.concat(re_ucs[1:], axis=axis))
@@ -373,9 +368,20 @@ class AliNextFrameGAN(BaseGAN):
             if config.encode_forward:
                 stack += rotate(self.frames[2:]+[gs_next[0]], gs_next[1:])
                 features += rotate(cs[2:], cs_next[1:])
+                self.g0 = tf.concat(gs_next[1:len(self.frames)], axis=axis)
+                self.c0 = tf.concat(cs_next[1:-3], axis=caxis)
                 #print("GS", gs_next, features)
                 #stack += rotate(gs_next[:-4], gs_next[-4:])
                 #features += rotate(cs_next[:-4], cs_next[-4:])
+
+            if config.encode_ug:
+                #stack += rotate(ugs[:-2], ugs[-2:]+ugs_next)
+                #features += rotate(ucs[:-2], ucs[-2:]+ucs_next)
+                self.g0 = tf.concat(ugs[:-2], axis=axis)
+                self.c0 = tf.concat(ucs[:-2], axis=caxis)
+                stack.append(self.g0)
+                features.append(self.c0)
+
             #if config.encode_forward_next:
             #    stack += [tf.concat(gs_next[:-4],axis=axis)]
             #    features += [tf.concat(cs_next[:-4],axis=axis)]

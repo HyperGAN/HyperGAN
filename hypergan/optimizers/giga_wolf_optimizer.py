@@ -100,12 +100,11 @@ class GigaWolfOptimizer(optimizer.Optimizer):
     op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store tmp_vars
 
     with tf.get_default_graph().control_dependencies([op1]):
-        # store g2
         op2 = self.optimizer.apply_gradients(grads_and_vars.copy(), global_step=global_step, name=name)
         with tf.get_default_graph().control_dependencies([op2]):
             op3 = tf.group(*[tf.assign(w, v) for w,v in zip(xt_vars, restored_vars)]) # store xt^+1 in xt_vars
             with tf.get_default_graph().control_dependencies([op3]):
-                op4 = tf.group(*[tf.assign(w, v) for w,v in zip(restored_vars, zt_vars)]) # restore zt
+                op4 = tf.group(*[tf.assign(w, v) for w,v in zip(restored_vars, tmp_vars)]) # restore vars
                 with tf.get_default_graph().control_dependencies([op4]):
                     op5 = self.optimizer2.apply_gradients(grads_and_vars.copy(), global_step=global_step, name=name) # zt+1
                     with tf.get_default_graph().control_dependencies([op5]):

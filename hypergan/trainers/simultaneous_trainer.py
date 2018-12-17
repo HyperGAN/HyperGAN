@@ -29,7 +29,6 @@ class SimultaneousTrainer(BaseTrainer):
         d_grads = tf.gradients(d_loss, gan.d_vars())
         g_grads = tf.gradients(g_loss, gan.g_vars())
         apply_vec = list(zip((d_grads + g_grads), (gan.d_vars() + gan.g_vars()))).copy()
-        print("APPL", apply_vec)
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.gan.trainer = self

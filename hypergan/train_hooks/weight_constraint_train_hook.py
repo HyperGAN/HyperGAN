@@ -28,45 +28,45 @@ class WeightConstraintTrainHook(BaseTrainHook):
       #s = self.ops.shape(v_transpose)
       #identity = tf.reshape(identity, [s[0],s[1],1,1])
       #identity = tf.tile(identity, [1,1,s[2],s[3]])
-      decay = self.config.ortho_decay or 0.01
+      decay = self.config.decay or 0.01
       w = tf.transpose(w, perm=[2,3,0,1])
       for i in range(self.config.iterations or 3):
           wt = tf.transpose(w, perm=[1,0,2,3])
           w2 = tf.reshape(w,[-1, s[0],s[1]])
           wt2 = tf.reshape(wt,[-1, s[0],s[1]])
-          orth = tf.matmul(wt2,w2)
+          wtw = tf.matmul(wt2,w2)
           eye = tf.eye(s[0],s[1])
           eye = tf.tile(eye, [1,s[2]*s[3]])
           eye = tf.reshape(eye, self.gan.ops.shape(w))
-          orth = tf.reshape(orth, self.gan.ops.shape(w))
-          qk = eye - orth
-          w = w * (eye + 0.5*qk + 3.0/8*tf.square(qk))
+          wtw = tf.reshape(wtw, self.gan.ops.shape(w))
+          qk = eye - wtw
+          w = w * (eye + 0.5*qk)
       w = tf.transpose(w, perm=[2,3,0,1])
       newv = w
-
+      newv=(1.0+decay)*v - decay*(newv)
       newv = tf.reshape(newv,self.ops.shape(v))
-      return newv
+      return tf.assign(v, newv)
     else:
       return None
 
 
-  #def _update_ortho(self,v,i):
-  #  if len(v.shape) == 4:
-  #    w=v
-  #    w = tf.reshape(v, [-1, self.ops.shape(w)[-1]])
-  #    identity = tf.cast(tf.diag(np.ones(self.ops.shape(w)[0])), tf.float32)
-  #    wt = tf.transpose(w)
-  #    #s = self.ops.shape(v_transpose)
-  #    #identity = tf.reshape(identity, [s[0],s[1],1,1])
-  #    #identity = tf.tile(identity, [1,1,s[2],s[3]])
-  #    decay = self.config.ortho_decay or 0.01
-  #    newv = tf.matmul(w, tf.matmul(wt,w))
-  #    newv = tf.reshape(newv,self.ops.shape(v))
-  #    newv=(1+decay)*v - decay*(newv)
+  def _update_ortho2(self,v,i):
+    if len(v.shape) == 4:
+      w=v
+      w = tf.transpose(w, perm=[2,3,0,1])
+      identity = tf.cast(tf.diag(np.ones(self.ops.shape(w)[0])), tf.float32)
+      wt = tf.transpose(w, perm=[1,0,2,3])
+      #s = self.ops.shape(v_transpose)
+      #identity = tf.reshape(identity, [s[0],s[1],1,1])
+      #identity = tf.tile(identity, [1,1,s[2],s[3]])
+      decay = self.config.decay or 0.01
+      newv = tf.matmul(w, tf.matmul(wt,w))
+      newv = tf.reshape(newv,self.ops.shape(v))
+      newv = tf.transpose(newv, perm=[2,3,0,1])
+      newv=(1+decay)*v - decay*(newv)
 
-  #    #newv = tf.transpose(v, perm=[1,0,2,3])
-  #    return tf.assign(v, newv)
-  #  return None
+      return tf.assign(v, newv)
+    return None
   def _update_lipschitz(self,v,i):
     config = self.config
     if len(v.shape) > 1:
@@ -104,10 +104,16 @@ class WeightConstraintTrainHook(BaseTrainHook):
 
   def _update_l2nn(self,v,i):
     config = self.config
-    if len(v.shape) > 1:
+    if len(v.shape) == 4:
       w=v
-      w = tf.reshape(w, [-1, self.ops.shape(v)[-1]])
-      wt = tf.transpose(w)
+      s = self.gan.ops.shape(v)
+      wt = tf.transpose(w, perm=[1,0,2,3])
+      w2 = tf.reshape(w,[-1, s[0],s[1]])
+      wt2 = tf.reshape(wt,[-1, s[0],s[1]])
+      wtw = tf.matmul(wt2,w2)
+      wwt = tf.matmul(w2,wt2)
+      wtw = tf.reshape(wtw, [-1, self.ops.shape(v)[-1]])
+      wwt = tf.reshape(wwt, [-1, self.ops.shape(v)[-1]])
       #wt = tf.transpose(v, perm=[0,1,3,2])
       #wt = tf.transpose(w, perm=[1,0,2,3])
       def _r(m):
@@ -117,15 +123,14 @@ class WeightConstraintTrainHook(BaseTrainHook):
         m = tf.reduce_max(m, axis=1,keep_dims=True)
         #m = tf.tile(m,[s[0],s[1],1,1])
         return m
-      wtw = tf.matmul(wt,w)
-      wwt = tf.matmul(w,wt)
       bw = tf.minimum(_r(wtw), _r(wwt))
-      decay = self.config.l2nn_decay
+      decay = self.config.decay
       wi = (v/tf.sqrt(bw))
       if decay is not None:
         wi = (1-decay)*v+(decay*wi)
       return tf.assign(v, wi)
     return None
+
   def _update_weight_constraint(self,v,i):
     config = self.config
     #skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
@@ -139,6 +144,8 @@ class WeightConstraintTrainHook(BaseTrainHook):
     result = []
     if "ortho" in constraints:
       result.append(self._update_ortho(v,i))
+    if "ortho2" in constraints:
+      result.append(self._update_ortho2(v,i))
     if "lipschitz" in constraints:
       result.append(self._update_lipschitz(v,i))
     if "l2nn" in constraints:

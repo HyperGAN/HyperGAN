@@ -19,10 +19,10 @@ class GpSnMemoryTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="GpSnMemoryTrainHook", memory_size=2, top_k=1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     gan_inputs = self.gan.inputs.x
-    encoder_sample = self.gan.encoder.sample
+    latent_sample = self.gan.latent.sample
     if hasattr(self.gan.inputs, 'frames'):
         gan_inputs = tf.concat(self.gan.inputs.frames[1:], axis=3)
-        encoder_sample = self.gan.c0
+        latent_sample = self.gan.c0
     self.s_max = [ tf.Variable( tf.zeros_like(gan_inputs)) for i in range(memory_size)]
     self.d_lambda = config['lambda'] or 1
 
@@ -31,14 +31,14 @@ class GpSnMemoryTrainHook(BaseTrainHook):
     self.top_k = top_k
 
     self.current = tf.Variable(tf.zeros_like(gan_inputs))
-    d = self.gan.create_component(self.gan.config.discriminator, name='discriminator', input=self.current, features=[tf.zeros_like(encoder_sample)], reuse=True)
+    d = self.gan.create_component(self.gan.config.discriminator, name='discriminator', input=self.current, features=[tf.zeros_like(latent_sample)], reuse=True)
     self.assign_current = [ self.current.assign(self.s_max[i]) for i in range(memory_size) ]
     gd = tf.gradients(d.sample, gan.d_vars())
     r = tf.add_n([tf.square(tf.norm(_gd, ord=2)) for _gd in gd])
     self.d_loss = self.d_lambda * tf.reduce_mean(r)
     self.gan.add_metric('gpsn', self.d_loss)
     if self.config.from_source:
-        self.d_loss = tf.reduce_mean(tf.reduce_sum(tf.square(gd), axis=[1]))
+        self.d_loss = tf.add_n([tf.reduce_sum(tf.square(_gd)) for _gd in gd])
 
   def losses(self):
     return [self.d_loss, None]

@@ -25,6 +25,7 @@ class ConfigurableComponent:
                 "identity": self.layer_identity,
                 "double_resolution": self.layer_double_resolution,
                 "attention": self.layer_attention,
+                "adaptive_instance_norm": self.layer_adaptive_instance_norm,
             "subpixel": self.layer_subpixel,
             "pixel_norm": self.layer_pixel_norm,
             "gram_matrix": self.layer_gram_matrix,
@@ -52,7 +53,8 @@ class ConfigurableComponent:
             "combine_features": self.layer_combine_features,
             "resnet": self.layer_resnet,
             "layer_filter": self.layer_filter,
-            "activation": self.layer_activation
+            "activation": self.layer_activation,
+            "const": self.layer_const
             }
         self.features = features
         self.controls = {}
@@ -357,7 +359,7 @@ class ConfigurableComponent:
     def adaptive_instance_norm(self, content, gamma, beta, epsilon=1e-5):
         c_mean, c_var = tf.nn.moments(content, axes=[1, 2], keep_dims=True)
         c_std = tf.sqrt(c_var + epsilon)
-        return gamma * ((content - c_mean) / c_std) + beta
+        return (1+gamma) * ((content - c_mean) / c_std) + beta
 
 
 
@@ -799,7 +801,15 @@ class ConfigurableComponent:
         return net
 
     def layer_noise(self, net, args, options):
-        net += tf.random_normal(self.ops.shape(net), stddev=0.1)
+        options = hc.Config(options)
+        if options.learned:
+            channels = self.ops.shape(net)[-1]
+            shape = [1,1,channels]
+            with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+                weights = self.ops.get_weight(shape, 'B')
+            net += tf.random_normal(self.ops.shape(net), stddev=0.1) * weights
+        else:
+            net += tf.random_normal(self.ops.shape(net), stddev=0.1)
         return net
 
     def layer_variational_noise(self, net, args, options):
@@ -912,6 +922,34 @@ class ConfigurableComponent:
         #pieces = tf.split(net, self.ops.shape(net)[3], 3)
         #pieces = [scale_up(piece) for piece in pieces]
         #return tf.concat(pieces, axis=3)
+
+    def layer_adaptive_instance_norm(self, net, args, options):
+        if 'w' not in self.named_layers:
+            print("ERROR: Could not find named generator layer 'w', add name=w to the input layer in your generator")
+            return None
+        f = self.named_layers['w']
+        if len(args) > 0:
+            w = args[0]
+        else:
+            w = 128
+        #f2 = self.layer_linear(f, [w], options)
+        opts = copy.deepcopy(dict(options))
+        size = self.ops.shape(net)[3]
+        opts["activation"]="null"
+        feature = self.layer_linear(f, [size*2], opts)
+        f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
+        f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
+        net = self.adaptive_instance_norm(net, f1,f2)
+        return net
+
+    def layer_zeros(self, net, args, options):
+        return tf.zeros_like(net)
+
+    def layer_const(self, net, args, options):
+        s  = [1] + [int(x) for x in args[0].split("*")]
+        
+        with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+            return tf.tile(self.ops.get_weight(s, name='const'), [self.gan.batch_size(), 1,1,1])
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

@@ -52,5 +52,5 @@ class MemoryTrainHook(BaseTrainHook):
         _, *self.prev_zs = self.gan.session.run([self.update_prev_sample]+self.gan.fitness_inputs())
 
     # optimize(l2, gl, dl)
-    feed_dict[self.gan.loss.sample[1]] = prev_l2_loss
+    feed_dict[self.g_loss] = prev_l2_loss
 

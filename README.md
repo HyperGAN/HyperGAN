@@ -36,6 +36,7 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
   * [Usage](#usage)
   * [Architecture](#architecture)
   * [GANComponent](#GANComponent)
+  * [ConfigurableComponent](#ConfigurableComponent)
   * [Generator](#generator)
   * [Distributions](#distributions)
   * [Discriminators](#discriminators)
@@ -46,6 +47,7 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
    * [Categories](#categorical-loss)
    * [Supervised](#supervised-loss)
   * [Trainers](#trainers)
+* [Domain Specific Language Reference](#dsl-reference)
 * [Datasets](#datasets)
   * [Unsupervised learning](#unsupervised-learning)
   * [Supervised learning](#supervised-learning)
@@ -253,6 +255,26 @@ See the example documentation https://github.com/255BITS/HyperGAN/tree/master/ex
 
 Each example is capable of random search.  You can search along any set of parameters, including loss functions, trainers, generators, etc.
 
+
+# Domain Specific Language Reference
+
+
+## Defaults
+
+Defaults can be defined, such as activation and stride.
+
+## Common layers
+
+Common DSL operations:
+
+`linear [outputs] (options)`
+`conv [output filters] (options)`
+`deconv [output filters] (options)`
+`resize_conv [output filters] (options)`
+`attention (options)` 
+
+And more.  See configurable_component.py for details.
+
 # Datasets
 
 To build a new network you need a dataset.  Your data should be structured like:
@@ -296,6 +318,30 @@ Other architectures may differ.  See the configuration templates.
 ## GANComponent
 
 A base class for each of the component types listed below.
+
+## ConfigurableComponent
+
+Hypergan comes with a simple DSL to design your own network architectures.  A ConfigurableComponent can be used to create
+custom designs when building your models.
+
+For example, a discriminator component can be defined as:
+
+```json
+...
+"class":"...",
+"layers": [
+  "conv 32 activation=relu stride=2",
+  "conv 64 activation=relu stride=2",
+  "conv 128 activation=relu stride=2",
+  "conv 256 activation=relu stride=2",
+  "linear 1 activation=null",
+]
+...
+```
+This means to create a network composed of 4 convolution layers that decrease along stride and increase filter size, ending in a linear.
+
+For a full list of possible layers, see the [Domain Specific Language Reference](#dsl-reference).
+
 
 ## Generator
 

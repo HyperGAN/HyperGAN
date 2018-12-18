@@ -71,6 +71,7 @@ class CLI:
 
         title = "[hypergan] " + self.config_name
         GlobalViewer.title = title
+        GlobalViewer.viewer_size = self.args.viewer_size
         GlobalViewer.enabled = self.args.viewer
         GlobalViewer.zoom = self.args.zoom
 

@@ -54,7 +54,7 @@ class AlignedAliGAN3(BaseGAN):
 
             if config.same_g:
                 ga = self.create_component(config.generator, input=xb_input, name='a_generator')
-                gb = hc.Config({"sample":ga.reuse(xa_input),"controls":{"z":ga.controls['z']}, "reuse": ga.reuse})
+                gb = self.create_component(config.generator, input=xa_input, name='a_generator', reuse=True)
             else:
                 ga = self.create_component(config.generator, input=xb_input, name='a_generator')
                 gb = self.create_component(config.generator, input=xa_input, name='b_generator')
@@ -102,7 +102,7 @@ class AlignedAliGAN3(BaseGAN):
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            g_vars1 = gb.variables()+ga.variables()#gb.variables()# + gb.variables()
+            print('--', ga, gb)
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -126,7 +126,6 @@ class AlignedAliGAN3(BaseGAN):
             d_loss += l.d_loss
             g_loss += l.g_loss
             d_vars2 = d.variables()
-            g_vars2 = ga.variables()
             metrics["ga_gloss"]=l.g_loss
             metrics["ga_dloss"]=l.d_loss
             loss2=l
@@ -188,12 +187,15 @@ class AlignedAliGAN3(BaseGAN):
                 g_loss2 += loss3.g_loss
 
 
-
-            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
-            lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
-            trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
-            #trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
-            trainer = MultiTrainerTrainer(trainers)
+            loss = hc.Config({
+                'd_fake':loss1.d_fake,
+                'd_real':loss1.d_real,
+                'sample': [tf.add_n([d_loss1, d_loss2]), tf.add_n([g_loss1,g_loss2])]
+            })
+            self._g_vars = ga.variables() + gb.variables()
+            self._d_vars = d_vars1 + d_vars2
+            self.loss=loss
+            trainer = self.create_component(config.trainer)
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
@@ -215,6 +217,11 @@ class AlignedAliGAN3(BaseGAN):
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
 
+
+    def d_vars(self):
+        return self._d_vars
+    def g_vars(self):
+        return self._g_vars
 
     def create_loss(self, loss_config, discriminator, x, generator, split):
         loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator, split=split)

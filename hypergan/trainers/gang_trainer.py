@@ -26,7 +26,7 @@ class GangTrainer(BaseTrainer):
         self.priority_gs = []
 
 
-        self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars, loss=loss)
+        self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars)
         d_loss, g_loss = loss.sample
         if self.config.fitness_method == "wasserstein":
             self.gang_loss = -(loss.d_real-loss.d_fake)

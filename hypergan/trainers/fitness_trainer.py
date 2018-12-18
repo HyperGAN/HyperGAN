@@ -68,6 +68,7 @@ class FitnessTrainer(BaseTrainer):
         if 'learning_rate' in optimizer:
             del defn['learning_rate']
         tr = optimizer['class'](lr, **defn)
+        self.optimizer = tr
 
         self.gan.trainer = self
         self.g_loss = g_loss

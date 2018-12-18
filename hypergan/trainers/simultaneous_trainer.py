@@ -25,11 +25,11 @@ class SimultaneousTrainer(BaseTrainer):
         if 'learning_rate' in optimizer:
             del defn['learning_rate']
         tr = optimizer['class'](lr, **defn)
+        self.optimizer = tr
 
         d_grads = tf.gradients(d_loss, gan.d_vars())
         g_grads = tf.gradients(g_loss, gan.g_vars())
         apply_vec = list(zip((d_grads + g_grads), (gan.d_vars() + gan.g_vars()))).copy()
-        print("APPL", apply_vec)
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.gan.trainer = self
@@ -45,7 +45,7 @@ class SimultaneousTrainer(BaseTrainer):
         gan = self.gan
         sess = gan.session
         config = self.config
-        loss = self.loss or gan.loss
+        loss = gan.loss
         metrics = gan.metrics()
 
         d_loss, g_loss = loss.sample

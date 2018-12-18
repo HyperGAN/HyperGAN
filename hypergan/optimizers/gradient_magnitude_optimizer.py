@@ -25,7 +25,10 @@ class GradientMagnitudeOptimizer(optimizer.Optimizer):
         options['gan']=self.gan
         options['config']=options
         defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-        return klass(options.learn_rate, **defn)
+        learn_rate = options.learn_rate or options.learning_rate
+        if 'learning_rate' in options:
+            del defn['learning_rate']
+        return klass(learn_rate, **defn)
 
     optimizer = hc.lookup_functions(optimizer)
     self.optimizer = create_optimizer(optimizer['class'], optimizer)
@@ -45,7 +48,6 @@ class GradientMagnitudeOptimizer(optimizer.Optimizer):
     var_list = [v for _, v in grads_and_vars]
     grad_list = [g for g, _ in grads_and_vars]
 
-    lam = self.gan.configurable_param(self.config["lambda"])
 
     self._prepare()
     def project_gradient_layer(gs):
@@ -55,10 +57,22 @@ class GradientMagnitudeOptimizer(optimizer.Optimizer):
             return gs / (tf.sqrt(tf.reduce_sum(tf.square(gs)))+1e-8)
         elif self.config.norm == 'inf':
             return gs / (tf.norm(gs, ord=np.inf)+1e-8)
+        elif self.config.norm == 'max':
+            return gs / (tf.reduce_max(tf.abs(gs))+1e-8)
         else:
             return gs / (tf.norm(gs, ord=self.config.norm)+1e-8)
 
-    lam = [lam for g, _ in grads_and_vars]
+    lam = []
+    for g, v in grads_and_vars:
+        _lam = self.gan.configurable_param(self.config["lambda"])
+        opts = self.gan.layer_options(v)
+        if opts is not None:
+            print("OPTS", opts)
+            if "gradient_magnitude_lambda" in opts:
+                _lam *= float(opts["gradient_magnitude_lambda"])
+        lam.append(_lam)
+
+    print("Lambdas = ", lam)
 
     def number_weights(v):
         count = np.prod(self.gan.ops.shape(v))

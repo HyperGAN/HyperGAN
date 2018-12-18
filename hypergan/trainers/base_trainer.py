@@ -4,11 +4,10 @@ import tensorflow as tf
 import inspect
 
 class BaseTrainer(GANComponent):
-    def __init__(self, gan, config, d_vars=None, g_vars=None, loss=None, name="BaseTrainer"):
+    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer"):
         self.current_step = 0
         self.g_vars = g_vars
         self.d_vars = d_vars
-        self.loss = loss
         self.d_shake = None
         self.g_shake = None
         self.train_hooks = []
@@ -21,15 +20,18 @@ class BaseTrainer(GANComponent):
             hook = hook_config["class"](**defn)
             losses = hook.losses()
             if losses[0] is not None:
-                self.loss.sample[0] += losses[0]
+                gan.loss.sample[0] += losses[0]
             if losses[1] is not None:
-                self.loss.sample[1] += losses[1]
+                gan.loss.sample[1] += losses[1]
             self.train_hooks.append(hook)
  
         GANComponent.__init__(self, gan, config, name=name)
 
     def _step(self, feed_dict):
         raise Exception('BaseTrainer _step called directly.  Please override.')
+
+    def variables(self):
+        return self.ops.variables() + self.optimizer.variables()
 
     def create(self):
         config = self.config
@@ -109,7 +111,7 @@ class BaseTrainer(GANComponent):
 
 
     def required(self):
-        return "d_optimizer g_optimizer d_learn_rate g_learn_rate".split()
+        return "".split()
 
     def output_string(self, metrics):
         name = self.gan.name or ""
@@ -123,30 +125,6 @@ class BaseTrainer(GANComponent):
         gan = self.gan
         sess = gan.session
         return [metrics[k] for k in sorted(metrics.keys())]
-
-    def capped_optimizer(optimizer, cap, loss, var_list):
-        gvs = optimizer.compute_gradients(loss, var_list=var_list)
-        def create_cap(grad,var):
-            if(grad == None) :
-                print("Warning: No gradient for variable ",var.name)
-                return None
-            return (tf.clip_by_value(grad, -cap, cap), var)
-
-        capped_gvs = [create_cap(grad,var) for grad, var in gvs]
-        capped_gvs = [x for x in capped_gvs if x != None]
-        return optimizer.apply_gradients(capped_gvs, global_step=self.global_step)
-
-
-    def build_optimizer(self, config, prefix, trainer_config, learning_rate, var_list, loss):
-        with tf.variable_scope(prefix):
-            defn = {k[2:]: v for k, v in config.items() if k[2:] in inspect.getargspec(trainer_config).args and k.startswith(prefix)}
-            optimizer = trainer_config(learning_rate, **defn)
-            if(config.clipped_gradients):
-                apply_gradients = self.capped_optimizer(optimizer, config.clipped_gradients, loss, var_list)
-            else:
-                apply_gradients = optimizer.minimize(loss, var_list=var_list, global_step=self.global_step)
-
-        return apply_gradients
 
 
     def before_step(self, step, feed_dict):

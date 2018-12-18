@@ -104,9 +104,9 @@ class WeightConstraintTrainHook(BaseTrainHook):
 
   def _update_l2nn(self,v,i):
     config = self.config
-    if len(v.shape) == 4:
+    s = self.gan.ops.shape(v)
+    if len(v.shape) == 4 and s[0] == s[1]:
       w=v
-      s = self.gan.ops.shape(v)
       wt = tf.transpose(w, perm=[1,0,2,3])
       w2 = tf.reshape(w,[-1, s[0],s[1]])
       wt2 = tf.reshape(wt,[-1, s[0],s[1]])
@@ -114,22 +114,27 @@ class WeightConstraintTrainHook(BaseTrainHook):
       wwt = tf.matmul(w2,wt2)
       wtw = tf.reshape(wtw, [-1, self.ops.shape(v)[-1]])
       wwt = tf.reshape(wwt, [-1, self.ops.shape(v)[-1]])
-      #wt = tf.transpose(v, perm=[0,1,3,2])
-      #wt = tf.transpose(w, perm=[1,0,2,3])
-      def _r(m):
-        s = self.ops.shape(m)
-        m = tf.abs(m)
-        m = tf.reduce_sum(m, axis=0,keep_dims=True)
-        m = tf.reduce_max(m, axis=1,keep_dims=True)
-        #m = tf.tile(m,[s[0],s[1],1,1])
-        return m
-      bw = tf.minimum(_r(wtw), _r(wwt))
-      decay = self.config.decay
-      wi = (v/tf.sqrt(bw))
-      if decay is not None:
-        wi = (1-decay)*v+(decay*wi)
-      return tf.assign(v, wi)
-    return None
+    else:
+      #w = v
+      #w = tf.reshape(w, [-1, self.ops.shape(v)[-1]])
+      #wt = tf.transpose(w)
+      #wtw = tf.matmul(wt,w)
+      #wwt = tf.matmul(w,wt)
+      return None
+    def _r(m):
+      s = self.ops.shape(m)
+      m = tf.abs(m)
+      m = tf.reduce_sum(m, axis=0,keep_dims=True)
+      m = tf.reduce_max(m, axis=1,keep_dims=True)
+      #m = tf.tile(m,[s[0],s[1],1,1])
+      return m
+    bw = tf.minimum(_r(wtw), _r(wwt))
+    decay = self.config.decay
+    wi = (v/tf.sqrt(bw))
+    if decay is not None:
+      wi = (1-decay)*v+(decay*wi)
+    wi = tf.reshape(wi, self.ops.shape(v))
+    return tf.assign(v, wi)
 
   def _update_weight_constraint(self,v,i):
     config = self.config

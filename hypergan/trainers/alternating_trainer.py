@@ -47,6 +47,9 @@ class AlternatingTrainer(BaseTrainer):
 
         return g_optimizer, d_optimizer
 
+    def variables(self):
+        return self.ops.variables() + self.d_optimizer.variables() + self.g_optimizer.variables()
+
     def _step(self, feed_dict):
         gan = self.gan
         sess = gan.session

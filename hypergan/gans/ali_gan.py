@@ -66,7 +66,6 @@ class AliGAN(BaseGAN):
  
             direction, slider = self.create_controls(self.ops.shape(latent.sample))
             z = latent.sample + slider * direction
-            
             #projected_encoder = UniformDistribution(self, config.encoder, z=encoder.sample)
 
 
@@ -99,6 +98,7 @@ class AliGAN(BaseGAN):
 
                 self.encoder = encoder
                 features = [encoder.sample, u_to_z.sample]
+                self.u_to_z = u_to_z
             else:
                 generator = self.create_component(config.generator, input=stack_z)
                 self.generator = generator
@@ -114,6 +114,7 @@ class AliGAN(BaseGAN):
                 features += [encoder.sample]
             else:
                 x_hat = self.create_component(config.generator, input=encoder.sample, reuse=True, name='generator').sample
+            self.autoencoded_x = x_hat
             self.uniform_sample = generator.sample
 
             stacked_xg = tf.concat(stacked, axis=0)
@@ -178,7 +179,7 @@ class AliGAN(BaseGAN):
                 'sample': [tf.add_n(d_losses), tf.add_n(g_losses)]
             })
             self.loss = loss
-            trainer = self.create_component(config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+            trainer = self.create_component(config.trainer, g_vars = g_vars, d_vars = d_vars)
 
             self.session.run(tf.global_variables_initializer())
 
@@ -189,7 +190,6 @@ class AliGAN(BaseGAN):
         self.z = z
         self.z_hat = encoder.sample
         self.x_input = x_input
-        self.autoencoded_x = x_hat
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
         self.random_z = tf.random_uniform(ops.shape(latent.sample), -1, 1, name='random_z')
@@ -205,6 +205,9 @@ class AliGAN(BaseGAN):
         return [
                 self.latent.sample
                 ]
+
+    def l1_distance(self):
+        return self.inputs.x - self.autoencoded_x
 
 
     def create_loss(self, loss_config, discriminator, x, generator, split, reuse=False):

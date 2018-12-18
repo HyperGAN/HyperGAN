@@ -454,7 +454,7 @@ class AliNextFrameGAN(BaseGAN):
             lossa = hc.Config({'sample': [d_loss, g_loss], 'd_fake': l.d_fake, 'd_real': l.d_real, 'config': l.config})
             self.loss = lossa
             self._d_vars = d_vars
-            trainer = self.create_component(config.trainer, loss = lossa, g_vars = self._g_vars, d_vars = d_vars)
+            trainer = self.create_component(config.trainer, g_vars = self._g_vars, d_vars = d_vars)
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
@@ -638,7 +638,7 @@ def setup_gan(config, inputs, args):
     config_name = args.config
     GlobalViewer.title = "[hypergan] next-frame " + config_name
     GlobalViewer.enabled = args.viewer
-    GlobalViewer.zoom = args.zoom
+    GlobalViewer.viewer_size = args.zoom
 
     return gan
 

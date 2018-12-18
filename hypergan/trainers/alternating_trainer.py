@@ -54,7 +54,7 @@ class AlternatingTrainer(BaseTrainer):
         gan = self.gan
         sess = gan.session
         config = self.config
-        loss = self.loss or gan.loss
+        loss = gan.loss
         metrics = gan.metrics()
 
         d_loss, g_loss = loss.sample

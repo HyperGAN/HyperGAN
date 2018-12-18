@@ -11,61 +11,59 @@ class AlternatingTrainer(BaseTrainer):
     def _create(self):
         gan = self.gan
         config = self.config
-        g_lr = config.g_learn_rate
-        d_lr = config.d_learn_rate
 
-        d_vars = self.d_vars or gan.discriminator.variables()
-        g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
-
-        loss = self.loss or gan.loss
+        loss = gan.loss
         d_loss, g_loss = loss.sample
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
+        def create_optimizer(klass, options):
+            options['gan']=self.gan
+            options['config']=options
+            defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
+            learn_rate = options.learn_rate or options.learning_rate
+            if 'learning_rate' in options:
+                del defn['learning_rate']
+            return klass(learn_rate, **defn)
 
-        self.d_lr = tf.Variable(d_lr, dtype=tf.float32)
-        self.g_lr = tf.Variable(g_lr, dtype=tf.float32)
-        g_optimizer = self.build_optimizer(config, 'g_', config.g_trainer, self.g_lr, g_vars, g_loss)
-        d_optimizer = self.build_optimizer(config, 'd_', config.d_trainer, self.d_lr, d_vars, d_loss)
-
+        g_optimizer = hc.lookup_functions(config.g_optimizer or config.optimizer)
+        g_optimizer = create_optimizer(g_optimizer['class'], g_optimizer)
+        d_optimizer = hc.lookup_functions(config.d_optimizer or config.optimizer)
+        d_optimizer = create_optimizer(d_optimizer['class'], d_optimizer)
+        
+        d_grads = tf.gradients(d_loss, gan.d_vars())
+        g_grads = tf.gradients(g_loss, gan.g_vars())
+        apply_vec_g = list(zip((g_grads), (gan.g_vars()))).copy()
+        apply_vec_d = list(zip((d_grads), (gan.d_vars()))).copy()
         self.g_loss = g_loss
         self.d_loss = d_loss
+        self.gan.trainer = self
+        g_optimizer_t = g_optimizer.apply_gradients(apply_vec_g, global_step=self.global_step)
+        d_optimizer_t = d_optimizer.apply_gradients(apply_vec_d, global_step=self.global_step)
+
         self.d_optimizer = d_optimizer
         self.g_optimizer = g_optimizer
-
-        if config.d_clipped_weights:
-            self.clip = [tf.assign(d,tf.clip_by_value(d, -config.d_clipped_weights, config.d_clipped_weights))  for d in d_vars]
-        else:
-            self.clip = []
-
-        if config.anneal_learning_rate:
-            anneal_rate = config.anneal_rate or 0.5
-            anneal_lower_bound = config.anneal_lower_bound or 2e-5
-            self.anneal = [
-                    tf.assign(self.d_lr, tf.maximum(self.d_lr * anneal_rate, anneal_lower_bound)),
-                    tf.assign(self.g_lr, tf.maximum(self.g_lr * anneal_rate, anneal_lower_bound))
-            ]
+        self.d_optimizer_t = d_optimizer_t
+        self.g_optimizer_t = g_optimizer_t
 
         return g_optimizer, d_optimizer
+
+    def variables(self):
+        return self.ops.variables() + self.d_optimizer.variables() + self.g_optimizer.variables()
 
     def _step(self, feed_dict):
         gan = self.gan
         sess = gan.session
         config = self.config
-        loss = self.loss or gan.loss
-        metrics = loss.metrics
+        loss = gan.loss
+        metrics = gan.metrics()
 
         d_loss, g_loss = loss.sample
 
         for i in range(config.d_update_steps or 1):
-            sess.run([self.d_optimizer] + self.clip, feed_dict)
+            sess.run([self.d_optimizer_t], feed_dict)
 
-        metric_values = sess.run([self.g_optimizer] + self.output_variables(metrics), feed_dict)[1:]
+        metric_values = sess.run([self.g_optimizer_t] + self.output_variables(metrics), feed_dict)[1:]
 
-        if self.current_step % 100 == 0:
-            print(self.output_string(metrics) % tuple([self.current_step] + metric_values))
-
-        anneal_every = config.anneal_every or 100000
-        if config.anneal_learning_rate and self.current_step > 0 and self.current_step % anneal_every == 0:
-            dlr, glr = sess.run(self.anneal)
-            print("Lowering the learning rate to d:" + str(dlr) + ", g:" + str(glr))
+        if self.current_step % 10 == 0:
+            print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)))
 

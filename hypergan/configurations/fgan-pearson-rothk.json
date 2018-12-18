@@ -1,0 +1,75 @@
+{
+  "discriminator": 
+  {
+    "activation": "prelu",
+    "distance": "l1_distance",
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "block": "function:hypergan.discriminators.common.standard_block",
+    "extra_layers": 0,
+    "extra_layers_reduction": 2,
+    "fc_layer_size": 300,
+    "fc_layers": 0,
+    "initial_depth": 64,
+    "depth_increase": 64,
+    "layers": 5,
+    "orthogonal_initializer_gain": 1.0595959595959596,
+    "resize": null
+  },
+
+  "generator": {
+    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
+    "activation": "prelu",
+    "initializer": "random_normal",
+    "final_depth": 64,
+    "depth_increase": 64,
+    "final_activation": "tanh"
+  },
+
+  "encoder":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "min": -1,
+    "max": 1,
+    "z": 100
+  },
+  "loss":
+  {
+    "class": "function:hypergan.losses.f_divergence_loss.FDivergenceLoss",
+    "type": "pearson",
+    "rothk_lambda": 1,
+    "decay_steps": 50,
+    "rothk_penalty": true,
+    "rothk_decay": true,
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "clipped_gradients": false,
+    "d_beta1": 0.1051710517105171,
+    "d_beta2": 0.7203172031720317,
+    "d_clipped_weights": false,
+    "d_decay": 0.6478364783647836,
+    "d_epsilon": 0.007500075000750007,
+    "d_global_step": 0.5866358663586636,
+    "d_initial_accumulator_value": 0.3673636736367364,
+    "d_initial_gradient_squared_accumulator_value": 0.8661486614866148,
+    "d_learn_rate": 0.003947939479394794,
+    "d_momentum": 0.5922759227592276,
+    "d_rho": 0.5358953589535895,
+    "d_trainer": "function:tensorflow.python.training.adam.AdamOptimizer",
+    "g_beta1": 0.6119661196611966,
+    "g_beta2": 0.5612256122561226,
+    "g_decay": 0.6771767717677176,
+    "g_epsilon": 0.3087330873308733,
+    "g_global_step": 0.931239312393124,
+    "g_initial_accumulator_value": 0.6465564655646556,
+    "g_initial_gradient_squared_accumulator_value": 0.969479694796948,
+    "g_learn_rate": 0.008020980209802098,
+    "g_momentum": 0.06887068870688706,
+    "g_rho": 0.43922439224392246,
+    "g_trainer": "function:tensorflow.python.training.adam.AdamOptimizer"
+  }
+}

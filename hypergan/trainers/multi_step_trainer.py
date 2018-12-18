@@ -9,25 +9,21 @@ TINY = 1e-12
 
 class MultiStepTrainer(BaseTrainer):
     def __init__(self, gan, config, losses=[], var_lists=[], metrics=None):
-        BaseTrainer.__init__(self, gan, config)
         self.losses = losses
         self.var_lists = var_lists
         self.metrics = metrics or [None for i in self.losses]
+        BaseTrainer.__init__(self, gan, config)
 
     def _create(self):
         gan = self.gan
         config = self.config
         losses = self.losses
-        g_lr = config.g_learn_rate
-        d_lr = config.d_learn_rate
 
         optimizers = []
-        self.d_lr = tf.Variable(d_lr, dtype=tf.float32)
-        self.g_lr = tf.Variable(g_lr, dtype=tf.float32)
         for i, _ in enumerate(losses):
             loss = losses[i][1]
             var_list = self.var_lists[i]
-            is_generator = losses[i][0] == 'generator'
+            is_generator = 'generator' in losses[i][0]
 
             if is_generator:
                 optimizer = self.build_optimizer(config, 'g_', config.g_trainer, self.g_lr, var_list, loss)
@@ -60,6 +56,6 @@ class MultiStepTrainer(BaseTrainer):
                 metric_values = sess.run([optimizer] + self.output_variables(metric), feed_dict)[1:]
 
                 if self.current_step % 100 == 0:
-                    print("loss " + str(i) + "  "+ self.output_string(metric) % tuple([self.current_step] + metric_values))
+                    print("loss " + str(i) + "  "+ loss[0] + " " + self.output_string(metric) % tuple([self.current_step] + metric_values))
             else:
                 _ = sess.run(optimizer, feed_dict)

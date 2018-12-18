@@ -1,3 +1,6 @@
+"""
+There are many different types of discriminators.  This is sometimes called critic.
+"""
 from os.path import dirname, basename, isfile
 import glob
 modules = glob.glob(dirname(__file__)+"/*.py")

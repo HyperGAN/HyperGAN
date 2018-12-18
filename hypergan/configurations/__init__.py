@@ -1,1 +1,3 @@
-# Don't delete this, it's needed to include this directory in the pip package
+"""
+Configurations are shared and reproducable `json` files used in `hypergan.gan_component`.
+"""

@@ -1,12 +1,16 @@
 # Thank you for contributing!
 
-There are many places where we would love help:
+
+First, join our discord to connect with the hypergan community.
+
+There are many opportunities to help:
 
 * Implement a paper.  There is a huge list of GANs left to implement: https://github.com/GKalliatakis/Delving-deep-into-GANs
 * Create an API example.  Warning: this can be fun.
 * Contribute a screenshot, _gif_ or video of your trained network.
 * Search for and _share_ good GAN configurations (examples are searchable)
 * Do your own custom research.  Warning: this is addictive.
+* Become a community manager.
 
 GANs are very interesting and we welcome and encourage anyone wanting to explore them.
 
@@ -32,11 +36,11 @@ Thank you!  Issue a pull request
 
 ## Project vision
 
-The goal of this project is to create a composable GAN API for developers, researchers and artists to use.
+HyperGAN is a community project and it's utility is determined by the community
 
 ### Developer goals:
 
-We foresee developers training models on expensive hardware, then deploying a generator or discriminator to various platforms(phones, tablets, servers, smart toasters).  
+We foresee developers training models on bleeding edge consumer hardware, then deploying a generator or discriminator to various platforms(phones, tablets, servers, smart toasters).  
 
 HyperGAN hopes to make that *easy* to do with the API.
 
@@ -62,6 +66,3 @@ GANs are an active area of research and things will likely shift to best accomod
 
 If you would like to contact us about building custom models please email martyn.garcia AT gmail.com.
 
----
-
-HyperGAN is a high priority long-term project by 255 BITS.

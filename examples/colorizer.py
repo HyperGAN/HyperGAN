@@ -15,33 +15,65 @@ from hypergan.gans.alpha_gan import AlphaGAN
 
 x_v = None
 z_v = None
+layer_filter = None
 
 class Sampler(BaseSampler):
+
     def sample(self, path, save_samples):
         gan = self.gan
         generator = gan.uniform_sample
-        z_t = gan.uniform_encoder.sample
+        z_t = gan.latent.sample
         x_t = gan.inputs.x
+        n_samples = 25
         
         sess = gan.session
         config = gan.config
         global x_v
         global z_v
+        global layer_filter
         x_v = sess.run(x_t)
         x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
+        if layer_filter == None:
+            layer_filter = gan.generator.config.layer_filter(gan, gan.generator.config, x_t)
+            if(gan.ops.shape(layer_filter)[-1] == 1):
+                layer_filter = tf.tile(layer_filter,[1,1,1,3])
+
         
-        sample = sess.run(generator, {x_t: x_v})
+        layer_filter_v = sess.run(layer_filter, {x_t: x_v})
+
+        samples = [sess.run(generator, {x_t: x_v})[0] for n in range(n_samples)]
         stacks = []
-        bs = gan.batch_size()
         width = 5
-        print(np.shape(x_v), np.shape(sample))
-        stacks.append([x_v[1], sample[1], sample[2], sample[3], sample[4]])
-        for i in range(bs//width-1):
-            stacks.append([sample[i*width+width+j] for j in range(width)])
+        #stacks.append([x_v[0], layer_filter_v[0]] + samples[-4:0])
+ 
+        for i in range(n_samples//width-1):
+            stacks.append([samples[i*width+width+j] for j in range(width)])
+
+        stacks[0][0]=x_v[0]
+        print(np.shape(layer_filter),"----")
+        stacks[0][1]=layer_filter_v[0]
         images = np.vstack([np.hstack(s) for s in stacks])
 
         self.plot(images, path, save_samples)
         return [{'images': images, 'label': 'tiled x sample'}]
+
+def apply_mask(gan, config, net,x=None):
+    if x == None:
+        x = gan.inputs.x
+    filtered = net
+    shape = gan.ops.shape(x)
+    mask = tf.ones([shape[1], shape[2], shape[3]])
+    mask = tf.greater(mask, 0)
+    scaling = 0.6
+    mask = tf.image.central_crop(mask, scaling)
+    left = (shape[1]*scaling)//2 * 0.75
+    top = (shape[2]*scaling)//2 * 0.75
+    mask = tf.image.pad_to_bounding_box(mask, int(top), int(left), shape[1], shape[2])
+    mask = tf.cast(mask, tf.float32)
+    backmask = (1.0-mask) 
+    filtered = backmask* x + mask * filtered
+    print("FRAMING IMAGE", filtered) 
+    return filtered
 
 def add_bw(gan, config, net):
     x = gan.inputs.x
@@ -53,53 +85,73 @@ def add_bw(gan, config, net):
     
     if not gan.config.add_full_image:
         print( "[colorizer] Adding black and white image", x)
-        x = tf.image.rgb_to_grayscale(x)
+        filtered = tf.image.rgb_to_grayscale(x)
+        if config.blank_black_and_white is not None:
+            filtered = tf.zeros_like(filtered)
         if config.colorizer_noise is not None:
-            x += tf.random_normal(x.get_shape(), mean=0, stddev=config.colorizer_noise, dtype=tf.float32)
-        #bwnet = tf.image.rgb_to_grayscale(bwnet)
-        #x = tf.concat(axis=3, values=[x, bwnet])
+            filtered += tf.random_normal(filtered.get_shape(), mean=0, stddev=config.colorizer_noise, dtype=tf.float32)
+
+        if gan.config.add_full_image_frame:
+            bw = tf.image.rgb_to_grayscale(filtered)
+            bw = tf.tile(bw,[1,1,1,3])
+            filtered = apply_mask(gan,config,bw, x)
     else:
         print( "[colorizer] Adding full image", x)
-        
-    return x
+        filtered = x
+
+    return filtered
 
 arg_parser = ArgumentParser("Colorize an image")
 arg_parser.add_image_arguments()
 arg_parser.parser.add_argument('--add_full_image', type=bool, default=False, help='Instead of just the black and white X, add the whole thing.')
+arg_parser.parser.add_argument('--add_full_image_frame', type=bool, default=False, help='Frame the corners of the image.  Incompatible with add_full_image.')
 args = arg_parser.parse_args()
 
 width, height, channels = parse_size(args.size)
 
 config = lookup_config(args)
 if args.action == 'search':
-    config = AlphaGANRandomSearch({}).random_config()
-    config["d_layer_filter"] = random.choice([True, False])
-    config["g_layer_filter"] = random.choice([True, False])
-    config["encode_layer_filter"] = random.choice([True, False])
-    config["cycloss_lambda"]= 0
+    random_config = AlphaGANRandomSearch({}).random_config()
+    if args.config_list is not None:
+        config = random_config_from_list(args.config_list)
 
-if config.g_layer_filter:
-    config.generator['layer_filter'] = add_bw
-if config.d_layer_filter:
-    config.discriminator['layer_filter'] = add_bw
-if config.encode_layer_filter:
-    config.g_encoder['layer_filter'] = add_bw
+        config["generator"]=random_config["generator"]
+        config["g_encoder"]=random_config["g_encoder"]
+        config["discriminator"]=random_config["discriminator"]
+        config["z_discriminator"]=random_config["z_discriminator"]
+
+        # TODO Other search terms?
+    else:
+        config = random_config
+    config["cycloss_lambda"]= 0
+    config["discriminator"]["skip_layer_filters"]=random.choice([[],[0],[0,1],[0,1,2],[0,1,2,3]])
+    config["class"]="class:hypergan.gans.alpha_gan.AlphaGAN" # TODO
+
+    config.generator['layer_filter'] = random.choice([None, add_bw])
+    config.generator['final_layer_filter'] = random.choice([None, apply_mask])
+    config.discriminator['layer_filter'] = random.choice([None, add_bw])
+    config.g_encoder['layer_filter'] = random.choice([None, add_bw])
+
+if args.add_full_image:
+    config["add_full_image"]=True
+if args.add_full_image_frame:
+    config["add_full_image_frame"]=True
 
 inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
 inputs.create(args.directory,
-              channels=channels, 
-              format=args.format,
-              crop=args.crop,
-              width=width,
-              height=height,
-              resize=True)
+        channels=channels, 
+        format=args.format,
+        crop=args.crop,
+        width=width,
+        height=height,
+        resize=True)
 
-save_file = "save/model.ckpt"
+config_name = args.config
+save_file = "saves/"+config_name+"/model.ckpt"
+os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
 def setup_gan(config, inputs, args):
     gan = hg.GAN(config, inputs=inputs)
-
-    gan.create()
 
     if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)
@@ -114,10 +166,11 @@ def setup_gan(config, inputs, args):
 
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
+    gan.name = config_name
     sampler = lookup_sampler(args.sampler or Sampler)(gan)
     samples = 0
 
-    metrics = [accuracy(gan.inputs.x, gan.uniform_sample), batch_diversity(gan.uniform_sample)]
+    metrics = [batch_accuracy(gan.inputs.x, gan.uniform_sample), batch_diversity(gan.uniform_sample)]
     sum_metrics = [0 for metric in metrics]
     for i in range(args.steps):
         gan.step()
@@ -127,7 +180,8 @@ def train(config, inputs, args):
             gan.save(save_file)
 
         if i % args.sample_every == 0:
-            sample_file="samples/%06d.png" % (samples)
+            sample_file="samples/"+config_name+"/%06d.png" % (samples)
+            os.makedirs(os.path.expanduser(os.path.dirname(sample_file)), exist_ok=True)
             samples += 1
             sampler.sample(sample_file, args.save_samples)
 

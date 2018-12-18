@@ -15,7 +15,6 @@ class AutoencodeSampler(BaseSampler):
         z_t = gan.encoder.sample
 
         if self.z is None:
-            print("GAN IS", gan, gan.encoder)
             self.input = gan.session.run(inputs_t)
         self.z = gan.session.run(z_t, feed_dict={inputs_t: self.input})
 

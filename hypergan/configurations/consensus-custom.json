@@ -1,0 +1,68 @@
+{
+  "discriminator": 
+  {
+    "activation": "prelu",
+    "distance": "l1_distance",
+    "class": "class:hypergan.discriminators.pyramid_discriminator.PyramidDiscriminator",
+    "block": "function:hypergan.discriminators.common.standard_block",
+    "extra_layers": 0,
+    "extra_layers_reduction": 2,
+    "fc_layer_size": 300,
+    "fc_layers": 0,
+    "initial_depth": 64,
+    "depth_increase": 64,
+    "layers": 5,
+    "orthogonal_initializer_gain": 1.0595959595959596,
+    "resize": null
+  },
+
+  "generator": {
+    "class": "function:hypergan.generators.resize_conv_generator.ResizeConvGenerator",
+    "activation": "prelu",
+    "initializer": "random_normal",
+    "final_depth": 64,
+    "depth_increase": 64,
+    "final_activation": "tanh"
+  },
+
+  "encoder":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "min": -1,
+    "max": 1,
+    "z": 1
+  },
+
+"loss": {
+    "class": "function:hypergan.losses.least_squares_loss.LeastSquaresLoss",
+    "g_loss_type": "reverse_kl",
+    "labels": [
+      -1,
+      1,
+      1
+    ],
+    "minibatch": false,
+    "reduce": "reduce_mean",
+    "type": "reverse_kl"
+  },
+  
+
+  "trainer": {
+    "class": "class:hypergan.trainers.consensus_trainer.ConsensusTrainer",
+      "beta1": 0.7107107107107107,
+      "beta2": 0.6716716716716716,
+    "clipped_gradients": false,
+    "decay": 0.17617617617617617,
+    "epsilon": 0.001201211081081081,
+    "initial_accumulator_value": 0.8978978978978979,
+    "initial_gradient_squared_accumulator_value": 0.4344344344344344,
+    "learn_rate": 0.00101,
+    "momentum": 0.7317317317317317,
+    "rho": 0.21921921921921922,
+    "trainer": "function:tensorflow.python.training.adam.AdamOptimizer"
+
+  }
+}

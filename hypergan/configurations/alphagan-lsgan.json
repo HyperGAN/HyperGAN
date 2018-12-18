@@ -11,13 +11,13 @@
 
   },
   "encoder": {
-    "class": "function:hypergan.encoders.uniform_encoder.UniformEncoder",
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
     "max": 1,
     "min": -1,
     "modes": "7",
     "projections": [
-      "function:hypergan.encoders.uniform_encoder.modal",
-      "function:hypergan.encoders.uniform_encoder.sphere"
+      "function:hypergan.distributions.uniform_distribution.modal",
+      "function:hypergan.distributions.uniform_distribution.sphere"
     ],
     "z": "150"
   },

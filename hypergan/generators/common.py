@@ -12,10 +12,31 @@ def repeating_block(component, net, output_channels, filter=None):
         print("[generator] repeating block ", net)
     return net
 
-def standard_block(component, net, output_channels, filter=None):
+def multi_block(component, net, output_channels, filter=None):
     config = component.config
     ops = component.ops
-    net = ops.conv2d(net, filter, filter, 1, 1, output_channels)
+    if output_channels == 3:
+        return standard_block(component, net, output_channels, filter=filter)
+    net = standard_block(component, net, output_channels, filter=filter)
+    net2 = standard_block(component, net, output_channels, filter=filter, activation_regularizer=True)
+    net3 = standard_block(component, net2, output_channels, filter=filter, activation_regularizer=True)
+    return net+net2+net3
+
+
+def standard_block(component, net, output_channels, filter=None, activation_regularizer=False, padding="SAME"):
+    config = component.config
+    ops = component.ops
+    layer_regularizer = config.layer_regularizer
+
+    if activation_regularizer:
+        net = config.activation(net)
+        if layer_regularizer is not None:
+            net = component.layer_regularizer(net)
+
+    if padding == "VALID":
+        resize = [ops.shape(net)[1]+2, ops.shape(net)[2]+2]
+        net = ops.resize_images(net, resize, config.resize_image_type or 1)
+    net = ops.conv2d(net, filter, filter, 1, 1, output_channels, padding=padding)
     return net
 
 def inception_block(component, net, output_channels, filter=None):

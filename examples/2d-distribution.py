@@ -1,9 +1,12 @@
 import argparse
 import os
+import math
+
 import uuid
 import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
+import json
 from hypergan.generators import *
 from hypergan.search.random_search import RandomSearch
 from hypergan.viewer import GlobalViewer
@@ -15,28 +18,28 @@ args = arg_parser.parse_args()
 
 config = lookup_config(args)
 if args.action == 'search':
-    config = RandomSearch({}).random_config()
-
+    config = hc.Config(json.loads(open(os.getcwd()+'/randomsearch.json', 'r').read()))
+    config['trainer']['rbbr']['optimizer']['optimizer']['learn_rate'] = random.choice([0.1,0.01,0.001, 0.005, 0.0001])
+    config['trainer']['rbbr']['optimizer']['optimizer']['beta1'] = random.choice([0.1, 0.0001, 0.5, 0.9, 0.999])
+    config['trainer']['rbbr']['optimizer']['optimizer']['beta2'] = random.choice([0.1, 0.0001, 0.5, 0.9, 0.999])
+    config['trainer']['rbbr']['optimizer']['beta'] = random.choice([0, 1, 0.5, 0.99, 0.1])
+    config['trainer']['rbbr']['optimizer']['gamma'] = random.choice([0, 1, 0.5, 0.99, 0.1, 10])
+    config['trainer']['rbbr']['optimizer']['rho'] = random.choice([0, 1, 0.5, 0.99, 0.1])
 
 def train(config, args):
-    if(args.viewer):
-        title = "[hypergan] 2d-test " + args.config
-        GlobalViewer.title = title
-        GlobalViewer.enabled = args.viewer
+    title = "[hypergan] 2d-test " + args.config
+    GlobalViewer.title = title
+    GlobalViewer.enabled = args.viewer
 
     with tf.device(args.device):
         config.generator['end_features'] = 2
+        config.generator["class"]="class:__main__.Custom2DGenerator" # TODO
+        config.discriminator["class"]="class:__main__.Custom2DDiscriminator" # TODO
         gan = hg.GAN(config, inputs = Custom2DInputDistribution(args))
-        gan.discriminator = Custom2DDiscriminator(gan, config.discriminator)
-        gan.generator = Custom2DGenerator(gan, config.generator)
-        gan.encoder = gan.create_component(gan.config.encoder)
-        gan.encoder.create()
-        gan.generator.create()
-        gan.discriminator.create()
-        gan.create()
+        gan.name = config_name
 
-        accuracy_x_to_g=batch_accuracy(gan.inputs.x, gan.generator.sample)
-        accuracy_g_to_x=batch_accuracy(gan.generator.sample, gan.inputs.x)
+        accuracy_x_to_g=distribution_accuracy(gan.inputs.x, gan.generator.sample)
+        accuracy_g_to_x=distribution_accuracy(gan.generator.sample, gan.inputs.x)
 
         sampler = Custom2DSampler(gan)
 
@@ -59,6 +62,13 @@ def train(config, args):
             if i > steps * 9.0/10:
                 for k, metric in enumerate(gan.session.run(metrics)):
                     sum_metrics[k] += metric 
+            if i % 300 == 0:
+                for k, metric in enumerate(gan.metrics().keys()):
+                    metric_value = gan.session.run(gan.metrics()[metric])
+                    print("--", metric,  metric_value)
+                    if math.isnan(metric_value) or math.isinf(metric_value):
+                        print("Breaking due to invalid metric")
+                        return None
 
         tf.reset_default_graph()
         gan.session.close()

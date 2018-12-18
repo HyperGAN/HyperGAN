@@ -10,11 +10,11 @@ class StaticBatchSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.encoder.z
+        z_t = gan.uniform_distribution.sample
         inputs_t = gan.inputs.x
 
         if self.z is None:
-            self.z = gan.encoder.z.eval()
+            self.z = gan.uniform_distribution.sample.eval()
             self.input = gan.session.run(gan.inputs.x)
 
         g=tf.get_default_graph()

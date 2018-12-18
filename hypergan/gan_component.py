@@ -1,7 +1,8 @@
 import hyperchamber as hc
 import inspect
 import itertools
-
+import types
+import tensorflow as tf
 
 class ValidationException(Exception):
     """
@@ -17,7 +18,7 @@ class GANComponent:
 
     GAN objects are also GANComponents.
     """
-    def __init__(self, gan, config):
+    def __init__(self, gan, config, name=None, reuse=False):
         """
         Initializes a gan component based on a `gan` and a `config` dictionary.
 
@@ -31,6 +32,13 @@ class GANComponent:
         if errors != []:
             raise ValidationException(self.__class__.__name__+": " +"\n".join(errors))
         self.create_ops(config)
+        self.ops.describe(name or self.__class__.__name__)
+        self._metrics = []
+
+        if reuse:
+            self.ops.reuse()
+
+        self.create()
 
     def create_ops(self, config):
         """
@@ -41,7 +49,13 @@ class GANComponent:
         if self.gan.ops_backend is None:
             return
         self.ops = self.gan.ops_backend(config=self.config, device=self.gan.device)
-        self.config = self.gan.ops.lookup(config)
+        self.config = self.ops.lookup(config)
+        # set functions correctly
+        for k,v in dict(self.config).items():
+            self.config[k] = self.ops.lookup(v)
+
+    def create(self, *args):
+        raise ValidationException("GANComponent.create() called directly.  Please override.")
 
     def required(self):
         """
@@ -105,9 +119,12 @@ class GANComponent:
             size = [bs//count] + [x for x in ops.shape(net)[1:]]
             nets.append(ops.slice(net, start, size))
             start[0] += bs//count
+        s[0] = s[0] // count
+        nets = [ops.reshape(net,s) for net in nets]
         return nets
 
     def reuse(self, net):
+        self.ops.scope_count=0
         self.ops.reuse()
         net = self.build(net)
         self.ops.stop_reuse()
@@ -116,7 +133,7 @@ class GANComponent:
     def layer_regularizer(self, net):
         symbol = self.config.layer_regularizer
         op = self.gan.ops.lookup(symbol)
-        if op:
+        if op and isinstance(op, types.FunctionType):
             net = op(self, net)
         return net
 
@@ -154,23 +171,47 @@ class GANComponent:
             results.append(net)
         return results
 
-    def relation_layer(self, net):
-        ops = self.ops
-
-        #hack
-        shape = ops.shape(net)
-        input_size = shape[1]*shape[2]*shape[3]
-
-        netlist = self.split_by_width_height(net)
-        permutations = self.permute(netlist, 2)
-        permutations = self.fully_connected_from_list(permutations)
-        net = ops.concat(permutations, axis=3)
-
-        #hack
-        bs = ops.shape(net)[0]
-        net = ops.reshape(net, [bs, -1])
-        net = ops.linear(net, input_size)
-        net = ops.reshape(net, shape)
-
+    def normalize(self, net):
+        if self.config.local_response_normalization:
+            net = tf.nn.local_response_normalization(net)
         return net
 
+    def progressive_growing_mask(self, index):
+        pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+        total_steps = self.gan.config.progressive_growing_steps or 100000
+        fade_amount = total_steps//(len(pe_layers)+1)
+        return self.measure_layers(fade_amount*index, fade_amount*(index+1))
+
+    def measure_layers(self, start, end):
+        global_step = tf.train.get_global_step()
+        global_step += end - start
+        start = tf.cast(start, tf.int32)
+        end = tf.cast(end, tf.int32)
+        ratio = (global_step - start)/(end - start)
+        ratio = tf.cast(ratio, tf.float32)
+        ratio = tf.maximum(tf.minimum(ratio, 1), 0)
+
+        return ratio
+
+    def inputs(self):
+        """inputs() returns any input tensors"""
+        return []
+
+    def add_metric(self, name, value):
+        """adds metric to monitor during training
+            name:string
+            value:Tensor
+        """
+        self._metrics.append({
+            "description": self.ops.description,
+            "name": name,
+            "value": value
+        })
+        return self._metrics
+
+    def metrics(self):
+        """returns a metric : tensor hash"""
+        metrics = {}
+        for metric in self._metrics:
+            metrics[metric['name']]=metric['value']
+        return metrics

@@ -8,7 +8,7 @@ import uuid
 import copy
 
 from hypergan.discriminators import *
-from hypergan.encoders import *
+from hypergan.distributions import *
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
@@ -24,129 +24,285 @@ from hypergan.gan_component import ValidationException, GANComponent
 from .base_gan import BaseGAN
 
 from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
-from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.trainers.multi_step_trainer import MultiStepTrainer
+from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
+from hypergan.trainers.consensus_trainer import ConsensusTrainer
 
 class AlphaGAN(BaseGAN):
     """ 
+      AlphaGAN, or α-GAN from https://arxiv.org/pdf/1706.04987.pdf
     """
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
-        self.discriminator = None
-        self.encoder = None
-        self.generator = None
-        self.loss = None
-        self.trainer = None
-        self.session = None
 
     def required(self):
-        return "generator discriminator z_discriminator g_encoder".split()
+        """
+        `input_encoder` is a discriminator.  It encodes X into Z
+        `z_discriminator` is another discriminator.  It takes as input the output of input_encoder and z
+        `discriminator` is a standard discriminator.  It measures X, reconstruction of X, and G.
+        `generator` produces two samples, input_encoder output and a known random distribution.
+        """
+        return "generator discriminator z_discriminator ".split()
 
     def create(self):
-        BaseGAN.create(self)
-        if self.session is None: 
-            self.session = self.ops.new_session(self.ops_config)
+        config = self.config
+        ops = self.ops
+
         with tf.device(self.device):
-            config = self.config
-            ops = self.ops
+            x_input = tf.identity(self.inputs.x, name='input')
 
-            g_encoder = dict(config.g_encoder or config.discriminator)
-            encoder = self.create_component(g_encoder)
-            encoder.ops.describe("g_encoder")
-            encoder.create(self.inputs.x)
-            encoder.z = tf.zeros(0)
-            if(len(encoder.sample.get_shape()) == 2):
-                s = ops.shape(encoder.sample)
-                encoder.sample = tf.reshape(encoder.sample, [s[0],s[1], 1, 1])
+            encoder = self.create_encoder(x_input)
+            self.encoder = encoder
+            z_shape = self.ops.shape(encoder.sample)
 
-            z_discriminator = dict(config.z_discriminator or config.discriminator)
-            z_discriminator['layer_filter']=None
+            uz_shape = z_shape
+            uz_shape[-1] = uz_shape[-1] // len(config.encoder.projections)
+            UniformDistribution = UniformDistribution(self, config.encoder, output_shape=uz_shape)
+            direction, slider = self.create_controls(self.ops.shape(UniformDistribution.sample))
+            z = UniformDistribution.sample + slider * direction
+            
+            #projected_encoder = UniformDistribution(self, config.encoder, z=encoder.sample)
 
-            encoder_discriminator = self.create_component(z_discriminator)
-            encoder_discriminator.ops.describe("z_discriminator")
-            standard_discriminator = self.create_component(config.discriminator)
-            standard_discriminator.ops.describe("discriminator")
+            z_discriminator = self.create_z_discriminator(UniformDistribution.sample, encoder.sample)
 
-            #encoder.sample = ops.reshape(encoder.sample, [ops.shape(encoder.sample)[0], -1])
-            uniform_encoder_config = config.encoder
-            z_size = 1
-            for size in ops.shape(encoder.sample)[1:]:
-                z_size *= size
-            uniform_encoder_config.z = z_size
-            uniform_encoder = UniformEncoder(self, uniform_encoder_config)
-            uniform_encoder.create()
+            feature_dim = len(ops.shape(z))-1
+            #stack_z = tf.concat([encoder.sample, z], feature_dim)
+            #stack_encoded = tf.concat([encoder.sample, encoder.sample], feature_dim)
+            stack_z = z
 
-            self.generator = self.create_component(config.generator)
+            generator = self.create_component(config.generator, input=stack_z)
+            self.uniform_sample = generator.sample
+            x_hat = generator.reuse(encoder.sample)
 
-            z = uniform_encoder.sample
-            x = self.inputs.x
+            if hasattr(generator, 'mask_single_channel'):
+                mask = generator.mask_single_channel
 
-            # project the output of the autoencoder
-            projection_input = ops.reshape(encoder.sample, [ops.shape(encoder.sample)[0],-1])
-            projections = []
-            for projection in uniform_encoder.config.projections:
-                projection = uniform_encoder.lookup(projection)(uniform_encoder.config, self.gan, projection_input)
-                projection = ops.reshape(projection, ops.shape(encoder.sample))
-                projections.append(projection)
-            z_hat = tf.concat(axis=3, values=projections)
+            encoder_loss = self.create_loss(config.eloss or config.loss, z_discriminator, z, encoder, 2)
+            if config.segments_included:
+                newsample = generator.reuse(stack_z, mask=generator.mask_single_channel)
+#                stacked = [x_input, generator.sample, newsample, x_hat]
+                stacked = [x_input, newsample, generator.sample, x_hat, generator.g1x, generator.g2x, generator.g3x]
+                #stacked = [x_input, g1x, g2x, newsample, generator.sample, x_hat]
+                #stacked = [x_input, newsample, generator.sample, x_hat]
+            elif config.simple_d:
+                stacked = [x_input, self.uniform_sample]
+            else:
+                stacked = [x_input, self.uniform_sample, x_hat]
 
-            z = ops.reshape(z, ops.shape(z_hat))
-            # end encoding
-
-            g = self.generator.create(z)
-            sample = self.generator.sample
-            self.uniform_sample = self.generator.sample
-            x_hat = self.generator.reuse(z_hat)
-
-            encoder_discriminator.create(x=z, g=z_hat)
-
-            eloss = dict(config.loss)
-            eloss['gradient_penalty'] = False
-            encoder_loss = self.create_component(eloss, discriminator = encoder_discriminator)
-            encoder_loss.create()
-
-            stacked_xg = ops.concat([x, x_hat, g], axis=0)
-            standard_discriminator.create(stacked_xg)
-
-            standard_loss = self.create_component(config.loss, discriminator = standard_discriminator)
-            standard_loss.create(split=3)
-
-            self.trainer = self.create_component(config.trainer)
+            stacked_xg = ops.concat(stacked, axis=0)
+            standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg)
+            standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
 
             #loss terms
-            distance = config.distance or ops.lookup('l1_distance')
-            cycloss = tf.reduce_mean(distance(self.inputs.x,x_hat))
-            cycloss_lambda = config.cycloss_lambda
-            if cycloss_lambda is None:
-                cycloss_lambda = 10
-            cycloss *= cycloss_lambda
-            loss1=('generator', cycloss + encoder_loss.g_loss)
-            loss2=('generator', cycloss + standard_loss.g_loss)
-            loss3=('discriminator', standard_loss.d_loss)
-            loss4=('discriminator', encoder_loss.d_loss)
+            cycloss = self.create_cycloss(x_input, x_hat)
+            z_cycloss = self.create_z_cycloss(UniformDistribution.sample, encoder.sample, encoder, generator)
 
-            var_lists = []
-            var_lists.append(encoder.variables())
-            var_lists.append(self.generator.variables())
-            var_lists.append(standard_discriminator.variables())
-            var_lists.append(encoder_discriminator.variables())
+            #first_pixel = tf.slice(generator.mask_single_channel, [0,0,0,0], [-1,1,1,-1]) + 1 # we want to minimize range -1 to 1
+            #cycloss += tf.reduce_sum(tf.reshape(first_pixel, [-1]), axis=0)
 
-            metrics = []
-            metrics.append(encoder_loss.metrics)
-            metrics.append(standard_loss.metrics)
-            metrics.append(None)
-            metrics.append(None)
+            if hasattr(generator, 'mask'): #TODO only segment
+                cycloss_whitening_lambda = config.cycloss_whitening_lambda or 0.01
+                cycloss += tf.reduce_mean(tf.reshape(0.5-tf.abs(generator.mask-0.5), [-1]), axis=0) * cycloss_whitening_lambda
 
-            # trainer
+            #if hasattr(generator, 'mask'): # TODO only multisegment
+            #    cycloss_single_channel_lambda = config.cycloss_single_channel_lambda or 0.01
+            #    m = tf.reduce_sum(generator.mask, 3)
+            #    cycloss += tf.reduce_mean(tf.reshape(tf.abs(1.0-m)/ops.shape(generator.mask)[3], [-1]), axis=0) * cycloss_single_channel_lambda
+            if hasattr(generator, 'mask'): # TODO only multisegment
+            #    cycloss_single_channel_lambda = config.cycloss_single_channel_lambda or 0.01
+                m = tf.reduce_mean(generator.mask, 1, keep_dims=True)
+                m = tf.reduce_mean(m, 2, keep_dims=True)
+                c = 0.1
+                cycloss += (c - tf.minimum(tf.reduce_min(m, 3, keep_dims=True), c))
+            #    cycloss += tf.reduce_mean(tf.reshape(tf.abs(1.0-m)/ops.shape(generator.mask)[3], [-1]), axis=0) * cycloss_single_channel_lambda
 
-            self.trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists, metrics=metrics)
-            self.trainer.create()
-
+            trainer = self.create_trainer(cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, z_discriminator)
             self.session.run(tf.global_variables_initializer())
 
-            self.encoder = encoder
-            self.uniform_encoder = uniform_encoder
+        self.trainer = trainer
+        self.generator = generator
+        self.uniform_distribution = uniform_encoder
+        self.slider = slider
+        self.direction = direction
+        self.z = z
+        self.z_hat = encoder.sample
+        self.x_input = x_input
+        self.autoencoded_x = x_hat
+        rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
+        self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
+        self.random_z = tf.random_uniform(ops.shape(UniformDistribution.sample), -1, 1, name='random_z')
+
+        if hasattr(generator, 'mask_generator'):
+            self.mask_generator = generator.mask_generator
+            self.mask = mask
+            self.autoencode_mask = generator.mask_generator.sample
+            self.autoencode_mask_3_channel = generator.mask
+
+    def create_loss(self, loss_config, discriminator, x, generator, split):
+        loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator.sample, split=split)
+        return loss
+
+    def create_controls(self, z_shape):
+        direction = tf.random_normal(z_shape, stddev=0.3, name='direction')
+        slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
+        return direction, slider
+
+    def create_encoder(self, x_input, name='input_encoder'):
+        config = self.config
+        input_encoder = dict(config.input_encoder or config.g_encoder or config.discriminator)
+        encoder = self.create_component(input_encoder, name=name, input=x_input)
+        return encoder
+
+    def create_z_discriminator(self, z, z_hat):
+        config = self.config
+        z_discriminator = dict(config.z_discriminator or config.discriminator)
+        z_discriminator['layer_filter']=None
+        net = tf.concat(axis=0, values=[z, z_hat])
+        encoder_discriminator = self.create_component(z_discriminator, name='z_discriminator', input=net)
+        return encoder_discriminator
+
+    def create_cycloss(self, x_input, x_hat):
+        config = self.config
+        ops = self.ops
+        distance = config.distance or ops.lookup('l1_distance')
+        pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+        cycloss_lambda = config.cycloss_lambda
+        if cycloss_lambda is None:
+            cycloss_lambda = 10
+        
+        if(len(pe_layers) > 0):
+            mask = self.progressive_growing_mask(len(pe_layers)//2+1)
+            cycloss = tf.reduce_mean(distance(mask*x_input,mask*x_hat))
+
+            cycloss *= mask
+        else:
+            cycloss = tf.reduce_mean(distance(x_input, x_hat))
+
+        cycloss *= cycloss_lambda
+        return cycloss
 
 
-    def step(self, feed_dict={}):
-        return self.trainer.step(feed_dict)
+    def create_z_cycloss(self, z, x_hat, encoder, generator):
+        config = self.config
+        ops = self.ops
+        total = None
+        distance = config.distance or ops.lookup('l1_distance')
+        if config.z_hat_lambda:
+            z_hat_cycloss_lambda = config.z_hat_cycloss_lambda
+            recode_z_hat = encoder.reuse(x_hat)
+            z_hat_cycloss = tf.reduce_mean(distance(z_hat,recode_z_hat))
+            z_hat_cycloss *= z_hat_cycloss_lambda
+        if config.z_cycloss_lambda:
+            recode_z = encoder.reuse(generator.reuse(z))
+            z_cycloss = tf.reduce_mean(distance(z,recode_z))
+            z_cycloss_lambda = config.z_cycloss_lambda
+            if z_cycloss_lambda is None:
+                z_cycloss_lambda = 0
+            z_cycloss *= z_cycloss_lambda
+
+        if config.z_hat_lambda and config.z_cycloss_lambda:
+            total = z_cycloss + z_hat_cycloss
+        elif config.z_cycloss_lambda:
+            total = z_cycloss
+        elif config.z_hat_lambda:
+            total = z_hat_cycloss
+        return total
+
+
+
+    def create_trainer(self, cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, encoder_discriminator):
+        if z_cycloss is not None:
+            loss1=('generator encoder', z_cycloss + cycloss + encoder_loss.g_loss)
+            loss2=('generator image', z_cycloss + cycloss + standard_loss.g_loss)
+            loss3=('discriminator image', standard_loss.d_loss)
+            loss4=('discriminator encoder', encoder_loss.d_loss)
+        else:
+            loss1=('generator encoder', cycloss + encoder_loss.g_loss)
+            loss2=('generator image',cycloss + standard_loss.g_loss)
+            loss3=('discriminator image', standard_loss.d_loss)
+            loss4=('discriminator encoder', encoder_loss.d_loss)
+
+        var_lists = []
+        var_lists.append(encoder.variables())
+        var_lists.append(generator.variables())
+        var_lists.append(standard_discriminator.variables())
+        var_lists.append(encoder_discriminator.variables())
+
+        metrics = []
+        metrics.append(None)
+        metrics.append(None)
+        metrics.append(standard_loss.metrics)
+        metrics.append(encoder_loss.metrics)
+
+        if self.config.trainer['class'] == ConsensusTrainer:
+            d_vars = standard_discriminator.variables() + encoder_discriminator.variables()
+            g_vars = generator.variables() + encoder.variables()
+            d_loss = standard_loss.d_loss + encoder_loss.d_loss
+            g_loss = encoder_loss.g_loss + standard_loss.g_loss + cycloss
+            #d_loss = standard_loss.d_loss
+            #g_loss = standard_loss.g_loss + cycloss
+            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
+                {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
+            trainer = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+        elif self.config.trainer['class'] == MultiTrainerTrainer:
+            d_vars = standard_discriminator.variables() 
+            g_vars = generator.variables()
+            d_loss = standard_loss.d_loss
+            g_loss = standard_loss.g_loss
+            if(self.config.cycloss_on_g):
+                g_loss += cycloss * self.config.cycloss_on_g
+            #d_loss = standard_loss.d_loss
+            #g_loss = standard_loss.g_loss + cycloss
+            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
+                {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
+            trainer1 = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+
+
+            d_vars = encoder_discriminator.variables()
+            g_vars = encoder.variables()
+            d_loss = encoder_loss.d_loss
+            g_loss = encoder_loss.g_loss + cycloss
+
+            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
+                {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
+            trainer2 = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+
+            trainer = MultiTrainerTrainer([trainer1, trainer2])
+        else:
+            trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists, metrics=metrics)
+        return trainer
+
+    def input_nodes(self):
+        "used in hypergan build"
+        if hasattr(self.generator, 'mask_generator'):
+            extras = [self.mask_generator.sample]
+        else:
+            extras = []
+        return extras + [
+                self.x_input,
+                self.slider, 
+                self.direction,
+                self.uniform_distribution.sample
+        ]
+
+
+    def output_nodes(self):
+        "used in hypergan build"
+
+    
+        if hasattr(self.generator, 'mask_generator'):
+            extras = [
+                self.mask_generator.sample, 
+                self.generator.g1x,
+                self.generator.g2x
+            ]
+        else:
+            extras = []
+        return extras + [
+                self.encoder.sample,
+                self.generator.sample, 
+                self.uniform_sample,
+                self.generator_int,
+                self.random_z
+        ]

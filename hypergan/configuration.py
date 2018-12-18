@@ -5,8 +5,11 @@ import glob
 class Configuration:
     def all_paths():
         dirname = os.path.dirname(os.path.realpath(__file__))
-        paths = [dirname + "/configurations/", os.path.abspath(os.path.expanduser('~/.hypergan/configs/'))+'/',
-                 os.path.abspath(os.path.relpath("."))+"/" ]
+        paths = [
+                 os.path.abspath(os.path.relpath("."))+"/", 
+                 dirname + "/configurations/", 
+                 os.path.abspath(os.path.expanduser('~/.hypergan/configs/'))+'/'
+                ]
         return paths
     def find(configuration):
         paths = Configuration.all_paths()

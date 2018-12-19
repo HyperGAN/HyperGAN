@@ -202,6 +202,12 @@ class GANComponent:
             name:string
             value:Tensor
         """
+        counters = 0
+        for m in self._metrics:
+            if name == m["name"] or m["name"].startswith(name):
+                counters += 1
+        if counters != 0:
+            name += "_"+str(counters+1)
         self._metrics.append({
             "description": self.ops.description,
             "name": name,

@@ -13,16 +13,16 @@ import hyperchamber as hc
 import inspect
 
 class CurlOptimizer(optimizer.Optimizer):
-  def __init__(self, learning_rate=0.001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=1, gamma=1):
+  def __init__(self, learning_rate=0.00001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=-1, gamma=1):
     super().__init__(use_locking, name)
     self._beta = beta
     self._rho = rho
     self._gamma = gamma
     self.gan = gan
     self.config = config
-    self._lr_t = learning_rate
-    self.g_rho = gan.configurable_param(self.config.g_rho)
-    self.d_rho = gan.configurable_param(self.config.d_rho)
+    self._lr_t = learning_rate or 1e-5
+    self.g_rho = gan.configurable_param(self.config.g_rho or 1)
+    self.d_rho = gan.configurable_param(self.config.d_rho or 1)
     if tf.contrib.framework.is_tensor(self.g_rho):
         self.gan.add_metric("g_rho", self.g_rho)
     if tf.contrib.framework.is_tensor(self.d_rho):

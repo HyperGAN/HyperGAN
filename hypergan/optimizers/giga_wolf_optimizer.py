@@ -110,12 +110,12 @@ class GigaWolfOptimizer(optimizer.Optimizer):
                     with tf.get_default_graph().control_dependencies([op5]):
                         zt1_xt1 = [_restored_vars - _xt1_vars for _restored_vars, _xt1_vars in zip(restored_vars, xt_vars)]
                         St1 = [tf.minimum(1.0, tf.norm(_zt1_vars-_zt_vars) / tf.norm(_zt1_xt1)) for _zt1_vars, _zt_vars, _zt1_xt1 in zip(restored_vars, zt_vars, zt1_xt1)]
-                        self.gan.add_metric('st1',tf.reduce_mean(St1[0]))
-                        self.gan.add_metric('xzt1',tf.norm(xt_vars[0]-zt_vars[0]))
+                        self.gan.add_metric('st1',tf.reduce_mean(tf.add_n(St1)/len(St1)))
+                        #self.gan.add_metric('xzt1',tf.norm(xt_vars[0]-zt_vars[0]))
                         nextw = [_xt_t1 + _St1 * _zt1_xt1 for _xt_t1, _St1, _zt1_xt1 in zip(xt_vars, St1, zt1_xt1)]
-                        op6 = tf.group(*[tf.assign(w, v) for w,v in zip(zt_vars, restored_vars)]) # new step
+                        op6 = tf.group(*[tf.assign(w, v) for w,v in zip(zt_vars, restored_vars)]) # set zt+1
                         with tf.get_default_graph().control_dependencies([op6]):
-                            op7 = tf.group(*[tf.assign(w, v) for w,v in zip(restored_vars, nextw)]) # store zt+1
+                            op7 = tf.group(*[tf.assign(w, v) for w,v in zip(restored_vars, nextw)]) # set xt+1
                             with tf.get_default_graph().control_dependencies([op7]):
                                 return tf.no_op()
 

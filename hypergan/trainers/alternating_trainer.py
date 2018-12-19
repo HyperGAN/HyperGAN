@@ -62,7 +62,9 @@ class AlternatingTrainer(BaseTrainer):
         for i in range(config.d_update_steps or 1):
             sess.run([self.d_optimizer_t], feed_dict)
 
+        self.before_step(self.current_step, feed_dict)
         metric_values = sess.run([self.g_optimizer_t] + self.output_variables(metrics), feed_dict)[1:]
+        self.after_step(self.current_step, feed_dict)
 
         if self.current_step % 10 == 0:
             print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)))

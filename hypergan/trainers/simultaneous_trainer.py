@@ -50,7 +50,9 @@ class SimultaneousTrainer(BaseTrainer):
 
         d_loss, g_loss = loss.sample
 
+        self.before_step(self.current_step, feed_dict)
         metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]
+        self.after_step(self.current_step, feed_dict)
 
         if self.current_step % 10 == 0:
             print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)))

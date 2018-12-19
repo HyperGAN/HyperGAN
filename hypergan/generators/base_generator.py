@@ -36,7 +36,7 @@ class BaseGenerator(GANComponent):
             gan.skip_connections.set('progressive_enhancement', split)
 
 
-    def layer_filter(self, net):
+    def layer_filter(self, net, layer=None, total_layers=None):
         """
             If a layer filter is defined, apply it.  Layer filters allow for adding information
             to every layer of the network.

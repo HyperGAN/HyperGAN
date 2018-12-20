@@ -54,7 +54,6 @@ class CurlOptimizer(optimizer.Optimizer):
             raise("Couldn't find var in g_vars or d_vars")
 
     with ops.init_scope():
-        gswap = [self._zeros_slot(v, "gswap", self._name) for _,v in grads_and_vars]
         v1 = [self._zeros_slot(v, "v1", self._name) for _,v in grads_and_vars]
         slots_list = []
         if self.config.include_slots:
@@ -63,7 +62,6 @@ class CurlOptimizer(optimizer.Optimizer):
                     slots_list.append(self._zeros_slot(var, "curl", "curl"))
     self._prepare()
 
-    gswap = [self.get_slot(v, "gswap") for _,v in grads_and_vars]
     v1 = [self.get_slot(v, "v1") for _,v in grads_and_vars]
     slots_list = []
     slots_vars = []
@@ -76,7 +74,6 @@ class CurlOptimizer(optimizer.Optimizer):
 
     restored_vars = var_list + slots_vars
     tmp_vars = v1 + slots_list
-    tmp_grads = gswap
     all_grads = [ g for g, _ in grads_and_vars ]
     # store variables for resetting
 
@@ -95,10 +92,11 @@ class CurlOptimizer(optimizer.Optimizer):
         )
         Jgrads = tf.gradients(consensus_reg, d_vars, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
 
-    op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
-    op2 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, all_grads)]) # store gradients
+    g1s = all_grads
 
-    with tf.get_default_graph().control_dependencies([op1, op2]):
+    op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
+
+    with tf.get_default_graph().control_dependencies([op1]):
         # store g2
         op3 = tf.group(*[tf.assign_sub(v, self._lr_t*grad) for grad,v in grads_and_vars])
         with tf.get_default_graph().control_dependencies([op3]):
@@ -131,7 +129,7 @@ class CurlOptimizer(optimizer.Optimizer):
                 g3s = [curlcombinecentral(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombinecentral(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
             else:
                 #forward
-                g3s = [curlcombine(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombine(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(gswap,g2s,v1,var_list)]
+                g3s = [curlcombine(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombine(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
             # restore v1, slots
             op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
             with tf.get_default_graph().control_dependencies([op5]):

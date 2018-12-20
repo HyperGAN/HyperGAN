@@ -15,11 +15,11 @@ import numpy as np
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class WeightConstraintTrainHook(BaseTrainHook):
-  def __init__(self, gan=None, config=None, trainer=None, name="WeightConstraintTrainHook"):
-    super().__init__(config=config, gan=gan, trainer=trainer, name=name)
-    allvars = gan.variables()
+  def after_create(self):
+    allvars = self.gan.variables()
     self.update_weight_constraints = [self._update_weight_constraint(v,i) for i,v in enumerate(allvars)]
     self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
+
   def _update_ortho(self,v,i):
     s = self.gan.ops.shape(v)
     if len(s) == 4 and s[0] == s[1]:

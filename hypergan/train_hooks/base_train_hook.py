@@ -30,3 +30,6 @@ class BaseTrainHook(GANComponent):
 
   def after_step(self, step, feed_dict):
     pass
+
+  def after_create(self):
+    pass

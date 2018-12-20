@@ -11,20 +11,7 @@ class BaseTrainer(GANComponent):
         self.d_shake = None
         self.g_shake = None
         self.train_hooks = []
-        for hook_config in (config.hooks or []):
-            hook_config = hc.lookup_functions(hook_config.copy())
-            defn = {k: v for k, v in hook_config.items() if k in inspect.getargspec(hook_config['class']).args}
-            defn['gan']=gan
-            defn['config']=hook_config
-            defn['trainer']=self
-            hook = hook_config["class"](**defn)
-            losses = hook.losses()
-            if losses[0] is not None:
-                gan.loss.sample[0] += losses[0]
-            if losses[1] is not None:
-                gan.loss.sample[1] += losses[1]
-            self.train_hooks.append(hook)
- 
+        
         GANComponent.__init__(self, gan, config, name=name)
 
     def _step(self, feed_dict):
@@ -39,19 +26,27 @@ class BaseTrainer(GANComponent):
         d_lr = config.d_learn_rate
         self.create_called = True
         self.global_step = tf.train.get_global_step()
-        decay_function = config.decay_function
-        if decay_function:
-            print("using decay function", decay_function)
-            decay_steps = config.decay_steps or 50000
-            decay_rate = config.decay_rate or 0.9
-            decay_staircase = config.decay_staircase or False
-            self.d_lr = decay_function(d_lr, self.global_step, decay_steps, decay_rate, decay_staircase)
-            self.g_lr = decay_function(g_lr, self.global_step, decay_steps, decay_rate, decay_staircase)
-        else:
-            self.d_lr = d_lr
-            self.g_lr = g_lr
+        self.d_lr = d_lr
+        self.g_lr = g_lr
+        for hook_config in (config.hooks or []):
+            hook_config = hc.lookup_functions(hook_config.copy())
+            defn = {k: v for k, v in hook_config.items() if k in inspect.getargspec(hook_config['class']).args}
+            defn['gan']=self.gan
+            defn['config']=hook_config
+            defn['trainer']=self
+            hook = hook_config["class"](**defn)
+            self.gan.components += [hook]
+            losses = hook.losses()
+            if losses[0] is not None:
+                self.gan.loss.sample[0] += losses[0]
+            if losses[1] is not None:
+                self.gan.loss.sample[1] += losses[1]
+            self.train_hooks.append(hook)
+ 
+        result = self._create()
 
-        return self._create()
+        for hook in self.train_hooks:
+            hook.after_create()
 
     def step(self, feed_dict={}):
         self.shake_weights()

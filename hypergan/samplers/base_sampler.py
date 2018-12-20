@@ -32,10 +32,10 @@ class BaseSampler:
 
 
     def replace_none(self, t):
-    """
-    This method replaces None with 0.
-    This can be used for sampling.  If sampling None, the viewer turns black and does not recover.
-    """
+        """
+        This method replaces None with 0.
+        This can be used for sampling.  If sampling None, the viewer turns black and does not recover.
+        """
         return tf.where(tf.is_nan(t),tf.zeros_like(t),t)
 
     def plot(self, image, filename, save_sample):

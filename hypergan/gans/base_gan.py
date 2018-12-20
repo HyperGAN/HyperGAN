@@ -208,7 +208,7 @@ class BaseGAN(GANComponent):
             self.gan.session.run(op, {var: val})
 
     def variables(self):
-        return self.ops.variables() + sum([c.variables() for c in self.components], [])
+        return list(set(self.ops.variables() + sum([c.variables() for c in self.components], [])))
 
     def weights(self):
         return self.ops.weights + sum([c.ops.weights for c in self.components], [])

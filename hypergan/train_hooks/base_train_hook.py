@@ -22,7 +22,6 @@ class BaseTrainHook(GANComponent):
   def create(self):
     pass
 
-
   def losses(self):
     return [None, None]
 

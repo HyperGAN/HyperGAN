@@ -17,18 +17,8 @@ class PotentialOptimizer(optimizer.Optimizer):
     super().__init__(use_locking, name)
     self.gan = gan
     self.config = config
-    def create_optimizer(klass, options):
-        options['gan']=self.gan
-        options['config']=options
-        defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-        learn_rate = options.learn_rate or options.learning_rate
-        if 'learning_rate' in options:
-            del defn['learning_rate']
-        return klass(learn_rate, **defn)
-
-    optimizer = hc.lookup_functions(optimizer)
     self.name = name
-    self.optimizer = create_optimizer(optimizer['class'], optimizer)
+    self.optimizer = self.gan.create_optimizer(optimizer)
  
   def _prepare(self):
     super()._prepare()

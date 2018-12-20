@@ -16,19 +16,9 @@ class AlternatingTrainer(BaseTrainer):
         d_loss, g_loss = loss.sample
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
-        def create_optimizer(klass, options):
-            options['gan']=self.gan
-            options['config']=options
-            defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-            learn_rate = options.learn_rate or options.learning_rate
-            if 'learning_rate' in options:
-                del defn['learning_rate']
-            return klass(learn_rate, **defn)
 
-        g_optimizer = hc.lookup_functions(config.g_optimizer or config.optimizer)
-        g_optimizer = create_optimizer(g_optimizer['class'], g_optimizer)
-        d_optimizer = hc.lookup_functions(config.d_optimizer or config.optimizer)
-        d_optimizer = create_optimizer(d_optimizer['class'], d_optimizer)
+        g_optimizer = self.gan.create_optimizer(config.g_optimizer or config.optimizer)
+        d_optimizer = self.gan.create_optimizer(config.d_optimizer or config.optimizer)
         
         d_grads = tf.gradients(d_loss, gan.d_vars())
         g_grads = tf.gradients(g_loss, gan.g_vars())

@@ -21,17 +21,9 @@ class GANOptimizer(optimizer.Optimizer):
     super().__init__(config.learn_rate, name=name)
     self.gan = gan
     self.config = config
-    def create_optimizer(klass, options):
-        options['gan']=self.gan
-        options['config']=options
-        defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-        return klass(options.learn_rate, **defn)
 
-    d_optimizer = hc.lookup_functions(d_optimizer)
-    g_optimizer = hc.lookup_functions(g_optimizer)
-
-    self.d_optimizer = create_optimizer(d_optimizer["class"], d_optimizer)
-    self.g_optimizer = create_optimizer(g_optimizer["class"], g_optimizer)
+    self.d_optimizer = self.gan.create_optimizer(d_optimizer)
+    self.g_optimizer = self.gan.create_optimizer(g_optimizer)
 
   def _prepare(self):
     super()._prepare()

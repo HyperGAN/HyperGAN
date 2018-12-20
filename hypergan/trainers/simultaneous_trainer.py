@@ -17,15 +17,7 @@ class SimultaneousTrainer(BaseTrainer):
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
-        optimizer = hc.lookup_functions(config.optimizer)
-        optimizer['gan']=self.gan
-        optimizer['config']=optimizer
-        defn = {k: v for k, v in optimizer.items() if k in inspect.getargspec(optimizer['class']).args}
-        lr = optimizer.learn_rate or optimizer.learning_rate
-        if 'learning_rate' in optimizer:
-            del defn['learning_rate']
-        tr = optimizer['class'](lr, **defn)
-        self.optimizer = tr
+        self.optimizer = self.gan.create_optimizer(config.optimizer)
 
         d_grads = tf.gradients(d_loss, gan.d_vars())
         g_grads = tf.gradients(g_loss, gan.g_vars())
@@ -34,7 +26,7 @@ class SimultaneousTrainer(BaseTrainer):
         self.d_loss = d_loss
         self.gan.trainer = self
 
-        self.optimize_t = tr.apply_gradients(apply_vec, global_step=self.global_step)
+        self.optimize_t = self.optimizer.apply_gradients(apply_vec, global_step=self.global_step)
 
         return self.optimize_t, self.optimize_t
 

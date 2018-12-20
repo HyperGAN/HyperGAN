@@ -5,6 +5,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.skip_connections import SkipConnections
 
 import os
+import inspect
 import hypergan as hg
 import tensorflow as tf
 
@@ -99,6 +100,20 @@ class BaseGAN(GANComponent):
             raise ValidationException("Component definition is missing '" + name + "'")
         print('class', defn['class'], self.ops.lookup(defn['class']))
         gan_component = self.ops.lookup(defn['class'])(self, defn, *args, **kw_args)
+        self.components.append(gan_component)
+        return gan_component
+
+    def create_optimizer(self, options):
+        options = hc.lookup_functions(options)
+        klass = options['class']
+        newopts = options.copy()
+        newopts['gan']=self.gan
+        newopts['config']=options
+        defn = {k: v for k, v in newopts.items() if k in inspect.getargspec(klass).args}
+        learn_rate = options.learn_rate or options.learning_rate
+        if 'learning_rate' in options:
+            del defn['learning_rate']
+        gan_component = klass(learn_rate, **defn)
         self.components.append(gan_component)
         return gan_component
 

@@ -128,9 +128,6 @@ class BaseGAN(GANComponent):
             raise ValidationException("gan.trainer is missing.  Cannot train.")
         return self.trainer.step(feed_dict)
 
-    def variables(self):
-        return self.ops.variables() + self.generator.variables() + self.discriminator.variables()
-
     def g_vars(self):
         return self.generator.variables()
     def d_vars(self):

@@ -223,7 +223,8 @@ class BaseGAN(GANComponent):
         for metric in self._metrics:
             metrics[metric['name']]=metric['value']
         for c in self.components:
-            metrics.update(c.metrics())
+            if "metrics" in inspect.getargspec(c.__class__).args:
+                metrics.update(c.metrics())
         return metrics
 
     def configurable_param(self, string):

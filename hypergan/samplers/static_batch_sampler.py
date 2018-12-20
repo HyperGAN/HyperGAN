@@ -8,6 +8,7 @@ class StaticBatchSampler(BaseSampler):
         self.z = None
         self.y = None
         self.x = None
+        self.g_t = self.replace_none(gan.generator.sample)
         self.rows = 4
         self.columns = 8
 
@@ -25,7 +26,7 @@ class StaticBatchSampler(BaseSampler):
         gs = []
         for i in range(int(needed)):
             zi = z[i*gan.batch_size():(i+1)*gan.batch_size()]
-            g = gan.session.run(gan.generator.sample, feed_dict={z_t: zi})
+            g = gan.session.run(self.g_t, feed_dict={z_t: zi})
             gs.append(g)
         g = np.hstack(gs)
         xshape = gan.ops.shape(gan.inputs.x)

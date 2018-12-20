@@ -49,31 +49,25 @@ class GigaWolfOptimizer(optimizer.Optimizer):
 
     with ops.init_scope():
         zt = [self._get_or_make_slot(v, v, "zt", self._name) for _,v in grads_and_vars]
-        xt = [self._get_or_make_slot(v, v, "xt", self._name) for _,v in grads_and_vars]
-        xt = [self._get_or_make_slot(v, v, "tmp", self._name) for _,v in grads_and_vars]
         slots_list = []
-        if self.config.include_slots:
-            for name in self.optimizer.get_slot_names():
-                for var in self.optimizer.variables():
-                    self._get_or_make_slot(var, var, "zt", "zt")
-                    self._get_or_make_slot(var, var, "xt", "xt")
-                    self._get_or_make_slot(var, var, "tmp", "tmp")
+        for name in self.optimizer.get_slot_names():
+            for var in self.optimizer.variables():
+                self._get_or_make_slot(var, var, "zt", "zt")
     self._prepare()
 
     zt = [self.get_slot(v, "zt") for _,v in grads_and_vars]
-    xt = [self.get_slot(v, "xt") for _,v in grads_and_vars]
-    tmp = [self.get_slot(v, "tmp") for _,v in grads_and_vars]
+    xt = [tf.Variable(v) for _,v in grads_and_vars]
+    tmp = [tf.Variable(v) for _,v in grads_and_vars]
     xslots_list = []
     zslots_list = []
     tmpslots_list = []
     slots_vars = []
-    if self.config.include_slots:
-        for name in self.optimizer.get_slot_names():
-            for var in self.optimizer.variables():
-                slots_vars += [var]
-                xslots_list.append(self._get_or_make_slot(var, var, "zt", "zt"))
-                zslots_list.append(self._get_or_make_slot(var, var, "xt", "xt"))
-                tmpslots_list.append(self._get_or_make_slot(var, var, "tmp", "tmp"))
+    for name in self.optimizer.get_slot_names():
+        for var in self.optimizer.variables():
+            slots_vars += [var]
+            xslots_list.append(tf.Variable(var))
+            zslots_list.append(self._get_or_make_slot(var, var, "xt", "xt"))
+            tmpslots_list.append(tf.Variable(var))
 
 
     restored_vars = var_list + slots_vars

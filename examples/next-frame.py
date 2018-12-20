@@ -237,7 +237,7 @@ class AliNextFrameGAN(BaseGAN):
 
             def build_g(zt, ct, reuse=True):
                 print("Gb", reuse,zt,ct)
-                g = self.create_component(config.generator, name='generator', input=ct, features=[zt], reuse=reuse)
+                g = self.create_component(config.generator, name='generator', input=ct, features={'z':zt,'c':ct}, reuse=reuse)
                 if not reuse:
                     self._g_vars += g.variables()
                 return g.sample

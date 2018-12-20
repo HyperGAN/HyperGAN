@@ -137,6 +137,10 @@ class WeightConstraintTrainHook(BaseTrainHook):
     return tf.assign(v, wi)
 
   def _update_weight_constraint(self,v,i):
+    if "AMSGrad" in v.name or "RMS" in v.name or "Adadelta" in v.name:
+      print("SKipping", v.name)
+      return None
+
     config = self.config
     #skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
     #skipped = [gan.discriminator.ops.weights[-1]]
@@ -161,6 +165,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
     result = [r for r in result if r is not None]
     if(len(result) == 0):
       return None
+    print("Weight constraints added for ", v)
     return tf.group(result)
 
   def before_step(self, step, feed_dict):

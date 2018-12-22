@@ -47,20 +47,21 @@ class SocialOptimizer(optimizer.Optimizer):
     w = [tf.Variable(0.5), tf.Variable(0.5)]
 
     Vidv = [self.gan.trainer.d_loss, self.gan.trainer.g_loss]
-    Vsoc = [1/2. * self.gan.trainer.d_loss + 1/2.* self.gan.trainer.g_loss for _ in range(2)]
+    #Vsoc = [1/2. * self.gan.trainer.d_loss + 1/2.* self.gan.trainer.g_loss, -1/2. * self.gan.trainer.d_loss - 1/2.* self.gan.trainer.g_loss]
+    Vsoc = [1/2. * self.gan.trainer.d_loss + 1/2.* self.gan.trainer.g_loss, 1/2. * self.gan.trainer.d_loss + 1/2.* self.gan.trainer.g_loss]
 
     wlr = self.config.w_learn_rate or 0.1
-    wt1 = [w[0] - wlr * (Vidv[0] - Vsoc[0]), w[1] - wlr * (Vidv[1] - Vsoc[1])]
+    wt1 = [w[0] + wlr * (Vidv[0] - Vsoc[0]), w[1] + wlr * (Vidv[1] - Vsoc[1])]
 
+    def clamped(net):
+        return tf.maximum(0., tf.minimum(net, 1.))
 
     self._prepare()
 
-    op1 = tf.group(*[tf.assign(w, v) for w,v in zip(w, wt1)]) # store variables
-    self.gan.add_metric('w-0', w[0])
-    self.gan.add_metric('w-1', w[1])
-    w = [tf.nn.sigmoid(w[0]),tf.nn.sigmoid(w[1])]
+    wt1 = [clamped(wt1[0]),clamped(wt1[1])]
     self.gan.add_metric('w0', w[0])
     self.gan.add_metric('w1', w[1])
+    op1 = tf.group(*[tf.assign(w, v) for w,v in zip(w, wt1)]) # store variables
 
     with tf.get_default_graph().control_dependencies([op1]):
         Vi = [(1. - w[0]) * Vidv[0] + w[0] * Vsoc[0],

@@ -286,8 +286,8 @@ class AliNextFrameGAN(BaseGAN):
                _fs = tf.concat(_features,axis=0)
                disc = self.create_component(config[name], name=name, input=_is, features=[_fs], reuse=reuse)
                l2 = self.create_loss(config.loss, disc, None, None, len(_inputs))
-               self.add_metric(metric, l2.d_loss)
-               self.add_metric(metric, l2.g_loss)
+               self.add_metric('d_'+metric, l2.d_loss)
+               self.add_metric('g_'+metric, l2.g_loss)
                return l2, disc.variables(), disc
 
             def mi(metric, name, _inputs, _features):
@@ -358,8 +358,8 @@ class AliNextFrameGAN(BaseGAN):
             if config.encode_alternate_path:
                 #stack += rotate(ugs[:-2], ugs[-2:]+ugs_next)
                 #features += rotate(ucs[:-2], ucs[-2:]+ucs_next)
-                stack.append(tf.concat([self.frames[1]]+alt_gs[1:-2], axis=axis))
-                features.append(tf.concat(alt_cs[:-2], axis=axis))
+                stack.append(tf.concat(alt_gs[:-2], axis=axis))
+                features.append(tf.concat(alt_cs[:-2], axis=caxis))
      
             if config.encode_re_ug:
                 stack.append(tf.concat(re_ugs[1:], axis=axis))
@@ -386,14 +386,6 @@ class AliNextFrameGAN(BaseGAN):
             #    stack += [tf.concat(gs_next[:-4],axis=axis)]
             #    features += [tf.concat(cs_next[:-4],axis=axis)]
 
-            #d = self.create_component(config.z_discriminator, name='d_img', input=tf.concat(features, axis=0), features=[None])
-            #_d = d
-            #d_vars += d.variables()
-            #l = self.create_loss(config.loss, d, None, None, len(stack))
-            #Ic =0.1 
-            #d_loss = 2*l.d_loss
-            #g_loss = 2*l.g_loss
-
             self.video_generator_last_z = uzs[0]
             self.video_generator_last_c = ucs[0]
             self.gs_next = gs_next
@@ -417,11 +409,28 @@ class AliNextFrameGAN(BaseGAN):
             #g_loss += gl
             #d_loss += dl
             #d_vars += dvs
-            l,dvs,disc = disc('m1', 'discriminator', stack, features)
+            l,dvs,disc = disc('loss', 'discriminator', stack, features)
             self.discriminator = disc
             g_loss = l.g_loss
             d_loss = l.d_loss
             d_vars += dvs
+
+            if config.use_z_discriminator:
+                _inputs = [zs[-1], re_uzs[0], re_uzs[-1], re_zs_next[1], re_zs_next[-1]]
+                d = self.create_component(config.z_discriminator, name='d_z', input=tf.concat(_inputs, axis=0), features=[None])
+                d_vars += d.variables()
+                l = self.create_loss(config.loss, d, None, None, len(_inputs))
+                g_loss += l.g_loss
+                d_loss += l.d_loss
+
+            if config.use_c_discriminator:
+                _inputs = [cs[-1], re_ucs[0], re_ucs[-1], re_cs_next[1], re_cs_next[-1]]
+                d = self.create_component(config.c_discriminator, name='d_c', input=tf.concat(_inputs, axis=0), features=[None])
+                d_vars += d.variables()
+                l = self.create_loss(config.loss, d, None, None, len(_inputs))
+                d_loss += l.d_loss
+                g_loss += l.g_loss
+
 
             if config.vae:
                 if(hasattr(self, "variational")):

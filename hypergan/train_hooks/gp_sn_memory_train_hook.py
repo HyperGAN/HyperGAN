@@ -19,10 +19,11 @@ class GpSnMemoryTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="GpSnMemoryTrainHook", memory_size=2, top_k=1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     gan_inputs = self.gan.inputs.x
-    latent_sample = self.gan.latent.sample
     if hasattr(self.gan.inputs, 'frames'):
         gan_inputs = tf.concat(self.gan.inputs.frames[1:], axis=3)
         latent_sample = self.gan.c0
+    else:
+        latent_sample = self.gan.latent.sample
     self.s_max = [ tf.Variable( tf.zeros_like(gan_inputs)) for i in range(memory_size)]
     self.d_lambda = config['lambda'] or 1
 

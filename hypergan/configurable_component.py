@@ -53,6 +53,7 @@ class ConfigurableComponent:
             "combine_features": self.layer_combine_features,
             "resnet": self.layer_resnet,
             "layer_filter": self.layer_filter,
+            "turing_test": self.layer_turing_test,
             "activation": self.layer_activation,
             "const": self.layer_const
             }
@@ -382,6 +383,14 @@ class ConfigurableComponent:
         activation_s = options.activation or self.config.defaults.activation
         activation = self.ops.lookup(activation_s)
         return activation(net)
+
+    def layer_turing_test(self, net, args, options):
+        """https://arxiv.org/pdf/1810.10948"""
+        options = hc.Config(options)
+        net2 = tf.reverse(net, [0])
+        net = tf.concat([net, net2], axis=3)
+        return net
+
     
     def layer_squash(self, net, args, options):
         s = self.ops.shape(net)

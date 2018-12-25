@@ -5,6 +5,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.skip_connections import SkipConnections
 
 import os
+import inspect
 import hypergan as hg
 import tensorflow as tf
 
@@ -102,6 +103,20 @@ class BaseGAN(GANComponent):
         self.components.append(gan_component)
         return gan_component
 
+    def create_optimizer(self, options):
+        options = hc.lookup_functions(options)
+        klass = options['class']
+        newopts = options.copy()
+        newopts['gan']=self.gan
+        newopts['config']=options
+        defn = {k: v for k, v in newopts.items() if k in inspect.getargspec(klass).args}
+        learn_rate = options.learn_rate or options.learning_rate
+        if 'learning_rate' in options:
+            del defn['learning_rate']
+        gan_component = klass(learn_rate, **defn)
+        self.components.append(gan_component)
+        return gan_component
+
     def create(self):
         raise ValidationException("BaseGAN.create() called directly.  Please override")
 
@@ -112,9 +127,6 @@ class BaseGAN(GANComponent):
         if self.trainer == None:
             raise ValidationException("gan.trainer is missing.  Cannot train.")
         return self.trainer.step(feed_dict)
-
-    def variables(self):
-        return self.ops.variables() + self.generator.variables() + self.discriminator.variables()
 
     def g_vars(self):
         return self.generator.variables()
@@ -196,7 +208,7 @@ class BaseGAN(GANComponent):
             self.gan.session.run(op, {var: val})
 
     def variables(self):
-        return self.ops.variables() + sum([c.variables() for c in self.components], [])
+        return list(set(self.ops.variables() + sum([c.variables() for c in self.components], [])))
 
     def weights(self):
         return self.ops.weights + sum([c.ops.weights for c in self.components], [])
@@ -211,7 +223,8 @@ class BaseGAN(GANComponent):
         for metric in self._metrics:
             metrics[metric['name']]=metric['value']
         for c in self.components:
-            metrics.update(c.metrics())
+            if "metrics" in inspect.getargspec(c.__class__).args:
+                metrics.update(c.metrics())
         return metrics
 
     def configurable_param(self, string):

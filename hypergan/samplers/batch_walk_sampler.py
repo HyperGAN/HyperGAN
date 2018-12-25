@@ -15,6 +15,9 @@ class BatchWalkSampler(BaseSampler):
         self.steps = []
         self.step_count = 30
         self.target = None
+        self.rows = 2
+        self.columns = 4
+        self.needed = int(self.rows*self.columns / gan.batch_size())
         #self.style_t = gan.styleb.sample
         #self.style_v = gan.session.run(self.style_t)
 
@@ -25,42 +28,52 @@ class BatchWalkSampler(BaseSampler):
         inputs_t = gan.inputs.x
 
         s=np.shape(gan.session.run(gan.latent.z))
-        bs = 32
+        bs = 16
         if self.z_start is None:
-            self.z_start = gan.session.run(gan.latent.z)[0]
-            targ = gan.session.run(gan.latent.z)[0]
+            self.z_start = [gan.session.run(gan.latent.z)[0] for _ in range(self.needed)]
         else:
-            self.z_start = self.steps[-1]
-            targ = gan.session.run(gan.latent.z)[0]
-        mask = np.linspace(0., 1., num=bs)
-        z = np.tile(np.expand_dims(np.reshape(self.z_start, [-1]), axis=0), [bs,1])
-        targ = np.tile(np.expand_dims(np.reshape(targ, [-1]), axis=0), [bs,1])
-        mask = np.tile(np.expand_dims(mask, axis=1), [1, np.shape(targ)[1]])
-        z_interp = np.multiply(1.0-mask,z) + mask*targ
-        z_interp = np.reshape(z_interp, [bs, -1])
-        #self.z_start = targ[-1]
-        return z_interp
+            print("UPDAING Z STARCT")
+            self.z_start = [self.steps[i][-1] for i in range(len(self.z_start))]
 
-    def sample(self, path, save_samples):
+        targ = [gan.session.run(gan.latent.z)[0] for _ in range(self.needed)]
+
+        z_interps = []
+        for i in range(len(self.z_start)):
+            mask = np.linspace(0., 1., num=bs)
+            z = np.tile(np.expand_dims(np.reshape(self.z_start[i], [-1]), axis=0), [bs,1])
+            tg = np.tile(np.expand_dims(np.reshape(targ[i], [-1]), axis=0), [bs,1])
+            mask = np.tile(np.expand_dims(mask, axis=1), [1, np.shape(self.z_start[i])[-1]])
+            z_interp = np.multiply(1.0-mask,z) + mask*tg
+            z_interps += [z_interp]
+        print('z_INT', np.shape(z_interps))
+        return z_interps
+
+    def _sample(self):
         gan = self.gan
         z_t = gan.latent.z
         inputs_t = gan.inputs.x
         self.step+=1
 
-        if(self.step >= len(self.steps)):
+        if(len(self.steps) == 0 or self.step >= len(self.steps[0])):
             self.steps = self.regenerate_steps()
             self.step=0
-        z = self.steps[self.step]
 
+        gs = []
+        for i in range(int(self.needed)):
+            z = self.steps[i][self.step]
+            z = np.expand_dims(z,axis=0)
+            g = gan.session.run(gan.generator.sample, feed_dict={z_t: z})
+            gs.append(g)
+        g = np.hstack(gs)
+        xshape = gan.ops.shape(gan.inputs.x)
+        g = np.reshape(gs, [self.rows, self.columns, xshape[1], xshape[2], xshape[3]])
+        g = np.concatenate(g, axis=1)
+        g = np.concatenate(g, axis=1)
+        g = np.expand_dims(g, axis=0)
+        return {
+            'generator': g
+        }
 
-        with gan.session.as_default():
-
-            z = np.reshape(z, [1, -1])
-            sample_data = gan.session.run(gan.generator.sample, feed_dict={z_t: z})
-            self.plot(sample_data, path, save_samples)
-            time.sleep(0.018)
-
-            return []
 
     def plot(self, image, filename, save_sample):
         """ Plot an image."""

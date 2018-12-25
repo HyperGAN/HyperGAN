@@ -13,31 +13,22 @@ import hyperchamber as hc
 import inspect
 
 class CurlOptimizer(optimizer.Optimizer):
-  def __init__(self, learning_rate=0.001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=1, gamma=1):
+  def __init__(self, learning_rate=0.00001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=-1, gamma=1):
     super().__init__(use_locking, name)
     self._beta = beta
     self._rho = rho
     self._gamma = gamma
     self.gan = gan
     self.config = config
-    self._lr_t = learning_rate
-    self.g_rho = gan.configurable_param(self.config.g_rho)
-    self.d_rho = gan.configurable_param(self.config.d_rho)
+    self._lr_t = learning_rate or 1e-5
+    self.g_rho = gan.configurable_param(self.config.g_rho or 1)
+    self.d_rho = gan.configurable_param(self.config.d_rho or 1)
     if tf.contrib.framework.is_tensor(self.g_rho):
         self.gan.add_metric("g_rho", self.g_rho)
     if tf.contrib.framework.is_tensor(self.d_rho):
         self.gan.add_metric("d_rho", self.d_rho)
-    def create_optimizer(klass, options):
-        options['gan']=self.gan
-        options['config']=options
-        defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-        learn_rate = options.learn_rate or options.learning_rate
-        if 'learning_rate' in options:
-            del defn['learning_rate']
-        return klass(learn_rate, **defn)
 
-    optimizer = hc.lookup_functions(optimizer)
-    self.optimizer = create_optimizer(optimizer['class'], optimizer)
+    self.optimizer = self.gan.create_optimizer(optimizer)
  
   def _prepare(self):
     super()._prepare()
@@ -63,7 +54,6 @@ class CurlOptimizer(optimizer.Optimizer):
             raise("Couldn't find var in g_vars or d_vars")
 
     with ops.init_scope():
-        gswap = [self._zeros_slot(v, "gswap", self._name) for _,v in grads_and_vars]
         v1 = [self._zeros_slot(v, "v1", self._name) for _,v in grads_and_vars]
         slots_list = []
         if self.config.include_slots:
@@ -72,7 +62,6 @@ class CurlOptimizer(optimizer.Optimizer):
                     slots_list.append(self._zeros_slot(var, "curl", "curl"))
     self._prepare()
 
-    gswap = [self.get_slot(v, "gswap") for _,v in grads_and_vars]
     v1 = [self.get_slot(v, "v1") for _,v in grads_and_vars]
     slots_list = []
     slots_vars = []
@@ -85,7 +74,6 @@ class CurlOptimizer(optimizer.Optimizer):
 
     restored_vars = var_list + slots_vars
     tmp_vars = v1 + slots_list
-    tmp_grads = gswap
     all_grads = [ g for g, _ in grads_and_vars ]
     # store variables for resetting
 
@@ -104,10 +92,11 @@ class CurlOptimizer(optimizer.Optimizer):
         )
         Jgrads = tf.gradients(consensus_reg, d_vars, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
 
-    op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
-    op2 = tf.group(*[tf.assign(w, v) for w,v in zip(gswap, all_grads)]) # store gradients
+    g1s = all_grads
 
-    with tf.get_default_graph().control_dependencies([op1, op2]):
+    op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
+
+    with tf.get_default_graph().control_dependencies([op1]):
         # store g2
         op3 = tf.group(*[tf.assign_sub(v, self._lr_t*grad) for grad,v in grads_and_vars])
         with tf.get_default_graph().control_dependencies([op3]):
@@ -140,7 +129,7 @@ class CurlOptimizer(optimizer.Optimizer):
                 g3s = [curlcombinecentral(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombinecentral(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
             else:
                 #forward
-                g3s = [curlcombine(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombine(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(gswap,g2s,v1,var_list)]
+                g3s = [curlcombine(g1,g2,v1,v2,self.config.d_curl,self.d_rho) if v2 in d_vars else curlcombine(g1,g2,v1,v2,self.config.g_curl,self.g_rho) for g1,g2,v1,v2 in zip(g1s,g2s,v1,var_list)]
             # restore v1, slots
             op5 = tf.group(*[ tf.assign(w,v) for w,v in zip(restored_vars, tmp_vars)])
             with tf.get_default_graph().control_dependencies([op5]):

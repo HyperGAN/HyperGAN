@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 from PIL import Image
 from hypergan.viewer import GlobalViewer
 
@@ -28,6 +29,14 @@ class BaseSampler:
             samples = [[sample_data, sample_name]]
 
             return [{'image':path, 'label':'sample'} for sample_data, sample_filename in samples]
+
+
+    def replace_none(self, t):
+        """
+        This method replaces None with 0.
+        This can be used for sampling.  If sampling None, the viewer turns black and does not recover.
+        """
+        return tf.where(tf.is_nan(t),tf.zeros_like(t),t)
 
     def plot(self, image, filename, save_sample):
         """ Plot an image."""

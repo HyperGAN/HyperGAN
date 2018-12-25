@@ -22,7 +22,6 @@ class BaseTrainHook(GANComponent):
   def create(self):
     pass
 
-
   def losses(self):
     return [None, None]
 
@@ -30,4 +29,7 @@ class BaseTrainHook(GANComponent):
     pass
 
   def after_step(self, step, feed_dict):
+    pass
+
+  def after_create(self):
     pass

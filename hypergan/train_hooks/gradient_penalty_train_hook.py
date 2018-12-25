@@ -18,7 +18,11 @@ from hypergan.train_hooks.base_train_hook import BaseTrainHook
 class GradientPenaltyTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="GpSnMemoryTrainHook", memory_size=2, top_k=1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
-    gan_inputs = self.gan.inputs.x
+    if hasattr(self.gan, 'x0'):
+        gan_inputs = self.gan.x0
+    else:
+        gan_inputs = self.gan.inputs.x
+
     self.s_max = [ tf.Variable( tf.zeros_like(gan_inputs)) for i in range(memory_size)]
     self.d_lambda = config['lambda'] or 1
 

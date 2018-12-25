@@ -18,25 +18,11 @@ class GigaWolfOptimizer(optimizer.Optimizer):
     self.gan = gan
     self.config = config
     self._lr_t = learning_rate
-    self.g_rho = gan.configurable_param(self.config.g_rho)
-    self.d_rho = gan.configurable_param(self.config.d_rho)
-    if tf.contrib.framework.is_tensor(self.g_rho):
-        self.gan.add_metric("g_rho", self.g_rho)
-    if tf.contrib.framework.is_tensor(self.d_rho):
-        self.gan.add_metric("d_rho", self.d_rho)
-    def create_optimizer(klass, options):
-        options['gan']=self.gan
-        options['config']=options
-        defn = {k: v for k, v in options.items() if k in inspect.getargspec(klass).args}
-        learn_rate = options.learn_rate or options.learning_rate
-        if 'learning_rate' in options:
-            del defn['learning_rate']
-        return klass(learn_rate, **defn)
 
     optimizer = hc.lookup_functions(optimizer)
-    self.optimizer = create_optimizer(optimizer['class'], optimizer)
+    self.optimizer = self.gan.create_optimizer(optimizer)
     optimizer2 = hc.lookup_functions(optimizer2)
-    self.optimizer2 = create_optimizer(optimizer['class'], optimizer2)
+    self.optimizer2 = self.gan.create_optimizer(optimizer2)
  
   def _prepare(self):
     super()._prepare()
@@ -63,31 +49,25 @@ class GigaWolfOptimizer(optimizer.Optimizer):
 
     with ops.init_scope():
         zt = [self._get_or_make_slot(v, v, "zt", self._name) for _,v in grads_and_vars]
-        xt = [self._get_or_make_slot(v, v, "xt", self._name) for _,v in grads_and_vars]
-        xt = [self._get_or_make_slot(v, v, "tmp", self._name) for _,v in grads_and_vars]
         slots_list = []
-        if self.config.include_slots:
-            for name in self.optimizer.get_slot_names():
-                for var in self.optimizer.variables():
-                    self._get_or_make_slot(var, var, "zt", "zt")
-                    self._get_or_make_slot(var, var, "xt", "xt")
-                    self._get_or_make_slot(var, var, "tmp", "tmp")
+        for name in self.optimizer.get_slot_names():
+            for var in self.optimizer.variables():
+                self._get_or_make_slot(var, var, "zt", "zt")
     self._prepare()
 
     zt = [self.get_slot(v, "zt") for _,v in grads_and_vars]
-    xt = [self.get_slot(v, "xt") for _,v in grads_and_vars]
-    tmp = [self.get_slot(v, "tmp") for _,v in grads_and_vars]
+    xt = [tf.Variable(v) for _,v in grads_and_vars]
+    tmp = [tf.Variable(v) for _,v in grads_and_vars]
     xslots_list = []
     zslots_list = []
     tmpslots_list = []
     slots_vars = []
-    if self.config.include_slots:
-        for name in self.optimizer.get_slot_names():
-            for var in self.optimizer.variables():
-                slots_vars += [var]
-                xslots_list.append(self._get_or_make_slot(var, var, "zt", "zt"))
-                zslots_list.append(self._get_or_make_slot(var, var, "xt", "xt"))
-                tmpslots_list.append(self._get_or_make_slot(var, var, "tmp", "tmp"))
+    for name in self.optimizer.get_slot_names():
+        for var in self.optimizer.variables():
+            slots_vars += [var]
+            xslots_list.append(tf.Variable(var))
+            zslots_list.append(self._get_or_make_slot(var, var, "xt", "xt"))
+            tmpslots_list.append(tf.Variable(var))
 
 
     restored_vars = var_list + slots_vars
@@ -110,12 +90,12 @@ class GigaWolfOptimizer(optimizer.Optimizer):
                     with tf.get_default_graph().control_dependencies([op5]):
                         zt1_xt1 = [_restored_vars - _xt1_vars for _restored_vars, _xt1_vars in zip(restored_vars, xt_vars)]
                         St1 = [tf.minimum(1.0, tf.norm(_zt1_vars-_zt_vars) / tf.norm(_zt1_xt1)) for _zt1_vars, _zt_vars, _zt1_xt1 in zip(restored_vars, zt_vars, zt1_xt1)]
-                        self.gan.add_metric('st1',tf.reduce_mean(St1[0]))
-                        self.gan.add_metric('xzt1',tf.norm(xt_vars[0]-zt_vars[0]))
+                        self.gan.add_metric('st1',tf.reduce_mean(tf.add_n(St1)/len(St1)))
+                        #self.gan.add_metric('xzt1',tf.norm(xt_vars[0]-zt_vars[0]))
                         nextw = [_xt_t1 + _St1 * _zt1_xt1 for _xt_t1, _St1, _zt1_xt1 in zip(xt_vars, St1, zt1_xt1)]
-                        op6 = tf.group(*[tf.assign(w, v) for w,v in zip(zt_vars, restored_vars)]) # new step
+                        op6 = tf.group(*[tf.assign(w, v) for w,v in zip(zt_vars, restored_vars)]) # set zt+1
                         with tf.get_default_graph().control_dependencies([op6]):
-                            op7 = tf.group(*[tf.assign(w, v) for w,v in zip(restored_vars, nextw)]) # store zt+1
+                            op7 = tf.group(*[tf.assign(w, v) for w,v in zip(restored_vars, nextw)]) # set xt+1
                             with tf.get_default_graph().control_dependencies([op7]):
                                 return tf.no_op()
 

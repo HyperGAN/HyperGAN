@@ -15,11 +15,11 @@ import numpy as np
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class WeightConstraintTrainHook(BaseTrainHook):
-  def __init__(self, gan=None, config=None, trainer=None, name="WeightConstraintTrainHook"):
-    super().__init__(config=config, gan=gan, trainer=trainer, name=name)
-    allvars = gan.variables()
+  def after_create(self):
+    allvars = self.gan.variables()
     self.update_weight_constraints = [self._update_weight_constraint(v,i) for i,v in enumerate(allvars)]
     self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
+
   def _update_ortho(self,v,i):
     s = self.gan.ops.shape(v)
     if len(s) == 4 and s[0] == s[1]:
@@ -137,6 +137,10 @@ class WeightConstraintTrainHook(BaseTrainHook):
     return tf.assign(v, wi)
 
   def _update_weight_constraint(self,v,i):
+    if "AMSGrad" in v.name or "RMS" in v.name or "Adadelta" in v.name:
+      print("SKipping", v.name)
+      return None
+
     config = self.config
     #skipped = [gan.generator.ops.weights[0], gan.generator.ops.weights[-1], gan.discriminator.ops.weights[0], gan.discriminator.ops.weights[-1]]
     #skipped = [gan.discriminator.ops.weights[-1]]
@@ -161,6 +165,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
     result = [r for r in result if r is not None]
     if(len(result) == 0):
       return None
+    print("Weight constraints added for ", v)
     return tf.group(result)
 
   def before_step(self, step, feed_dict):

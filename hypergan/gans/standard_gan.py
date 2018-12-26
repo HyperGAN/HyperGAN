@@ -63,7 +63,7 @@ class StandardGAN(BaseGAN):
                 self.latent = self.create_component(config.z_distribution or config.latent)
                 self.uniform_distribution = self.latent
             if self.generator is None and config.generator:
-                self.generator = self.create_component(config.generator, input=self.latent.sample)
+                self.generator = self.create_component(config.generator, name="generator", input=self.latent.sample)
                 self.autoencoded_x = self.generator.sample
                 self.uniform_sample = self.generator.sample
 

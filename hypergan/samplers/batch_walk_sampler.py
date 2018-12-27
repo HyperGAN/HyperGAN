@@ -24,18 +24,18 @@ class BatchWalkSampler(BaseSampler):
 
     def regenerate_steps(self):
         gan = self.gan
-        z_t = gan.latent.z
+        z_t = gan.latent.sample
         inputs_t = gan.inputs.x
 
-        s=np.shape(gan.session.run(gan.latent.z))
+        s=np.shape(gan.session.run(gan.latent.sample))
         bs = 16
         if self.z_start is None:
-            self.z_start = [gan.session.run(gan.latent.z)[0] for _ in range(self.needed)]
+            self.z_start = [gan.session.run(gan.latent.sample)[0] for _ in range(self.needed)]
         else:
             print("UPDAING Z STARCT")
             self.z_start = [self.steps[i][-1] for i in range(len(self.z_start))]
 
-        targ = [gan.session.run(gan.latent.z)[0] for _ in range(self.needed)]
+        targ = [gan.session.run(gan.latent.sample)[0] for _ in range(self.needed)]
 
         z_interps = []
         for i in range(len(self.z_start)):
@@ -50,7 +50,7 @@ class BatchWalkSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        z_t = gan.latent.z
+        z_t = gan.latent.sample
         inputs_t = gan.inputs.x
         self.step+=1
 

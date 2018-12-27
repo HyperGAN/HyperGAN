@@ -17,7 +17,7 @@ from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class IMLETrainHook(BaseTrainHook):
   """https://arxiv.org/pdf/1809.09087.pdf"""
-  def __init__(self, gan=None, config=None, trainer=None, name="ClosestExampleTrainHook", search_size=4, memory_size=1):
+  def __init__(self, gan=None, config=None, trainer=None, name="ClosestExampleTrainHook", search_size=4, memory_size=1, new_entries=-1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     self.x_matched = [ tf.Variable(tf.zeros_like(gan.generator.sample)) for j in range(memory_size)]
     self.latent_max = [ tf.Variable( tf.zeros_like(gan.latent.sample)) for i in range(search_size)]
@@ -27,6 +27,9 @@ class IMLETrainHook(BaseTrainHook):
 
     self.search_size = search_size
     self.memory_size = memory_size
+    self.new_entries = new_entries
+    if self.new_entries == -1:
+        self.new_entries = memory_size
 
     self.assign_latent_to_max = [[self.latent[j].assign(self.latent_max[i]) for i in range(search_size)] for j in range(memory_size)]
     self.assign_latent = [self.latent_max[i].assign(gan.latent.sample) for i in range(search_size)]
@@ -50,8 +53,6 @@ class IMLETrainHook(BaseTrainHook):
     self.l2_loss_on_g = l2_losses
 
     self.gan.add_metric('perceptual', self.l2_loss_on_saved)
-    self.gan.add_metric('latent', tf.reduce_sum(self.latent))
-    self.gan.add_metric('xm', tf.reduce_sum(self.x_matched))
 
   def losses(self):
       return [None, self.l2_loss_on_saved]
@@ -62,8 +63,19 @@ class IMLETrainHook(BaseTrainHook):
   def before_step(self, step, feed_dict):
     if step % (self.config.step_count or 1000) != 0:
       return
+
+    new_entries = self.new_entries
+    if step == 0:
+        new_entries = self.memory_size
+    #self.l2_loss_on_g = np.roll(self.l2_loss_on_g, new_entries)
+    #self.assign_latent_to_max = np.roll(self.assign_latent_to_max, new_entries)
+    #self.assign_x = np.roll(self.assign_x, new_entries)
+    #self.l2_loss_on_g = np.roll(self.l2_loss_on_g, new_entries)
+    self.x_matched = np.roll(self.x_matched, new_entries)
+    self.latent = np.roll(self.latent, new_entries)
+    self.gi = np.roll(self.gi, new_entries)
     print("[IMLE] recalculating likelihood")
-    for j in range(self.memory_size):
+    for j in range(new_entries):
         scores = []
         self.gan.session.run(self.assign_x[j])
         for i in range(self.search_size):

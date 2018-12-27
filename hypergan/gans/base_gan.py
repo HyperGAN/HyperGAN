@@ -118,7 +118,8 @@ class BaseGAN(GANComponent):
         return gan_component
 
     def create_generator(self, _input, reuse=False):
-        return self.gan.create_component(self.gan.config.generator, name='generator', input=_input, reuse=True)
+        return self.gan.create_component(self.gan.config.generator, name='generator', input=_input, reuse=reuse)
+
     def create(self):
         raise ValidationException("BaseGAN.create() called directly.  Please override")
 

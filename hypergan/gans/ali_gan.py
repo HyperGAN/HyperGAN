@@ -90,7 +90,6 @@ class AliGAN(BaseGAN):
                 else:
                     u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=z)
                     generator = self.create_component(config.generator, input=u_to_z.sample, name='generator')
-                    self.latent = u_to_z
                 stacked = [x_input, generator.sample]
                 self.generator = generator
 
@@ -209,6 +208,16 @@ class AliGAN(BaseGAN):
     def l1_distance(self):
         return self.inputs.x - self.autoencoded_x
 
+
+    def create_generator(self, _input, reuse=False):
+        config = self.config
+        if self.ops.shape(_input) == self.ops.shape(self.gan.latent.sample):
+            u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=_input, reuse=reuse)
+            generator = self.create_component(config.generator, input=u_to_z.sample, name='generator', reuse=reuse)
+        else:
+            generator = self.create_component(config.generator, input=_input, name='generator', reuse=reuse)
+
+        return generator
 
     def create_loss(self, loss_config, discriminator, x, generator, split, reuse=False):
         loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator.sample, split=split, reuse=reuse)

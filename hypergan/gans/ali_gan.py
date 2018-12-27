@@ -89,8 +89,8 @@ class AliGAN(BaseGAN):
                     generator = self.create_component(config.generator, input=u_to_z.sample, features=[style_sample], name='generator')
                 else:
                     u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=z)
-                    print(" U Z ", u_to_z.sample)
                     generator = self.create_component(config.generator, input=u_to_z.sample, name='generator')
+                    self.latent = u_to_z
                 stacked = [x_input, generator.sample]
                 self.generator = generator
 

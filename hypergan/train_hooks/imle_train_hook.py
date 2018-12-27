@@ -37,7 +37,7 @@ class IMLETrainHook(BaseTrainHook):
     l2_losses = tf.zeros([1])
     self.gi = []
     for j in range(memory_size):
-        self.gi.append(self.gan.create_component(self.gan.config.generator, name='generator', input=self.latent[j], reuse=True))
+        self.gi.append(self.gan.create_generator(self.latent[j], reuse=True))
         diff = tf.abs(self.gi[-1].sample-self.x_matched[j])
         n = tf.norm(diff, ord=2)
         l2_losses += tf.reduce_sum(diff/n)

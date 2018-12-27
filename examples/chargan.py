@@ -79,7 +79,7 @@ def train(config, inputs, args):
     with tf.device(args.device):
         s = [int(g) for g in gan.generator.sample.get_shape()]
         x_0 = gan.session.run(gan.inputs.x)
-        z_0 = gan.session.run(gan.encoder.z)
+        z_0 = gan.session.run(gan.latent.z)
 
         ax_sum = 0
         ag_sum = 0
@@ -99,7 +99,7 @@ def train(config, inputs, args):
 
 
             if i % args.sample_every == 0:
-                g, x_val = gan.session.run([gan.generator.sample, gan.inputs.x], {gan.encoder.z: z_0})
+                g, x_val = gan.session.run([gan.generator.sample, gan.inputs.x], {gan.latent.z: z_0})
                 bs = np.shape(x_val)[0]
                 samples+=1
                 print("X: "+inputs.sample_output(x_val[0]))

@@ -933,10 +933,12 @@ class ConfigurableComponent:
         #return tf.concat(pieces, axis=3)
 
     def layer_adaptive_instance_norm(self, net, args, options):
-        if 'w' not in self.named_layers:
-            print("ERROR: Could not find named generator layer 'w', add name=w to the input layer in your generator")
-            return None
-        f = self.named_layers['w']
+        if 'w' in options:
+            f = self.named_layers[options['w']]
+        else:
+            f = self.named_layers['w']
+        if f is None:
+            raise("ERROR: Could not find named generator layer 'w', add name=w to the input layer in your generator")
         if len(args) > 0:
             w = args[0]
         else:

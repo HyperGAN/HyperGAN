@@ -30,16 +30,18 @@ class SelfSupervisedTrainHook(BaseTrainHook):
         reuse = True
         if i == 0:
             reuse = False
-        shared = gan.create_component(gan.config.discriminator, name="discriminator", input=stacked, reuse=True).layers[-2]
+        shared = gan.create_component(gan.config.discriminator, name="discriminator", input=stacked, reuse=True).named_layers['shared']
         r = gan.create_component(config["r"], input=shared, reuse=reuse)
+        gan.discriminator.add_variables(r)
+        gan.generator.add_variables(r)
         labels = tf.one_hot(i, 4)
-        _gl = tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=r.sample[0])
-        _dl = tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=r.sample[1])
-        g_loss.append(_gl)
+        _dl = tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=r.sample[0])
+        _gl = tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=r.sample[1])
         d_loss.append(_dl)
+        g_loss.append(_gl)
 
-    self.g_loss = tf.add_n(g_loss)
-    self.d_loss = tf.add_n(d_loss)
+    self.g_loss = (self.config.alpha or 1.0) * tf.add_n(g_loss)
+    self.d_loss = (self.config.beta or 1.0) * tf.add_n(d_loss)
 
     self.gan.add_metric('ssgl', self.g_loss)
     self.gan.add_metric('ssdl', self.d_loss)

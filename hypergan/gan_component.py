@@ -103,6 +103,14 @@ class GANComponent:
         """
         return self.ops.variables()
 
+    def add_variables(self, gan_component):
+        """
+            Add additional variables from a gan component for training
+        """
+        self.ops.biases += gan_component.ops.biases
+        self.ops.weights += gan_component.ops.weights
+
+
     def split_batch(self, net, count=2):
         """ 
         Discriminators return stacked results (on axis 0).  

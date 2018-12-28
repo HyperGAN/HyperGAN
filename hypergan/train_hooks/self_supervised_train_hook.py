@@ -1,0 +1,56 @@
+#From https://gist.github.com/EndingCredits/b5f35e84df10d46cfa716178d9c862a3
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import state_ops
+from tensorflow.python.framework import ops
+from tensorflow.python.training import optimizer
+import tensorflow as tf
+import hyperchamber as hc
+import numpy as np
+import inspect
+from operator import itemgetter
+from hypergan.train_hooks.base_train_hook import BaseTrainHook
+
+class SelfSupervisedTrainHook(BaseTrainHook):
+  """https://arxiv.org/pdf/1810.11598v1.pdf"""
+  def __init__(self, gan=None, config=None, trainer=None, name="SelfSupervisedTrainHook"):
+    super().__init__(config=config, gan=gan, trainer=trainer, name=name)
+    g_loss = []
+    d_loss = []
+    x = gan.inputs.x
+    g = gan.generator.sample
+    for i in range(4):
+        _x = tf.image.rot90(x, i+1)
+        _g = tf.image.rot90(g, i+1)
+        stacked = tf.concat([_x, _g], axis=0)
+        reuse = True
+        if i == 0:
+            reuse = False
+        shared = gan.create_component(gan.config.discriminator, name="discriminator", input=stacked, reuse=True).layers[-2]
+        r = gan.create_component(config["r"], input=shared, reuse=reuse)
+        labels = tf.one_hot(i, 4)
+        _gl = tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=r.sample[0])
+        _dl = tf.nn.softmax_cross_entropy_with_logits_v2(labels=labels, logits=r.sample[1])
+        g_loss.append(_gl)
+        d_loss.append(_dl)
+
+    self.g_loss = tf.add_n(g_loss)
+    self.d_loss = tf.add_n(d_loss)
+
+    self.gan.add_metric('ssgl', self.g_loss)
+    self.gan.add_metric('ssdl', self.d_loss)
+
+  def losses(self):
+      return [self.d_loss, self.g_loss]
+
+  def after_step(self, step, feed_dict):
+      pass
+
+  def before_step(self, step, feed_dict):
+    if step % (self.config.step_count or 1000) != 0:
+      return
+

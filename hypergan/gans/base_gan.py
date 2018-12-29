@@ -120,6 +120,9 @@ class BaseGAN(GANComponent):
     def create_generator(self, _input, reuse=False):
         return self.gan.create_component(self.gan.config.generator, name='generator', input=_input, reuse=reuse)
 
+    def create_discriminator(self, _input, reuse=False):
+        return self.gan.create_component(self.gan.config.discriminator, name="discriminator", input=_input, reuse=True)
+
     def create(self):
         raise ValidationException("BaseGAN.create() called directly.  Please override")
 

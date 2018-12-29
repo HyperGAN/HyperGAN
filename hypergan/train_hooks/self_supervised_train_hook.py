@@ -21,17 +21,22 @@ class SelfSupervisedTrainHook(BaseTrainHook):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     g_loss = []
     d_loss = []
-    x = gan.inputs.x
-    g = gan.generator.sample
+    if hasattr(self.gan.inputs, 'frames'):
+        x = gan.x0#gan.inputs.x
+        g = gan.g0#gan.generator.sample
+    else:
+        x = gan.inputs.x
+        g = gan.generator.sample
+    reuse = False
     for i in range(4):
+        if gan.width() != gan.height() and i % 2 == 0:
+            continue
         _x = tf.image.rot90(x, i+1)
         _g = tf.image.rot90(g, i+1)
         stacked = tf.concat([_x, _g], axis=0)
-        reuse = True
-        if i == 0:
-            reuse = False
-        shared = gan.create_component(gan.config.discriminator, name="discriminator", input=stacked, reuse=True).named_layers['shared']
+        shared = gan.create_discriminator(stacked, reuse=True).named_layers['shared']
         r = gan.create_component(config["r"], input=shared, reuse=reuse)
+        reuse=True
         gan.discriminator.add_variables(r)
         gan.generator.add_variables(r)
         labels = tf.one_hot(i, 4)

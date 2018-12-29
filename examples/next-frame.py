@@ -241,6 +241,7 @@ class AliNextFrameGAN(BaseGAN):
                 g = self.create_component(config.generator, name='generator', input=ct, features={'z':zt,'c':ct}, reuse=reuse)
                 if not reuse:
                     self._g_vars += g.variables()
+                    self.generator = g
                 return g.sample
 
             def encode_frames(fs, c0, z0, reuse=True):
@@ -411,6 +412,7 @@ class AliNextFrameGAN(BaseGAN):
             #g_loss += gl
             #d_loss += dl
             #d_vars += dvs
+            self.features = features
             l,dvs,disc = disc('loss', 'discriminator', stack, features)
             self.discriminator = disc
             g_loss = l.g_loss
@@ -448,8 +450,7 @@ class AliNextFrameGAN(BaseGAN):
 
             gx_sample = gen.sample
             gy_sample = gen.sample
-            gx = hc.Config({"sample":gx_sample})
-            self.generator = gx
+            self.generator.sample = gx_sample
             gy = hc.Config({"sample":gy_sample})
 
             last_frame = tf.slice(gy_sample, [0,0,0,0], [-1, -1, -1, 3])
@@ -488,6 +489,14 @@ class AliNextFrameGAN(BaseGAN):
 
     def fitness_inputs(self):
         return self.inputs.frames
+
+    def create_discriminator(self, _input, reuse=False):
+        config = self.config
+        gan = self.gan
+        print("___", _input, self.g0, self.x0)
+        _fs = tf.concat([tf.zeros_like(self.c0),tf.zeros_like(self.c0)],axis=0)
+        disc = self.create_component(config.discriminator, name='discriminator', input=_input, features=[_fs], reuse=reuse)
+        return disc
 
     def create_loss(self, loss_config, discriminator, x, generator, split):
         loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator, split=split)

@@ -59,24 +59,13 @@ class MultiImageLoader:
             imgs.append(float_image)
 
         # Generate a batch of images and labels by building up a queue of examples.
-        xs = self._get_data(imgs)
+        self.dataset = tf.data.Dataset.from_tensor_slices(imgs).batch(self.batch_size).shuffle(batch_size*10).repeat()
+        iterator = dataset.initializable_iterator()
 
-        self.xs = xs
+        self.xs = self.dataset
         self.xa = xs[0]
         self.xb = xs[1]
         self.x = xs[1]
-        return xs
-
-    def _get_data(self, imgs):
-        batch_size = self.batch_size
-        num_preprocess_threads = 24
-        xs = [tf.train.shuffle_batch(
-            [img],
-            batch_size=batch_size,
-            num_threads=num_preprocess_threads,
-            capacity= batch_size*10,
-            min_after_dequeue=batch_size)
-            for img in imgs]
         return xs
 
     def inputs(self):

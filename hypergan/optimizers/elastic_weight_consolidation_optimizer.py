@@ -63,8 +63,9 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
 
     grads = tf.gradients(self.loss, var_list)
     f_accum = [(self.config.f_decay or 0.95) * f + tf.square(g) for f, g in zip(f1, grads)]
+    self.gan.add_metric('f1',tf.reduce_sum([tf.reduce_sum(f) for f in f1]))
 
-    reg = [tf.multiply(f, d) for f,d in zip(f_accum, diff)]
+    reg = [tf.multiply(f, d) for f,d in zip(f1, diff)]
     ewc_loss = (self.config.lam or 17.5)/2.0 * tf.reduce_sum([tf.reduce_sum(r) for r in reg])
     self.gan.add_metric('ewc',ewc_loss)
 

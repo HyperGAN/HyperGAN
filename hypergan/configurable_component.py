@@ -55,6 +55,7 @@ class ConfigurableComponent:
             "layer_filter": self.layer_filter,
             "turing_test": self.layer_turing_test,
             "activation": self.layer_activation,
+            "knowledge_base": self.layer_knowledge_base,
             "const": self.layer_const
             }
         self.features = features
@@ -966,3 +967,10 @@ class ConfigurableComponent:
         options = hc.Config(options)
 
         return getattr(self.gan, options.src).layer(options.name)
+
+    def layer_knowledge_base(self, net, args, options):
+        if not hasattr(self, 'knowledge_base'):
+            self.knowledge_base = []
+        kb = tf.Variable(tf.zeros_like(net), dtype=tf.float32, trainable=False)
+        self.knowledge_base.append([options['name'], kb])
+        return tf.concat([net, kb], axis=-1)

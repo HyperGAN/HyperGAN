@@ -17,8 +17,12 @@ class AlternatingTrainer(BaseTrainer):
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
-        g_optimizer = self.gan.create_optimizer(config.g_optimizer or config.optimizer)
-        d_optimizer = self.gan.create_optimizer(config.d_optimizer or config.optimizer)
+        g_optimizer = config.g_optimizer or config.optimizer
+        d_optimizer = config.d_optimizer or config.optimizer
+        d_optimizer["loss"] = d_loss
+        g_optimizer["loss"] = g_loss
+        g_optimizer = self.gan.create_optimizer(g_optimizer)
+        d_optimizer = self.gan.create_optimizer(d_optimizer)
         
         d_grads = tf.gradients(d_loss, gan.d_vars())
         g_grads = tf.gradients(g_loss, gan.g_vars())

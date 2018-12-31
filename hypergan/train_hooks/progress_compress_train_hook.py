@@ -40,17 +40,27 @@ class ProgressCompressTrainHook(BaseTrainHook):
     def kl_divergence(_p, _q):
         return tf.reduce_sum(_p * tf.log(_p/(_q+EPS)+EPS))
 
-    self.kb_loss = self.gan.create_component(gan.config.loss, discriminator=self.kb, split=2)
+    if self.config.method == 'gan':
+        bs = gan.batch_size()
+        gl=tf.concat([tf.reshape(gan.loss.sample[0], [bs, 1]), tf.reshape(self.kb.sample[0], [bs, 1])],axis=0)
+        self.kb_d = gan.create_component(self.config.knowledge_discriminator, name="kb_d", input=gl)
+        self.kb_loss = self.gan.create_loss(self.kb_d)
+        self.loss = self.kb_loss.sample[0] + self.kb_loss.sample[1]
+        variables = self.kb_d.variables()
+        variables += self.kb.variables()
+    else:
+        self.kb_loss = self.gan.create_component(gan.config.loss, discriminator=self.kb, split=2)
 
-    self.loss = kl_divergence(gan.loss.sample[0], self.kb_loss.sample[0])
-    if self.config.kl_on_d_fake:
-        self.loss = kl_divergence(gan.loss.d_real, self.kb_loss.d_real)
-    if self.config.kl_on_g:
-        self.loss += kl_divergence(gan.loss.sample[1], self.kb_loss.sample[1])
+        self.loss = kl_divergence(gan.loss.sample[0], self.kb_loss.sample[0])
+        if self.config.kl_on_d_fake:
+            self.loss = kl_divergence(gan.loss.d_real, self.kb_loss.d_real)
+        if self.config.kl_on_g:
+            self.loss += kl_divergence(gan.loss.sample[1], self.kb_loss.sample[1])
+        variables = self.kb.variables()
     config["optimizer"]["loss"] = self.loss
     self.optimizer = self.gan.create_optimizer(config["optimizer"])
-    grads = tf.gradients(self.loss, self.kb.variables())
-    apply_vec = list(zip(grads, self.kb.variables())).copy()
+    grads = tf.gradients(self.loss, variables)
+    apply_vec = list(zip(grads, variables)).copy()
     self.optimize_t = self.optimizer.apply_gradients(apply_vec, global_step=gan.global_step)
 
     self.gan.add_metric('kbl', self.kb_loss.sample[0])
@@ -64,16 +74,13 @@ class ProgressCompressTrainHook(BaseTrainHook):
     if step % (self.config.step_count or 1) != 0:
       return
     # compress
-    self.gan.session.run(self.optimize_t)
-
-  def before_step(self, step, feed_dict):
-    if step % (self.config.step_count or 1) != 0:
-      return
+    for i in range(self.config.night_steps or 1):
+        self.gan.session.run(self.optimize_t)
     if self.config.reinitialize_every:
         if step % (self.config.reinitialize_every)==0 and step > 0:
             print("Reinitializing active D")
             self.gan.session.run(self.re_init_d)
 
-    self.gan.session.run([self.assign_x, self.assign_g])
-    self.gan.session.run(self.assign_knowledge_base)
+  def before_step(self, step, feed_dict):
+    self.gan.session.run([self.assign_x, self.assign_g]+ self.assign_knowledge_base)
 

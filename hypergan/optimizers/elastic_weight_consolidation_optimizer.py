@@ -36,7 +36,7 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     var_list = [v for _,v in grads_and_vars]
     with ops.init_scope():
-        f_accum = [self._zeros_slot(v, "f", self._name) for v in var_list]
+        f1 = [self._zeros_slot(v, "f", self._name) for v in var_list]
 
     with ops.init_scope():
         v1 = [self._get_or_make_slot(v, v, "v1", self._name) for v in var_list]
@@ -59,9 +59,9 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
     current_vars = var_list + slots_vars
     tmp_vars = v1 + slots_list
 
-    diff = [tf.square(v-t) for v,t in zip(var_list, tmp_vars)]
+    diff = [tf.square(v-t) for v,t in zip(current_vars, tmp_vars)]
 
-    grads = tf.gradients(self.loss, var_list)
+    grads = tf.gradients(self.loss, current_vars)
     f_accum = [(self.config.f_decay or 0.95) * f + tf.square(g) for f, g in zip(f1, grads)]
     self.gan.add_metric('f1',tf.reduce_sum([tf.reduce_sum(f) for f in f1]))
 
@@ -71,10 +71,10 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
 
     save_weights = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, current_vars)]) # store variables
 
-    new_grads = tf.gradients(ewc_loss, var_list)
-    step = self.optimizer.apply_gradients(list(zip(new_grads, var_list)).copy(), global_step=global_step, name=name)
+    new_grads = tf.gradients(self.loss+ewc_loss, current_vars)
+    step = self.optimizer.apply_gradients(list(zip(new_grads, current_vars)).copy(), global_step=global_step, name=name)
 
-    store_f = tf.group(*[tf.assign(w, v) for w,v in zip(f1, f_accum)]) # store tmp_vars
+    store_f = tf.group(*[tf.assign(w, v) for w,v in zip(f1, f_accum)])
     with tf.get_default_graph().control_dependencies([store_f]):
         with tf.get_default_graph().control_dependencies([step]):
             with tf.get_default_graph().control_dependencies([save_weights]):

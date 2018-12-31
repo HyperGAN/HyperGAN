@@ -42,7 +42,9 @@ class ProgressCompressTrainHook(BaseTrainHook):
 
     if self.config.method == 'gan':
         bs = gan.batch_size()
-        gl=tf.concat([tf.reshape(gan.loss.sample[0], [bs, 1]), tf.reshape(self.kb.sample[0], [bs, 1])],axis=0)
+        real = tf.reshape(gan.loss.sample[:2], [bs, 2])
+        fake = tf.reshape(self.kb.sample, [bs, 2])
+        gl = tf.concat([real, fake], axis=0)
         self.kb_d = gan.create_component(self.config.knowledge_discriminator, name="kb_d", input=gl)
         self.kb_loss = self.gan.create_loss(self.kb_d)
         self.loss = self.kb_loss.sample[0] + self.kb_loss.sample[1]

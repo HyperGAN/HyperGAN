@@ -198,6 +198,7 @@ class AliNextFrameGAN(BaseGAN):
             dist4 = UniformDistribution(self, config.z_distribution)
             dist5 = UniformDistribution(self, config.z_distribution)
             uz = self.create_component(config.uz, name='u_to_z', input=dist.sample)
+            self.latent = uz
             uc = self.create_component(config.uc, name='u_to_c', input=dist2.sample)
             uz2 = self.create_component(config.uz, name='u_to_z', input=dist3.sample, reuse=True)
             uc2 = self.create_component(config.uc, name='u_to_c', input=dist4.sample, reuse=True)
@@ -240,6 +241,7 @@ class AliNextFrameGAN(BaseGAN):
                 g = self.create_component(config.generator, name='generator', input=ct, features={'z':zt,'c':ct}, reuse=reuse)
                 if not reuse:
                     self._g_vars += g.variables()
+                    self.generator = g
                 return g.sample
 
             def encode_frames(fs, c0, z0, reuse=True):
@@ -323,6 +325,7 @@ class AliNextFrameGAN(BaseGAN):
                 ugs, ucs, uzs = build_sim(uz.sample, uc.sample, len(self.frames))
             alt_gs, alt_cs, alt_zs = build_sim(zs[1], cs[1], len(self.frames))
             self.ucs = ucs
+            self.uzs = uzs
             self.alt_cs = alt_cs
             self.alt_zs = alt_zs
             ugs_next, ucs_next, uzs_next = build_sim(uzs[-1], ucs[-1], len(self.frames))
@@ -409,6 +412,7 @@ class AliNextFrameGAN(BaseGAN):
             #g_loss += gl
             #d_loss += dl
             #d_vars += dvs
+            self.features = features
             l,dvs,disc = disc('loss', 'discriminator', stack, features)
             self.discriminator = disc
             g_loss = l.g_loss
@@ -416,7 +420,7 @@ class AliNextFrameGAN(BaseGAN):
             d_vars += dvs
 
             if config.use_z_discriminator:
-                _inputs = [zs[-1], re_uzs[0], re_uzs[-1], re_zs_next[1], re_zs_next[-1]]
+                _inputs = [zs[-1]]+re_uzs+re_zs_next
                 d = self.create_component(config.z_discriminator, name='d_z', input=tf.concat(_inputs, axis=0), features=[None])
                 d_vars += d.variables()
                 l = self.create_loss(config.loss, d, None, None, len(_inputs))
@@ -424,7 +428,7 @@ class AliNextFrameGAN(BaseGAN):
                 d_loss += l.d_loss
 
             if config.use_c_discriminator:
-                _inputs = [cs[-1], re_ucs[0], re_ucs[-1], re_cs_next[1], re_cs_next[-1]]
+                _inputs = [cs[-1]]+re_ucs+re_cs_next
                 d = self.create_component(config.c_discriminator, name='d_c', input=tf.concat(_inputs, axis=0), features=[None])
                 d_vars += d.variables()
                 l = self.create_loss(config.loss, d, None, None, len(_inputs))
@@ -446,7 +450,7 @@ class AliNextFrameGAN(BaseGAN):
 
             gx_sample = gen.sample
             gy_sample = gen.sample
-            gx = hc.Config({"sample":gx_sample})
+            self.generator.sample = gx_sample
             gy = hc.Config({"sample":gy_sample})
 
             last_frame = tf.slice(gy_sample, [0,0,0,0], [-1, -1, -1, 3])
@@ -467,7 +471,6 @@ class AliNextFrameGAN(BaseGAN):
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
-        self.generator = gx
         self.z_hat = gy.sample
         self.x_input = self.inputs.frames[0]
 
@@ -487,9 +490,20 @@ class AliNextFrameGAN(BaseGAN):
     def fitness_inputs(self):
         return self.inputs.frames
 
+    def create_discriminator(self, _input, reuse=False):
+        config = self.config
+        gan = self.gan
+        print("___", _input, self.g0, self.x0)
+        _fs = tf.concat([tf.zeros_like(self.c0),tf.zeros_like(self.c0)],axis=0)
+        disc = self.create_component(config.discriminator, name='discriminator', input=_input, features=[_fs], reuse=reuse)
+        return disc
+
     def create_loss(self, loss_config, discriminator, x, generator, split):
         loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator, split=split)
         return loss
+
+    def create_generator(self, _input, reuse=False):
+        return self.create_component(self.config.generator, name='generator', input=self.ucs[0], features={'z':_input,'c':self.ucs[0]}, reuse=reuse)
 
     def create_encoder(self, x_input, name='input_encoder', reuse=False):
         config = self.config

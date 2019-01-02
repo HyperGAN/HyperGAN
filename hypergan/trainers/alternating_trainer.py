@@ -17,8 +17,12 @@ class AlternatingTrainer(BaseTrainer):
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
 
-        g_optimizer = self.gan.create_optimizer(config.g_optimizer or config.optimizer)
-        d_optimizer = self.gan.create_optimizer(config.d_optimizer or config.optimizer)
+        g_optimizer = config.g_optimizer or config.optimizer
+        d_optimizer = config.d_optimizer or config.optimizer
+        d_optimizer["loss"] = d_loss
+        g_optimizer["loss"] = g_loss
+        g_optimizer = self.gan.create_optimizer(g_optimizer)
+        d_optimizer = self.gan.create_optimizer(d_optimizer)
         
         d_grads = tf.gradients(d_loss, gan.d_vars())
         g_grads = tf.gradients(g_loss, gan.g_vars())
@@ -49,10 +53,10 @@ class AlternatingTrainer(BaseTrainer):
 
         d_loss, g_loss = loss.sample
 
+        self.before_step(self.current_step, feed_dict)
         for i in range(config.d_update_steps or 1):
             sess.run([self.d_optimizer_t], feed_dict)
 
-        self.before_step(self.current_step, feed_dict)
         metric_values = sess.run([self.g_optimizer_t] + self.output_variables(metrics), feed_dict)[1:]
         self.after_step(self.current_step, feed_dict)
 

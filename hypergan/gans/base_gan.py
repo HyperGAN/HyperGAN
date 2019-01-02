@@ -117,6 +117,15 @@ class BaseGAN(GANComponent):
         self.components.append(gan_component)
         return gan_component
 
+    def create_loss(self, discriminator, reuse=False, split=2):
+        loss = self.create_component(self.config.loss, discriminator = discriminator, split=split, reuse=reuse)
+        return loss
+    def create_generator(self, _input, reuse=False):
+        return self.gan.create_component(self.gan.config.generator, name='generator', input=_input, reuse=reuse)
+
+    def create_discriminator(self, _input, reuse=False):
+        return self.gan.create_component(self.gan.config.discriminator, name="discriminator", input=_input, reuse=True)
+
     def create(self):
         raise ValidationException("BaseGAN.create() called directly.  Please override")
 
@@ -223,8 +232,10 @@ class BaseGAN(GANComponent):
         for metric in self._metrics:
             metrics[metric['name']]=metric['value']
         for c in self.components:
-            if "metrics" in inspect.getargspec(c.__class__).args:
+            try:
                 metrics.update(c.metrics())
+            except AttributeError:
+                pass
         return metrics
 
     def configurable_param(self, string):

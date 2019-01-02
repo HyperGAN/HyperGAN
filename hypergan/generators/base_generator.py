@@ -11,17 +11,11 @@ class BaseGenerator(GANComponent):
     """
         Superclass for all Generators.  Provides some common functionality.
     """
-    def create(self, sample=None):
+    def create(self):
         """
-            Creates new weights for `sample`.  Defaults to `gan.encoder.sample`
+        Create graph
         """
-        gan = self.gan
-        ops = self.ops
-        if sample is None:
-            sample = self.input
-        if sample is None:
-            sample = gan.encoder.sample
-        self.sample = self.build(sample)
+        self.sample = self.build(self.input)
         return self.sample
 
     def add_progressive_enhancement(self, net):

@@ -20,7 +20,7 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 * [Changelog](#changelog)
 * [Quick start](#quick-start)
   * [Minimum Requirements](#minimum-requirements)
-  * [Create a new project](#create-a-new-project)
+  * [Create a new model](#create-a-new-model)
   * [Install](#install)
   * [Train](#train)
   * [Increasing Performance](#increasing-performance)
@@ -47,7 +47,6 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
    * [Categories](#categorical-loss)
    * [Supervised](#supervised-loss)
   * [Trainers](#trainers)
-* [Domain Specific Language Reference](#dsl-reference)
 * [Datasets](#datasets)
   * [Unsupervised learning](#unsupervised-learning)
   * [Supervised learning](#supervised-learning)
@@ -70,26 +69,23 @@ HyperGAN is a community project.  GANs are a very new and active field of resear
 
 ## Features
 
-* 100% community project
+* Community project
+* Transfer learning
+* Online learning
+* Dataset agnostic
 * Reproducible architectures using json configurations
 * Domain Specific Language to define custom architectures
 * API
-* Builds graphs that can run on consumer hardware, like phones and web browsers
-* Trainable on consumer hardware
-* Dataset agnostic
-* Combine different components to build your own GAN
-* Transfer learning
-* Optimistic loading allows for network changes at train time
 
 
 # Showcase
 
-Coming... eventually
+See the[![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
 
 # Documentation
 
-## API Documentation
-
+ * [Model author JSON reference](json.md)
+ * [Model author tutorial 1](tutorial1.md)
  * [0.10.0](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
  * [0.9.x](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)
  * [Test coverage](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/coverage/index.html)
@@ -103,10 +99,7 @@ See the full changelog here:
 
 ## Minimum requirements
 
-1. For 256x256, we recommend a GTX 1080 or better.  32x32 can be run on lower-end GPUs.
-2. CPU training is _extremely_ slow.  Use a GPU if you can!
-3. Python3
-
+For 1024x1024, GTX 1080+
 
 ## Install
 
@@ -141,7 +134,7 @@ If the above step fails see the dependency documentation:
 * pygame  - http://www.pygame.org/wiki/GettingStarted
 
 
-## Create a new project
+## Create a new model
 
 ```bash
   hypergan new mymodel
@@ -188,7 +181,6 @@ cd hypergan
 python3 setup.py develop
 ```
 
-
 ## Running on CPU
 
 Make sure to include the following 2 arguments:
@@ -197,7 +189,6 @@ Make sure to include the following 2 arguments:
 CUDA_VISIBLE_DEVICES= hypergan --device '/cpu:0'
 ```
 Don't train on CPU!  It's too slow.
-
 
 # The pip package hypergan
 
@@ -238,42 +229,10 @@ To see a detailed list, run
   hypergan -h
 ```
 
-# API
-
-See the API documentation at https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html
-
-```python3
-  import hypergan as hg
-```
-
 Examples
 --------
 
 See the example documentation https://github.com/255BITS/HyperGAN/tree/master/examples
-
-## Search
-
-Each example is capable of random search.  You can search along any set of parameters, including loss functions, trainers, generators, etc.
-
-
-# Domain Specific Language Reference
-
-
-## Defaults
-
-Defaults can be defined, such as activation and stride.
-
-## Common layers
-
-Common DSL operations:
-
-`linear [outputs] (options)`
-`conv [output filters] (options)`
-`deconv [output filters] (options)`
-`resize_conv [output filters] (options)`
-`attention (options)` 
-
-And more.  See configurable_component.py for details.
 
 # Datasets
 
@@ -293,227 +252,22 @@ Datasets in HyperGAN are meant to be simple to create.  Just use a folder of ima
 
 For jpg(pass `-f jpg`)
 
-# Configuration
-
-Configuration in HyperGAN uses JSON files.  You can create a new config with the default template by running `hypergan new mymodel`.
-
-You can see all templates with `hypergan new mymodel -l`.
-
-
-## Architecture
-
-A hypergan configuration contains all hyperparameters for reproducing the full GAN.
-
-In the original DCGAN you will have one of the following components:
-
-* Distribution(latent space)
-* Generator
-* Discriminator
-* Loss
-* Trainer
-
-
-Other architectures may differ.  See the configuration templates.
-
-## GANComponent
-
-A base class for each of the component types listed below.
-
-## ConfigurableComponent
-
-Hypergan comes with a simple DSL to design your own network architectures.  A ConfigurableComponent can be used to create
-custom designs when building your models.
-
-For example, a discriminator component can be defined as:
-
-```json
-...
-"class":"...",
-"layers": [
-  "conv 32 activation=relu stride=2",
-  "conv 64 activation=relu stride=2",
-  "conv 128 activation=relu stride=2",
-  "conv 256 activation=relu stride=2",
-  "linear 1 activation=null",
-]
-...
-```
-This means to create a network composed of 4 convolution layers that decrease along stride and increase filter size, ending in a linear.
-
-For a full list of possible layers, see the [Domain Specific Language Reference](#dsl-reference).
-
-
-## Generator
-
-A generator is responsible for projecting an encoding (sometimes called *z space*) to an output (normally an image).  A single GAN object from HyperGAN has one generator.
-
-## Distributions
-
-Sometimes referred to as the `z-space` representation or `latent space`.  In `dcgan` the 'distribution' is random uniform noise.
-
-Can be thought of as input to the `generator`.
-
-
-### Uniform Distribution
-
-| attribute   | description | type
-|:----------:|:------------:|:----:|
-| z | The dimensions of random uniform noise inputs | int > 0
-| min | Lower bound of the random uniform noise | int
-| max | Upper bound of the random uniform noise | int > min
-| projections | See more about projections below | [f(config, gan, net):net, ...]
-| modes | If using modes, the number of modes to have per dimension | int > 0
-
-
-### Projections
-
-This distribution takes a random uniform value and outputs it as many possible types.  The primary idea is that you are able to query Z as a random uniform distribution, even if the gan is using a spherical representation.
-
-Some projection types are listed below.
-
-#### "identity" projection
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-linear.png'/>
-
-#### "sphere" projection
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-sphere.png'/>
-
-#### "gaussian" projection
-
-<img src='https://raw.githubusercontent.com/255BITS/HyperGAN/master/doc/encoder-linear-gaussian.png'/>
-
-#### "modal" projection
-
-One of many
-
-#### "binary" projection
-
-On/Off
-
-
-### Category Distribution
-
-Uses categorical prior to choose 'one-of-many' options.
-
-
-## Discriminators
-
-A discriminator's main purpose(sometimes called a critic) is to separate out G from X, and to give the Generator
-a useful error signal to learn from.
-
-
-## DSL
-
-Each component in the GAN can be specified with a flexible DSL inside the JSON file.
-
-## Losses
-
-## WGAN
-
-Wasserstein Loss is simply:
-
-```python
- d_loss = d_real - d_fake
- g_loss = d_fake
-```
-
-d_loss and g_loss can be reversed as well - just add a '-' sign.
-
-## Least-Squares GAN
-
-```python
- d_loss = (d_real-b)**2 - (d_fake-a)**2
- g_loss = (d_fake-c)**2
-```
-
-a, b, and c are all hyperparameters.
-
-### Standard GAN and Improved GAN
-
-Includes support for Improved GAN.  See `hypergan/losses/standard_gan_loss.py` for details.
-
-### Boundary Equilibrium Loss
-
-Use with the `AutoencoderDiscriminator`.
-
-See the `began` configuration template.
-
-### Loss configuration
-
-| attribute   | description | type
-|:----------:|:------------:|:----:|
-| batch_norm | batch_norm_1, layer_norm_1, or None | f(batch_size, name)(net):net
-| create | Called during graph creation | f(config, gan, net):net
-| discriminator |  Set to restrict this loss to a single discriminator(defaults to all) | int >= 0 or None
-| label_smooth | improved gan - Label smoothing. | float > 0
-| labels | lsgan - A triplet of values containing (a,b,c) terms. | [a,b,c] floats
-| reduce | Reduces the output before applying loss | f(net):net
-| reverse | Reverses the loss terms, if applicable | boolean
-
-## Trainers
-
-Determined by the GAN implementation.  These variables are the same across all trainers.
-
-### Consensus
-
-Consensus trainers trains G and D at the same time.  Resize Conv is known to not work with this technique(PR welcome).
-
-#### Configuration
-
-| attribute   | description | type
-|:----------:|:------------:|:----:|
-| learn_rate | Learning rate for the generator | float >= 0
-| beta1 | (adam) | float >= 0
-| beta2 | (adam)  | float >= 0
-| epsilon | (adam)  | float >= 0
-| decay | (rmsprop)  | float >= 0
-| momentum | (rmsprop)  | float >= 0
-
-
-### Alternating
-
-Original GAN training.  Locks generator weights while training the discriminator, and vice-versa.
-
-#### Configuration
-
-| attribute   | description | type
-|:----------:|:------------:|:----:|
-| g_learn_rate | Learning rate for the generator | float >= 0
-| g_beta1 | (adam) | float >= 0
-| g_beta2 | (adam)  | float >= 0
-| g_epsilon | (adam)  | float >= 0
-| g_decay | (rmsprop)  | float >= 0
-| g_momentum | (rmsprop)  | float >= 0
-| d_learn_rate | Learning rate for the discriminator | float >= 0
-| d_beta1 | (adam) | float >= 0
-| d_beta2 | (adam)  | float >= 0
-| d_epsilon | (adam)  | float >= 0
-| d_decay | (rmsprop)  | float >= 0
-| d_momentum | (rmsprop)  | float >= 0
-| clipped_gradients | If set, gradients will be clipped to this value. | float > 0 or None
-| d_clipped_weights | If set, the discriminator will be clipped by value. |float > 0 or None
-
-
-### Fitness
-
-Only trains on good z candidates.
-
-### Curriculum
-
-Train on a schedule.
-
-### Gang
-
-An evolution based trainer that plays a subgame between multiple generators/discriminators.
-
-
 ## Downloadable datasets
 
+* Loose images of any kind can be used(minimum 400)
 * CelebA aligned faces http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
 * MS Coco http://mscoco.org/
 * ImageNet http://image-net.org/
 * youtube-dl (see [examples/Readme.md](examples/Readme.md))
+
+## Cleaning up data
+
+To convert and resize your data for processing, you can use imagemagick
+
+```
+for i in *.jpg; do; convert $i  -resize "300x256" -gravity north   -extent 256x256 -format png -crop 256x256+0+0 +repage $i-256x256.png;done
+
+```
 
 # Contributing
 
@@ -561,11 +315,9 @@ Generative Adversarial Networks - https://arxiv.org/pdf/1706.04987.pdf
 
 # Citation
 
-If you wish to cite this project, do so like this:
-
 ```
   HyperGAN Community
-  HyperGAN, (2017-2018+), 
+  HyperGAN, (2016-2019+), 
   GitHub repository, 
   https://github.com/255BITS/HyperGAN
 ```

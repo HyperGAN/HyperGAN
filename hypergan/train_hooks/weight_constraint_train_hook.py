@@ -137,7 +137,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
     return tf.assign(v, wi)
 
   def _update_weight_constraint(self,v,i):
-    if "AMSGrad" in v.name or "RMS" in v.name or "Adadelta" in v.name:
+    if "Adam" in v.name or "AMSGrad" in v.name or "RMS" in v.name or "Adadelta" in v.name:
       print("SKipping", v.name)
       return None
 

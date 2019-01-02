@@ -37,16 +37,6 @@ class GigaWolfOptimizer(optimizer.Optimizer):
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     var_list = [ v for _,v in grads_and_vars]
-    d_vars = []
-    g_vars = []
-    for grad,var in grads_and_vars:
-        if var in self.gan.d_vars():
-            d_vars += [var]
-        elif var in self.gan.g_vars():
-            g_vars += [var]
-        else:
-            raise("Couldn't find var in g_vars or d_vars")
-
     with ops.init_scope():
         zt = [self._get_or_make_slot(v, v, "zt", self._name) for _,v in grads_and_vars]
         slots_list = []

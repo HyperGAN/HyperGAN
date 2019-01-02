@@ -55,6 +55,7 @@ class ConfigurableComponent:
             "layer_filter": self.layer_filter,
             "turing_test": self.layer_turing_test,
             "activation": self.layer_activation,
+            "knowledge_base": self.layer_knowledge_base,
             "const": self.layer_const
             }
         self.features = features
@@ -933,10 +934,12 @@ class ConfigurableComponent:
         #return tf.concat(pieces, axis=3)
 
     def layer_adaptive_instance_norm(self, net, args, options):
-        if 'w' not in self.named_layers:
-            print("ERROR: Could not find named generator layer 'w', add name=w to the input layer in your generator")
-            return None
-        f = self.named_layers['w']
+        if 'w' in options:
+            f = self.named_layers[options['w']]
+        else:
+            f = self.named_layers['w']
+        if f is None:
+            raise("ERROR: Could not find named generator layer 'w', add name=w to the input layer in your generator")
         if len(args) > 0:
             w = args[0]
         else:
@@ -964,3 +967,10 @@ class ConfigurableComponent:
         options = hc.Config(options)
 
         return getattr(self.gan, options.src).layer(options.name)
+
+    def layer_knowledge_base(self, net, args, options):
+        if not hasattr(self, 'knowledge_base'):
+            self.knowledge_base = []
+        kb = tf.Variable(tf.zeros_like(net), dtype=tf.float32, trainable=False)
+        self.knowledge_base.append([options['name'], kb])
+        return tf.concat([net, kb], axis=-1)

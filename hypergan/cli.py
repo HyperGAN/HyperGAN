@@ -289,8 +289,6 @@ class CLI:
                 print("Initializing new model")
             else:
                 print("Model loaded")
-            self.gan.train_coordinator = tf.train.Coordinator()
-            self.gan.input_threads = tf.train.start_queue_runners(sess=self.gan.session, coord=self.gan.train_coordinator)
             self.train()
             if not self.args.nosave:
                 self.gan.save(self.save_file)

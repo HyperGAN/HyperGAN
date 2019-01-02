@@ -42,16 +42,21 @@ class CurlOptimizer(optimizer.Optimizer):
     return self.optimizer._apply_dense(grad, var)
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
-    var_list = [ v for _,v in grads_and_vars]
     d_vars = []
     g_vars = []
+    d_grads = []
+    g_grads = []
     for grad,var in grads_and_vars:
         if var in self.gan.d_vars():
             d_vars += [var]
+            d_grads += [grad]
         elif var in self.gan.g_vars():
             g_vars += [var]
+            g_grads += [grad]
         else:
             raise("Couldn't find var in g_vars or d_vars")
+
+    var_list = d_vars + g_vars
 
     with ops.init_scope():
         v1 = [self._zeros_slot(v, "v1", self._name) for _,v in grads_and_vars]
@@ -62,7 +67,7 @@ class CurlOptimizer(optimizer.Optimizer):
                     slots_list.append(self._zeros_slot(var, "curl", "curl"))
     self._prepare()
 
-    v1 = [self.get_slot(v, "v1") for _,v in grads_and_vars]
+    v1 = [self.get_slot(v, "v1") for v in var_list]
     slots_list = []
     slots_vars = []
     if self.config.include_slots:
@@ -74,25 +79,21 @@ class CurlOptimizer(optimizer.Optimizer):
 
     restored_vars = var_list + slots_vars
     tmp_vars = v1 + slots_list
-    all_grads = [ g for g, _ in grads_and_vars ]
     # store variables for resetting
 
-    consensus_grads = all_grads#[:len(d_vars)]
-    if self.config.g_beta is None:
-        consensus_grads = all_grads[:len(d_vars)]
-
     if self.config.beta_type == 'sga':
-        Jgrads = tf.gradients(consensus_grads, d_vars, grad_ys=consensus_grads, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
+        Jgrads = tf.gradients(d_grads, d_vars, grad_ys=d_grads, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
     elif self.config.beta_type == 'magnitude':
-        consensus_reg = [tf.square(g) for g in consensus_grads if g is not None]
+        consensus_reg = [tf.square(g) for g in d_grads if g is not None]
         Jgrads = tf.gradients(consensus_reg, d_vars) + [tf.zeros_like(g) for g in g_vars]
     else:
         consensus_reg = 0.5 * sum(
-                tf.reduce_sum(tf.square(g)) for g in consensus_grads if g is not None
+                tf.reduce_sum(tf.square(g)) for g in d_grads if g is not None
         )
+        print("DV",d_vars)
         Jgrads = tf.gradients(consensus_reg, d_vars, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
 
-    g1s = all_grads
+    g1s = d_grads + g_grads
 
     op1 = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, restored_vars)]) # store variables
 

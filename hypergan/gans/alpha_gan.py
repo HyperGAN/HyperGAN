@@ -58,13 +58,13 @@ class AlphaGAN(BaseGAN):
 
             uz_shape = z_shape
             uz_shape[-1] = uz_shape[-1] // len(config.encoder.projections)
-            UniformDistribution = UniformDistribution(self, config.encoder, output_shape=uz_shape)
-            direction, slider = self.create_controls(self.ops.shape(UniformDistribution.sample))
-            z = UniformDistribution.sample + slider * direction
+            latent = UniformDistribution(self, config.encoder, output_shape=uz_shape)
+            direction, slider = self.create_controls(self.ops.shape(latent.sample))
+            z = latent.sample + slider * direction
             
             #projected_encoder = UniformDistribution(self, config.encoder, z=encoder.sample)
 
-            z_discriminator = self.create_z_discriminator(UniformDistribution.sample, encoder.sample)
+            z_discriminator = self.create_z_discriminator(latent.sample, encoder.sample)
 
             feature_dim = len(ops.shape(z))-1
             #stack_z = tf.concat([encoder.sample, z], feature_dim)
@@ -93,10 +93,11 @@ class AlphaGAN(BaseGAN):
             stacked_xg = ops.concat(stacked, axis=0)
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg)
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
+            self.loss = standard_loss
 
             #loss terms
             cycloss = self.create_cycloss(x_input, x_hat)
-            z_cycloss = self.create_z_cycloss(UniformDistribution.sample, encoder.sample, encoder, generator)
+            z_cycloss = self.create_z_cycloss(latent.sample, encoder.sample, encoder, generator)
 
             #first_pixel = tf.slice(generator.mask_single_channel, [0,0,0,0], [-1,1,1,-1]) + 1 # we want to minimize range -1 to 1
             #cycloss += tf.reduce_sum(tf.reshape(first_pixel, [-1]), axis=0)
@@ -235,42 +236,7 @@ class AlphaGAN(BaseGAN):
         metrics.append(standard_loss.metrics)
         metrics.append(encoder_loss.metrics)
 
-        if self.config.trainer['class'] == ConsensusTrainer:
-            d_vars = standard_discriminator.variables() + encoder_discriminator.variables()
-            g_vars = generator.variables() + encoder.variables()
-            d_loss = standard_loss.d_loss + encoder_loss.d_loss
-            g_loss = encoder_loss.g_loss + standard_loss.g_loss + cycloss
-            #d_loss = standard_loss.d_loss
-            #g_loss = standard_loss.g_loss + cycloss
-            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
-                {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
-            trainer = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
-        elif self.config.trainer['class'] == MultiTrainerTrainer:
-            d_vars = standard_discriminator.variables() 
-            g_vars = generator.variables()
-            d_loss = standard_loss.d_loss
-            g_loss = standard_loss.g_loss
-            if(self.config.cycloss_on_g):
-                g_loss += cycloss * self.config.cycloss_on_g
-            #d_loss = standard_loss.d_loss
-            #g_loss = standard_loss.g_loss + cycloss
-            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
-                {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
-            trainer1 = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
-
-
-            d_vars = encoder_discriminator.variables()
-            g_vars = encoder.variables()
-            d_loss = encoder_loss.d_loss
-            g_loss = encoder_loss.g_loss + cycloss
-
-            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': 
-                {'g_loss': loss2[1], 'd_loss': loss3[1], 'e_g_loss': loss1[1], 'e_d_loss': loss4[1]}})
-            trainer2 = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
-
-            trainer = MultiTrainerTrainer([trainer1, trainer2])
-        else:
-            trainer = MultiStepTrainer(self, self.config.trainer, [loss1,loss2,loss3,loss4], var_lists=var_lists, metrics=metrics)
+        trainer = self.create_component(self.config.trainer)
         return trainer
 
     def input_nodes(self):

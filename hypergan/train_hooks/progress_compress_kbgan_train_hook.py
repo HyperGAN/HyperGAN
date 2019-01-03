@@ -91,7 +91,7 @@ class ProgressCompressKBGanTrainHook(BaseTrainHook):
     self.assign_knowledge_base = []
 
     bs = gan.batch_size()
-    real = tf.reshape(gan.loss.sample[:2], [2,-1])
+    real = gan.discriminator.named_layers['knowledge_base_target']#tf.reshape(gan.loss.sample[:2], [2,-1])
     _inputs = hc.Config({'x':real})
     inner_gan = KBGAN(config=self.config.knowledge_base, inputs=_inputs, x=real, latent=stacked)
     self.kb_loss = inner_gan.loss

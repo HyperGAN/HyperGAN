@@ -1,7 +1,7 @@
 import tensorflow as tf
 from hypergan.multi_component import MultiComponent
 from tests.mocks import MockDiscriminator, mock_gan
-from hypergan.encoders.uniform_encoder import UniformEncoder
+from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.losses.standard_loss import StandardLoss
 import hypergan as hg
@@ -13,7 +13,7 @@ def encoder(gan):
             "min": 0,
             "max": 1
     }
-    return UniformEncoder(gan, config)
+    return UniformDistribution(gan, config)
 
 loss_config = {
         "reduce": "reduce_mean"

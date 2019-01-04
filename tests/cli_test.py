@@ -14,7 +14,7 @@ from hypergan.losses.supervised_loss import SupervisedLoss
 class CliTest(tf.test.TestCase):
     def test_cli(self):
         with self.test_session():
-            gan = hg.GAN()
+            gan = mock_gan()
             args = {
             }
             cli = hg.CLI(gan, args)

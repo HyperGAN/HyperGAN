@@ -1,6 +1,6 @@
 # HyperGAN 0.10.0-alpha1
 
-[![CircleCI](https://circleci.com/gh/255BITS/HyperGAN/tree/master.svg?style=svg)](https://circleci.com/gh/255BITS/HyperGAN/tree/master)
+[![CircleCI](https://circleci.com/gh/HyperGAN/HyperGAN.svg?style=svg)](https://circleci.com/gh/HyperGAN/HyperGAN)
 [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists.
@@ -9,7 +9,7 @@ HyperGAN is currently in open beta.
 
 ![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
 
-_Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the RandomWalk sampler_
+_Logos generated with [examples/colorizer](#examples)_
 
 
 # Table of contents
@@ -23,7 +23,6 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
   * [Create a new model](#create-a-new-model)
   * [Install](#install)
   * [Train](#train)
-  * [Increasing Performance](#increasing-performance)
   * [Development Mode](#development-mode)
   * [Running on CPU](#running-on-cpu)
 * [The pip package hypergan](#the-pip-package-hypergan)
@@ -32,26 +31,10 @@ _Logos generated with [examples/colorizer](#examples),  AlphaGAN, and the Random
 * [API](API)
   * [Examples](#examples)
   * [Search](#search)
-* [Configuration](#configuration)
-  * [Usage](#usage)
-  * [Architecture](#architecture)
-  * [GANComponent](#GANComponent)
-  * [ConfigurableComponent](#ConfigurableComponent)
-  * [Generator](#generator)
-  * [Distributions](#distributions)
-  * [Discriminators](#discriminators)
-  * [Losses](#losses)
-   * [WGAN](#wgan)
-   * [LS-GAN](#ls-gan)
-   * [Standard GAN and Improved GAN](#standard-gan-and-improved-gan)
-   * [Categories](#categorical-loss)
-   * [Supervised](#supervised-loss)
-  * [Trainers](#trainers)
 * [Datasets](#datasets)
-  * [Unsupervised learning](#unsupervised-learning)
-  * [Supervised learning](#supervised-learning)
   * [Creating a Dataset](#creating-a-dataset)
   * [Downloadable Datasets](#downloadable-datasets)
+  * [Cleaning up data](#cleaning-up-data)
 * [Contributing](#contributing)
 * [Versioning](#Versioning)
 * [Sources](#sources)
@@ -77,10 +60,9 @@ HyperGAN is a community project.  GANs are a very new and active field of resear
 * Domain Specific Language to define custom architectures
 * API
 
-
 # Showcase
 
-See the[![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
+See the [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
 
 # Documentation
 
@@ -155,20 +137,6 @@ See all configuration templates with `--list-templates` or `-l`.
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of folders of pngs, resizing images as necessary
   hypergan train folder/ -s 32x32x3 -f png -c mymodel --resize
-```
-
-### Increasing performance
-
-On ubuntu `sudo apt-get install libgoogle-perftools4` and make sure to include this environment variable before training
-
-```bash
-  LD_PRELOAD="/usr/lib/libtcmalloc.so.4" hypergan train my_dataset
-```
-
-HyperGAN does not cache image data in memory. Images are loaded every time they're needed, so you can increase performance by pre-processing your inputs, especially by resampling large inputs to the output resolution. e.g. with ImageMagick:
-
-```bash
-  convert image1.jpg -resize '128x128^' -gravity Center -crop 128x128+0+0 image1.png
 ```
 
 ## Development mode

@@ -10,7 +10,7 @@ class BaseLoss(GANComponent):
         self.x = x
         self.d_fake = d_fake
         self.d_real = d_real
-        self.discriminator = discriminator
+        self.discriminator = discriminator or gan.discriminator
         self.generator = generator
         self.split = split
         GANComponent.__init__(self, gan, config, name=name)

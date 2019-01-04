@@ -81,7 +81,8 @@ See the full changelog here:
 
 ## Minimum requirements
 
-For 1024x1024, GTX 1080+
+For 1024x1024: GTX 1080+
+CPU training is discouraged
 
 ## Install
 

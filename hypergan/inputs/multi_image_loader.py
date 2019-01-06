@@ -2,6 +2,7 @@
 import glob
 import os
 import tensorflow as tf
+from natsort import natsorted, ns
 import hypergan.inputs.resize_image_patch
 from tensorflow.python.ops import array_ops
 from hypergan.gan_component import ValidationException, GANComponent
@@ -16,57 +17,52 @@ class MultiImageLoader:
         self.batch_size = batch_size
 
 
-    def create(self, directories, channels=3, format='jpg', width=64, height=64, crop=False, resize=False):
-        directories = [d for d in directories if os.path.isdir(d)]
-
-
-        filenames_list = [glob.glob(directory+"/*."+format) for directory in directories]
-        [print("Found", len(filenames)) for filenames in filenames_list]
-
-        filenames_list = [tf.convert_to_tensor(filenames, dtype=tf.string) for filenames in filenames_list]
-
-        input_queues = [tf.train.slice_input_producer([filenames]) for filenames in filenames_list]
+    def create(self, directories, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False):
+        filenames_list = [natsorted(glob.glob(directory+"/*."+format)) for directory in directories]
 
         imgs = []
 
-        for input_queue in input_queues:
-
-            # Read examples from files in the filename queue.
-            value = tf.read_file(input_queue[0])
-
+        self.datasets = []
+        def parse_function(filename):
+            image_string = tf.read_file(filename)
             if format == 'jpg':
-                img = tf.image.decode_jpeg(value, channels=channels)
+                image = tf.image.decode_jpeg(image_string, channels=channels)
             elif format == 'png':
-                img = tf.image.decode_png(value, channels=channels)
+                image = tf.image.decode_png(image_string, channels=channels)
             else:
                 print("[loader] Failed to load format", format)
-            img = tf.cast(img, tf.float32)
-
-          # Image processing for evaluation.
-          # Crop the central [height, width] of the image.
+            image = tf.cast(image, tf.float32)
+            # Image processing for evaluation.
+            # Crop the central [height, width] of the image.
             if crop:
-                resized_image = hypergan.inputs.resize_image_patch.resize_image_with_crop_or_pad(img, height, width, dynamic_shape=True)
+                image = hypergan.inputs.resize_image_patch.resize_image_with_crop_or_pad(image, height, width, dynamic_shape=True)
             elif resize:
-                resized_image = tf.image.resize_images(img, [height, width], 1)
-            else: 
-                resized_image = img
+                image = tf.image.resize_images(image, [height, width], 1)
 
-            tf.Tensor.set_shape(resized_image, [height,width,channels])
+            image = image / 127.5 - 1.
+            tf.Tensor.set_shape(image, [height,width,channels])
+            return image
 
-            # This moves the image to a range of -1 to 1.
-            float_image = resized_image / 127.5 - 1.
+        for filenames in filenames_list:
+            self.file_count = len(filenames)
+            filenames = tf.convert_to_tensor(filenames, dtype=tf.string)
 
-            imgs.append(float_image)
+            dataset = tf.data.Dataset.from_tensor_slices(filenames)
+            if not sequential:
+                print("Shuffling data")
+                dataset = dataset.shuffle(self.file_count)
+            dataset = dataset.map(parse_function, num_parallel_calls=4)
+            dataset = dataset.batch(self.batch_size)
+            dataset = dataset.repeat()
+            dataset = dataset.prefetch(1)
+            shape = [self.batch_size, height, width, channels]
+            self.datasets.append(tf.reshape(dataset.make_one_shot_iterator().get_next(), shape))
 
-        # Generate a batch of images and labels by building up a queue of examples.
-        self.dataset = tf.data.Dataset.from_tensor_slices(imgs).batch(self.batch_size).shuffle(batch_size*10).repeat()
-        iterator = dataset.initializable_iterator()
-
-        self.xs = self.dataset
-        self.xa = xs[0]
-        self.xb = xs[1]
-        self.x = xs[1]
-        return xs
+        self.xs = self.datasets
+        self.xa = self.datasets[0]
+        self.xb = self.datasets[1]
+        self.x = self.datasets[1]
+        return self.xs
 
     def inputs(self):
         return self.xs

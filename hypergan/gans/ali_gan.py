@@ -118,6 +118,7 @@ class AliGAN(BaseGAN):
 
             stacked_xg = tf.concat(stacked, axis=0)
             features_zs = tf.concat(features, axis=0)
+            self.features = features_zs
 
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
             self.discriminator = standard_discriminator
@@ -200,6 +201,8 @@ class AliGAN(BaseGAN):
             self.autoencode_mask_3_channel = generator.mask
 
 
+    def create_discriminator(self, _input, reuse=False):
+        return self.create_component(self.config.discriminator, name='discriminator', input=_input, features=[tf.zeros_like(self.features)], reuse=reuse)
     def fitness_inputs(self):
         return [
                 self.latent.sample

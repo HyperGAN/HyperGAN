@@ -4,6 +4,7 @@ import os
 import tensorflow as tf
 import hypergan.inputs.resize_image_patch
 from tensorflow.python.ops import array_ops
+from natsort import natsorted, ns
 from hypergan.gan_component import ValidationException, GANComponent
 
 class ImageLoader:
@@ -14,7 +15,7 @@ class ImageLoader:
     def __init__(self, batch_size):
         self.batch_size = batch_size
 
-    def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False):
+    def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False):
         directories = glob.glob(directory+"/*")
         directories = [d for d in directories if os.path.isdir(d)]
 
@@ -27,6 +28,8 @@ class ImageLoader:
             filenames = glob.glob(directory+"/*."+format)
         else:
             filenames = glob.glob(directory+"/**/*."+format)
+
+        filenames = natsorted(filenames)
 
         print("[loader] ImageLoader found", len(filenames))
         self.file_count = len(filenames)
@@ -57,7 +60,9 @@ class ImageLoader:
 
         # Generate a batch of images and labels by building up a queue of examples.
         dataset = tf.data.Dataset.from_tensor_slices(filenames)
-        dataset = dataset.shuffle(self.file_count)
+        if not sequential:
+            print("Shuffling data")
+            dataset = dataset.shuffle(self.file_count)
         dataset = dataset.map(parse_function, num_parallel_calls=4)
         dataset = dataset.batch(self.batch_size)
         dataset = dataset.repeat()

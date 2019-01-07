@@ -41,7 +41,7 @@ class AutoencoderDiscriminatorTest(tf.test.TestCase):
             remove_d_config['discriminator'] = None
             remove_d_config['loss'] = None
             remove_d_config['trainer'] = None
-            gan = hg.GAN(config = remove_d_config, inputs = MockInput())
+            gan = mock_gan(config = remove_d_config)
             discriminator = AutoencoderDiscriminator(gan, config)
             gan.encoder = gan.create_component(gan.config.encoder)
             gan.encoder.create()

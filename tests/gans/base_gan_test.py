@@ -44,14 +44,6 @@ class BaseGanTest(tf.test.TestCase):
             gan = BaseGAN(inputs = MockInput())
             self.assertEqual(gan.height(), 32)
 
-    def test_create(self):
-        with self.test_session():
-            gan = BaseGAN(inputs = MockInput())
-            gan.create()
-            self.assertEqual(gan.created, True)
-            with self.assertRaises(ValidationException):
-                gan.create()
-
     def test_get_config_value(self):
         with self.test_session():
             gan = BaseGAN(inputs = MockInput())
@@ -61,8 +53,8 @@ class BaseGanTest(tf.test.TestCase):
     def test_create_component(self):
         with self.test_session():
             gan = BaseGAN(inputs = MockInput())
-            encoder = gan.create_component(gan.config.encoder)
-            self.assertEqual(type(encoder), hg.encoders.uniform_encoder.UniformEncoder)
+            distribution = gan.create_component(gan.config.distribution)
+            self.assertEqual(type(distribution), hg.distributions.uniform_distribution.UniformDistribution)
 
 if __name__ == "__main__":
     tf.test.main()

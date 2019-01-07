@@ -15,7 +15,7 @@ class AlternatingTrainerTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
             config = {'d_learn_rate': 1e-3, 'g_learn_rate': 1e-3, 'd_trainer': 'rmsprop', 'g_trainer': 'adam'}
-            gan = hg.GAN()
+            gan = mock_gan()
             trainer = AlternatingTrainer(gan, config)
             self.assertEqual(trainer.config.d_learn_rate, 1e-3)
 

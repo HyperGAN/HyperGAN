@@ -64,7 +64,7 @@ class ImageLoader:
             print("Shuffling data")
             dataset = dataset.shuffle(self.file_count)
         dataset = dataset.map(parse_function, num_parallel_calls=4)
-        dataset = dataset.batch(self.batch_size)
+        dataset = dataset.batch(self.batch_size, drop_remainder=True)
         dataset = dataset.repeat()
         dataset = dataset.prefetch(1)
 

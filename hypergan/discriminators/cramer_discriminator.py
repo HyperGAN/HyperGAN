@@ -5,7 +5,6 @@ import hypergan
 from hypergan.discriminators.common import *
 
 from hypergan.discriminators.dcgan_discriminator import DCGANDiscriminator
-from hypergan.generators.resize_conv_generator import ResizeConvGenerator
 from hypergan.distributions.uniform_distribution import UniformDistribution
 from .base_discriminator import BaseDiscriminator
 

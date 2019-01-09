@@ -5,7 +5,6 @@ import hypergan
 from hypergan.discriminators.common import *
 
 from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
-from hypergan.generators.resize_conv_generator import ResizeConvGenerator
 from .base_discriminator import BaseDiscriminator
 
 class AutoencoderDiscriminator(BaseDiscriminator):

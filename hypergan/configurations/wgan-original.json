@@ -1,0 +1,36 @@
+{
+  "description":"Wasserstein GAN",
+  "publication":"https://arxiv.org/abs/1701.07875",
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
+    "initializer": "random_normal",
+    "layer_regularizer": "batch_norm",
+    "random_stddev": 0.02
+  },
+  "latent":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "z": 100
+  },
+  "generator": {
+    "class": "function:hypergan.generators.dcgan_generator.DCGANGenerator",
+    "layer_regularizer": "batch_norm",
+    "initializer": "random_normal",
+    "random_stddev": 0.02
+  },
+  "loss":
+  {
+    "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "optimizer": {
+      "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+      "beta1": 0.5,
+      "learn_rate": 0.0002
+    },
+    "d_update_steps": 5
+  }
+}

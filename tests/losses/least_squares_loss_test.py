@@ -12,7 +12,7 @@ loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0]}
 class LeastSquaresLossTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
-            loss = LeastSquaresLoss(hg.GAN(), loss_config)
+            loss = LeastSquaresLoss(mock_gan(), loss_config)
             self.assertTrue(loss.config.test)
 
     def test_create(self):

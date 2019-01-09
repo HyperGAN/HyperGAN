@@ -24,11 +24,11 @@ class CommandParser:
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
         parser.add_argument('--align', dest='align', help='Align classes.  Takes a directory of data to align with.')
-        parser.add_argument('--use_hc_io', type=bool, default=False, help='Set this to no unless you are feeling experimental.')
         parser.add_argument('--save_every', type=int, default=-1, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=5, help='Saves a sample every X steps.')
         parser.add_argument('--save_samples', action='store_true', help='Saves samples to the local `samples` directory.')
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
+        parser.add_argument('--sequential', dest='sequential', action='store_true', help='Input will not be shuffled.  Can be used to simulate online learning for streaming data')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
@@ -92,6 +92,7 @@ if not args.align:
               channels=channels, 
               format=args.format,
               crop=args.crop,
+              sequential=args.sequential,
               width=width,
               height=height,
               resize=args.resize)
@@ -107,6 +108,7 @@ else:
     inputs.create([args.directory, args.align],
           channels=channels, 
           format=args.format,
+          sequential=args.sequential,
           crop=args.crop,
           width=width,
           height=height,

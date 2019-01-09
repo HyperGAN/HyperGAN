@@ -31,8 +31,12 @@ class UniformDistribution(BaseDistribution):
         if self.z is None:
             output_shape = self.output_shape or [batch_size, int(config.z)]
             self.z = tf.random_uniform(output_shape, config.min or -1, config.max or 1, dtype=ops.dtype)
-        for projection in config.projections:
-            projections.append(self.lookup(projection)(config, gan, self.z))
+
+        if 'projections' in config:
+            for projection in config.projections:
+                projections.append(self.lookup(projection)(config, gan, self.z))
+        else:
+                projections.append(self.z)
         self.sample = tf.concat(axis=len(self.z.get_shape())-1, values=projections)
         return self.sample
 

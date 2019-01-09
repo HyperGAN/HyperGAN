@@ -100,8 +100,13 @@ class ProgressCompressKBGanTrainHook(BaseTrainHook):
     variables = inner_gan.variables()
     #variables += self.kb.variables()
 
-    for name, net in gan.discriminator.knowledge_base:
-        self.assign_knowledge_base.append(tf.assign(net, self.kb.named_layers[name]))
+    for c in gan.components:
+        if hasattr(c, 'knowledge_base'):
+            for name, net in c.knowledge_base:
+                assign = self.kb.named_layers[name]
+                if self.ops.shape(assign)[0] > self.ops.shape(net)[0]:
+                    assign = tf.slice(assign,[0 for i in self.ops.shape(net)] , [self.ops.shape(net)[0]]+self.ops.shape(assign)[1:])
+                self.assign_knowledge_base.append(tf.assign(net, assign))
 
     self.gan.add_metric('d_kb', self.kb_loss.sample[0])
     self.gan.add_metric('g_kb', self.kb_loss.sample[1])

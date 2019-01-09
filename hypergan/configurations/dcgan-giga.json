@@ -33,9 +33,6 @@
   "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
     "g_optimizer": {
 
-      "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
-      "f_decay": 0.8,
-      "optimizer": {
        "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
 
       "optimizer": {
@@ -50,11 +47,8 @@
     "beta1":0.0,
     "beta2":0.999
    }
-   }},
+   },
     "d_optimizer": {
-      "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
-      "optimizer": {
-
        "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
 
       "optimizer": {
@@ -69,7 +63,7 @@
     "beta1":0.0,
     "beta2":0.999
    }
-      }
+      
    }
     },
   "class": "class:hypergan.gans.standard_gan.StandardGAN"

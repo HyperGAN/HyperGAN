@@ -89,13 +89,17 @@ class AlignedAliGAN3(BaseGAN):
 
             t0 = xb
             t1 = gb.sample
+            t2 = ga.sample
             f0 = za
             f1 = zb
+            f2 = za
             stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
 
             d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
+            self.za = za
+            self.discriminator = d
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
             loss1 = l
             d_loss1 = l.d_loss
@@ -112,15 +116,15 @@ class AlignedAliGAN3(BaseGAN):
                     'd_loss': l.d_loss
                 }
 
-            t0 = xa
-            t1 = ga.sample
-            f0 = zb
-            f1 = za
+            t0 = xb
+            t1 = gb.sample
+            f0 = za
+            f1 = zb
             stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
 
-            d = self.create_component(config.discriminator, name='d2_ab', input=stacked, features=[features])
+            d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features], reuse=True)
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
 
             d_loss += l.d_loss
@@ -193,7 +197,7 @@ class AlignedAliGAN3(BaseGAN):
                 'sample': [tf.add_n([d_loss1, d_loss2]), tf.add_n([g_loss1,g_loss2])]
             })
             self._g_vars = ga.variables() + gb.variables()
-            self._d_vars = d_vars1 + d_vars2
+            self._d_vars = d_vars1# + d_vars2
             self.loss=loss
             trainer = self.create_component(config.trainer)
             self.session.run(tf.global_variables_initializer())
@@ -222,6 +226,9 @@ class AlignedAliGAN3(BaseGAN):
         return self._d_vars
     def g_vars(self):
         return self._g_vars
+
+    def create_discriminator(self, _input, reuse=False):
+        return self.create_component(self.config.discriminator, name='d_ab', input=_input, features=[tf.zeros_like(self.za)], reuse=reuse)
 
     def create_loss(self, loss_config, discriminator, x, generator, split):
         loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator, split=split)

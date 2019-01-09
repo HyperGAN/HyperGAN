@@ -2,6 +2,7 @@
 
 [![CircleCI](https://circleci.com/gh/HyperGAN/HyperGAN.svg?style=svg)](https://circleci.com/gh/HyperGAN/HyperGAN)
 [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
+[![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists.
 
@@ -11,6 +12,7 @@ HyperGAN is currently in open beta.
 
 _Logos generated with [examples/colorizer](#examples)_
 
+See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8002_NB7JSvA)
 
 # Table of contents
 
@@ -19,8 +21,7 @@ _Logos generated with [examples/colorizer](#examples)_
 * [Documentation](#documentation)
 * [Changelog](#changelog)
 * [Quick start](#quick-start)
-  * [Minimum Requirements](#minimum-requirements)
-  * [Create a new model](#create-a-new-model)
+  * [Requirements](#requirements)
   * [Install](#install)
   * [Train](#train)
   * [Development Mode](#development-mode)
@@ -43,10 +44,9 @@ _Logos generated with [examples/colorizer](#examples)_
 
 # About
 
-Generative Adversarial Networks consist of 2 learning systems that learn together.  HyperGAN implements these learning systems in Tensorflow with deep learning, using json files to reproduce architectures from white papers.
+Generative Adversarial Networks consist of 2 learning systems that learn together.  HyperGAN implements these learning systems in Tensorflow with deep learning.
 
-For an introduction, see here [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
-
+For an introduction to GANs, see [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
 
 HyperGAN is a community project.  GANs are a very new and active field of research.  Join the community [discord](https://discord.gg/t4WWBPF).
 
@@ -79,12 +79,11 @@ See the full changelog here:
 
 # Quick start
 
-## Minimum requirements
+## Requirements
 
-For 1024x1024, GTX 1080+
+Recommended: GTX 1080+
 
 ## Install
-
 
 ### Install hypergan:
 
@@ -287,7 +286,7 @@ Generative Adversarial Networks - https://arxiv.org/pdf/1706.04987.pdf
   HyperGAN Community
   HyperGAN, (2016-2019+), 
   GitHub repository, 
-  https://github.com/255BITS/HyperGAN
+  https://github.com/HyperGAN/HyperGAN
 ```
 
 HyperGAN comes with no warranty or support.

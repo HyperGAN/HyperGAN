@@ -5,7 +5,7 @@ import numpy as np
 from hypergan.losses.category_loss import CategoryLoss
 from hypergan.ops import TensorflowOps
 from hypergan.multi_component import MultiComponent
-from hypergan.encoders.category_encoder import CategoryEncoder
+from hypergan.distributions.category_distribution import CategoryDistribution
 
 
 from tests.mocks import MockDiscriminator, mock_gan

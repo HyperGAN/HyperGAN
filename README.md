@@ -2,7 +2,7 @@
 
 [![CircleCI](https://circleci.com/gh/HyperGAN/HyperGAN.svg?style=svg)](https://circleci.com/gh/HyperGAN/HyperGAN)
 [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
-[![Twitter](https://img.shields.io/badge/color-blue-blue.svg)](https://twitter.com/hypergan)
+[![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists.
 

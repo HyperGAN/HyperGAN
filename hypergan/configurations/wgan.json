@@ -5,22 +5,15 @@
   {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
     "initializer": "random_normal",
-    "layer_regularizer": "batch_norm",
     "random_stddev": 0.02
   },
-  "encoder":
+  "latent":
   {
     "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
-    "projections": [
-      "function:hypergan.distributions.uniform_distribution.identity"
-    ],
-    "min": -1,
-    "max": 1,
     "z": 100
   },
   "generator": {
     "class": "function:hypergan.generators.dcgan_generator.DCGANGenerator",
-    "layer_regularizer": "batch_norm",
     "initializer": "random_normal",
     "random_stddev": 0.02
   },
@@ -29,13 +22,41 @@
     "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
     "reduce": "reduce_mean"
   },
-  "trainer": {
-    "class": "class:hypergan.trainers.alternating_trainer.AlternatingTrainer",
-    "d_learn_rate": 0.00005,
-    "d_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "d_clipped_weights": 0.01,
-    "g_learn_rate": 0.00005,
-    "g_trainer": "class:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "d_update_steps": 5
-  }
+    "trainer": {
+  "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+    "g_optimizer": {
+
+       "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+
+      "optimizer": {
+          "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+    "learn_rate": 1e-4,
+      "beta1":0.0,
+      "beta2":0.999
+  },
+   "optimizer2": {
+    "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+    "learn_rate": 3e-5,
+    "beta1":0.0,
+    "beta2":0.999
+   }
+   },
+    "d_optimizer": {
+       "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+
+      "optimizer": {
+          "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+    "learn_rate": 1e-4,
+      "beta1":0.0,
+      "beta2":0.999
+  },
+   "optimizer2": {
+      "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+    "learn_rate": 3e-5,
+    "beta1":0.0,
+    "beta2":0.999
+   }
+      
+   }
+    }
 }

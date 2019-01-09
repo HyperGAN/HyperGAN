@@ -4,7 +4,6 @@ import hyperchamber as hc
 from hypergan.generators.common import *
 
 from .base_generator import BaseGenerator
-from .resize_conv_generator import ResizeConvGenerator
 from .segment_generator import SegmentGenerator
 
 class MultisegmentGenerator(SegmentGenerator):

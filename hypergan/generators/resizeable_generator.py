@@ -5,7 +5,7 @@ from hypergan.generators.common import *
 
 from .base_generator import BaseGenerator
 
-class ResizeConvGenerator(BaseGenerator):
+class ResizeableGenerator(BaseGenerator):
 
     def required(self):
         return "final_depth activation depth_increase".split()

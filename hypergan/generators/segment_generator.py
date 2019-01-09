@@ -4,9 +4,9 @@ import hyperchamber as hc
 from hypergan.generators.common import *
 
 from .base_generator import BaseGenerator
-from .resize_conv_generator import ResizeConvGenerator
+from .resizeable_generator import ResizeableGenerator
 
-class SegmentGenerator(ResizeConvGenerator):
+class SegmentGenerator(ResizeableGenerator):
 
     def required(self):
         return ['mask_generator']

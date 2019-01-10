@@ -18,10 +18,10 @@ class CurriculumTrainer(BaseTrainer):
     def create(self):
         self.curriculum = self.config.curriculum
         self.curriculum_index = 0
-        d_vars = self.d_vars or gan.discriminator.variables()
-        g_vars = self.g_vars or (gan.encoder.variables() + gan.generator.variables())
-        loss = self.gan.loss
-        self._delegate = self.gan.create_component(self.config.delegate, d_vars=d_vars, g_vars=g_vars, loss=loss)
+        self._delegate = self.gan.create_component(self.config.delegate)
+
+    def variables(self):
+        return self._delegate.variables()
 
     def required(self):
         return []
@@ -38,11 +38,18 @@ class CurriculumTrainer(BaseTrainer):
 
             gan.save("saves/curriculum")
             self.curriculum_index+=1
+
             if self.config.cycle:
                 self.curriculum_index = self.curriculum_index % len(self.curriculum)
+            if self.curriculum_index == len(self.curriculum):
+                print("End of curriculum")
+                gan.save("saves/curriculum")
+                gan.session.close()
+                tf.reset_default_graph()
+                sys.exit()
+
+
             print("Loading index", self.curriculum_index, self.curriculum, self.curriculum[self.curriculum_index])
-            gan.train_coordinator.request_stop()
-            gan.train_coordinator.join(gan.input_threads)
             gan.session.close()
             tf.reset_default_graph()
 
@@ -71,6 +78,7 @@ class CurriculumTrainer(BaseTrainer):
             newgan = gan.config['class'](config=newconfig, inputs=inputs)
             newgan.args = gan.args
             newgan.cli = self.gan.cli
+            newgan.name=config_name
             newgan.trainer.curriculum= self.curriculum
             newgan.trainer.curriculum_index= self.curriculum_index
             newgan.trainer.config.cycle = self.config.cycle
@@ -81,6 +89,4 @@ class CurriculumTrainer(BaseTrainer):
             gan=None
             gc.collect()
             newgan.load("saves/curriculum")
-            newgan.train_coordinator = tf.train.Coordinator()
-            newgan.input_threads = tf.train.start_queue_runners(sess=newgan.session, coord=newgan.train_coordinator)
 

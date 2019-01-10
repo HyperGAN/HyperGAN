@@ -14,7 +14,7 @@ class UniformDistribution(BaseDistribution):
         BaseDistribution.__init__(self, gan, config, name=name)
 
     def required(self):
-        return "min max".split()
+        return "".split()
 
     def validate(self):
         errors = BaseDistribution.validate(self)

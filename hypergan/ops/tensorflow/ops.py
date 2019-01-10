@@ -355,7 +355,7 @@ class TensorflowOps:
         shape = self.shape(net)
         with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
             w = self.get_weight([shape[1], output_dim], initializer=initializer, trainable=trainable)
-            bias = self.get_bias([output_dim])
+            bias = self.get_bias([output_dim], trainable=trainable)
             return tf.matmul(net, w) + bias
 
     def reduce_linear(self):

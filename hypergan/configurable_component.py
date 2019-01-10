@@ -960,9 +960,11 @@ class ConfigurableComponent:
 
     def layer_const(self, net, args, options):
         s  = [1] + [int(x) for x in args[0].split("*")]
-        
+        trainable = True
+        if "trainable" in options and options["trainable"] == "false":
+            trainable = False
         with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
-            return tf.tile(self.ops.get_weight(s, name='const'), [self.gan.batch_size(), 1,1,1])
+            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable), [self.gan.batch_size(), 1,1,1])
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

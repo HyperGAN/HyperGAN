@@ -115,14 +115,14 @@ class ConfigurableComponent:
             args, options = self.parse_args(d[1:])
         
             net = self.build_layer(net, op, args, options)
-            if 'name' in options:
-                self.named_layers[options['name']] = net
             return net
             
 
     def build_layer(self, net, op, args, options):
         if self.layer_ops[op]:
             net = self.layer_ops[op](net, args, options)
+            if 'name' in options:
+                self.named_layers[options['name']] = net
         else:
             print("ConfigurableComponent: Op not defined", op)
 
@@ -967,7 +967,10 @@ class ConfigurableComponent:
     def layer_reference(self, net, args, options):
         options = hc.Config(options)
 
-        return getattr(self.gan, options.src).layer(options.name)
+        obj = self
+        if "src" in options:
+            obj = getattr(self.gan, options.src)
+        return obj.layer(options.name)
 
     def layer_knowledge_base(self, net, args, options):
         if not hasattr(self, 'knowledge_base'):

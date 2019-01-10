@@ -54,14 +54,16 @@ class AliGAN(BaseGAN):
         with tf.device(self.device):
             x_input = tf.identity(self.inputs.x, name='input')
 
+            encoder = self.create_encoder(self.inputs.x)
+
             # q(z|x)
             if config.u_to_z:
                 latent = UniformDistribution(self, config.z_distribution)
             else:
                 z_shape = self.ops.shape(encoder.sample)
                 uz_shape = z_shape
-                uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
-                latent = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+                uz_shape[-1] = uz_shape[-1] // len(config.latent.projections or [1])
+                latent = UniformDistribution(self, config.latent, output_shape=uz_shape)
             self.latent = latent
  
             direction, slider = self.create_controls(self.ops.shape(latent.sample))
@@ -93,16 +95,13 @@ class AliGAN(BaseGAN):
                 stacked = [x_input, generator.sample]
                 self.generator = generator
 
-                encoder = self.create_encoder(self.inputs.x)
-
                 self.encoder = encoder
                 features = [encoder.sample, u_to_z.sample]
                 self.u_to_z = u_to_z
             else:
-                generator = self.create_component(config.generator, input=stack_z)
+                generator = self.create_component(config.generator, input=stack_z, name='generator')
                 self.generator = generator
-                stacked = ops.concat([x_input, generator.sample], axis=0)
-                encoder = self.create_encoder(self.inputs.x)
+                stacked = [x_input, generator.sample]
 
                 self.encoder = encoder
                 features = ops.concat([encoder.sample, z], axis=0)

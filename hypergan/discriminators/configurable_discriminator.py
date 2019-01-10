@@ -13,5 +13,5 @@ from hypergan.configurable_component import ConfigurableComponent
 class ConfigurableDiscriminator(BaseDiscriminator, ConfigurableComponent):
     def __init__(self, gan, config, name=None, input=None, reuse=None, features=[], skip_connections=[]):
         ConfigurableComponent.__init__(self, gan, config, name=name, input=input,features=features,reuse=reuse)
-        BaseDiscriminator.__init__(self, gan, config, name=name, input=input,reuse=reuse)
+        BaseDiscriminator.__init__(self, gan, config, name=name, input=input,features=features,reuse=reuse)
 

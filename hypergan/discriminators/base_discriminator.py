@@ -2,31 +2,18 @@ from hypergan.gan_component import GANComponent
 import tensorflow as tf
 
 class BaseDiscriminator(GANComponent):
-    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None):
+    def __init__(self, gan, config, name=None, input=None, reuse=None, features=None):
         self.input = input
         self.name = name
-        self.x = x
-        self.g = g
+        self.features = features
         GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
 
     def create(self, net=None):
         config = self.config
         gan = self.gan
         ops = self.ops
-        x = self.x
-        g = self.g
 
-        if net is None and self.input is not None:
-            net = self.input
-
-        if net is None:
-            if x is None:
-                x = gan.inputs.x
-            if g is None:
-                g = gan.generator.sample
-
-            x, g = self.resize(config, x, g)
-            net = tf.concat(axis=0, values=[x, g])
+        net = net or self.input
 
         net = self.build(net)
         self.sample = net
@@ -36,18 +23,6 @@ class BaseDiscriminator(GANComponent):
         config = self.config
         gan = self.gan
         ops = self.ops
-        x = self.x
-        g = self.g
-
-        if net is None:
-            if x is None:
-                x or gan.inputs.x
-            if g is None:
-                g or gan.generator.sample
-
-            x, g = self.resize(config, x, g)
-            net = tf.concat(axis=0, values=[x, g])
-            net = self.layer_filter(net)
 
         self.ops.reuse()
         net = self.build(net, **opts)

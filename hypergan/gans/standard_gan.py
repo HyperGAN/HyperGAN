@@ -68,7 +68,8 @@ class StandardGAN(BaseGAN):
                 self.uniform_sample = self.generator.sample
 
             if self.discriminator is None and config.discriminator:
-                self.discriminator = self.create_component(config.discriminator, name="discriminator", g=self.generator.sample, x=self.inputs.x)
+                x, g = self.inputs.x, self.generator.sample
+                self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
             if self.loss is None and config.loss:
                 self.loss = self.create_component(config.loss, discriminator=self.discriminator)
             if self.trainer is None and config.trainer:

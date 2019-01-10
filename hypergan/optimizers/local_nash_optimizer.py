@@ -80,6 +80,10 @@ class LocalNashOptimizer(optimizer.Optimizer):
             return g3s
  
     #gamma12
+    if self.config.method == 'curl':
+        all_grads = curl()
+        d_grads = all_grads[:len(d_vars)]
+        g_grads = all_grads[len(d_vars):]
     with tf.get_default_graph().control_dependencies([save]):
         #opboth = self.optimizer.apply_gradients(grads_and_vars, global_step=global_step, name=name)
         #opdp = self.optimizer.apply_gradients(grads_and_vars[:len(d_vars)], global_step=global_step, name=name)
@@ -121,6 +125,7 @@ class LocalNashOptimizer(optimizer.Optimizer):
                                     else:
                                         a = (_gg - _g) / self._lr_t # d2f/dx2i
                                         b = (_gboth - _gg) / (2*self._lr_t)+(_gd-_g)/(2*self._lr_t) # d2f/dx1dx2
+                                        #c = -(_gboth - _gd) / (2*self._lr_t)+(_gg-_g)/(2*self._lr_t) # d2f/dx1dx2
                                         c = -b # d2f/dx2dx1
                                         d = -(_gd - _g) / self._lr_t # d2f/dx2j
                                     J = np.array([[a, b], [c,d]])

@@ -16,6 +16,7 @@ class SimultaneousTrainer(BaseTrainer):
         d_loss, g_loss = loss.sample
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
+        config.optimizer["loss"] = loss.sample
 
         self.optimizer = self.gan.create_optimizer(config.optimizer)
 

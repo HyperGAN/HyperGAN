@@ -104,14 +104,6 @@ class ResizeableGenerator(BaseGenerator):
         depths = self.depths(initial_width = shape[1])
         print("[generator] Initial depth", shape)
 
-        if config.relation_layer:
-            net = self.layer_regularizer(net)
-            net = activation(net)
-            net = self.relation_layer(net)
-            print("[generator] relational layer", net)
-        else:
-            pass
-
         depth_reduction = np.float32(config.depth_reduction)
         shape = ops.shape(net)
 
@@ -145,20 +137,13 @@ class ResizeableGenerator(BaseGenerator):
 
         if block != 'deconv':
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
-            print("POST", net)
             net = self.layer_filter(net)
             net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3, padding=padding)
         else:
             net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
-                print("END SIZE", net)
-                #net = ops.deconv2d(net, 5, 5, 2, 2, ops.shape(net)[3]//2)
-                #net = activation(net)
-                print("END SIZE2", net)
                 net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
-                print("END SIZE2", net)
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
-                print("SLICE SIZE2", net)
             else:
                 net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
 
@@ -166,7 +151,6 @@ class ResizeableGenerator(BaseGenerator):
         for i in range(config.post_extra_layers or 0):
             net = activation(net)
             net = ops.conv2d(net, 3, 3, 1, 1, config.channels or gan.channels())
-            print("POSTEXTRA layer", i, net)
         if final_activation:
             net = self.layer_regularizer(net)
             net = final_activation(net)

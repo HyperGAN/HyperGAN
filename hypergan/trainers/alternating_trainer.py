@@ -24,10 +24,10 @@ class AlternatingTrainer(BaseTrainer):
         g_optimizer = self.gan.create_optimizer(g_optimizer)
         d_optimizer = self.gan.create_optimizer(d_optimizer)
         
-        d_grads = tf.gradients(d_loss, gan.d_vars())
-        g_grads = tf.gradients(g_loss, gan.g_vars())
-        apply_vec_g = list(zip((g_grads), (gan.g_vars()))).copy()
-        apply_vec_d = list(zip((d_grads), (gan.d_vars()))).copy()
+        d_grads = tf.gradients(d_loss, gan.trainable_d_vars())
+        g_grads = tf.gradients(g_loss, gan.trainable_g_vars())
+        apply_vec_g = list(zip((g_grads), (gan.trainable_g_vars()))).copy()
+        apply_vec_d = list(zip((d_grads), (gan.trainable_d_vars()))).copy()
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.gan.trainer = self
@@ -35,8 +35,8 @@ class AlternatingTrainer(BaseTrainer):
         d_optimizer_t = d_optimizer.apply_gradients(apply_vec_d, global_step=self.global_step)
 
         self.d_optimizer = d_optimizer
-        self.g_optimizer = g_optimizer
         self.d_optimizer_t = d_optimizer_t
+        self.g_optimizer = g_optimizer
         self.g_optimizer_t = g_optimizer_t
 
         return g_optimizer, d_optimizer

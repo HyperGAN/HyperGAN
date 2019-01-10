@@ -56,7 +56,8 @@ class ConfigurableComponent:
             "turing_test": self.layer_turing_test,
             "activation": self.layer_activation,
             "knowledge_base": self.layer_knowledge_base,
-            "const": self.layer_const
+            "const": self.layer_const,
+            "progressive_replace": self.layer_progressive_replace
             }
         self.features = features
         self.controls = {}
@@ -974,3 +975,25 @@ class ConfigurableComponent:
         kb = tf.Variable(tf.zeros_like(net), dtype=tf.float32, trainable=False)
         self.knowledge_base.append([options['name'], kb])
         return tf.concat([net, kb], axis=-1)
+    
+    def layer_progressive_replace(self, net, args, options):
+        start = self.named_layers[options["start"]]
+        end = self.named_layers[options["end"]]
+        steps = float(options["steps"])
+        delay = 0
+        if "delay" in options:
+            delay = int(options["delay"])
+        if self.ops.shape(start) != self.ops.shape(end):
+            start = tf.image.resize_images(start, [self.ops.shape(end)[1], self.ops.shape(end)[2]],1)
+        decay = (tf.cast(self.gan.steps, dtype=tf.float32)-tf.constant(delay, dtype=tf.float32)) / tf.constant(steps, dtype=tf.float32)
+
+        decay = tf.minimum(1.0, decay)
+        decay = tf.maximum(0.0, decay)
+        self.gan.add_metric('decay', decay)
+        self.gan.add_metric('gs', self.gan.steps)
+
+        net = decay * end + (1.0-decay) * start
+        if "name" in options:
+            net = tf.identity(net, name=options["name"])
+        return net
+

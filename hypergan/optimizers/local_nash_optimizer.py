@@ -116,7 +116,7 @@ class LocalNashOptimizer(optimizer.Optimizer):
                                         a = (_gg - _g) / np.square(self._lr_t) 
                                         b = _gboth
                                         c = -b # d2f/dx2dx1
-                                        d = -(_gd - _g) / self._lr_t # d2f/dx2j
+                                        d = -(_gd - _g) / np.square(self._lr_t) # d2f/dx2j
                                     elif self.config.form == 2:
                                         a = (_gboth - _g) / self._lr_t # d2f/dx2i
                                         b = (_gg - _g) / (2*self._lr_t)+(_gd-_g)/(2*self._lr_t) # d2f/dx1dx2

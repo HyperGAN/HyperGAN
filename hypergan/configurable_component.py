@@ -15,23 +15,24 @@ class ConfigurableComponent:
         self.layers = []
         self.skip_connections = skip_connections
         self.layer_ops = {
-                "relational": self.layer_relational,
-                "minibatch": self.layer_minibatch,
-                "phase_shift": self.layer_phase_shift,
-                "conv": self.layer_conv,
-                "zeros": self.layer_zeros,
-                "control": self.layer_controls,
-                "linear": self.layer_linear,
-                "identity": self.layer_identity,
-                "double_resolution": self.layer_double_resolution,
-                "attention": self.layer_attention,
-                "adaptive_instance_norm": self.layer_adaptive_instance_norm,
+            "relational": self.layer_relational,
+            "minibatch": self.layer_minibatch,
+            "phase_shift": self.layer_phase_shift,
+            "conv": self.layer_conv,
+            "zeros": self.layer_zeros,
+            "control": self.layer_controls,
+            "linear": self.layer_linear,
+            "identity": self.layer_identity,
+            "double_resolution": self.layer_double_resolution,
+            "attention": self.layer_attention,
+            "adaptive_instance_norm": self.layer_adaptive_instance_norm,
             "subpixel": self.layer_subpixel,
             "pixel_norm": self.layer_pixel_norm,
             "gram_matrix": self.layer_gram_matrix,
             "unpool": self.layer_unpool,
             "slice": self.layer_slice,
             "concat_noise": self.layer_noise,
+            "concat": self.layer_concat,
             "variational_noise": self.layer_variational_noise,
             "variational": self.layer_variational,
             "noise": self.layer_noise,
@@ -848,6 +849,13 @@ class ConfigurableComponent:
         net = tf.concat([net, noise], axis=len(self.ops.shape(net))-1)
         return net
 
+    def layer_concat(self, net, args, options):
+        if len(args) > 0 and args[0] == 'noise':
+            noise = tf.random_normal(self.ops.shape(net), stddev=0.1)
+            net = tf.concat([net, noise], axis=len(self.ops.shape(net))-1)
+            return net
+        net = tf.concat([net, self.named_layers[options['layer']]], axis=len(self.ops.shape(net))-1)
+        return net
 
     def layer_gram_matrix(self, net, args, options):
 

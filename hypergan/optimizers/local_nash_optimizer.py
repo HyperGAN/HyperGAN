@@ -99,6 +99,9 @@ class LocalNashOptimizer(optimizer.Optimizer):
     g_grads = []
     d_vars = []
     g_vars = []
+    beta = 0.5
+    if self.config.beta is not None:
+        beta = self.config.beta
     for grad,var in grads_and_vars:
         if var in self.gan.d_vars():
             d_vars += [var]

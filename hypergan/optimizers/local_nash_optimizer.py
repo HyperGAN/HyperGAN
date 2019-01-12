@@ -81,8 +81,12 @@ class LocalNashOptimizer(optimizer.Optimizer):
     h_1_d = [_a/_det for _a,_det in zip(d, det)]
     Jinv = [np.array([[_a,_b],[_c,_d]]) for _a, _b, _c, _d in zip(a,b,c,d)]
     grads2 =  [_Jt[0][0]*_Jinv[0][0]*_g+_Jt[1][0]*_Jinv[1][0]*_g+_Jt[0][1]*_Jinv[0][1]*_g+_Jt[1][1]*_Jinv[1][1]*_g for _g, _Jt, _Jinv in zip(all_grads, Jt, Jinv)]
-    alpha = self.config.alpha or 0.5
-    beta = self.config.beta or 0.5
+    alpha = 0.5
+    if self.config.alpha is not None:
+        alpha = self.config.alpha
+    beta = beta or 0.5
+    if self.config.beta is not None:
+        beta = self.config.beta
     grads3 = [ alpha * _g + beta * _g2 for _g, _g2 in zip(all_grads, grads2) ]
 
     new_grads_and_vars = list(zip(grads2, all_vars)).copy()
@@ -167,10 +171,10 @@ class LocalNashOptimizer(optimizer.Optimizer):
                                 new_grads = []
                                 for _gboth, _gd, _gg, _g in zip(gboth,new_d_grads,new_g_grads,(d_grads+g_grads)):
                                     if self.config.form == 1:
-                                        a = (_gg - _g) / np.square(self._lr_t) 
+                                        a = (_gg - _g) / self._lr_t
                                         b = _gboth
                                         c = -b # d2f/dx2dx1
-                                        d = -(_gd - _g) / np.square(self._lr_t) # d2f/dx2j
+                                        d = -(_gd - _g) / self._lr_t
                                     elif self.config.form == 2:
                                         a = (_gboth - _g) / self._lr_t # d2f/dx2i
                                         b = (_gg - _g) / (2*self._lr_t)+(_gd-_g)/(2*self._lr_t) # d2f/dx1dx2
@@ -193,8 +197,12 @@ class LocalNashOptimizer(optimizer.Optimizer):
                                     h_1_d = a/det
                                     Jinv = np.array([[h_1_a,h_1_b],[h_1_c,h_1_d]])
                                     _j = Jt[0][0]*Jinv[0][0]*_g+Jt[1][0]*Jinv[1][0]*_g+Jt[0][1]*Jinv[0][1]*_g+Jt[1][1]*Jinv[1][1]*_g
-                                    alpha = self.config.alpha or 0.5
-                                    beta = self.config.beta or 0.5
+                                    alpha = 0.5
+                                    if self.config.alpha is not None:
+                                        alpha = self.config.alpha
+                                    beta = beta or 0.5
+                                    if self.config.beta is not None:
+                                        beta = self.config.beta
 
                                     new_grads.append( alpha*_g + beta*_j )
 

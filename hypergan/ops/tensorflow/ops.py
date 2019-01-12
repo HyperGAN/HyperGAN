@@ -91,10 +91,12 @@ class TensorflowOps:
         self.scope_count += 1
         return str(self.scope_count)
 
-    def generate_name(self):
+    def generate_name(self, name=None):
+        if name == None:
+            name = ""
         if self.description == "":
-            return self.generate_scope()
-        return self.description + "_" + self.generate_scope()
+            return name+self.generate_scope()
+        return self.description + "_" + name + self.generate_scope()
 
     def parse_dtype(self, dtype):
         if type(dtype) == Function:
@@ -114,7 +116,7 @@ class TensorflowOps:
         if shape is not None:
             weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
         else:
-            weight = tf.get_variable(name, dtype=self.dtype, initializer=initializer, trainable=trainable)
+            weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
         if not self._reuse:
             self.weights.append(weight)
         return weight
@@ -296,7 +298,7 @@ class TensorflowOps:
         if self.config.l2_scaled:
             net = net / tf.sqrt(float(filter_w)/float(stride_w)*float(filter_h)/float(stride_h))
 
-        with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
+        with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
             w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim], initializer=initializer, trainable=trainable)
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
             biases = self.get_bias([output_dim], trainable=trainable)
@@ -312,7 +314,7 @@ class TensorflowOps:
             return self.weightnorm_deconv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
         output_shape = [shape[0], shape[1]*stride_h, shape[2]*stride_w, output_dim]
         init_bias = 0.
-        with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
+        with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
             # filter : [height, width, output_channels, in_channels]
             w = self.get_weight([filter_h, filter_w, output_dim, shape[3]], initializer=initializer, trainable=trainable)
 
@@ -347,7 +349,7 @@ class TensorflowOps:
             return self.weight_norm_linear(net, output_dim)
         self.assert_tensor(net)
         shape = self.shape(net)
-        with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
+        with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
             w = self.get_weight([shape[1], output_dim], initializer=initializer, trainable=trainable)
             bias = self.get_bias([output_dim], trainable=trainable)
             return tf.matmul(net, w) + bias
@@ -496,7 +498,7 @@ class TensorflowOps:
             orig_shape = self.shape(_x)
             _x = tf.reshape(_x, [orig_shape[0], -1])
 
-            with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
+            with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
                 alphas = tf.get_variable('trelu', 
                           _x.get_shape()[-1],
                           initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),
@@ -515,7 +517,7 @@ class TensorflowOps:
             orig_shape = self.shape(_x)
             _x = tf.reshape(_x, [orig_shape[0], -1])
 
-            with tf.variable_scope(name or self.generate_name(), reuse=self._reuse):
+            with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
                 alphas = tf.get_variable('frelu', 
                           [1],
                           initializer=tf.random_normal_initializer(mean=0.0,stddev=0.01),

@@ -36,6 +36,60 @@ class LocalNashOptimizer(optimizer.Optimizer):
   def _apply_dense(self, grad, var):
     return self.optimizer._apply_dense(grad, var)
 
+  def gradients(self, grads_and_vars, global_step, name, d_vars, g_vars, d_grads, g_grads):
+    d_grads = []
+    g_grads = []
+    d_vars = []
+    g_vars = []
+    for grad,var in grads_and_vars:
+        if var in self.gan.d_vars():
+            d_vars += [var]
+            d_grads += [grad]
+        elif var in self.gan.g_vars():
+            g_vars += [var]
+            g_grads += [grad]
+        else:
+            raise("Couldn't find var in g_vars or d_vars")
+
+    all_vars = d_vars + g_vars
+    all_grads = d_grads + g_grads
+
+    dxx = tf.gradients(tf.gradients(g_grads, all_vars), all_vars)
+    dyy = tf.gradients(tf.gradients(d_grads, all_vars), all_vars)
+    dyx = tf.gradients(self.loss[0], d_vars) + tf.gradients(self.loss[1], g_vars)
+    dxy = tf.gradients(self.loss[1], d_vars) + tf.gradients(self.loss[0], g_vars)
+    
+    if self.config.reverse_dx:
+        tmp = dxy
+        dxy = dxx
+        dxx = tmp
+
+    a = dxx
+    b = dxy
+
+    c = [-_dyx for _dyx in dyx]
+    d = [-_dxy for _dxy in dxy]
+
+    J = [np.array([[_a, _b], [_c,_d]]) for _a, _b, _c, _d in zip(a,b,c,d)]
+    Jt = [np.transpose(_J) for _J in J]
+
+    det = [_a*_d-_b*_c+1e-8 for _a, _b, _c, _d in zip(a,b,c,d)]
+    #h_1 = 1.0/det * (b+d-a-c)
+    h_1_a = [_d/_det for _d,_det in zip(a, det)]
+    h_1_b = [-_b/_det for _b,_det in zip(b, det)]
+    h_1_c = [-_c/_det for _c,_det in zip(c, det)]
+    h_1_d = [_a/_det for _a,_det in zip(d, det)]
+    Jinv = [np.array([[_a,_b],[_c,_d]]) for _a, _b, _c, _d in zip(a,b,c,d)]
+    grads2 =  [_Jt[0][0]*_Jinv[0][0]*_g+_Jt[1][0]*_Jinv[1][0]*_g+_Jt[0][1]*_Jinv[0][1]*_g+_Jt[1][1]*_Jinv[1][1]*_g for _g, _Jt, _Jinv in zip(all_grads, Jt, Jinv)]
+    alpha = self.config.alpha or 0.5
+    beta = self.config.beta or 0.5
+    grads3 = [ alpha * _g + beta * _g2 for _g, _g2 in zip(all_grads, grads2) ]
+
+    new_grads_and_vars = list(zip(grads2, all_vars)).copy()
+    return self.optimizer.apply_gradients(new_grads_and_vars, global_step=global_step, name=name)
+
+
+
   def finite_differences(self, grads_and_vars, global_step, name, d_vars, g_vars, d_grads, g_grads):
     d_grads = []
     g_grads = []
@@ -139,8 +193,10 @@ class LocalNashOptimizer(optimizer.Optimizer):
                                     h_1_d = a/det
                                     Jinv = np.array([[h_1_a,h_1_b],[h_1_c,h_1_d]])
                                     _j = Jt[0][0]*Jinv[0][0]*_g+Jt[1][0]*Jinv[1][0]*_g+Jt[0][1]*Jinv[0][1]*_g+Jt[1][1]*Jinv[1][1]*_g
+                                    alpha = self.config.alpha or 0.5
+                                    beta = self.config.beta or 0.5
 
-                                    new_grads.append( 0.0*_g + 1.0*_j )
+                                    new_grads.append( alpha*_g + beta*_j )
 
                                 new_grads_and_vars = list(zip(new_grads, all_vars)).copy()
                                 return self.optimizer.apply_gradients(new_grads_and_vars, global_step=global_step, name=name)
@@ -164,7 +220,10 @@ class LocalNashOptimizer(optimizer.Optimizer):
 
     d_grads = all_grads[:len(d_vars)]
     g_grads = all_grads[len(d_vars):]
-    return self.finite_differences(grads_and_vars, global_step, name, d_vars, g_vars, d_grads, g_grads)
+    if self.config.algorithm == "gradients":
+        return self.gradients(grads_and_vars, global_step, name, d_vars, g_vars, d_grads, g_grads)
+    else:
+        return self.finite_differences(grads_and_vars, global_step, name, d_vars, g_vars, d_grads, g_grads)
   
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")

@@ -200,7 +200,7 @@ class LocalNashOptimizer(optimizer.Optimizer):
                                     alpha = 0.5
                                     if self.config.alpha is not None:
                                         alpha = self.config.alpha
-                                    beta = beta or 0.5
+                                    beta = self.config.beta or 0.5
                                     if self.config.beta is not None:
                                         beta = self.config.beta
 

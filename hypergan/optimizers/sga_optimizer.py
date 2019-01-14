@@ -13,7 +13,7 @@ import hyperchamber as hc
 import inspect
 
 class SgaOptimizer(optimizer.Optimizer):
-  def __init__(self, learning_rate=0.001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=1, gamma=1):
+  def __init__(self, learning_rate=0.001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=1, gamma=1,loss=None):
     super().__init__(use_locking, name)
     self._beta = beta
     self._rho = rho
@@ -21,6 +21,8 @@ class SgaOptimizer(optimizer.Optimizer):
     self.gan = gan
     self.config = config
     self._lr_t = learning_rate
+    self.loss = loss
+    optimizer["loss"] = loss
 
     self.optimizer = self.gan.create_optimizer(optimizer)
  

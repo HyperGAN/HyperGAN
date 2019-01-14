@@ -43,6 +43,8 @@ class BaseGAN(GANComponent):
                 self.session = self.session or tf.Session(config=tfconfig)
 
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
+        self.steps = tf.Variable(0, trainable=False, name='global_step')
+        self.increment_step = tf.assign(self.steps, self.steps+1)
         # A GAN as a component has a parent of itself
         # gan.gan.gan.gan.gan.gan
         GANComponent.__init__(self, self, config, name=self.name)
@@ -130,6 +132,7 @@ class BaseGAN(GANComponent):
         raise ValidationException("BaseGAN.create() called directly.  Please override")
 
     def step(self, feed_dict={}):
+        self.session.run(self.increment_step)
         return self._step(feed_dict)
 
     def _step(self, feed_dict={}):
@@ -143,9 +146,13 @@ class BaseGAN(GANComponent):
         return self.discriminator.variables()
 
     def trainable_vars(self):
-        d_vars = list(set(self.d_vars()).intersection(tf.trainable_variables()))
-        g_vars = list(set(self.g_vars()).intersection(tf.trainable_variables()))
-        return d_vars, g_vars
+        return self.trainable_d_vars(), self.trainable_g_vars()
+
+    def trainable_d_vars(self):
+        return list(set(self.d_vars()).intersection(tf.trainable_variables()))
+
+    def trainable_g_vars(self):
+        return list(set(self.g_vars()).intersection(tf.trainable_variables()))
 
     def save(self, save_file):
         print("[hypergan] Saving network to ", save_file)

@@ -40,8 +40,6 @@ class GANOptimizer(optimizer.Optimizer):
     super()._create_slots(var_list)
     d_vars = [v for v in var_list if v in self.gan.d_vars()]
     g_vars = [v for v in var_list if v in self.gan.g_vars()]
-    print("GV", g_vars)
-    print("--", var_list)
     self.d_optimizer._create_slots(d_vars)
     self.g_optimizer._create_slots(g_vars)
     missing_vars = [v for v in var_list if v not in self.gan.g_vars() + self.gan.d_vars()]

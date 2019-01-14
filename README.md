@@ -31,7 +31,6 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
  * [Sampling](#sampling)
 * [API](API)
   * [Examples](#examples)
-  * [Search](#search)
 * [Datasets](#datasets)
   * [Creating a Dataset](#creating-a-dataset)
   * [Downloadable Datasets](#downloadable-datasets)
@@ -221,7 +220,7 @@ For jpg(pass `-f jpg`)
 
 ## Downloadable datasets
 
-* Loose images of any kind can be used(minimum 400)
+* Loose images of any kind can be used
 * CelebA aligned faces http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
 * MS Coco http://mscoco.org/
 * ImageNet http://image-net.org/

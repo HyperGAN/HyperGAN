@@ -1,0 +1,126 @@
+
+{
+  "description": "Resizable AliGAN(encodes x into latent)",
+  "discriminator": 
+  {
+      "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+      "defaults":{
+         "activation": "lrelu",
+        "filter": [3,3],
+        "stride": [1,1],
+        "avg_pool": [2,2],
+        "activation": "lrelu",
+        "initializer": "random_normal",
+        "random_stddev": 0.02
+      },
+      "layers":[
+        "conv 64 ", 
+        "conv 128",
+        "conv 256",
+        "conv 512",
+        "conv 512",
+        "conv 512",
+        "reshape -1",
+        "combine_features",
+        "linear 1 activation=null"
+      ]
+  },
+  "encoder": 
+  {
+      "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+      "defaults":{
+         "activation": "relu",
+        "filter": [3,3],
+        "stride": [1,1],
+        "avg_pool": [2,2],
+        "activation": "lrelu",
+        "initializer": "random_normal",
+        "random_stddev": 0.02
+      },
+      "layers":[
+        "conv 64 ", 
+        "conv 128",
+        "conv 256",
+        "conv 512",
+        "conv 512",
+        "conv 512",
+        "linear 100 activation=tanh"
+      ]
+  },
+
+
+  "latent":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "min": -1,
+    "max": 1,
+    "z": 100
+  },
+  "generator": {
+    "class": "function:hypergan.generators.resizeable_generator.ResizeableGenerator",
+    "activation": "relu",
+    "initializer": "random_normal",
+    "random_stddev": 0.02,
+    "depth_increase": 64,
+    "final_activation": "tanh",
+    "final_depth": 64,
+    "block": "deconv"
+  },
+
+  "loss":
+  {
+    "class": "function:hypergan.losses.ali_loss.AliLoss",
+    "reduce": "reduce_mean"
+  },
+    "trainer": {
+  "class": "function:hypergan.trainers.alternating_trainer.alternatingtrainer",
+    "g_optimizer": {
+
+      "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.elasticweightconsolidationoptimizer",
+      "f_decay": 0.8,
+      "optimizer": {
+       "class": "function:hypergan.optimizers.giga_wolf_optimizer.gigawolfoptimizer",
+
+      "optimizer": {
+    "class": "function:tensorflow.python.training.adam.adamoptimizer",
+    "learn_rate": 1e-4,
+      "beta1":0.0,
+      "beta2":0.999
+  },
+   "optimizer2": {
+    "class": "function:tensorflow.python.training.adam.adamoptimizer",
+    "learn_rate": 3e-5,
+    "beta1":0.0,
+    "beta2":0.999
+   }
+   }},
+    "d_optimizer": {
+      "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.elasticweightconsolidationoptimizer",
+      "optimizer": {
+
+       "class": "function:hypergan.optimizers.giga_wolf_optimizer.gigawolfoptimizer",
+
+      "optimizer": {
+    "class": "function:tensorflow.python.training.adam.adamoptimizer",
+    "learn_rate": 1e-4,
+      "beta1":0.0,
+      "beta2":0.999
+  },
+   "optimizer2": {
+    "class": "function:tensorflow.python.training.adam.adamoptimizer",
+    "learn_rate": 3e-5,
+    "beta1":0.0,
+    "beta2":0.999
+   }
+      }
+   },
+    "hooks":[
+      {
+        "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.gradientpenaltytrainhook",
+        "lambda": 0.001
+      }]
+
+
+    },
+    "class": "class:hypergan.gans.ali_gan.AliGAN"
+}

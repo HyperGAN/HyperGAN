@@ -15,23 +15,24 @@ class ConfigurableComponent:
         self.layers = []
         self.skip_connections = skip_connections
         self.layer_ops = {
-                "relational": self.layer_relational,
-                "minibatch": self.layer_minibatch,
-                "phase_shift": self.layer_phase_shift,
-                "conv": self.layer_conv,
-                "zeros": self.layer_zeros,
-                "control": self.layer_controls,
-                "linear": self.layer_linear,
-                "identity": self.layer_identity,
-                "double_resolution": self.layer_double_resolution,
-                "attention": self.layer_attention,
-                "adaptive_instance_norm": self.layer_adaptive_instance_norm,
+            "relational": self.layer_relational,
+            "minibatch": self.layer_minibatch,
+            "phase_shift": self.layer_phase_shift,
+            "conv": self.layer_conv,
+            "zeros": self.layer_zeros,
+            "control": self.layer_controls,
+            "linear": self.layer_linear,
+            "identity": self.layer_identity,
+            "double_resolution": self.layer_double_resolution,
+            "attention": self.layer_attention,
+            "adaptive_instance_norm": self.layer_adaptive_instance_norm,
             "subpixel": self.layer_subpixel,
             "pixel_norm": self.layer_pixel_norm,
             "gram_matrix": self.layer_gram_matrix,
             "unpool": self.layer_unpool,
             "slice": self.layer_slice,
             "concat_noise": self.layer_noise,
+            "concat": self.layer_concat,
             "variational_noise": self.layer_variational_noise,
             "variational": self.layer_variational,
             "noise": self.layer_noise,
@@ -56,7 +57,8 @@ class ConfigurableComponent:
             "turing_test": self.layer_turing_test,
             "activation": self.layer_activation,
             "knowledge_base": self.layer_knowledge_base,
-            "const": self.layer_const
+            "const": self.layer_const,
+            "progressive_replace": self.layer_progressive_replace
             }
         self.features = features
         self.controls = {}
@@ -114,14 +116,14 @@ class ConfigurableComponent:
             args, options = self.parse_args(d[1:])
         
             net = self.build_layer(net, op, args, options)
-            if 'name' in options:
-                self.named_layers[options['name']] = net
             return net
             
 
     def build_layer(self, net, op, args, options):
         if self.layer_ops[op]:
             net = self.layer_ops[op](net, args, options)
+            if 'name' in options:
+                self.named_layers[options['name']] = net
         else:
             print("ConfigurableComponent: Op not defined", op)
 
@@ -847,6 +849,13 @@ class ConfigurableComponent:
         net = tf.concat([net, noise], axis=len(self.ops.shape(net))-1)
         return net
 
+    def layer_concat(self, net, args, options):
+        if len(args) > 0 and args[0] == 'noise':
+            noise = tf.random_normal(self.ops.shape(net), stddev=0.1)
+            net = tf.concat([net, noise], axis=len(self.ops.shape(net))-1)
+            return net
+        net = tf.concat([net, self.named_layers[options['layer']]], axis=len(self.ops.shape(net))-1)
+        return net
 
     def layer_gram_matrix(self, net, args, options):
 
@@ -959,14 +968,19 @@ class ConfigurableComponent:
 
     def layer_const(self, net, args, options):
         s  = [1] + [int(x) for x in args[0].split("*")]
-        
+        trainable = True
+        if "trainable" in options and options["trainable"] == "false":
+            trainable = False
         with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
-            return tf.tile(self.ops.get_weight(s, name='const'), [self.gan.batch_size(), 1,1,1])
+            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable), [self.gan.batch_size(), 1,1,1])
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)
 
-        return getattr(self.gan, options.src).layer(options.name)
+        obj = self
+        if "src" in options:
+            obj = getattr(self.gan, options.src)
+        return obj.layer(options.name)
 
     def layer_knowledge_base(self, net, args, options):
         if not hasattr(self, 'knowledge_base'):
@@ -974,3 +988,25 @@ class ConfigurableComponent:
         kb = tf.Variable(tf.zeros_like(net), dtype=tf.float32, trainable=False)
         self.knowledge_base.append([options['name'], kb])
         return tf.concat([net, kb], axis=-1)
+    
+    def layer_progressive_replace(self, net, args, options):
+        start = self.named_layers[options["start"]]
+        end = self.named_layers[options["end"]]
+        steps = float(options["steps"])
+        delay = 0
+        if "delay" in options:
+            delay = int(options["delay"])
+        if self.ops.shape(start) != self.ops.shape(end):
+            start = tf.image.resize_images(start, [self.ops.shape(end)[1], self.ops.shape(end)[2]],1)
+        decay = (tf.cast(self.gan.steps, dtype=tf.float32)-tf.constant(delay, dtype=tf.float32)) / tf.constant(steps, dtype=tf.float32)
+
+        decay = tf.minimum(1.0, decay)
+        decay = tf.maximum(0.0, decay)
+        self.gan.add_metric('decay', decay)
+        self.gan.add_metric('gs', self.gan.steps)
+
+        net = decay * end + (1.0-decay) * start
+        if "name" in options:
+            net = tf.identity(net, name=options["name"])
+        return net
+

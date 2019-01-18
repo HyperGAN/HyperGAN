@@ -46,7 +46,8 @@ class CLI:
         self.samples = 0
         self.steps = 0
         self.gan = gan
-        self.gan.cli = self
+        if gan is not None:
+            self.gan.cli = self
 
         args = hc.Config(args)
         self.args = args

@@ -6,7 +6,7 @@
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists. 
 
-_0.10 preview is **not** available in pip.  You must install from the source.  Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
+ 0.10 preview is **not** available in pip.  You must install from the source.  Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
 
 HyperGAN is currently in open beta.
 

@@ -13,7 +13,7 @@ import hyperchamber as hc
 import inspect
 
 class CurlOptimizer(optimizer.Optimizer):
-  def __init__(self, learning_rate=0.00001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=-1, gamma=1):
+  def __init__(self, learning_rate=0.00001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=-1, gamma=1, loss=None):
     super().__init__(use_locking, name)
     self._beta = beta
     self._rho = rho
@@ -28,6 +28,7 @@ class CurlOptimizer(optimizer.Optimizer):
     if tf.contrib.framework.is_tensor(self.d_rho):
         self.gan.add_metric("d_rho", self.d_rho)
 
+    optimizer['loss'] = loss
     self.optimizer = self.gan.create_optimizer(optimizer)
  
   def _prepare(self):

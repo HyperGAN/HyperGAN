@@ -72,23 +72,26 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
 
     diff = [tf.square(v-t) for v,t in zip(current_vars, tmp_vars)]
 
-    if isinstance(self.loss, list):
-        grads = tf.gradients(self.loss[0], d_vars) + tf.gradients(self.loss[1], g_vars)
-    else:
-        grads = tf.gradients(self.loss, current_vars)
-    f_accum = [(self.config.f_decay or 0.95) * f + tf.square(g) for f, g in zip(f1, grads)]
+    f_accum = [(self.config.f_decay or 0.95) * f + tf.square(g) for f, g in zip(f1, all_grads)]
     self.gan.add_metric('f1',tf.reduce_sum([tf.reduce_sum(f) for f in f1]))
+    f_accum = [tf.where(tf.is_nan(_f), tf.zeros_like(_f), _f) for _f in f_accum]
+    f_accum = [tf.where(tf.is_inf(_f), tf.zeros_like(_f), _f) for _f in f_accum]
 
     reg = [tf.multiply(f, d) for f,d in zip(f1, diff)]
+    reg = [tf.where(tf.is_nan(_f), tf.zeros_like(_f), _f) for _f in reg]
     ewc_loss = (self.config.lam or 17.5)/2.0 * tf.reduce_sum([tf.reduce_sum(r) for r in reg])
     self.gan.add_metric('ewc',ewc_loss)
 
     save_weights = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, current_vars)]) # store variables
 
     if isinstance(self.loss, list):
-        new_grads = tf.gradients(self.loss[0]+ewc_loss, d_vars) + tf.gradients(self.loss[1]+ewc_loss, g_vars)
+        new_grads = tf.gradients(ewc_loss, d_vars) + tf.gradients(ewc_loss, g_vars)
+        self.optimizer.loss = [ewc_loss+self.loss[0], ewc_loss+self.loss[1]]
     else:
-        new_grads = tf.gradients(self.loss+ewc_loss, current_vars)
+        new_grads = tf.gradients(ewc_loss, current_vars)
+        self.optimizer.loss =ewc_loss+self.loss
+    new_grads = [_g+_ng for _g,_ng in zip(all_grads, new_grads)]
+
     step = self.optimizer.apply_gradients(list(zip(new_grads, current_vars)).copy(), global_step=global_step, name=name)
 
     store_f = tf.group(*[tf.assign(w, v) for w,v in zip(f1, f_accum)])
@@ -100,4 +103,4 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")
   def variables(self):
-      return self.optimizer.variables()
+      return super().variables() + self.optimizer.variables()

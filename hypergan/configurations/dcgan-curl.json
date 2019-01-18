@@ -1,6 +1,6 @@
 {
-  "description": "Symplectic Gradient Adjustment example",
-  "publication": "https://arxiv.org/pdf/1802.05642.pdf",
+  "description": "Crossing the curl with finite differences",
+  "publication": "https://arxiv.org/pdf/1808.01531.pdf",
   "discriminator":
   {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
@@ -29,28 +29,29 @@
     "class": "function:hypergan.losses.standard_loss.StandardLoss",
     "reduce": "reduce_mean"
   },
-  "trainer": {
+    "trainer": {
     "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+    "optimizer": {
+      "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
+      "learn_rate": 0.00001,
       "optimizer": {
-        "class": "function:hypergan.optimizers.sga_optimizer.SgaOptimizer",
+        "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
+        "f_decay": 0.5,
         "optimizer": {
-          "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
-          "f_decay": 0.8,
-          "optimizer": {
-            "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+          "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
 
-            "optimizer": {
-              "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-              "learn_rate": 1e-4,
-              "beta1":0.0,
-              "beta2":0.999
-            },
-           "optimizer2": {
+          "optimizer": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 1e-4,
+            "beta1":0.0,
+            "beta2":0.999
+          },
+          "optimizer2": {
             "class": "function:tensorflow.python.training.adam.AdamOptimizer",
             "learn_rate": 3e-5,
             "beta1":0.0,
             "beta2":0.999
-           }
+          }
         }
       }
     }

@@ -74,12 +74,10 @@ class ResizeableGenerator(BaseGenerator):
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)
                 net = block(self, net, depth, filter=filter_size, padding=padding)
-                net = self.normalize(net)
             else:
                 net = self.layer_filter(net)
                 net = ops.deconv2d(net, 5, 5, 2, 2, np.minimum(depth, config.max_depth or 512))
                 print("DECONV", net)
-                net = self.normalize(net)
 
 
             size = resize[0]*resize[1]*depth

@@ -135,6 +135,30 @@ Usage:
 
 `attention`
 
+## crop
+
+`crop [w h d]`
+
+Crops the network to the output size.
+
+Defaults to the input resolution if no arguments are specified.
+
+Output: A tensor with the form [batch_size, w, h, d]
+
+## resize_images
+
+`resize_images [w h] (method=1...4)`
+
+
+Resizes the network to the output size.
+
+Defaults to the input resolution if no arguments are specified.
+
+Output: A tensor with the form [batch_size, w, h, channels]
+
+See https://www.tensorflow.org/api_docs/python/tf/image/resize_images
+
+
 # Configuration
 
 Configuration in HyperGAN uses JSON files.  You can create a new config with the default template by running `hypergan new mymodel`.

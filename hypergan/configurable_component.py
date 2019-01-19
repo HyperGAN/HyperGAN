@@ -30,7 +30,8 @@ class ConfigurableComponent:
             "pixel_norm": self.layer_pixel_norm,
             "gram_matrix": self.layer_gram_matrix,
             "unpool": self.layer_unpool,
-            "slice": self.layer_slice,
+            "crop": self.layer_crop,
+            "resize_images": self.layer_resize_images,
             "concat_noise": self.layer_noise,
             "concat": self.layer_concat,
             "variational_noise": self.layer_variational_noise,
@@ -800,16 +801,20 @@ class ConfigurableComponent:
         ps = _PS(y1, r, depth)
         return ps
 
-    def layer_slice(self, net, args, options):
+    def layer_crop(self, net, args, options):
         options = hc.Config(options)
         if len(args) == 0:
             w = self.gan.width()
             h = self.gan.height()
+            d = self.gan.channels()
         else:
             w = int(args[0])
             h = int(args[1])
             d = int(args[2])
-        net = tf.slice(net, [0,0,0,int(options.d_offset or 0)], [-1,h,w,d])
+        s = self.ops.shape(net)
+        if w > s[1] or h > s[2] or d > s[3]:
+            raise "Input resolution too small for crop"
+        net = tf.slice(net, [0,0,0,int(options.d_offset or 0)], [-1,w,h,d])
         return net
 
     def layer_noise(self, net, args, options):
@@ -988,6 +993,17 @@ class ConfigurableComponent:
         kb = tf.Variable(tf.zeros_like(net), dtype=tf.float32, trainable=False)
         self.knowledge_base.append([options['name'], kb])
         return tf.concat([net, kb], axis=-1)
+
+    def layer_resize_images(self, net, args, options):
+        options = hc.Config(options)
+        if len(args) == 0:
+            w = self.gan.width()
+            h = self.gan.height()
+        else:
+            w = int(args[0])
+            h = int(args[1])
+        method = options.method or 1
+        return tf.image.resize_images(net, [w, h], method=method)
     
     def layer_progressive_replace(self, net, args, options):
         start = self.named_layers[options["start"]]

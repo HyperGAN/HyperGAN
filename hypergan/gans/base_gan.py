@@ -251,3 +251,5 @@ class BaseGAN(GANComponent):
             return hg.ops.decay(self, *args)
         return string
 
+    def exit(self):
+        self.destroy = True

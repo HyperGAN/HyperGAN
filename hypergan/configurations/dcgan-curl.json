@@ -36,6 +36,7 @@
       "learn_rate": 0.00001,
       "optimizer": {
         "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
+        "add_ewc_loss_gradients": true,
         "f_decay": 0.5,
         "optimizer": {
           "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",

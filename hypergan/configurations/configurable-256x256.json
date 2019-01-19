@@ -67,6 +67,7 @@
       "optimizer": {
         "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
         "f_decay": 0.5,
+        "add_ewc_loss_gradients": true,
         "optimizer": {
           "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
 

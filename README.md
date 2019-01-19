@@ -4,7 +4,9 @@
 [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
 [![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
 
-A composable GAN API and CLI.  Built for developers, researchers, and artists.
+A composable GAN API and CLI.  Built for developers, researchers, and artists. 
+
+ 0.10 preview is **not** available in pip.  You must install from the source.  Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
 
 HyperGAN is currently in open beta.
 

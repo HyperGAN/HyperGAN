@@ -85,12 +85,24 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
     save_weights = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, current_vars)]) # store variables
 
     if isinstance(self.loss, list):
-        new_grads = tf.gradients(ewc_loss, d_vars) + tf.gradients(ewc_loss, g_vars)
+        if self.config.add_ewc_loss_gradients:
+            newloss = [ewc_loss, ewc_loss]
+        else:
+            newloss = [self.loss[0]+ewc_loss, self.loss[1]+ewc_loss]
+
+        new_grads = tf.gradients(newloss[0], d_vars) + tf.gradients(newloss[1], g_vars)
         self.optimizer.loss = [ewc_loss+self.loss[0], ewc_loss+self.loss[1]]
     else:
-        new_grads = tf.gradients(ewc_loss, current_vars)
+        if self.config.add_ewc_loss_gradients:
+            newloss = ewc_loss
+        else:
+            newloss = self.loss+ewc_loss
+
+        new_grads = tf.gradients(newloss, current_vars)
         self.optimizer.loss =ewc_loss+self.loss
-    new_grads = [_g+_ng for _g,_ng in zip(all_grads, new_grads)]
+
+    if self.config.add_ewc_loss_gradients:
+        new_grads = [_g+_ng for _g,_ng in zip(all_grads, new_grads)]
 
     step = self.optimizer.apply_gradients(list(zip(new_grads, current_vars)).copy(), global_step=global_step, name=name)
 

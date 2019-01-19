@@ -54,12 +54,15 @@ HyperGAN is a community project.  GANs are a very new and active field of resear
 ## Features
 
 * Community project
+* Unsupervised learning
 * Transfer learning
 * Online learning
 * Dataset agnostic
 * Reproducible architectures using json configurations
 * Domain Specific Language to define custom architectures
+* GUI(pygame and tk)
 * API
+* CLI
 
 # Showcase
 
@@ -144,7 +147,7 @@ See all configuration templates with `--list-templates` or `-l`.
 If you wish to modify hypergan
 
 ```bash
-git clone https://github.com/255BITS/hypergan
+git clone https://github.com/hypergan/hypergan
 cd hypergan
 python3 setup.py develop
 ```
@@ -200,7 +203,7 @@ To see a detailed list, run
 Examples
 --------
 
-See the example documentation https://github.com/255BITS/HyperGAN/tree/master/examples
+See the example documentation https://github.com/hypergan/HyperGAN/tree/master/examples
 
 # Datasets
 
@@ -239,7 +242,7 @@ for i in *.jpg; do; convert $i  -resize "300x256" -gravity north   -extent 256x2
 
 # Contributing
 
-Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab.
+Contributions are welcome and appreciated!  We have many open issues in the *Issues* tab.  Join the discord.
 
 See <a href='CONTRIBUTING.md'>how to contribute.</a>
 
@@ -279,7 +282,6 @@ Generative Adversarial Networks - https://arxiv.org/pdf/1706.04987.pdf
 * DCGAN - https://github.com/carpedm20/DCGAN-tensorflow
 * InfoGAN - https://github.com/openai/InfoGAN
 * Improved GAN - https://github.com/openai/improved-gan
-* Hyperchamber - https://github.com/255bits/hyperchamber
 
 # Citation
 

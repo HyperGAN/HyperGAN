@@ -68,6 +68,7 @@ class CLI:
             default_save_path = os.path.abspath("saves/"+self.config_name)
             self.save_file = default_save_path + "/model.ckpt"
             self.create_path(self.save_file)
+        self.gan.save_file = self.save_file
 
         title = "[hypergan] " + self.config_name
         GlobalViewer.title = title
@@ -218,13 +219,12 @@ class CLI:
         return gan_server(self.gan.session, config)
 
     def sample_forever(self):
-        while True:
+        while not self.gan.destroy:
+            GlobalViewer.tick()
             sample_file="samples/"+self.config_name +"/%06d.png" % (self.samples)
             self.create_path(sample_file)
             self.sample(sample_file)
             self.samples += 1
-            print("Sample", self.samples)
-            sleep(0.2)
 
 
     def train(self):
@@ -235,10 +235,11 @@ class CLI:
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-        while(i < self.total_steps or self.total_steps == -1):
+        while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
             i+=1
             start_time = time.time()
             self.step()
+            GlobalViewer.tick()
 
             if (self.args.save_every != None and
                 self.args.save_every != -1 and

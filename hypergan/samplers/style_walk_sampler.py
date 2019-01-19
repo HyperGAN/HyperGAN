@@ -82,4 +82,4 @@ class StyleWalkSampler(BaseSampler):
             except Exception as e:
                 print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
                 print(e)
-        GlobalViewer.update(image)
+        GlobalViewer.update(self.gan, image)

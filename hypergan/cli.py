@@ -293,8 +293,7 @@ class CLI:
             else:
                 print("Model loaded")
             self.train()
-            if not self.args.nosave:
-                self.gan.save(self.save_file)
+            self.gan.save(self.save_file)
             tf.reset_default_graph()
             self.gan.session.close()
         elif self.method == 'build':

@@ -79,7 +79,10 @@ if 'inherit' in config:
 if args.list_templates:
     configs = hg.Configuration.list()
     for config in configs:
-        template = hg.Configuration.load(config+'.json', verbose=False)
+        try:
+            template = hg.Configuration.load(config+'.json', verbose=False)
+        except Exception as e:
+            template = hc.Config({"description": str(e), "publication": "error"})
         print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
     exit(0)
 if not args.align:

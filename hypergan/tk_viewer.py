@@ -20,6 +20,7 @@ class TkViewer:
         self.title = title
         self.viewer_size = viewer_size
         self.enabled = enabled
+        self.enable_menu = True
 
     def update(self, gan, image):
         if not self.enabled: return
@@ -51,7 +52,9 @@ class TkViewer:
             filemenu.add_command(label="Save and Exit", command=_exit)
             menubar.add_cascade(label="File", menu=filemenu)
 
-            root.config(menu=menubar)
+
+            if self.enable_menu:
+                root.config(menu=menubar)
 
             # Tell pygame's SDL window which window ID to use
             os.environ['SDL_WINDOWID'] = str(embed.winfo_id())
@@ -90,6 +93,7 @@ class TkViewer:
         """
             Called repeatedly regardless of gan state.
         """
-        self.root.update()
+        if hasattr(self, 'root'):
+            self.root.update()
 
        

@@ -37,6 +37,7 @@ class CommandParser:
         parser.add_argument('--list-templates', '-l', dest='list_templates', action='store_true', help='List available templates.')
         parser.add_argument('--debug', dest='debug', action='store_true', help='Start the tensorflow debugger.')
         parser.add_argument('--version', action='version', version='%(prog)s 0.10.0 alpha')
+        parser.add_argument('--nomenu', dest='menu', action='store_false', help='Disables the file menu.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)

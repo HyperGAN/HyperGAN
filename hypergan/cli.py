@@ -72,6 +72,7 @@ class CLI:
             self.gan.save_file = self.save_file
 
         title = "[hypergan] " + self.config_name
+        GlobalViewer.enable_menu = self.args.menu
         GlobalViewer.title = title
         GlobalViewer.viewer_size = self.args.viewer_size
         GlobalViewer.enabled = self.args.viewer

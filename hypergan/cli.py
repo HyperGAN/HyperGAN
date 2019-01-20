@@ -68,7 +68,8 @@ class CLI:
             default_save_path = os.path.abspath("saves/"+self.config_name)
             self.save_file = default_save_path + "/model.ckpt"
             self.create_path(self.save_file)
-        self.gan.save_file = self.save_file
+        if self.gan is not None:
+            self.gan.save_file = self.save_file
 
         title = "[hypergan] " + self.config_name
         GlobalViewer.title = title

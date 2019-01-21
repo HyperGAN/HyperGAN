@@ -4,4 +4,3 @@ tensorflow-gpu>=1.12
 Pillow
 pygame
 natsort
-tkinter

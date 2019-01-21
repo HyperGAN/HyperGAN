@@ -1,6 +1,7 @@
 hyperchamber>=0.2.7
 numpy
-tensorflow-gpu>=1.3
+tensorflow-gpu>=1.12
 Pillow
 pygame
 natsort
+tkinter

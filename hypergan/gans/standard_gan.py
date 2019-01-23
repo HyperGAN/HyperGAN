@@ -62,8 +62,21 @@ class StandardGAN(BaseGAN):
             if self.latent is None:
                 self.latent = self.create_component(config.z_distribution or config.latent)
                 self.uniform_distribution = self.latent
+
+            z_shape = self.ops.shape(self.latent.sample)
+            self.android_input = tf.reshape(self.latent.sample, [-1])
+
+            direction, slider = self.create_controls(self.ops.shape(self.android_input))
+            self.slider = slider
+            self.direction = direction
+            z = self.android_input + slider * direction
+            z = tf.maximum(-1., z)
+            z = tf.minimum(1., z)
+            z = tf.reshape(z, z_shape)
+            self.control_z = z
+
             if self.generator is None and config.generator:
-                self.generator = self.create_component(config.generator, name="generator", input=self.latent.sample)
+                self.generator = self.create_component(config.generator, name="generator", input=z)
                 self.autoencoded_x = self.generator.sample
                 self.uniform_sample = self.generator.sample
 
@@ -75,33 +88,29 @@ class StandardGAN(BaseGAN):
             if self.trainer is None and config.trainer:
                 self.trainer = self.create_component(config.trainer)
 
-            self.random_z = tf.random_uniform(self.ops.shape(self.latent.sample), -1, 1, name='random_z')
+            #self.random_z = tf.random_uniform(self.ops.shape(self.latent.sample), -1, 1, name='random_z')
+            self.android_output = tf.reshape(self.generator.sample, [-1])
 
             self.session.run(tf.global_variables_initializer())
 
+    def create_controls(self, z_shape):
+        direction = tf.constant(0.0, shape=z_shape, name='direction') * 1.00
+        slider = tf.constant(0.0, name='slider', dtype=tf.float32) * 1.00
+        return direction, slider
 
     def g_vars(self):
         return self.latent.variables() + self.generator.variables()
     def d_vars(self):
         return self.discriminator.variables()
-    def fitness_inputs(self):
-        return [
-                self.uniform_distribution.sample
-        ]
-    def fitness_inputs(self):
-        return [
-                self.uniform_distribution.sample
-        ]
 
     def input_nodes(self):
         "used in hypergan build"
         return [
-                self.uniform_distribution.sample
+                self.android_input
         ]
 
     def output_nodes(self):
         "used in hypergan build"
         return [
-                self.uniform_sample,
-                self.random_z
+                self.android_output
         ]

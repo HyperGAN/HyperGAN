@@ -158,6 +158,11 @@ class BaseGAN(GANComponent):
         print("[hypergan] Saving network to ", save_file)
         os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
         saver = tf.train.Saver(self.variables())
+        print("Saving " +str(len(self.variables()))+ " variables: ")
+        missing = set(tf.global_variables()) - set(self.variables())
+        missing = [ o for o in missing if "dontsave" not in o.name ]
+        if(len(missing) > 0):
+            print("[hypergan] Warning: Variables on graph but not saved:", missing)
         saver.save(self.session, save_file)
 
     def load(self, save_file):
@@ -224,7 +229,7 @@ class BaseGAN(GANComponent):
             self.gan.session.run(op, {var: val})
 
     def variables(self):
-        return list(set(self.ops.variables() + sum([c.variables() for c in self.components], [])))
+        return list(set(self.ops.variables() + sum([c.variables() for c in self.components], []))) + [self.global_step, self.steps]
 
     def weights(self):
         return self.ops.weights + sum([c.ops.weights for c in self.components], [])

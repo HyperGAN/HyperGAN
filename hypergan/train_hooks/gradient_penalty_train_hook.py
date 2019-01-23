@@ -23,10 +23,8 @@ class GradientPenaltyTrainHook(BaseTrainHook):
     else:
         gan_inputs = self.gan.inputs.x
 
-    self.s_max = [ tf.Variable( tf.zeros_like(gan_inputs)) for i in range(memory_size)]
     self.d_lambda = config['lambda'] or 1
 
-    self.assign_s_max_new_entries = [ tf.assign(self.s_max[i], self.gan.sample_mixture()) for i in range(memory_size) ]
     self.memory_size = memory_size
     self.top_k = top_k
     target = gan.discriminator.sample

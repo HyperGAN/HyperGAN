@@ -47,9 +47,8 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
             raise("Couldn't find var in g_vars or d_vars")
 
     with ops.init_scope():
+        print("INIT ______")
         f1 = [self._zeros_slot(v, "f", self._name) for v in var_list]
-
-    with ops.init_scope():
         v1 = [self._get_or_make_slot(v, v, "v1", self._name) for v in var_list]
         if self.config.include_slots:
             for name in self.optimizer.get_slot_names():

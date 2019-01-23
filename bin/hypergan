@@ -32,13 +32,12 @@ class CommandParser:
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
-        parser.add_argument('--nosave', dest='viewer', action='store_false', help='Dont save after --steps of training')
         parser.add_argument('--viewer_size', '-z', type=float, dest='viewer_size', default=1, help='Size of the viewer window as a multiplier. WARNING: values above 60 may cause crashes')
-        parser.add_argument('--autoencode', dest='autoencode', action='store', help='Disables the display of samples in a window.')
         parser.add_argument('--classloss', dest='classloss', action='store_true', help='Enable class loss.  You must have multiple subfolders, one for each class')
         parser.add_argument('--list-templates', '-l', dest='list_templates', action='store_true', help='List available templates.')
         parser.add_argument('--debug', dest='debug', action='store_true', help='Start the tensorflow debugger.')
         parser.add_argument('--version', action='version', version='%(prog)s 0.10.0 alpha')
+        parser.add_argument('--nomenu', dest='menu', action='store_false', help='Disables the file menu.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -79,7 +78,10 @@ if 'inherit' in config:
 if args.list_templates:
     configs = hg.Configuration.list()
     for config in configs:
-        template = hg.Configuration.load(config+'.json', verbose=False)
+        try:
+            template = hg.Configuration.load(config+'.json', verbose=False)
+        except Exception as e:
+            template = hc.Config({"description": str(e), "publication": "error"})
         print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
     exit(0)
 if not args.align:

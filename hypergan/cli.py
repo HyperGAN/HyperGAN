@@ -72,6 +72,7 @@ class CLI:
             self.gan.save_file = self.save_file
 
         title = "[hypergan] " + self.config_name
+        GlobalViewer.enable_menu = self.args.menu
         GlobalViewer.title = title
         GlobalViewer.viewer_size = self.args.viewer_size
         GlobalViewer.enabled = self.args.viewer
@@ -293,8 +294,7 @@ class CLI:
             else:
                 print("Model loaded")
             self.train()
-            if not self.args.nosave:
-                self.gan.save(self.save_file)
+            self.gan.save(self.save_file)
             tf.reset_default_graph()
             self.gan.session.close()
         elif self.method == 'build':

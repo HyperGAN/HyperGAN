@@ -25,6 +25,10 @@ class TkViewer:
     def update(self, gan, image):
         if not self.enabled: return
 
+        if len(np.shape(image)) == 2:
+            s = np.shape(image)
+            image = np.reshape(image, [s[0], s[1], 1])
+            image = np.tile(image, [1,1,3])
         image = np.transpose(image, [1, 0,2])
 
         if not self.screen:

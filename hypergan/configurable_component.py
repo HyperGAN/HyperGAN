@@ -9,6 +9,8 @@ from functools import reduce
 from hypergan.ops.tensorflow.extended_ops import bicubic_interp_2d
 from .gan_component import GANComponent
 
+class ConfigurationException(Exception):
+    pass
 
 class ConfigurableComponent:
     def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[]):
@@ -124,6 +126,8 @@ class ConfigurableComponent:
         if self.layer_ops[op]:
             net = self.layer_ops[op](net, args, options)
             if 'name' in options:
+                if options['name'] in self.named_layers:
+                    raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
                 self.named_layers[options['name']] = net
         else:
             print("ConfigurableComponent: Op not defined", op)
@@ -813,7 +817,7 @@ class ConfigurableComponent:
             d = int(args[2])
         s = self.ops.shape(net)
         if w > s[1] or h > s[2] or d > s[3]:
-            raise "Input resolution too small for crop"
+            raise ConfigurationException("Input resolution too small for crop")
         net = tf.slice(net, [0,0,0,int(options.d_offset or 0)], [-1,w,h,d])
         return net
 

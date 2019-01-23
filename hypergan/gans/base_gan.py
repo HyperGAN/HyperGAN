@@ -132,7 +132,7 @@ class BaseGAN(GANComponent):
         raise ValidationException("BaseGAN.create() called directly.  Please override")
 
     def step(self, feed_dict={}):
-        self.session.run(self.increment_step)
+        self.step_count = self.session.run(self.increment_step)
         return self._step(feed_dict)
 
     def _step(self, feed_dict={}):

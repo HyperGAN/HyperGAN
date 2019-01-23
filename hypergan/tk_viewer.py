@@ -7,8 +7,10 @@ Usage:
 
 """
 import numpy as np
-import tkinter as tk
 import os
+import tkinter as tk
+import tkinter.ttk
+
 
 
 
@@ -47,6 +49,23 @@ class TkViewer:
             def _exit():
                 gan.exit()
 
+            def _create_status_bar(root):
+                statusbar = tk.Frame(root, height=24)
+                statusbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+                label_training = tk.Label(statusbar, text="Training", font=12)
+                label_training.grid(row=0,column=0) 
+                sep = tkinter.ttk.Separator(statusbar, orient=tk.VERTICAL).grid(column=1, row=0, sticky='ns')
+                label = tk.Label(statusbar, text="Starting", font=12)
+                label.grid(row=0, column=2) 
+                def __update_step():
+                    label['text']=("Step " + str(gan.step_count))
+                    root.after(1000, __update_step)
+
+
+                __update_step()
+                return statusbar
+
             menubar = tk.Menu(root)
             filemenu = tk.Menu(menubar, tearoff=0)
             filemenu.add_command(label="Save", command=_save_model)
@@ -59,6 +78,7 @@ class TkViewer:
 
             if self.enable_menu:
                 root.config(menu=menubar)
+                _create_status_bar(root)
 
             # Tell pygame's SDL window which window ID to use
             os.environ['SDL_WINDOWID'] = str(embed.winfo_id())

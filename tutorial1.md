@@ -10,7 +10,15 @@ TODO: instructions for downloading dataset
 
 ## Getting started
 
-First install hypergan.
+First install tensorflow and hypergan.
+
+## Testing install
+
+To test tensorflow is installed correctly, start a python session and run `import tensorflow as tf`.
+
+To test hypergan is installed correctly, run `hypergan new . -l`
+
+You can view video card usage with `nvidia-smi`
 
 ## Training hypergan
 

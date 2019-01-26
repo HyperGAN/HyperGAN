@@ -25,6 +25,7 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
 * [Quick start](#quick-start)
   * [Requirements](#requirements)
   * [Install](#install)
+  * [Testing install](#testing-install)
   * [Train](#train)
   * [Development Mode](#development-mode)
   * [Running on CPU](#running-on-cpu)
@@ -93,6 +94,15 @@ Recommended: GTX 1080+
 
 ```bash
   pip3 install hypergan --upgrade
+```
+
+
+### Testing install
+
+To see that tensorflow and hypergan are installed correctly and have access to devices, please run:
+
+```
+  hypergan test
 ```
 
 ### Optional `virtualenv`:

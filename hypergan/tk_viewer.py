@@ -10,6 +10,7 @@ import numpy as np
 import os
 import tkinter as tk
 import tkinter.ttk
+import contextlib
 
 
 class ResizableFrame(tk.Frame):
@@ -61,7 +62,9 @@ class TkViewer:
         image = np.transpose(image, [1, 0,2])
 
         if not self.screen:
-            import pygame
+
+            with contextlib.redirect_stdout(None):
+                import pygame
 
             self.size = [int(image.shape[0] * self.viewer_size), int(image.shape[1] * self.viewer_size)]
 
@@ -75,10 +78,10 @@ class TkViewer:
             root.columnconfigure(1,weight=1)
             embed.pack(expand=tk.YES, fill=tk.BOTH)
 
-            def _save_model():
+            def _save_model(*args):
                 gan.save(gan.save_file)
 
-            def _exit():
+            def _exit(*args):
                 gan.exit()
 
             def _create_status_bar(root):
@@ -101,12 +104,15 @@ class TkViewer:
 
             menubar = tk.Menu(root)
             filemenu = tk.Menu(menubar, tearoff=0)
-            filemenu.add_command(label="Save", command=_save_model)
+            filemenu.add_command(label="Save", command=_save_model, underline=0, accelerator="Ctrl+S")
 
             filemenu.add_separator()
 
-            filemenu.add_command(label="Save and Exit", command=_exit)
-            menubar.add_cascade(label="File", menu=filemenu)
+            filemenu.add_command(label="Save and Exit", command=_exit, underline=10, accelerator="Ctrl+Q")
+            menubar.add_cascade(label="File", menu=filemenu, underline=0)
+
+            root.bind_all("<Control-q>", _exit)
+            root.bind_all("<Control-s>", _save_model)
 
 
             if self.enable_menu:
@@ -127,18 +133,6 @@ class TkViewer:
             self.temp_size = self.size
             self.screen = self.pg.display.set_mode(self.size,self.pg.RESIZABLE)
             self.pg.display.set_caption(self.title)
-
-        for event in self.pg.event.get():
-            if event.type == self.pg.VIDEORESIZE:
-                if self.size[0] != event.size[0]:
-                    self.temp_size = [event.size[0], int(event.size[0] * self.aspect_w)]
-                elif self.size[1] != event.size[1]:
-                    self.temp_size = [int(event.size[1] * self.aspect_h), event.size[1]]
-
-            elif event.type == self.pg.ACTIVEEVENT and event.state == 2 and event.gain == 1:
-                self.size = self.temp_size
-                self.screen = self.pg.display.set_mode(self.size,self.pg.RESIZABLE)   
-
 
         surface = self.pg.Surface([image.shape[0],image.shape[1]])
         self.pg.surfarray.blit_array(surface, image)

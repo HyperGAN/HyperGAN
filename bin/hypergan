@@ -11,8 +11,9 @@ from hypergan.gans.autoencoder_gan import AutoencoderGAN
 from hypergan.gans.alpha_gan import AlphaGAN
 
 class CommandParser:
-    def common(self, parser):
-        parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
+    def common(self, parser, directory=True):
+        if directory:
+            parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
         self.common_flags(parser)
 
     def common_flags(self, parser):
@@ -43,6 +44,7 @@ class CommandParser:
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
         subparsers = parser.add_subparsers(dest='method')
         train_parser = subparsers.add_parser('train')
+        test_parser = subparsers.add_parser('test')
         sample_parser = subparsers.add_parser('sample')
         build_parser = subparsers.add_parser('build')
         new_parser = subparsers.add_parser('new')
@@ -50,6 +52,7 @@ class CommandParser:
         self.common_flags(parser)
         self.common(sample_parser)
         self.common(train_parser)
+        self.common(test_parser, directory=False)
         self.common(build_parser)
         self.common(new_parser)
 
@@ -85,7 +88,7 @@ if args.list_templates:
         print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
     exit(0)
 if not args.align:
-    if args.method == 'new':
+    if args.method == 'new' or args.method == 'test':
         gan = None
         pass
 

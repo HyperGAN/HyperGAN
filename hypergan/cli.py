@@ -165,10 +165,18 @@ class CLI:
         tf.train.write_graph(self.gan.session.graph, 'builds', save_file_text)
         inputs = [x.name.split(":")[0] for x in self.gan.input_nodes()]
         outputs = [x.name.split(":")[0] for x in self.gan.output_nodes()]
+
+        with self.gan.session as sess:
+            converter = tf.lite.TFLiteConverter.from_session(sess, self.gan.input_nodes(), self.gan.output_nodes())
+            tflite_model = converter.convert()
+            f = open("builds/"+ self.gan.name+".tflite", "wb")
+            f.write(tflite_model)
+            f.close()
         tf.reset_default_graph()
         self.gan.session.close()
         [print("Input: ", x) for x in self.gan.input_nodes()]
         [print("Output: ", y) for y in self.gan.output_nodes()]
+        print("Written to builds/"+self.gan.name+".tflite")
 
         pbtxt_path = "builds/"+self.args.config+'.pbtxt'
         checkpoint_path = "saves/"+self.args.config+'/model.ckpt'
@@ -204,6 +212,8 @@ class CLI:
         f.flush()
         f.close()
 
+
+
         print("Saved generator to ", output_optimized_graph_name)
 
         print("Testing loading ", output_optimized_graph_name)
@@ -211,6 +221,11 @@ class CLI:
             graph_def = tf.GraphDef()
             graph_def.ParseFromString(f.read())
             tf.import_graph_def(graph_def, name='')
+            #tflite_model = tf.lite.TFLiteConverter(graph_def, self.gan.input_nodes(), self.gan.output_nodes()).convert()
+            #f = open("builds/"+ self.gan.name+".tflite", "wb")
+            #f.write(tflite_model)
+            #f.close()
+
         with tf.Session() as sess:
             for input in inputs:
                 print("Input: ", input, sess.graph.get_tensor_by_name(input+":0"))

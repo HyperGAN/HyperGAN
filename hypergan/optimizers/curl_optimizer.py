@@ -47,6 +47,7 @@ class CurlOptimizer(optimizer.Optimizer):
     g_vars = []
     d_grads = []
     g_grads = []
+
     for grad,var in grads_and_vars:
         if var in self.gan.d_vars():
             d_vars += [var]
@@ -60,7 +61,6 @@ class CurlOptimizer(optimizer.Optimizer):
     var_list = d_vars + g_vars
 
     with ops.init_scope():
-        v1 = [self._zeros_slot(v, "v1", self._name) for _,v in grads_and_vars]
         slots_list = []
         if self.config.include_slots:
             for name in self.optimizer.get_slot_names():
@@ -68,7 +68,12 @@ class CurlOptimizer(optimizer.Optimizer):
                     slots_list.append(self._zeros_slot(var, "curl", "curl"))
     self._prepare()
 
-    v1 = [self.get_slot(v, "v1") for v in var_list]
+    def _name(post, s):
+        ss = s.split(":")
+        return ss[0] + "_" + post + "_dontsave"
+
+
+    v1 = [tf.Variable(v, name=_name("curl",v.name)) for v in var_list]
     slots_list = []
     slots_vars = []
     if self.config.include_slots:
@@ -91,7 +96,6 @@ class CurlOptimizer(optimizer.Optimizer):
         consensus_reg = 0.5 * sum(
                 tf.reduce_sum(tf.square(g)) for g in d_grads if g is not None
         )
-        print("DV",d_vars)
         Jgrads = tf.gradients(consensus_reg, d_vars, stop_gradients=d_vars) + [tf.zeros_like(g) for g in g_vars]
 
     g1s = d_grads + g_grads
@@ -104,7 +108,6 @@ class CurlOptimizer(optimizer.Optimizer):
         with tf.get_default_graph().control_dependencies([op3]):
 
             def curlcombine(g1,g2,_v1,_v2,curl,rho):
-                #stepsize = (_v2-_v1)/(g1+1e-8)
                 stepsize = self._lr_t
                 if curl == "mirror":
                     return self._gamma*(g1 + 2*g2)

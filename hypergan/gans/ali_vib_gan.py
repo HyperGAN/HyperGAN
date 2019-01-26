@@ -73,17 +73,18 @@ class AliVibGAN(BaseGAN):
         ops = self.ops
         d_losses = []
         g_losses = []
+        encoder = self.create_encoder(self.inputs.x)
 
         with tf.device(self.device):
             x_input = tf.identity(self.inputs.x, name='input')
 
             if config.u_to_z:
-                latent = UniformDistribution(self, config.z_distribution)
+                latent = UniformDistribution(self, config.latent)
             else:
                 z_shape = self.ops.shape(encoder.sample)
                 uz_shape = z_shape
-                uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
-                latent = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+                uz_shape[-1] = uz_shape[-1] // len(config.latent.projections)
+                latent = UniformDistribution(self, config.latent, output_shape=uz_shape)
             self.uniform_distribution = latent 
             self.latent = latent
             direction, slider = self.create_controls(self.ops.shape(latent.sample))
@@ -94,7 +95,6 @@ class AliVibGAN(BaseGAN):
             stacked = [x_input, generator.sample]
             self.generator = generator
 
-            encoder = self.create_encoder(self.inputs.x)
 
             self.encoder = encoder
             features = [encoder.sample, u_to_z.sample]
@@ -134,22 +134,24 @@ class AliVibGAN(BaseGAN):
             l2, d2 = ali([self.inputs.x,tf.zeros_like(encoder.sample)],[generator.sample,tf.zeros_like(u_to_z.sample)],[reencode_u_to_z_to_g.sample, tf.zeros_like(reencode_u_to_z.sample)], reuse=True)
             l3, d3 = ali([tf.zeros_like(self.inputs.x),encoder.sample],[tf.zeros_like(generator.sample),u_to_z.sample],[tf.zeros_like(reencode_u_to_z_to_g.sample), reencode_u_to_z.sample], reuse=True)
 
-            l4, d4 = d('x_discriminator', [self.inputs.x, generator.sample, reencode_u_to_z_to_g.sample])
-            l5, d5 = d('z_discriminator', [encoder.sample, u_to_z.sample, reencode_u_to_z.sample])
-            self.discriminator = d1
-            self.loss = l1
-
-            beta = config.beta or 0.9
-            d_losses = [beta * (l1.d_loss - l2.d_loss - l3.d_loss) + l4.d_loss + 2*l5.d_loss]
-            g_losses = [beta * (l1.g_loss - l2.g_loss - l3.g_loss) + l4.g_loss + 2*l5.g_loss]
 
             if config.alternate:
                 d_losses = [beta * (l1.d_loss - l2.d_loss - l3.d_loss) + l2.d_loss + 2*l3.d_loss]
                 g_losses = [beta * (l1.g_loss - l2.g_loss - l3.g_loss) + l2.g_loss + 2*l3.g_loss]
 
             if config.mutual_only:
-                d_losses = [2*l1.d_loss - l2.d_loss - l3.d_loss)]
-                g_losses = [2*l1.g_loss - l2.g_loss - l3.g_loss)]
+                d_losses = [2*l1.d_loss - l2.d_loss - l3.d_loss]
+                g_losses = [2*l1.g_loss - l2.g_loss - l3.g_loss]
+            else:
+
+                l4, d4 = d('x_discriminator', [self.inputs.x, generator.sample, reencode_u_to_z_to_g.sample])
+                l5, d5 = d('z_discriminator', [encoder.sample, u_to_z.sample, reencode_u_to_z.sample])
+
+                beta = config.beta or 0.9
+                d_losses = [beta * (l1.d_loss - l2.d_loss - l3.d_loss) + l4.d_loss + 2*l5.d_loss]
+                g_losses = [beta * (l1.g_loss - l2.g_loss - l3.g_loss) + l4.g_loss + 2*l5.g_loss]
+            self.discriminator = d1
+            self.loss = l1
 
 
             self.add_metric("ld", d_losses[0])
@@ -172,7 +174,7 @@ class AliVibGAN(BaseGAN):
             })
             self.loss = loss
             self.uniform_distribution = latent 
-            trainer = self.create_component(config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+            trainer = self.create_component(config.trainer, g_vars = g_vars, d_vars = d_vars)
 
             self.session.run(tf.global_variables_initializer())
 

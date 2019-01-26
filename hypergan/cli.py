@@ -331,3 +331,24 @@ class CLI:
             self.sample_forever()
             tf.reset_default_graph()
             self.gan.session.close()
+        elif self.method == 'test':
+            print("Hooray!")
+            print("Hypergan is installed correctly.  Testing tensorflow for GPU support.")
+            with tf.Session() as sess:
+                devices = sess.list_devices()
+
+            if not tf.test.gpu_device_name():
+                print("Warning: no default GPU device available")
+                allgood=False
+            else:
+                print("Default GPU is available")
+                allgood=True
+            print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
+            print("Current available tensorflow devices:")
+            for device in devices:
+                print(device)
+            if allgood:
+                print("Congratulations!  Tensorflow and hypergan both look installed correctly.  If you still experience issues come let us know on discord.")
+            else:
+                print("There were errors in the test, please see the logs")
+

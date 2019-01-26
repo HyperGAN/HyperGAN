@@ -12,11 +12,25 @@ import tkinter as tk
 import tkinter.ttk
 
 
+class ResizableFrame(tk.Frame):
+    def __init__(self,parent,tkviewer=None,**kwargs):
+        tk.Frame.__init__(self,parent,**kwargs)
+        self.bind("<Configure>", self.on_resize)
+        self.height = kwargs['height']
+        self.width = kwargs['width']
+        self.tkviewer = tkviewer
 
+    def on_resize(self,event):
+        wscale = float(event.width)/self.width
+        hscale = float(event.height)/self.height
+        self.width = event.width
+        self.height = event.height
+        self.config(width=self.width, height=self.height)
+        self.tkviewer.size = [self.width, self.height]
+        self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
 
 
 class TkViewer:
-
     def __init__(self, title="HyperGAN", viewer_size=1, enabled=True):
         self.screen = None
         self.title = title
@@ -39,9 +53,13 @@ class TkViewer:
             self.size = [int(image.shape[0] * self.viewer_size), int(image.shape[1] * self.viewer_size)]
 
             root = tk.Tk()
-            embed = tk.Frame(root, width=self.size[0], height=self.size[1])
+            embed = ResizableFrame(root, width=self.size[0], height=self.size[1], tkviewer=self)
             embed.winfo_toplevel().title(self.title)
-            embed.pack()
+            root.rowconfigure(0,weight=1)
+            root.rowconfigure(1,weight=1)
+            root.columnconfigure(0,weight=1)
+            root.columnconfigure(1,weight=1)
+            embed.pack(expand=tk.YES, fill=tk.BOTH)
 
             def _save_model():
                 gan.save(gan.save_file)

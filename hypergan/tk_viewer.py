@@ -91,7 +91,8 @@ class TkViewer:
                 label = tk.Label(statusbar, text="Starting", font=12)
                 label.grid(row=0, column=2) 
                 def __update_step():
-                    label['text']=("Step " + str(gan.step_count))
+                    if hasattr(gan, 'step_count'):
+                        label['text']=("Step " + str(gan.step_count))
                     root.after(1000, __update_step)
 
 

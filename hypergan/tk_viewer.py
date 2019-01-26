@@ -10,6 +10,7 @@ import numpy as np
 import os
 import tkinter as tk
 import tkinter.ttk
+import contextlib
 
 
 class ResizableFrame(tk.Frame):
@@ -61,7 +62,9 @@ class TkViewer:
         image = np.transpose(image, [1, 0,2])
 
         if not self.screen:
-            import pygame
+
+            with contextlib.redirect_stdout(None):
+                import pygame
 
             self.size = [int(image.shape[0] * self.viewer_size), int(image.shape[1] * self.viewer_size)]
 
@@ -130,18 +133,6 @@ class TkViewer:
             self.temp_size = self.size
             self.screen = self.pg.display.set_mode(self.size,self.pg.RESIZABLE)
             self.pg.display.set_caption(self.title)
-
-        for event in self.pg.event.get():
-            if event.type == self.pg.VIDEORESIZE:
-                if self.size[0] != event.size[0]:
-                    self.temp_size = [event.size[0], int(event.size[0] * self.aspect_w)]
-                elif self.size[1] != event.size[1]:
-                    self.temp_size = [int(event.size[1] * self.aspect_h), event.size[1]]
-
-            elif event.type == self.pg.ACTIVEEVENT and event.state == 2 and event.gain == 1:
-                self.size = self.temp_size
-                self.screen = self.pg.display.set_mode(self.size,self.pg.RESIZABLE)   
-
 
         surface = self.pg.Surface([image.shape[0],image.shape[1]])
         self.pg.surfarray.blit_array(surface, image)

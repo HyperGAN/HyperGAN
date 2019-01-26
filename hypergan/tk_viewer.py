@@ -75,10 +75,10 @@ class TkViewer:
             root.columnconfigure(1,weight=1)
             embed.pack(expand=tk.YES, fill=tk.BOTH)
 
-            def _save_model():
+            def _save_model(*args):
                 gan.save(gan.save_file)
 
-            def _exit():
+            def _exit(*args):
                 gan.exit()
 
             def _create_status_bar(root):
@@ -101,12 +101,15 @@ class TkViewer:
 
             menubar = tk.Menu(root)
             filemenu = tk.Menu(menubar, tearoff=0)
-            filemenu.add_command(label="Save", command=_save_model)
+            filemenu.add_command(label="Save", command=_save_model, underline=0, accelerator="Ctrl+S")
 
             filemenu.add_separator()
 
-            filemenu.add_command(label="Save and Exit", command=_exit)
-            menubar.add_cascade(label="File", menu=filemenu)
+            filemenu.add_command(label="Save and Exit", command=_exit, underline=10, accelerator="Ctrl+Q")
+            menubar.add_cascade(label="File", menu=filemenu, underline=0)
+
+            root.bind_all("<Control-q>", _exit)
+            root.bind_all("<Control-s>", _save_model)
 
 
             if self.enable_menu:

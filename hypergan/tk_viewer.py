@@ -19,6 +19,7 @@ class ResizableFrame(tk.Frame):
         self.height = kwargs['height']
         self.width = kwargs['width']
         self.tkviewer = tkviewer
+        self.aspect_ratio = float(self.width)/float(self.height)
 
     def on_resize(self,event):
         wscale = float(event.width)/self.width
@@ -28,7 +29,19 @@ class ResizableFrame(tk.Frame):
         self.config(width=self.width, height=self.height)
         self.tkviewer.size = [self.width, self.height]
         self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
+        self.enforce_aspect_ratio(event)
 
+    def enforce_aspect_ratio(self, event):
+        desired_width = event.width
+        desired_height = int(event.width / self.aspect_ratio)
+
+        if desired_height > event.height:
+            desired_height = event.height
+            desired_width = int(event.height * self.aspect_ratio)
+
+        self.config(width=desired_width, height=desired_height)
+        self.tkviewer.size = [desired_width, desired_height]
+        self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
 
 class TkViewer:
     def __init__(self, title="HyperGAN", viewer_size=1, enabled=True):
@@ -52,6 +65,7 @@ class TkViewer:
 
             self.size = [int(image.shape[0] * self.viewer_size), int(image.shape[1] * self.viewer_size)]
 
+            self.pg = pygame
             root = tk.Tk()
             embed = ResizableFrame(root, width=self.size[0], height=self.size[1], tkviewer=self)
             embed.winfo_toplevel().title(self.title)
@@ -105,7 +119,6 @@ class TkViewer:
             self.root = root
 
             # Usual pygame initialization
-            self.pg = pygame
             if self.viewer_size <= 0:
                 self.viewer_size = 0.1
             self.aspect_w = image.shape[1] / image.shape[0]

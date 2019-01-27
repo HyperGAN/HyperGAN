@@ -2,7 +2,7 @@ dependencies:
   pre:
     - pyenv global 3.5.3
   override:
-    - pip3 install tensorflow hyperchamber Pillow pdoc coverage natsort
+    - pip3 install tensorflow hyperchamber Pillow pdoc coverage natsort nashpy
     - python3 setup.py develop
 test:
   override:

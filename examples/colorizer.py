@@ -198,7 +198,7 @@ def sample(config, inputs, args):
     sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
     samples = 0
     for i in range(args.steps):
-        sample_file="samples/%06d.png" % (samples)
+        sample_file="samples/"+config_name+"/%06d.png" % (samples)
         samples += 1
         sampler.sample(sample_file, args.save_samples)
 

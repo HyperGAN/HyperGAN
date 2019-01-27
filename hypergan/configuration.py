@@ -12,13 +12,27 @@ class Configuration:
                 ]
         return paths
     def find(configuration):
-        paths = Configuration.all_paths()
-        Configuration.paths = paths
-        for path in paths:
-            file_path = path + configuration
-            file_path = os.path.realpath(file_path)
-            if os.path.exists(file_path):
-                return file_path
+        def _find_file():
+            paths = Configuration.all_paths()
+            Configuration.paths = paths
+            for path in paths:
+                file_path = path + configuration
+                file_path = os.path.realpath(file_path)
+                if os.path.exists(file_path):
+                    return file_path
+
+        if not configuration.endswith('.json'):
+            configuration += ".json"
+        config_filename = _find_file()
+        if config_filename is None:
+            message = "Could not find configuration " + configuration
+            print(message)
+            print("Searched configuration paths", Configuration.all_paths())
+            print("See all available configurations with hypergan new -l .")
+            raise Exception(message)
+        print("Loading configuration", config_filename)
+        return config_filename
+
     def load(configuration, verbose=True):
         config_file = Configuration.find(configuration)
         if config_file is None:

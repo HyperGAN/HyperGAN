@@ -5,7 +5,7 @@ from hypergan.generators.common import *
 
 from .base_generator import BaseGenerator
 
-class ResizeableGenerator(BaseGenerator):
+class ResizableGenerator(BaseGenerator):
 
     def required(self):
         return "final_depth activation depth_increase".split()
@@ -43,7 +43,6 @@ class ResizeableGenerator(BaseGenerator):
         final_activation = ops.lookup(config.final_activation)
         block = config.block or standard_block
         padding = config.padding or "SAME"
-
 
         net = ops.reshape(net, [ops.shape(net)[0], -1])
         primes = config.initial_dimensions or [4, 4]

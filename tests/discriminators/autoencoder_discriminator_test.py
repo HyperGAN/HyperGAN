@@ -10,10 +10,10 @@ import hypergan as hg
 from hypergan.gan_component import GANComponent
 
 from unittest.mock import MagicMock
-from tests.mocks import MockDiscriminator, mock_gan, MockInput
+from tests.mocks import MockDiscriminator, mock_gan_resizable, MockInput
 
 from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
-from hypergan.generators.resize_conv_generator import ResizeConvGenerator
+from hypergan.generators.resizable_generator import ResizableGenerator
 
 config = {
         'initial_depth': 1,
@@ -24,7 +24,7 @@ config = {
         'block' : hg.discriminators.common.standard_block,
         'distance': 'l2_distance',
         'encoder': PyramidDiscriminator,
-        'decoder': ResizeConvGenerator
+        'decoder': ResizableGenerator
 
         }
 

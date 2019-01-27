@@ -89,7 +89,10 @@ class StandardGAN(BaseGAN):
                 self.trainer = self.create_component(config.trainer)
 
             #self.random_z = tf.random_uniform(self.ops.shape(self.latent.sample), -1, 1, name='random_z')
-            self.android_output = tf.reshape(self.generator.sample, [-1])
+            if hasattr(self.generator, 'sample'):
+                self.android_output = tf.reshape(self.generator.sample, [-1])
+            else:
+                self.android_output = None
 
             self.session.run(tf.global_variables_initializer())
 

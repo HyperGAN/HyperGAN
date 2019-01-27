@@ -13,7 +13,7 @@ loss_config = {'test': True, 'reduce':'reduce_mean', 'labels': [0,1,0]}
 class CramerLossTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
-            gan = mock_gan(config = remove_d_config, inputs = MockInput())
+            gan = mock_gan()
             loss = CramerLoss(gan, loss_config)
             self.assertTrue(loss.config.test)
 

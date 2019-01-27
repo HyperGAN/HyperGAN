@@ -129,7 +129,7 @@ class BaseGAN(GANComponent):
         return self.gan.create_component(self.gan.config.discriminator, name="discriminator", input=_input, reuse=True)
 
     def create(self):
-        raise ValidationException("BaseGAN.create() called directly.  Please override")
+        print("Warning: BaseGAN.create() called directly.  Please override")
 
     def step(self, feed_dict={}):
         self.step_count = self.session.run(self.increment_step)

@@ -50,7 +50,6 @@ class ResizableGenerator(BaseGenerator):
         initial_depth = depths[0]
         new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
         net = ops.linear(net, initial_depth*primes[0]*primes[1])
-        print("NET", net)
         net = ops.reshape(net, new_shape)
 
         shape = ops.shape(net)
@@ -76,7 +75,6 @@ class ResizableGenerator(BaseGenerator):
             else:
                 net = self.layer_filter(net)
                 net = ops.deconv2d(net, 5, 5, 2, 2, np.minimum(depth, config.max_depth or 512))
-                print("DECONV", net)
 
 
             size = resize[0]*resize[1]*depth

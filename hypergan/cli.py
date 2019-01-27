@@ -147,10 +147,6 @@ class CLI:
             sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
             self.create_path(sample_file)
             sample_list = self.sample(sample_file)
-            if self.args.use_hc_io:
-                self.gan.config['model'] = self.args.config
-                hc.io.sample(self.gan.config, sample_list)
-
             self.samples += 1
 
         self.steps+=1

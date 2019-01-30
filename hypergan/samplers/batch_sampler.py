@@ -9,6 +9,6 @@ class BatchSampler(BaseSampler):
         gan = self.gan
 
         return {
-            'generator': gan.session.run(gan.uniform_sample)
+            'generator': gan.session.run(gan.generator.sample)
         }
 

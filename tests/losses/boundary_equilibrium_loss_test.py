@@ -28,7 +28,6 @@ class BoundaryEquilibriumLossTest(tf.test.TestCase):
     def test_create(self):
         with self.test_session():
             gan = mock_gan()
-            gan.create()
             loss = BoundaryEquilibriumLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             d_shape = gan.ops.shape(d_loss)
@@ -38,10 +37,7 @@ class BoundaryEquilibriumLossTest(tf.test.TestCase):
 
     def test_metrics(self):
         with self.test_session():
-            graph = mock_gan()
-
             gan = mock_gan()
-            gan.create()
             loss = BoundaryEquilibriumLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             metrics = loss.metrics

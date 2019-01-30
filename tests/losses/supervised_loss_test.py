@@ -18,7 +18,6 @@ class SupervisedLossTest(tf.test.TestCase):
     def test_create(self):
         with self.test_session():
             gan = mock_gan()
-            gan.create()
             loss = SupervisedLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             d_shape = gan.ops.shape(d_loss)
@@ -28,7 +27,6 @@ class SupervisedLossTest(tf.test.TestCase):
     def test_metric(self):
         with self.test_session():
             gan = mock_gan()
-            gan.create()
             loss = SupervisedLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             metrics = loss.metrics

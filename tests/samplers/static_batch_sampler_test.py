@@ -12,7 +12,6 @@ class StaticBatchSamplerTest(tf.test.TestCase):
     def test_sample(self):
         with self.test_session():
             gan = mock_gan()
-            gan.create()
 
             sampler = StaticBatchSampler(gan)
             self.assertEqual(sampler._sample()['generator'].shape[-1], 1)

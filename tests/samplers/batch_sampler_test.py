@@ -12,7 +12,6 @@ class BatchSamplerTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
             gan = mock_gan()
-            gan.create()
 
             sampler = BatchSampler(gan)
             self.assertEqual(sampler._sample()['generator'].shape[-1], 1)

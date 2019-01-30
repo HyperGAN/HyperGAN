@@ -46,11 +46,7 @@ class AutoencoderDiscriminatorTest(tf.test.TestCase):
             gan = mock_gan(config = remove_d_config)
             discriminator = AutoencoderDiscriminator(gan, config)
             gan.encoder = gan.create_component(gan.config.encoder)
-            gan.encoder.create()
             gan.generator = gan.create_component(gan.config.generator)
-            gan.generator.create()
-            net = discriminator.create()
-            gan.create()
             self.assertEqual(int(net.get_shape()[1]), 32)
 
 if __name__ == "__main__":

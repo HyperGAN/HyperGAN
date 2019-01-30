@@ -34,7 +34,6 @@ class AlternatingTrainerTest(tf.test.TestCase):
     def test_output_string(self):
         with self.test_session():
             gan = mock_gan()
-            gan.create()
             config = {'d_learn_rate': 1e-3, 'g_learn_rate': 1e-3, 'd_trainer': 'rmsprop', 'g_trainer': 'adam'}
             trainer = AlternatingTrainer(gan, config)
             c = tf.constant(1)

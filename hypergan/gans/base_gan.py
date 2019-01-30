@@ -9,9 +9,12 @@ import inspect
 import hypergan as hg
 import tensorflow as tf
 
+from tensorflow.python.tools import freeze_graph
+from tensorflow.python.tools import optimize_for_inference_lib
+
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps,
-            batch_size=None, width=None, height=None, channels=None, debug=None, session=None):
+            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan"):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
@@ -23,7 +26,7 @@ class BaseGAN(GANComponent):
         self._height = height
         self._channels = channels
         self.debug = debug
-        self.name = "hypergan"
+        self.name = name
         self.session = session
         self.skip_connections = SkipConnections()
         self.destroy = False
@@ -129,7 +132,7 @@ class BaseGAN(GANComponent):
         return self.gan.create_component(self.gan.config.discriminator, name="discriminator", input=_input, reuse=True)
 
     def create(self):
-        raise ValidationException("BaseGAN.create() called directly.  Please override")
+        print("Warning: BaseGAN.create() called directly.  Please override")
 
     def step(self, feed_dict={}):
         self.step_count = self.session.run(self.increment_step)
@@ -258,3 +261,85 @@ class BaseGAN(GANComponent):
 
     def exit(self):
         self.destroy = True
+
+    def build(self, input_nodes=None, output_nodes=None):
+        if input_nodes is None:
+            input_nodes = self.gan.input_nodes()
+        if output_nodes is None:
+            output_nodes = self.gan.output_nodes()
+        save_file_text = self.name+".pbtxt"
+        build_file = os.path.expanduser("builds/"+save_file_text)
+        def create_path(filename):
+            return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
+        create_path(build_file)
+        tf.train.write_graph(self.gan.session.graph, 'builds', save_file_text)
+        inputs = [x.name.split(":")[0] for x in input_nodes]
+        outputs = [x.name.split(":")[0] for x in output_nodes]
+
+        with self.gan.session as sess:
+            converter = tf.lite.TFLiteConverter.from_session(sess, self.gan.input_nodes(), self.gan.output_nodes())
+            tflite_model = converter.convert()
+            f = open("builds/"+ self.gan.name+".tflite", "wb")
+            f.write(tflite_model)
+            f.close()
+        tf.reset_default_graph()
+        self.gan.session.close()
+        [print("Input: ", x) for x in self.gan.input_nodes()]
+        [print("Output: ", y) for y in self.gan.output_nodes()]
+        print("Written to builds/"+self.gan.name+".tflite")
+
+        pbtxt_path = "builds/"+self.name +'.pbtxt'
+        checkpoint_path = "saves/"+self.name +'/model.ckpt'
+        input_saver_def_path = ""
+        input_binary = False
+        output_node_names = ",".join(outputs)
+        restore_op_name = "save/restore_all"
+        filename_tensor_name = "save/Const:0"
+        output_frozen_graph_name = 'builds/frozen_'+self.name +'.pb'
+        output_optimized_graph_name = 'builds/optimized_'+self.name+'.pb'
+        clear_devices = True
+
+        freeze_graph.freeze_graph(pbtxt_path, input_saver_def_path,
+          input_binary, checkpoint_path, output_node_names,
+          restore_op_name, filename_tensor_name,
+          output_frozen_graph_name, clear_devices, "")
+
+        input_graph_def = tf.GraphDef()
+        with tf.gfile.Open(output_frozen_graph_name, "rb") as f:
+            data = f.read()
+            input_graph_def.ParseFromString(data)
+
+        output_graph_def = optimize_for_inference_lib.optimize_for_inference(
+                input_graph_def,
+                inputs, # an array of the input node(s)
+                outputs, # an array of output nodes
+                tf.float32.as_datatype_enum)
+
+        # Save the optimized graph
+
+        f = tf.gfile.FastGFile(output_optimized_graph_name, "wb")
+        f.write(output_graph_def.SerializeToString())
+        f.flush()
+        f.close()
+
+
+
+        print("Saved generator to ", output_optimized_graph_name)
+
+        print("Testing loading ", output_optimized_graph_name)
+        with tf.gfile.FastGFile(output_optimized_graph_name, 'rb') as f:
+            graph_def = tf.GraphDef()
+            graph_def.ParseFromString(f.read())
+            tf.import_graph_def(graph_def, name='')
+            #tflite_model = tf.lite.TFLiteConverter(graph_def, self.gan.input_nodes(), self.gan.output_nodes()).convert()
+            #f = open("builds/"+ self.gan.name+".tflite", "wb")
+            #f.write(tflite_model)
+            #f.close()
+
+        with tf.Session() as sess:
+            for input in inputs:
+                print("Input: ", input, sess.graph.get_tensor_by_name(input+":0"))
+            for output in outputs:
+                print("Output: ", output, sess.graph.get_tensor_by_name(output+":0"))
+
+

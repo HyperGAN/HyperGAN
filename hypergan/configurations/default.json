@@ -32,7 +32,7 @@
     "z": 100
   },
   "generator": {
-    "class": "function:hypergan.generators.resizeable_generator.ResizeableGenerator",
+    "class": "function:hypergan.generators.resizable_generator.ResizableGenerator",
     "activation": "relu",
     "initializer": "random_normal",
     "random_stddev": 0.02,

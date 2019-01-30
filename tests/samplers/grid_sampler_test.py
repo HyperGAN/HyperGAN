@@ -14,8 +14,8 @@ class GridSamplerTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
             gan = mock_gan(batch_size=32)
-            gan.distribution = UniformDistribution(gan, {'z':2, 'min': -1, 'max': 1, 'projections':['identity']})
-            gan.distribution.create()
+            gan.latent = UniformDistribution(gan, {'z':2, 'min': -1, 'max': 1, 'projections':['identity']})
+            gan.latent.create()
             gan.create()
 
             sampler = GridSampler(gan)

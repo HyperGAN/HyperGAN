@@ -60,6 +60,10 @@ class CommandParser:
 
 args = CommandParser().get_parser().parse_args()
 
+if args.method == 'train' and args.save_every == -1 and not args.viewer:
+    print("Error, there is no way to save the model.  Refusing to run.  Please add --save_every N")
+    exit(1)
+
 if args.size:
     size = [int(x) for x in args.size.split("x")] + [None, None, None]
 else:
@@ -69,8 +73,7 @@ height = size[1] or 64
 channels = size[2] or 3
 
 config_name = args.config or 'default'
-config_filename = hg.Configuration.find(config_name+'.json')
-
+config_filename = hg.Configuration.find(config_name)
 config = hc.Selector().load(config_filename)
 if 'inherit' in config:
     base_filename = hg.Configuration.find(config['inherit']+'.json')

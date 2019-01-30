@@ -38,8 +38,6 @@ from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
 from time import sleep
 
-from tensorflow.python.tools import freeze_graph
-from tensorflow.python.tools import optimize_for_inference_lib
 
 class CLI:
     def __init__(self, gan, args={}):
@@ -147,10 +145,6 @@ class CLI:
             sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
             self.create_path(sample_file)
             sample_list = self.sample(sample_file)
-            if self.args.use_hc_io:
-                self.gan.config['model'] = self.args.config
-                hc.io.sample(self.gan.config, sample_list)
-
             self.samples += 1
 
         self.steps+=1
@@ -159,79 +153,7 @@ class CLI:
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
     def build(self):
-        save_file_text = self.args.config+".pbtxt"
-        build_file = os.path.expanduser("builds/"+save_file_text)
-        self.create_path(build_file)
-        tf.train.write_graph(self.gan.session.graph, 'builds', save_file_text)
-        inputs = [x.name.split(":")[0] for x in self.gan.input_nodes()]
-        outputs = [x.name.split(":")[0] for x in self.gan.output_nodes()]
-
-        with self.gan.session as sess:
-            converter = tf.lite.TFLiteConverter.from_session(sess, self.gan.input_nodes(), self.gan.output_nodes())
-            tflite_model = converter.convert()
-            f = open("builds/"+ self.gan.name+".tflite", "wb")
-            f.write(tflite_model)
-            f.close()
-        tf.reset_default_graph()
-        self.gan.session.close()
-        [print("Input: ", x) for x in self.gan.input_nodes()]
-        [print("Output: ", y) for y in self.gan.output_nodes()]
-        print("Written to builds/"+self.gan.name+".tflite")
-
-        pbtxt_path = "builds/"+self.args.config+'.pbtxt'
-        checkpoint_path = "saves/"+self.args.config+'/model.ckpt'
-        input_saver_def_path = ""
-        input_binary = False
-        output_node_names = ",".join(outputs)
-        restore_op_name = "save/restore_all"
-        filename_tensor_name = "save/Const:0"
-        output_frozen_graph_name = 'builds/frozen_'+self.args.config+'.pb'
-        output_optimized_graph_name = 'builds/optimized_'+self.args.config+'.pb'
-        clear_devices = True
-
-        freeze_graph.freeze_graph(pbtxt_path, input_saver_def_path,
-          input_binary, checkpoint_path, output_node_names,
-          restore_op_name, filename_tensor_name,
-          output_frozen_graph_name, clear_devices, "")
-
-        input_graph_def = tf.GraphDef()
-        with tf.gfile.Open(output_frozen_graph_name, "rb") as f:
-            data = f.read()
-            input_graph_def.ParseFromString(data)
-
-        output_graph_def = optimize_for_inference_lib.optimize_for_inference(
-                input_graph_def,
-                inputs, # an array of the input node(s)
-                outputs, # an array of output nodes
-                tf.float32.as_datatype_enum)
-
-        # Save the optimized graph
-
-        f = tf.gfile.FastGFile(output_optimized_graph_name, "wb")
-        f.write(output_graph_def.SerializeToString())
-        f.flush()
-        f.close()
-
-
-
-        print("Saved generator to ", output_optimized_graph_name)
-
-        print("Testing loading ", output_optimized_graph_name)
-        with tf.gfile.FastGFile(output_optimized_graph_name, 'rb') as f:
-            graph_def = tf.GraphDef()
-            graph_def.ParseFromString(f.read())
-            tf.import_graph_def(graph_def, name='')
-            #tflite_model = tf.lite.TFLiteConverter(graph_def, self.gan.input_nodes(), self.gan.output_nodes()).convert()
-            #f = open("builds/"+ self.gan.name+".tflite", "wb")
-            #f.write(tflite_model)
-            #f.close()
-
-        with tf.Session() as sess:
-            for input in inputs:
-                print("Input: ", input, sess.graph.get_tensor_by_name(input+":0"))
-            for output in outputs:
-                print("Output: ", output, sess.graph.get_tensor_by_name(output+":0"))
-
+        return self.gan.build()
     def serve(self, gan):
         return gan_server(self.gan.session, config)
 

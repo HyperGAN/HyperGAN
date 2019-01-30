@@ -2,7 +2,7 @@ import tensorflow as tf
 import hyperchamber as hc
 import hypergan as hg
 import numpy as np
-from hypergan.generators.resize_conv_generator import ResizeConvGenerator
+from hypergan.generators.resizable_generator import ResizableGenerator
 from hypergan.ops import TensorflowOps
 
 from unittest.mock import MagicMock
@@ -17,9 +17,9 @@ config = {
     'block': hg.discriminators.common.standard_block
 }
 gan = mock_gan()
-generator = ResizeConvGenerator(config=config, gan=gan)
+generator = ResizableGenerator(config=config, gan=gan)
 
-class ResizeConvGeneratorTest(tf.test.TestCase):
+class ResizableGeneratorTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
             self.assertEqual(generator.config.test, True)
@@ -43,14 +43,14 @@ class ResizeConvGeneratorTest(tf.test.TestCase):
     def test_layer_norm(self):
         with self.test_session():
             config['layer_regularizer'] = 'layer_norm'
-            generator = ResizeConvGenerator(config=config, gan=gan)
+            generator = ResizableGenerator(config=config, gan=gan)
             generator.layer_regularizer(tf.constant(1, shape=[1,1,1,1], dtype=tf.float32))
             self.assertNotEqual(len(generator.variables()), 0)
 
     def test_batch_norm(self):
         with self.test_session():
             config['layer_regularizer'] = 'batch_norm'
-            generator = ResizeConvGenerator(config=config, gan=gan)
+            generator = ResizableGenerator(config=config, gan=gan)
             generator.layer_regularizer(tf.constant(1, shape=[1,1,1,1], dtype=tf.float32))
             self.assertNotEqual(len(generator.variables()), 0)
 

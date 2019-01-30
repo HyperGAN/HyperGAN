@@ -58,7 +58,7 @@ class AliGAN(BaseGAN):
 
             # q(z|x)
             if config.u_to_z:
-                latent = UniformDistribution(self, config.z_distribution)
+                latent = UniformDistribution(self, config.latent)
             else:
                 z_shape = self.ops.shape(encoder.sample)
                 uz_shape = z_shape

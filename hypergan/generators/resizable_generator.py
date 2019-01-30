@@ -5,7 +5,7 @@ from hypergan.generators.common import *
 
 from .base_generator import BaseGenerator
 
-class ResizeableGenerator(BaseGenerator):
+class ResizableGenerator(BaseGenerator):
 
     def required(self):
         return "final_depth activation depth_increase".split()
@@ -44,14 +44,12 @@ class ResizeableGenerator(BaseGenerator):
         block = config.block or standard_block
         padding = config.padding or "SAME"
 
-
         net = ops.reshape(net, [ops.shape(net)[0], -1])
         primes = config.initial_dimensions or [4, 4]
         depths = self.depths(primes[0])
         initial_depth = depths[0]
         new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
         net = ops.linear(net, initial_depth*primes[0]*primes[1])
-        print("NET", net)
         net = ops.reshape(net, new_shape)
 
         shape = ops.shape(net)
@@ -77,7 +75,6 @@ class ResizeableGenerator(BaseGenerator):
             else:
                 net = self.layer_filter(net)
                 net = ops.deconv2d(net, 5, 5, 2, 2, np.minimum(depth, config.max_depth or 512))
-                print("DECONV", net)
 
 
             size = resize[0]*resize[1]*depth

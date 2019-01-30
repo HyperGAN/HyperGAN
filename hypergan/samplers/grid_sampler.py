@@ -8,7 +8,7 @@ class GridSampler(BaseSampler):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.x = gan.session.run(gan.inputs.x)
         batch = self.x.shape[0]
-        self.x = np.reshape(self.x[0], [1, self.x.shape[1], self.x.shape[2], 3])
+        self.x = np.reshape(self.x[0], [1, self.x.shape[1], self.x.shape[2], self.x.shape[3]])
         self.x = np.tile(self.x, [batch,1,1,1])
 
     def _sample(self):

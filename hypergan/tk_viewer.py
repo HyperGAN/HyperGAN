@@ -8,41 +8,8 @@ Usage:
 """
 import numpy as np
 import os
-import tkinter as tk
-import tkinter.ttk
 import contextlib
 
-
-class ResizableFrame(tk.Frame):
-    def __init__(self,parent,tkviewer=None,**kwargs):
-        tk.Frame.__init__(self,parent,**kwargs)
-        self.bind("<Configure>", self.on_resize)
-        self.height = kwargs['height']
-        self.width = kwargs['width']
-        self.tkviewer = tkviewer
-        self.aspect_ratio = float(self.width)/float(self.height)
-
-    def on_resize(self,event):
-        wscale = float(event.width)/self.width
-        hscale = float(event.height)/self.height
-        self.width = event.width
-        self.height = event.height
-        self.config(width=self.width, height=self.height)
-        self.tkviewer.size = [self.width, self.height]
-        self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
-        self.enforce_aspect_ratio(event)
-
-    def enforce_aspect_ratio(self, event):
-        desired_width = event.width
-        desired_height = int(event.width / self.aspect_ratio)
-
-        if desired_height > event.height:
-            desired_height = event.height
-            desired_width = int(event.height * self.aspect_ratio)
-
-        self.config(width=desired_width, height=desired_height)
-        self.tkviewer.size = [desired_width, desired_height]
-        self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
 
 class TkViewer:
     def __init__(self, title="HyperGAN", viewer_size=1, enabled=True):
@@ -65,6 +32,40 @@ class TkViewer:
 
             with contextlib.redirect_stdout(None):
                 import pygame
+
+            import tkinter as tk
+            import tkinter.ttk
+            class ResizableFrame(tk.Frame):
+                def __init__(self,parent,tkviewer=None,**kwargs):
+                    tk.Frame.__init__(self,parent,**kwargs)
+                    self.bind("<Configure>", self.on_resize)
+                    self.height = kwargs['height']
+                    self.width = kwargs['width']
+                    self.tkviewer = tkviewer
+                    self.aspect_ratio = float(self.width)/float(self.height)
+
+                def on_resize(self,event):
+                    wscale = float(event.width)/self.width
+                    hscale = float(event.height)/self.height
+                    self.width = event.width
+                    self.height = event.height
+                    self.config(width=self.width, height=self.height)
+                    self.tkviewer.size = [self.width, self.height]
+                    self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
+                    self.enforce_aspect_ratio(event)
+
+                def enforce_aspect_ratio(self, event):
+                    desired_width = event.width
+                    desired_height = int(event.width / self.aspect_ratio)
+
+                    if desired_height > event.height:
+                        desired_height = event.height
+                        desired_width = int(event.height * self.aspect_ratio)
+
+                    self.config(width=desired_width, height=desired_height)
+                    self.tkviewer.size = [desired_width, desired_height]
+                    self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
+
 
             self.size = [int(image.shape[0] * self.viewer_size), int(image.shape[1] * self.viewer_size)]
 

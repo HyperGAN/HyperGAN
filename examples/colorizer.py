@@ -8,7 +8,7 @@ import numpy as np
 from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
-from hypergan.search.alphagan_random_search import AlphaGANRandomSearch
+from hypergan.gans.standard_gan import StandardGAN
 from common import *
 
 from hypergan.gans.alpha_gan import AlphaGAN
@@ -110,50 +110,36 @@ args = arg_parser.parse_args()
 width, height, channels = parse_size(args.size)
 
 config = lookup_config(args)
-if args.action == 'search':
-    random_config = AlphaGANRandomSearch({}).random_config()
-    if args.config_list is not None:
-        config = random_config_from_list(args.config_list)
-
-        config["generator"]=random_config["generator"]
-        config["g_encoder"]=random_config["g_encoder"]
-        config["discriminator"]=random_config["discriminator"]
-        config["z_discriminator"]=random_config["z_discriminator"]
-
-        # TODO Other search terms?
-    else:
-        config = random_config
-    config["cycloss_lambda"]= 0
-    config["discriminator"]["skip_layer_filters"]=random.choice([[],[0],[0,1],[0,1,2],[0,1,2,3]])
-    config["class"]="class:hypergan.gans.alpha_gan.AlphaGAN" # TODO
-
-    config.generator['layer_filter'] = random.choice([None, add_bw])
-    config.generator['final_layer_filter'] = random.choice([None, apply_mask])
-    config.discriminator['layer_filter'] = random.choice([None, add_bw])
-    config.g_encoder['layer_filter'] = random.choice([None, add_bw])
 
 if args.add_full_image:
     config["add_full_image"]=True
 if args.add_full_image_frame:
     config["add_full_image_frame"]=True
 
-inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-inputs.create(args.directory,
-        channels=channels, 
-        format=args.format,
-        crop=args.crop,
-        width=width,
-        height=height,
-        resize=True)
+if args.action == 'build':
+    flattened = tf.zeros([args.batch_size * width * height * channels], name="flattened_x")
+    x = tf.reshape(flattened, [args.batch_size, width, height, channels])
+    inputs = hc.Config({"x": x, "flattened": flattened})
+
+
+else:
+    inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+    inputs.create(args.directory,
+            channels=channels, 
+            format=args.format,
+            crop=args.crop,
+            width=width,
+            height=height,
+            resize=True)
 
 config_name = args.config
 save_file = "saves/"+config_name+"/model.ckpt"
 os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
 def setup_gan(config, inputs, args):
-    gan = hg.GAN(config, inputs=inputs)
+    gan = hg.GAN(config, inputs=inputs, name=args.config)
 
-    if(args.action != 'search' and os.path.isfile(save_file+".meta")):
+    if(os.path.isfile(save_file+".meta")):
         gan.load(save_file)
 
     tf.train.start_queue_runners(sess=gan.session)
@@ -193,29 +179,29 @@ def train(config, inputs, args):
     tf.reset_default_graph()
     return sum_metrics
 
+def build(config, inputs, args):
+    def input_nodes():
+        return [
+                gan.inputs.flattened
+        ]
+    gan = setup_gan(config, inputs, args)
+    gan.build(input_nodes=gan.input_nodes() + input_nodes())
+
 def sample(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
     samples = 0
     for i in range(args.steps):
-        sample_file="samples/%06d.png" % (samples)
+        sample_file="samples/"+config_name+"/%06d.png" % (samples)
         samples += 1
         sampler.sample(sample_file, args.save_samples)
-
-def search(config, inputs, args):
-    metrics = train(config, inputs, args)
-
-    config_filename = "colorizer-"+str(uuid.uuid4())+'.json'
-    hc.Selector().save(config_filename, config)
-    with open(args.search_output, "a") as myfile:
-        myfile.write(config_filename+","+",".join([str(x) for x in metrics])+"\n")
 
 if args.action == 'train':
     metrics = train(config, inputs, args)
     print("Resulting metrics:", metrics)
 elif args.action == 'sample':
     sample(config, inputs, args)
-elif args.action == 'search':
-    search(config, inputs, args)
+elif args.action == 'build':
+    build(config, inputs, args)
 else:
     print("Unknown action: "+args.action)

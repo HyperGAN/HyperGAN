@@ -4,7 +4,7 @@ from hypergan.ops import TensorflowOps
 from hypergan.search.default_configurations import DefaultConfigurations
 
 from hypergan import GAN
-from hypergan.generators.resize_conv_generator import ResizeConvGenerator
+from hypergan.generators.resizable_generator import ResizableGenerator
 import hypergan as hg
 import tensorflow as tf
 import hyperchamber as hc
@@ -47,8 +47,7 @@ class StandardGanTest(tf.test.TestCase):
         with self.test_session():
             gan = GAN(inputs = MockInput())
             gan.create()
-            self.assertEqual(type(gan.generator), ResizeConvGenerator)
-            self.assertEqual(type(gan.discriminator), PyramidDiscriminator)
+            self.assertEqual(type(gan.generator), ResizableGenerator)
 
     def test_train(self):
         with self.test_session():

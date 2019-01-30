@@ -60,6 +60,10 @@ class CommandParser:
 
 args = CommandParser().get_parser().parse_args()
 
+if args.method == 'train' and args.save_every == -1 and not args.viewer:
+    print("Error, there is no way to save the model.  Refusing to run.  Please add --save_every N")
+    exit(1)
+
 if args.size:
     size = [int(x) for x in args.size.split("x")] + [None, None, None]
 else:

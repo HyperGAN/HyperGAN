@@ -22,6 +22,7 @@ class TkViewer:
     def update(self, gan, image):
         if not self.enabled: return
 
+        original_image = image
         if len(np.shape(image)) == 2:
             s = np.shape(image)
             image = np.reshape(image, [s[0], s[1], 1])
@@ -70,9 +71,9 @@ class TkViewer:
             self.size = [int(image.shape[0] * self.viewer_size), int(image.shape[1] * self.viewer_size)]
 
             self.pg = pygame
-            root = tk.Tk()
+            self.tk = tk
+            root = tk.Tk(className=self.title)
             embed = ResizableFrame(root, width=self.size[0], height=self.size[1], tkviewer=self)
-            embed.winfo_toplevel().title(self.title)
             root.rowconfigure(0,weight=1)
             root.rowconfigure(1,weight=1)
             root.columnconfigure(0,weight=1)
@@ -134,6 +135,23 @@ class TkViewer:
             self.temp_size = self.size
             self.screen = self.pg.display.set_mode(self.size,self.pg.RESIZABLE)
             self.pg.display.set_caption(self.title)
+
+            root.title(self.title)
+            root.wm_title(self.title)
+            embed.winfo_toplevel().title(self.title)
+
+        padw = 0
+        padh = 0
+        if original_image.shape[0] > original_image.shape[1]:
+            padh = (original_image.shape[0] - original_image.shape[1])//2
+        if original_image.shape[1] > original_image.shape[0]:
+            padw = (original_image.shape[1] - original_image.shape[0])//2
+        pad_image = np.pad(original_image, [(padw, padw), (padh,padh), (0,0)], 'constant')
+        w = pad_image.shape[0]
+        h = pad_image.shape[1]
+        xdata = b'P6 ' + str(w).encode() + b' ' + str(h).encode() + b' 255 ' + pad_image.tobytes()
+        tk_image = self.tk.PhotoImage(data=xdata, format="PPM", width=w, height=h)
+        self.root.tk.call('wm', 'iconphoto', self.root._w, tk_image)
 
         surface = self.pg.Surface([image.shape[0],image.shape[1]])
         self.pg.surfarray.blit_array(surface, image)

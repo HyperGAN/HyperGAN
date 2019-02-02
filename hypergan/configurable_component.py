@@ -16,6 +16,7 @@ class ConfigurableComponent:
     def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[]):
         self.layers = []
         self.skip_connections = skip_connections
+        self.layer_options = {}
         self.layer_ops = {
             "relational": self.layer_relational,
             "minibatch": self.layer_minibatch,
@@ -124,11 +125,16 @@ class ConfigurableComponent:
 
     def build_layer(self, net, op, args, options):
         if self.layer_ops[op]:
+            before = self.variables()
             net = self.layer_ops[op](net, args, options)
             if 'name' in options:
                 if options['name'] in self.named_layers:
                     raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
                 self.named_layers[options['name']] = net
+            after = self.variables()
+            new = set(after) - set(before)
+            for j in new:
+                self.layer_options[j]=options
         else:
             print("ConfigurableComponent: Op not defined", op)
 

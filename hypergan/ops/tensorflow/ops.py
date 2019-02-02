@@ -5,11 +5,11 @@ import types
 import uuid
 import importlib
 import hypergan
+from tensorflow.python.ops.variables import RefVariable
 from hypergan.ops.tensorflow import layer_regularizers
 from hypergan.ops.tensorflow.activations import lrelu, selu
 from hypergan.ops.tensorflow.extended_ops import *
 from hypergan.ops.tensorflow.sn import spectral_normed_weight
-
 class TensorflowOps:
     def __init__(self, config={}, device="/gpu:0"):
         config = hc.Config(config)
@@ -39,7 +39,7 @@ class TensorflowOps:
             self.initializer = self.random_initializer(random_stddev)
 
     def assert_tensor(self, net):
-        if type(net) != tf.Tensor and type(net) != tf.Variable:
+        if type(net) != tf.Tensor and type(net) != tf.Variable and type(net) != RefVariable:
             raise Exception("Expected a Tensor but received", net)
 
     def add_weights(self, weights):
@@ -93,10 +93,11 @@ class TensorflowOps:
 
     def generate_name(self, name=None):
         if name == None:
-            name = ""
-        if self.description == "":
-            return name+self.generate_scope()
-        return self.description + "_" + name + self.generate_scope()
+            if self.description == "":
+                return self.generate_scope()
+            return self.description + "_" + self.generate_scope()
+        else:
+            return name
 
     def parse_dtype(self, dtype):
         if type(dtype) == Function:

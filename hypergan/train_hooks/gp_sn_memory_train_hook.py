@@ -64,7 +64,10 @@ class GpSnMemoryTrainHook(BaseTrainHook):
     self.s_max = new_s_max
     self.assign_s_max_new_entries = new_assign
     # get max
-    winner = scores[np.argmax(scores)]
+    if self.config.all:
+        winner = sum(scores)
+    else:
+        winner = scores[np.argmax(scores)]
 
     # truncate memory to top_k
     feed_dict[self.d_loss] = winner

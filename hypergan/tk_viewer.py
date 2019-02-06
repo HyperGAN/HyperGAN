@@ -151,7 +151,7 @@ class TkViewer:
         h = pad_image.shape[1]
         xdata = b'P6 ' + str(w).encode() + b' ' + str(h).encode() + b' 255 ' + pad_image.tobytes()
         tk_image = self.tk.PhotoImage(data=xdata, format="PPM", width=w, height=h)
-        self.root.tk.call('wm', 'iconphoto', self.root._w, tk_image)
+        self.root.tk.call('wm', 'iconphoto', self.root._w, tk_image.subsample(max(1, w//256), max(1, h//256)))
 
         surface = self.pg.Surface([image.shape[0],image.shape[1]])
         self.pg.surfarray.blit_array(surface, image)

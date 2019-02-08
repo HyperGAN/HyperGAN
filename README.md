@@ -246,7 +246,7 @@ For jpg(pass `-f jpg`)
 To convert and resize your data for processing, you can use imagemagick
 
 ```
-for i in *.jpg; do; convert $i  -resize "300x256" -gravity north   -extent 256x256 -format png -crop 256x256+0+0 +repage $i-256x256.png;done
+for i in *.jpg; do convert $i  -resize "300x256" -gravity north   -extent 256x256 -format png -crop 256x256+0+0 +repage $i-256x256.png;done
 
 ```
 

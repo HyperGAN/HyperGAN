@@ -1,0 +1,74 @@
+{
+  "discriminator": 
+  {
+      "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+      "defaults":{
+        "activation": "lrelu",
+        "initializer": "he_normal",
+        "filter": [3,3],
+        "stride": [1,1],
+        "avg_pool": [2,2]
+      },
+      "layers":[
+        "identity name=xg",
+        ["reference src=inputs name=x resize_images=128*128","reference src=generator name=g128x128",0],
+        "identity name=pastxg",
+        "progressive_replace start=pastxg end=xg steps=10000",
+        ["reference name=pastxg","conv 24 name=d-1"],
+        [["reference src=inputs name=x resize_images=64*64","reference src=generator name=g64x64",0],"conv 32 name=d0"],
+        [["reference src=inputs name=x resize_images=32*32","reference src=generator name=g32x32",0],"conv 64 name=d1"],
+        [["reference src=inputs name=x resize_images=16*16","reference src=generator name=g16x16",0],"conv 128 name=d2"],
+        [["reference src=inputs name=x resize_images=8*8","reference src=generator name=g8x8",0],"conv 256 name=d3"],
+        "conv 256 name=d4",
+        "conv 256 name=d5",
+        "conv 256 name=d6",
+        "reshape -1 name=shared",
+        "linear 1 name=dend activation=null"
+      ]
+
+  },
+
+  "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults": {
+      "activation": "lrelu",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [1,1]
+    },
+    "layers": [
+      "linear 128 gradient_magnitude_lambda=0.01",
+      "linear 128 gradient_magnitude_lambda=0.01",
+
+      "reshape 1*1*128",
+      "reshape -1 name=w",
+      "const 1*1*128 name=const",
+      "adaptive_instance_norm name=a1",
+      "resize_conv 256 avg_pool=1 name=g1",
+      "adaptive_instance_norm name=a2",
+      "resize_conv 256 avg_pool=1 name=g2",
+      "adaptive_instance_norm name=a3",
+      ["resize_conv 3 avg_pool=1 name=g8x8 activation=null", "resize_conv 256 name=g3"],
+      "adaptive_instance_norm name=a4",
+      ["resize_conv 3 avg_pool=1 name=g16x16 activation=null", "resize_conv 256 name=g4"],
+      "adaptive_instance_norm name=a5",
+      ["resize_conv 3 avg_pool=1 name=g32x32 activation=null", "resize_conv 256 name=g5"],
+      "adaptive_instance_norm name=a6",
+      ["resize_conv 3 avg_pool=1 name=g64x64 activation=null", "resize_conv 256 name=g6"],
+      "adaptive_instance_norm name=a7",
+      ["resize_conv 3 avg_pool=1 name=g128x128 activation=null", "resize_conv 256 name=g7"],
+      "adaptive_instance_norm name=a8",
+      "resize_conv 3 name=g256x256 avg_pool=1 activation=null",
+      "progressive_replace start=g128x128 end=g256x256 steps=10000"
+    ]
+
+  },
+  "runtime": {
+      "channels": 3,
+      "width": 256,
+      "height": 256,
+      "batch_size": 1
+  },
+  "inherit": "base"
+}

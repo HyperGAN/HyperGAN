@@ -995,7 +995,10 @@ class ConfigurableComponent:
         obj = self
         if "src" in options:
             obj = getattr(self.gan, options.src)
-        return obj.layer(options.name)
+        if "resize_images" in options:
+            return self.layer_resize_images(getattr(obj, options.name), options["resize_images"].split("*"), options)
+        else:
+            return obj.layer(options.name)
 
     def layer_knowledge_base(self, net, args, options):
         if not hasattr(self, 'knowledge_base'):

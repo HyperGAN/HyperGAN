@@ -1,0 +1,67 @@
+{
+  "discriminator": 
+  {
+      "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+      "defaults":{
+        "activation": "lrelu",
+        "initializer": "he_normal",
+        "filter": [3,3],
+        "stride": [1,1],
+        "avg_pool": [2,2]
+      },
+      "layers":[
+        "identity name=xg",
+        ["reference src=inputs name=x resize_images=32*32","reference src=generator name=g32x32",0],
+        "identity name=pastxg",
+        "progressive_replace start=pastxg end=xg steps=10000",
+        ["reference name=pastxg","conv 64 name=d1"],
+        [["reference src=inputs name=x resize_images=16*16","reference src=generator name=g16x16",0],"conv 128 name=d2"],
+        [["reference src=inputs name=x resize_images=8*8","reference src=generator name=g8x8",0],"conv 256 name=d3"],
+        "conv 256 name=d4",
+        "conv 256 name=d5",
+        "conv 256 name=d6",
+        "reshape -1 name=shared",
+        "linear 1 name=dend activation=null"
+      ]
+
+  },
+
+  "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults": {
+      "activation": "lrelu",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [1,1]
+    },
+    "layers": [
+      "linear 128 gradient_magnitude_lambda=0.01",
+      "linear 128 gradient_magnitude_lambda=0.01",
+      "reshape 1*1*128",
+      "reshape -1 name=w",
+      "const 1*1*128 name=const",
+      "adaptive_instance_norm name=a1",
+      "subpixel 256 avg_pool=1 name=g1",
+      "adaptive_instance_norm name=a2",
+      "subpixel 256 avg_pool=1 name=g2",
+      "adaptive_instance_norm name=a3",
+      ["subpixel 3 avg_pool=1 name=g8x8 activation=null", "subpixel 256 name=g3"],
+      "adaptive_instance_norm name=a4",
+      ["subpixel 3 avg_pool=1 name=g16x16 activation=null", "subpixel 256 name=g4"],
+      "adaptive_instance_norm name=a5",
+      ["subpixel 3 avg_pool=1 name=g32x32 activation=null", "subpixel 256 name=g5"],
+      "adaptive_instance_norm name=a6",
+      "subpixel 3 name=g64x64 avg_pool=1 activation=null",
+      "progressive_replace start=g32x32 end=g64x64 steps=10000 name=g64x64m"
+    ]
+
+  },
+  "runtime": {
+      "channels": 3,
+      "width": 64,
+      "height": 64,
+      "batch_size": 1
+  },
+  "inherit": "base"
+}

@@ -54,6 +54,11 @@ class TkViewer:
                     self.tkviewer.size = [self.width, self.height]
                     self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
                     self.enforce_aspect_ratio(event)
+                    surface = self.tkviewer.pg.Surface([image.shape[0],image.shape[1]])
+                    self.tkviewer.pg.surfarray.blit_array(surface, image)
+                    self.tkviewer.screen.blit(self.tkviewer.pg.transform.scale(surface,self.tkviewer.size),(0,0))
+                    self.tkviewer.pg.display.flip()
+
 
                 def enforce_aspect_ratio(self, event):
                     desired_width = event.width

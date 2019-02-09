@@ -128,7 +128,7 @@ class ConfigurableComponent:
             before = self.variables()
             net = self.layer_ops[op](net, args, options)
             if 'name' in options:
-                if options['name'] in self.named_layers:
+                if options['name'] in self.named_layers and op != 'reference':
                     raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
                 self.named_layers[options['name']] = net
             after = self.variables()

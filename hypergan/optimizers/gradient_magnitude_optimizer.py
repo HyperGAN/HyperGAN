@@ -49,6 +49,8 @@ class GradientMagnitudeOptimizer(optimizer.Optimizer):
             return gs / (tf.norm(gs, ord=np.inf)+1e-8)
         elif self.config.norm == 'max':
             return gs / (tf.reduce_max(tf.abs(gs))+1e-8)
+        elif self.config.norm == False:
+            return gs
         else:
             return gs / (tf.norm(gs, ord=self.config.norm)+1e-8)
 

@@ -34,20 +34,23 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
     return self.optimizer._apply_dense(grad, var)
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
-    var_list = [v for _,v in grads_and_vars]
     d_vars = []
     g_vars = []
-    all_grads = [ g for g, _ in grads_and_vars ]
+    d_grads = []
+    g_grads = []
     for grad,var in grads_and_vars:
         if var in self.gan.d_vars():
             d_vars += [var]
+            d_grads += [grad]
         elif var in self.gan.g_vars():
             g_vars += [var]
+            g_grads += [grad]
         else:
             raise("Couldn't find var in g_vars or d_vars")
+    all_grads = d_grads + g_grads
+    var_list = d_vars + g_vars
 
     with ops.init_scope():
-        print("INIT ______")
         f1 = [self._zeros_slot(v, "f", self._name) for v in var_list]
         v1 = [self._get_or_make_slot(v, v, "v1", self._name) for v in var_list]
         if self.config.include_slots:
@@ -103,6 +106,10 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
     if self.config.add_ewc_loss_gradients:
         new_grads = [_g+_ng for _g,_ng in zip(all_grads, new_grads)]
 
+    for g, oldg, v in zip(new_grads, all_grads, current_vars):
+        if(self.gan.ops.shape(g) != self.gan.ops.shape(oldg)):
+            print("[ERROR] Shape change on gradients for", v, g, "old g", oldg)
+            raise "Gradient change error"
     step = self.optimizer.apply_gradients(list(zip(new_grads, current_vars)).copy(), global_step=global_step, name=name)
 
     store_f = tf.group(*[tf.assign(w, v) for w,v in zip(f1, f_accum)])

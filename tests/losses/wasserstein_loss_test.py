@@ -20,7 +20,6 @@ class WassersteinLossTest(tf.test.TestCase):
         with self.test_session():
             gan = mock_gan()
 
-            gan.create()
             loss = WassersteinLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             d_shape = gan.ops.shape(d_loss)

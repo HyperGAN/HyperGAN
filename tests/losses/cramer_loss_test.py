@@ -20,7 +20,6 @@ class CramerLossTest(tf.test.TestCase):
     def test_create(self):
         with self.test_session():
             gan = mock_gan()
-            gan.create()
             loss = CramerLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             d_shape = gan.ops.shape(d_loss)

@@ -1,0 +1,78 @@
+{
+  "latent": {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "max": 1,
+    "min": -1,
+      "periods": 2,
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "z": 128
+  },
+  "loss":
+  {
+    "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "curriculum": [
+                    [200000, "pro8x8"],
+                    [200000, "pro16x16"],
+                    [200000, "pro32x32"],
+                    [200000, "pro64x64"],
+                    [200000, "pro128x128"],
+                    [200000, "pro256x256"]
+    ],
+    "class": "function:hypergan.trainers.curriculum_trainer.CurriculumTrainer",
+
+    "delegate": {
+      "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+        "optimizer": {
+          "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
+          "optimizer": {
+            "class": "function:hypergan.optimizers.gradient_magnitude_optimizer.GradientMagnitudeOptimizer",
+            "norm": false,
+            "lambda": 1.0,
+            "optimizer": {
+              "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+              "optimizer": {
+                "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+                "learn_rate": 1e-4,
+                "beta1":0.0,
+                "beta2":0.999
+              },
+              "optimizer2": {
+                "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+                "learn_rate": 3e-5,
+                "beta1":0.0,
+                "beta2":0.999
+              }
+            }
+          }
+      },
+      "hooks":[
+        {
+          "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
+          "lambda": 0.001
+        },
+ 
+        {
+          "class": "function:hypergan.train_hooks.self_supervised_train_hook.SelfSupervisedTrainHook",
+          "alpha": 0.1,
+          "beta": 0.1,
+          "r": {
+            "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+            "defaults":{
+              "initializer": "he_normal"
+            },
+            "layers":[
+              "linear 4 name=r1 activation=null"
+            ]
+         }
+        }
+      ]
+
+    }
+  },
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
+}

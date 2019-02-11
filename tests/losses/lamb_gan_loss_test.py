@@ -17,9 +17,7 @@ class LambGanLossTest(tf.test.TestCase):
 
     def test_create(self):
         with self.test_session():
-            graph = mock_gan()
             gan = mock_gan()
-            gan.create()
             loss = LambGanLoss(gan, loss_config)
             d_loss, g_loss = loss.create()
             d_shape = gan.ops.shape(d_loss)

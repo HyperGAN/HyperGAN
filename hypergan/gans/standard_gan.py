@@ -55,13 +55,10 @@ class StandardGAN(BaseGAN):
         config = self.config
 
         with tf.device(self.device):
-            if self.session is None: 
-                self.session = self.ops.new_session(self.ops_config)
+            self.session = self.ops.new_session(self.ops_config)
 
-            #this is in a specific order
-            if self.latent is None:
-                self.latent = self.create_component(config.z_distribution or config.latent)
-                self.uniform_distribution = self.latent
+            self.latent = self.create_component(config.z_distribution or config.latent)
+            self.uniform_distribution = self.latent
 
             z_shape = self.ops.shape(self.latent.sample)
             self.android_input = tf.reshape(self.latent.sample, [-1])
@@ -75,24 +72,15 @@ class StandardGAN(BaseGAN):
             z = tf.reshape(z, z_shape)
             self.control_z = z
 
-            if self.generator is None and config.generator:
-                self.generator = self.create_component(config.generator, name="generator", input=z)
-                self.autoencoded_x = self.generator.sample
-                self.uniform_sample = self.generator.sample
+            self.generator = self.create_component(config.generator, name="generator", input=z)
+            self.autoencoded_x = self.generator.sample
 
-            if self.discriminator is None and config.discriminator:
-                x, g = self.inputs.x, self.generator.sample
-                self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
-            if self.loss is None and config.loss:
-                self.loss = self.create_component(config.loss, discriminator=self.discriminator)
-            if self.trainer is None and config.trainer:
-                self.trainer = self.create_component(config.trainer)
+            x, g = self.inputs.x, self.generator.sample
+            self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
+            self.loss = self.create_component(config.loss, discriminator=self.discriminator)
+            self.trainer = self.create_component(config.trainer)
 
-            #self.random_z = tf.random_uniform(self.ops.shape(self.latent.sample), -1, 1, name='random_z')
-            if hasattr(self.generator, 'sample'):
-                self.android_output = tf.reshape(self.generator.sample, [-1])
-            else:
-                self.android_output = None
+            self.android_output = tf.reshape(self.generator.sample, [-1])
 
             self.session.run(tf.global_variables_initializer())
 

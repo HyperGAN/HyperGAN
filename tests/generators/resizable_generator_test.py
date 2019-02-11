@@ -16,41 +16,35 @@ config = {
     'test': True,
     'block': hg.discriminators.common.standard_block
 }
-gan = mock_gan()
-generator = ResizableGenerator(config=config, gan=gan)
 
 class ResizableGeneratorTest(tf.test.TestCase):
     def test_config(self):
         with self.test_session():
+            gan = mock_gan()
+            generator = ResizableGenerator(config=config, gan=gan, input=gan.latent.sample)
             self.assertEqual(generator.config.test, True)
-
-    def test_create(self):
-        with self.test_session():
-            gan.config['generator'] = None
-            gan.config['discriminator'] = None
-            gan.config['loss'] = None
-            gan.config['trainer'] = None
-            gan.create()
-            nets = generator.create()
-            self.assertEqual(generator.ops.shape(nets), [1,16,16,1])
 
     def test_initial_depth(self):
         with self.test_session():
+            gan = mock_gan()
+            generator = ResizableGenerator(config=config, gan=gan, input=gan.latent.sample)
             print(generator.depths())
             depths = generator.depths()
-            self.assertEqual(depths[-1], 4)
+            self.assertEqual(depths[-1], 2)
 
     def test_layer_norm(self):
         with self.test_session():
+            gan = mock_gan()
             config['layer_regularizer'] = 'layer_norm'
-            generator = ResizableGenerator(config=config, gan=gan)
+            generator = ResizableGenerator(config=config, gan=gan, input=gan.latent.sample)
             generator.layer_regularizer(tf.constant(1, shape=[1,1,1,1], dtype=tf.float32))
             self.assertNotEqual(len(generator.variables()), 0)
 
     def test_batch_norm(self):
         with self.test_session():
             config['layer_regularizer'] = 'batch_norm'
-            generator = ResizableGenerator(config=config, gan=gan)
+            gan = mock_gan()
+            generator = ResizableGenerator(config=config, gan=gan, input=gan.latent.sample)
             generator.layer_regularizer(tf.constant(1, shape=[1,1,1,1], dtype=tf.float32))
             self.assertNotEqual(len(generator.variables()), 0)
 

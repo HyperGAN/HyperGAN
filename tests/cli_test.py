@@ -31,7 +31,6 @@ class CliTest(tf.test.TestCase):
     def test_step(self):
         with self.test_session():
             gan = mock_gan()
-            gan.create()
             args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1})
             cli = hg.CLI(gan, args)
             cli.step()
@@ -41,7 +40,6 @@ class CliTest(tf.test.TestCase):
         with self.test_session():
             gan = mock_gan()
             args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1})
-            gan.create()
             cli = hg.CLI(gan, args)
             cli.sample('/tmp/test-sample.png')
             self.assertEqual(cli.gan, gan)
@@ -60,7 +58,6 @@ class CliTest(tf.test.TestCase):
             gan = mock_gan(y=2)
             args = hc.Config({"size": "1", "steps": 1, "method": "train", "save_every": -1, "classloss": True})
             cli = hg.CLI(gan, args)
-            gan.create()
             cli.add_supervised_loss()
             self.assertEqual(type(cli.gan.loss), MultiComponent)
             self.assertEqual(type(cli.gan.loss.components[0]), SupervisedLoss)

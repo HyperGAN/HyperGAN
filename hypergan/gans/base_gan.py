@@ -253,6 +253,13 @@ class BaseGAN(GANComponent):
                 pass
         return metrics
 
+    def layer_options(self, l):
+        for component in self.components:
+            if hasattr(component, "layer_options"):
+                if l in component.layer_options:
+                    return component.layer_options[l]
+        return None
+
     def configurable_param(self, string):
         if isinstance(string, str):
             name, *args = string.split(" ")

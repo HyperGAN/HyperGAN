@@ -30,7 +30,6 @@ class OpsTest(tf.test.TestCase):
         with self.test_session():
             self.assertEqual(ops.lookup('tanh'), tf.nn.tanh)
             self.assertEqual(ops.lookup(tanh_str), tf.nn.tanh)
-            self.assertEqual(ops.lookup({'name': 'tanh'}), {'name':tf.nn.tanh})
             self.assertEqual(ops.lookup(None), None)
 
     def test_dtype(self):
@@ -84,6 +83,8 @@ class OpsTest(tf.test.TestCase):
             ops.describe("generator")
             self.assertEqual(ops.generate_name(), "generator_1")
             self.assertEqual(ops.generate_name(), "generator_2")
+            self.assertEqual(ops.generate_name("custom"), "custom")
+            self.assertEqual(ops.generate_name(), "generator_3")
 
     def test_variable_constructor(self):
         with self.test_session():

@@ -19,6 +19,7 @@ import shutil
 import sys
 
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
+from hypergan.samplers.progressive_sampler import ProgressiveSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
 from hypergan.samplers.grid_sampler import GridSampler
@@ -79,6 +80,7 @@ class CLI:
     def sampler_for(name, default=StaticBatchSampler):
         samplers = {
                 'static_batch': StaticBatchSampler,
+                'progressive': ProgressiveSampler,
                 'random_walk': RandomWalkSampler,
                 'alphagan_random_walk': AlphaganRandomWalkSampler,
                 'style_walk': StyleWalkSampler,

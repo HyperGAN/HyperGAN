@@ -21,7 +21,7 @@ class GangSampler(BaseSampler):
         sess = gan.session
         config = gan.config
         if self.xs is None:
-            self.xs = [sess.run(gan.fitness_inputs()) for i in range(self.samples)]
+            self.xs = [sess.run([gan.latent.sample]) for i in range(self.samples)]
 
         current_g = sess.run(gan.trainer.all_g_vars)
         
@@ -30,7 +30,7 @@ class GangSampler(BaseSampler):
             n = 3
             cs = []
             for i in range(self.samples):
-                ts = gan.fitness_inputs()
+                ts = [gan.latent.z]
                 vs = self.xs[i]
                 feed_dict = {}
                 for t,v in zip(ts, vs):

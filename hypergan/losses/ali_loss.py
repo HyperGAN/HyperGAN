@@ -32,6 +32,9 @@ class AliLoss(BaseLoss):
             #g_loss = 0.5*square(d_fake - c) + 0.5*(b-d_real)
 
             
+        elif config.type == 'logistic':
+            d_loss = tf.nn.softplus(-d_real) + tf.nn.softplus(d_fake)
+            g_loss = tf.nn.softplus(-d_fake) + tf.nn.softplus(d_real)
         elif config.type == 'wasserstein':
             d_loss = -pq+pp
             g_loss = pq-pp

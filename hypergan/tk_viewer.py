@@ -127,6 +127,7 @@ class TkViewer:
             menubar.add_cascade(label="Sample", menu=samplemenu, underline=0)
 
             root.bind_all("<Control-q>", _exit)
+            root.bind_all("<Control-r>", _refresh_sample)
             root.bind_all("<Control-s>", _save_model)
 
 

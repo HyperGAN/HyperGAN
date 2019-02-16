@@ -10,6 +10,13 @@ class AlignedSampler(BaseSampler):
         self.xb_v = None
         self.created = False
 
+    def compatible_with(gan):
+        if hasattr(gan.inputs, 'xa') and \
+            hasattr(gan.inputs, 'xb') and \
+            hasattr(gan, 'cyca'):
+            return True
+        return False
+
     def sample(self, path, sample_to_file):
         gan = self.gan
         cyca = gan.cyca

@@ -94,6 +94,31 @@ class TkViewer:
             def _refresh_sample(*args):
                 gan.cli.sample()
 
+            def _select_sampler(gan, name, value, submenu):
+                def _select_sampler_proc():
+                    gan.cli.sampler = gan.cli.sampler_for(name)(gan)
+                    gan.cli.sample()
+                    _refresh_sampler_submenu(submenu)
+                return _select_sampler_proc
+
+            def _refresh_sampler_submenu(submenu):
+                if submenu.count > 0:
+                    submenu.delete(0, submenu.count)
+
+                for (k, v) in gan.cli.get_registered_samplers().items():
+                    showall = tk.BooleanVar()
+                    showall.set(gan.cli.selected_sampler == k)
+                    if v.compatible_with(gan):
+                        state = tk.NORMAL
+                    else:
+                        state = tk.DISABLED
+
+                    print("Selected", gan.cli.selected_sampler, k, gan.cli.selected_sampler == k)
+                    submenu.add_checkbutton(label=k, onvalue=True, offvalue=False, variable=showall, command=_select_sampler(gan, k, showall, submenu), state=state)
+                num_samplers = len(gan.cli.get_registered_samplers())
+
+                submenu.count = num_samplers
+
 
             def _create_status_bar(root):
                 statusbar = tk.Frame(root, height=24)
@@ -115,16 +140,20 @@ class TkViewer:
 
             menubar = tk.Menu(root)
             filemenu = tk.Menu(menubar, tearoff=0)
-            filemenu.add_command(label="Save", command=_save_model, underline=0, accelerator="Ctrl+S")
+            filemenu.add_command(label="Save", command=_save_model, underline=0, accelerator="Ctrl+s")
 
             filemenu.add_separator()
 
             samplemenu = tk.Menu(menubar, tearoff=0)
-            samplemenu.add_command(label="Refresh", command=_refresh_sample, underline=0, accelerator="Ctrl+R")
+            samplemenu.add_command(label="Refresh", command=_refresh_sample, underline=0, accelerator="Ctrl+r")
 
-            filemenu.add_command(label="Save and Exit", command=_exit, underline=10, accelerator="Ctrl+Q")
+            filemenu.add_command(label="Save and Exit", command=_exit, underline=10, accelerator="Ctrl+q")
             menubar.add_cascade(label="File", menu=filemenu, underline=0)
             menubar.add_cascade(label="Sample", menu=samplemenu, underline=0)
+            samplermenu = tk.Menu(samplemenu)
+            samplemenu.add_cascade(label="Sampler", menu=samplermenu, underline=0)
+            samplermenu.count = 0
+            _refresh_sampler_submenu(samplermenu)
 
             root.bind_all("<Control-q>", _exit)
             root.bind_all("<Control-r>", _refresh_sample)

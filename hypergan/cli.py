@@ -102,7 +102,7 @@ class CLI:
             print("[hypergan] No sampler found for ", name, ".  Defaulting to", default)
             return default
 
-    def sample(self, sample_file):
+    def sample(self):
         """ Samples to a file.  Useful for visualizing the learning process.
 
         Use with:
@@ -111,8 +111,11 @@ class CLI:
 
         to create a video of the learning process.
         """
+        sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
+        self.create_path(sample_file)
         self.lazy_create()
         sample_list = self.sampler.sample(sample_file, self.args.save_samples)
+        self.samples += 1
 
         return sample_list
 
@@ -144,10 +147,7 @@ class CLI:
 
 
         if(self.steps % self.sample_every == 0):
-            sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
-            self.create_path(sample_file)
-            sample_list = self.sample(sample_file)
-            self.samples += 1
+            sample_list = self.sample()
 
         self.steps+=1
 
@@ -161,11 +161,8 @@ class CLI:
 
     def sample_forever(self):
         while not self.gan.destroy:
-            sample_file="samples/"+self.config_name +"/%06d.png" % (self.samples)
-            self.create_path(sample_file)
             self.sample(sample_file)
             GlobalViewer.tick()
-            self.samples += 1
 
 
     def train(self):

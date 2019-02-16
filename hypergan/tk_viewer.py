@@ -91,6 +91,10 @@ class TkViewer:
             def _exit(*args):
                 gan.exit()
 
+            def _refresh_sample(*args):
+                gan.cli.sample()
+
+
             def _create_status_bar(root):
                 statusbar = tk.Frame(root, height=24)
                 statusbar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -115,8 +119,12 @@ class TkViewer:
 
             filemenu.add_separator()
 
+            samplemenu = tk.Menu(menubar, tearoff=0)
+            samplemenu.add_command(label="Refresh", command=_refresh_sample, underline=0, accelerator="Ctrl+R")
+
             filemenu.add_command(label="Save and Exit", command=_exit, underline=10, accelerator="Ctrl+Q")
             menubar.add_cascade(label="File", menu=filemenu, underline=0)
+            menubar.add_cascade(label="Sample", menu=samplemenu, underline=0)
 
             root.bind_all("<Control-q>", _exit)
             root.bind_all("<Control-s>", _save_model)

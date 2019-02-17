@@ -77,8 +77,8 @@ class CLI:
         GlobalViewer.enabled = self.args.viewer
         GlobalViewer.zoom = self.args.zoom
 
-    def sampler_for(name, default=StaticBatchSampler):
-        samplers = {
+    def get_registered_samplers(self):
+        return {
                 'static_batch': StaticBatchSampler,
                 'progressive': ProgressiveSampler,
                 'random_walk': RandomWalkSampler,
@@ -95,7 +95,10 @@ class CLI:
                 'y': YSampler,
                 'segment': SegmentSampler,
                 'aligned': AlignedSampler
-        }
+            }
+    def sampler_for(self, name, default=StaticBatchSampler):
+        samplers = self.get_registered_samplers()
+        self.selected_sampler = name
         if name in samplers:
             return samplers[name]
         else:
@@ -124,7 +127,7 @@ class CLI:
 
     def lazy_create(self):
         if(self.sampler == None):
-            self.sampler = CLI.sampler_for(self.sampler_name)(self.gan)
+            self.sampler = self.sampler_for(self.sampler_name)(self.gan)
             if(self.sampler == None):
                 raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
@@ -161,7 +164,7 @@ class CLI:
 
     def sample_forever(self):
         while not self.gan.destroy:
-            self.sample(sample_file)
+            self.sample()
             GlobalViewer.tick()
 
 

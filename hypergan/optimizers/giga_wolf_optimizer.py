@@ -1,4 +1,3 @@
-#From https://gist.github.com/EndingCredits/b5f35e84df10d46cfa716178d9c862a3
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function

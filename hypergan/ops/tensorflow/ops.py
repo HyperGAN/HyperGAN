@@ -513,7 +513,7 @@ class TensorflowOps:
         return _trelu
 
     def gelu(self, x):
-        return 0.5*x*(1+tf.nn.tanh(np.sqrt(2/np.pi)*(x+0.044715*tf.pow(x,3)x)))
+        return 0.5*x*(1+tf.nn.tanh(np.sqrt(2/np.pi)*(x+0.044715*tf.pow(x,3))))
 
     def frelu(self):
         def _frelu(_x, name=None):

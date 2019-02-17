@@ -625,7 +625,7 @@ class TensorflowOps:
         if symbol == "frelu":
             return self.frelu()
         if symbol == "gelu":
-            return self.gelu()
+            return self.gelu
         if symbol == "lrelu":
             return lrelu
         if symbol == "relu":

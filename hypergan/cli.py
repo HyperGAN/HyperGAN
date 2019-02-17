@@ -77,8 +77,8 @@ class CLI:
         GlobalViewer.enabled = self.args.viewer
         GlobalViewer.zoom = self.args.zoom
 
-    def sampler_for(name, default=StaticBatchSampler):
-        samplers = {
+    def get_registered_samplers(self):
+        return {
                 'static_batch': StaticBatchSampler,
                 'progressive': ProgressiveSampler,
                 'random_walk': RandomWalkSampler,
@@ -95,14 +95,17 @@ class CLI:
                 'y': YSampler,
                 'segment': SegmentSampler,
                 'aligned': AlignedSampler
-        }
+            }
+    def sampler_for(self, name, default=StaticBatchSampler):
+        samplers = self.get_registered_samplers()
+        self.selected_sampler = name
         if name in samplers:
             return samplers[name]
         else:
             print("[hypergan] No sampler found for ", name, ".  Defaulting to", default)
             return default
 
-    def sample(self, sample_file):
+    def sample(self):
         """ Samples to a file.  Useful for visualizing the learning process.
 
         Use with:
@@ -111,8 +114,11 @@ class CLI:
 
         to create a video of the learning process.
         """
+        sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
+        self.create_path(sample_file)
         self.lazy_create()
         sample_list = self.sampler.sample(sample_file, self.args.save_samples)
+        self.samples += 1
 
         return sample_list
 
@@ -121,7 +127,7 @@ class CLI:
 
     def lazy_create(self):
         if(self.sampler == None):
-            self.sampler = CLI.sampler_for(self.sampler_name)(self.gan)
+            self.sampler = self.sampler_for(self.sampler_name)(self.gan)
             if(self.sampler == None):
                 raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
@@ -144,10 +150,7 @@ class CLI:
 
 
         if(self.steps % self.sample_every == 0):
-            sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
-            self.create_path(sample_file)
-            sample_list = self.sample(sample_file)
-            self.samples += 1
+            sample_list = self.sample()
 
         self.steps+=1
 
@@ -161,11 +164,8 @@ class CLI:
 
     def sample_forever(self):
         while not self.gan.destroy:
-            sample_file="samples/"+self.config_name +"/%06d.png" % (self.samples)
-            self.create_path(sample_file)
-            self.sample(sample_file)
+            self.sample()
             GlobalViewer.tick()
-            self.samples += 1
 
 
     def train(self):

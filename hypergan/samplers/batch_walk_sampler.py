@@ -74,6 +74,11 @@ class BatchWalkSampler(BaseSampler):
             'generator': g
         }
 
+    def compatible_with(gan):
+        if hasattr(gan, 'latent') and gan.batch_size() == 1:
+            return True
+        return False
+
 
     def plot(self, image, filename, save_sample):
         """ Plot an image."""

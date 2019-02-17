@@ -13,6 +13,11 @@ class StaticBatchSampler(BaseSampler):
         self.rows = 4
         self.columns = 8
 
+    def compatible_with(gan):
+        if hasattr(gan, 'latent'):
+            return True
+        return False
+
     def _sample(self):
         gan = self.gan
         z_t = gan.latent.sample

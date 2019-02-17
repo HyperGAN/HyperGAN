@@ -27,6 +27,16 @@ class GangTrainer(BaseTrainer):
 
 
         self._delegate = self.gan.create_component(config.rbbr, d_vars=d_vars, g_vars=g_vars)
+        self.optimizer = self._delegate
+
+        print("VARS  ___", self.optimizer.variables())
+        for var in self.optimizer.variables():
+            if "generator" in var.name:
+                g_vars += [var]
+            elif "discriminator" in var.name:
+                d_vars += [var]
+            else:
+                print("[WARNING] Unknown gang variable, not added to g_vars or d_vars: ", var)
         d_loss, g_loss = loss.sample
         if self.config.fitness_method == "wasserstein":
             self.gang_loss = -(loss.d_real-loss.d_fake)
@@ -141,8 +151,8 @@ class GangTrainer(BaseTrainer):
 
 
 
-        g_vars = list(g_vars) + self._delegate.slot_vars_g
-        d_vars = list(d_vars) + self._delegate.slot_vars_d
+        g_vars = list(g_vars)
+        d_vars = list(d_vars)
         self.all_g_vars = g_vars
         self.all_d_vars = d_vars
 
@@ -238,13 +248,6 @@ class GangTrainer(BaseTrainer):
  
         if self.config.use_nash:
             priority_g, new_ug, priority_d, new_ud = self.nash_mixture_from_payoff(a, b, self.sgs, self.sds)
-            #if priority_g is None:
-            #    print("WARNING: Degenerate game (nashpy length mismatch), using softmax")
-            #    priority_g = self.mixture_from_payoff(a, 1, self.sgs)
-            #    new_ug = self.destructive_mixture_g(priority_g)
-
-            #    priority_d = self.mixture_from_payoff(-a, 0, self.sds)
-            #    new_ud = self.destructive_mixture_d(priority_d)
         elif self.config.use_crossover:
             priority_g = self.mixture_from_payoff(a, 1, self.sgs)
             priority_d = self.mixture_from_payoff(b, 0, self.sds)
@@ -443,7 +446,7 @@ class GangTrainer(BaseTrainer):
         gan = self.gan
         sess = gan.session
         config = self.config
-        loss = self.loss or gan.loss
+        loss = gan.loss
         metrics = loss.metrics
         d_vars = self.all_d_vars
         g_vars = self.all_g_vars
@@ -484,9 +487,7 @@ class GangTrainer(BaseTrainer):
         #    return
         self.last_fitness_step=self._delegate.current_step
         #print("Step", self._delegate.current_step+1)
-        if (self._delegate.current_step+1) % (config.mix_steps or 100) == 0 or self._delegate.mix_threshold_reached:
-            self._delegate.mix_threshold_reached = False
-            self._delegate.current_step = 0
+        if (gan.step_count+1) % (config.mix_steps or 100) == 0:
             sg = gan.session.run(g_vars)
             sd = gan.session.run(d_vars)
             if config.nash_memory:

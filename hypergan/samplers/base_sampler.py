@@ -11,6 +11,10 @@ class BaseSampler:
     def _sample(self):
         raise "raw _sample method called.  You must override this"
 
+
+    def compatible_with(gan):
+        return False
+
     def sample(self, path, save_samples):
         gan = self.gan
 

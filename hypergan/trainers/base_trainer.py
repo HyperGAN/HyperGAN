@@ -47,7 +47,8 @@ class BaseTrainer(GANComponent):
             hook.after_create()
 
     def step(self, feed_dict={}):
-        step = self._step(feed_dict)
+        with self.gan.graph.as_default():
+            step = self._step(feed_dict)
         self.current_step += 1
         return step
 

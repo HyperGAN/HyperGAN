@@ -26,7 +26,7 @@ class CurriculumTrainer(BaseTrainer):
     def required(self):
         return []
 
-    def _step(self, feed_dict):
+    def step(self, feed_dict):
         gan = self.gan
         sess = gan.session
         config = self.config
@@ -34,7 +34,8 @@ class CurriculumTrainer(BaseTrainer):
         self._delegate.step(feed_dict)
 
         transition_step = self.curriculum[self.curriculum_index][0]
-        if self.current_step == transition_step:
+        self.current_step += 1
+        if (self.current_step-1) == transition_step:
 
             gan.save("saves/curriculum")
             self.curriculum_index+=1

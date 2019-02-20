@@ -9,11 +9,12 @@ import inspect
 import hypergan as hg
 import tensorflow as tf
 
+from tensorflow.python.framework import ops
 from tensorflow.python.tools import freeze_graph
 from tensorflow.python.tools import optimize_for_inference_lib
 
 class BaseGAN(GANComponent):
-    def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps,
+    def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps, graph=None,
             batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan"):
         """ Initialized a new GAN."""
         self.inputs = inputs
@@ -30,6 +31,9 @@ class BaseGAN(GANComponent):
         self.session = session
         self.skip_connections = SkipConnections()
         self.destroy = False
+        if graph is None:
+            graph = tf.get_default_graph()
+        self.graph = graph
 
         if config == None:
             config = hg.Configuration.default()
@@ -43,7 +47,7 @@ class BaseGAN(GANComponent):
             tfconfig.gpu_options.allow_growth=True
 
             with tf.device(self.device):
-                self.session = self.session or tf.Session(config=tfconfig)
+                self.session = self.session or tf.Session(config=tfconfig, graph=graph)
 
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         self.steps = tf.Variable(0, trainable=False, name='global_step')
@@ -158,15 +162,17 @@ class BaseGAN(GANComponent):
         return list(set(self.g_vars()).intersection(tf.trainable_variables()))
 
     def save(self, save_file):
-        print("[hypergan] Saving network to ", save_file)
-        os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
-        saver = tf.train.Saver(self.variables())
-        print("Saving " +str(len(self.variables()))+ " variables: ")
-        missing = set(tf.global_variables()) - set(self.variables())
-        missing = [ o for o in missing if "dontsave" not in o.name ]
-        if(len(missing) > 0):
-            print("[hypergan] Warning: Variables on graph but not saved:", missing)
-        saver.save(self.session, save_file)
+        with self.graph.as_default():
+            print("[hypergan] Saving network to ", save_file)
+            os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
+            saver = tf.train.Saver(self.variables())
+            print("Saving " +str(len(self.variables()))+ " variables: ")
+            missing = set(tf.global_variables()) - set(self.variables())
+            missing = [ o for o in missing if "dontsave" not in o.name ]
+            if(len(missing) > 0):
+                print("[hypergan] Warning: Variables on graph but not saved:", missing)
+            saver.save(self.session, save_file)
+
 
     def load(self, save_file):
         save_file = os.path.expanduser(save_file)

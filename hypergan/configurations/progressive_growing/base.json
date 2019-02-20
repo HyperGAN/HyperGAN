@@ -11,68 +11,67 @@
   },
   "loss":
   {
-    "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
+	  "class": "function:hypergan.losses.logistic_loss.LogisticLoss",
     "reduce": "reduce_mean"
   },
   "trainer": {
     "curriculum": [
-                    [200000, "pro8x8"],
-                    [200000, "pro16x16"],
-                    [200000, "pro32x32"],
-                    [200000, "pro64x64"],
-                    [200000, "pro128x128"],
-                    [200000, "pro256x256"]
+                    [100000, "pro8x8"],
+                    [100000, "pro16x16"],
+                    [100000, "pro32x32"],
+                    [100000, "pro64x64"],
+                    [100000, "pro128x128"],
+                    [100000, "pro256x256"],
+                    [100000, "pro512x512"],
+                    [5000000, "pro1024x1024"]
     ],
     "class": "function:hypergan.trainers.curriculum_trainer.CurriculumTrainer",
 
-    "delegate": {
-      "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
-        "optimizer": {
-          "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
-          "optimizer": {
-            "class": "function:hypergan.optimizers.gradient_magnitude_optimizer.GradientMagnitudeOptimizer",
-            "norm": false,
-            "lambda": 1.0,
-            "optimizer": {
-              "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
-              "optimizer": {
-                "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-                "learn_rate": 1e-4,
-                "beta1":0.0,
-                "beta2":0.999
-              },
-              "optimizer2": {
-                "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-                "learn_rate": 3e-5,
-                "beta1":0.0,
-                "beta2":0.999
-              }
-            }
-          }
-      },
-      "hooks":[
-        {
-          "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
-          "lambda": 0.001
-        },
- 
-        {
-          "class": "function:hypergan.train_hooks.self_supervised_train_hook.SelfSupervisedTrainHook",
-          "alpha": 0.1,
-          "beta": 0.1,
-          "r": {
-            "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-            "defaults":{
-              "initializer": "he_normal"
-            },
-            "layers":[
-              "linear 4 name=r1 activation=null"
-            ]
-         }
-        }
-      ]
+  "delegate": {
+    "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
 
-    }
+    "optimizer": {
+
+      "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
+
+      "learn_rate": 0.00001,
+
+      "optimizer": {
+
+        "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
+
+          "f_decay": 0.8,
+          "lam": 100.0,
+        "add_ewc_loss_gradients": true,
+          "initial_constraint": 0.2,
+          "gradient_scale": 10.0,
+
+        "optimizer": {
+
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+
+            "learn_rate": 1e-4,
+
+            "beta1":0.0,
+
+            "beta2":0.999
+
+          }
+
+
+      }
+
+    },
+
+      "hooks":[{
+
+        "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
+
+        "lambda": 0.001
+
+      }]
+  }
   },
+
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

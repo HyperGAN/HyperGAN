@@ -3,7 +3,7 @@
   {
       "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
       "defaults":{
-        "activation": "lrelu",
+        "activation": "relu",
         "initializer": "he_normal",
         "filter": [3,3],
         "stride": [1,1],
@@ -13,12 +13,11 @@
         "identity name=xg",
         ["reference src=inputs name=x resize_images=16*16","reference src=generator name=g16x16",0],
         "identity name=pastxg",
-        "progressive_replace start=pastxg end=xg steps=10000",
-        ["reference name=pastxg","conv 128 name=d2"],
+        "progressive_replace start=pastxg end=xg steps=5000",
+        ["reference name=pastxg","conv 256 name=d2"],
         [["reference src=inputs name=x resize_images=8*8","reference src=generator name=g8x8",0],"conv 256 name=d3"],
-        "conv 256 name=d4",
-        "conv 256 name=d5",
-        "conv 256 name=d6",
+        "conv 512 name=d4",
+        "conv 512 name=d5",
         "reshape -1 name=shared",
         "linear 1 name=dend activation=null"
       ]
@@ -28,29 +27,29 @@
   "generator": {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
     "defaults": {
-      "activation": "lrelu",
+      "activation": "relu",
       "initializer": "he_normal",
       "filter": [3,3],
       "stride": [1,1],
       "avg_pool": [1,1]
     },
     "layers": [
-      "linear 128 gradient_magnitude_lambda=0.01",
-      "linear 128 gradient_magnitude_lambda=0.01",
-      "reshape 1*1*128",
       "reshape -1 name=w",
-      "const 1*1*128 name=const",
-      "adaptive_instance_norm name=a1",
-      "subpixel 256 avg_pool=1 name=g1",
-      "adaptive_instance_norm name=a2",
-      "subpixel 256 avg_pool=1 name=g2",
-      "adaptive_instance_norm name=a3",
-      ["subpixel 3 avg_pool=1 name=g8x8 activation=null", "subpixel 256 name=g3"],
-      "adaptive_instance_norm name=a4",
-      ["subpixel 3 avg_pool=1 name=g16x16 activation=null", "subpixel 256 name=g4"],
-      "adaptive_instance_norm name=a5",
-      "subpixel 3 name=g32x32 avg_pool=1 activation=null",
-      "progressive_replace start=g16x16 end=g32x32 steps=10000 name=g32x32m"
+      "const 4*4*1024",
+      "subpixel 256",
+      "adaptive_instance_norm",
+      "identity name=s3",
+      "conv 3 ewc_f_decay=0.99 ewc_gradient_scale=100 name=g8x8 activation=null",
+      "reference name=s3",
+      "subpixel 256",
+      "adaptive_instance_norm",
+      "identity name=s4",
+      "conv 3 ewc_f_decay=0.99 ewc_gradient_scale=100 name=g16x16 activation=null",
+      "reference name=s4",
+      "subpixel 256",
+      "adaptive_instance_norm",
+      "conv 3 name=g32x32 activation=null",
+      "progressive_replace start=g16x16 end=g32x32 steps=5000 name=g32x32m"
     ]
   },
   "runtime": {

@@ -3,16 +3,15 @@
   {
       "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
       "defaults":{
-        "activation": "lrelu",
+        "activation": "relu",
         "initializer": "he_normal",
         "filter": [3,3],
         "stride": [1,1],
         "avg_pool": [2,2]
       },
       "layers":[
-        "conv 256 name=d4",
-        "conv 256 name=d5",
-        "conv 256 name=d6",
+        "conv 512 name=d4",
+        "conv 512 name=d5",
         "reshape -1 name=shared",
         "linear 1 name=dend activation=null"
       ]
@@ -22,24 +21,18 @@
   "generator": {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
     "defaults": {
-      "activation": "lrelu",
+      "activation": "relu",
       "initializer": "he_normal",
       "filter": [3,3],
       "stride": [1,1],
       "avg_pool": [1,1]
     },
     "layers": [
-      "linear 128 gradient_magnitude_lambda=0.01",
-      "linear 128 gradient_magnitude_lambda=0.01",
-
       "reshape -1 name=w",
-      "const 1*1*128 name=const",
-      "adaptive_instance_norm name=a1",
-      "subpixel 256 avg_pool=1 name=g1",
-      "adaptive_instance_norm name=a2",
-      "subpixel 256 avg_pool=1 name=g2",
-      "adaptive_instance_norm name=a3",
-      "subpixel 3 name=g8x8 avg_pool=1 activation=null"
+			"const 4*4*1024",
+      "subpixel 256",
+			"adaptive_instance_norm",
+      "conv 3 name=g8x8 activation=null"
     ]
 
   },

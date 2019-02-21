@@ -52,25 +52,6 @@ State: working
 
 Search: Reconstruction cost
 
-CharGAN and Sequence (experimental)
-===================================
-
-Character based GANs
-Pass --one_hot for better results
-
-State: working
-
-Search: Not working
-
-Classification
-==============
-
-Classify MNIST by generating label distributions.  G(x) = label
-
-State: working
-
-Search:  The percentage of argmax(G(x)) that match the input labels.
-
 Static
 ======
 
@@ -79,17 +60,3 @@ Memorize X and Z values then test against them.
 State: working
 
 Search: Reconstruction
-
-Inpainting (pending)
-==========
-
-Hides a random part of the image from the discriminator and the generator.
-
-Not present
-
-Super Resolution (pending)
-================
-
-Provides a low resolution image to the generator.
-
-Not present

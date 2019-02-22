@@ -415,13 +415,26 @@ class ConfigurableComponent:
         return net
     
     def layer_add(self, net, args, options):
-        subnet = self.subnets[args[0]]
         orig = net
-        if "input" in options:
-            net = self.layer(options["input"])
-        for layer in subnet:
-            net = self.parse_layer(net, layer)
-            self.layers += [net]
+        if "layer" in options:
+            net = self.layer(options["layer"])
+
+        if len(args) > 0:
+            if args[0] == 'noise':
+                net = tf.random_normal(self.ops.shape(orig), mean=0, stddev=0.1)
+            else:
+                subnet = self.subnets[args[0]]
+                for layer in subnet:
+                    net = self.parse_layer(net, layer)
+                    self.layers += [net]
+
+        if 'mask' in options:
+            options['activation']=tf.nn.sigmoid
+            mask = self.layer_conv(orig, [self.ops.shape(net)[0]], options)
+            if 'threshold' in options:
+                mask = tf.greater(mask, float(options['threshold']))
+                mask = tf.cast(mask, tf.float32)
+            return mask * net + (1-mask)*orig
         if "lambda" in options:
             lam = self.parse_lambda(options)
             return orig + lam * net
@@ -866,10 +879,19 @@ class ConfigurableComponent:
 
     def layer_concat(self, net, args, options):
         if len(args) > 0 and args[0] == 'noise':
-            noise = tf.random_normal(self.ops.shape(net), stddev=0.1)
-            net = tf.concat([net, noise], axis=len(self.ops.shape(net))-1)
-            return net
-        net = tf.concat([net, self.named_layers[options['layer']]], axis=len(self.ops.shape(net))-1)
+            extra = tf.random_normal(self.ops.shape(net), stddev=0.1)
+        if 'layer' in options:
+            extra = self.named_layers[options['layer']]
+
+        if self.ops.shape(extra) != self.ops.shape(net):
+            extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
+
+        if 'mask' in options:
+            options['activation']=tf.nn.sigmoid
+            mask = self.layer_conv(net, [self.ops.shape(net)[-1]], options)
+            extra *= mask
+
+        net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
         return net
 
     def layer_gram_matrix(self, net, args, options):

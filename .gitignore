@@ -1,2 +1,10 @@
 **/*.pyc
 samples/*
+**/experimental
+**/experimental/*
+**/saves
+**/samples
+**/videos
+tests/coverage
+.coverage
+hypergan.egg-info

@@ -23,6 +23,7 @@ class ConfigurableComponent:
             "phase_shift": self.layer_phase_shift,
             "conv": self.layer_conv,
             "zeros": self.layer_zeros,
+            "zeros_like": self.layer_zeros_like,
             "control": self.layer_controls,
             "linear": self.layer_linear,
             "identity": self.layer_identity,
@@ -493,18 +494,22 @@ class ConfigurableComponent:
 
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
-        #layer_regularizer = options.layer_regularizer or config.defaults.layer_regularizer or 'null'
-        #layer_regularizer = self.ops.lookup(layer_regularizer)
 
         stride = options.stride or config.defaults.stride or [1,1]
         fltr = options.filter or config.defaults.filter or [5,5]
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         depth = int(args[0])
-
         initializer = None # default to global
 
         net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
+
+        if options.concat:
+            extra = self.named_layers[options.concat]
+            if self.ops.shape(extra) != self.ops.shape(net):
+                extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
+            net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
+
         net = self.layer_conv(net, args, options)
         return net
 
@@ -848,6 +853,11 @@ class ConfigurableComponent:
             with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
                 weights = self.ops.get_weight(shape, 'B')
             net += tf.random_normal(self.ops.shape(net), stddev=0.1) * weights
+
+        elif options.mask:
+            options['activation']=tf.nn.sigmoid
+            mask = self.layer_conv(net, args, options)
+            net += tf.random_normal(self.ops.shape(net), stddev=0.1) * mask
         else:
             net += tf.random_normal(self.ops.shape(net), stddev=0.1)
         return net
@@ -1000,7 +1010,7 @@ class ConfigurableComponent:
         net = self.adaptive_instance_norm(net, f1,f2)
         return net
 
-    def layer_zeros(self, net, args, options):
+    def layer_zeros_like(self, net, args, options):
         return tf.zeros_like(net)
 
     def layer_const(self, net, args, options):

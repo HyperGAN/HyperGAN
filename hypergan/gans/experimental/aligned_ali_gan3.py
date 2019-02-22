@@ -24,7 +24,6 @@ from hypergan.gan_component import ValidationException, GANComponent
 from ..base_gan import BaseGAN
 
 from hypergan.distributions.uniform_distribution import UniformDistribution
-from hypergan.trainers.experimental.consensus_trainer import ConsensusTrainer
 
 class AlignedAliGAN3(BaseGAN):
     """ 

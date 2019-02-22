@@ -5,7 +5,7 @@ import hypergan
 from hypergan.discriminators.common import *
 
 from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
-from .base_discriminator import BaseDiscriminator
+from ..base_discriminator import BaseDiscriminator
 
 class AutoencoderDiscriminator(BaseDiscriminator):
 

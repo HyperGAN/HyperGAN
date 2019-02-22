@@ -6,9 +6,9 @@ import sys, os
 import hyperchamber as hc
 import hypergan as hg
 import hypergan.cli as cli
-from hypergan.gans.aligned_gan import AlignedGAN
-from hypergan.gans.autoencoder_gan import AutoencoderGAN
-from hypergan.gans.alpha_gan import AlphaGAN
+from hypergan.gans.experimental.aligned_gan import AlignedGAN
+from hypergan.gans.experimental.autoencoder_gan import AutoencoderGAN
+from hypergan.gans.experimental.alpha_gan import AlphaGAN
 
 class CommandParser:
     def common(self, parser, directory=True):

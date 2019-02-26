@@ -21,7 +21,7 @@ import tensorflow as tf
 import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent
-from ..base_gan import BaseGAN
+from .base_gan import BaseGAN
 
 from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.trainers.experimental.consensus_trainer import ConsensusTrainer

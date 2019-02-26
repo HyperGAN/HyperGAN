@@ -131,12 +131,15 @@
     "hooks":[
       {
         "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
-        "lambda": 0.001
+        "target": "discriminator",
+        "components": ["discriminator","generator","z_discriminator","encoder","u_to_z"],
+        "lambda": 100.0
       },
       {
         "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
         "target": "z_discriminator",
-        "lambda": 0.01
+        "components": ["discriminator","generator","z_discriminator","encoder","u_to_z"],
+        "lambda": 10000.0
       }
     ]
   },

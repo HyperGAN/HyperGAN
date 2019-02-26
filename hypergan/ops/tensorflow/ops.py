@@ -279,7 +279,7 @@ class TensorflowOps:
             return g*x_init
 
 
-    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME", initializer=None, name=None, trainable=True):
+    def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME", initializer=None, name=None, trainable=True, bias=True):
         self.assert_tensor(net)
 
         if initializer is None:
@@ -302,11 +302,12 @@ class TensorflowOps:
         with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
             w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim], initializer=initializer, trainable=trainable)
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
-            biases = self.get_bias([output_dim], trainable=trainable)
-            conv = tf.nn.bias_add(conv, biases)
+            if bias:
+                biases = self.get_bias([output_dim], trainable=trainable)
+                conv = tf.nn.bias_add(conv, biases)
             return conv
 
-    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None, name=None, trainable=True):
+    def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None, name=None, trainable=True, bias=True):
         self.assert_tensor(net)
         if initializer is None:
             initializer = self.initializer()
@@ -321,9 +322,9 @@ class TensorflowOps:
 
             deconv = tf.nn.conv2d_transpose(net, w, output_shape=output_shape,
                                     strides=[1, stride_h, stride_w, 1])
-
-            biases = self.get_bias([output_shape[-1]])
-            deconv = tf.reshape(tf.nn.bias_add(deconv, biases), deconv.get_shape())
+            if bias:
+                biases = self.get_bias([output_shape[-1]])
+                deconv = tf.reshape(tf.nn.bias_add(deconv, biases), deconv.get_shape())
 
             return deconv
 
@@ -343,7 +344,7 @@ class TensorflowOps:
             b = self.get_bias([output_dim], constant=0.001)
             return (tf.matmul(net, v_norm) * g+b)
 
-    def linear(self, net, output_dim, initializer=None, name=None, trainable=True):
+    def linear(self, net, output_dim, initializer=None, name=None, trainable=True, bias=True):
         if self.config.linear_type == 'cosine':
             return self.cosine_linear(net, output_dim)
         if self.config.linear_type == 'weight_norm':
@@ -352,8 +353,11 @@ class TensorflowOps:
         shape = self.shape(net)
         with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
             w = self.get_weight([shape[1], output_dim], initializer=initializer, trainable=trainable)
-            bias = self.get_bias([output_dim], trainable=trainable)
-            return tf.matmul(net, w) + bias
+            if(bias):
+                bias = self.get_bias([output_dim], trainable=trainable)
+                return tf.matmul(net, w) + bias
+            else:
+                return tf.matmul(net, w)
 
     def reduce_linear(self):
         def _build(net, axis=1):

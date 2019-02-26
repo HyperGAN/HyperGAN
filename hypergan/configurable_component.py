@@ -290,7 +290,10 @@ class ConfigurableComponent:
         trainable = True
         if options.trainable == 'false':
             trainable = False
-        net = ops.linear(net, size, name=options.name, trainable=trainable)
+        bias = True
+        if options.bias == 'false':
+            bias=False
+        net = ops.linear(net, size, name=options.name, trainable=trainable, bias=bias)
 
 
         if reshape is not None:
@@ -463,7 +466,10 @@ class ConfigurableComponent:
         trainable = True
         if options.trainable == 'false':
             trainable = False
-        net = ops.conv2d(net, fltr[0], fltr[1], stride, stride, depth*4, initializer=initializer, trainable=trainable)
+        bias = True
+        if options.bias == 'false':
+            bias=False
+        net = ops.conv2d(net, fltr[0], fltr[1], stride, stride, depth*4, initializer=initializer, trainable=trainable, bias=bias)
         s = ops.shape(net)
         net = tf.depth_to_space(net, 2)
         if activation:
@@ -544,7 +550,10 @@ class ConfigurableComponent:
         trainable = True
         if options.trainable == 'false':
             trainable = False
-        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
+        bias = True
+        if options.bias == 'false':
+            bias=False
+        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)

@@ -13,6 +13,23 @@ from tensorflow.python.framework import ops
 from tensorflow.python.tools import freeze_graph
 from tensorflow.python.tools import optimize_for_inference_lib
 
+from hypergan.samplers.static_batch_sampler import StaticBatchSampler
+from hypergan.samplers.progressive_sampler import ProgressiveSampler
+from hypergan.samplers.batch_sampler import BatchSampler
+from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
+from hypergan.samplers.grid_sampler import GridSampler
+from hypergan.samplers.sorted_sampler import SortedSampler
+from hypergan.samplers.began_sampler import BeganSampler
+from hypergan.samplers.aligned_sampler import AlignedSampler
+from hypergan.samplers.autoencode_sampler import AutoencodeSampler
+from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.samplers.style_walk_sampler import StyleWalkSampler
+from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
+from hypergan.samplers.debug_sampler import DebugSampler
+from hypergan.samplers.segment_sampler import SegmentSampler
+from hypergan.samplers.y_sampler import YSampler
+from hypergan.samplers.gang_sampler import GangSampler
+
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps, graph=None,
             batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan"):
@@ -354,5 +371,32 @@ class BaseGAN(GANComponent):
                 print("Input: ", input, sess.graph.get_tensor_by_name(input+":0"))
             for output in outputs:
                 print("Output: ", output, sess.graph.get_tensor_by_name(output+":0"))
+    def get_registered_samplers(self=None):
+        return {
+                'static_batch': StaticBatchSampler,
+                'progressive': ProgressiveSampler,
+                'random_walk': RandomWalkSampler,
+                'alphagan_random_walk': AlphaganRandomWalkSampler,
+                'style_walk': StyleWalkSampler,
+                'batch_walk': BatchWalkSampler,
+                'batch': BatchSampler,
+                'grid': GridSampler,
+                'sorted': SortedSampler,
+                'gang': GangSampler,
+                'began': BeganSampler,
+                'autoencode': AutoencodeSampler,
+                'debug': DebugSampler,
+                'y': YSampler,
+                'segment': SegmentSampler,
+                'aligned': AlignedSampler
+            }
+    def sampler_for(self, name, default=StaticBatchSampler):
+        samplers = self.get_registered_samplers()
+        self.selected_sampler = name
+        if name in samplers:
+            return samplers[name]
+        else:
+            print("[hypergan] No sampler found for ", name, ".  Defaulting to", default)
+            return default
 
 

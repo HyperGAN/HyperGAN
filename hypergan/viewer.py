@@ -7,8 +7,6 @@ Usage:
 
 Delays loading Gtk and friends until enable() is called.
 """
-import numpy as np
-
 from hypergan.pygame_viewer import PygameViewer
 from hypergan.tk_viewer import TkViewer
 

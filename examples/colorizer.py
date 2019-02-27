@@ -11,7 +11,7 @@ from hypergan.samplers.random_walk_sampler import RandomWalkSampler
 from hypergan.gans.standard_gan import StandardGAN
 from common import *
 
-from hypergan.gans.alpha_gan import AlphaGAN
+from hypergan.gans.experimental.alpha_gan import AlphaGAN
 
 x_v = None
 z_v = None
@@ -21,7 +21,7 @@ class Sampler(BaseSampler):
 
     def sample(self, path, save_samples):
         gan = self.gan
-        generator = gan.uniform_sample
+        generator = gan.generator.sample
         z_t = gan.latent.sample
         x_t = gan.inputs.x
         n_samples = 25
@@ -153,10 +153,10 @@ def setup_gan(config, inputs, args):
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     gan.name = config_name
-    sampler = lookup_sampler(args.sampler or Sampler)(gan)
+    sampler = gan.sampler_for("sampler", args.sampler or Sampler)(gan)
     samples = 0
 
-    metrics = [batch_accuracy(gan.inputs.x, gan.uniform_sample), batch_diversity(gan.uniform_sample)]
+    metrics = [batch_accuracy(gan.inputs.x, gan.generator.sample), batch_diversity(gan.generator.sample)]
     sum_metrics = [0 for metric in metrics]
     for i in range(args.steps):
         gan.step()

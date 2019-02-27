@@ -12,11 +12,12 @@
       "layers":[
         "conv 32",
         "conv 64 ",
+        "layer_filter",
         "conv 128",
         "conv 256",
         "conv 256",
         "conv 256",
-        "linear 1 activation=null"
+        "linear 1 activation=null bias=false"
       ]
 
   },
@@ -34,7 +35,6 @@
       "linear 32*32*32",
       "layer_filter",
       "deconv 16",
-      "layer_filter",
       "deconv 3 stride=1 activation=tanh"
     ]
   },
@@ -80,8 +80,21 @@
           }
         }
       }
-    }
+    },
+    "hooks":[
+      {
+        "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
+        "lambda": 10.0
+      }
+    ]
   },
+  "runtime": {
+      "channels": 3,
+      "width": 128,
+      "height": 128,
+      "train": "python3 /ml/dev/hypergan/examples/colorizer.py train /ml/datasets/faces/all/all/ --sample_every 250 --format jpg --size 32x32x3 -b 4 -c colorizer-64x64 --save_every 5000 -z 1 --save_samples"
+  },
+
 
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 

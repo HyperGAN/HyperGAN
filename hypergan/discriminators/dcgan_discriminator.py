@@ -28,7 +28,7 @@ class DCGANDiscriminator(BaseDiscriminator):
             net = self.layer_regularizer(net)
             net = activation(net)
         net = ops.reshape(net, [ops.shape(net)[0],-1])
-        net = ops.linear(net, config.final_features or 1)
+        net = ops.linear(net, config.final_features or 1, bias=False)
         if improved:
             net = self.layer_regularizer(net)
             net = activation(net)

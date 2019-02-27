@@ -1,7 +1,7 @@
 {
   "description":"Wasserstein GAN",
   "publication":"https://arxiv.org/abs/1701.07875",
-  "discriminator": 
+  "discriminator":
   {
     "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
     "initializer": "random_normal",
@@ -22,47 +22,44 @@
     "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
     "reduce": "reduce_mean"
   },
-    "trainer": {
-  "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+  "trainer": {
+    "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
     "g_optimizer": {
-
-       "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
-
+      "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
       "optimizer": {
-          "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "learn_rate": 1e-4,
-      "beta1":0.0,
-      "beta2":0.999
-  },
-   "optimizer2": {
-    "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "learn_rate": 3e-5,
-    "beta1":0.0,
-    "beta2":0.999
-   }
-   },
+        "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+        "learn_rate": 1e-4,
+        "beta1":0.0,
+        "beta2":0.999
+      },
+      "optimizer2": {
+        "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+        "learn_rate": 3e-5,
+        "beta1":0.0,
+        "beta2":0.999
+      }
+    },
     "d_optimizer": {
        "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
 
       "optimizer": {
-          "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "learn_rate": 1e-4,
-      "beta1":0.0,
-      "beta2":0.999
-  },
-   "optimizer2": {
-      "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "learn_rate": 3e-5,
-    "beta1":0.0,
-    "beta2":0.999
-   }
-      
-   },
-        "hooks":[
-          {
-            "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
-            "lambda": 0.001
-          }]
-
-    }
+        "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+        "learn_rate": 1e-4,
+        "beta1":0.0,
+        "beta2":0.999
+      },
+      "optimizer2": {
+        "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+        "learn_rate": 3e-5,
+        "beta1":0.0,
+        "beta2":0.999
+      }
+    },
+    "hooks": [
+      {
+        "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
+        "lambda": 100.00
+      }
+    ]
+  }
 }

@@ -10,12 +10,17 @@
         "avg_pool": [2,2]
       },
       "layers":[
+        "layer_filter",
         "conv 32",
+        "layer_filter",
         "conv 64 ",
         "layer_filter",
         "conv 128",
+        "layer_filter",
         "conv 256",
+        "layer_filter",
         "conv 256",
+        "layer_filter",
         "conv 256",
         "linear 1 activation=null bias=false"
       ]
@@ -34,7 +39,12 @@
     "layers": [
       "linear 32*32*32",
       "layer_filter",
+      "deconv 64",
+      "layer_filter",
+      "deconv 32",
+      "layer_filter",
       "deconv 16",
+      "layer_filter",
       "deconv 3 stride=1 activation=tanh"
     ]
   },
@@ -50,7 +60,7 @@
   },
    "loss":
   {
-    "class": "function:hypergan.losses.standard_loss.StandardLoss",
+    "class": "function:hypergan.losses.logistic_loss.LogisticLoss",
     "reduce": "reduce_mean"
   },
 
@@ -90,9 +100,9 @@
   },
   "runtime": {
       "channels": 3,
-      "width": 128,
-      "height": 128,
-      "train": "python3 hypergan/examples/colorizer.py train [dataset] --sample_every 100 --format jpg --size 64x64x3 -b 4 -c colorizer-64x64 --save_every 5000 -z 1"
+      "width": 256,
+      "height": 256,
+      "train": "python3 hypergan/examples/colorizer.py train [dataset] --sample_every 100 --format jpg --size 256x256x3 -b 4 -c colorizer-256x256 --save_every 5000 -z 1"
   },
 
 

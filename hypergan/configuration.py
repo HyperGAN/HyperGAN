@@ -11,7 +11,7 @@ class Configuration:
                  os.path.abspath(os.path.expanduser('~/.hypergan/configs/'))+'/'
                 ]
         return paths
-    def find(configuration):
+    def find(configuration, verbose=True):
         def _find_file():
             paths = Configuration.all_paths()
             Configuration.paths = paths
@@ -30,11 +30,12 @@ class Configuration:
             print("Searched configuration paths", Configuration.all_paths())
             print("See all available configurations with hypergan new -l .")
             raise Exception(message)
-        print("Loading configuration", config_filename)
+        if verbose:
+            print("Loading configuration", config_filename)
         return config_filename
 
     def load(configuration, verbose=True):
-        config_file = Configuration.find(configuration)
+        config_file = Configuration.find(configuration, verbose=verbose)
         if config_file is None:
             print("[hypergan] Could not find config named:", configuration, "checked paths", Configuration.paths)
         if verbose:

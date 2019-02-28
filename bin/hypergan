@@ -86,6 +86,8 @@ if args.list_templates:
         except Exception as e:
             template = hc.Config({"description": str(e), "publication": "error"})
         print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
+        if template.runtime and "train" in template.runtime:
+            print("  > %s" %  (template.runtime["train"]))
     exit(0)
 if not args.align:
     if args.method == 'new' or args.method == 'test':

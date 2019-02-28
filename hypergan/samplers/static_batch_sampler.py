@@ -1,4 +1,5 @@
 from hypergan.samplers.base_sampler import BaseSampler
+from hypergan.train_hooks.experimental.imle_train_hook import IMLETrainHook
 import numpy as np
 import tensorflow as tf
 

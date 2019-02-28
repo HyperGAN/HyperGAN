@@ -92,7 +92,7 @@
       "channels": 3,
       "width": 128,
       "height": 128,
-      "train": "python3 /ml/dev/hypergan/examples/colorizer.py train /ml/datasets/faces/all/all/ --sample_every 250 --format jpg --size 32x32x3 -b 4 -c colorizer-64x64 --save_every 5000 -z 1 --save_samples"
+      "train": "python3 hypergan/examples/colorizer.py train [dataset] --sample_every 100 --format jpg --size 64x64x3 -b 4 -c colorizer-64x64 --save_every 5000 -z 1"
   },
 
 

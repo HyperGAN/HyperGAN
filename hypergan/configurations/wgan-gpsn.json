@@ -22,43 +22,42 @@
     "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
     "reduce": "reduce_mean"
   },
-    "trainer": {
-  "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+  "trainer": {
+    "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
     "g_optimizer": {
 
-       "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+      "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
 
       "optimizer": {
-          "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "learn_rate": 1e-4,
-      "beta1":0.0,
-      "beta2":0.999
-  },
-   "optimizer2": {
-    "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "learn_rate": 3e-5,
-    "beta1":0.0,
-    "beta2":0.999
-   }
-   },
+        "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+        "learn_rate": 1e-4,
+        "beta1":0.0,
+        "beta2":0.999
+      },
+      "optimizer2": {
+        "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+        "learn_rate": 3e-5,
+        "beta1":0.0,
+        "beta2":0.999
+      }
+    },
     "d_optimizer": {
-       "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+      "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
 
       "optimizer": {
-          "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "learn_rate": 1e-4,
-      "beta1":0.0,
-      "beta2":0.999
-  },
-   "optimizer2": {
-      "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
-    "learn_rate": 3e-5,
-    "beta1":0.0,
-    "beta2":0.999
-   }
-      
-   },
-        "hooks":[
+        "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+        "learn_rate": 1e-4,
+        "beta1":0.0,
+        "beta2":0.999
+      },
+      "optimizer2": {
+        "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+        "learn_rate": 3e-5,
+        "beta1":0.0,
+        "beta2":0.999
+      }
+    },
+    "hooks":[
       {
         "class": "function:hypergan.train_hooks.gp_sn_memory_train_hook.GpSnMemoryTrainHook",
         "memory_size": 4,
@@ -67,7 +66,13 @@
         "all": true,
         "lambda": 1000
       }
-      ]
-
-    }
+    ]
+  },
+  "runtime": {
+    "channels": 3,
+    "width": 64,
+    "height": 64,
+    "train": "hypergan train [dataset] --sample_every 100 --sampler gang --format jpg --size 64x64x3 -b 1 -c wgan-gpsn --save_every 10000 --resize"
+  },
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

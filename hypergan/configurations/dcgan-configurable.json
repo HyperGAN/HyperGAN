@@ -83,5 +83,12 @@
       }
     }
   },
+  "runtime": {
+    "channels": 3,
+    "width": 64,
+    "height": 64,
+    "train": "hypergan train [dataset] --sample_every 100 --sampler static_batch --format jpg --size 64x64x3 -b 1 -c dcgan-configurable --save_every 10000 --resize"
+  },
+
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

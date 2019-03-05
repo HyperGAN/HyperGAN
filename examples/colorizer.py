@@ -24,7 +24,8 @@ class Sampler(BaseSampler):
         generator = gan.generator.sample
         z_t = gan.latent.sample
         x_t = gan.inputs.x
-        n_samples = 25
+        width = 3
+        n_samples = 9
         
         sess = gan.session
         config = gan.config
@@ -43,7 +44,6 @@ class Sampler(BaseSampler):
 
         samples = [sess.run(generator, {x_t: x_v})[0] for n in range(n_samples)]
         stacks = []
-        width = 5
         #stacks.append([x_v[0], layer_filter_v[0]] + samples[-4:0])
  
         for i in range(n_samples//width-1):

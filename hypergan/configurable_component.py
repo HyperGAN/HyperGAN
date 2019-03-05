@@ -127,6 +127,7 @@ class ConfigurableComponent:
     def build_layer(self, net, op, args, options):
         if self.layer_ops[op]:
             before = self.variables()
+            before_count = self.count_number_trainable_params()
             net = self.layer_ops[op](net, args, options)
             if 'name' in options:
                 if options['name'] in self.named_layers and op != 'reference':
@@ -136,10 +137,32 @@ class ConfigurableComponent:
             new = set(after) - set(before)
             for j in new:
                 self.layer_options[j]=options
+            after_count = self.count_number_trainable_params()
+            print("number of params in layer ", op, args, after_count-before_count)
         else:
             print("ConfigurableComponent: Op not defined", op)
 
         return net
+    def count_number_trainable_params(self):
+        '''
+        Counts the number of trainable variables.
+        '''
+        def get_nb_params_shape(shape):
+            '''
+            Computes the total number of params for a given shap.
+            Works for any number of shapes etc [D,F] or [W,H,C] computes D*F and W*H*C.
+            '''
+            nb_params = 1
+            for dim in shape:
+                nb_params = nb_params*int(dim)
+            return nb_params
+
+        tot_nb_params = 0
+        for trainable_variable in tf.trainable_variables():
+            shape = trainable_variable.get_shape() # e.g [D,F] or [W,H,C]
+            current_nb_params = get_nb_params_shape(shape)
+            tot_nb_params = tot_nb_params + current_nb_params
+        return tot_nb_params
     def layer_filter(self, net, args=[], options={}):
         """
             If a layer filter is defined, apply it.  Layer filters allow for adding information

@@ -269,6 +269,8 @@ class ConfigurableComponent:
         trainable = True
         if options.trainable == 'false':
             trainable = False
+        if options.initializer is not None:
+            initializer = self.ops.lookup_initializer(options.initializer, options)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
         avg_pool = options.avg_pool or config.defaults.avg_pool
         if type(avg_pool) == type(""):
@@ -316,8 +318,12 @@ class ConfigurableComponent:
         bias = True
         if options.bias == 'false':
             bias=False
-        net = ops.linear(net, size, name=options.name, trainable=trainable, bias=bias)
 
+        if options.initializer is not None:
+            initializer = self.ops.lookup_initializer(options.initializer, options)
+        else:
+            initializer = None
+        net = ops.linear(net, size, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
 
         if reshape is not None:
             net = tf.reshape(net, [ops.shape(net)[0]] + reshape)
@@ -576,6 +582,8 @@ class ConfigurableComponent:
         bias = True
         if options.bias == 'false':
             bias=False
+        if options.initializer is not None:
+            initializer = self.ops.lookup_initializer(options.initializer, options)
         net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
         if activation:
             #net = self.layer_regularizer(net)

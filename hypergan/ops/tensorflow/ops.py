@@ -14,9 +14,11 @@ class TensorflowOps:
     def __init__(self, config={}, device="/gpu:0"):
         config = hc.Config(config)
         dtype = config.dtype or "float32"
-        initializer = config.initializer or 'orthogonal'
-        orthogonal_gain = config.orthogonal_gain or 1.0
-        random_stddev = config.random_stddev or 0.02
+        if "defaults" in config and "initializer" in config.defaults:
+            initializer = config.defaults.initializer
+        else:
+            initializer = "he_normal"
+
 
         self.dtype = self.parse_dtype(dtype)
         self.scope_count = 0
@@ -29,14 +31,24 @@ class TensorflowOps:
         self.reuse_scope_count = 0
         self.reuse_context = 0
         self.config = config
-        if initializer == 'orthogonal':
-            self.initializer = self.orthogonal_initializer(orthogonal_gain)
-        elif initializer == 'he_normal':
-            self.initializer = self.he_normal_initializer()
-        elif initializer == 'xavier':
-            self.initializer = self.xavier_initializer()
+        self.initializer = self.lookup_initializer(initializer, config)
+
+
+    def lookup_initializer(self, name, config):
+        if name == 'orthogonal':
+            orthogonal_gain = config.orthogonal_gain or 1.0
+            return self.orthogonal_initializer(orthogonal_gain)
+        elif name == 'he_normal':
+            return self.he_normal_initializer()
+        elif name == 'xavier':
+            return self.xavier_initializer()
+        elif name == 'stylegan':
+            return self.stylegan_initializer(config)
+        elif name == 'random_normal':
+            random_stddev = config.random_stddev or 0.02
+            return self.random_initializer(random_stddev)
         else:
-            self.initializer = self.random_initializer(random_stddev)
+            raise Exception("initializer not found", name)
 
     def assert_tensor(self, net):
         if type(net) != tf.Tensor and type(net) != tf.Variable and type(net) != RefVariable:
@@ -51,25 +63,46 @@ class TensorflowOps:
         return self.biases + self.weights
 
     def random_initializer(self, stddev):
-        def _build():
+        def _build(shape):
             return tf.random_normal_initializer(0, stddev, dtype=self.dtype)
         return _build
 
+    def stylegan_initializer(self, config):
+        def _build(shape):
+            gain = config.gain or np.sqrt(2)
+            use_wscale = config.w_scale or False
+            lrmul = config.lrmul or 0.01
+            fan_in = np.prod(shape[:-1]) # [kernel, kernel, fmaps_in, fmaps_out] or [in, out]
+            he_std = gain / np.sqrt(fan_in) # He init
+
+            # Equalized learning rate and custom learning rate multiplier.
+            if use_wscale:
+                init_std = 1.0 / lrmul
+                runtime_coef = he_std * lrmul
+            else:
+                init_std = he_std / lrmul
+                runtime_coef = lrmul
+
+            self.runtime_coef = runtime_coef
+
+            # Create variable.
+            return tf.initializers.random_normal(0, init_std)
+        return _build
+
     def orthogonal_initializer(self, gain):
-        def _build():
+        def _build(shape):
             return tf.orthogonal_initializer(gain)
         return _build
 
     def he_normal_initializer(self):
-        def _build():
+        def _build(shape):
             return tf.variance_scaling_initializer()
         return _build
 
     def xavier_initializer(self):
-        def _build():
+        def _build(shape):
             return tf.contrib.layers.xavier_initializer()
         return _build
-
 
     def describe(self, description):
         self.description = description
@@ -113,11 +146,9 @@ class TensorflowOps:
         if name == None:
             name = "w"
         if initializer == None:
-            initializer = self.initializer()
-        if shape is not None:
-            weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
-        else:
-            weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
+            initializer = self.initializer
+        initializer = initializer(shape)
+        weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
         if not self._reuse:
             self.weights.append(weight)
         return weight
@@ -282,8 +313,6 @@ class TensorflowOps:
     def conv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, padding="SAME", initializer=None, name=None, trainable=True, bias=True):
         self.assert_tensor(net)
 
-        if initializer is None:
-            initializer = self.initializer()
 
         if self.config.layer_regularizer == 'cosine_norm':
             return self.cosine_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
@@ -300,7 +329,10 @@ class TensorflowOps:
             net = net / tf.sqrt(float(filter_w)/float(stride_w)*float(filter_h)/float(stride_h))
 
         with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
-            w = self.get_weight([filter_h, filter_w, net.get_shape()[-1], output_dim], initializer=initializer, trainable=trainable)
+            shape=[filter_h, filter_w, net.get_shape()[-1], output_dim]
+            if initializer is None:
+                initializer = self.initializer
+            w = self.get_weight(shape, initializer=initializer, trainable=trainable)
             conv = tf.nn.conv2d(net, w, strides=[1, stride_h, stride_w, 1], padding=padding)
             if bias:
                 biases = self.get_bias([output_dim], trainable=trainable)
@@ -309,8 +341,6 @@ class TensorflowOps:
 
     def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None, name=None, trainable=True, bias=True):
         self.assert_tensor(net)
-        if initializer is None:
-            initializer = self.initializer()
         shape = self.shape(net)
         if self.config.layer_regularizer == 'weight_norm':
             return self.weightnorm_deconv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
@@ -318,7 +348,10 @@ class TensorflowOps:
         init_bias = 0.
         with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
             # filter : [height, width, output_channels, in_channels]
-            w = self.get_weight([filter_h, filter_w, output_dim, shape[3]], initializer=initializer, trainable=trainable)
+            shape=[filter_h, filter_w, output_dim, shape[3]]
+            if initializer is None:
+                initializer = self.initializer
+            w = self.get_weight(shape, initializer=initializer, trainable=trainable)
 
             deconv = tf.nn.conv2d_transpose(net, w, output_shape=output_shape,
                                     strides=[1, stride_h, stride_w, 1])
@@ -352,7 +385,13 @@ class TensorflowOps:
         self.assert_tensor(net)
         shape = self.shape(net)
         with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
-            w = self.get_weight([shape[1], output_dim], initializer=initializer, trainable=trainable)
+            linshape=[shape[1], output_dim]
+            if initializer is None:
+                initializer = self.initializer
+            w = self.get_weight(linshape, initializer=initializer, trainable=trainable)
+            if hasattr(self, 'runtime_coef'):
+                w *= self.runtime_coef
+                delattr(self, "runtime_coef") # todo, better way to pass variables from initialiszer
             if(bias):
                 bias = self.get_bias([output_dim], trainable=trainable)
                 return tf.matmul(net, w) + bias

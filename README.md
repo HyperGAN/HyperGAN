@@ -16,6 +16,8 @@ _Logos generated with [examples/colorizer](#examples)_
 
 See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8002_NB7JSvA)
 
+**[StyleGAN](https://github.com/NVlabs/stylegan) is currently state of the art.  It is very cool.**
+
 # Table of contents
 
 * [About](#about)

@@ -887,11 +887,17 @@ class ConfigurableComponent:
 
     def layer_noise(self, net, args, options):
         options = hc.Config(options)
-        if options.learned:
+        if "learned" in args or options.learned:
             channels = self.ops.shape(net)[-1]
             shape = [1,1,channels]
+            initializer = None
+            if options.initializer is not None:
+                initializer = self.ops.lookup_initializer(options.initializer, options)
+            trainable = True
+            if "trainable" in options and options["trainable"] == "false":
+                trainable = False
             with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
-                weights = self.ops.get_weight(shape, 'B')
+                weights = self.ops.get_weight(shape, 'B', initializer=initializer, trainable=trainable)
             net += tf.random_normal(self.ops.shape(net), stddev=0.1) * weights
 
         elif options.mask:
@@ -1054,12 +1060,16 @@ class ConfigurableComponent:
         return tf.zeros_like(net)
 
     def layer_const(self, net, args, options):
+        options = hc.Config(options)
         s  = [1] + [int(x) for x in args[0].split("*")]
         trainable = True
         if "trainable" in options and options["trainable"] == "false":
             trainable = False
+        initializer = None
+        if "initializer" in options and options["initializer"] is not None:
+            initializer = self.ops.lookup_initializer(options["initializer"], options)
         with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
-            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable), [self.gan.batch_size(), 1,1,1])
+            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

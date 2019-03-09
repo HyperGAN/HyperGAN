@@ -151,6 +151,9 @@ class TensorflowOps:
         weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
         if not self._reuse:
             self.weights.append(weight)
+        if hasattr(self, 'runtime_coef'):
+            weight *= self.runtime_coef
+            delattr(self, "runtime_coef") # todo, better way to pass variables from initialiszer
         return weight
 
     def get_bias(self, shape, constant=0.0, name=None, trainable=None):
@@ -389,9 +392,6 @@ class TensorflowOps:
             if initializer is None:
                 initializer = self.initializer
             w = self.get_weight(linshape, initializer=initializer, trainable=trainable)
-            if hasattr(self, 'runtime_coef'):
-                w *= self.runtime_coef
-                delattr(self, "runtime_coef") # todo, better way to pass variables from initialiszer
             if(bias):
                 bias = self.get_bias([output_dim], trainable=trainable)
                 return tf.matmul(net, w) + bias

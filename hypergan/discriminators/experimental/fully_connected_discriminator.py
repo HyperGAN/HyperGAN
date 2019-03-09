@@ -4,8 +4,8 @@ import os
 import hypergan
 from hypergan.discriminators.common import *
 
-from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
-from .base_discriminator import BaseDiscriminator
+from hypergan.discriminators.experimental.pyramid_discriminator import PyramidDiscriminator
+from ..base_discriminator import BaseDiscriminator
 
 class FullyConnectedDiscriminator(BaseDiscriminator):
     def build(self, net):

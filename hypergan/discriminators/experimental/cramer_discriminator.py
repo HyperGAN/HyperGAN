@@ -6,7 +6,7 @@ from hypergan.discriminators.common import *
 
 from hypergan.discriminators.dcgan_discriminator import DCGANDiscriminator
 from hypergan.distributions.uniform_distribution import UniformDistribution
-from .base_discriminator import BaseDiscriminator
+from ..base_discriminator import BaseDiscriminator
 
 class CramerDiscriminator(BaseDiscriminator):
 

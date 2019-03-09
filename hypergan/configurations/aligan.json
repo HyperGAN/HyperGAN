@@ -1,0 +1,155 @@
+{
+  "description": "Adversarial learned inference with manifold guided (AliGAN exaple)",
+  "publication": "https://arxiv.org/abs/1606.00704 , https://arxiv.org/abs/1804.04391",
+  "encoder": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults":{
+      "activation": "relu",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2]
+    },
+    "layers":[
+      "conv 32 name=encoder_1 ",
+      "conv 64 name=encoder_4 ",
+      "conv 128 name=encoder_7"
+    ]
+  },
+  "u_to_z": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "description": "Projects from the latent space to the encoding space",
+    "defaults":{
+      "activation": "relu",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [2,2],
+      "avg_pool": [2,2]
+    },
+    "layers":[
+      "linear 8*8*256",
+      "deconv 128 avg_pool=1"
+    ]
+  },
+  "z_discriminator": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults":{
+      "activation": "relu",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2]
+    },
+    "layers":[
+      "conv 256 name=zd2",
+      "conv 512 name=zd3",
+      "linear 1 name=zd4 activation=null"
+    ]
+  },
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "initializer": "he_normal",
+    "defaults":{
+      "activation": "relu",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2]
+    },
+    "layers":[
+      "conv 32 name=discriminator_1",
+      "conv 64 name=discriminator_4",
+      "conv 128 name=discriminator_7",
+      "combine_features",
+      "conv 256 name=discriminator_10",
+      "conv 512 name=discriminator_13",
+      "linear 1 name=discriminator_16 activation=null"
+    ]
+  },
+  "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults": {
+      "activation": "relu",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [2,2],
+      "avg_pool": [2,2]
+    },
+    "layers": [
+      ["const 16*16*12", "identity"],
+      "deconv 92 avg_pool=1",
+      "deconv 64 avg_pool=1",
+      "deconv 3 avg_pool=1 activation=null"
+    ]
+  },
+  "latent": {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "max": 1,
+    "min": -1,
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "z": 128
+  },
+  "loss": {
+    "type": "wasserstein",
+    "class": "function:hypergan.losses.ali_loss.AliLoss",
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+    "optimizer": {
+      "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
+      "learn_rate": 0.00001,
+      "optimizer": {
+        "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
+        "f_decay": 0.5,
+        "add_ewc_loss_gradients": true,
+
+        "optimizer": {
+          "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+
+          "optimizer": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 1e-4,
+            "beta1":0.0,
+            "beta2":0.999
+          },
+          "optimizer2": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 3e-5,
+            "beta1":0.0,
+            "beta2":0.999
+          }
+        }
+      }
+    },
+    "hooks":[
+      {
+        "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
+        "target": "discriminator",
+        "components": ["discriminator","generator","z_discriminator","encoder","u_to_z"],
+        "lambda": 100.0
+      },
+      {
+        "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
+        "target": "z_discriminator",
+        "components": ["discriminator","generator","z_discriminator","encoder","u_to_z"],
+        "lambda": 10000.0
+      }
+    ]
+  },
+  "runtime": {
+      "channels": 3,
+      "width": 128,
+      "height": 128,
+      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 1 -c aligan-128x128 --save_every 10000 --resize"
+  },
+
+  "class": "class:hypergan.gans.ali_gan.AliGAN",
+  "manifold_guided": true
+}

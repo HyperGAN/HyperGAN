@@ -3,7 +3,7 @@ import hyperchamber as hc
 import inspect
 import os
 
-from .base_discriminator import BaseDiscriminator
+from ..base_discriminator import BaseDiscriminator
 
 class PyramidDiscriminator(BaseDiscriminator):
 

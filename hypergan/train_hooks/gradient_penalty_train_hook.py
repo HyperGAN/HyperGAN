@@ -32,18 +32,39 @@ class GradientPenaltyTrainHook(BaseTrainHook):
     if self.config.target:
         v = getattr(gan, self.config.target)
         target = v.sample
-        target_vars = v.variables()
+        if "components" in self.config:
+            target_vars = []
+            for component in self.config.components:
+                c = getattr(gan, component)
+                target_vars += c.variables()
+        else:
+            target_vars = v.variables()
 
     gd = tf.gradients(target, target_vars)
-    gds = [tf.square(tf.norm(_gd, ord=2)) for _gd in gd if _gd is not None]
-    r = tf.add_n(gds)
-    self.d_loss = self.d_lambda * tf.reduce_mean(r)
-    self.gan.add_metric('gp', self.d_loss)
+    gds = [tf.square(_gd) for _gd in gd if _gd is not None]
+    self.loss = tf.add_n([self.d_lambda * tf.reduce_mean(_r) for _r in gds])
+    self.gds = gds
+    self.gd = gd
+    self.target_vars = target_vars
+    self.target = target
+    self.gan.add_metric('gp', self.loss)
 
   def losses(self):
-    return [self.d_loss, None]
+    if self.config.loss == "g_loss":
+        return [None, self.loss]
+    else:
+        return [self.loss, None]
 
   def after_step(self, step, feed_dict):
+
+    if self.config.debug:
+        for _v, _g in zip(self.target_vars, self.gd):
+            if(_g is not None and np.mean(self.gan.session.run(_g)) > 0.1):
+                print(' -> ' + _v.name,  _v, _g)
+                print(" in target?", _v in self.target_vars)
+                print(" in dvars? ",_v in self.gan.d_vars())
+                print(" in t_dvars? ",_v in self.gan.trainable_d_vars())
+                print(" in gvars? ",_v in self.gan.g_vars())
     pass
 
   def before_step(self, step, feed_dict):

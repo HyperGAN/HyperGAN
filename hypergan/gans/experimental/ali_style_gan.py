@@ -21,15 +21,12 @@ import tensorflow as tf
 import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent
-from .base_gan import BaseGAN
+from ..base_gan import BaseGAN
 
-from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
 from hypergan.distributions.uniform_distribution import UniformDistribution
-from hypergan.trainers.multi_step_trainer import MultiStepTrainer
-from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
-from hypergan.trainers.consensus_trainer import ConsensusTrainer
+from hypergan.trainers.experimental.consensus_trainer import ConsensusTrainer
 
-class AliGANCombined(BaseGAN):
+class AliStyleGAN(BaseGAN):
     """ 
     """
     def __init__(self, *args, **kwargs):
@@ -37,33 +34,35 @@ class AliGANCombined(BaseGAN):
 
     def required(self):
         """
-        `encoder`  encodes X into Z
-        `discriminator`  measures X and G.
-        `generator` produces samples
+        `input_encoder` is a discriminator.  It encodes X into Z
+        `discriminator` is a standard discriminator.  It measures X, reconstruction of X, and G.
+        `generator` produces two samples, input_encoder output and a known random distribution.
         """
         return "generator discriminator ".split()
 
     def create(self):
         config = self.config
         ops = self.ops
-        d_losses = []
-        g_losses = []
 
-        def random_like(x):
-            return UniformDistribution(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
         with tf.device(self.device):
             x_input = tf.identity(self.inputs.x, name='input')
 
+            def random_like(x):
+                return UniformDistribution(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
             # q(z|x)
-            if config.u_to_z:
-                UniformDistribution = UniformDistribution(self, config.z_distribution)
-            else:
-                z_shape = self.ops.shape(encoder.sample)
-                uz_shape = z_shape
-                uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
-                UniformDistribution = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
-            self.uniform_distribution = uniform_encoder
- 
+            encoder = self.create_component(config.encoder, input=x_input, name='z_encoder')
+            print("ENCODER ", encoder.sample)
+
+            self.encoder = encoder
+            z_shape = self.ops.shape(encoder.sample)
+            style = self.create_component(config.style_encoder, input=x_input, name='style')
+            self.style = style
+            self.styleb = style # hack for sampler
+            self.random_style = random_like(style.sample)
+
+            uz_shape = z_shape
+            uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
+            UniformDistribution = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
             direction, slider = self.create_controls(self.ops.shape(UniformDistribution.sample))
             z = UniformDistribution.sample + slider * direction
             
@@ -75,70 +74,60 @@ class AliGANCombined(BaseGAN):
             #stack_encoded = tf.concat([encoder.sample, encoder.sample], feature_dim)
             stack_z = z
 
-            u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=z)
-            generator = self.create_component(config.generator, input=u_to_z.sample, name='generator')
-            stacked = [x_input, generator.sample]
-            self.generator = generator
-
-            encoder = self.create_encoder(self.inputs.x)
-
-            self.encoder = encoder
-            features = [encoder.sample, u_to_z.sample]
-
-            reencode_u_to_z = self.create_encoder(generator.sample, reuse=True)
-            print("GEN SAMPLE", generator.sample, reencode_u_to_z.sample, u_to_z.sample)
-            reencode_u_to_z_to_g= self.create_component(config.generator, input=reencode_u_to_z.sample, name='generator', reuse=True)
-            stacked += [reencode_u_to_z_to_g.sample]
-            features += [reencode_u_to_z.sample]
-
-            x_hat = self.create_component(config.generator, input=encoder.sample, reuse=True, name='generator').sample
+            generator = self.create_component(config.generator, input=stack_z, features=[style.sample])
             self.uniform_sample = generator.sample
+            x_hat = generator.reuse(encoder.sample)
 
-            stacked_xg = tf.concat(stacked, axis=0)
-            features_zs = tf.concat(features, axis=0)
+            features_zs = ops.concat([encoder.sample, z], axis=0)
+            stacked_xg = ops.concat([x_input, generator.sample], axis=0)
+
+            if config.u_to_z:
+                u_to_z = self.create_component(config.u_to_z, name='u_to_z', input=random_like(z))
+                gu = generator.reuse(u_to_z.sample)
+                stacked_xg = ops.concat([x_input, gu], axis=0)
+                features_zs = ops.concat([encoder.sample, u_to_z.sample], axis=0)
 
 
             standard_discriminator = self.create_component(config.discriminator, name='discriminator', input=stacked_xg, features=[features_zs])
-            self.discriminator = standard_discriminator
-            d_vars = standard_discriminator.variables()
-            g_vars = generator.variables() + encoder.variables()
-            g_vars += u_to_z.variables()
+            standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, 2)
+
+            l = standard_loss
+            d_loss1 = l.d_loss
+            g_loss1 = l.g_loss
+
+            d_vars1 = standard_discriminator.variables()
+            g_vars1 = generator.variables()+encoder.variables()+style.variables()
 
 
+            metrics = {
+                    'g_loss': l.g_loss,
+                    'd_loss': l.d_loss
+                }
+            t0 = random_like(style.sample)#tf.concat([random_like(style1), random_like(style1)], axis=1)
+            t1 = style.sample#tf.concat([style1, style2], axis=1)
+            stack = [t0,t1]
+            stacked = ops.concat(stack, axis=0)
+            features = None
+            z_d = self.create_component(config.z_discriminator, name='forcerandom_discriminator', input=stacked)
+            loss3 = self.create_component(config.loss, discriminator = z_d, x=x_input, generator=generator, split=2)
+            metrics["forcerandom_gloss"]=loss3.g_loss
+            metrics["forcerandom_dloss"]=loss3.d_loss
+            if config.forcerandom:
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+                d_vars1 += z_d.variables()
 
-            self._g_vars = g_vars
-            self._d_vars = d_vars
-            standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
-            if self.gan.config.infogan:
-                d_vars += self.gan.infogan_q.variables()
+            if config.u_to_z:
+                g_vars1 += u_to_z.variables()
 
-            loss1 = ["g_loss", standard_loss.g_loss]
-            loss2 = ["d_loss", standard_loss.d_loss]
-
-            d_losses.append(standard_loss.d_loss)
-            g_losses.append(standard_loss.g_loss)
-            if self.config.autoencode:
-                l2_loss = self.ops.squash(10*tf.square(x_hat - x_input))
-                g_losses=[l2_loss]
-                d_losses=[l2_loss]
-
-            for i,l in enumerate(g_losses):
-                self.add_metric('gl'+str(i),l)
-            for i,l in enumerate(d_losses):
-                self.add_metric('dl'+str(i),l)
-            loss = hc.Config({
-                'd_fake':standard_loss.d_fake,
-                'd_real':standard_loss.d_real,
-                'sample': [tf.add_n(d_losses), tf.add_n(g_losses)]
-            })
-            self.loss = loss
-            self.uniform_distribution = uniform_encoder
-            trainer = self.create_component(config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
+            trainer = ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)
 
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
         self.generator = generator
+        self.uniform_distribution = uniform_encoder
         self.slider = slider
         self.direction = direction
         self.z = z
@@ -155,16 +144,8 @@ class AliGANCombined(BaseGAN):
             self.autoencode_mask = generator.mask_generator.sample
             self.autoencode_mask_3_channel = generator.mask
 
-
-
-    def fitness_inputs(self):
-        return [
-                self.uniform_distribution.sample
-                ]
-
-
-    def create_loss(self, loss_config, discriminator, x, generator, split, reuse=False):
-        loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator.sample, split=split, reuse=reuse)
+    def create_loss(self, loss_config, discriminator, x, generator, split):
+        loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator.sample, split=split)
         return loss
 
     def create_controls(self, z_shape):
@@ -172,10 +153,10 @@ class AliGANCombined(BaseGAN):
         slider = tf.get_variable('slider', initializer=tf.constant_initializer(0.0), shape=[1, 1], dtype=tf.float32, trainable=False)
         return direction, slider
 
-    def create_encoder(self, x_input, name='encoder', reuse=False):
+    def create_encoder(self, x_input, name='input_encoder'):
         config = self.config
-        encoder = dict(config.encoder or config.g_encoder or config.generator)
-        encoder = self.create_component(encoder, name=name, input=x_input, reuse=reuse)
+        input_encoder = dict(config.input_encoder or config.g_encoder or config.generator)
+        encoder = self.create_component(input_encoder, name=name, input=x_input)
         return encoder
 
     def create_z_discriminator(self, z, z_hat):
@@ -235,6 +216,24 @@ class AliGANCombined(BaseGAN):
 
 
 
+    def create_trainer(self, cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, encoder_discriminator):
+
+        metrics = []
+        metrics.append(standard_loss.metrics)
+
+        d_vars = standard_discriminator.variables()
+        g_vars = generator.variables() + encoder.variables()
+        print("D_VARS", d_vars)
+        print("G_VARS", g_vars)
+        #d_loss = standard_loss.d_loss
+        #g_loss = standard_loss.g_loss + cycloss
+        loss1 = ("g_loss", standard_loss.g_loss)
+        loss2 = ("d_loss", standard_loss.d_loss)
+        loss = hc.Config({'sample': [standard_loss.d_loss, standard_loss.g_loss], 'metrics': 
+            {'g_loss': loss1[1], 'd_loss': loss2[1]}})
+        trainer = ConsensusTrainer(self, self.config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
+        return trainer
+
     def input_nodes(self):
         "used in hypergan build"
         if hasattr(self.generator, 'mask_generator'):
@@ -268,8 +267,3 @@ class AliGANCombined(BaseGAN):
                 self.generator_int,
                 self.random_z
         ]
-
-    def g_vars(self):
-        return self._g_vars
-    def d_vars(self):
-        return self._d_vars

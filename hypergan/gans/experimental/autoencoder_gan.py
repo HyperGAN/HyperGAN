@@ -21,8 +21,8 @@ import tensorflow as tf
 import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent
-from .standard_gan import StandardGAN
-from .base_gan import BaseGAN
+from ..standard_gan import StandardGAN
+from ..base_gan import BaseGAN
 
 class AutoencoderGAN(StandardGAN):
     """ 

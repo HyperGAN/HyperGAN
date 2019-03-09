@@ -23,6 +23,7 @@ class ConfigurableComponent:
             "phase_shift": self.layer_phase_shift,
             "conv": self.layer_conv,
             "zeros": self.layer_zeros,
+            "zeros_like": self.layer_zeros_like,
             "control": self.layer_controls,
             "linear": self.layer_linear,
             "identity": self.layer_identity,
@@ -126,6 +127,7 @@ class ConfigurableComponent:
     def build_layer(self, net, op, args, options):
         if self.layer_ops[op]:
             before = self.variables()
+            before_count = self.count_number_trainable_params()
             net = self.layer_ops[op](net, args, options)
             if 'name' in options:
                 if options['name'] in self.named_layers and op != 'reference':
@@ -135,10 +137,32 @@ class ConfigurableComponent:
             new = set(after) - set(before)
             for j in new:
                 self.layer_options[j]=options
+            after_count = self.count_number_trainable_params()
+            print("number of params in layer ", op, args, after_count-before_count)
         else:
             print("ConfigurableComponent: Op not defined", op)
 
         return net
+    def count_number_trainable_params(self):
+        '''
+        Counts the number of trainable variables.
+        '''
+        def get_nb_params_shape(shape):
+            '''
+            Computes the total number of params for a given shap.
+            Works for any number of shapes etc [D,F] or [W,H,C] computes D*F and W*H*C.
+            '''
+            nb_params = 1
+            for dim in shape:
+                nb_params = nb_params*int(dim)
+            return nb_params
+
+        tot_nb_params = 0
+        for trainable_variable in tf.trainable_variables():
+            shape = trainable_variable.get_shape() # e.g [D,F] or [W,H,C]
+            current_nb_params = get_nb_params_shape(shape)
+            tot_nb_params = tot_nb_params + current_nb_params
+        return tot_nb_params
     def layer_filter(self, net, args=[], options={}):
         """
             If a layer filter is defined, apply it.  Layer filters allow for adding information
@@ -245,6 +269,8 @@ class ConfigurableComponent:
         trainable = True
         if options.trainable == 'false':
             trainable = False
+        if options.initializer is not None:
+            initializer = self.ops.lookup_initializer(options.initializer, options)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
         avg_pool = options.avg_pool or config.defaults.avg_pool
         if type(avg_pool) == type(""):
@@ -289,8 +315,15 @@ class ConfigurableComponent:
         trainable = True
         if options.trainable == 'false':
             trainable = False
-        net = ops.linear(net, size, name=options.name, trainable=trainable)
+        bias = True
+        if options.bias == 'false':
+            bias=False
 
+        if options.initializer is not None:
+            initializer = self.ops.lookup_initializer(options.initializer, options)
+        else:
+            initializer = None
+        net = ops.linear(net, size, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
 
         if reshape is not None:
             net = tf.reshape(net, [ops.shape(net)[0]] + reshape)
@@ -415,13 +448,26 @@ class ConfigurableComponent:
         return net
     
     def layer_add(self, net, args, options):
-        subnet = self.subnets[args[0]]
         orig = net
-        if "input" in options:
-            net = self.layer(options["input"])
-        for layer in subnet:
-            net = self.parse_layer(net, layer)
-            self.layers += [net]
+        if "layer" in options:
+            net = self.layer(options["layer"])
+
+        if len(args) > 0:
+            if args[0] == 'noise':
+                net = tf.random_normal(self.ops.shape(orig), mean=0, stddev=0.1)
+            else:
+                subnet = self.subnets[args[0]]
+                for layer in subnet:
+                    net = self.parse_layer(net, layer)
+                    self.layers += [net]
+
+        if 'mask' in options:
+            options['activation']=tf.nn.sigmoid
+            mask = self.layer_conv(orig, [self.ops.shape(net)[0]], options)
+            if 'threshold' in options:
+                mask = tf.greater(mask, float(options['threshold']))
+                mask = tf.cast(mask, tf.float32)
+            return mask * net + (1-mask)*orig
         if "lambda" in options:
             lam = self.parse_lambda(options)
             return orig + lam * net
@@ -449,7 +495,10 @@ class ConfigurableComponent:
         trainable = True
         if options.trainable == 'false':
             trainable = False
-        net = ops.conv2d(net, fltr[0], fltr[1], stride, stride, depth*4, initializer=initializer, trainable=trainable)
+        bias = True
+        if options.bias == 'false':
+            bias=False
+        net = ops.conv2d(net, fltr[0], fltr[1], stride, stride, depth*4, initializer=initializer, trainable=trainable, bias=bias)
         s = ops.shape(net)
         net = tf.depth_to_space(net, 2)
         if activation:
@@ -480,18 +529,22 @@ class ConfigurableComponent:
 
         activation_s = options.activation or config.defaults.activation
         activation = self.ops.lookup(activation_s)
-        #layer_regularizer = options.layer_regularizer or config.defaults.layer_regularizer or 'null'
-        #layer_regularizer = self.ops.lookup(layer_regularizer)
 
         stride = options.stride or config.defaults.stride or [1,1]
         fltr = options.filter or config.defaults.filter or [5,5]
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         depth = int(args[0])
-
         initializer = None # default to global
 
         net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
+
+        if options.concat:
+            extra = self.named_layers[options.concat]
+            if self.ops.shape(extra) != self.ops.shape(net):
+                extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
+            net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
+
         net = self.layer_conv(net, args, options)
         return net
 
@@ -526,7 +579,12 @@ class ConfigurableComponent:
         trainable = True
         if options.trainable == 'false':
             trainable = False
-        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
+        bias = True
+        if options.bias == 'false':
+            bias=False
+        if options.initializer is not None:
+            initializer = self.ops.lookup_initializer(options.initializer, options)
+        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
@@ -829,12 +887,23 @@ class ConfigurableComponent:
 
     def layer_noise(self, net, args, options):
         options = hc.Config(options)
-        if options.learned:
+        if "learned" in args or options.learned:
             channels = self.ops.shape(net)[-1]
             shape = [1,1,channels]
+            initializer = None
+            if options.initializer is not None:
+                initializer = self.ops.lookup_initializer(options.initializer, options)
+            trainable = True
+            if "trainable" in options and options["trainable"] == "false":
+                trainable = False
             with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
-                weights = self.ops.get_weight(shape, 'B')
+                weights = self.ops.get_weight(shape, 'B', initializer=initializer, trainable=trainable)
             net += tf.random_normal(self.ops.shape(net), stddev=0.1) * weights
+
+        elif options.mask:
+            options['activation']=tf.nn.sigmoid
+            mask = self.layer_conv(net, args, options)
+            net += tf.random_normal(self.ops.shape(net), stddev=0.1) * mask
         else:
             net += tf.random_normal(self.ops.shape(net), stddev=0.1)
         return net
@@ -866,10 +935,19 @@ class ConfigurableComponent:
 
     def layer_concat(self, net, args, options):
         if len(args) > 0 and args[0] == 'noise':
-            noise = tf.random_normal(self.ops.shape(net), stddev=0.1)
-            net = tf.concat([net, noise], axis=len(self.ops.shape(net))-1)
-            return net
-        net = tf.concat([net, self.named_layers[options['layer']]], axis=len(self.ops.shape(net))-1)
+            extra = tf.random_normal(self.ops.shape(net), stddev=0.1)
+        if 'layer' in options:
+            extra = self.named_layers[options['layer']]
+
+        if self.ops.shape(extra) != self.ops.shape(net):
+            extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
+
+        if 'mask' in options:
+            options['activation']=tf.nn.sigmoid
+            mask = self.layer_conv(net, [self.ops.shape(net)[-1]], options)
+            extra *= mask
+
+        net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
         return net
 
     def layer_gram_matrix(self, net, args, options):
@@ -978,16 +1056,20 @@ class ConfigurableComponent:
         net = self.adaptive_instance_norm(net, f1,f2)
         return net
 
-    def layer_zeros(self, net, args, options):
+    def layer_zeros_like(self, net, args, options):
         return tf.zeros_like(net)
 
     def layer_const(self, net, args, options):
+        options = hc.Config(options)
         s  = [1] + [int(x) for x in args[0].split("*")]
         trainable = True
         if "trainable" in options and options["trainable"] == "false":
             trainable = False
+        initializer = None
+        if "initializer" in options and options["initializer"] is not None:
+            initializer = self.ops.lookup_initializer(options["initializer"], options)
         with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
-            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable), [self.gan.batch_size(), 1,1,1])
+            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

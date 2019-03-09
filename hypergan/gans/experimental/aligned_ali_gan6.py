@@ -1,4 +1,3 @@
-
 import importlib
 import json
 import numpy as np
@@ -22,15 +21,12 @@ import tensorflow as tf
 import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent
-from .base_gan import BaseGAN
+from ..base_gan import BaseGAN
 
-from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
 from hypergan.distributions.uniform_distribution import UniformDistribution
-from hypergan.trainers.multi_step_trainer import MultiStepTrainer
-from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
-from hypergan.trainers.consensus_trainer import ConsensusTrainer
+from hypergan.trainers.experimental.consensus_trainer import ConsensusTrainer
 
-class ConditionalGAN(BaseGAN):
+class AlignedAliGAN6(BaseGAN):
     """ 
     """
     def __init__(self, *args, **kwargs):
@@ -53,89 +49,113 @@ class ConditionalGAN(BaseGAN):
             xa_input = tf.identity(self.inputs.xa, name='xa_i')
             xb_input = tf.identity(self.inputs.xb, name='xb_i')
 
-            def random_like(x):
-                return UniformDistribution(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
-            #y=a
-            #x=b
-            zgx = self.create_component(config.encoder, input=xa_input, name='xa_to_x')
-            zgy = self.create_component(config.encoder, input=xb_input, name='xb_to_y')
-            zx = zgx.sample
-            zy = zgy.sample
-
-            z_noise = random_like(zx)
-            n_noise = random_like(zx)
-            if config.style:
-                stylex = self.create_component(config.style_discriminator, input=xb_input, name='xb_style')
-                styley = self.create_component(config.style_discriminator, input=xa_input, name='xa_style')
-                zy = tf.concat(values=[zy, z_noise], axis=3)
-                zx = tf.concat(values=[zx, n_noise], axis=3)
-                gy = self.create_component(config.generator, features=[styley.sample], input=zy, name='gy_generator')
-                y = hc.Config({"sample": xa_input})
-                zx = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
-                zx = tf.concat(values=[zx, z_noise], axis=3)
-                gx = self.create_component(config.generator, features=[stylex.sample], input=zx, name='gx_generator')
+            if config.same_g:
+                ga = self.create_component(config.generator, input=xb_input, name='a_generator')
+                gb = hc.Config({"sample":ga.reuse(xa_input),"controls":{"z":ga.controls['z']}, "reuse": ga.reuse})
             else:
-                gy = self.create_component(config.generator, features=[z_noise], input=zy, name='gy_generator')
-                y = hc.Config({"sample": xa_input})
-                zx = self.create_component(config.encoder, input=y.sample, name='xa_to_x', reuse=True).sample
-                gx = self.create_component(config.generator, features=[z_noise], input=zx, name='gx_generator')
-                stylex=hc.Config({"sample":random_like(y.sample)})
+                ga = self.create_component(config.generator, input=xb_input, name='a_generator')
+                gb = self.create_component(config.generator, input=xa_input, name='b_generator')
 
-            self.y = y
-            self.gy = gy
-            self.gx = gx
-
-            ga = gy
-            gb = gx
+            za = ga.controls["z"]
+            zb = gb.controls["z"]
 
             self.uniform_sample = gb.sample
 
             xba = ga.sample
             xab = gb.sample
-            xa_hat = ga.reuse(zx)
-            xb_hat = gb.reuse(zy)
+            xa_hat = ga.reuse(gb.sample)
+            xb_hat = gb.reuse(ga.sample)
             xa = xa_input
             xb = xb_input
 
-            self.styleb = stylex
-            self.random_style = random_like(stylex.sample)
+            if config.ignore_random:
+                t0 = xb
+                t1 = gb.sample
+                f0 = za
+                f1 = zb
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+                self.inputs.x = xb
+                ugb = gb.sample
+                zub = zb
+                sourcezub = zb
+                
+
+            else:
+                z_shape = self.ops.shape(za)
+                uz_shape = z_shape
+                uz_shape[-1] = uz_shape[-1] // len(config.z_distribution.projections)
+                ue = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+                ue2 = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+                ue3 = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+                ue4 = UniformDistribution(self, config.z_distribution, output_shape=uz_shape)
+                print('ue', ue.sample)
+
+                zua = ue.sample
+                zub = ue2.sample
+
+                ue2 = UniformDistribution(self, config.z_distribution, output_shape=[self.ops.shape(za)[0], config.source_linear])
+                zub = ue2.sample
+                uz_to_gz = self.create_component(config.uz_to_gz, name='uzb_to_gzb', input=zub)
+                zub = uz_to_gz.sample
+                sourcezub = zub
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
+
+                t0 = xb
+                t1 = gb.sample
+                t2 = ugb
+                f0 = za
+                f1 = zb
+                f2 = zub
+                stack = [t0, t1, t2]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1, f2], axis=0)
 
 
-
-            t0 = xb
-            t1 = gx.sample
-            f0 = gy.sample
-            f1 = y.sample
-            stack = [t0, t1]
-            stacked = ops.concat(stack, axis=0)
-            features = ops.concat([f0, f1], axis=0)
-            self.inputs.x = xa
-            ugb = gb.reuse(random_like(zy))
-            zub = zy
-            sourcezub = zy
-
-
-            d = self.create_component(config.discriminator, name='d_ab', 
-                    input=stacked, features=[features])
+            d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
             loss1 = l
             d_loss1 = l.d_loss
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            g_vars1 = gb.variables()+ga.variables()+zgx.variables()+zgy.variables()
+            g_vars1 = gb.variables()+ga.variables()
+            if not config.ignore_random:
+                g_vars1 += uz_to_gz.variables()#gb.variables()# + gb.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss
-
 
             metrics = {
                     'g_loss': l.g_loss,
                     'd_loss': l.d_loss
                 }
 
+            if config.inline_alpha:
+                t0 = zub
+                t1 = zb
+                netzd = tf.concat(axis=0, values=[t0,t1])
+                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                metrics["za_gloss"]=loss3.g_loss
+                metrics["za_dloss"]=loss3.d_loss
+                d_vars1 += z_d.variables()
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
 
             trainers = []
+            if config.separate_alpha:
+                t0 = zub
+                t1 = zb
+                netzd = tf.concat(axis=0, values=[t0,t1])
+                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                metrics["za_gloss"]=loss3.g_loss
+                metrics["za_dloss"]=loss3.d_loss
+                g_vars1 = gb.variables()+ga.variables()#gb.variables()# + gb.variables()
+                trainers += [ConsensusTrainer(self, config.trainer, loss = loss3, g_vars = uz_to_gz.variables(), d_vars = z_d.variables())]
+
 
             lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
             #lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
@@ -145,20 +165,20 @@ class ConditionalGAN(BaseGAN):
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
-        self.generator = gb
+        self.generator = ga
         self.encoder = hc.Config({"sample":ugb}) # this is the other gan
         self.uniform_distribution = hc.Config({"sample":zub})#uniform_encoder
         self.uniform_distribution_source = hc.Config({"sample":sourcezub})#uniform_encoder
-        self.zb = zy
+        self.zb = zb
         self.z_hat = gb.sample
         self.x_input = xa_input
-        self.autoencoded_x = xb_hat
+        self.autoencoded_x = xa_hat
 
         self.cyca = xa_hat
         self.cycb = xb_hat
         self.xba = xba
         self.xab = xab
-        self.uga = y.sample
+        self.uga = ugb
         self.ugb = ugb
 
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)

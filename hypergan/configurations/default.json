@@ -1,27 +1,27 @@
 
 {
-  "description": "Least Squares GAN optimized",
+  "description": "A default configuration that scales to multiple resolutions.  Note that the other resolution specific configs generally perform better.",
   "discriminator": 
   {
-      "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-      "defaults":{
-         "activation": "lrelu",
-        "filter": [3,3],
-        "stride": [1,1],
-        "avg_pool": [2,2],
-        "activation": "lrelu",
-        "initializer": "random_normal",
-        "random_stddev": 0.02
-      },
-      "layers":[
-        "conv 64 ", 
-        "conv 128",
-        "conv 256",
-        "conv 512",
-        "conv 512",
-        "conv 512",
-        "linear 1 activation=null"
-      ]
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults":{
+       "activation": "lrelu",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2],
+      "activation": "lrelu",
+      "initializer": "random_normal",
+      "random_stddev": 0.02
+    },
+    "layers":[
+      "conv 64 ", 
+      "conv 128",
+      "conv 256",
+      "conv 512",
+      "conv 512",
+      "conv 512",
+      "linear 1 activation=null"
+    ]
   },
 
   "latent":
@@ -47,47 +47,54 @@
     "class": "function:hypergan.losses.standard_loss.StandardLoss",
     "reduce": "reduce_mean"
   },
-    "trainer": {
-  "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
+  "trainer": {
+    "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
     "g_optimizer": {
 
       "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
       "f_decay": 0.8,
       "optimizer": {
-       "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
-
-      "optimizer": {
-    "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-    "learn_rate": 1e-4,
-      "beta1":0.0,
-      "beta2":0.999
-  },
-   "optimizer2": {
-    "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-    "learn_rate": 3e-5,
-    "beta1":0.0,
-    "beta2":0.999
-   }
-   }},
+        "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+        "optimizer": {
+          "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+          "learn_rate": 1e-4,
+          "beta1":0.0,
+          "beta2":0.999
+        },
+        "optimizer2": {
+          "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+          "learn_rate": 3e-5,
+          "beta1":0.0,
+          "beta2":0.999
+        }
+      }
+    },
     "d_optimizer": {
       "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
       "optimizer": {
 
-       "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+        "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
 
-      "optimizer": {
-    "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-    "learn_rate": 1e-4,
-      "beta1":0.0,
-      "beta2":0.999
-  },
-   "optimizer2": {
-    "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-    "learn_rate": 3e-5,
-    "beta1":0.0,
-    "beta2":0.999
-   }
+        "optimizer": {
+          "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+          "learn_rate": 1e-4,
+          "beta1":0.0,
+          "beta2":0.999
+        },
+        "optimizer2": {
+          "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+          "learn_rate": 3e-5,
+          "beta1":0.0,
+          "beta2":0.999
+        }
       }
-   }
     }
+  },
+  "runtime": {
+    "channels": 3,
+    "width": 64,
+    "height": 64,
+    "train": "hypergan train [dataset] --sample_every 100 --sampler static_batch --format jpg --size 64x64x3 -b 1 --resize"
+  },
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

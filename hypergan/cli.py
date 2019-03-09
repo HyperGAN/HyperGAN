@@ -7,7 +7,6 @@ import os
 import hyperchamber as hc
 import tensorflow as tf
 from hypergan.gan_component import ValidationException
-from . import GAN
 from .inputs import *
 from .viewer import GlobalViewer
 from .configuration import Configuration
@@ -17,23 +16,6 @@ import time
 import os
 import shutil
 import sys
-
-from hypergan.samplers.static_batch_sampler import StaticBatchSampler
-from hypergan.samplers.progressive_sampler import ProgressiveSampler
-from hypergan.samplers.batch_sampler import BatchSampler
-from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
-from hypergan.samplers.grid_sampler import GridSampler
-from hypergan.samplers.sorted_sampler import SortedSampler
-from hypergan.samplers.began_sampler import BeganSampler
-from hypergan.samplers.aligned_sampler import AlignedSampler
-from hypergan.samplers.autoencode_sampler import AutoencodeSampler
-from hypergan.samplers.random_walk_sampler import RandomWalkSampler
-from hypergan.samplers.style_walk_sampler import StyleWalkSampler
-from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
-from hypergan.samplers.debug_sampler import DebugSampler
-from hypergan.samplers.segment_sampler import SegmentSampler
-from hypergan.samplers.y_sampler import YSampler
-from hypergan.samplers.gang_sampler import GangSampler
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
@@ -77,34 +59,6 @@ class CLI:
         GlobalViewer.enabled = self.args.viewer
         GlobalViewer.zoom = self.args.zoom
 
-    def get_registered_samplers(self):
-        return {
-                'static_batch': StaticBatchSampler,
-                'progressive': ProgressiveSampler,
-                'random_walk': RandomWalkSampler,
-                'alphagan_random_walk': AlphaganRandomWalkSampler,
-                'style_walk': StyleWalkSampler,
-                'batch_walk': BatchWalkSampler,
-                'batch': BatchSampler,
-                'grid': GridSampler,
-                'sorted': SortedSampler,
-                'gang': GangSampler,
-                'began': BeganSampler,
-                'autoencode': AutoencodeSampler,
-                'debug': DebugSampler,
-                'y': YSampler,
-                'segment': SegmentSampler,
-                'aligned': AlignedSampler
-            }
-    def sampler_for(self, name, default=StaticBatchSampler):
-        samplers = self.get_registered_samplers()
-        self.selected_sampler = name
-        if name in samplers:
-            return samplers[name]
-        else:
-            print("[hypergan] No sampler found for ", name, ".  Defaulting to", default)
-            return default
-
     def sample(self):
         """ Samples to a file.  Useful for visualizing the learning process.
 
@@ -127,7 +81,7 @@ class CLI:
 
     def lazy_create(self):
         if(self.sampler == None):
-            self.sampler = self.sampler_for(self.sampler_name)(self.gan)
+            self.sampler = self.gan.sampler_for(self.sampler_name)(self.gan)
             if(self.sampler == None):
                 raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 

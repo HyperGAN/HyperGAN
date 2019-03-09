@@ -56,9 +56,9 @@ class DebugSampler(BaseSampler):
         if hasattr(gan.generator, 'pe_layers'):
             self.samplers += [IdentitySampler(gan, gx, samples_per_row) for gx in gan.generator.pe_layers]
             pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
-            print("SAMPLERS", pe_layers)
-        #self.samplers += [IdentitySampler(gan, tf.concat([gan.inputs.x,gan.autoencoded_x], axis=0), samples_per_row)]
-#          IdentitySampler(gan, gan.autoencoded_x, samples_per_row),
+        #self.samplers += 
+        if hasattr(gan, 'autoencoded_x'):
+          self.samplers += [IdentitySampler(gan, tf.concat([gan.inputs.x,gan.autoencoded_x], axis=0), samples_per_row)]
         if gan.config.loss['class'] == BoundaryEquilibriumLoss:
           self.samplers += [BeganSampler(gan, samples_per_row)]
 

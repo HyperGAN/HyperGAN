@@ -21,15 +21,12 @@ import tensorflow as tf
 import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent
-from .base_gan import BaseGAN
+from ..base_gan import BaseGAN
 
-from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
 from hypergan.distributions.uniform_distribution import UniformDistribution
-from hypergan.trainers.multi_step_trainer import MultiStepTrainer
-from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
-from hypergan.trainers.consensus_trainer import ConsensusTrainer
+from hypergan.trainers.experimental.consensus_trainer import ConsensusTrainer
 
-class AlignedAliGAN3(BaseGAN):
+class AlignedAliGAN7(BaseGAN):
     """ 
     """
     def __init__(self, *args, **kwargs):
@@ -54,7 +51,7 @@ class AlignedAliGAN3(BaseGAN):
 
             if config.same_g:
                 ga = self.create_component(config.generator, input=xb_input, name='a_generator')
-                gb = self.create_component(config.generator, input=xa_input, name='a_generator', reuse=True)
+                gb = hc.Config({"sample":ga.reuse(xa_input),"controls":{"z":ga.controls['z']}, "reuse": ga.reuse})
             else:
                 ga = self.create_component(config.generator, input=xb_input, name='a_generator')
                 gb = self.create_component(config.generator, input=xa_input, name='b_generator')
@@ -81,32 +78,37 @@ class AlignedAliGAN3(BaseGAN):
             zua = ue.sample
             zub = ue2.sample
 
-            uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":zua})
-            ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
+            ga2 = self.create_component(config.generator, input=tf.zeros_like(xb_input), name='ua_generator')
+            gb2 = self.create_component(config.generator, input=tf.zeros_like(xb_input), name='ub_generator')
+            uga = ga2.reuse(tf.zeros_like(xb_input), replace_controls={"z":zua})
+            ugb = gb2.reuse(tf.zeros_like(xb_input), replace_controls={"z":zub})
+
+            ugbprime = gb.reuse(uga)
+            ugbzb = gb.controls['z']
 
             xa = xa_input
             xb = xb_input
 
             t0 = xb
             t1 = gb.sample
-            t2 = ga.sample
+            t2 = ugbprime
             f0 = za
             f1 = zb
-            f2 = za
-            stack = [t0, t1]
+            f2 = ugbzb
+            stack = [t0, t1, t2]
             stacked = ops.concat(stack, axis=0)
-            features = ops.concat([f0, f1], axis=0)
+            features = ops.concat([f0, f1, f2], axis=0)
+
+            xa_hat = ugbprime
 
             d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
-            self.za = za
-            self.discriminator = d
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
             loss1 = l
             d_loss1 = l.d_loss
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            print('--', ga, gb)
+            g_vars1 = ga2.variables() + gb2.variables() + gb.variables()+ga.variables()#gb.variables()# + gb.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -116,26 +118,29 @@ class AlignedAliGAN3(BaseGAN):
                     'd_loss': l.d_loss
                 }
 
-            t0 = xb
-            t1 = gb.sample
-            f0 = za
-            f1 = zb
-            stack = [t0, t1]
-            stacked = ops.concat(stack, axis=0)
-            features = ops.concat([f0, f1], axis=0)
-
-            d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features], reuse=True)
-            l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
-
-            d_loss += l.d_loss
-            g_loss += l.g_loss
-            d_vars2 = d.variables()
-            metrics["ga_gloss"]=l.g_loss
-            metrics["ga_dloss"]=l.d_loss
-            loss2=l
-            g_loss2 = loss2.g_loss
-            d_loss2 = loss2.d_loss
+            g_vars2 = ga.variables()
             trainers = []
+
+            if config.cyc:
+                t0 = xa
+                t1 = ga.sample
+                f0 = zb
+                f1 = za
+                stack = [t0, t1]
+                stacked = ops.concat(stack, axis=0)
+                features = ops.concat([f0, f1], axis=0)
+
+                d = self.create_component(config.discriminator, name='d2_ab', input=stacked, features=[features])
+                l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
+
+                d_loss1 += l.d_loss
+                g_loss1 += l.g_loss
+                d_vars1 += d.variables()
+                metrics["gloss2"]=l.g_loss
+                metrics["dloss2"]=l.d_loss
+                #loss2=l
+                #g_loss2 = loss2.g_loss
+                #d_loss2 = loss2.d_loss
 
             if(config.alpha):
                 t0 = zub
@@ -171,11 +176,11 @@ class AlignedAliGAN3(BaseGAN):
                 z_d = self.create_component(config.z_discriminator, name='z_discriminator2', input=netzd)
 
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
-                d_vars2 += z_d.variables()
+                d_vars1 += z_d.variables()
                 metrics["za_gloss"]=loss3.g_loss
                 metrics["za_dloss"]=loss3.d_loss
-                d_loss2 += loss3.d_loss
-                g_loss2 += loss3.g_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
 
             if config.ug2:
                 t0 = xa
@@ -184,22 +189,34 @@ class AlignedAliGAN3(BaseGAN):
                 z_d = self.create_component(config.discriminator, name='ug_discriminator2', input=netzd)
 
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
-                d_vars2 += z_d.variables()
+                d_vars1 += z_d.variables()
                 metrics["za_gloss"]=loss3.g_loss
                 metrics["za_dloss"]=loss3.d_loss
-                d_loss2 += loss3.d_loss
-                g_loss2 += loss3.g_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
+
+            if config.ug3:
+                t0 = tf.concat(values=[xa,xb], axis=3)
+                t1 = tf.concat(values=[uga,ugb], axis=3)
+                netzd = tf.concat(axis=0, values=[t0,t1])
+                z_d = self.create_component(config.discriminator, name='ug_discriminator3', input=netzd)
+
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                d_vars1 += z_d.variables()
+                metrics["za_gloss"]=loss3.g_loss
+                metrics["za_dloss"]=loss3.d_loss
+                d_loss1 += loss3.d_loss
+                g_loss1 += loss3.g_loss
 
 
-            loss = hc.Config({
-                'd_fake':loss1.d_fake,
-                'd_real':loss1.d_real,
-                'sample': [tf.add_n([d_loss1, d_loss2]), tf.add_n([g_loss1,g_loss2])]
-            })
-            self._g_vars = ga.variables() + gb.variables()
-            self._d_vars = d_vars1# + d_vars2
-            self.loss=loss
-            trainer = self.create_component(config.trainer)
+
+
+
+            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
+            #lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
+            trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
+            #trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
+            trainer = MultiTrainerTrainer(trainers)
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
@@ -221,14 +238,6 @@ class AlignedAliGAN3(BaseGAN):
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')
 
-
-    def d_vars(self):
-        return self._d_vars
-    def g_vars(self):
-        return self._g_vars
-
-    def create_discriminator(self, _input, reuse=False):
-        return self.create_component(self.config.discriminator, name='d_ab', input=_input, features=[tf.zeros_like(self.za)], reuse=reuse)
 
     def create_loss(self, loss_config, discriminator, x, generator, split):
         loss = self.create_component(loss_config, discriminator = discriminator, x=x, generator=generator, split=split)

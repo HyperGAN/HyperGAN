@@ -21,15 +21,12 @@ import tensorflow as tf
 import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent
-from .base_gan import BaseGAN
+from ..base_gan import BaseGAN
 
-from hypergan.discriminators.fully_connected_discriminator import FullyConnectedDiscriminator
 from hypergan.distributions.uniform_distribution import UniformDistribution
-from hypergan.trainers.multi_step_trainer import MultiStepTrainer
-from hypergan.trainers.multi_trainer_trainer import MultiTrainerTrainer
-from hypergan.trainers.consensus_trainer import ConsensusTrainer
+from hypergan.trainers.experimental.consensus_trainer import ConsensusTrainer
 
-class AlignedAliGAN7(BaseGAN):
+class AlignedAliOneGAN(BaseGAN):
     """ 
     """
     def __init__(self, *args, **kwargs):
@@ -81,37 +78,112 @@ class AlignedAliGAN7(BaseGAN):
             zua = ue.sample
             zub = ue2.sample
 
-            ga2 = self.create_component(config.generator, input=tf.zeros_like(xb_input), name='ua_generator')
-            gb2 = self.create_component(config.generator, input=tf.zeros_like(xb_input), name='ub_generator')
-            uga = ga2.reuse(tf.zeros_like(xb_input), replace_controls={"z":zua})
-            ugb = gb2.reuse(tf.zeros_like(xb_input), replace_controls={"z":zub})
-
-            ugbprime = gb.reuse(uga)
-            ugbzb = gb.controls['z']
+            uga = ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":zua})
+            ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
 
             xa = xa_input
             xb = xb_input
 
-            t0 = xb
-            t1 = gb.sample
-            t2 = ugbprime
-            f0 = za
-            f1 = zb
-            f2 = ugbzb
-            stack = [t0, t1, t2]
-            stacked = ops.concat(stack, axis=0)
+            t0 = ops.concat([xb, xa], axis=3)
+            t1 = ops.concat([ugb, uga], axis=3)
+            t2 = ops.concat([gb.sample, ga.sample], axis=3)
+            f0 = ops.concat([za, zb], axis=3)
+            f1 = ops.concat([zub, zua], axis=3)
+            f2 = ops.concat([zb, za], axis=3)
             features = ops.concat([f0, f1, f2], axis=0)
+            stack = [t0, t1, t2]
 
-            xa_hat = ugbprime
 
-            d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
+            if config.mess2:
+                xbxa = ops.concat([xb_input, xa_input], axis=3)
+                gbga = ops.concat([gb.sample, ga.sample], axis=3)
+                fa = ops.concat([za, zb], axis=3)
+                fb = ops.concat([za, zb], axis=3)
+                features = ops.concat([fa, fb], axis=0)
+                stack = [xbxa, gbga]
+ 
+            if config.mess6:
+                t0 = ops.concat([xb, xa], axis=3)
+
+                t1 = ops.concat([gb.sample, uga], axis=3)
+                t2 = ops.concat([gb.sample, xa], axis=3)
+                t3 = ops.concat([xb, ga.sample], axis=3)
+                t4 = ops.concat([ugb, ga.sample], axis=3)
+                features = None
+                stack = [t0, t1, t2, t3, t4]
+
+            if config.mess7:
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zua})
+                t0 = ops.concat([xb, ga.sample], axis=3)
+                t1 = ops.concat([ugb, uga], axis=3)
+                t2 = ops.concat([gb.sample, xa], axis=3)
+                features = None
+                stack = [t0, t1, t2]
+ 
+            if config.mess8:
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zua})
+                uga2 = ga.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
+                ugb2 = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
+                t0 = ops.concat([xb, ga.sample, xa, gb.sample], axis=3)
+                t1 = ops.concat([ugb, uga, uga2, ugb2], axis=3)
+                features = None
+                stack = [t0, t1]
+
+
+            if config.mess10:
+                t0 = ops.concat([xb, xa], axis=3)
+
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zua})
+                t1 = ops.concat([ugb, uga], axis=3)
+                t2 = ops.concat([gb.sample, xa], axis=3)
+                t3 = ops.concat([xb, ga.sample], axis=3)
+                features = None
+                stack = [t0, t1, t2, t3]
+
+            if config.mess11:
+                t0 = ops.concat([xa, xb, ga.sample, gb.sample], axis=3)
+                ugbga = ga.reuse(ugb)
+                ugagb = gb.reuse(uga)
+
+                t1 = ops.concat([ga.sample, gb.sample, uga, ugb], axis=3)
+                features = None
+                stack = [t0, t1]
+
+            if config.mess12:
+                t0 = ops.concat([xb, xa], axis=3)
+                t2 = ops.concat([gb.sample, ga.sample], axis=3)
+                f0 = ops.concat([za, zb], axis=3)
+                f2 = ops.concat([zua, zub], axis=3)
+                features = ops.concat([f0, f2], axis=0)
+                stack = [t0, t2]
+
+            if config.mess13:
+                ugb = gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zua})
+                features = None
+                t0 = ops.concat([xa, gb.sample], axis=3)
+                t1 = ops.concat([ga.sample, xb], axis=3)
+                t2 = ops.concat([uga, ugb], axis=3)
+                stack = [t0, t1, t2]
+
+
+            if config.mess14:
+                features = None
+                t0 = ops.concat([xa, gb.sample], axis=3)
+                t1 = ops.concat([ga.sample, xb], axis=3)
+                stack = [t0, t1]
+
+
+
+
+            stacked = ops.concat(stack, axis=0)
+            d = self.create_component(config.discriminator, name='alia_discriminator', input=stacked, features=[features])
             l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
-            loss1 = l
-            d_loss1 = l.d_loss
-            g_loss1 = l.g_loss
 
-            d_vars1 = d.variables()
-            g_vars1 = ga2.variables() + gb2.variables() + gb.variables()+ga.variables()#gb.variables()# + gb.variables()
+            d_vars = d.variables()
+            if config.same_g:
+                g_vars = ga.variables()
+            else:
+                g_vars = ga.variables() + gb.variables()
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -121,105 +193,58 @@ class AlignedAliGAN7(BaseGAN):
                     'd_loss': l.d_loss
                 }
 
-            g_vars2 = ga.variables()
-            trainers = []
-
-            if config.cyc:
-                t0 = xa
-                t1 = ga.sample
-                f0 = zb
-                f1 = za
-                stack = [t0, t1]
-                stacked = ops.concat(stack, axis=0)
-                features = ops.concat([f0, f1], axis=0)
-
-                d = self.create_component(config.discriminator, name='d2_ab', input=stacked, features=[features])
-                l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
-
-                d_loss1 += l.d_loss
-                g_loss1 += l.g_loss
-                d_vars1 += d.variables()
-                metrics["gloss2"]=l.g_loss
-                metrics["dloss2"]=l.d_loss
-                #loss2=l
-                #g_loss2 = loss2.g_loss
-                #d_loss2 = loss2.d_loss
-
             if(config.alpha):
-                t0 = zub
-                t1 = zb
-                netzd = tf.concat(axis=0, values=[t0,t1])
-                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
-
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
-                d_vars1 += z_d.variables()
-                metrics["za_gloss"]=loss3.g_loss
-                metrics["za_dloss"]=loss3.d_loss
-                d_loss1 += loss3.d_loss
-                g_loss1 += loss3.g_loss
-
-
-            if(config.ug):
-                t0 = xb
-                t1 = ugb
-                netzd = tf.concat(axis=0, values=[t0,t1])
-                z_d = self.create_component(config.discriminator, name='ug_discriminator', input=netzd)
-
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
-                d_vars1 += z_d.variables()
-                metrics["za_gloss"]=loss3.g_loss
-                metrics["za_dloss"]=loss3.d_loss
-                d_loss1 += loss3.d_loss
-                g_loss1 += loss3.g_loss
-
-            if(config.alpha2):
+                #t0 = ops.concat([zua,zub], axis=3)
+                #t1 = ops.concat([za,zb], axis=3)
                 t0 = zua
                 t1 = za
-                netzd = tf.concat(axis=0, values=[t0,t1])
-                z_d = self.create_component(config.z_discriminator, name='z_discriminator2', input=netzd)
+                t2 = zb
+                netzd = tf.concat(axis=0, values=[t0,t1,t2])
+                z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
 
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
-                d_vars1 += z_d.variables()
-                metrics["za_gloss"]=loss3.g_loss
-                metrics["za_dloss"]=loss3.d_loss
-                d_loss1 += loss3.d_loss
-                g_loss1 += loss3.g_loss
+                print("Z_D", z_d)
+                lz = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                d_loss += lz.d_loss
+                g_loss += lz.g_loss
+                d_vars += z_d.variables()
+                metrics["a_gloss"]=lz.g_loss
+                metrics["a_dloss"]=lz.d_loss
 
-            if config.ug2:
-                t0 = xa
-                t1 = uga
-                netzd = tf.concat(axis=0, values=[t0,t1])
-                z_d = self.create_component(config.discriminator, name='ug_discriminator2', input=netzd)
+            if(config.mess13):
+                t0 = ops.concat([xb, ga.sample], axis=3)
+                t1 = ops.concat([gb.sample, xa], axis=3)
+                t2 = ops.concat([ugb, uga], axis=3)
+                stack = [t0, t1, t2]
+                features = None
+                stacked = tf.concat(axis=0, values=stack)
+                d2 = self.create_component(config.discriminator, name='align_2', input=stacked, features=[features])
+                lz = self.create_loss(config.loss, d2, xa_input, ga.sample, len(stack))
+                d_vars += d2.variables()
 
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
-                d_vars1 += z_d.variables()
-                metrics["za_gloss"]=loss3.g_loss
-                metrics["za_dloss"]=loss3.d_loss
-                d_loss1 += loss3.d_loss
-                g_loss1 += loss3.g_loss
+                d_loss += lz.d_loss
+                g_loss += lz.g_loss
+                metrics["mess13_g"]=lz.g_loss
+                metrics["mess13_d"]=lz.d_loss
 
-            if config.ug3:
-                t0 = tf.concat(values=[xa,xb], axis=3)
-                t1 = tf.concat(values=[uga,ugb], axis=3)
-                netzd = tf.concat(axis=0, values=[t0,t1])
-                z_d = self.create_component(config.discriminator, name='ug_discriminator3', input=netzd)
+            if(config.mess14):
+                t0 = ops.concat([xb, xa], axis=3)
+                t2 = ops.concat([ugb, uga], axis=3)
+                stack = [t0, t2]
+                features = None
+                stacked = tf.concat(axis=0, values=stack)
+                d3 = self.create_component(config.discriminator, name='align_3', input=stacked, features=[features])
+                lz = self.create_loss(config.loss, d3, xa_input, ga.sample, len(stack))
+                d_vars += d3.variables()
 
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
-                d_vars1 += z_d.variables()
-                metrics["za_gloss"]=loss3.g_loss
-                metrics["za_dloss"]=loss3.d_loss
-                d_loss1 += loss3.d_loss
-                g_loss1 += loss3.g_loss
-
-
+                d_loss += lz.d_loss
+                g_loss += lz.g_loss
+                metrics["mess14_g"]=lz.g_loss
+                metrics["mess14_d"]=lz.d_loss
 
 
 
-            lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
-            #lossb = hc.Config({'sample': [d_loss2, g_loss2], 'metrics': metrics})
-            trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
-            #trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
-            trainer = MultiTrainerTrainer(trainers)
+            loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': metrics})
+            trainer = ConsensusTrainer(self, config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
             self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer

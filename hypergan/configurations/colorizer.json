@@ -1,61 +1,70 @@
 {
-  "description": "Crossing the curl with finite differences",
-  "publication": "https://arxiv.org/pdf/1808.01531.pdf",
   "discriminator": 
   {
       "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
       "defaults":{
-        "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
-        "activation": "lrelu",
-        "initializer": "random_normal",
-        "random_stddev": 0.02,
+        "activation": "prelu",
+        "initializer": "he_normal",
         "filter": [3,3],
         "stride": [1,1],
         "avg_pool": [2,2]
       },
       "layers":[
-        "conv 64",
-        "conv 128 ",
+        "layer_filter",
+        "conv 32",
+        "layer_filter",
+        "conv 64 ",
+        "layer_filter",
+        "conv 128",
+        "layer_filter",
         "conv 256",
-        "conv 512",
-        "linear 1 activation=null"
+        "layer_filter",
+        "conv 256",
+        "layer_filter",
+        "conv 256",
+        "linear 1 activation=null bias=false"
       ]
-  },
-  "latent":
-  {
-    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
-    "projections": [
-      "function:hypergan.distributions.uniform_distribution.identity"
-    ],
-    "min": -1,
-    "max": 1,
-    "z": 100
+
   },
   "generator": {
+    "layer_filter": "function:__main__.add_bw",
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
     "defaults": {
-      "initializer": "random_normal",
-      "random_stddev": 0.02,
-      "activation": "relu",
-      "filter": [5,5],
+      "activation": "prelu",
+      "initializer": "he_normal",
+      "filter": [3,3],
       "stride": [2,2],
       "avg_pool": [1,1]
     },
     "layers": [
-      "linear 4*4*1024",
-      "deconv 512",
-      "deconv 256",
-      "deconv 128",
-      "deconv 3 activation=tanh"
+      "linear 32*32*32",
+      "layer_filter",
+      "deconv 64",
+      "layer_filter",
+      "deconv 32",
+      "layer_filter",
+      "deconv 16",
+      "layer_filter",
+      "deconv 3 stride=1 activation=tanh"
     ]
-
   },
-  "loss":
+
+  "latent": {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "max": 1,
+    "min": -1,
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "z": 100
+  },
+   "loss":
   {
-    "class": "function:hypergan.losses.standard_loss.StandardLoss",
+    "class": "function:hypergan.losses.logistic_loss.LogisticLoss",
     "reduce": "reduce_mean"
   },
-    "trainer": {
+
+  "trainer": {
     "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
     "optimizer": {
       "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
@@ -81,14 +90,23 @@
           }
         }
       }
-    }
+    },
+    "hooks":[
+      {
+        "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
+        "lambda": 10.0
+      }
+    ]
   },
   "runtime": {
-    "channels": 3,
-    "width": 64,
-    "height": 64,
-    "train": "hypergan train [dataset] --sample_every 100 --sampler static_batch --format jpg --size 64x64x3 -b 1 -c dcgan-configurable --save_every 10000 --resize"
+      "channels": 3,
+      "width": 256,
+      "height": 256,
+      "train": "python3 hypergan/examples/colorizer.py train [dataset] --sample_every 100 --format jpg --size 256x256x3 -b 4 -c colorizer-256x256 --save_every 5000 -z 1"
   },
 
+
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
+
+
 }

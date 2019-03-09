@@ -11,11 +11,13 @@
       },
       "layers":[
         "identity name=xg",
-        ["reference src=inputs name=x resize_images=32*32","reference src=generator name=g32x32",0],
+        ["reference src=inputs name=x resize_images=256*256","reference src=generator name=g256x256",0],
         "identity name=pastxg",
         "progressive_replace start=pastxg end=xg steps=5000",
-        ["reference name=pastxg","conv 128 name=d1"],
-
+        ["reference name=pastxg","conv 32 name=d-2"],
+        [["reference src=inputs name=x resize_images=128*128","reference src=generator name=g128x128",0],"conv 64 name=d-1"],
+        [["reference src=inputs name=x resize_images=64*64","reference src=generator name=g64x64",0],"conv 128 name=d0"],
+        [["reference src=inputs name=x resize_images=32*32","reference src=generator name=g32x32",0],"conv 128 name=d1"],
         [["reference src=inputs name=x resize_images=16*16","reference src=generator name=g16x16",0],"conv 256 name=d2"],
         [["reference src=inputs name=x resize_images=8*8","reference src=generator name=g8x8",0],"conv 256 name=d3"],
         "conv 512 name=d4",
@@ -55,15 +57,30 @@
       "reference name=s5",
       "subpixel 256",
       "adaptive_instance_norm",
-      "conv 3 name=g64x64 activation=null",
-      "progressive_replace start=g32x32 end=g64x64 steps=5000 name=g32x32m"
+      "identity name=s6",
+      "conv 3 ewc_f_decay=0.99 ewc_gradient_scale=100 name=g64x64 activation=null",
+      "reference name=s6",
+      "subpixel 256",
+      "adaptive_instance_norm",
+      "identity name=s7",
+      "conv 3 ewc_f_decay=0.99 ewc_gradient_scale=100 name=g128x128 activation=null",
+      "reference name=s7",
+      "subpixel 128",
+      "adaptive_instance_norm",
+      "identity name=s8",
+      "conv 3 ewc_f_decay=0.99 ewc_gradient_scale=100 name=g256x256 activation=null",
+      "reference name=s8",
+      "subpixel 64",
+      "adaptive_instance_norm",
+      "conv 3 name=g512x512 activation=null",
+      "progressive_replace start=g256x256 end=g512x512 steps=5000 name=g256x256m"
     ]
 
   },
   "runtime": {
       "channels": 3,
-      "width": 64,
-      "height": 64,
+      "width": 512,
+      "height": 512,
       "batch_size": 1
   },
   "inherit": "base"

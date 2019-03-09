@@ -105,17 +105,17 @@ class TkViewer:
                 if submenu.count > 0:
                     submenu.delete(0, submenu.count)
 
-                for (k, v) in gan.cli.get_registered_samplers().items():
+                for (k, v) in gan.get_registered_samplers().items():
                     showall = tk.BooleanVar()
-                    showall.set(gan.cli.selected_sampler == k)
+                    showall.set(gan.selected_sampler == k)
                     if v.compatible_with(gan):
                         state = tk.NORMAL
                     else:
                         state = tk.DISABLED
 
-                    print("Selected", gan.cli.selected_sampler, k, gan.cli.selected_sampler == k)
+                    print("Selected", gan.selected_sampler, k, gan.selected_sampler == k)
                     submenu.add_checkbutton(label=k, onvalue=True, offvalue=False, variable=showall, command=_select_sampler(gan, k, showall, submenu), state=state)
-                num_samplers = len(gan.cli.get_registered_samplers())
+                num_samplers = len(gan.get_registered_samplers())
 
                 submenu.count = num_samplers
 

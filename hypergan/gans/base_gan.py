@@ -9,11 +9,29 @@ import inspect
 import hypergan as hg
 import tensorflow as tf
 
+from tensorflow.python.framework import ops
 from tensorflow.python.tools import freeze_graph
 from tensorflow.python.tools import optimize_for_inference_lib
 
+from hypergan.samplers.static_batch_sampler import StaticBatchSampler
+from hypergan.samplers.progressive_sampler import ProgressiveSampler
+from hypergan.samplers.batch_sampler import BatchSampler
+from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
+from hypergan.samplers.grid_sampler import GridSampler
+from hypergan.samplers.sorted_sampler import SortedSampler
+from hypergan.samplers.began_sampler import BeganSampler
+from hypergan.samplers.aligned_sampler import AlignedSampler
+from hypergan.samplers.autoencode_sampler import AutoencodeSampler
+from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.samplers.style_walk_sampler import StyleWalkSampler
+from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
+from hypergan.samplers.debug_sampler import DebugSampler
+from hypergan.samplers.segment_sampler import SegmentSampler
+from hypergan.samplers.y_sampler import YSampler
+from hypergan.samplers.gang_sampler import GangSampler
+
 class BaseGAN(GANComponent):
-    def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps,
+    def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps, graph=None,
             batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan"):
         """ Initialized a new GAN."""
         self.inputs = inputs
@@ -30,6 +48,9 @@ class BaseGAN(GANComponent):
         self.session = session
         self.skip_connections = SkipConnections()
         self.destroy = False
+        if graph is None:
+            graph = tf.get_default_graph()
+        self.graph = graph
 
         if config == None:
             config = hg.Configuration.default()
@@ -43,7 +64,7 @@ class BaseGAN(GANComponent):
             tfconfig.gpu_options.allow_growth=True
 
             with tf.device(self.device):
-                self.session = self.session or tf.Session(config=tfconfig)
+                self.session = self.session or tf.Session(config=tfconfig, graph=graph)
 
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         self.steps = tf.Variable(0, trainable=False, name='global_step')
@@ -158,15 +179,17 @@ class BaseGAN(GANComponent):
         return list(set(self.g_vars()).intersection(tf.trainable_variables()))
 
     def save(self, save_file):
-        print("[hypergan] Saving network to ", save_file)
-        os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
-        saver = tf.train.Saver(self.variables())
-        print("Saving " +str(len(self.variables()))+ " variables: ")
-        missing = set(tf.global_variables()) - set(self.variables())
-        missing = [ o for o in missing if "dontsave" not in o.name ]
-        if(len(missing) > 0):
-            print("[hypergan] Warning: Variables on graph but not saved:", missing)
-        saver.save(self.session, save_file)
+        with self.graph.as_default():
+            print("[hypergan] Saving network to ", save_file)
+            os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
+            saver = tf.train.Saver(self.variables())
+            print("Saving " +str(len(self.variables()))+ " variables: ")
+            missing = set(tf.global_variables()) - set(self.variables())
+            missing = [ o for o in missing if "dontsave" not in o.name ]
+            if(len(missing) > 0):
+                print("[hypergan] Warning: Variables on graph but not saved:", missing)
+            saver.save(self.session, save_file)
+
 
     def load(self, save_file):
         save_file = os.path.expanduser(save_file)
@@ -348,5 +371,32 @@ class BaseGAN(GANComponent):
                 print("Input: ", input, sess.graph.get_tensor_by_name(input+":0"))
             for output in outputs:
                 print("Output: ", output, sess.graph.get_tensor_by_name(output+":0"))
+    def get_registered_samplers(self=None):
+        return {
+                'static_batch': StaticBatchSampler,
+                'progressive': ProgressiveSampler,
+                'random_walk': RandomWalkSampler,
+                'alphagan_random_walk': AlphaganRandomWalkSampler,
+                'style_walk': StyleWalkSampler,
+                'batch_walk': BatchWalkSampler,
+                'batch': BatchSampler,
+                'grid': GridSampler,
+                'sorted': SortedSampler,
+                'gang': GangSampler,
+                'began': BeganSampler,
+                'autoencode': AutoencodeSampler,
+                'debug': DebugSampler,
+                'y': YSampler,
+                'segment': SegmentSampler,
+                'aligned': AlignedSampler
+            }
+    def sampler_for(self, name, default=StaticBatchSampler):
+        samplers = self.get_registered_samplers()
+        self.selected_sampler = name
+        if name in samplers:
+            return samplers[name]
+        else:
+            print("[hypergan] No sampler found for ", name, ".  Defaulting to", default)
+            return default
 
 

@@ -21,11 +21,11 @@ import tensorflow as tf
 import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent
-from ..base_gan import BaseGAN
+from .base_gan import BaseGAN
 
 from hypergan.distributions.uniform_distribution import UniformDistribution
 
-class AlignedAliGAN3(BaseGAN):
+class AlignedAliGANTest(BaseGAN):
     """ 
     """
     def __init__(self, *args, **kwargs):
@@ -37,7 +37,7 @@ class AlignedAliGAN3(BaseGAN):
         `discriminator` is a standard discriminator.  It measures X, reconstruction of X, and G.
         `generator` produces two samples, input_encoder output and a known random distribution.
         """
-        return "discriminator ".split()
+        return "generator discriminator ".split()
 
     def create(self):
         config = self.config
@@ -48,53 +48,51 @@ class AlignedAliGAN3(BaseGAN):
             xa_input = tf.identity(self.inputs.xa, name='xa_i')
             xb_input = tf.identity(self.inputs.xb, name='xb_i')
 
+            ue = UniformDistribution(self, config.latent)
+            ue2 = UniformDistribution(self, config.latent)
+            ue3 = UniformDistribution(self, config.latent)
+            ue4 = UniformDistribution(self, config.latent)
             if config.same_g:
-                ga = self.create_component(config.generator, input=xb_input, name='a_generator')
-                gb = self.create_component(config.generator, input=xa_input, name='a_generator', reuse=True)
-            elif config.two_g:
-                ga = self.create_component(config.generator1, input=xb_input, name='a_generator')
-                gb = self.create_component(config.generator2, input=xa_input, name='b_generator')
+                gb = self.create_component(config.generator, input=ue3.sample, name='a_generator')
+                gb = self.create_component(config.generator, input=ue4.sample, name='a_generator', reuse=True)
             else:
-                ga = self.create_component(config.generator, input=xb_input, name='a_generator')
-                gb = self.create_component(config.generator, input=xa_input, name='b_generator')
+                def _append_xa(gan, config, net):
+                    _x = gan.inputs.xa
+                    s = [int(x) for x in net.get_shape()]
+                    shape = [s[1], s[2]]
+                    _x = tf.image.resize_images(_x, shape, 1)
+                    return _x 
+                def _append_xb(gan, config, net):
+                    _x = gan.inputs.xb
+                    s = [int(x) for x in net.get_shape()]
+                    shape = [s[1], s[2]]
+                    _x = tf.image.resize_images(_x, shape, 1)
+                    return _x 
 
-            za = ga.controls["z"]
+
+
+                #config.generator['layer_filter'] = _append_xb
+                #gb = self.create_component(config.generator, input=ue3.sample, name='a_generator')
+                config.generator['layer_filter'] = _append_xa
+                gb = self.create_component(config.generator, input=ue4.sample, name='b_generator')
+
+            za = gb.controls["z"]
             zb = gb.controls["z"]
 
-            self.uniform_sample = ga.sample
+            self.uniform_sample = gb.sample
 
-            xba = ga.sample
-            xab = gb.sample
-            xa_hat = ga.sample
-            xb_hat = gb.sample
-            #xa_hat = ga.reuse(gb.sample)
-            #xb_hat = gb.reuse(ga.sample)
-
-            z_shape = self.ops.shape(za)
-            uz_shape = z_shape
-            uz_shape[-1] = uz_shape[-1] // len(config.latent.projections or [1])
-            ue = UniformDistribution(self, config.latent, output_shape=uz_shape)
-            ue2 = UniformDistribution(self, config.latent, output_shape=uz_shape)
-            ue3 = UniformDistribution(self, config.latent, output_shape=uz_shape)
-            ue4 = UniformDistribution(self, config.latent, output_shape=uz_shape)
-            print('ue', ue.sample)
 
             zua = ue.sample
             zub = ue2.sample
 
-            uga = ga.sample#ga.reuse(tf.zeros_like(xb_input), replace_controls={"z":zua})
-            ugb = gb.sample#gb.reuse(tf.zeros_like(xa_input), replace_controls={"z":zub})
-
             xa = xa_input
             xb = xb_input
 
-            re_ga = ga#self.create_component(config.generator, input=gb.sample, name='a_generator', reuse=True)
-            re_gb = gb#self.create_component(config.generator, input=ga.sample, name='b_generator', reuse=True)
-            re_zb = zb#re_gb.controls['z']
 
+            t0 = tf.concat([xb, xb], axis=3)
+            t1 = tf.concat([gb.sample, xb], axis=3)
             t0 = xb
             t1 = gb.sample
-            t2 = ugb
             f0 = za
             f1 = zb
             f2 = zub
@@ -102,11 +100,12 @@ class AlignedAliGAN3(BaseGAN):
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
 
-            d = self.create_component(config.discriminator, name='d_ab', input=stacked, features=[features])
+            config.discriminator['layer_filter'] = _append_xa
+            d = self.create_component(config.discriminator, name='d_ab', input=stacked)
 
             self.za = za
             self.discriminator = d
-            l = self.create_loss(config.loss, d, xa_input, ga.sample, len(stack))
+            l = self.create_loss(config.loss, d, xb_input, gb.sample, len(stack))
             loss1 = l
             d1_lambda = config.d1_lambda
             d2_lambda = config.d2_lambda
@@ -114,7 +113,6 @@ class AlignedAliGAN3(BaseGAN):
             g_loss1 = d1_lambda * l.g_loss
 
             d_vars1 = d.variables()
-            print('--', ga, gb)
 
             d_loss = l.d_loss
             g_loss = l.g_loss
@@ -126,22 +124,21 @@ class AlignedAliGAN3(BaseGAN):
 
             if d2_lambda > -1:
                 t0 = xa
-                t1 = ga.sample
-                t2 = uga
+                t1 = gb.sample
                 f0 = zb
                 f1 = za
-                f2 = zua
-                stack = [t0, t1, t2]
+                stack = [t0, t1]
                 stacked = ops.concat(stack, axis=0)
-                features = ops.concat([f0, f1, f2], axis=0)
+                features = ops.concat([f0, f1], axis=0)
 
+                config.discriminator['layer_filter'] = _append_xa
                 d = self.create_component(config.discriminator, name='d2_ab', input=stacked, features=[features])
                 self.discriminator2 = d
                 l = self.create_loss(config.loss, d, xb_input, gb.sample, len(stack))
 
                 d_vars2 = d.variables()
-                metrics["ga_gloss"]=l.g_loss
-                metrics["ga_dloss"]=l.d_loss
+                metrics["gb_gloss"]=l.g_loss
+                metrics["gb_dloss"]=l.d_loss
                 loss2=l
                 g_loss2 = d2_lambda * loss2.g_loss
                 d_loss2 = d2_lambda * loss2.d_loss
@@ -156,7 +153,7 @@ class AlignedAliGAN3(BaseGAN):
                 netzd = tf.concat(axis=0, values=[t0,t1])
                 z_d = self.create_component(config.z_discriminator, name='z_discriminator', input=netzd)
 
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=gb, split=2)
                 d_vars1 += z_d.variables()
                 metrics["za_gloss"]=loss3.g_loss
                 metrics["za_dloss"]=loss3.d_loss
@@ -170,7 +167,7 @@ class AlignedAliGAN3(BaseGAN):
                 netzd = tf.concat(axis=0, values=[t0,t1])
                 z_d = self.create_component(config.discriminator, name='ug_discriminator', input=netzd)
 
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=gb, split=2)
                 d_vars1 += z_d.variables()
                 metrics["za_gloss"]=loss3.g_loss
                 metrics["za_dloss"]=loss3.d_loss
@@ -183,7 +180,7 @@ class AlignedAliGAN3(BaseGAN):
                 netzd = tf.concat(axis=0, values=[t0,t1])
                 z_d = self.create_component(config.z_discriminator, name='z_discriminator2', input=netzd)
 
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=gb, split=2)
                 d_vars2 += z_d.variables()
                 metrics["za_gloss"]=loss3.g_loss
                 metrics["za_dloss"]=loss3.d_loss
@@ -192,11 +189,11 @@ class AlignedAliGAN3(BaseGAN):
 
             if config.ug2:
                 t0 = xa
-                t1 = uga
+                t1 = ugb
                 netzd = tf.concat(axis=0, values=[t0,t1])
                 z_d = self.create_component(config.discriminator, name='ug_discriminator2', input=netzd)
 
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=ga, split=2)
+                loss3 = self.create_component(config.loss, discriminator = z_d, x=xa_input, generator=gb, split=2)
                 d_vars2 += z_d.variables()
                 metrics["za_gloss"]=loss3.g_loss
                 metrics["za_dloss"]=loss3.d_loss
@@ -209,7 +206,7 @@ class AlignedAliGAN3(BaseGAN):
                 'd_real':loss1.d_real,
                 'sample': [tf.add_n([d_loss1, d_loss2]), tf.add_n([g_loss1, g_loss2])]
             })
-            self._g_vars = ga.variables() + gb.variables()
+            self._g_vars = gb.variables() + gb.variables()
             self._d_vars = d_vars1 + d_vars2
             self.loss=loss
             self.generator = gb
@@ -224,14 +221,13 @@ class AlignedAliGAN3(BaseGAN):
         self.zb = zb
         self.z_hat = gb.sample
         self.x_input = xa_input
-        self.autoencoded_x = xa_hat
 
-        self.cyca = xa_hat
-        self.cycb = xb_hat
-        self.xba = xba
-        self.xab = xab
-        self.uga = uga
-        self.ugb = ugb
+        self.uga = gb.sample
+        self.ugb = gb.sample
+        self.cyca = gb.sample
+        self.cycb = gb.sample
+        self.xba = gb.sample
+        self.xab = gb.sample
 
         rgb = tf.cast((self.generator.sample+1)*127.5, tf.int32)
         self.generator_int = tf.bitwise.bitwise_or(rgb, 0xFF000000, name='generator_int')

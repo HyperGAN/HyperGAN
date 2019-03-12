@@ -148,6 +148,8 @@ class Custom2DDiscriminator(BaseGenerator):
         net = self.build(net)
         self.ops.stop_reuse()
         return net 
+
+x_v, z_v = None, None
 class Custom2DSampler(BaseSampler):
     def sample(self, filename, save_samples):
         gan = self.gan
@@ -155,7 +157,9 @@ class Custom2DSampler(BaseSampler):
 
         sess = gan.session
         config = gan.config
-        x_v, z_v = sess.run([gan.inputs.x, gan.latent.sample])
+        global x_v, z_v
+        if x_v is None:
+            x_v, z_v = sess.run([gan.inputs.x, gan.latent.sample])
 
         sample = sess.run(generator, {gan.inputs.x: x_v, gan.latent.sample: z_v})
 

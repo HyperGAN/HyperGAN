@@ -36,12 +36,13 @@ def train(config, args):
         config.generator["class"]="class:__main__.Custom2DGenerator" # TODO
         config.discriminator["class"]="class:__main__.Custom2DDiscriminator" # TODO
         gan = hg.GAN(config, inputs = Custom2DInputDistribution(args))
-        gan.name = config_name
+        gan.name = args.config
 
         accuracy_x_to_g=distribution_accuracy(gan.inputs.x, gan.generator.sample)
         accuracy_g_to_x=distribution_accuracy(gan.generator.sample, gan.inputs.x)
 
         sampler = Custom2DSampler(gan)
+        gan.selected_sampler = sampler
 
         tf.train.start_queue_runners(sess=gan.session)
         samples = 0

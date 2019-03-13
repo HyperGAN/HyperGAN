@@ -67,25 +67,6 @@ class CustomGenerator(BaseGenerator):
         net = ops.lookup('tanh')(net)
         self.sample = net
         return net
-
-class Custom2DGenerator(BaseGenerator):
-    def create(self):
-        gan = self.gan
-        config = self.config
-        ops = self.ops
-        end_features = config.end_features or 1
-
-        ops.describe('custom_generator')
-
-        net = gan.latent.sample
-        for i in range(2):
-            net = ops.linear(net, 16)
-            net = ops.lookup('bipolar')(net)
-        net = ops.linear(net, end_features)
-        print("-- net is ", net)
-        self.sample = net
-        return net
-
 class CustomDiscriminator(BaseGenerator):
     def build(self, net):
         gan = self.gan
@@ -108,85 +89,6 @@ class CustomDiscriminator(BaseGenerator):
 
         return net
 
-class Custom2DDiscriminator(BaseGenerator):
-    def __init__(self, gan, config, g=None, x=None, name=None, input=None, reuse=None, features=[], skip_connections=[]):
-        self.x = x
-        self.g = g
-
-        GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
-    def create(self):
-        gan = self.gan
-        if self.x is None:
-            self.x = gan.inputs.x
-        if self.g is None:
-            self.g = gan.generator.sample
-        net = tf.concat(axis=0, values=[self.x,self.g])
-        net = self.build(net)
-        self.sample = net
-        return net
-
-    def build(self, net):
-        gan = self.gan
-        config = self.config
-        ops = self.ops
-        layers=2
-
-        end_features = 1
-
-        for i in range(layers):
-            net = ops.linear(net, 16)
-            net = ops.lookup('bipolar')(net)
-        net = ops.linear(net, 1)
-        self.sample = net
-
-        return net
-    def reuse(self, net):
-        self.ops.reuse()
-        net = self.build(net)
-        self.ops.stop_reuse()
-        return net 
-
-
-class Custom2DInputDistribution:
-    def __init__(self, args):
-        with tf.device(args.device):
-            def circle(x):
-                spherenet = tf.square(x)
-                spherenet = tf.reduce_sum(spherenet, 1)
-                lam = tf.sqrt(spherenet)
-                return x/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
-
-            def modes(x):
-                shape = x.get_shape()
-                return tf.round(x*2)/2.0#+tf.random_normal(shape, 0, 0.04)
-
-            if args.distribution == 'circle':
-                x = tf.random_normal([args.batch_size, 2])
-                x = circle(x)
-            elif args.distribution == 'modes':
-                x = tf.random_uniform([args.batch_size, 2], -1, 1)
-                x = modes(x)
-            elif args.distribution == 'sin':
-                x = tf.random_uniform((1, args.batch_size), -10.5, 10.5 )
-                x = tf.transpose(x)
-                r_data = tf.random_normal((args.batch_size,1), mean=0, stddev=0.1)
-                xy = tf.sin(0.75*x)*7.0+x*0.5+r_data*1.0
-                x = tf.concat([xy,x], 1)/16.0
-
-            elif args.distribution == 'arch':
-                offset1 = tf.random_uniform((1, args.batch_size), -10, 10 )
-                xa = tf.random_uniform((1, 1), 1, 4 )
-                xb = tf.random_uniform((1, 1), 1, 4 )
-                x1 = tf.random_uniform((1, args.batch_size), -1, 1 )
-                xcos = tf.cos(x1*np.pi + offset1)*xa
-                xsin = tf.sin(x1*np.pi + offset1)*xb
-                x = tf.transpose(tf.concat([xcos,xsin], 0))/16.0
-
-            elif args.distribution == 'static-point':
-                x = tf.ones([args.batch_size, 2])
-
-            self.x = x
-            self.xy = tf.zeros_like(self.x)
 
 def batch_diversity(net):
     bs = int(net.get_shape()[0])

@@ -17,12 +17,103 @@ import plotly.graph_objs as go
 
 arg_parser = ArgumentParser("Test your gan vs a known distribution", require_directory=False)
 arg_parser.parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
+arg_parser.parser.add_argument('--contour_size', '-cs', type=int, default=128, help='number of points to plot the discriminator contour with.  must be a multiple of batch_size')
+arg_parser.parser.add_argument('--sample_points', '-p', type=int, default=512, help='number of scatter points to plot.  must be a multiple of batch_size')
 args = arg_parser.parse_args()
 
 import plotly.plotly as py
 import plotly.graph_objs as go
 import plotly.figure_factory as ff
 import plotly.io as pio
+
+class Custom2DDiscriminator(BaseGenerator):
+    def __init__(self, gan, config, g=None, x=None, name=None, input=None, reuse=None, features=[], skip_connections=[]):
+        self.x = x
+        self.g = g
+
+        GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
+    def create(self):
+        gan = self.gan
+        if self.x is None:
+            self.x = gan.inputs.x
+        if self.g is None:
+            self.g = gan.generator.sample
+        net = tf.concat(axis=0, values=[self.x,self.g])
+        net = self.build(net)
+        self.sample = net
+        return net
+
+    def build(self, net):
+        gan = self.gan
+        config = self.config
+        ops = self.ops
+        layers=2
+
+        end_features = 1
+
+        for i in range(layers):
+            net = ops.linear(net, 16)
+            net = ops.lookup('bipolar')(net)
+        net = ops.linear(net, 1)
+        self.sample = net
+
+        return net
+
+
+class Custom2DGenerator(BaseGenerator):
+    def create(self):
+        gan = self.gan
+        config = self.config
+        ops = self.ops
+        end_features = config.end_features or 1
+
+        ops.describe('custom_generator')
+
+        net = gan.latent.sample
+        for i in range(2):
+            net = ops.linear(net, 16)
+            net = ops.lookup('bipolar')(net)
+        net = ops.linear(net, end_features)
+        print("-- net is ", net)
+        self.sample = net
+        return net
+
+class Custom2DInputDistribution:
+    def __init__(self, args):
+        with tf.device(args.device):
+            def circle(x):
+                spherenet = tf.square(x)
+                spherenet = tf.reduce_sum(spherenet, 1)
+                lam = tf.sqrt(spherenet)
+                return x/tf.reshape(lam,[int(lam.get_shape()[0]), 1])
+
+            def modes(x):
+                shape = x.get_shape()
+                return tf.round(x*2)/2.0#+tf.random_normal(shape, 0, 0.04)
+
+            if args.distribution == 'circle':
+                x = tf.random_normal([args.batch_size, 2])
+                x = circle(x)
+            elif args.distribution == 'modes':
+                x = tf.random_uniform([args.batch_size, 2], -1, 1)
+                x = modes(x)
+            elif args.distribution == 'modal-gaussian':
+                x = tf.random_uniform([args.batch_size, 2], -1, 1)
+                y = tf.random_normal([args.batch_size, 2], stddev=0.04, mean=0.15)
+                x = tf.round(x) + y
+            elif args.distribution == 'sin':
+                x = tf.random_uniform((1, args.batch_size), -10.5, 10.5 )
+                x = tf.transpose(x)
+                r_data = tf.random_normal((args.batch_size,1), mean=0, stddev=0.1)
+                xy = tf.sin(0.75*x)*7.0+x*0.5+r_data*1.0
+                x = tf.concat([xy,x], 1)/16.0
+
+            elif args.distribution == 'static-point':
+                x = tf.ones([args.batch_size, 2])
+
+            self.x = x
+            self.xy = tf.zeros_like(self.x)
+
 
 x_v, z_v = None, None
 class Custom2DSampler(BaseSampler):
@@ -37,35 +128,56 @@ class Custom2DSampler(BaseSampler):
 
         sess = gan.session
         config = gan.config
-        global x_v, z_v
-        if x_v is None:
-            x_v, z_v = sess.run([gan.inputs.x, gan.latent.sample])
 
-        sample = sess.run(generator, {gan.inputs.x: x_v, gan.latent.sample: z_v})
+        contours = args.contour_size
 
-        bs = gan.batch_size()
-
-        x,y = np.meshgrid(np.arange(-1.5, 1.5, 3/bs), np.arange(-1.5, 1.5, 3/bs))
+        x,y = np.meshgrid(np.arange(-1.5, 1.5, 3/contours), np.arange(-1.5, 1.5, 3/contours))
         d = []
-        for i in range(bs):
+        for i in range(args.contour_size):
             _x = np.reshape(x[:,i], [-1]) 
             _y = np.reshape(y[:,i], [-1]) 
-            _d = gan.session.run(gan.loss.d_real, {gan.inputs.x: [[__x,__y] for __x, __y in zip(_x, _y)]})
-            d.append(_d)
+            for j in range(args.contour_size // gan.batch_size()):
+                offset = j*gan.batch_size()
+                endoffset = (j+1)*gan.batch_size()
+                _x_sample = _x[offset:endoffset]
+                _y_sample = _y[offset:endoffset]
+                _d = gan.session.run(gan.loss.d_real, {gan.inputs.x: [[__x,__y] for __x, __y in zip(_x_sample, _y_sample)]})
+                d.append(_d)
         contour = go.Contour(
             z = np.reshape(d, [-1]),
             x = np.reshape(x, [-1]),
             y = np.reshape(y, [-1]),
             opacity=0.5,
+            showlegend=False,
             contours = dict(
-                start=-0.3,
-                end=0.3,
-                size=0.02,
+                start=-0.5,
+                end=0.5,
+                size=0.03,
             )
         )
         print(np.shape(x), np.shape(y))
         #z = sess.run(gan.discriminator.sample, 
 
+        global x_v, z_v
+        if x_v is None:
+            x_v = []
+            z_v = []
+            for j in range(args.sample_points // gan.batch_size()):
+                _x_v, _z_v = sess.run([gan.inputs.x, gan.latent.sample])
+                x_v.append(_x_v)
+                z_v.append( _z_v)
+            x_v = np.reshape(x_v, [-1,gan.inputs.x.shape[1]])
+            z_v = np.reshape(z_v, [-1,gan.latent.sample.shape[1]])
+
+        sample = []
+        for j in range(args.sample_points // gan.batch_size()):
+            offset = j*gan.batch_size()
+            endoffset = (j+1)*gan.batch_size()
+            z_v_sample = z_v[offset:endoffset]
+            x_v_sample = x_v[offset:endoffset]
+            _sample = sess.run(generator, {gan.inputs.x: x_v_sample, gan.latent.sample: z_v_sample})
+            sample.append(_sample)
+        sample = np.reshape(sample, [-1, 2])
         points = go.Scatter(x=sample[:,0], y=sample[:,1],
                 mode='markers',
                 marker = dict(
@@ -90,9 +202,11 @@ class Custom2DSampler(BaseSampler):
 
         layout = go.Layout(hovermode='closest',
                 xaxis=dict(range=[-1.5,1.5]),
-                yaxis=dict(range=[-1.5,1.5])
+                yaxis=dict(range=[-1.5,1.5]),
+                width=1920,
+                height=1080
         )
-        fig = go.Figure([contour, points, xpoints], layout=layout)
+        fig = go.Figure([contour, xpoints, points], layout=layout)
         data = pio.to_image(fig, format='png')
         #pio.write_image(fig,"sample.png")
         img = Image.open(io.BytesIO(data))

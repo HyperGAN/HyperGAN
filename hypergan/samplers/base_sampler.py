@@ -42,10 +42,11 @@ class BaseSampler:
         """
         return tf.where(tf.is_nan(t),tf.zeros_like(t),t)
 
-    def plot(self, image, filename, save_sample):
+    def plot(self, image, filename, save_sample, regularize=True):
         """ Plot an image."""
-        image = np.minimum(image, 1)
-        image = np.maximum(image, -1)
+        if regularize:
+            image = np.minimum(image, 1)
+            image = np.maximum(image, -1)
         image = np.squeeze(image)
         # Scale to 0..255.
         imin, imax = image.min(), image.max()

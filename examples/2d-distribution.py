@@ -1,4 +1,5 @@
 import argparse
+import io
 import os
 import math
 
@@ -11,10 +12,95 @@ from hypergan.generators import *
 from hypergan.search.random_search import RandomSearch
 from hypergan.viewer import GlobalViewer
 from common import *
+from PIL import Image
+import plotly.graph_objs as go
 
 arg_parser = ArgumentParser("Test your gan vs a known distribution", require_directory=False)
 arg_parser.parser.add_argument('--distribution', '-t', type=str, default='circle', help='what distribution to test, options are circle, modes')
 args = arg_parser.parse_args()
+
+import plotly.plotly as py
+import plotly.graph_objs as go
+import plotly.figure_factory as ff
+import plotly.io as pio
+
+x_v, z_v = None, None
+class Custom2DSampler(BaseSampler):
+    def __init__(self, gan):
+        self.gan = gan
+        self.copy_vars = [tf.Variable(x) for x in self.gan.variables()]
+        self.reset_vars = [y.assign(x) for y, x in zip(self.copy_vars, self.gan.variables())]
+
+    def sample(self, filename, save_samples):
+        gan = self.gan
+        generator = gan.generator.sample
+
+        sess = gan.session
+        config = gan.config
+        global x_v, z_v
+        if x_v is None:
+            x_v, z_v = sess.run([gan.inputs.x, gan.latent.sample])
+
+        sample = sess.run(generator, {gan.inputs.x: x_v, gan.latent.sample: z_v})
+
+        bs = gan.batch_size()
+
+        x,y = np.meshgrid(np.arange(-1.5, 1.5, 3/bs), np.arange(-1.5, 1.5, 3/bs))
+        d = []
+        for i in range(bs):
+            _x = np.reshape(x[:,i], [-1]) 
+            _y = np.reshape(y[:,i], [-1]) 
+            _d = gan.session.run(gan.loss.d_real, {gan.inputs.x: [[__x,__y] for __x, __y in zip(_x, _y)]})
+            d.append(_d)
+        contour = go.Contour(
+            z = np.reshape(d, [-1]),
+            x = np.reshape(x, [-1]),
+            y = np.reshape(y, [-1]),
+            opacity=0.5,
+            contours = dict(
+                start=-0.3,
+                end=0.3,
+                size=0.02,
+            )
+        )
+        print(np.shape(x), np.shape(y))
+        #z = sess.run(gan.discriminator.sample, 
+
+        points = go.Scatter(x=sample[:,0], y=sample[:,1],
+                mode='markers',
+                marker = dict(
+                    size = 10,
+                    color = 'rgba(0, 152, 0, .8)',
+                    line = dict(
+                       width = 2,
+                       color = 'rgb(0, 0, 0)'
+                    )),
+                name='fake')
+
+        xpoints = go.Scatter(x=x_v[:,0], y=x_v[:,1],
+                mode='markers',
+                marker = dict(
+                    size = 10,
+                    color = 'rgba(255, 182, 193, .9)',
+                    line = dict(
+                       width = 2,
+                       color = 'rgb(0, 0, 0)'
+                    )),
+                name='real')
+
+        layout = go.Layout(hovermode='closest',
+                xaxis=dict(range=[-1.5,1.5]),
+                yaxis=dict(range=[-1.5,1.5])
+        )
+        fig = go.Figure([contour, points, xpoints], layout=layout)
+        data = pio.to_image(fig, format='png')
+        #pio.write_image(fig,"sample.png")
+        img = Image.open(io.BytesIO(data))
+        #img = Image.open("sample.png").convert("RGB")
+        #img.save("save.jpg")
+        #plt.savefig(filename)
+        self.plot(np.array(img), filename, save_samples, regularize=False)
+        return [{'image': filename, 'label': '2d'}]
 
 config = lookup_config(args)
 if args.action == 'search':

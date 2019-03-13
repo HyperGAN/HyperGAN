@@ -1,6 +1,3 @@
-import matplotlib.pyplot as plt
-import matplotlib.style
-import matplotlib as mpl
 import argparse
 import tensorflow as tf
 import hypergan as hg
@@ -148,44 +145,6 @@ class Custom2DDiscriminator(BaseGenerator):
         net = self.build(net)
         self.ops.stop_reuse()
         return net 
-
-x_v, z_v = None, None
-class Custom2DSampler(BaseSampler):
-    def sample(self, filename, save_samples):
-        gan = self.gan
-        generator = gan.generator.sample
-
-        sess = gan.session
-        config = gan.config
-        global x_v, z_v
-        if x_v is None:
-            x_v, z_v = sess.run([gan.inputs.x, gan.latent.sample])
-
-        sample = sess.run(generator, {gan.inputs.x: x_v, gan.latent.sample: z_v})
-
-        X, Y = np.meshgrid(np.arange(-1.2, 1.2, .1), np.arange(-1.2, 1.2, .1))
-        U = np.cos(X)
-        V = np.sin(Y)
-
-        mpl.style.use('classic')
-        plt.clf()
-
-        #fig = plt.figure(figsize=(3,3))
-        fig = plt.figure()
-        plt.scatter(*zip(*x_v), c='b')
-        plt.scatter(*zip(*sample), c='r')
-        q = plt.quiver(X,Y,U,V, color='k', units='width')
-        qk = plt.quiverkey(q, 0.9, 0.9, 2, r'$2 \frac{m}{s}$', labelpos='E', coordinates='figure')
-
-        #plt.xlim([-2, 2])
-        #plt.ylim([-2, 2])
-        #plt.ylabel("z")
-        fig.canvas.draw()
-        data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        #plt.savefig(filename)
-        self.plot(data, filename, save_samples)
-        return [{'image': filename, 'label': '2d'}]
 
 
 class Custom2DInputDistribution:

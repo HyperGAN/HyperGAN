@@ -55,7 +55,7 @@ class TkViewer:
                     self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
                     self.enforce_aspect_ratio(event)
                     surface = self.tkviewer.pg.Surface([image.shape[0],image.shape[1]])
-                    self.tkviewer.pg.surfarray.blit_array(surface, image)
+                    self.tkviewer.pg.surfarray.blit_array(surface, image[:,:,:3])
                     self.tkviewer.screen.blit(self.tkviewer.pg.transform.scale(surface,self.tkviewer.size),(0,0))
                     self.tkviewer.pg.display.flip()
 
@@ -197,7 +197,7 @@ class TkViewer:
         self.root.tk.call('wm', 'iconphoto', self.root._w, tk_image.subsample(max(1, w//256), max(1, h//256)))
 
         surface = self.pg.Surface([image.shape[0],image.shape[1]])
-        self.pg.surfarray.blit_array(surface, image)
+        self.pg.surfarray.blit_array(surface, image[:,:,:3])
         self.screen.blit(self.pg.transform.scale(surface,self.size),(0,0))
         self.pg.display.flip()
 

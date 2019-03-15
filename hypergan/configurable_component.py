@@ -68,12 +68,16 @@ class ConfigurableComponent:
         self.features = features
         self.controls = {}
         self.named_layers = {}
+        if not hasattr(gan, "named_layers"):
+            gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
 
     def required(self):
         return "layers defaults".split()
 
     def layer(self, name):
+        if name in self.gan.named_layers:
+            return self.gan.named_layers[name] 
         if name in self.named_layers:
             return self.named_layers[name]
         return None
@@ -132,7 +136,9 @@ class ConfigurableComponent:
             if 'name' in options:
                 if options['name'] in self.named_layers and op != 'reference':
                     raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
-                self.named_layers[options['name']] = net
+                self.gan.named_layers[options['name']] = net
+                self.named_layers[options['name']]     = net
+
             after = self.variables()
             new = set(after) - set(before)
             for j in new:
@@ -937,7 +943,7 @@ class ConfigurableComponent:
         if len(args) > 0 and args[0] == 'noise':
             extra = tf.random_normal(self.ops.shape(net), stddev=0.1)
         if 'layer' in options:
-            extra = self.named_layers[options['layer']]
+            extra = self.layer(options['layer'])
 
         if self.ops.shape(extra) != self.ops.shape(net):
             extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
@@ -1037,9 +1043,9 @@ class ConfigurableComponent:
 
     def layer_adaptive_instance_norm(self, net, args, options):
         if 'w' in options:
-            f = self.named_layers[options['w']]
+            f = self.layer(options['w'])
         else:
-            f = self.named_layers['w']
+            f = self.layer('w')
         if f is None:
             raise("ERROR: Could not find named generator layer 'w', add name=w to the input layer in your generator")
         if len(args) > 0:
@@ -1101,8 +1107,8 @@ class ConfigurableComponent:
         return tf.image.resize_images(net, [w, h], method=method)
     
     def layer_progressive_replace(self, net, args, options):
-        start = self.named_layers[options["start"]]
-        end = self.named_layers[options["end"]]
+        start = self.layer(options["start"])
+        end = self.layer(options["end"])
         steps = float(options["steps"])
         delay = 0
         if "delay" in options:

@@ -6,7 +6,7 @@
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
     "initializer": "he_normal",
     "defaults":{
-      "activation": "lrelu",
+      "activation": "bipolar",
       "initializer": "he_normal",
       "filter": [3,3],
       "stride": [1,1],
@@ -24,7 +24,7 @@
   "generator": {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
     "defaults": {
-      "activation": "lrelu",
+      "activation": "bipolar",
       "initializer": "he_normal",
       "filter": [3,3],
       "stride": [1,1],
@@ -107,15 +107,11 @@
   "trainer": {
     "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
     "optimizer": {
-      "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
-      "learn_rate": 0.00001,
- 
-      "optimizer": {
         "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
-        "f_decay": 0.85,
-        "initial_constraint": 1.0,
+        "f_decay": 0.7,
+        "initial_constraint": 0.1,
         "add_ewc_loss_gradients": true,
-        "gradient_scale": 10.0,
+        "gradient_scale": 1.0,
         "lam": 20.0,
         "optimizer": {
           "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
@@ -132,14 +128,13 @@
             "beta1":0.0,
             "beta2":0.999
           }
-        }
       }
     },
     "hooks":[
       {
         "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
         "target": "discriminator",
-        "lambda": 100.0
+        "lambda": 10.0
       }
     ]
   },

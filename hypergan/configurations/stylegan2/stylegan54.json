@@ -1,0 +1,149 @@
+{
+  "description":"Style GAN (no progressive growing)",
+  "publication":"https://arxiv.org/abs/1812.04948 , https://github.com/NVlabs/stylegan",
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "initializer": "he_normal",
+    "defaults":{
+      "activation": "bipolar",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2]
+    },
+    "layers":[
+      "conv 32 name=discriminator_1",
+      "conv 64 name=discriminator_4",
+      "conv 128 name=discriminator_7",
+      "conv 256 name=discriminator_10",
+      "conv 512 name=discriminator_13",
+      "linear 1 name=discriminator_16 activation=null bias=false"
+    ]
+  },
+  "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults": {
+      "activation": "bipolar",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [1,1]
+    },
+    "layers": [
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan",
+      "reshape -1 name=w",
+
+      "const 4*4*512 initializer=stylegan",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+      "conv 512",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+
+      "deconv 256 stride=2",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+      "conv 256",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+
+      "deconv 128 stride=2",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+      "conv 128",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+
+      "deconv 64 stride=2",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+      "conv 64",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+
+      "deconv 32 stride=2",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+      "conv 32",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+
+      "deconv 16 stride=2",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+      "conv 16",
+      "noise learned initializer=stylegan",
+      "adaptive_instance_norm initializer=stylegan",
+
+      "conv 3 activation=null"
+    ]
+  },
+  "latent": {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "max": 1,
+    "min": -1,
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "z": 128
+  },
+  "loss": {
+    "class": "function:hypergan.losses.logistic_loss.LogisticLoss",
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+    "optimizer": {
+        "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
+        "f_decay": 0.7,
+        "initial_constraint": 0.1,
+        "add_ewc_loss_gradients": true,
+        "gradient_scale": 1.0,
+        "lam": 20.0,
+        "optimizer": {
+          "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+
+          "optimizer": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 1e-4,
+            "beta1":0.0,
+            "beta2":0.999
+          },
+          "optimizer2": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 3e-5,
+            "beta1":0.0,
+            "beta2":0.999
+          }
+      }
+    },
+    "hooks":[
+      {
+        "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
+        "target": "discriminator",
+        "lambda": 10.0
+      }
+    ]
+  },
+  "runtime": {
+      "channels": 3,
+      "width": 128,
+      "height": 128,
+      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 1 -c stylegan --save_every 10000 --resize"
+  },
+
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
+}

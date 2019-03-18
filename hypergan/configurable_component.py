@@ -2,6 +2,7 @@ import tensorflow as tf
 import hyperchamber as hc
 import inspect
 import copy
+import re
 import os
 import operator
 from functools import reduce
@@ -97,10 +98,10 @@ class ConfigurableComponent:
         args = []
         for x in strs:
             if '=' in x:
-                lhs, rhs = x.split('=')
-                options[lhs]=rhs
+                lhs, rhs = x.split('=', 1)
+                options[lhs]=self.gan.configurable_param(rhs)
             else:
-                args.append(x)
+                args.append(self.gan.configurable_param(x))
         return args, options
 
     def parse_layer(self, net, layer):
@@ -120,7 +121,13 @@ class ConfigurableComponent:
             return net
 
         else:
+            parens = re.findall('\(.*?\)',layer)
+            for i, paren in enumerate(parens):
+                layer = layer.replace(paren, "PAREN"+str(i))
             d = layer.split(' ')
+            for i, _d in enumerate(d):
+                for j, paren in enumerate(parens):
+                    d[i] = d[i].replace("PAREN"+str(j), paren)
             op = d[0]
             args, options = self.parse_args(d[1:])
         
@@ -610,33 +617,14 @@ class ConfigurableComponent:
         net = tf.concat([x,y],axis=2)
         return net
 
-    def parse_lambda(self, options):
-        gan = self.gan
-        if 'lambda' not in options:
-            return 1
-        lam = options['lambda']
-        if ":" in lam:
-            lambda_steps = 0
-            if "lambda_steps" in options:
-                lambda_steps = float(options["lambda_steps"])
-            oj_s = lam.split(':')
-            #min + (max - min)*step/total_steps
-            oj_min = float(oj_s[0])
-            oj_max = float(oj_s[1])
-            progress = tf.minimum(oj_max, tf.cast(gan.global_step, dtype=tf.float32)/tf.constant(lambda_steps, dtype=tf.float32))
-            progress = tf.maximum(oj_min, progress)
-            oj_lambda = oj_min +(oj_max-oj_min)*progress
-            gan.oj_lambda = oj_lambda
-        else:
-            oj_lambda = float(lam)
-        return oj_lambda
-
 
     def layer_attention(self, net, args, options):
         ops = self.ops
         options = hc.Config(options)
         gan = self.gan
-        oj_lambda = self.parse_lambda(options)
+        oj_lambda = options["lambda"]
+        if oj_lambda is None:
+            oj_lambda = 1.0
         c_scale = float(options.c_scale or 8)
 
         def _flatten(_net):

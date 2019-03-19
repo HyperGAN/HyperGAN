@@ -16,7 +16,7 @@ from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class GradientPenaltyTrainHook(BaseTrainHook):
-  def __init__(self, gan=None, config=None, trainer=None, name="GpSnMemoryTrainHook", memory_size=2, top_k=1):
+  def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook", memory_size=2, top_k=1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     if hasattr(self.gan, 'x0'):
         gan_inputs = self.gan.x0
@@ -32,13 +32,13 @@ class GradientPenaltyTrainHook(BaseTrainHook):
     if self.config.target:
         v = getattr(gan, self.config.target)
         target = v.sample
-        if "components" in self.config:
-            target_vars = []
-            for component in self.config.components:
-                c = getattr(gan, component)
-                target_vars += c.variables()
-        else:
-            target_vars = v.variables()
+    if "components" in self.config:
+        target_vars = []
+        for component in self.config.components:
+            c = getattr(gan, component)
+            target_vars += c.variables()
+    else:
+        target_vars = v.variables()
 
     gd = tf.gradients(target, target_vars)
     gds = [tf.square(_gd) for _gd in gd if _gd is not None]

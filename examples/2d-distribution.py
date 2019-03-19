@@ -204,6 +204,7 @@ class Custom2DSampler(BaseSampler):
                 xaxis=dict(range=[-1.5,1.5]),
                 yaxis=dict(range=[-1.5,1.5]),
                 width=1920,
+                showlegend=False,
                 height=1080
         )
         fig = go.Figure([contour, xpoints, points], layout=layout)

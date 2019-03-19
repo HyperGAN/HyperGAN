@@ -53,43 +53,6 @@ class ArgumentParser:
     def parse_args(self):
         return self.parser.parse_args()
 
-class CustomGenerator(BaseGenerator):
-    def create(self):
-        gan = self.gan
-        config = self.config
-        ops = self.ops
-        end_features = config.end_features or 1
-
-        ops.describe('custom_generator')
-
-        net = gan.inputs.x
-        net = ops.linear(net, end_features)
-        net = ops.lookup('tanh')(net)
-        self.sample = net
-        return net
-class CustomDiscriminator(BaseGenerator):
-    def build(self, net):
-        gan = self.gan
-        config = self.config
-        ops = self.ops
-
-        end_features = 1
-
-        x = gan.inputs.x
-        y = gan.inputs.y
-        g = gan.generator.sample
-
-        gnet = tf.concat(axis=1, values=[x,g])
-        ynet = tf.concat(axis=1, values=[x,y])
-
-        net = tf.concat(axis=0, values=[ynet, gnet])
-        net = ops.linear(net, 128)
-        net = tf.nn.tanh(net)
-        self.sample = net
-
-        return net
-
-
 def batch_diversity(net):
     bs = int(net.get_shape()[0])
     avg = tf.reduce_mean(net, axis=0)

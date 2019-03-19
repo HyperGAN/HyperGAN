@@ -76,7 +76,10 @@ class StandardGAN(BaseGAN):
             self.autoencoded_x = self.generator.sample
 
             x, g = self.inputs.x, self.generator.sample
-            self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
+            if self.ops.shape(x) == self.ops.shape(g):
+                self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
+            else:
+                self.discriminator = self.create_component(config.discriminator, name="discriminator")
             self.loss = self.create_component(config.loss, discriminator=self.discriminator)
             self.trainer = self.create_component(config.trainer)
 

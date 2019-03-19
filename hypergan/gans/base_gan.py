@@ -334,7 +334,7 @@ class BaseGAN(GANComponent):
             start = tf.constant(start, dtype=tf.int32)
             steps = tf.constant(steps, dtype=tf.int32)
             onoff = tf.minimum(1.0, tf.cast(tf.nn.relu(current_step - start), tf.float32))
-            return onoff * tf.train.polynomial_decay(r1, tf.to_float(current_step-start), tf.to_float(steps), end_learning_rate=r2, power=1.0, cycle=cycle)
+            return (1.0 - onoff)*r1 + onoff * tf.train.polynomial_decay(r1, tf.to_float(current_step-start), tf.to_float(steps), end_learning_rate=r2, power=1.0, cycle=cycle)
 
     def configurable_params_turn_on(self, args, options):
         offset = float(options["offset"]) or 0.0

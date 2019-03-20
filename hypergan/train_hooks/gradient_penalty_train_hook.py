@@ -23,7 +23,7 @@ class GradientPenaltyTrainHook(BaseTrainHook):
     else:
         gan_inputs = self.gan.inputs.x
 
-    self.d_lambda = config['lambda'] or 1
+    self._lambda = self.gan.configurable_param(config['lambda'] or 1)
 
     if self.config.target:
         v = getattr(gan, self.config.target)
@@ -40,7 +40,7 @@ class GradientPenaltyTrainHook(BaseTrainHook):
 
     gd = tf.gradients(target, target_vars)
     gds = [tf.square(_gd) for _gd in gd if _gd is not None]
-    self.loss = tf.add_n([self.d_lambda * tf.reduce_mean(_r) for _r in gds])
+    self.loss = tf.add_n([self._lambda * tf.reduce_mean(_r) for _r in gds])
     self.gds = gds
     self.gd = gd
     self.target_vars = target_vars

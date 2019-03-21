@@ -195,14 +195,14 @@ class ConfigurableComponent:
         config = self.config
         ops = self.ops
         depth = int(args[0])
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
         stride = options.stride or 1
         stride = int(stride)
         shortcut = net
         initializer = None # default to global
 
-        if config.defaults.avg_pool:
+        if self.ops.config_option("avg_pool"):
             net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
             if stride != 1:
                 ksize = [1,stride,stride,1]
@@ -212,7 +212,7 @@ class ConfigurableComponent:
         net = activation(net)
         net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
         if ops.shape(net)[-1] != ops.shape(shortcut)[-1] or stride != 1:
-            if config.defaults.avg_pool:
+            if self.ops.config_option("avg_pool"):
                 shortcut = ops.conv2d(shortcut, 3, 3, 1, 1, depth, initializer=initializer)
                 if stride != 1:
                     ksize = [1,stride,stride,1]
@@ -247,7 +247,7 @@ class ConfigurableComponent:
         self.ops.activation_name = options.activation_name
         self.ops.activation_trainable = options.trainable
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
         for sk in self.skip_connections:
@@ -255,7 +255,7 @@ class ConfigurableComponent:
 
                 net = tf.concat([net, sk], axis=3)
 
-        if (options.adaptive_instance_norm or config.defaults.adaptive_instance_norm) and len(self.features) > 0:
+        if (options.adaptive_instance_norm or self.ops.config_option("adaptive_instance_norm")) and len(self.features) > 0:
             feature = self.features[0]
             feature = self.layer_linear(feature, [128], options)
             opts = copy.deepcopy(dict(options))
@@ -267,8 +267,8 @@ class ConfigurableComponent:
             net = self.adaptive_instance_norm(net, f1,f2)
 
 
-        stride = options.stride or config.defaults.stride or [2,2]
-        fltr = options.filter or config.defaults.filter or config.filter or [5,5]
+        stride = options.stride or self.ops.config_option("stride", [2,2])
+        fltr = options.filter or self.ops.config_option("filter", [5,5])
         if type(fltr) == type(""):
             fltr = [int(fltr), int(fltr)]
         if type(stride) == type(""):
@@ -285,7 +285,7 @@ class ConfigurableComponent:
         if options.initializer is not None:
             initializer = self.ops.lookup_initializer(options.initializer, options)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
-        avg_pool = options.avg_pool or config.defaults.avg_pool
+        avg_pool = options.avg_pool or self.ops.config_option("avg_pool")
         if type(avg_pool) == type(""):
             avg_pool = [int(avg_pool), int(avg_pool)]
         if avg_pool:
@@ -308,12 +308,12 @@ class ConfigurableComponent:
         options = hc.Config(options)
         ops = self.ops
         config = self.config
-        fltr = options.filter or config.defaults.filter
+        fltr = options.filter or self.ops.config_option("filter")
 
         self.ops.activation_name = options.activation_name
         self.ops.activation_trainable = options.trainable
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
 
@@ -440,7 +440,7 @@ class ConfigurableComponent:
 
     def layer_activation(self, net, args, options):
         options = hc.Config(options)
-        activation_s = options.activation or self.config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
         return activation(net)
 
@@ -493,12 +493,12 @@ class ConfigurableComponent:
         ops = self.ops
 
         self.ops.activation_name = options.activation_name
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or config.defaults.stride[0] or 1
+        stride = options.stride or self.ops.config_option("stride", [1,1])[0]
         stride = int(stride)
-        fltr = options.filter or config.defaults.filter or [3,3]
+        fltr = options.filter or self.ops.config_option("filter", [3,3])
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         depth = int(args[0])
@@ -518,7 +518,7 @@ class ConfigurableComponent:
             #net = self.layer_regularizer(net)
             net = activation(net)
 
-        avg_pool = options.avg_pool or config.defaults.avg_pool
+        avg_pool = options.avg_pool or self.ops.config_option("avg_pool")
         if type(avg_pool) == type(""):
             avg_pool = [int(avg_pool), int(avg_pool)]
         if avg_pool:
@@ -540,11 +540,11 @@ class ConfigurableComponent:
         config = self.config
         ops = self.ops
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or config.defaults.stride or [1,1]
-        fltr = options.filter or config.defaults.filter or [5,5]
+        stride = options.stride or self.ops.config_option("stride", [1,1])
+        fltr = options.filter or self.ops.config_option("filter", [5,5])
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         depth = int(args[0])
@@ -575,11 +575,11 @@ class ConfigurableComponent:
         self.ops.activation_name = options.activation_name
         self.ops.activation_trainable = options.trainable
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or config.defaults.stride or [2,2]
-        fltr = options.filter or config.defaults.filter or [5,5]
+        stride = options.stride or self.ops.config_option("stride", [2,2])
+        fltr = options.filter or self.ops.config_option("filter", [5,5])
         depth = int(args[0])
 
         if type(stride) != type([]):
@@ -695,11 +695,11 @@ class ConfigurableComponent:
         config = self.config
         ops = self.ops
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or config.defaults.stride or [1,1]
-        fltr = options.filter or config.defaults.filter or [3,3]
+        stride = options.stride or self.ops.config_option("stride", [1,1])
+        fltr = options.filter or self.ops.config_option("filter", [3,3])
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         if type(stride) == type(""):
@@ -845,7 +845,7 @@ class ConfigurableComponent:
         options = hc.Config(options)
         depth = int(args[0])
         config = self.config
-        activation = options.activation or config.defaults.activation
+        activation = options.activation or self.ops.config_option("activation")
         r = options.r or 2
         r = int(r)
         def _PS(X, r, n_out_channel):

@@ -550,15 +550,28 @@ class ConfigurableComponent:
         depth = int(args[0])
         initializer = None # default to global
 
+        original = net
         net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
 
         if options.concat:
-            extra = self.named_layers[options.concat]
+            extra = self.layer(options.concat)
             if self.ops.shape(extra) != self.ops.shape(net):
                 extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
             net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
 
         net = self.layer_conv(net, args, options)
+
+        if options.mask_with:
+            extra = self.layer(options.mask_with)
+            print("EXTRA", extra)
+            mask = tf.image.resize_images(original, [ops.shape(original)[1]*2, ops.shape(original)[2]*2],1)
+            options['activation'] = 'sigmoid'
+            mask = self.layer_conv(mask, [1], options)
+            mask = tf.tile(mask, [1,1,1,3])
+            if options.mask_square:
+                mask = tf.square(mask)
+            net = (1 - mask) * net + mask * extra
+
         return net
 
     def layer_bicubic_conv(self, net, args, options):

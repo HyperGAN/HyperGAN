@@ -16,33 +16,41 @@ from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class GradientPenaltyTrainHook(BaseTrainHook):
-  def __init__(self, gan=None, config=None, trainer=None, name="GpSnMemoryTrainHook", memory_size=2, top_k=1):
+  def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook"):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     if hasattr(self.gan, 'x0'):
         gan_inputs = self.gan.x0
     else:
         gan_inputs = self.gan.inputs.x
 
-    self.d_lambda = config['lambda'] or 1
+    self._lambda = self.gan.configurable_param(config['lambda'] or 1)
 
-    self.memory_size = memory_size
-    self.top_k = top_k
-    target = gan.discriminator.sample
-    target_vars = gan.trainable_d_vars()
     if self.config.target:
         v = getattr(gan, self.config.target)
-        target = v.sample
-        if "components" in self.config:
-            target_vars = []
-            for component in self.config.components:
-                c = getattr(gan, component)
-                target_vars += c.variables()
-        else:
-            target_vars = v.variables()
+    else:
+        v = gan.discriminator
+    target = v.sample
+    if "components" in self.config:
+        target_vars = []
+        for component in self.config.components:
+            c = getattr(gan, component)
+            target_vars += c.variables()
+    else:
+        target_vars = self.gan.variables()
 
     gd = tf.gradients(target, target_vars)
     gds = [tf.square(_gd) for _gd in gd if _gd is not None]
-    self.loss = tf.add_n([self.d_lambda * tf.reduce_mean(_r) for _r in gds])
+    if self.config.flex:
+        if isinstance(self.config.flex,list):
+            gds = []
+            for i,flex in enumerate(self.config.flex):
+                split_target = tf.split(target, len(self.config.flex))
+                gd = tf.gradients(split_target, target_vars)
+                fc = self.gan.configurable_param(flex)
+                gds += [tf.square(tf.nn.relu(tf.abs(_gd) - fc)) for _gd in gd if _gd is not None]
+        else:
+            gds = [tf.square(tf.nn.relu(tf.abs(_gd) - flex)) for _gd in gd if _gd is not None]
+    self.loss = tf.add_n([self._lambda * tf.reduce_mean(_r) for _r in gds])
     self.gds = gds
     self.gd = gd
     self.target_vars = target_vars

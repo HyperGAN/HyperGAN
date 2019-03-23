@@ -2,6 +2,7 @@ import tensorflow as tf
 import hyperchamber as hc
 import inspect
 import copy
+import re
 import os
 import operator
 from functools import reduce
@@ -68,12 +69,16 @@ class ConfigurableComponent:
         self.features = features
         self.controls = {}
         self.named_layers = {}
+        if not hasattr(gan, "named_layers"):
+            gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
 
     def required(self):
         return "layers defaults".split()
 
     def layer(self, name):
+        if name in self.gan.named_layers:
+            return self.gan.named_layers[name] 
         if name in self.named_layers:
             return self.named_layers[name]
         return None
@@ -93,10 +98,10 @@ class ConfigurableComponent:
         args = []
         for x in strs:
             if '=' in x:
-                lhs, rhs = x.split('=')
-                options[lhs]=rhs
+                lhs, rhs = x.split('=', 1)
+                options[lhs]=self.gan.configurable_param(rhs)
             else:
-                args.append(x)
+                args.append(self.gan.configurable_param(x))
         return args, options
 
     def parse_layer(self, net, layer):
@@ -116,7 +121,13 @@ class ConfigurableComponent:
             return net
 
         else:
+            parens = re.findall('\(.*?\)',layer)
+            for i, paren in enumerate(parens):
+                layer = layer.replace(paren, "PAREN"+str(i))
             d = layer.split(' ')
+            for i, _d in enumerate(d):
+                for j, paren in enumerate(parens):
+                    d[i] = d[i].replace("PAREN"+str(j), paren)
             op = d[0]
             args, options = self.parse_args(d[1:])
         
@@ -132,7 +143,9 @@ class ConfigurableComponent:
             if 'name' in options:
                 if options['name'] in self.named_layers and op != 'reference':
                     raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
-                self.named_layers[options['name']] = net
+                self.gan.named_layers[options['name']] = net
+                self.named_layers[options['name']]     = net
+
             after = self.variables()
             new = set(after) - set(before)
             for j in new:
@@ -182,14 +195,14 @@ class ConfigurableComponent:
         config = self.config
         ops = self.ops
         depth = int(args[0])
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
         stride = options.stride or 1
         stride = int(stride)
         shortcut = net
         initializer = None # default to global
 
-        if config.defaults.avg_pool:
+        if self.ops.config_option("avg_pool"):
             net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
             if stride != 1:
                 ksize = [1,stride,stride,1]
@@ -199,7 +212,7 @@ class ConfigurableComponent:
         net = activation(net)
         net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
         if ops.shape(net)[-1] != ops.shape(shortcut)[-1] or stride != 1:
-            if config.defaults.avg_pool:
+            if self.ops.config_option("avg_pool"):
                 shortcut = ops.conv2d(shortcut, 3, 3, 1, 1, depth, initializer=initializer)
                 if stride != 1:
                     ksize = [1,stride,stride,1]
@@ -234,7 +247,7 @@ class ConfigurableComponent:
         self.ops.activation_name = options.activation_name
         self.ops.activation_trainable = options.trainable
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
         for sk in self.skip_connections:
@@ -242,7 +255,7 @@ class ConfigurableComponent:
 
                 net = tf.concat([net, sk], axis=3)
 
-        if (options.adaptive_instance_norm or config.defaults.adaptive_instance_norm) and len(self.features) > 0:
+        if (options.adaptive_instance_norm or self.ops.config_option("adaptive_instance_norm")) and len(self.features) > 0:
             feature = self.features[0]
             feature = self.layer_linear(feature, [128], options)
             opts = copy.deepcopy(dict(options))
@@ -254,8 +267,8 @@ class ConfigurableComponent:
             net = self.adaptive_instance_norm(net, f1,f2)
 
 
-        stride = options.stride or config.defaults.stride or [2,2]
-        fltr = options.filter or config.defaults.filter or config.filter or [5,5]
+        stride = options.stride or self.ops.config_option("stride", [2,2])
+        fltr = options.filter or self.ops.config_option("filter", [5,5])
         if type(fltr) == type(""):
             fltr = [int(fltr), int(fltr)]
         if type(stride) == type(""):
@@ -272,8 +285,8 @@ class ConfigurableComponent:
         if options.initializer is not None:
             initializer = self.ops.lookup_initializer(options.initializer, options)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
-        avg_pool = options.avg_pool or config.defaults.avg_pool
-        if type(avg_pool) == type(""):
+        avg_pool = options.avg_pool or self.ops.config_option("avg_pool")
+        if type(avg_pool) != type([]):
             avg_pool = [int(avg_pool), int(avg_pool)]
         if avg_pool:
             ksize = [1,avg_pool[0], avg_pool[1],1]
@@ -295,12 +308,12 @@ class ConfigurableComponent:
         options = hc.Config(options)
         ops = self.ops
         config = self.config
-        fltr = options.filter or config.defaults.filter
+        fltr = options.filter or self.ops.config_option("filter")
 
         self.ops.activation_name = options.activation_name
         self.ops.activation_trainable = options.trainable
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
 
@@ -427,7 +440,7 @@ class ConfigurableComponent:
 
     def layer_activation(self, net, args, options):
         options = hc.Config(options)
-        activation_s = options.activation or self.config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
         return activation(net)
 
@@ -480,12 +493,12 @@ class ConfigurableComponent:
         ops = self.ops
 
         self.ops.activation_name = options.activation_name
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or config.defaults.stride[0] or 1
+        stride = options.stride or self.ops.config_option("stride", [1,1])[0]
         stride = int(stride)
-        fltr = options.filter or config.defaults.filter or [3,3]
+        fltr = options.filter or self.ops.config_option("filter", [3,3])
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         depth = int(args[0])
@@ -505,7 +518,7 @@ class ConfigurableComponent:
             #net = self.layer_regularizer(net)
             net = activation(net)
 
-        avg_pool = options.avg_pool or config.defaults.avg_pool
+        avg_pool = options.avg_pool or self.ops.config_option("avg_pool")
         if type(avg_pool) == type(""):
             avg_pool = [int(avg_pool), int(avg_pool)]
         if avg_pool:
@@ -527,25 +540,38 @@ class ConfigurableComponent:
         config = self.config
         ops = self.ops
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or config.defaults.stride or [1,1]
-        fltr = options.filter or config.defaults.filter or [5,5]
+        stride = options.stride or self.ops.config_option("stride", [1,1])
+        fltr = options.filter or self.ops.config_option("filter", [5,5])
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         depth = int(args[0])
         initializer = None # default to global
 
+        original = net
         net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
 
         if options.concat:
-            extra = self.named_layers[options.concat]
+            extra = self.layer(options.concat)
             if self.ops.shape(extra) != self.ops.shape(net):
                 extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
             net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
 
         net = self.layer_conv(net, args, options)
+
+        if options.mask_with:
+            extra = self.layer(options.mask_with)
+            print("EXTRA", extra)
+            mask = tf.image.resize_images(original, [ops.shape(original)[1]*2, ops.shape(original)[2]*2],1)
+            options['activation'] = 'sigmoid'
+            mask = self.layer_conv(mask, [1], options)
+            mask = tf.tile(mask, [1,1,1,3])
+            if options.mask_square:
+                mask = tf.square(mask)
+            net = (1 - mask) * net + mask * extra
+
         return net
 
     def layer_bicubic_conv(self, net, args, options):
@@ -562,11 +588,11 @@ class ConfigurableComponent:
         self.ops.activation_name = options.activation_name
         self.ops.activation_trainable = options.trainable
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or config.defaults.stride or [2,2]
-        fltr = options.filter or config.defaults.filter or [5,5]
+        stride = options.stride or self.ops.config_option("stride", [2,2])
+        fltr = options.filter or self.ops.config_option("filter", [5,5])
         depth = int(args[0])
 
         if type(stride) != type([]):
@@ -604,33 +630,14 @@ class ConfigurableComponent:
         net = tf.concat([x,y],axis=2)
         return net
 
-    def parse_lambda(self, options):
-        gan = self.gan
-        if 'lambda' not in options:
-            return 1
-        lam = options['lambda']
-        if ":" in lam:
-            lambda_steps = 0
-            if "lambda_steps" in options:
-                lambda_steps = float(options["lambda_steps"])
-            oj_s = lam.split(':')
-            #min + (max - min)*step/total_steps
-            oj_min = float(oj_s[0])
-            oj_max = float(oj_s[1])
-            progress = tf.minimum(oj_max, tf.cast(gan.global_step, dtype=tf.float32)/tf.constant(lambda_steps, dtype=tf.float32))
-            progress = tf.maximum(oj_min, progress)
-            oj_lambda = oj_min +(oj_max-oj_min)*progress
-            gan.oj_lambda = oj_lambda
-        else:
-            oj_lambda = float(lam)
-        return oj_lambda
-
 
     def layer_attention(self, net, args, options):
         ops = self.ops
         options = hc.Config(options)
         gan = self.gan
-        oj_lambda = self.parse_lambda(options)
+        oj_lambda = options["lambda"]
+        if oj_lambda is None:
+            oj_lambda = 1.0
         c_scale = float(options.c_scale or 8)
 
         def _flatten(_net):
@@ -701,11 +708,11 @@ class ConfigurableComponent:
         config = self.config
         ops = self.ops
 
-        activation_s = options.activation or config.defaults.activation
+        activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or config.defaults.stride or [1,1]
-        fltr = options.filter or config.defaults.filter or [3,3]
+        stride = options.stride or self.ops.config_option("stride", [1,1])
+        fltr = options.filter or self.ops.config_option("filter", [3,3])
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         if type(stride) == type(""):
@@ -851,7 +858,7 @@ class ConfigurableComponent:
         options = hc.Config(options)
         depth = int(args[0])
         config = self.config
-        activation = options.activation or config.defaults.activation
+        activation = options.activation or self.ops.config_option("activation")
         r = options.r or 2
         r = int(r)
         def _PS(X, r, n_out_channel):
@@ -937,7 +944,7 @@ class ConfigurableComponent:
         if len(args) > 0 and args[0] == 'noise':
             extra = tf.random_normal(self.ops.shape(net), stddev=0.1)
         if 'layer' in options:
-            extra = self.named_layers[options['layer']]
+            extra = self.layer(options['layer'])
 
         if self.ops.shape(extra) != self.ops.shape(net):
             extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
@@ -1037,9 +1044,9 @@ class ConfigurableComponent:
 
     def layer_adaptive_instance_norm(self, net, args, options):
         if 'w' in options:
-            f = self.named_layers[options['w']]
+            f = self.layer(options['w'])
         else:
-            f = self.named_layers['w']
+            f = self.layer('w')
         if f is None:
             raise("ERROR: Could not find named generator layer 'w', add name=w to the input layer in your generator")
         if len(args) > 0:
@@ -1101,8 +1108,8 @@ class ConfigurableComponent:
         return tf.image.resize_images(net, [w, h], method=method)
     
     def layer_progressive_replace(self, net, args, options):
-        start = self.named_layers[options["start"]]
-        end = self.named_layers[options["end"]]
+        start = self.layer(options["start"])
+        end = self.layer(options["end"])
         steps = float(options["steps"])
         delay = 0
         if "delay" in options:

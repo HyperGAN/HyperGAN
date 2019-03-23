@@ -4,6 +4,7 @@ from hypergan.ops import TensorflowOps
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.skip_connections import SkipConnections
 
+import re
 import os
 import inspect
 import hypergan as hg
@@ -284,10 +285,65 @@ class BaseGAN(GANComponent):
         return None
 
     def configurable_param(self, string):
+        self.param_ops = {
+            "decay": self.configurable_params_decay,
+            "on": self.configurable_params_turn_on
+        }
         if isinstance(string, str):
-            name, *args = string.split(" ")
-            return hg.ops.decay(self, *args)
+            if re.match("^\d+$", string):
+                return int(string)
+            if re.match("^\d+?\.\d+?$", string):
+                return float(string)
+            if "(" not in string:
+                return string
+
+            method_name, inner = string.split("(")
+            inner = inner.replace(")", "")
+            if method_name not in self.param_ops:
+                raise ValidationException("configurable param cannot find method: "+ method_name + " in string "+string)
+            args, options = self.parse_args(inner.split(" "))
+            result = self.param_ops[method_name](args, options)
+            if "metric" in options:
+                self.add_metric(options["metric"], result)
+            return result
         return string
+
+    def parse_args(self, strs):
+        options = hc.Config({})
+        args = []
+        for x in strs:
+            if '=' in x:
+                lhs, rhs = x.split('=')
+                options[lhs]=rhs
+            else:
+                args.append(x)
+        return args, options
+
+    def configurable_params_decay(self, args, options):
+        _range = options.range or "0:1"
+        steps = int(options.steps or 10000)
+        start = int(options.start or 0)
+        r1,r2 = _range.split(":")
+        r1 = float(r1)
+        r2 = float(r2)
+        cycle = "cycle" in args
+        current_step = self.gan.steps
+        if start == 0:
+            return tf.train.polynomial_decay(r1, current_step, steps, end_learning_rate=r2, power=1, cycle=cycle)
+        else:
+            start = tf.constant(start, dtype=tf.int32)
+            steps = tf.constant(steps, dtype=tf.int32)
+            onoff = tf.minimum(1.0, tf.cast(tf.nn.relu(current_step - start), tf.float32))
+            return (1.0 - onoff)*r1 + onoff * tf.train.polynomial_decay(r1, tf.to_float(current_step-start), tf.to_float(steps), end_learning_rate=r2, power=1.0, cycle=cycle)
+
+    def configurable_params_turn_on(self, args, options):
+        offset = float(options["offset"]) or 0.0
+        if "random" in args:
+            onvalue = float(options["onvalue"]) or 1.0
+            n = tf.random_uniform([1], minval=-1, maxval=1)
+            n += tf.constant(offset, dtype=tf.float32)
+            return (tf.sign(n) + 1) /2 * tf.constant(float(options["onvalue"], dtype=tf.float32))
+
 
     def exit(self):
         self.destroy = True

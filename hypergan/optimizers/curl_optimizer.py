@@ -23,10 +23,6 @@ class CurlOptimizer(optimizer.Optimizer):
     self._lr_t = learning_rate or 1e-5
     self.g_rho = gan.configurable_param(self.config.g_rho or 1)
     self.d_rho = gan.configurable_param(self.config.d_rho or 1)
-    if tf.contrib.framework.is_tensor(self.g_rho):
-        self.gan.add_metric("g_rho", self.g_rho)
-    if tf.contrib.framework.is_tensor(self.d_rho):
-        self.gan.add_metric("d_rho", self.d_rho)
 
     optimizer['loss'] = loss
     self.optimizer = self.gan.create_optimizer(optimizer)

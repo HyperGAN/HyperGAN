@@ -13,12 +13,9 @@ from hypergan.ops.tensorflow.sn import spectral_normed_weight
 class TensorflowOps:
     def __init__(self, config={}, device="/gpu:0"):
         config = hc.Config(config)
+        self.config = config
         dtype = config.dtype or "float32"
-        if "defaults" in config and "initializer" in config.defaults:
-            initializer = config.defaults.initializer
-        else:
-            initializer = "he_normal"
-
+        initializer = self.config_option("initializer", "he_normal")
 
         self.dtype = self.parse_dtype(dtype)
         self.scope_count = 0
@@ -30,23 +27,30 @@ class TensorflowOps:
         self._reuse = False
         self.reuse_scope_count = 0
         self.reuse_context = 0
-        self.config = config
         self.initializer = self.lookup_initializer(initializer, config)
 
+    def config_option(self, name, default=None, config=None):
+        if config is None:
+            config = self.config
+        if name in config:
+            return config[name]
+        if "defaults" in config:
+            if name in config["defaults"]:
+                return config["defaults"][name]
+        return default
 
     def lookup_initializer(self, name, config):
         if name == 'orthogonal':
-            orthogonal_gain = config.orthogonal_gain or 1.0
+            orthogonal_gain = self.config_option("orthogonal_gain", 1.0, config)
             return self.orthogonal_initializer(orthogonal_gain)
         elif name == 'he_normal':
             return self.he_normal_initializer()
         elif name == 'xavier':
             return self.xavier_initializer()
         elif name == 'stylegan':
-            return self.stylegan_initializer(config)
+            return self.stylegan_initializer(config or self.config)
         elif name == 'random_normal':
-            random_stddev = config.random_stddev or 0.02
-            return self.random_initializer(random_stddev)
+            return self.random_initializer(self.config_option("random_stddev", 0.02, config))
         else:
             raise Exception("initializer not found", name)
 
@@ -69,10 +73,10 @@ class TensorflowOps:
 
     def stylegan_initializer(self, config):
         def _build(shape):
-            gain = config.gain or np.sqrt(2)
-            use_wscale = config.w_scale or False
-            lrmul = config.lrmul or 0.01
-            fan_in = np.prod(shape[:-1]) # [kernel, kernel, fmaps_in, fmaps_out] or [in, out]
+            gain = self.config_option("gain", np.sqrt(2), config)
+            use_wscale = self.config_option("w_scale", False, config)
+            lrmul = float(self.config_option("lrmul", 0.01, config))
+            fan_in = np.prod([int(x) for x in shape[:-1]]) # [kernel, kernel, fmaps_in, fmaps_out] or [in, out]
             he_std = gain / np.sqrt(fan_in) # He init
 
             # Equalized learning rate and custom learning rate multiplier.
@@ -317,18 +321,19 @@ class TensorflowOps:
         self.assert_tensor(net)
 
 
-        if self.config.layer_regularizer == 'cosine_norm':
+        layer_regularizer = self.config_option("layer_regularizer")
+        if layer_regularizer == 'cosine_norm':
             return self.cosine_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
-        if self.config.layer_regularizer == 'weight_norm3':
+        if layer_regularizer == 'weight_norm3':
             return self.weightnorm3_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
-        if self.config.layer_regularizer == 'weight_norm2':
+        if layer_regularizer == 'weight_norm2':
             return self.weightnorm2_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim, padding=padding)
-        if self.config.layer_regularizer == 'weight_norm':
+        if layer_regularizer == 'weight_norm':
             return self.weightnorm_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
-        if self.config.layer_regularizer == 'spectral_norm':
+        if layer_regularizer == 'spectral_norm':
             return self.spectralnorm_conv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim, padding=padding)
 
-        if self.config.l2_scaled:
+        if self.config_option("l2_scale"):
             net = net / tf.sqrt(float(filter_w)/float(stride_w)*float(filter_h)/float(stride_h))
 
         with tf.variable_scope(self.generate_name(name), reuse=self._reuse):
@@ -345,7 +350,8 @@ class TensorflowOps:
     def deconv2d(self, net, filter_w, filter_h, stride_w, stride_h, output_dim, initializer=None, name=None, trainable=True, bias=True):
         self.assert_tensor(net)
         shape = self.shape(net)
-        if self.config.layer_regularizer == 'weight_norm':
+        layer_regularizer = self.config_option("layer_regularizer")
+        if layer_regularizer == 'weight_norm':
             return self.weightnorm_deconv2d(net, filter_w, filter_h, stride_w, stride_h, output_dim)
         output_shape = [shape[0], shape[1]*stride_h, shape[2]*stride_w, output_dim]
         init_bias = 0.
@@ -381,9 +387,10 @@ class TensorflowOps:
             return (tf.matmul(net, v_norm) * g+b)
 
     def linear(self, net, output_dim, initializer=None, name=None, trainable=True, bias=True):
-        if self.config.linear_type == 'cosine':
+        linear_type = self.config_option("linear_type")
+        if linear_type == 'cosine':
             return self.cosine_linear(net, output_dim)
-        if self.config.linear_type == 'weight_norm':
+        if linear_type == 'weight_norm':
             return self.weight_norm_linear(net, output_dim)
         self.assert_tensor(net)
         shape = self.shape(net)
@@ -440,7 +447,7 @@ class TensorflowOps:
 
     def double_sided(self):
         def _activation(_x):
-            activation = self.lookup(self.config.double_sided_activation or 'relu')
+            activation = self.lookup(self.config_option("double_sided_activation", 'relu'))
             ops = self
             orig_shape = self.shape(_x)
             net = _x
@@ -508,7 +515,7 @@ class TensorflowOps:
 
     def bipolar(self):
         def _bipolar(_x, name=None):
-            activation = self.lookup(self.config.bipolar_activation or 'relu')
+            activation = self.lookup(self.config_option("bipolar_activation", 'relu'))
             ops = self
             orig_shape = self.shape(_x)
             net = _x
@@ -538,7 +545,7 @@ class TensorflowOps:
 
     def trelu(self):
         def _trelu(_x, name=None):
-            activation = self.lookup(self.config.trelu_activation or 'relu')
+            activation = self.lookup(self.config_option("trelu_activation", 'relu'))
             orig_shape = self.shape(_x)
             _x = tf.reshape(_x, [orig_shape[0], -1])
 
@@ -560,7 +567,7 @@ class TensorflowOps:
 
     def frelu(self):
         def _frelu(_x, name=None):
-            activation = self.lookup(self.config.frelu_activation or 'relu')
+            activation = self.lookup(self.config_option("frelu_activation", 'relu'))
             orig_shape = self.shape(_x)
             _x = tf.reshape(_x, [orig_shape[0], -1])
 
@@ -632,7 +639,7 @@ class TensorflowOps:
             return self.lookup_class(symbol)
 
         if symbol == 'groupsort':
-            return self.groupsort(self.config.defaults.groupsort_n or 2)
+            return self.groupsort(self.config_option("groupsort_n", 2))
         if symbol == 'tanh':
             return tf.nn.tanh
         if symbol == 'sigmoid':

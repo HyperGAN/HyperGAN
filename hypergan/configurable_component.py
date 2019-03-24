@@ -271,7 +271,7 @@ class ConfigurableComponent:
         fltr = options.filter or self.ops.config_option("filter", [5,5])
         if type(fltr) == type(""):
             fltr = [int(fltr), int(fltr)]
-        if type(stride) == type(""):
+        if not isinstance(stride, list):
             stride = [int(stride), int(stride)]
         if len(args) > 0:
             depth = int(args[0])

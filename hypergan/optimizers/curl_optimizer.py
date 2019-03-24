@@ -15,7 +15,7 @@ import inspect
 class CurlOptimizer(optimizer.Optimizer):
   def __init__(self, learning_rate=0.00001, p=0.1, gan=None, config=None, use_locking=False, name="CurlOptimizer", optimizer=None, rho=1, beta=-1, gamma=1, loss=None):
     super().__init__(use_locking, name)
-    self._beta = beta
+    self._beta = gan.configurable_param(beta)
     self._rho = rho
     self._gamma = gamma
     self.gan = gan

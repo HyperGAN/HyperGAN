@@ -42,9 +42,13 @@ class LocalNashOptimizer(optimizer.Optimizer):
     g_grads = []
     d_vars = []
     g_vars = []
+    alpha = 0.5
+    if self.config.alpha is not None:
+        alpha = self.gan.configurable_param(self.config.alpha)
     beta = 0.5
     if self.config.beta is not None:
-        beta = self.config.beta
+        beta = self.gan.configurable_param(self.config.beta)
+
     for grad,var in grads_and_vars:
         if var in self.gan.d_vars():
             d_vars += [var]
@@ -54,23 +58,8 @@ class LocalNashOptimizer(optimizer.Optimizer):
             g_grads += [grad]
         else:
             raise("Couldn't find var in g_vars or d_vars")
-
+    orig_grads = d_grads+g_grads
     all_vars = d_vars + g_vars
-    all_grads = d_grads + g_grads
-
-    with ops.init_scope():
-        [self._zeros_slot(v, "orig", self._name) for _,v in grads_and_vars]
-
-    v1 = [self.get_slot(v, "orig") for v in all_vars]
-
-    restored_vars = all_vars
-    tmp_vars = v1
-
-    e1 = 0.0001
-    e2 = 0.0001
-
-    #gamma12
-    save = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars.copy(), restored_vars.copy())]) # store variables
 
     def curl():
         grads = tf.gradients(self.gan.trainer.d_loss, d_vars) + tf.gradients(self.gan.trainer.g_loss, g_vars)
@@ -88,6 +77,23 @@ class LocalNashOptimizer(optimizer.Optimizer):
         all_grads = curl()
         d_grads = all_grads[:len(d_vars)]
         g_grads = all_grads[len(d_vars):]
+
+    all_grads = d_grads + g_grads
+
+    with ops.init_scope():
+        [self._zeros_slot(v, "orig", self._name) for _,v in grads_and_vars]
+
+    v1 = [self.get_slot(v, "orig") for v in all_vars]
+
+    restored_vars = all_vars
+    tmp_vars = v1
+
+    e1 = 0.0001
+    e2 = 0.0001
+
+    #gamma12
+    save = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars.copy(), restored_vars.copy())]) # store variables
+
     with tf.get_default_graph().control_dependencies([save]):
         #opboth = self.optimizer.apply_gradients(grads_and_vars, global_step=global_step, name=name)
         #opdp = self.optimizer.apply_gradients(grads_and_vars[:len(d_vars)], global_step=global_step, name=name)
@@ -115,7 +121,7 @@ class LocalNashOptimizer(optimizer.Optimizer):
                                 new_g_grads = tf.gradients(self.loss[0], d_vars) + tf.gradients(self.loss[1], g_vars)
                             with tf.get_default_graph().control_dependencies([restore]):
                                 new_grads = []
-                                for _gboth, _gd, _gg, _g in zip(gboth,new_d_grads,new_g_grads,(d_grads+g_grads)):
+                                for _gboth, _gd, _gg, _g, _orig_g in zip(gboth,new_d_grads,new_g_grads,(d_grads+g_grads), orig_grads):
                                     a = (_gg - _g) / self._lr_t # d2f/dx2i
                                     b = (_gboth - _gg) / (2*self._lr_t)+(_gd-_g)/(2*self._lr_t) # d2f/dx1dx2
                                     c = (_gboth - _gd) / (2*self._lr_t)+(_gg-_g)/(2*self._lr_t) # d2f/dx1dx2
@@ -138,14 +144,7 @@ class LocalNashOptimizer(optimizer.Optimizer):
                                     Jinv = np.array([[h_1_a,h_1_b],[h_1_c,h_1_d]])
                                     _j = Jt[0][0]*Jinv[0][0]*_g+Jt[1][0]*Jinv[1][0]*_g+Jt[0][1]*Jinv[0][1]*_g+Jt[1][1]*Jinv[1][1]*_g
 
-                                    alpha = 0.5
-                                    if self.config.alpha is not None:
-                                        alpha = self.config.alpha
-                                    beta = 0.5
-                                    if self.config.beta is not None:
-                                        beta = self.config.beta
-
-                                    new_grads.append( alpha*_g + beta*_j )
+                                    new_grads.append( alpha*_orig_g + beta*_j )
 
                                 new_grads_and_vars = list(zip(new_grads, all_vars)).copy()
                                 return self.optimizer.apply_gradients(new_grads_and_vars, global_step=global_step, name=name)

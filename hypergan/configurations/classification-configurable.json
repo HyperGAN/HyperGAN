@@ -17,8 +17,8 @@
         ["reference name=x src=inputs", "reference name=x src=inputs", 0],
         "conv 64",
         "conv 32 ",
-        ["linear 32 initializer=stylegan", ["reference name=y src=inputs", "reference name=fy src=generator", 0]],
-        "linear 32 initializer=stylegan",
+        ["reshape -1", ["reference name=y src=inputs", "reference name=fy src=generator", 0]],
+        "linear 256 initializer=stylegan",
         "linear 1 activation=null bias=false"
       ]
   },

@@ -1085,7 +1085,10 @@ class ConfigurableComponent:
         if "src" in options:
             obj = getattr(self.gan, options.src)
         if "resize_images" in options:
-            return self.layer_resize_images(getattr(obj, options.name), options["resize_images"].split("*"), options)
+            if hasattr(obj, 'layer'):
+                return self.layer_resize_images(obj.layer(options.name), options["resize_images"].split("*"), options)
+            else:
+                return self.layer_resize_images(getattr(obj, options.name), options["resize_images"].split("*"), options)
         else:
             return obj.layer(options.name)
 

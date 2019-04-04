@@ -76,19 +76,17 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
     diff = [tf.square(v-t) for v,t in zip(current_vars, tmp_vars)]
 
     f_accum = []
+    f_decay = self.gan.configurable_param(self.config.f_decay or 0.95)
+    gradient_scale = self.gan.configurable_param(self.config.gradient_scale or 1.0)
     for v, f, g in zip(var_list, f1, all_grads):
         opts = self.gan.layer_options(v)
         if opts is not None and "ewc_f_decay" in opts:
           f_decay = self.gan.configurable_param(opts["ewc_f_decay"])
           print("Setting f_decay to ", f_decay, " for ", v)
-        else:
-          f_decay = self.gan.configurable_param(self.config.f_decay or 0.95)
 
         if opts is not None and "ewc_gradient_scale" in opts:
           gradient_scale = self.gan.configurable_param(opts["ewc_gradient_scale"])
           print("Setting gradient_scale to ", gradient_scale, " for ", v)
-        else:
-          gradient_scale = self.gan.configurable_param(self.config.gradient_scale or 1.0)
         f_accum += [f_decay * f + gradient_scale * tf.square(g)]
     #f_accum = [tf.where(tf.is_nan(_f), tf.zeros_like(_f), _f) for _f in f_accum]
     #f_accum = [tf.where(tf.is_inf(_f), tf.zeros_like(_f), _f) for _f in f_accum]

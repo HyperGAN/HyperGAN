@@ -15,25 +15,25 @@ import inspect
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
-class MiniBatchTrainHook(BaseTrainHook):
+class MinibatchTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="MinibatchTrainHook"):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
 
-    discriminator = self.discriminator
-    ops = discriminator.ops
     config = self.config
-    batch_size = ops.shape(net)[0]
+    net = gan.discriminator.layer('minibatch')
+    batch_size = self.ops.shape(net)[0]
     single_batch_size = batch_size//2
     n_kernels = config.minibatch_kernels or 300
     dim_per_kernel = config.dim_per_kernel or 50
     print("[discriminator] minibatch from", net, "to", n_kernels*dim_per_kernel)
-    x = ops.linear(net, n_kernels * dim_per_kernel)
+    x = self.ops.linear(net, n_kernels * dim_per_kernel)
+    gan.discriminator.add_variables(self)
     activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
 
     big = np.zeros((batch_size, batch_size))
     big += np.eye(batch_size)
     big = tf.expand_dims(big, 1)
-    big = tf.cast(big,dtype=ops.dtype)
+    big = tf.cast(big,dtype=tf.float32)
 
     abs_dif = tf.reduce_sum(tf.abs(tf.expand_dims(activation,3) - tf.expand_dims(tf.transpose(activation, [1, 2, 0]), 0)), 2)
     mask = 1. - big
@@ -47,10 +47,13 @@ class MiniBatchTrainHook(BaseTrainHook):
     f1 = tf.reduce_sum(half(masked, 0), 2) / tf.reduce_sum(half(mask, 0))
     f2 = tf.reduce_sum(half(masked, 1), 2) / tf.reduce_sum(half(mask, 1))
 
-    f = ops.squash(ops.concat([f1, f2]))
+    f = self.ops.squash(self.ops.concat([f1, f2]))
 
-    mini = tf.concat([gan.loss.d_real, gan.loss.d_fake], axis=0)
-    self.d_loss = (self.config['lambda'] or 1.0) * mini
+    lamb = 1.0
+    if "lambda" in self.config:
+        lamb = self.config["lambda"]
+    self.d_loss = lamb * f
+    self.gan.add_metric('minibatch_loss', self.d_loss)
 
   def losses(self):
       return [self.d_loss, None]

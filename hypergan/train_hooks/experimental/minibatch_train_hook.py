@@ -21,17 +21,18 @@ class MinibatchTrainHook(BaseTrainHook):
 
     config = self.config
     net = gan.discriminator.layer('minibatch')
-    batch_size = self.ops.shape(net)[0]
-    single_batch_size = batch_size//2
-    n_kernels = config.minibatch_kernels or 300
-    dim_per_kernel = config.dim_per_kernel or 50
+    minibatch_size = gan.batch_size()*2
+    single_batch_size = gan.batch_size()
+    n_kernels = config.minibatch_kernels or 256
+    dim_per_kernel = config.dim_per_kernel or 10
     print("[discriminator] minibatch from", net, "to", n_kernels*dim_per_kernel)
-    x = self.ops.linear(net, n_kernels * dim_per_kernel)
-    gan.discriminator.add_variables(self)
-    activation = tf.reshape(x, (batch_size, n_kernels, dim_per_kernel))
+    net = tf.reshape(net, [minibatch_size, -1])
+    initializer = self.ops.lookup_initializer("stylegan", config.initializer_options or {})
+    x = self.ops.linear(net, n_kernels * dim_per_kernel, initializer=initializer)
+    activation = tf.reshape(x, (minibatch_size, n_kernels, dim_per_kernel))
 
-    big = np.zeros((batch_size, batch_size))
-    big += np.eye(batch_size)
+    big = np.zeros((minibatch_size, minibatch_size))
+    big += np.eye(minibatch_size)
     big = tf.expand_dims(big, 1)
     big = tf.cast(big,dtype=tf.float32)
 
@@ -47,19 +48,28 @@ class MinibatchTrainHook(BaseTrainHook):
     f1 = tf.reduce_sum(half(masked, 0), 2) / tf.reduce_sum(half(mask, 0))
     f2 = tf.reduce_sum(half(masked, 1), 2) / tf.reduce_sum(half(mask, 1))
 
-    f = self.ops.squash(self.ops.concat([f1, f2]))
-
-    lamb = 1.0
-    if "lambda" in self.config:
-        lamb = self.config["lambda"]
-    self.d_loss = lamb * f
-    self.gan.add_metric('minibatch_loss', self.d_loss)
+    if self.config.type == 'gan':
+        stack_f = tf.concat([f1,f2], axis=0)
+        minibatch_discriminator = gan.create_component(gan.config.minibatch_discriminator, name='minibatch_discriminator', input=stack_f)
+        minibatch_discriminator.add_variables(self)
+        loss = gan.create_loss(config.loss, minibatch_discriminator)
+        gan.add_metric('mini_dl', loss.sample[0])
+        gan.add_metric('mini_gl', loss.sample[1])
+        self.loss = loss.sample
+    else:
+        self.minibatch_value = tf.concat([f1, f2], axis=1)
+        self.minibatch_feed = gan.discriminator.layer('minibatch_feed')
+        gan.discriminator.add_variables(self)
+        self.loss = [None, None]
 
   def losses(self):
-      return [self.d_loss, None]
+      return self.loss
 
   def after_step(self, step, feed_dict):
       pass
 
   def before_step(self, step, feed_dict):
-      pass
+    if self.config.type != 'gan':
+      feed_dict[self.minibatch_feed]=self.gan.session.run(self.minibatch_value)
+
+    pass

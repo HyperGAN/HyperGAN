@@ -128,7 +128,7 @@ class AliGAN(BaseGAN):
 
             if self.config.manifold_guided:
                 reencode_u_to_z = self.create_encoder(generator.sample, reuse=True)
-                stack_z = [encoder.sample, reencode_u_to_z.sample]
+                stack_z = [encoder.sample, u_to_z.sample]#reencode_u_to_z.sample]
                 stacked_zs = ops.concat(stack_z, axis=0)
                 z_discriminator = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_zs)
                 self.z_discriminator = z_discriminator

@@ -56,11 +56,6 @@ class StandardGAN(BaseGAN):
 
         with tf.device(self.device):
             self.session = self.ops.new_session(self.ops_config)
-            if config.fixed_input:
-                self.feed_x = self.inputs.x
-                self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
-                self.set_x = tf.assign(self.inputs.x, self.feed_x)
-
             self.latent = self.create_component(config.z_distribution or config.latent)
             self.uniform_distribution = self.latent
 

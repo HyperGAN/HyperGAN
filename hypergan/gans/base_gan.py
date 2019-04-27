@@ -70,6 +70,12 @@ class BaseGAN(GANComponent):
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         self.steps = tf.Variable(0, trainable=False, name='global_step')
         self.increment_step = tf.assign(self.steps, self.steps+1)
+        if config.fixed_input:
+            self.feed_x = self.inputs.x
+            self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
+            self.set_x = tf.assign(self.inputs.x, self.feed_x)
+
+
         # A GAN as a component has a parent of itself
         # gan.gan.gan.gan.gan.gan
         GANComponent.__init__(self, self, config, name=self.name)

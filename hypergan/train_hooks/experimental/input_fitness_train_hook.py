@@ -22,7 +22,14 @@ class InputFitnessTrainHook(BaseTrainHook):
     gan_inputs = self.gan.inputs.x
 
     self.input = tf.split(self.gan.inputs.x, self.gan.batch_size(), axis=0)
-    self.d_real = tf.split(self.gan.loss.d_fake, self.gan.batch_size(), axis=0)
+    fitness = self.gan.loss.d_real
+    if self.config.abs:
+        fitness = tf.abs(self.gan.loss.d_real)
+    if self.config.reverse:
+        fitness = -self.gan.loss.d_real
+    if self.config.nabs:
+        fitness = -tf.abs(self.gan.loss.d_real)
+    self.d_real = tf.split(fitness, self.gan.batch_size(), axis=0)
     self.feed_input = tf.split(self.gan.feed_x, self.gan.batch_size(), axis=0)
 
     self.sample_batch = self.gan.set_x
@@ -42,9 +49,6 @@ class InputFitnessTrainHook(BaseTrainHook):
     pass
 
   def before_step(self, step, feed_dict):
-    scores = []
-    scores += self.gan.session.run(self.d_real)
-    self.gan.session.run(self.set_cache)
     def sort():
         score_index = np.argsort(np.array(scores).flatten())
         score_index = score_index[:self.gan.batch_size()]
@@ -57,9 +61,14 @@ class InputFitnessTrainHook(BaseTrainHook):
                 sticky+=1
                 self.gan.session.run(self.restore_cache[i])
             total += 1
-        print("Sticky "+str(sticky) + " / "+ str(total))
+        if total == sticky or sticky == 0:
+            print("Sticky "+str(sticky) + " / "+ str(total))
 
-    self.gan.session.run(self.sample_batch)
-    scores += self.gan.session.run(self.d_real)
-    sort()
+    for i in range(self.config.search_steps or 1):
+        scores = []
+        scores += self.gan.session.run(self.d_real)
+        self.gan.session.run(self.set_cache)
+        self.gan.session.run(self.sample_batch)
+        scores += self.gan.session.run(self.d_real)
+        sort()
 

@@ -44,9 +44,18 @@ class InputFitnessTrainHook(BaseTrainHook):
     #        op = tf.assign(self.gan.inputs.x[i], tf.reshape(self.cache[j], self.ops.shape(self.gan.inputs.x[i])))
     #        restore.append(op)
     #    self.restore_cache.append(restore)
+    self.loss = [None, None]
+    if self.config.k_lipschitz is not None:
+        klip = self.gan.configurable_param(self.config.k_lipschitz)
+        k_lip = tf.nn.relu(tf.abs(tf.reduce_mean(self.gan.loss.d_real-self.gan.loss.d_fake))-klip)
+        self.gan.add_metric("k_lip", k_lip)
+        self.loss = [k_lip, None]
 
   def after_step(self, step, feed_dict):
     pass
+
+  def losses(self):
+      return self.loss
 
   def before_step(self, step, feed_dict):
     def sort():

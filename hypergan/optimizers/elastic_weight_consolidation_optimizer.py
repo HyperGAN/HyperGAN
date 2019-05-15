@@ -94,7 +94,7 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
 
     reg = [tf.multiply(f, d) for f,d in zip(f1, diff)]
     #reg = [tf.where(tf.is_nan(_f), tf.zeros_like(_f), _f) for _f in reg]
-    ewc_loss = self.gan.configurable_param(self.config.lam or 17.5)/2.0 * tf.reduce_sum([tf.reduce_sum(r) for r in reg])
+    ewc_loss = self.gan.configurable_param(self.config.lam or 17.5)/2.0 * tf.reduce_sum(tf.add_n([tf.reduce_sum(r) for r in reg]))
     self.gan.add_metric('ewc',ewc_loss)
 
     save_weights = tf.group(*[tf.assign(w, v) for w,v in zip(tmp_vars, current_vars)]) # store variables

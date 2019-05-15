@@ -9,6 +9,7 @@ import os
 import inspect
 import hypergan as hg
 import tensorflow as tf
+import numpy as np
 
 from tensorflow.python.framework import ops
 from tensorflow.python.tools import freeze_graph
@@ -186,6 +187,10 @@ class BaseGAN(GANComponent):
         return list(set(self.g_vars()).intersection(tf.trainable_variables()))
 
     def save(self, save_file):
+        if(np.any(np.isnan(self.session.run(self.loss.d_fake)))):
+            print("[Error] NAN detected.  Refusing to save")
+            exit()
+
         with self.graph.as_default():
             print("[hypergan] Saving network to ", save_file)
             os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)

@@ -23,8 +23,10 @@ class AdversarialRobustTrainHook(BaseTrainHook):
         gan_inputs = self.gan.x0
     else:
         gan_inputs = self.gan.inputs.x
+    config = hc.Config(config)
 
     self._lambda = self.gan.configurable_param(config['lambda'] or 1)
+    self._vlambda = self.gan.configurable_param(config.vlambda or 1.0)
 
     self.trainablex=tf.Variable(tf.zeros_like(self.gan.inputs.x))
     self.trainableg=tf.Variable(tf.zeros_like(self.gan.inputs.x))
@@ -33,10 +35,11 @@ class AdversarialRobustTrainHook(BaseTrainHook):
     with tf.get_default_graph().control_dependencies([clearx, clearg]):
         self.adversarial_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([gan.inputs.x+self.trainablex,gan.generator.sample+self.trainableg],axis=0), reuse=True)
         self.v = tf.gradients(self.adversarial_discriminator.sample, [self.trainablex, self.trainableg])
-        self.v = [v/tf.norm(v, ord=2) for v in self.v]
+        self.v = [self._vlambda*v/tf.norm(v, ord=2) for v in self.v]
 
         self.robustness_discriminator = gan.create_component(gan.config.discriminator, name='discriminator', input=tf.concat([gan.inputs.x+self.v[0], gan.generator.sample+self.v[1]], axis=0), reuse=True)
         self.loss = tf.square(self.robustness_discriminator.sample - gan.discriminator.sample)
+        self.loss = [self._lambda * self.loss[0], self._lambda * self.loss[1]]
 
         #self.loss = gan.create_component(gan.config.loss, self.robustness_discriminator)
         self.gan.add_metric('adl', self.loss[0])

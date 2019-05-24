@@ -47,7 +47,7 @@ class AliGAN(BaseGAN):
         g_losses = []
 
         def random_like(x):
-            return UniformDistribution(self, config.z_distribution, output_shape=self.ops.shape(x)).sample
+            return UniformDistribution(self, config.latent, output_shape=self.ops.shape(x)).sample
         with tf.device(self.device):
             x_input = tf.identity(self.inputs.x, name='input')
 

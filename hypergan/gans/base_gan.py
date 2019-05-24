@@ -76,6 +76,16 @@ class BaseGAN(GANComponent):
             self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
             self.set_x = tf.assign(self.inputs.x, self.feed_x)
 
+        if config.fixed_input_xa:
+            self.feed_x = self.inputs.x
+            self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
+            self.inputs.xa = self.inputs.x
+            self.set_x = tf.assign(self.inputs.xa, self.feed_x)
+            self.feed_x = self.inputs.xb
+            self.inputs.xb = tf.Variable(tf.zeros_like(self.feed_x))
+            self.set_x = tf.group([self.set_x, tf.assign(self.inputs.xb, self.feed_x)])
+
+
 
         # A GAN as a component has a parent of itself
         # gan.gan.gan.gan.gan.gan

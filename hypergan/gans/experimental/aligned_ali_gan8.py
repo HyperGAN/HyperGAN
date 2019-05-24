@@ -50,6 +50,9 @@ class AlignedAliGAN8(BaseGAN):
                 return UniformDistribution(self, config.latent, output_shape=self.ops.shape(x)).sample
             zga = self.create_component(config.encoder, input=self.inputs.xb, name='xb_to_za')
             zgb = self.create_component(config.encoder, input=self.inputs.xa, name='xa_to_zb')
+            self.zga = zga
+            self.zgb = zgb
+            self.latent = self.create_component(config.latent, name='forcerandom_discriminator')
             za = zga.sample
             zb = zgb.sample
             if config.style:
@@ -67,6 +70,9 @@ class AlignedAliGAN8(BaseGAN):
             else:
                 ga = self.create_component(config.generator, input=za, name='a_generator')
                 gb = self.create_component(config.generator, input=zb, name='b_generator')
+
+            self.ga = ga
+            self.gb = gb
 
             self.uniform_sample = gb.sample
 
@@ -86,7 +92,7 @@ class AlignedAliGAN8(BaseGAN):
             stacked = ops.concat(stack, axis=0)
             features = ops.concat([f0, f1], axis=0)
             self.inputs.x = xa
-            ugb = gb.reuse(random_like(zb))
+            ugb = gb.sample#gb.reuse(random_like(zb))
             zub = zb
             sourcezub = zb
 

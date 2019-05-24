@@ -27,7 +27,6 @@ class ConfigurableComponent:
             "bicubic_conv": self.layer_bicubic_conv,
             "combine_features": self.layer_combine_features,
             "concat": self.layer_concat,
-            "concat_noise": self.layer_noise,
             "const": self.layer_const,
             "control": self.layer_controls,
             "conv": self.layer_conv,
@@ -43,7 +42,11 @@ class ConfigurableComponent:
             "image_statistics": self.layer_image_statistics,
             "knowledge_base": self.layer_knowledge_base,
             "layer_filter": self.layer_filter,
+            "layer_norm": self.layer_layer_norm,
+            "layer": self.layer_layer,
+            "latent": self.layer_latent,
             "linear": self.layer_linear,
+            "mask": self.layer_mask,
             "minibatch": self.layer_minibatch,
             "noise": self.layer_noise,
             "pad": self.layer_pad,
@@ -141,10 +144,7 @@ class ConfigurableComponent:
             before_count = self.count_number_trainable_params()
             net = self.layer_ops[op](net, args, options)
             if 'name' in options:
-                if options['name'] in self.named_layers and op != 'reference':
-                    raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
-                self.gan.named_layers[options['name']] = net
-                self.named_layers[options['name']]     = net
+                self.set_layer(options['name'], net)
 
             after = self.variables()
             new = set(after) - set(before)
@@ -156,6 +156,13 @@ class ConfigurableComponent:
             print("ConfigurableComponent: Op not defined", op)
 
         return net
+
+    def set_layer(self, name, net):
+        #if options['name'] in self.named_layers and op != 'reference':
+        #    raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
+        self.gan.named_layers[name] = net
+        self.named_layers[name]     = net
+
     def count_number_trainable_params(self):
         '''
         Counts the number of trainable variables.
@@ -236,6 +243,29 @@ class ConfigurableComponent:
 
         return net
 
+    def layer_mask(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        layer = options.layer
+        mask_layer = options.mask_layer
+
+        opts = copy.deepcopy(dict(options))
+        opts["name"] = self.ops.description + "/" + (options.mask_name or "mask")
+        opts["activation"] = "sigmoid"
+
+        if options.upscale == "subpixel":
+            mask = self.layer_subpixel(self.gan.named_layers[options.layer], [1], opts)
+        else:
+            mask = self.layer_deconv(self.gan.named_layers[options.layer], [1], opts)
+        self.set_layer(opts['name'], mask)
+        extra = self.gan.named_layers[mask_layer]
+        mask = tf.tile(mask, [1,1,1,3])
+        net = (1 - mask) * net + mask * extra
+
+        return net
+
     def layer_identity(self, net, args, options):
         return net
 
@@ -269,9 +299,9 @@ class ConfigurableComponent:
 
         stride = options.stride or self.ops.config_option("stride", [2,2])
         fltr = options.filter or self.ops.config_option("filter", [5,5])
-        if type(fltr) == type(""):
+        if type(fltr) != type([]):
             fltr = [int(fltr), int(fltr)]
-        if not isinstance(stride, list):
+        if type(stride) != type([]):
             stride = [int(stride), int(stride)]
         if len(args) > 0:
             depth = int(args[0])
@@ -336,7 +366,10 @@ class ConfigurableComponent:
             initializer = self.ops.lookup_initializer(options.initializer, options)
         else:
             initializer = None
-        net = ops.linear(net, size, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
+        name = None
+        if options.name:
+            name = self.ops.description+options.name
+        net = ops.linear(net, size, initializer=initializer, name=name, trainable=trainable, bias=bias)
 
         if reshape is not None:
             net = tf.reshape(net, [ops.shape(net)[0]] + reshape)
@@ -461,6 +494,10 @@ class ConfigurableComponent:
         return net
     
     def layer_add(self, net, args, options):
+        ops = self.ops
+        gan = self.gan
+        config = self.config
+
         orig = net
         if "layer" in options:
             net = self.layer(options["layer"])
@@ -468,6 +505,8 @@ class ConfigurableComponent:
         if len(args) > 0:
             if args[0] == 'noise':
                 net = tf.random_normal(self.ops.shape(orig), mean=0, stddev=0.1)
+            elif args[0] == 'layer_filter':
+                net = config.layer_filter(gan, self.config, net)
             else:
                 subnet = self.subnets[args[0]]
                 for layer in subnet:
@@ -563,7 +602,6 @@ class ConfigurableComponent:
 
         if options.mask_with:
             extra = self.layer(options.mask_with)
-            print("EXTRA", extra)
             mask = tf.image.resize_images(original, [ops.shape(original)[1]*2, ops.shape(original)[2]*2],1)
             options['activation'] = 'sigmoid'
             mask = self.layer_conv(mask, [1], options)
@@ -914,6 +952,15 @@ class ConfigurableComponent:
         else:
             net += tf.random_normal(self.ops.shape(net), stddev=0.1)
         return net
+
+    def layer_latent(self, net, args, options):
+        return self.gan.latent.sample
+        return tf.random_uniform([self.ops.shape(net)[0], args[0]], -1, 1)
+
+    def layer_layer(self, net, args, options):
+        return self.layer(args[0])
+    def layer_layer_norm(self, net, args, options):
+        return self.ops.lookup("layer_norm")(self, net)
 
     def layer_variational_noise(self, net, args, options):
         net *= tf.random_normal(self.ops.shape(net), mean=1, stddev=0.02)

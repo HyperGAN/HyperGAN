@@ -19,7 +19,6 @@ import tensorflow as tf
         lr (float, optional): Adam learning rate (default: 1e-3)
         betas (Tuple[float, float], optional): coefficients used for computing
             running averages of gradient and its square (default: (0.9, 0.999))
-        final_lr (float, optional): final (SGD) learning rate (default: 0.1)
         eps (float, optional): term added to the denominator to improve
             numerical stability (default: 1e-8)
         amsbound (boolean, optional): whether to use the AMSBound variant of this algorithm
@@ -29,7 +28,7 @@ import tensorflow as tf
     """
 
 class AdaBoundOptimizer(optimizer.Optimizer):
-    def __init__(self, learning_rate=0.001, final_lr=0.1, beta1=0.9, beta2=0.999,
+    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999,
             beta1_power="decay(range=0.1:0 steps=10000 metric=b1)",
             beta2_power="decay(range=0.999:0 steps=10000 metric=b2)",
             lower_bound="decay(range=0:1 steps=10000 metric=lower)", 
@@ -38,17 +37,16 @@ class AdaBoundOptimizer(optimizer.Optimizer):
                  config={},
                  use_locking=False, name="AdaBound"):
         super(AdaBoundOptimizer, self).__init__(use_locking, name)
-        self._lr = learning_rate
-        self._final_lr = final_lr
+        self._lr = gan.configurable_param(learning_rate)
         self._beta1 = beta1
         self._beta2 = beta2
-        self._beta1_power = gan.configurable_param(beta1_power)
-        self._beta2_power = gan.configurable_param(beta2_power)
         self._epsilon = epsilon
         self._gan = gan
 
         self._lower_bound=gan.configurable_param(lower_bound)
         self._upper_bound=gan.configurable_param(upper_bound)
+        self._beta1_power=gan.configurable_param(beta1_power)
+        self._beta2_power=gan.configurable_param(beta2_power)
         self._amsbound = amsbound
         self._arad = arad
         self.config = config
@@ -84,12 +82,10 @@ class AdaBoundOptimizer(optimizer.Optimizer):
         beta2_t = math_ops.cast(self._beta2_t, var.dtype.base_dtype)
         epsilon_t = math_ops.cast(self._epsilon_t, var.dtype.base_dtype)
 
-        step_size = (lr_t * math_ops.sqrt(1 - self._beta2_power) / (1 - self._beta1_power))
-        final_lr = self._final_lr * lr_t / base_lr_t
-        lower_bound = final_lr * self._lower_bound
-        upper_bound = final_lr * self._upper_bound
-        #self._gan.add_metric("lb", lower_bound)
-        #self._gan.add_metric("ub", upper_bound)
+        lr_t = lr_t * tf.sqrt(1-beta2_t)/(1-beta1_t)
+
+        lower_bound = lr_t * self._lower_bound
+        upper_bound = lr_t * self._upper_bound
 
         # m_t = beta1 * m + (1 - beta1) * g_t
         m = self.get_slot(var, "m")
@@ -112,8 +108,12 @@ class AdaBoundOptimizer(optimizer.Optimizer):
 
 
         # Compute the bounds
-        step_size_bound = step_size / (v_sqrt + epsilon_t)
-        bounded_lr = m_t * clip_by_value(step_size_bound, lower_bound, upper_bound)
+        step_size_bound = lr_t / (v_sqrt + epsilon_t)
+        if isinstance(self.config.lower_bound, int) and self.config.lower_bound < 0:
+            bounded_lr = m_t * step_size_bound
+        else:
+            bounded_lr = m_t * clip_by_value(step_size_bound, lower_bound, upper_bound)
+
         if self._arad:
             bounded_lr *= (self.config.arad_lambda or 1.0) * tf.abs(m_t)
 

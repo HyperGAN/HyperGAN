@@ -37,7 +37,7 @@ class InputFitnessTrainHook(BaseTrainHook):
     self.cache = [tf.Variable(tf.zeros_like(self.input[i])) for i in range(len(self.input))]
     print("C ", self.cache, self.input)
     self.set_cache = [tf.assign(c, x) for c, x in zip(self.cache, self.input)]
-    self.restore_cache = [tf.assign(self.gan.inputs.x[i], tf.reshape(self.cache[i], self.ops.shape(self.gan.inputs.x[i]))) for i in range(self.gan.batch_size())]
+    self.restore_cache = [[tf.assign(self.gan.inputs.x[i], tf.reshape(self.cache[j], self.ops.shape(self.gan.inputs.x[i]))) for i in range(self.gan.batch_size())]  for j in range(self.gan.batch_size())]
     #for i in range(self.gan.batch_size()):
     #    restore = []
     #    for j in range(self.gan.batch_size()):
@@ -59,19 +59,19 @@ class InputFitnessTrainHook(BaseTrainHook):
 
   def before_step(self, step, feed_dict):
     def sort():
-        score_index = np.argsort(np.array(scores).flatten())
-        score_index = score_index[:self.gan.batch_size()]
+        raw_score_index = np.argsort(np.array(scores).flatten())
+        score_index = raw_score_index[:self.gan.batch_size()]
 
         sticky = 0
         total = 0
-        for i in range(self.gan.batch_size()):
-            scorei = score_index[i]
-            if (i+self.gan.batch_size()) not in score_index:
-                sticky+=1
-                self.gan.session.run(self.restore_cache[i])
-            total += 1
-        if total == sticky or sticky == 0:
-            print("Sticky "+str(sticky) + " / "+ str(total))
+        replacable = [ (scorei-self.gan.batch_size()) for scorei in score_index if scorei >= self.gan.batch_size()]
+        cached = [ i for i in range(self.gan.batch_size()) if i in score_index ]
+
+        for cache, replace in zip(cached, replacable):
+            #self.gan.session.run(self.restore_cache[cache][replace])
+            self.gan.session.run(self.restore_cache[replace][cache])
+        #if total == sticky or sticky == 0:
+        #    print("Sticky "+str(sticky) + " / "+ str(total))
 
     for i in range(self.config.search_steps or 1):
         scores = []

@@ -59,6 +59,7 @@ class ConfigurableComponent:
             "resize_conv": self.layer_resize_conv,
             "resize_images": self.layer_resize_images,
             "resnet": self.layer_resnet,
+            "slice": self.layer_slice,
             "split": self.layer_split,
             "squash": self.layer_squash,
             "subpixel": self.layer_subpixel,
@@ -492,6 +493,13 @@ class ConfigurableComponent:
         num_splits = int(args[0])
         selected = int(options.select)
         return tf.split(net, num_splits, axis)[selected]
+
+    def layer_slice(self, net, args, options):
+        start = int(args[0])
+        size = int(args[1])
+        bs = self.gan.batch_size()
+        return tf.slice(net, [0, start], [bs, size])
+
 
     def layer_squash(self, net, args, options):
         s = self.ops.shape(net)

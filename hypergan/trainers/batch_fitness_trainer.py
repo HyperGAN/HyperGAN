@@ -59,16 +59,40 @@ class BatchFitnessTrainer(BaseTrainer):
         else:
             fitness = sess.run(self.fitness)
             zs = self.zs
-        for i in range(self.config.search_steps or 2):
-            d = sess.run([self.fitness,gan.latent.sample])
-            _f = d[0]
-            _z = d[1]
-            fitness = np.concatenate([fitness,_f], axis=0)
-            zs = np.concatenate([zs,_z], axis=0)
-        fitness = np.array(fitness).flatten()
-        sort = np.argsort(fitness)
-        sort = sort[:gan.batch_size()]
-        sort_zs = zs[sort]
+        if self.config.heuristic:
+            last_fitness = 10000
+            count = 0
+            for i in range(self.config.search_steps or 2):
+                d = sess.run([self.fitness,gan.latent.sample])
+                _f = d[0]
+                _z = d[1]
+                fitness = np.reshape(fitness, np.shape(_f))
+                fitness = np.concatenate([fitness,_f], axis=0)
+                zs = np.reshape(zs, np.shape(_z))
+                zs = np.concatenate([zs,_z], axis=0)
+                sort = np.argsort(fitness.flatten())[:gan.batch_size()]
+                zs = zs[sort]
+                fitness = fitness.flatten()[sort]
+                if fitness.flatten()[-1] < last_fitness:
+                    last_fitness = fitness[-1]
+                    count = 0
+                else:
+                    count += 1
+                    if count > self.config.heuristic:
+                        #print("z fit ", i)
+                        sort_zs = np.reshape(zs, np.shape(_z))
+                        break
+        else:
+            for i in range(self.config.search_steps or 2):
+                d = sess.run([self.fitness,gan.latent.sample])
+                _f = d[0]
+                _z = d[1]
+                fitness = np.concatenate([fitness,_f], axis=0)
+                zs = np.concatenate([zs,_z], axis=0)
+            fitness = np.array(fitness).flatten()
+            sort = np.argsort(fitness)
+            sort = sort[:gan.batch_size()]
+            sort_zs = zs[sort]
         feed_dict[gan.latent.sample]=sort_zs
         self.zs = sort_zs
         

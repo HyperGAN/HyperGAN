@@ -59,17 +59,16 @@ class InputFitnessTrainHook(BaseTrainHook):
 
   def before_step(self, step, feed_dict):
     def sort():
-        raw_score_index = np.argsort(np.array(scores).flatten())
-        score_index = raw_score_index[:self.gan.batch_size()]
+        raw_winners = np.argsort(np.array(scores).flatten())
+        winners = raw_winners[:self.gan.batch_size()]
 
         sticky = 0
         total = 0
-        replacable = [ (scorei-self.gan.batch_size()) for scorei in score_index if scorei >= self.gan.batch_size()]
-        cached = [ i for i in range(self.gan.batch_size()) if i in score_index ]
+        cache_winners = [ scorei for scorei in winners if scorei < self.gan.batch_size()]
+        losers = [ i for i in range(self.gan.batch_size()) if (i+self.gan.batch_size()) not in winners ]
 
-        for cache, replace in zip(cached, replacable):
-            #self.gan.session.run(self.restore_cache[cache][replace])
-            self.gan.session.run(self.restore_cache[replace][cache])
+        for loser, cache_winner in zip(cache_winners, losers):
+            self.gan.session.run(self.restore_cache[loser][cache_winner])
         #if total == sticky or sticky == 0:
         #    print("Sticky "+str(sticky) + " / "+ str(total))
 
@@ -80,4 +79,12 @@ class InputFitnessTrainHook(BaseTrainHook):
         self.gan.session.run(self.sample_batch)
         scores += self.gan.session.run(self.d_real)
         sort()
+        if self.config.verify:
+            sortedscores = np.sort(np.array(scores).flatten())
+            newscores =np.sort(np.array(self.gan.session.run(self.d_real)).flatten())
+            print(i)
+            print(sortedscores[:self.gan.batch_size()].flatten())
+            print(np.sort(np.array(newscores).flatten()))
+            print(np.sort(newscores.flatten()) == np.array(sortedscores[:self.gan.batch_size()]).flatten())
+
 

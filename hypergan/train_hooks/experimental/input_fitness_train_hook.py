@@ -72,6 +72,9 @@ class InputFitnessTrainHook(BaseTrainHook):
         #if total == sticky or sticky == 0:
         #    print("Sticky "+str(sticky) + " / "+ str(total))
 
+    if self.config.heuristic is not None:
+        count = 0
+        previous_last_score = 1000
     for i in range(self.config.search_steps or 1):
         scores = []
         scores += self.gan.session.run(self.d_real)
@@ -79,6 +82,17 @@ class InputFitnessTrainHook(BaseTrainHook):
         self.gan.session.run(self.sample_batch)
         scores += self.gan.session.run(self.d_real)
         sort()
+        if self.config.heuristic is not None:
+            last_score = np.sort(np.array(scores).flatten())[-1]
+            if last_score < previous_last_score:
+                count = 0
+                previous_last_score = last_score
+            else:
+                count += 1
+                if(count > self.config.heuristic):
+                    #print(i+1)
+                    break
+
         if self.config.verify:
             sortedscores = np.sort(np.array(scores).flatten())
             newscores =np.sort(np.array(self.gan.session.run(self.d_real)).flatten())

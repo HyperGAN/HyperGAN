@@ -59,7 +59,7 @@ class BatchFitnessTrainer(BaseTrainer):
         else:
             fitness = sess.run(self.fitness)
             zs = self.zs
-        if self.config.heuristic:
+        if self.config.heuristic is not None:
             last_fitness = 10000
             count = 0
             for i in range(self.config.search_steps or 2):

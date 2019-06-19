@@ -134,7 +134,7 @@
       "channels": 3,
       "width": 128,
       "height": 128,
-      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 1 -c stylegan --save_every 10000 --resize"
+      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 1 -c dfgan --save_every 10000 --resize"
   },
   "fixed_input": true,
   "class": "class:hypergan.gans.noisy_gan.NoisyGAN"

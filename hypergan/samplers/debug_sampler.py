@@ -84,6 +84,9 @@ class DebugSampler(BaseSampler):
         #add_samples('gend32x32')
         #add_samples('gend64x64')
         #add_samples('gend128x128')
+        if "match_support_mx" in gan.discriminator.named_layers:
+            self.samplers.append(IdentitySampler(gan, tf.concat([gan.inputs.x,tf.image.resize_images(gan.discriminator.named_layers['match_support_mx'], [128,128], method=1), tf.image.resize_images(gan.discriminator.named_layers['match_support_m+x'], [128,128], method=1)],axis=0),  1) )
+            self.samplers.append(IdentitySampler(gan, tf.concat([gan.generator.sample, tf.image.resize_images(gan.discriminator.named_layers['match_support_mg'], [128,128], method=1), tf.image.resize_images(gan.discriminator.named_layers['match_support_m+g'], [128,128], method=1)],axis=0),  1) ) 
 
 
 

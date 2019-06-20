@@ -46,6 +46,7 @@ class ConfigurableComponent:
             "layer": self.layer_layer,
             "latent": self.layer_latent,
             "linear": self.layer_linear,
+            "match_support": self.layer_match_support,
             "mask": self.layer_mask,
             "minibatch": self.layer_minibatch,
             "noise": self.layer_noise,
@@ -244,6 +245,21 @@ class ConfigurableComponent:
         net = tf.zeros(reshape)
 
         return net
+
+    def layer_match_support(self, net, args, options):
+        s = self.ops.shape(net)
+        s[0] //= 2
+        with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+            xpx = self.ops.get_weight(s, name='xconst')
+        with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+            xpg = self.ops.get_weight(s, name='gconst')
+        x,g = tf.split(net, 2, axis=0)
+        self.named_layers[options['name']+"_mx"] = xpx
+        self.named_layers[options['name']+"_mg"] = xpg
+        self.named_layers[options['name']+"_m+x"] = x+xpx
+        self.named_layers[options['name']+"_m+g"] = g+xpg
+        result = tf.concat([x+xpx, g+xpg], axis=0)
+        return result
 
     def layer_mask(self, net, args, options):
         options = hc.Config(options)

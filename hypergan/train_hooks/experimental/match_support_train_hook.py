@@ -25,12 +25,12 @@ class MatchSupportTrainHook(BaseTrainHook):
     self.zero_x = tf.assign(m_x, tf.zeros_like(m_x))
     self.zero_g = tf.assign(m_g, tf.zeros_like(m_g))
     target = getattr(self.gan, self.config.target or "loss")
-    d_fake = tf.reduce_mean(target.d_fake)
-    d_real = tf.reduce_mean(target.d_real)
-    self.loss = tf.square(d_fake - d_real)*(self.config.loss_lambda or 10000.0)
+    d_fake = target.d_fake
+    d_real = target.d_real
+    self.loss = tf.reduce_mean(tf.square(d_fake - d_real))*(self.config.loss_lambda or 10000.0)
     #self.loss = tf.abs(d_fake - d_real)*(self.config.loss_lambda or 1.0)
     if self.config.loss == "abs":
-        self.loss = tf.square(d_fake)*100 + tf.square(d_real)*(self.config.ali_lambda or 1.0)
+        self.loss = tf.reduce_mean(tf.square(d_fake)*10000 + tf.square(d_real)*10000.0)
     if self.config.loss == "xzero":
         self.loss += (self.config.l2_lambda or 1e-4) * tf.reduce_sum(tf.abs(m_x))
     if self.config.loss == "ali-manifold_guided":
@@ -43,25 +43,40 @@ class MatchSupportTrainHook(BaseTrainHook):
         var_list.append(m_x)
     if "g" in variables:
         var_list.append(m_g)
+    if "gvars" in variables:
+        var_list.append(self.gan.generator.variables())
+    self.initial_learn_rate = self.config.optimizer.learn_rate
+    self.learn_rate = tf.Variable(self.config.optimizer.learn_rate)
+    self.config.optimizer['learn_rate']=self.learn_rate
     self.optimizer = self.gan.create_optimizer(self.config.optimizer)
     self.train_t = self.optimizer.minimize(self.loss, var_list=var_list)
     self.reset_optimizer_t = tf.variables_initializer(self.optimizer.variables())
 
-  def before_step(self, step, feed_dict):
+  def before_step(self, step, feed_dict, depth=0):
+    if self.learn_rate not in feed_dict:
+        feed_dict[self.learn_rate] = self.initial_learn_rate
     self.gan.session.run([self.zero_x, self.zero_g, self.reset_optimizer_t])
     begin = self.gan.session.run(self.loss, feed_dict)
     last_loss = begin
-    for i in range(self.config.max_steps or 100):
+    for i in range((self.config.max_steps or 100)*(1+depth)):
         _ = self.gan.session.run(self.train_t, feed_dict)
         loss = self.gan.session.run(self.loss, feed_dict)
+        if np.any(np.isnan(loss)) or np.any(np.isinf(loss)):
+            feed_dict[self.learn_rate] = feed_dict[self.learn_rate] / 2.0
+            print("NAN decreasing learn rate", feed_dict[self.learn_rate])
+            return self.before_step(step, feed_dict, depth+1)
         convergence = 1.0-loss/last_loss
         last_loss = loss
-        print("Convergence:", convergence, loss)
+        #print("Convergence:", convergence, loss)
         if convergence < self.config.convergence_threshold and loss < self.config.loss_threshold:
             break
-    if np.any(np.isnan(loss)) or np.any(np.isinf(loss)):
-        print("NAN")
-        return self.before_step(step, feed_dict)
+    if i+1 == ((self.config.max_steps or 100)*(1+depth)):
+        if depth > 4:
+            print("No convergence, 5 depth, continuing...")
+        else:
+            feed_dict[self.learn_rate] = feed_dict[self.learn_rate] / 2.0
+            print("No convergence, decreasing learn rate", feed_dict[self.learn_rate])
+            return self.before_step(step, feed_dict, depth+1)
 
     print("> steps", i, "Loss begin " + str(begin) + " Loss end "+str(i)+":", loss)
 

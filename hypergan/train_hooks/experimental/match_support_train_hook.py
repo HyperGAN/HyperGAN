@@ -20,31 +20,68 @@ class MatchSupportTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook", layer="match_support", variables=["x","g"]):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     component = getattr(self.gan,self.config.component or "discriminator")
-    m_x = component.layer(layer+"_mx")
-    m_g = component.layer(layer+"_mg")
-    self.zero_x = tf.assign(m_x, tf.zeros_like(m_x))
-    self.zero_g = tf.assign(m_g, tf.zeros_like(m_g))
+        
+    if not isinstance(layer, list):
+        layer = [layer]
+    m_x = [component.layer(l+"_mx") for l in layer]
+    m_g = [component.layer(l+"_mg") for l in layer]
+    if 'x' in variables:
+        self.zero_x = [tf.assign(m, tf.zeros_like(m)) for m in m_x]
+    else:
+        self.zero_x = [tf.no_op()]
+    if 'g' in variables:
+        self.zero_g = [tf.assign(m, tf.zeros_like(m)) for m in m_g]
+    else:
+        self.zero_g = [tf.no_op()]
     target = getattr(self.gan, self.config.target or "loss")
     d_fake = target.d_fake
     d_real = target.d_real
     self.loss = tf.reduce_mean(tf.square(d_fake - d_real))*(self.config.loss_lambda or 10000.0)
-    #self.loss = tf.abs(d_fake - d_real)*(self.config.loss_lambda or 1.0)
-    if self.config.loss == "abs":
-        self.loss = tf.reduce_mean(tf.square(d_fake)*10000 + tf.square(d_real)*10000.0)
-    if self.config.loss == "xzero":
-        self.loss += (self.config.l2_lambda or 1e-4) * tf.reduce_sum(tf.abs(m_x))
-    if self.config.loss == "ali-manifold_guided":
-        d_fake2 = tf.reduce_mean(self.gan.z_loss.d_fake)
-        d_real2 = tf.reduce_mean(self.gan.z_loss.d_real)
-        self.loss += tf.square(d_fake2 - d_real2)*(self.config.ali_loss_lambda or 1.0)
+    if self.config.loss == "zero":
+        self.loss += tf.reduce_mean(tf.square(d_fake))*10000.0
+    if self.config.loss == "wgan":
+        self.loss = tf.reduce_mean(tf.square(d_fake))*10000.0
+        self.loss += tf.reduce_mean(tf.square(d_real))*10000.0
+    if self.config.loss == "close":
+        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(-d_fake-0.1)))*1000.0
+        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(d_fake-0.1)))*1000.0
+    if self.config.loss == "close2":
+        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.1))))*1000.0
+        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.1))))*1000.0
+    if self.config.loss == 'fixed':
+        self.loss = tf.reduce_mean(tf.square(tf.reduce_mean(d_fake - d_real)))*(self.config.loss_lambda or 10000.0)
+    if self.config.loss == 'fixed2':
+        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
+    if self.config.loss == "fixed3":
+        self.loss = tf.reduce_mean(tf.square(d_real+0.05))*1000.0
+        self.loss += tf.reduce_mean(tf.square(d_fake-0.05))*1000.0
+    if self.config.loss == 'fixed4':
+        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
+        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(-d_fake)))*(self.config.loss_lambda or 10000.0)
+    if self.config.loss == 'fixed5':
+        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
+        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(-d_fake-0.005)))*(self.config.loss_lambda or 10000.0)
+    if self.config.loss == 'targets':
+        self.loss = tf.reduce_mean(tf.square(-d_fake-1e3))*(self.config.loss_lambda or 10000.0)
+        self.loss += tf.reduce_mean(tf.square(d_real-1e3))*(self.config.loss_lambda or 10000.0)
+    if self.config.loss == 'absdiff':
+        self.loss = tf.reduce_mean(tf.square(tf.abs(d_fake)-tf.abs(d_real)))*(self.config.loss_lambda or 10000.0)
+    if self.config.loss == 'xor':
+        self.loss = tf.reduce_mean(tf.square(d_fake+d_real))*(self.config.loss_lambda or 10000.0)
+        self.loss += tf.reduce_mean(tf.square(tf.abs(d_fake) - 0.01))*1000.0
+
+
+
 
     var_list = []
-    if "x" in variables:
-        var_list.append(m_x)
-    if "g" in variables:
-        var_list.append(m_g)
-    if "gvars" in variables:
-        var_list.append(self.gan.generator.variables())
+    for v in variables:
+        if "x" == v:
+            [var_list.append(m) for m in m_x]
+            continue
+        if "g" == v:
+            [var_list.append(m) for m in m_g]
+            continue
+        var_list.append(getattr(self.gan, v).variables())
     self.initial_learn_rate = self.config.optimizer.learn_rate
     self.learn_rate = tf.Variable(self.config.optimizer.learn_rate)
     self.config.optimizer['learn_rate']=self.learn_rate
@@ -53,32 +90,43 @@ class MatchSupportTrainHook(BaseTrainHook):
     self.reset_optimizer_t = tf.variables_initializer(self.optimizer.variables())
 
   def before_step(self, step, feed_dict, depth=0):
-    if self.learn_rate not in feed_dict:
-        feed_dict[self.learn_rate] = self.initial_learn_rate
-    self.gan.session.run([self.zero_x, self.zero_g, self.reset_optimizer_t])
+    max_depth = self.config.max_depth
+    if max_depth is None:
+        max_depth = 2
     begin = self.gan.session.run(self.loss, feed_dict)
     last_loss = begin
+    if last_loss < self.config.loss_threshold:
+        if self.config.verbose:
+            print(self.config.component, "> Loss begin " + str(begin) + " skipping training")
+        return
+    learn_rate = self.initial_learn_rate / 2*(depth+1)
+    feed_dict[self.learn_rate] = learn_rate
+    if self.config.verbose:
+        print("Learn rate: ", learn_rate)
+    self.gan.session.run(self.zero_x+ self.zero_g+ [self.reset_optimizer_t])
     for i in range((self.config.max_steps or 100)*(1+depth)):
         _ = self.gan.session.run(self.train_t, feed_dict)
         loss = self.gan.session.run(self.loss, feed_dict)
         if np.any(np.isnan(loss)) or np.any(np.isinf(loss)):
-            feed_dict[self.learn_rate] = feed_dict[self.learn_rate] / 2.0
-            print("NAN decreasing learn rate", feed_dict[self.learn_rate])
-            return self.before_step(step, feed_dict, depth+1)
+            if max_depth == depth+1:
+                print("NAN during X and G training.  Resetting.")
+                return self.before_step(step, feed_dict, depth+1)
         convergence = 1.0-loss/last_loss
         last_loss = loss
-        #print("Convergence:", convergence, loss)
-        if convergence < self.config.convergence_threshold and loss < self.config.loss_threshold:
+        if self.config.verbose:
+            print("Convergence:", convergence, loss)
+        if (self.config.convergence_threshold is None or convergence < self.config.convergence_threshold) and loss < self.config.loss_threshold:
             break
-    if i+1 == ((self.config.max_steps or 100)*(1+depth)):
-        if depth > 4:
-            print("No convergence, 5 depth, continuing...")
-        else:
-            feed_dict[self.learn_rate] = feed_dict[self.learn_rate] / 2.0
-            print("No convergence, decreasing learn rate", feed_dict[self.learn_rate])
+        if convergence < 0.0 and i > 10:
+            if max_depth != depth+1:
+                print("Direction changed but not converged, decreasing learn rate", feed_dict[self.learn_rate])
+                return self.before_step(step, feed_dict, depth+1)
+    if i+1 == ((self.config.max_steps or 100)*(1+depth)) and loss > self.config.loss_threshold:
+        if max_depth != depth+1:
+            print("No convergence, decreasing learn rate", feed_dict[self.learn_rate], depth, loss)
             return self.before_step(step, feed_dict, depth+1)
 
-    print("> steps", i, "Loss begin " + str(begin) + " Loss end "+str(i)+":", loss)
+    print(self.config.component, "> steps", i, "Loss begin " + str(begin) + " Loss end "+str(i)+":", loss, "lr", feed_dict[self.learn_rate])
 
   def after_step(self, step, feed_dict):
-    self.gan.session.run([self.zero_x, self.zero_g])
+    self.gan.session.run(self.zero_x+ self.zero_g)

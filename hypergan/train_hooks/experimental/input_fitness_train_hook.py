@@ -75,7 +75,14 @@ class InputFitnessTrainHook(BaseTrainHook):
     if self.config.heuristic is not None:
         count = 0
         previous_last_score = 1000
-    for i in range(self.config.search_steps or 1):
+    search_steps = self.config.search_steps
+    if self.config.search_steps is None:
+        search_steps = 1
+
+    if search_steps == 0:
+        self.gan.session.run(self.sample_batch)
+
+    for i in range(search_steps):
         scores = []
         scores += self.gan.session.run(self.d_real)
         self.gan.session.run(self.set_cache)

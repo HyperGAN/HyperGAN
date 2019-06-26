@@ -116,15 +116,16 @@ class MatchSupportTrainHook(BaseTrainHook):
         last_loss = loss
         if self.config.verbose:
             print("Convergence:", convergence, loss)
-        if i % 10 == 0:
-            GlobalViewer.tick()
-            print("Convergence:", convergence, loss)
-        if (self.config.convergence_threshold is None or convergence < self.config.convergence_threshold) and loss < self.config.loss_threshold:
+        if (self.config.convergence_threshold is not None and convergence < self.config.convergence_threshold):
+            if self.config.verbose:
+                print("Convergence threshold reached", self.config.convergence_threshold)
             break
-        if convergence < 0.0 and i > 10:
-            if max_depth != depth+1:
-                print("Direction changed but not converged, decreasing learn rate", feed_dict[self.learn_rate])
-                return self.before_step(step, feed_dict, depth+1)
+
+        if self.config.loss_threshold is not None and loss < self.config.loss_threshold:
+            if self.config.verbose:
+                print("Loss threshold reached", self.config.loss_threshold)
+            break
+
     if i+1 == ((self.config.max_steps or 100)*(1+depth)) and loss > self.config.loss_threshold:
         if max_depth != depth+1:
             print("No convergence, decreasing learn rate", feed_dict[self.learn_rate], depth, loss)

@@ -46,11 +46,6 @@ class InputFitnessTrainHook(BaseTrainHook):
                 restore.append(op)
             self.restore_cache.append(restore)
     self.loss = [None, None]
-    if self.config.k_lipschitz is not None:
-        klip = self.gan.configurable_param(self.config.k_lipschitz)
-        k_lip = tf.nn.relu(tf.abs(tf.reduce_mean(self.gan.loss.d_real-self.gan.loss.d_fake))-klip)
-        self.gan.add_metric("k_lip", k_lip)
-        self.loss = [k_lip, None]
 
   def after_step(self, step, feed_dict):
     pass
@@ -59,6 +54,8 @@ class InputFitnessTrainHook(BaseTrainHook):
       return self.loss
 
   def before_step(self, step, feed_dict):
+    if step == 0:
+        self.gan.session.run(self.sample_batch)
     def sort():
         raw_winners = np.argsort(np.array(scores).flatten())
         winners = raw_winners[:self.gan.batch_size()]
@@ -68,8 +65,8 @@ class InputFitnessTrainHook(BaseTrainHook):
         cache_winners = [ scorei for scorei in winners if scorei < self.gan.batch_size()]
         losers = [ i for i in range(self.gan.batch_size()) if (i+self.gan.batch_size()) not in winners ]
 
-        #for loser, cache_winner in zip(cache_winners, losers):
-        #    self.gan.session.run(self.restore_cache[loser][cache_winner])
+        for loser, cache_winner in zip(cache_winners, losers):
+            self.gan.session.run(self.restore_cache[loser][cache_winner])
         #if total == sticky or sticky == 0:
         #    print("Sticky "+str(sticky) + " / "+ str(total))
 

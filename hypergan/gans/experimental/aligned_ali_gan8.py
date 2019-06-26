@@ -70,6 +70,8 @@ class AlignedAliGAN8(BaseGAN):
             else:
                 ga = self.create_component(config.generator, input=za, name='a_generator')
                 gb = self.create_component(config.generator, input=zb, name='b_generator')
+                self.ga = ga
+                self.gb = gb
 
             self.ga = ga
             self.gb = gb
@@ -78,8 +80,8 @@ class AlignedAliGAN8(BaseGAN):
 
             xba = ga.sample
             xab = gb.sample
-            xa_hat = ga.reuse(za)
-            xb_hat = gb.reuse(zb)
+            xa_hat = ga.reuse(zgb.sample)
+            xb_hat = gb.reuse(zga.sample)
             xa = self.inputs.xa
             xb = self.inputs.xb
 
@@ -148,6 +150,8 @@ class AlignedAliGAN8(BaseGAN):
                 features = None
                 z_d = self.create_component(config.discriminator, name='ugb_discriminator', input=stacked)
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=self.inputs.xa, generator=ga, split=2)
+                self.db = z_d
+                self.lb = loss3
                 metrics["ugb_gloss"]=loss3.g_loss
                 metrics["ugb_dloss"]=loss3.d_loss
                 d_loss1 += loss3.d_loss
@@ -245,12 +249,17 @@ class AlignedAliGAN8(BaseGAN):
                 uga = ga.sample
                 zua = za
                 z_d = self.create_component(config.discriminator, name='d_ba', input=stacked, features=[features])
-                loss3 = self.create_component(config.loss, discriminator = z_d, x=self.inputs.xb, generator=ga, split=2)
-                metrics["ba_gloss"]=loss3.g_loss
-                metrics["ba_dloss"]=loss3.d_loss
+                loss3 = self.create_component(config.loss, discriminator = z_d, split=2)
+                self.gan.add_metric("ba_gloss",loss3.g_loss)
+                self.gan.add_metric("ba_dloss",loss3.d_loss)
                 d_loss1 += loss3.d_loss
                 g_loss1 += loss3.g_loss
                 d_vars1 += z_d.variables()
+                g_vars1 += ga.variables()
+                self.al = loss1
+                self.bl = loss3
+                self.bd = z_d
+                self.ad = d
 
             if config.style:
                 g_vars1 += styleb.variables()

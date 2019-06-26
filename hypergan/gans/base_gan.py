@@ -83,6 +83,7 @@ class BaseGAN(GANComponent):
             self.feed_x = self.inputs.xb
             self.inputs.xb = tf.Variable(tf.zeros_like(self.feed_x))
             self.set_x = tf.group([self.set_x, tf.assign(self.inputs.xb, self.feed_x)])
+            self.inputs.x = self.inputs.xb
 
 
 

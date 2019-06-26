@@ -8,6 +8,7 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import state_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.training import optimizer
+from hypergan.viewer import GlobalViewer
 import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
@@ -114,6 +115,9 @@ class MatchSupportTrainHook(BaseTrainHook):
         convergence = 1.0-loss/last_loss
         last_loss = loss
         if self.config.verbose:
+            print("Convergence:", convergence, loss)
+        if i % 10 == 0:
+            GlobalViewer.tick()
             print("Convergence:", convergence, loss)
         if (self.config.convergence_threshold is None or convergence < self.config.convergence_threshold) and loss < self.config.loss_threshold:
             break

@@ -15,7 +15,7 @@ import inspect
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
-class InputFitnessTrainHook(BaseTrainHook):
+class AlignedInputFitnessTrainHook(BaseTrainHook):
   "Keep track of Xs with high discriminator values"
   def __init__(self, gan=None, config=None, trainer=None, name="GpSnMemoryTrainHook", memory_size=2, top_k=1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
@@ -37,13 +37,14 @@ class InputFitnessTrainHook(BaseTrainHook):
     self.cache = [tf.Variable(tf.zeros_like(self.input[i])) for i in range(len(self.input))]
     print("C ", self.cache, self.input)
     self.set_cache = [tf.assign(c, x) for c, x in zip(self.cache, self.input)]
-    self.restore_cache = [[tf.assign(self.gan.inputs.x[i], tf.reshape(self.cache[j], self.ops.shape(self.gan.inputs.x[i]))) for i in range(self.gan.batch_size())]  for j in range(self.gan.batch_size())]
-    #for i in range(self.gan.batch_size()):
-    #    restore = []
-    #    for j in range(self.gan.batch_size()):
-    #        op = tf.assign(self.gan.inputs.x[i], tf.reshape(self.cache[j], self.ops.shape(self.gan.inputs.x[i])))
-    #        restore.append(op)
-    #    self.restore_cache.append(restore)
+    if self.config.skip_restore is None:
+        self.restore_cache = [[tf.assign(self.gan.inputs.x[i], tf.reshape(self.cache[j], self.ops.shape(self.gan.inputs.x[i]))) for i in range(self.gan.batch_size())]  for j in range(self.gan.batch_size())]
+        for i in range(self.gan.batch_size()):
+            restore = []
+            for j in range(self.gan.batch_size()):
+                op = tf.assign(self.gan.inputs.x[i], tf.reshape(self.cache[j], self.ops.shape(self.gan.inputs.x[i])))
+                restore.append(op)
+            self.restore_cache.append(restore)
     self.loss = [None, None]
     if self.config.k_lipschitz is not None:
         klip = self.gan.configurable_param(self.config.k_lipschitz)
@@ -67,8 +68,8 @@ class InputFitnessTrainHook(BaseTrainHook):
         cache_winners = [ scorei for scorei in winners if scorei < self.gan.batch_size()]
         losers = [ i for i in range(self.gan.batch_size()) if (i+self.gan.batch_size()) not in winners ]
 
-        for loser, cache_winner in zip(cache_winners, losers):
-            self.gan.session.run(self.restore_cache[loser][cache_winner])
+        #for loser, cache_winner in zip(cache_winners, losers):
+        #    self.gan.session.run(self.restore_cache[loser][cache_winner])
         #if total == sticky or sticky == 0:
         #    print("Sticky "+str(sticky) + " / "+ str(total))
 

@@ -15,7 +15,7 @@ import inspect
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
-class AlignedInputFitnessTrainHook(BaseTrainHook):
+class InputFitnessTrainHook(BaseTrainHook):
   "Keep track of Xs with high discriminator values"
   def __init__(self, gan=None, config=None, trainer=None, name="GpSnMemoryTrainHook", memory_size=2, top_k=1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)

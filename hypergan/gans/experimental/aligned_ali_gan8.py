@@ -75,6 +75,7 @@ class AlignedAliGAN8(BaseGAN):
 
 
             re_zb = self.create_component(config.encoder, input=ga.sample, name='xa_to_zb', reuse=True)
+            re_za = self.create_component(config.encoder, input=gb.sample, name='xb_to_za', reuse=True)
             self.ga = ga
             self.gb = gb
 
@@ -82,8 +83,8 @@ class AlignedAliGAN8(BaseGAN):
 
             xba = ga.sample
             xab = gb.sample
-            xa_hat = ga.reuse(zgb.sample)
-            xb_hat = gb.reuse(zga.sample)
+            xa_hat = ga.reuse(re_za.sample)
+            xb_hat = gb.reuse(re_zb.sample)
             xa = self.inputs.xa
             xb = self.inputs.xb
 

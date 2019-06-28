@@ -51,17 +51,10 @@ class AliGAN(BaseGAN):
         with tf.device(self.device):
             x_input = tf.identity(self.inputs.x, name='input')
 
-            encoder = self.create_encoder(self.inputs.x)
-
             # q(z|x)
-            if config.u_to_z:
-                latent = UniformDistribution(self, config.latent)
-            else:
-                z_shape = self.ops.shape(encoder.sample)
-                uz_shape = z_shape
-                uz_shape[-1] = uz_shape[-1] // len(config.latent.projections or [1])
-                latent = UniformDistribution(self, config.latent, output_shape=uz_shape)
+            latent = UniformDistribution(self, config.latent)
             self.latent = latent
+            encoder = self.create_encoder(self.inputs.x)
  
             direction, slider = self.create_controls(self.ops.shape(latent.sample))
             z = latent.sample + slider * direction
@@ -71,7 +64,6 @@ class AliGAN(BaseGAN):
             feature_dim = len(ops.shape(z))-1
             #stack_z = tf.concat([encoder.sample, z], feature_dim)
             #stack_encoded = tf.concat([encoder.sample, encoder.sample], feature_dim)
-            stack_z = z
 
 
             if config.u_to_z:
@@ -94,14 +86,16 @@ class AliGAN(BaseGAN):
 
                 self.encoder = encoder
                 features = [encoder.sample, u_to_z.sample]
+
                 self.u_to_z = u_to_z
             else:
-                generator = self.create_component(config.generator, input=stack_z, name='generator')
+                er = encoder.sample
+                generator = self.create_component(config.generator, input=er, name='generator')
                 self.generator = generator
                 stacked = [x_input, generator.sample]
 
                 self.encoder = encoder
-                features = ops.concat([encoder.sample, z], axis=0)
+                features = ops.concat([encoder.sample, er], axis=0)
 
             if config.style_encoder:
                 x_hat = self.create_component(config.generator, input=encoder.sample, features=[x_hat_style], reuse=True, name='generator').sample
@@ -128,7 +122,17 @@ class AliGAN(BaseGAN):
 
             if self.config.manifold_guided:
                 reencode_u_to_z = self.create_encoder(generator.sample, reuse=True)
-                stack_z = [encoder.sample, u_to_z.sample]#reencode_u_to_z.sample]
+                #stack_z = [encoder.sample, u_to_z.sample]#reencode_u_to_z.sample]
+                if self.config.manifold_target == 'reencode_u_to_z':
+                    stack_z = [encoder.sample, reencode_u_to_z.sample]
+                else:
+                    stack_z = [encoder.sample, u_to_z.sample]#reencode_u_to_z.sample]
+                if self.config.terms == "eg:ex":
+                    stack_z = [reencode_u_to_z.sample, encoder.sample]
+                if self.config.terms == "ex:eg":
+                    stack_z = [encoder.sample, reencode_u_to_z.sample]
+                if self.config.stop_gradients:
+                    stack_z = [tf.stop_gradient(encoder.sample), u_to_z.sample]#reencode_u_to_z.sample]
                 stacked_zs = ops.concat(stack_z, axis=0)
                 z_discriminator = self.create_component(config.z_discriminator, name='z_discriminator', input=stacked_zs)
                 self.z_discriminator = z_discriminator
@@ -137,8 +141,7 @@ class AliGAN(BaseGAN):
             self._g_vars = g_vars
             self._d_vars = d_vars
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
-            if self.gan.config.infogan:
-                d_vars += self.gan.infogan_q.variables()
+            self.standard_loss = standard_loss
 
             loss1 = ["g_loss", standard_loss.g_loss]
             loss2 = ["d_loss", standard_loss.d_loss]

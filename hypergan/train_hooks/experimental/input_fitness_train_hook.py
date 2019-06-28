@@ -65,8 +65,9 @@ class InputFitnessTrainHook(BaseTrainHook):
         cache_winners = [ scorei for scorei in winners if scorei < self.gan.batch_size()]
         losers = [ i for i in range(self.gan.batch_size()) if (i+self.gan.batch_size()) not in winners ]
 
-        for loser, cache_winner in zip(cache_winners, losers):
-            self.gan.session.run(self.restore_cache[loser][cache_winner])
+        if self.config.skip_restore is None:
+            for loser, cache_winner in zip(cache_winners, losers):
+                self.gan.session.run(self.restore_cache[loser][cache_winner])
         #if total == sticky or sticky == 0:
         #    print("Sticky "+str(sticky) + " / "+ str(total))
 

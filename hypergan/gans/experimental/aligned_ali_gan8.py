@@ -73,6 +73,8 @@ class AlignedAliGAN8(BaseGAN):
                 self.ga = ga
                 self.gb = gb
 
+
+            re_zb = self.create_component(config.encoder, input=ga.sample, name='xa_to_zb', reuse=True)
             self.ga = ga
             self.gb = gb
 
@@ -88,7 +90,7 @@ class AlignedAliGAN8(BaseGAN):
 
             t0 = xb
             t1 = gb.sample
-            f0 = za
+            f0 = re_zb.sample#za
             f1 = zb
             stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)

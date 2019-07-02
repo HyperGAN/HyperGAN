@@ -25,7 +25,6 @@ class BatchFitnessTrainer(BaseTrainer):
         d_vars = gan.d_vars()
         g_vars = gan.g_vars()
         self._delegate = self.gan.create_component(config.trainer)
-        self.reset_optimizer_t = tf.variables_initializer(self._delegate.optimizer.variables())
         ftype = config.type
 
         self.fitness = -loss.d_fake
@@ -98,10 +97,7 @@ class BatchFitnessTrainer(BaseTrainer):
         self.zs = sort_zs
         
         self.before_step(self.current_step, feed_dict)
-        if self.config.reset_optimizer:
-            self.gan.session.run([self.reset_optimizer_t])
-        for i in range(self.config.stepcount or 1):
-            self._delegate.step(feed_dict)
+        self._delegate.step(feed_dict)
 
         self.after_step(self.current_step, feed_dict)
 

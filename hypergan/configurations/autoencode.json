@@ -73,10 +73,10 @@
     "reduce": "reduce_mean"
   },
   "trainer": {
-    "class": "function:hypergan.trainers.batch_fitness_trainer.BatchFitnessTrainer",
-    "heuristic": 0,
-    "search_steps": 100000,
-    "stepcount": 10,
+    "class": "function:hypergan.trainers.depth_trainer.DepthTrainer",
+    "depth": 100,
+    "reset_optimizer": true,
+    "decay": 0.5,
 
     "trainer": {
       "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",

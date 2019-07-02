@@ -86,11 +86,16 @@ class AliGAN(BaseGAN):
 
                 self.encoder = encoder
                 features = [encoder.sample, u_to_z.sample]
+                if self.config.reencode:
+                    er = self.create_encoder(generator.sample, reuse=True)
+                    features = [encoder.sample, er.sample]
 
                 self.u_to_z = u_to_z
             else:
                 er = encoder.sample
                 generator = self.create_component(config.generator, input=er, name='generator')
+                if self.config.reencode:
+                    er = self.create_encoder(generator.sample, reuse=True).sample
                 self.generator = generator
                 stacked = [x_input, generator.sample]
 

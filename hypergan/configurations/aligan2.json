@@ -1,0 +1,193 @@
+{
+  "description": "Adversarial learned inference with manifold guided (AliGAN exaple)",
+  "publication": "https://arxiv.org/abs/1606.00704 , https://arxiv.org/abs/1804.04391",
+  "u_to_z": 
+  {
+    "activation": "relu",
+      "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+      "initializer": "he_normal",
+      "defaults":{
+        "activation": "relu",
+        "initializer": "he_normal",
+        "filter": [3,3],
+        "stride": [1,1],
+        "avg_pool": [1,1]
+      },
+      "layers":[
+       "identity name=c",
+      "latent 128",
+      "linear 512 initializer=stylegan name=w",
+      "layer c",
+      "linear 4*4*512 initializer=stylegan",
+      "subpixel 256",
+      "adaptive_instance_norm",
+      "subpixel 128",
+      "adaptive_instance_norm"
+      ]
+
+  },
+
+
+  "encoder": 
+  {
+      "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+      "defaults":{
+        "activation": "relu",
+        "initializer": "he_normal",
+        "filter": [3,3],
+        "stride": [1,1],
+        "avg_pool": [2,2]
+      },
+      "layers":[
+        "conv 32",
+        "conv 64 ",
+        "conv 128"
+      ]
+
+  },
+  "discriminator": 
+  {
+      "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+      "defaults":{
+        "activation": "relu",
+        "initializer": "he_normal",
+        "filter": [3,3],
+        "stride": [1,1],
+        "avg_pool": [2,2]
+      },
+      "layers":[
+        "conv 32",
+        "conv 64 ",
+        "conv 128",
+        "combine_features",
+        "conv 256",
+        "conv 512",
+        "linear 1 activation=null"
+      ]
+
+  },
+  "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "initializer": "he_normal",
+    "random_stddev": 0.00001,
+    "orthogonal_gain": 1.0,
+    "defaults": {
+      "activation": "relu",
+      "relu_activation": "relu",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [2,2],
+      "avg_pool": [2,2]
+    },
+    "layers": [
+      "deconv 92 avg_pool=1",
+      "deconv 64 avg_pool=1",
+      "deconv 3 avg_pool=1 activation=null"
+    ]
+  },
+  "latent": {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "max": 1,
+    "min": -1,
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "z": 128
+  },
+  "loss": {
+    "type": "logistic",
+    "class": "function:hypergan.losses.ali_loss.AliLoss",
+    "reduce": "reduce_mean"
+  },
+  "z_discriminator": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults":{
+      "activation": "relu",
+      "initializer": "he_normal",
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2]
+    },
+    "layers":[
+      "conv 256",
+      "conv 512",
+      "linear 1 activation=null"
+    ]
+
+  },
+
+  "trainer": {
+    "class": "function:hypergan.trainers.depth_trainer.DepthTrainer",
+    "freeze_latent": "best",
+    "heuristic": 0,
+    "decay": 0.5,
+
+    "trainer": {
+      "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+        "optimizer": {
+          "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
+            "learn_rate": 0.00001,
+            "d_rho": 1.0,
+            "g_rho": 1.0,
+
+
+            "optimizer": {
+              "class": "function:hypergan.optimizers.experimental.ema_optimizer.EmaOptimizer",
+              "decay": 0.2,
+              "optimizer": {
+                "class": "function:hypergan.optimizers.experimental.negative_momentum_optimizer.NegativeMomentumOptimizer",
+                "decay": 1.0,
+                "alpha": 0.5,
+                "beta": 0.66,
+
+
+                "optimizer": {
+                  "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+                  "learn_rate": 1e-4,
+                  "beta1":0.9,
+                  "beta2":0.999
+                }
+            }
+        }
+      },
+      "hooks":[
+        {
+          "class": "function:hypergan.train_hooks.experimental.match_support_train_hook.MatchSupportTrainHook",
+          "variables": ["generator", "u_to_z"],
+          "loss_threshold": 1.0,
+          "loss": "ali2",
+          "max_steps": 100000,
+          "max_depth": 1,
+
+          "optimizer": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 3e-4,
+            "beta1":0.0,
+            "beta2":0.999
+
+          }
+        }
+      ]
+    },
+    "hooks":[
+      {
+        "class": "function:hypergan.train_hooks.experimental.input_fitness_train_hook.InputFitnessTrainHook",
+        "heuristic": 0,
+        "search_steps": 100000
+      }
+    ]
+  },
+  "runtime": {
+      "channels": 3,
+      "width": 128,
+      "height": 128,
+      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 1 -c aligan2 --save_every 10000 --resize"
+  },
+
+
+  "fixed_input": true,
+  "reencode": true,
+  "manifold_guided": true,
+  "class": "class:hypergan.gans.ali_gan.AliGAN"
+}

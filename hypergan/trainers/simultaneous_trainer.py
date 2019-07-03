@@ -8,21 +8,25 @@ from hypergan.trainers.base_trainer import BaseTrainer
 TINY = 1e-12
 
 class SimultaneousTrainer(BaseTrainer):
+    """ Steps G and D simultaneously """
     def _create(self):
         gan = self.gan
         config = self.config
 
-        loss = self.gan.loss
+        loss = self.loss or self.gan.loss
         d_loss, g_loss = loss.sample
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
         config.optimizer["loss"] = loss.sample
 
         self.optimizer = self.gan.create_optimizer(config.optimizer)
+        d_vars = self.d_vars or self.gan.d_vars()
+        g_vars = self.g_vars or self.gan.g_vars()
 
-        d_grads = tf.gradients(d_loss, gan.d_vars())
-        g_grads = tf.gradients(g_loss, gan.g_vars())
-        apply_vec = list(zip((d_grads + g_grads), (gan.d_vars() + gan.g_vars()))).copy()
+        d_grads = tf.gradients(d_loss, d_vars)
+        g_grads = tf.gradients(g_loss, g_vars)
+        apply_vec = list(zip((d_grads + g_grads), (d_vars + g_vars))).copy()
+        self.gan.gradient_mean = sum([tf.reduce_mean(tf.abs(grad)) for grad in d_grads+g_grads])/len(d_grads+g_grads)
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.gan.trainer = self

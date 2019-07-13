@@ -990,7 +990,12 @@ class ConfigurableComponent:
         return tf.random_uniform([self.ops.shape(net)[0], args[0]], -1, 1)
 
     def layer_layer(self, net, args, options):
-        return self.layer(args[0])
+        options = hc.Config(options)
+        if "src" in options:
+            obj = getattr(self.gan, options.src)
+        else:
+            obj = self
+        return obj.layer(args[0])
     def layer_layer_norm(self, net, args, options):
         return self.ops.lookup("layer_norm")(self, net)
 

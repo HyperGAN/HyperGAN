@@ -55,6 +55,7 @@ class AliGAN(BaseGAN):
             latent = UniformDistribution(self, config.latent)
             self.latent = latent
             encoder = self.create_encoder(self.inputs.x)
+            self.encoder = encoder
  
             direction, slider = self.create_controls(self.ops.shape(latent.sample))
             z = latent.sample + slider * direction
@@ -95,7 +96,8 @@ class AliGAN(BaseGAN):
                 er = encoder.sample
                 generator = self.create_component(config.generator, input=er, name='generator')
                 if self.config.reencode:
-                    er = self.create_encoder(generator.sample, reuse=True).sample
+                    self.reencode = self.create_encoder(generator.sample, reuse=True)
+                    er = self.reencode.sample
                 self.generator = generator
                 stacked = [x_input, generator.sample]
 

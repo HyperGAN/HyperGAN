@@ -36,11 +36,11 @@ class AdversarialRobustTrainHook(BaseTrainHook):
     clearx=tf.assign(self.trainablex, tf.zeros_like(self.gan.inputs.x))
     clearg=tf.assign(self.trainableg, tf.zeros_like(self.gan.inputs.x))
     with tf.get_default_graph().control_dependencies([clearx, clearg]):
-        self.adversarial_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([gan.inputs.x+self.trainablex,gan.generator.sample+self.trainableg],axis=0), reuse=True)
+        self.adversarial_discriminator = gan.create_component(gan.config.discriminator, name="d_ab", input=tf.concat([gan.inputs.x+self.trainablex,gan.generator.sample+self.trainableg],axis=0), features=[gan.features], reuse=True)
         self.v = tf.gradients(self.adversarial_discriminator.sample, [self.trainablex, self.trainableg])
         self.v = [self._vlambda*v/tf.norm(v, ord=2) for v in self.v]
 
-        self.robustness_discriminator = gan.create_component(gan.config.discriminator, name='discriminator', input=tf.concat([gan.inputs.x+self.v[0], gan.generator.sample+self.v[1]], axis=0), reuse=True)
+        self.robustness_discriminator = gan.create_component(gan.config.discriminator, name='d_ab', input=tf.concat([gan.inputs.x+self.v[0], gan.generator.sample+self.v[1]], axis=0), features=[gan.features], reuse=True)
 
         if config.loss_type == 'gan':
             self.loss = gan.create_component(gan.config.loss, self.robustness_discriminator).sample

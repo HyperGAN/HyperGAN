@@ -13,7 +13,10 @@ class SimultaneousTrainer(BaseTrainer):
         gan = self.gan
         config = self.config
 
-        loss = self.loss or self.gan.loss
+        if hasattr(self, 'loss'):
+            loss = self.loss 
+        else:
+            loss = self.gan.loss
         d_loss, g_loss = loss.sample
 
         self.d_log = -tf.log(tf.abs(d_loss+TINY))

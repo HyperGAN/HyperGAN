@@ -16,7 +16,7 @@ class FitnessTrainer(BaseTrainer):
         decay_function = config.decay_function
         self.min_fitness = None
 
-        return self._create()
+        super(BatchFitnessTrainer, self).create()
 
     def _create(self):
         gan = self.gan

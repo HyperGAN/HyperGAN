@@ -9,15 +9,13 @@ TINY = 1e-12
 
 class BatchFitnessTrainer(BaseTrainer):
     def create(self):
-        super(BatchFitnessTrainer, self).create()
         self.hist = [0 for i in range(2)]
         config = self.config
         self.global_step = tf.train.get_global_step()
         self.mix_threshold_reached = False
         decay_function = config.decay_function
         self.min_fitness = None
-
-        return self._create()
+        super(BatchFitnessTrainer, self).create()
 
     def _create(self):
         gan = self.gan

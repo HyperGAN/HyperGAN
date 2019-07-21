@@ -68,8 +68,8 @@ class ResizableGenerator(ConfigurableGenerator):
 
         if config.adaptive_instance_norm:
             w = latent
-            w = self.layer_linear(w, [512], {})
-            w = self.layer_linear(w, [512], {})
+            for i in range(config.adaptive_instance_norm_layers or 2):
+                w = self.layer_linear(w, [512], {})
             w = self.layer_identity(w, ["w"], {})
             net = self.layer_adaptive_instance_norm(net, [], {})
 
@@ -86,6 +86,9 @@ class ResizableGenerator(ConfigurableGenerator):
             elif block == 'subpixel':
                 net = self.layer_filter(net)
                 net = self.layer_subpixel(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
+            elif block == 'resize_conv':
+                net = self.layer_filter(net)
+                net = self.layer_resize_conv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
             else:
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)
@@ -116,6 +119,14 @@ class ResizableGenerator(ConfigurableGenerator):
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
                 net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
+        elif block == "resize_conv":
+            net = self.layer_filter(net)
+            if resize != [e*2 for e in ops.shape(net)[1:3]]:
+                net = self.layer_resize_conv(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
+                net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
+            else:
+                net = self.layer_resize_conv(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
+
         else:
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(net)

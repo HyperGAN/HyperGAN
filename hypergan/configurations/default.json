@@ -39,7 +39,8 @@
     "final_activation": "clamped_unit",
     "final_depth": 32,
     "adaptive_instance_norm": true,
-    "block": "subpixel"
+    "adaptive_instance_norm_layers": 2,
+    "block": "resize_conv"
   },
  "loss": {
     "class": "function:hypergan.losses.logistic_loss.LogisticLoss",

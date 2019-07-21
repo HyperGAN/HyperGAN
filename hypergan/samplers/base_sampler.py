@@ -48,13 +48,17 @@ class BaseSampler:
             image = np.minimum(image, 1)
             image = np.maximum(image, -1)
         image = np.squeeze(image)
+        if np.shape(image)[2] == 4:
+            fmt = "RGBA"
+        else:
+            fmt = "RGB"
         # Scale to 0..255.
         imin, imax = image.min(), image.max()
         image = (image - imin) * 255. / (imax - imin) + .5
         image = image.astype(np.uint8)
         if save_sample:
             try:
-                Image.fromarray(image).save(filename)
+                Image.fromarray(image, fmt).save(filename)
             except Exception as e:
                 print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
                 print(e)

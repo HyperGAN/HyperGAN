@@ -1,6 +1,6 @@
 
 {
-  "description": "A default configuration that scales to multiple resolutions.  Note that the other resolution specific configs generally perform better.",
+  "description": "A default configuration that scales to multiple resolutionse Note that the other resolution specific configs may perform better.",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
@@ -10,15 +10,14 @@
       "stride": [1,1],
       "avg_pool": [2,2],
       "activation": "lrelu",
-      "initializer": "random_normal",
+      "initializer": "he_normal",
       "random_stddev": 0.02
     },
     "layers":[
+      "conv 32 ", 
       "conv 64 ", 
       "conv 128",
       "conv 256",
-      "conv 512",
-      "conv 512",
       "conv 512",
       "linear 1 activation=null"
     ]
@@ -34,66 +33,68 @@
   "generator": {
     "class": "function:hypergan.generators.resizable_generator.ResizableGenerator",
     "activation": "relu",
-    "initializer": "random_normal",
-    "random_stddev": 0.02,
-    "depth_increase": 128,
-    "final_activation": "tanh",
-    "final_depth": 128,
-    "block": "deconv"
+    "initializer": "he_normal",
+    "final_activation": "clamped_unit",
+    "final_depth": 32,
+    "depth_increase": 32,
+    "adaptive_instance_norm": true,
+    "block": "subpixel"
   },
-
-  "loss":
-  {
-    "class": "function:hypergan.losses.standard_loss.StandardLoss",
+ "loss": {
+    "class": "function:hypergan.losses.logistic_loss.LogisticLoss",
     "reduce": "reduce_mean"
   },
+  "fixed_input": true,
   "trainer": {
-    "class": "function:hypergan.trainers.alternating_trainer.AlternatingTrainer",
-    "g_optimizer": {
-
-      "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
-      "f_decay": 0.8,
+    "class": "function:hypergan.trainers.batch_fitness_trainer.BatchFitnessTrainer",
+    "heuristic": 0,
+    "search_steps": 100000,
+    "trainer": {
+      "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
       "optimizer": {
-        "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
-        "optimizer": {
-          "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-          "learn_rate": 1e-4,
-          "beta1":0.0,
-          "beta2":0.999
-        },
-        "optimizer2": {
-          "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-          "learn_rate": 3e-5,
-          "beta1":0.0,
-          "beta2":0.999
-        }
-      }
-    },
-    "d_optimizer": {
-      "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
-      "optimizer": {
-
-        "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+        "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
+        "learn_rate": 0.00001,
+        "d_rho": 1.0,
+        "g_rho": 1.0,
 
         "optimizer": {
-          "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-          "learn_rate": 1e-4,
-          "beta1":0.0,
-          "beta2":0.999
-        },
-        "optimizer2": {
-          "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-          "learn_rate": 3e-5,
-          "beta1":0.0,
-          "beta2":0.999
+          "class": "function:hypergan.optimizers.experimental.negative_momentum_optimizer.NegativeMomentumOptimizer",
+          "decay": 1.0,
+          "alpha": 0.5,
+          "beta": 0.66,
+          "optimizer": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 1e-4,
+            "beta1":0.0,
+            "beta2":0.999
+          }
         }
-      }
+
+      },
+      "hooks":[
+        {
+          "class": "function:hypergan.train_hooks.experimental.input_fitness_train_hook.InputFitnessTrainHook",
+          "heuristic": 0,
+          "search_steps": 100000
+        },
+        {
+          "class": "function:hypergan.train_hooks.experimental.match_support_train_hook.MatchSupportTrainHook",
+          "variables": ["generator"],
+          "loss_threshold": 1.0,
+          "loss": "fixed2",
+          "max_steps": 100,
+          "max_depth": 1,
+          "optimizer": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 1e-4,
+            "beta1":0.0,
+            "beta2":0.999
+          }
+        }
+      ]
     }
   },
   "runtime": {
-    "channels": 3,
-    "width": 64,
-    "height": 64,
     "train": "hypergan train [dataset] --sample_every 100 --sampler static_batch --format jpg --size 64x64x3 -b 1 --resize"
   },
   "class": "class:hypergan.gans.standard_gan.StandardGAN"

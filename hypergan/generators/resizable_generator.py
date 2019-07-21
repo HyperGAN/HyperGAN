@@ -2,10 +2,11 @@ import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
 from hypergan.generators.common import *
+from hypergan.generators.configurable_generator import ConfigurableGenerator
 
 from .base_generator import BaseGenerator
 
-class ResizableGenerator(BaseGenerator):
+class ResizableGenerator(ConfigurableGenerator):
 
     def required(self):
         return "final_depth activation depth_increase".split()
@@ -43,6 +44,7 @@ class ResizableGenerator(BaseGenerator):
         final_activation = ops.lookup(config.final_activation)
         block = config.block or standard_block
         padding = config.padding or "SAME"
+        latent = net
 
         net = ops.reshape(net, [ops.shape(net)[0], -1])
         primes = config.initial_dimensions or [4, 4]
@@ -62,20 +64,34 @@ class ResizableGenerator(BaseGenerator):
 
         net = self.layer_filter(net)
         filter_size = config.filter or 3
+
+
+        if config.adaptive_instance_norm:
+            w = latent
+            w = self.layer_linear(w, [512], {})
+            w = self.layer_linear(w, [512], {})
+            w = self.layer_identity(w, ["w"], {})
+
         for i, depth in enumerate(depths[1:]):
             s = ops.shape(net)
             resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
             net = self.layer_regularizer(net)
             self.add_progressive_enhancement(net)
             net = activation(net)
-            if block != 'deconv':
+            dep = np.minimum(depth, config.max_depth or 512)
+            if block == 'deconv':
+                net = self.layer_filter(net)
+                net = ops.deconv2d(net, 5, 5, 2, 2, dep)
+            elif block == 'subpixel':
+                net = self.layer_filter(net)
+                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3})
+            else:
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)
                 net = block(self, net, depth, filter=filter_size, padding=padding)
-            else:
-                net = self.layer_filter(net)
-                net = ops.deconv2d(net, 5, 5, 2, 2, np.minimum(depth, config.max_depth or 512))
 
+            if config.adaptive_instance_norm:
+                net = self.layer_adaptive_instance_norm(net, [], {})
 
             size = resize[0]*resize[1]*depth
             print("[generator] layer", net, size)
@@ -85,17 +101,24 @@ class ResizableGenerator(BaseGenerator):
         net = activation(net)
         resize = [gan.height(), gan.width()]
 
-        if block != 'deconv':
-            net = ops.resize_images(net, resize, config.resize_image_type or 1)
-            net = self.layer_filter(net)
-            net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3, padding=padding)
-        else:
+        if block == 'deconv':
             net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
                 net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
                 net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
+        elif block == "subpixel":
+            net = self.layer_filter(net)
+            if resize != [e*2 for e in ops.shape(net)[1:3]]:
+                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3})
+                net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
+            else:
+                net = self.layer_subpixel(net, [config.channels or gan.channels()], {"avg_pool": 1, "stride": 1, "filter": 3})
+        else:
+            net = ops.resize_images(net, resize, config.resize_image_type or 1)
+            net = self.layer_filter(net)
+            net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3, padding=padding)
 
 
         if final_activation:

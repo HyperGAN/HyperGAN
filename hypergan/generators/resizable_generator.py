@@ -40,7 +40,6 @@ class ResizableGenerator(ConfigurableGenerator):
 
         nets = []
 
-        final_activation = ops.lookup(config.final_activation)
         block = config.block or standard_block
         padding = config.padding or "SAME"
         latent = net
@@ -106,26 +105,22 @@ class ResizableGenerator(ConfigurableGenerator):
         if block == 'deconv':
             net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
-                net = ops.deconv2d(net, 5, 5, 2, 2, dep)
+                net = self.layer_deconv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3, "activation": config.final_activation or "tanh"})
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
                 net = ops.deconv2d(net, 5, 5, 2, 2, dep)
         elif block == "subpixel":
             net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
-                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3})
+                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
-                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3})
+                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
         else:
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(net)
             net = block(self, net, dep, filter=config.final_filter or 3, padding=padding)
 
-
-        if final_activation:
-            net = self.layer_regularizer(net)
-            net = final_activation(net)
 
         return net
 

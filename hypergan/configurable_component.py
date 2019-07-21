@@ -279,12 +279,14 @@ class ConfigurableComponent:
             mask = self.layer_deconv(self.gan.named_layers[options.layer], [1], opts)
         self.set_layer(opts['name'], mask)
         extra = self.gan.named_layers[mask_layer]
-        mask = tf.tile(mask, [1,1,1,3])
-        net = (1 - mask) * net + mask * extra
+        mask = tf.tile(mask, [1,1,1,self.ops.shape(net)[-1]])
+        net = (mask) * net + (1-mask) * extra
 
         return net
 
     def layer_identity(self, net, args, options):
+        if len(args) > 0:
+            self.set_layer(args[0], net)
         return net
 
     def layer_conv(self, net, args, options):

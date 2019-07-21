@@ -19,7 +19,7 @@
       "conv 128",
       "conv 256",
       "conv 512",
-      "linear 1 activation=null"
+      "linear 1 activation=null initializer=stylegan bias=false"
     ]
   },
 
@@ -32,11 +32,12 @@
   },
   "generator": {
     "class": "function:hypergan.generators.resizable_generator.ResizableGenerator",
-    "activation": "relu",
-    "initializer": "he_normal",
+    "defaults":{
+      "initializer": "he_normal",
+      "activation": "relu"
+    },
     "final_activation": "clamped_unit",
     "final_depth": 32,
-    "depth_increase": 32,
     "adaptive_instance_norm": true,
     "block": "subpixel"
   },

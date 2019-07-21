@@ -9,13 +9,13 @@ from .base_generator import BaseGenerator
 class ResizableGenerator(ConfigurableGenerator):
 
     def required(self):
-        return "final_depth activation depth_increase".split()
+        return "final_depth".split()
 
     def depths(self, initial_width=4):
         gan = self.gan
         ops = self.ops
         config = self.config
-        final_depth = config.final_depth-config.depth_increase
+        final_depth = config.final_depth
         depths = []
 
         target_w = gan.width()
@@ -27,8 +27,8 @@ class ResizableGenerator(ConfigurableGenerator):
         depths.append(final_depth)
         while w < target_w:
             w*=2
+            depths.append(final_depth * 2**i)
             i+=1
-            depths.append(final_depth + i*config.depth_increase + (gan.channels() or config.channels) - 3)
         depths = depths[1:]
         depths.reverse()
         return depths
@@ -40,7 +40,6 @@ class ResizableGenerator(ConfigurableGenerator):
 
         nets = []
 
-        activation = ops.lookup(config.activation)
         final_activation = ops.lookup(config.final_activation)
         block = config.block or standard_block
         padding = config.padding or "SAME"
@@ -49,15 +48,17 @@ class ResizableGenerator(ConfigurableGenerator):
         net = ops.reshape(net, [ops.shape(net)[0], -1])
         primes = config.initial_dimensions or [4, 4]
         depths = self.depths(primes[0])
-        initial_depth = depths[0]
+        initial_depth = np.minimum(depths[0], config.max_depth or 512)
+        str_depth = str(primes[0])+"*"+str(primes[1])+"*"+str(initial_depth)
         new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
-        net = ops.linear(net, initial_depth*primes[0]*primes[1])
+        net = self.layer_linear(net, [str_depth], {"initializer": "stylegan"})
         net = ops.reshape(net, new_shape)
+        print("Generator Architecture:")
+        print("linear "+str_depth)
 
         shape = ops.shape(net)
 
         depths = self.depths(initial_width = shape[1])
-        print("[generator] Initial depth", shape)
 
         depth_reduction = np.float32(config.depth_reduction)
         shape = ops.shape(net)
@@ -71,20 +72,21 @@ class ResizableGenerator(ConfigurableGenerator):
             w = self.layer_linear(w, [512], {})
             w = self.layer_linear(w, [512], {})
             w = self.layer_identity(w, ["w"], {})
+            net = self.layer_adaptive_instance_norm(net, [], {})
 
         for i, depth in enumerate(depths[1:]):
             s = ops.shape(net)
             resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
             net = self.layer_regularizer(net)
             self.add_progressive_enhancement(net)
-            net = activation(net)
             dep = np.minimum(depth, config.max_depth or 512)
+            print(block + " " + str(dep))
             if block == 'deconv':
                 net = self.layer_filter(net)
-                net = ops.deconv2d(net, 5, 5, 2, 2, dep)
+                net = self.layer_deconv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3})
             elif block == 'subpixel':
                 net = self.layer_filter(net)
-                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3})
+                net = self.layer_subpixel(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
             else:
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = self.layer_filter(net)
@@ -94,31 +96,31 @@ class ResizableGenerator(ConfigurableGenerator):
                 net = self.layer_adaptive_instance_norm(net, [], {})
 
             size = resize[0]*resize[1]*depth
-            print("[generator] layer", net, size)
 
         net = self.layer_regularizer(net)
 
-        net = activation(net)
         resize = [gan.height(), gan.width()]
 
+        dep = config.channels or gan.channels()
+        print(block + " " + str(dep))
         if block == 'deconv':
             net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
-                net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
+                net = ops.deconv2d(net, 5, 5, 2, 2, dep)
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
-                net = ops.deconv2d(net, 5, 5, 2, 2, config.channels or gan.channels())
+                net = ops.deconv2d(net, 5, 5, 2, 2, dep)
         elif block == "subpixel":
             net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
                 net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3})
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
-                net = self.layer_subpixel(net, [config.channels or gan.channels()], {"avg_pool": 1, "stride": 1, "filter": 3})
+                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3})
         else:
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = self.layer_filter(net)
-            net = block(self, net, config.channels or gan.channels(), filter=config.final_filter or 3, padding=padding)
+            net = block(self, net, dep, filter=config.final_filter or 3, padding=padding)
 
 
         if final_activation:

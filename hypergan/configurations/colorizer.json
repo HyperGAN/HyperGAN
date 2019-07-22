@@ -121,7 +121,7 @@
       "height": 256,
       "train": "python3 hypergan/examples/colorizer.py train [dataset] --sample_every 100 --format jpg --size 256x256x3 -b 4 -c colorizer --save_every 5000 -z 1"
   },
-  "fixed_inputs": ["x"],
+  "fixed_input": true,
 
 
   "class": "class:hypergan.gans.standard_gan.StandardGAN"

@@ -3,18 +3,15 @@
   {
       "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
       "defaults":{
-        "activation": "prelu",
+        "activation": "relu",
         "initializer": "he_normal",
         "filter": [3,3],
         "stride": [1,1],
         "avg_pool": [2,2]
       },
       "layers":[
-        "layer_filter",
         "conv 32",
-        "layer_filter",
         "conv 64 ",
-        "layer_filter",
         "conv 128",
         "layer_filter",
         "conv 256",
@@ -30,22 +27,27 @@
     "layer_filter": "function:__main__.add_bw",
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
     "defaults": {
-      "activation": "prelu",
+      "activation": "relu",
       "initializer": "he_normal",
       "filter": [3,3],
       "stride": [2,2],
       "avg_pool": [1,1]
     },
     "layers": [
-      "linear 32*32*32",
+      ["linear 512 initializer=stylegan", "linear 512 initializer=stylegan name=w"],
+      "linear 32*32*32 initializer=stylegan",
+
       "layer_filter",
       "deconv 64",
+      "adaptive_instance_norm",
       "layer_filter",
       "deconv 32",
+      "adaptive_instance_norm",
       "layer_filter",
       "deconv 16",
+      "adaptive_instance_norm",
       "layer_filter",
-      "deconv 3 stride=1 activation=tanh"
+      "deconv 3 stride=1 activation=clamped_unit"
     ]
   },
 
@@ -65,45 +67,61 @@
   },
 
   "trainer": {
-    "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
-    "optimizer": {
-      "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
-      "learn_rate": 0.00001,
+    "class": "function:hypergan.trainers.batch_fitness_trainer.BatchFitnessTrainer",
+    "heuristic": 0,
+    "search_steps": 100000,
+    "trainer": {
+      "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
       "optimizer": {
-        "class": "function:hypergan.optimizers.elastic_weight_consolidation_optimizer.ElasticWeightConsolidationOptimizer",
-        "f_decay": 0.5,
-        "add_ewc_loss_gradients": true,
-        "optimizer": {
-          "class": "function:hypergan.optimizers.giga_wolf_optimizer.GigaWolfOptimizer",
+        "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
+        "learn_rate": 0.00001,
+        "d_rho": 1.0,
+        "g_rho": 1.0,
 
+        "optimizer": {
+          "class": "function:hypergan.optimizers.experimental.negative_momentum_optimizer.NegativeMomentumOptimizer",
+          "decay": 1.0,
+          "alpha": 0.5,
+          "beta": 0.66,
           "optimizer": {
             "class": "function:tensorflow.python.training.adam.AdamOptimizer",
             "learn_rate": 1e-4,
             "beta1":0.0,
             "beta2":0.999
-          },
-          "optimizer2": {
+          }
+        }
+
+      },
+      "hooks":[
+        {
+          "class": "function:hypergan.train_hooks.experimental.input_fitness_train_hook.InputFitnessTrainHook",
+          "heuristic": 0,
+          "search_steps": 100000
+        },
+        {
+          "class": "function:hypergan.train_hooks.experimental.match_support_train_hook.MatchSupportTrainHook",
+          "variables": ["generator"],
+          "loss_threshold": 1.0,
+          "loss": "fixed2",
+          "max_steps": 100,
+          "max_depth": 1,
+          "optimizer": {
             "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-            "learn_rate": 3e-5,
+            "learn_rate": 1e-4,
             "beta1":0.0,
             "beta2":0.999
           }
         }
-      }
-    },
-    "hooks":[
-      {
-        "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
-        "lambda": 10.0
-      }
-    ]
+      ]
+    }
   },
   "runtime": {
       "channels": 3,
       "width": 256,
       "height": 256,
-      "train": "python3 hypergan/examples/colorizer.py train [dataset] --sample_every 100 --format jpg --size 256x256x3 -b 4 -c colorizer-256x256 --save_every 5000 -z 1"
+      "train": "python3 hypergan/examples/colorizer.py train [dataset] --sample_every 100 --format jpg --size 256x256x3 -b 4 -c colorizer --save_every 5000 -z 1"
   },
+  "fixed_inputs": ["x"],
 
 
   "class": "class:hypergan.gans.standard_gan.StandardGAN"

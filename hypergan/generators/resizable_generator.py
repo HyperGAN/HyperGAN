@@ -105,6 +105,7 @@ class ResizableGenerator(ConfigurableGenerator):
 
         dep = config.channels or gan.channels()
         print(block + " " + str(dep))
+
         if block == 'deconv':
             net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
@@ -112,6 +113,7 @@ class ResizableGenerator(ConfigurableGenerator):
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
                 net = ops.deconv2d(net, 5, 5, 2, 2, dep)
+
         elif block == "subpixel":
             net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
@@ -119,13 +121,10 @@ class ResizableGenerator(ConfigurableGenerator):
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
                 net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
+
         elif block == "resize_conv":
             net = self.layer_filter(net)
-            if resize != [e*2 for e in ops.shape(net)[1:3]]:
-                net = self.layer_resize_conv(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
-                net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
-            else:
-                net = self.layer_resize_conv(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
+            net = self.layer_resize_conv(net, [dep], {"w": resize[0], "h": resize[1], "avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
 
         else:
             net = ops.resize_images(net, resize, config.resize_image_type or 1)

@@ -189,10 +189,11 @@ def build(config, inputs, args):
 
 def sample(config, inputs, args):
     gan = setup_gan(config, inputs, args)
-    sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
+    sampler = gan.sampler_for(args.sampler, default=RandomWalkSampler)(gan)
     samples = 0
     for i in range(args.steps):
         sample_file="samples/"+config_name+"/%06d.png" % (samples)
+        os.makedirs(os.path.expanduser(os.path.dirname(sample_file)), exist_ok=True)
         samples += 1
         sampler.sample(sample_file, args.save_samples)
 

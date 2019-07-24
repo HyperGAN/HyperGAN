@@ -1,6 +1,7 @@
 {
   "discriminator": 
   {
+      "layer_filter": "function:__main__.add_bw",
       "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
       "defaults":{
         "activation": "relu",
@@ -10,8 +11,11 @@
         "avg_pool": [2,2]
       },
       "layers":[
+        "layer_filter",
         "conv 32",
+        "layer_filter",
         "conv 64 ",
+        "layer_filter",
         "conv 128",
         "layer_filter",
         "conv 256",
@@ -25,29 +29,29 @@
   },
   "generator": {
     "layer_filter": "function:__main__.add_bw",
-    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "class": "class:hypergan.generators.configurable_generator.ConfigurableGenerator",
     "defaults": {
       "activation": "relu",
       "initializer": "he_normal",
       "filter": [3,3],
-      "stride": [2,2],
+      "stride": [1,1],
       "avg_pool": [1,1]
     },
     "layers": [
       ["linear 512 initializer=stylegan", "linear 512 initializer=stylegan name=w"],
       "linear 32*32*32 initializer=stylegan",
-
       "layer_filter",
-      "deconv 64",
       "adaptive_instance_norm",
+      "resize_conv 64",
       "layer_filter",
-      "deconv 32",
       "adaptive_instance_norm",
+      "resize_conv 32",
       "layer_filter",
-      "deconv 16",
       "adaptive_instance_norm",
+      "resize_conv 16",
       "layer_filter",
-      "deconv 3 stride=1 activation=clamped_unit"
+      "adaptive_instance_norm",
+      "resize_conv 3 stride=2 activation=clamped_unit"
     ]
   },
 
@@ -65,7 +69,6 @@
     "class": "function:hypergan.losses.logistic_loss.LogisticLoss",
     "reduce": "reduce_mean"
   },
-
   "trainer": {
     "class": "function:hypergan.trainers.batch_fitness_trainer.BatchFitnessTrainer",
     "heuristic": 0,
@@ -106,15 +109,14 @@
           "max_steps": 100,
           "max_depth": 1,
           "optimizer": {
-            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-            "learn_rate": 1e-4,
-            "beta1":0.0,
-            "beta2":0.999
+            "class": "function:tensorflow.python.training.rmsprop.RMSPropOptimizer",
+            "learn_rate": 0.0005
           }
         }
       ]
     }
   },
+
   "runtime": {
       "channels": 3,
       "width": 256,

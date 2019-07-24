@@ -195,6 +195,8 @@ class ConfigurableComponent:
         gan = self.gan
         config = self.config
         fltr = config.layer_filter(gan, self.config, net)
+        if "only" in options:
+            return fltr
         if fltr is not None:
             net = ops.concat(axis=3, values=[net, fltr])
         return net

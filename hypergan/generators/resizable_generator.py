@@ -62,7 +62,6 @@ class ResizableGenerator(ConfigurableGenerator):
         depth_reduction = np.float32(config.depth_reduction)
         shape = ops.shape(net)
 
-        net = self.layer_filter(net)
         filter_size = config.filter or 3
 
 
@@ -81,17 +80,13 @@ class ResizableGenerator(ConfigurableGenerator):
             dep = np.minimum(depth, config.max_depth or 512)
             print(block + " " + str(dep))
             if block == 'deconv':
-                net = self.layer_filter(net)
                 net = self.layer_deconv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3})
             elif block == 'subpixel':
-                net = self.layer_filter(net)
                 net = self.layer_subpixel(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
             elif block == 'resize_conv':
-                net = self.layer_filter(net)
                 net = self.layer_resize_conv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
             else:
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
-                net = self.layer_filter(net)
                 net = block(self, net, depth, filter=filter_size, padding=padding)
 
             if config.adaptive_instance_norm:
@@ -107,7 +102,6 @@ class ResizableGenerator(ConfigurableGenerator):
         print(block + " " + str(dep))
 
         if block == 'deconv':
-            net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
                 net = self.layer_deconv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3, "activation": config.final_activation or "tanh"})
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
@@ -115,7 +109,6 @@ class ResizableGenerator(ConfigurableGenerator):
                 net = ops.deconv2d(net, 5, 5, 2, 2, dep)
 
         elif block == "subpixel":
-            net = self.layer_filter(net)
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
                 net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
@@ -123,12 +116,10 @@ class ResizableGenerator(ConfigurableGenerator):
                 net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
 
         elif block == "resize_conv":
-            net = self.layer_filter(net)
             net = self.layer_resize_conv(net, [dep], {"w": resize[0], "h": resize[1], "avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
 
         else:
             net = ops.resize_images(net, resize, config.resize_image_type or 1)
-            net = self.layer_filter(net)
             net = block(self, net, dep, filter=config.final_filter or 3, padding=padding)
 
 

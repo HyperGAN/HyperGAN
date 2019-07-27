@@ -78,7 +78,9 @@ class StandardGAN(BaseGAN):
             if self.ops.shape(x) == self.ops.shape(g):
                 self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
             else:
-                self.discriminator = self.create_component(config.discriminator, name="discriminator")
+                print("X size", self.ops.shape(x))
+                print("G size", self.ops.shape(g))
+                raise ValidationException("X and G sizes differ")
             self.loss = self.create_component(config.loss, discriminator=self.discriminator)
             self.trainer = self.create_component(config.trainer)
 

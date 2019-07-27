@@ -35,13 +35,13 @@
       "reshape -1 name=w",
       "const 4*4*128",
       "adaptive_instance_norm",
-      "resize_conv 64 avg_pool=1",
+      "subpixel 64 avg_pool=1",
       "adaptive_instance_norm",
-      "resize_conv 32 avg_pool=1",
+      "subpixel 32 avg_pool=1",
       "adaptive_instance_norm",
-      "resize_conv 16",
+      "subpixel 16",
       "adaptive_instance_norm",
-      "resize_conv 3 avg_pool=1 activation=null"
+      "subpixel 3 avg_pool=1 activation=null"
     ]
 
   },
@@ -102,7 +102,7 @@
       },
       {
         "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
-        "lambda": 10.0
+        "lambda": 0.001
       }
     ]
   },

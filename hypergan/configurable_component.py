@@ -626,7 +626,7 @@ class ConfigurableComponent:
         initializer = None # default to global
 
         original = net
-        net = tf.image.resize_images(net, [ops.shape(net)[1]*2, ops.shape(net)[2]*2],1)
+        net = tf.image.resize_images(net, [options.w or ops.shape(net)[1]*2, options.h or ops.shape(net)[2]*2],1)
 
         if options.concat:
             extra = self.layer(options.concat)

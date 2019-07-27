@@ -24,30 +24,31 @@ class Sampler(BaseSampler):
         generator = gan.generator.sample
         z_t = gan.latent.sample
         x_t = gan.inputs.x
-        width = 3
-        n_samples = 9
+        width = 4
+        n_samples = 8
         
         sess = gan.session
         config = gan.config
         global x_v
         global z_v
         global layer_filter
-        x_v = sess.run(x_t)
-        x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
+        if x_v is None:
+            x_v, z_v = sess.run([x_t, z_t])
+            x_v = np.tile(x_v[0], [gan.batch_size(),1,1,1])
         if layer_filter == None:
             layer_filter = gan.generator.config.layer_filter(gan, gan.generator.config, x_t)
             if(gan.ops.shape(layer_filter)[-1] == 1):
                 layer_filter = tf.tile(layer_filter,[1,1,1,3])
 
         
-        layer_filter_v = sess.run(layer_filter, {x_t: x_v})
+        layer_filter_v = sess.run(layer_filter, {x_t: x_v, z_t: z_v})
 
-        samples = [sess.run(generator, {x_t: x_v})[0] for n in range(n_samples)]
+        samples = sess.run(generator, {x_t: x_v, z_t: z_v})
         stacks = []
         #stacks.append([x_v[0], layer_filter_v[0]] + samples[-4:0])
  
-        for i in range(n_samples//width-1):
-            stacks.append([samples[i*width+width+j] for j in range(width)])
+        for i in range(n_samples//width):
+            stacks.append([samples[i*width+j] for j in range(width)])
 
         stacks[0][0]=x_v[0]
         print(np.shape(layer_filter),"----")
@@ -189,10 +190,11 @@ def build(config, inputs, args):
 
 def sample(config, inputs, args):
     gan = setup_gan(config, inputs, args)
-    sampler = lookup_sampler(args.sampler or RandomWalkSampler)(gan)
+    sampler = gan.sampler_for(args.sampler, default=RandomWalkSampler)(gan)
     samples = 0
     for i in range(args.steps):
         sample_file="samples/"+config_name+"/%06d.png" % (samples)
+        os.makedirs(os.path.expanduser(os.path.dirname(sample_file)), exist_ok=True)
         samples += 1
         sampler.sample(sample_file, args.save_samples)
 

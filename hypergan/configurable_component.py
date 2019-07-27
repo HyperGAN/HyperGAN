@@ -19,52 +19,58 @@ class ConfigurableComponent:
         self.skip_connections = skip_connections
         self.layer_options = {}
         self.layer_ops = {
-            "relational": self.layer_relational,
-            "minibatch": self.layer_minibatch,
-            "phase_shift": self.layer_phase_shift,
-            "conv": self.layer_conv,
-            "zeros": self.layer_zeros,
-            "zeros_like": self.layer_zeros_like,
-            "control": self.layer_controls,
-            "linear": self.layer_linear,
-            "identity": self.layer_identity,
-            "double_resolution": self.layer_double_resolution,
-            "attention": self.layer_attention,
+            "activation": self.layer_activation,
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
-            "subpixel": self.layer_subpixel,
-            "pixel_norm": self.layer_pixel_norm,
-            "gram_matrix": self.layer_gram_matrix,
-            "unpool": self.layer_unpool,
-            "crop": self.layer_crop,
-            "resize_images": self.layer_resize_images,
-            "concat_noise": self.layer_noise,
+            "add": self.layer_add,
+            "attention": self.layer_attention,
+            "avg_pool": self.layer_avg_pool,
+            "bicubic_conv": self.layer_bicubic_conv,
+            "combine_features": self.layer_combine_features,
             "concat": self.layer_concat,
-            "variational_noise": self.layer_variational_noise,
-            "variational": self.layer_variational,
+            "const": self.layer_const,
+            "control": self.layer_controls,
+            "conv": self.layer_conv,
+            "conv_double": self.layer_conv_double,
+            "conv_dts": self.layer_conv_dts,
+            "conv_reshape": self.layer_conv_reshape,
+            "crop": self.layer_crop,
+            "deconv": self.layer_deconv,
+            "double_resolution": self.layer_double_resolution,
+            "fractional_avg_pool": self.layer_fractional_avg_pool,
+            "gram_matrix": self.layer_gram_matrix,
+            "identity": self.layer_identity,
+            "image_statistics": self.layer_image_statistics,
+            "knowledge_base": self.layer_knowledge_base,
+            "layer_filter": self.layer_filter,
+            "layer_norm": self.layer_layer_norm,
+            "layer": self.layer_layer,
+            "latent": self.layer_latent,
+            "linear": self.layer_linear,
+            "match_support": self.layer_match_support,
+            "mask": self.layer_mask,
+            "minibatch": self.layer_minibatch,
             "noise": self.layer_noise,
             "pad": self.layer_pad,
-            "fractional_avg_pool": self.layer_fractional_avg_pool,
-            "two_sample_stack": self.layer_two_sample_stack,
-            "bicubic_conv": self.layer_bicubic_conv,
-            "conv_double": self.layer_conv_double,
-            "conv_reshape": self.layer_conv_reshape,
-            "reshape": self.layer_reshape,
-            "conv_dts": self.layer_conv_dts,
-            "deconv": self.layer_deconv,
-            "resize_conv": self.layer_resize_conv,
-            "squash": self.layer_squash,
-            "add": self.layer_add,
-            "avg_pool": self.layer_avg_pool,
+            "phase_shift": self.layer_phase_shift,
+            "pixel_norm": self.layer_pixel_norm,
+            "progressive_replace": self.layer_progressive_replace,
             "reference": self.layer_reference,
-            "image_statistics": self.layer_image_statistics,
-            "combine_features": self.layer_combine_features,
+            "relational": self.layer_relational,
+            "reshape": self.layer_reshape,
+            "resize_conv": self.layer_resize_conv,
+            "resize_images": self.layer_resize_images,
             "resnet": self.layer_resnet,
-            "layer_filter": self.layer_filter,
+            "slice": self.layer_slice,
+            "split": self.layer_split,
+            "squash": self.layer_squash,
+            "subpixel": self.layer_subpixel,
             "turing_test": self.layer_turing_test,
-            "activation": self.layer_activation,
-            "knowledge_base": self.layer_knowledge_base,
-            "const": self.layer_const,
-            "progressive_replace": self.layer_progressive_replace
+            "two_sample_stack": self.layer_two_sample_stack,
+            "unpool": self.layer_unpool,
+            "variational": self.layer_variational,
+            "variational_noise": self.layer_variational_noise,
+            "zeros": self.layer_zeros,
+            "zeros_like": self.layer_zeros_like
             }
         self.features = features
         self.controls = {}
@@ -141,10 +147,7 @@ class ConfigurableComponent:
             before_count = self.count_number_trainable_params()
             net = self.layer_ops[op](net, args, options)
             if 'name' in options:
-                if options['name'] in self.named_layers and op != 'reference':
-                    raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
-                self.gan.named_layers[options['name']] = net
-                self.named_layers[options['name']]     = net
+                self.set_layer(options['name'], net)
 
             after = self.variables()
             new = set(after) - set(before)
@@ -156,6 +159,13 @@ class ConfigurableComponent:
             print("ConfigurableComponent: Op not defined", op)
 
         return net
+
+    def set_layer(self, name, net):
+        #if options['name'] in self.named_layers and op != 'reference':
+        #    raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
+        self.gan.named_layers[name] = net
+        self.named_layers[name]     = net
+
     def count_number_trainable_params(self):
         '''
         Counts the number of trainable variables.
@@ -185,6 +195,8 @@ class ConfigurableComponent:
         gan = self.gan
         config = self.config
         fltr = config.layer_filter(gan, self.config, net)
+        if "only" in options:
+            return fltr
         if fltr is not None:
             net = ops.concat(axis=3, values=[net, fltr])
         return net
@@ -236,7 +248,47 @@ class ConfigurableComponent:
 
         return net
 
+    def layer_match_support(self, net, args, options):
+        s = self.ops.shape(net)
+        s[0] //= 2
+        with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+            xpx = self.ops.get_weight(s, name='xconst')
+        with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+            xpg = self.ops.get_weight(s, name='gconst')
+        x,g = tf.split(net, 2, axis=0)
+        self.named_layers[options['name']+"_mx"] = xpx
+        self.named_layers[options['name']+"_mg"] = xpg
+        self.named_layers[options['name']+"_m+x"] = x+xpx
+        self.named_layers[options['name']+"_m+g"] = g+xpg
+        result = tf.concat([x+xpx, g+xpg], axis=0)
+        return result
+
+    def layer_mask(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        layer = options.layer
+        mask_layer = options.mask_layer
+
+        opts = copy.deepcopy(dict(options))
+        opts["name"] = self.ops.description + "/" + (options.mask_name or "mask")
+        opts["activation"] = "sigmoid"
+
+        if options.upscale == "subpixel":
+            mask = self.layer_subpixel(self.gan.named_layers[options.layer], [1], opts)
+        else:
+            mask = self.layer_deconv(self.gan.named_layers[options.layer], [1], opts)
+        self.set_layer(opts['name'], mask)
+        extra = self.gan.named_layers[mask_layer]
+        mask = tf.tile(mask, [1,1,1,self.ops.shape(net)[-1]])
+        net = (mask) * net + (1-mask) * extra
+
+        return net
+
     def layer_identity(self, net, args, options):
+        if len(args) > 0:
+            self.set_layer(args[0], net)
         return net
 
     def layer_conv(self, net, args, options):
@@ -269,9 +321,9 @@ class ConfigurableComponent:
 
         stride = options.stride or self.ops.config_option("stride", [2,2])
         fltr = options.filter or self.ops.config_option("filter", [5,5])
-        if type(fltr) == type(""):
+        if type(fltr) != type([]):
             fltr = [int(fltr), int(fltr)]
-        if type(stride) == type(""):
+        if type(stride) != type([]):
             stride = [int(stride), int(stride)]
         if len(args) > 0:
             depth = int(args[0])
@@ -336,7 +388,10 @@ class ConfigurableComponent:
             initializer = self.ops.lookup_initializer(options.initializer, options)
         else:
             initializer = None
-        net = ops.linear(net, size, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
+        name = None
+        if options.name:
+            name = self.ops.description+options.name
+        net = ops.linear(net, size, initializer=initializer, name=name, trainable=trainable, bias=bias)
 
         if reshape is not None:
             net = tf.reshape(net, [ops.shape(net)[0]] + reshape)
@@ -452,6 +507,20 @@ class ConfigurableComponent:
         return net
 
     
+    def layer_split(self, net, args, options):
+        options = hc.Config(options)
+        axis = len(self.ops.shape(net))-1
+        num_splits = int(args[0])
+        selected = int(options.select)
+        return tf.split(net, num_splits, axis)[selected]
+
+    def layer_slice(self, net, args, options):
+        start = int(args[0])
+        size = int(args[1])
+        bs = self.gan.batch_size()
+        return tf.slice(net, [0, start], [bs, size])
+
+
     def layer_squash(self, net, args, options):
         s = self.ops.shape(net)
         batch_size = s[0]
@@ -461,6 +530,10 @@ class ConfigurableComponent:
         return net
     
     def layer_add(self, net, args, options):
+        ops = self.ops
+        gan = self.gan
+        config = self.config
+
         orig = net
         if "layer" in options:
             net = self.layer(options["layer"])
@@ -468,6 +541,8 @@ class ConfigurableComponent:
         if len(args) > 0:
             if args[0] == 'noise':
                 net = tf.random_normal(self.ops.shape(orig), mean=0, stddev=0.1)
+            elif args[0] == 'layer_filter':
+                net = config.layer_filter(gan, self.config, net)
             else:
                 subnet = self.subnets[args[0]]
                 for layer in subnet:
@@ -563,7 +638,6 @@ class ConfigurableComponent:
 
         if options.mask_with:
             extra = self.layer(options.mask_with)
-            print("EXTRA", extra)
             mask = tf.image.resize_images(original, [ops.shape(original)[1]*2, ops.shape(original)[2]*2],1)
             options['activation'] = 'sigmoid'
             mask = self.layer_conv(mask, [1], options)
@@ -915,6 +989,20 @@ class ConfigurableComponent:
             net += tf.random_normal(self.ops.shape(net), stddev=0.1)
         return net
 
+    def layer_latent(self, net, args, options):
+        return self.gan.latent.sample
+        return tf.random_uniform([self.ops.shape(net)[0], args[0]], -1, 1)
+
+    def layer_layer(self, net, args, options):
+        options = hc.Config(options)
+        if "src" in options:
+            obj = getattr(self.gan, options.src)
+        else:
+            obj = self
+        return obj.layer(args[0])
+    def layer_layer_norm(self, net, args, options):
+        return self.ops.lookup("layer_norm")(self, net)
+
     def layer_variational_noise(self, net, args, options):
         net *= tf.random_normal(self.ops.shape(net), mean=1, stddev=0.02)
         return net
@@ -1085,7 +1173,10 @@ class ConfigurableComponent:
         if "src" in options:
             obj = getattr(self.gan, options.src)
         if "resize_images" in options:
-            return self.layer_resize_images(getattr(obj, options.name), options["resize_images"].split("*"), options)
+            if hasattr(obj, 'layer'):
+                return self.layer_resize_images(obj.layer(options.name), options["resize_images"].split("*"), options)
+            else:
+                return self.layer_resize_images(getattr(obj, options.name), options["resize_images"].split("*"), options)
         else:
             return obj.layer(options.name)
 

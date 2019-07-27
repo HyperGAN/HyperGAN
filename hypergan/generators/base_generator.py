@@ -30,21 +30,6 @@ class BaseGenerator(GANComponent):
             gan.skip_connections.set('progressive_enhancement', split)
 
 
-    def layer_filter(self, net, layer=None, total_layers=None):
-        """
-            If a layer filter is defined, apply it.  Layer filters allow for adding information
-            to every layer of the network.
-        """
-        ops = self.ops
-        gan = self.gan
-        config = self.config
-        if config.layer_filter:
-            print("[base generator] applying layer filter", config['layer_filter'])
-            fltr = config.layer_filter(gan, self.config, net)
-            if fltr is not None:
-                net = ops.concat(axis=3, values=[net, fltr])
-        return net
-
     def project_from_prior(self, primes, net, initial_depth, type='linear', name='prior_projection'):
         ops = self.ops
         net = ops.reshape(net, [ops.shape(net)[0], -1])

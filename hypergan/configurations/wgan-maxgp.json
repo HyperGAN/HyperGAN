@@ -59,7 +59,7 @@
     },
     "hooks":[
       {
-        "class": "function:hypergan.train_hooks.gp_sn_memory_train_hook.GpSnMemoryTrainHook",
+        "class": "function:hypergan.train_hooks.max_gp_train_hook.GpSnMemoryTrainHook",
         "memory_size": 4,
         "top_k": 2,
         "from_source": true,

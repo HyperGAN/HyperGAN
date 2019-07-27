@@ -59,8 +59,10 @@ class CLI:
         GlobalViewer.enabled = self.args.viewer
         GlobalViewer.zoom = self.args.zoom
 
-    def sample(self):
+    def sample(self, allow_save=True):
         """ Samples to a file.  Useful for visualizing the learning process.
+
+        If allow_save is False then saves will not be created.
 
         Use with:
 
@@ -71,7 +73,7 @@ class CLI:
         sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
         self.create_path(sample_file)
         self.lazy_create()
-        sample_list = self.sampler.sample(sample_file, self.args.save_samples)
+        sample_list = self.sampler.sample(sample_file, allow_save and self.args.save_samples)
         self.samples += 1
 
         return sample_list
@@ -100,8 +102,6 @@ class CLI:
             tf.reset_default_graph()
 
             gc.collect()
-
-
 
         if(self.steps % self.sample_every == 0):
             sample_list = self.sample()

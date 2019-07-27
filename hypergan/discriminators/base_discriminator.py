@@ -54,46 +54,4 @@ class BaseDiscriminator(GANComponent):
         else:
             return x, g
 
-    def layer_filter(self, net, layer=None, total_layers=None):
-        config = self.config
-        gan = self.gan
-        ops = self.ops
-        concats = [net]
 
-        closest = gan.skip_connections.get_closest('progressive_enhancement', ops.shape(net))
-        if closest is not None:
-            enhancers = gan.skip_connections.get_array('progressive_enhancement', ops.shape(closest))
-
-            # progressive enhancement
-            new_shape = [ops.shape(net)[1], ops.shape(net)[2]]
-            x = self.add_noise(self.gan.inputs.x)
-            x = tf.image.resize_images(x,new_shape, 1) #TODO what if the input is user defined? i.e. 2d test
-            size = [ops.shape(net)[1], ops.shape(net)[2]]
-            enhancers = [tf.image.resize_images(enhance, size, 1) for enhance in enhancers]
-            enhance = tf.concat(axis=0, values=[x]+enhancers)
-
-            # progressive growing
-            if config.progressive_growing:
-                pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
-                step_index = len(pe_layers)//len(enhancers)-layer-1
-                if step_index >= 0:
-                    print("Adding progressive growing mask ", step_index)
-                    mask = self.progressive_growing_mask(step_index)
-                    enhance *= mask
-
-            concats.append(enhance)
-
-        if 'layer_filter' in config and config.layer_filter is not None:
-            print("[discriminator] applying layer filter", config['layer_filter'])
-            filters = []
-            stacks = self.ops.shape(net)[0] // gan.batch_size()
-            for stack in range(stacks):
-                piece = tf.slice(net, [stack * gan.batch_size(), 0,0,0], [gan.batch_size(), -1, -1, -1])
-                filters.append(config.layer_filter(gan, self.config, piece))
-            layer = tf.concat(axis=0, values=filters)
-            concats.append(layer)
-
-        if len(concats) > 1:
-            net = tf.concat(axis=3, values=concats)
-
-        return net

@@ -20,9 +20,12 @@ class WeightPenaltyTrainHook(BaseTrainHook):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     d_losses = []
     weights = self.gan.weights()
+    config = hc.Config(config)
     if config.only_d:
         weights = self.discriminator.weights()
-    if config.l2nn_penalty:
+    else:
+        weights = self.gan.weights()
+    if "l2nn" in config.constraints:
         l2nn_penalties = []
         if len(weights) > 0:
             for w in weights:
@@ -41,7 +44,7 @@ class WeightPenaltyTrainHook(BaseTrainHook):
             l2nn_penalty = self.config.l2nn_penalty * tf.add_n(l2nn_penalties)
             self.add_metric('l2nn_penalty', self.gan.ops.squash(l2nn_penalty))
             d_losses.append(l2nn_penalty)
-    if config.ortho_penalty:
+    if "ortho" in config.constraints:
         penalties = []
         for w in self.gan.weights():
             print("PENALTY", w)
@@ -64,7 +67,8 @@ class WeightPenaltyTrainHook(BaseTrainHook):
         d_losses.append(penalty)
 
 
-    self.loss = self.ops.squash(d_losses)
+    print("D_LOSSES", d_losses)
+    self.loss = tf.add_n(d_losses)
 
   def losses(self):
     return [self.loss, self.loss]

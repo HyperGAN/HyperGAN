@@ -61,7 +61,7 @@ class MultiImageLoader:
         self.xs = self.datasets
         self.xa = self.datasets[0]
         self.xb = self.datasets[1]
-        self.x = self.datasets[1]
+        self.x = self.datasets[0]
         return self.xs
 
     def inputs(self):

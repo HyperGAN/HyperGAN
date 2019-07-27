@@ -9,6 +9,7 @@ import os
 import inspect
 import hypergan as hg
 import tensorflow as tf
+import numpy as np
 
 from tensorflow.python.framework import ops
 from tensorflow.python.tools import freeze_graph
@@ -70,6 +71,22 @@ class BaseGAN(GANComponent):
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         self.steps = tf.Variable(0, trainable=False, name='global_step')
         self.increment_step = tf.assign(self.steps, self.steps+1)
+        if config.fixed_input:
+            self.feed_x = self.inputs.x
+            self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
+            self.set_x = tf.assign(self.inputs.x, self.feed_x)
+
+        if config.fixed_input_xa:
+            self.feed_x = self.inputs.xa
+            self.inputs.xa = tf.Variable(tf.zeros_like(self.feed_x))
+            self.set_x = tf.assign(self.inputs.xa, self.feed_x)
+            self.feed_x = self.inputs.xb
+            self.inputs.xb = tf.Variable(tf.zeros_like(self.feed_x))
+            self.set_x = tf.group([self.set_x, tf.assign(self.inputs.xb, self.feed_x)])
+            self.inputs.x = self.inputs.xb
+
+
+
         # A GAN as a component has a parent of itself
         # gan.gan.gan.gan.gan.gan
         GANComponent.__init__(self, self, config, name=self.name)
@@ -180,6 +197,10 @@ class BaseGAN(GANComponent):
         return list(set(self.g_vars()).intersection(tf.trainable_variables()))
 
     def save(self, save_file):
+        if(np.any(np.isnan(self.session.run(self.loss.d_fake)))):
+            print("[Error] NAN detected.  Refusing to save")
+            exit()
+
         with self.graph.as_default():
             print("[hypergan] Saving network to ", save_file)
             os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
@@ -327,7 +348,10 @@ class BaseGAN(GANComponent):
         r1 = float(r1)
         r2 = float(r2)
         cycle = "cycle" in args
+        repeat = "repeat" in args
         current_step = self.gan.steps
+        if repeat:
+            current_step %= steps
         if start == 0:
             return tf.train.polynomial_decay(r1, current_step, steps, end_learning_rate=r2, power=1, cycle=cycle)
         else:
@@ -364,69 +388,19 @@ class BaseGAN(GANComponent):
 
         with self.gan.session as sess:
             converter = tf.lite.TFLiteConverter.from_session(sess, self.gan.input_nodes(), self.gan.output_nodes())
+            converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_SIZE]
             tflite_model = converter.convert()
-            f = open("builds/"+ self.gan.name+".tflite", "wb")
+            tflite_file = "builds/"+self.gan.name+".tflite"
+            f = open(tflite_file, "wb")
             f.write(tflite_model)
             f.close()
         tf.reset_default_graph()
         self.gan.session.close()
         [print("Input: ", x) for x in self.gan.input_nodes()]
         [print("Output: ", y) for y in self.gan.output_nodes()]
-        print("Written to builds/"+self.gan.name+".tflite")
-
-        pbtxt_path = "builds/"+self.name +'.pbtxt'
-        checkpoint_path = "saves/"+self.name +'/model.ckpt'
-        input_saver_def_path = ""
-        input_binary = False
-        output_node_names = ",".join(outputs)
-        restore_op_name = "save/restore_all"
-        filename_tensor_name = "save/Const:0"
-        output_frozen_graph_name = 'builds/frozen_'+self.name +'.pb'
-        output_optimized_graph_name = 'builds/optimized_'+self.name+'.pb'
-        clear_devices = True
-
-        freeze_graph.freeze_graph(pbtxt_path, input_saver_def_path,
-          input_binary, checkpoint_path, output_node_names,
-          restore_op_name, filename_tensor_name,
-          output_frozen_graph_name, clear_devices, "")
-
-        input_graph_def = tf.GraphDef()
-        with tf.gfile.Open(output_frozen_graph_name, "rb") as f:
-            data = f.read()
-            input_graph_def.ParseFromString(data)
-
-        output_graph_def = optimize_for_inference_lib.optimize_for_inference(
-                input_graph_def,
-                inputs, # an array of the input node(s)
-                outputs, # an array of output nodes
-                tf.float32.as_datatype_enum)
-
-        # Save the optimized graph
-
-        f = tf.gfile.FastGFile(output_optimized_graph_name, "wb")
-        f.write(output_graph_def.SerializeToString())
-        f.flush()
-        f.close()
+        print("Written to "+tflite_file)
 
 
-
-        print("Saved generator to ", output_optimized_graph_name)
-
-        print("Testing loading ", output_optimized_graph_name)
-        with tf.gfile.FastGFile(output_optimized_graph_name, 'rb') as f:
-            graph_def = tf.GraphDef()
-            graph_def.ParseFromString(f.read())
-            tf.import_graph_def(graph_def, name='')
-            #tflite_model = tf.lite.TFLiteConverter(graph_def, self.gan.input_nodes(), self.gan.output_nodes()).convert()
-            #f = open("builds/"+ self.gan.name+".tflite", "wb")
-            #f.write(tflite_model)
-            #f.close()
-
-        with tf.Session() as sess:
-            for input in inputs:
-                print("Input: ", input, sess.graph.get_tensor_by_name(input+":0"))
-            for output in outputs:
-                print("Output: ", output, sess.graph.get_tensor_by_name(output+":0"))
     def get_registered_samplers(self=None):
         return {
                 'static_batch': StaticBatchSampler,

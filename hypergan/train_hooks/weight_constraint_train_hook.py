@@ -16,6 +16,8 @@ from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class WeightConstraintTrainHook(BaseTrainHook):
   def after_create(self):
+    self.max = self.gan.configurable_param(self.config.max)
+    self.decay = self.gan.configurable_param(self.config.decay)
     allvars = self.gan.variables()
     self.update_weight_constraints = [self._update_weight_constraint(v,i) for i,v in enumerate(allvars)]
     self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
@@ -28,7 +30,6 @@ class WeightConstraintTrainHook(BaseTrainHook):
       #s = self.ops.shape(v_transpose)
       #identity = tf.reshape(identity, [s[0],s[1],1,1])
       #identity = tf.tile(identity, [1,1,s[2],s[3]])
-      decay = self.config.decay or 0.01
       w = tf.transpose(w, perm=[2,3,0,1])
       for i in range(self.config.iterations or 3):
           wt = tf.transpose(w, perm=[1,0,2,3])
@@ -43,7 +44,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
           w = w * (eye + 0.5*qk)
       w = tf.transpose(w, perm=[2,3,0,1])
       newv = w
-      newv=(1.0+decay)*v - decay*(newv)
+      newv=(1.0+self.decay)*v - self.decay*(newv)
       newv = tf.reshape(newv,self.ops.shape(v))
       return tf.assign(v, newv)
     else:
@@ -59,11 +60,10 @@ class WeightConstraintTrainHook(BaseTrainHook):
       #s = self.ops.shape(v_transpose)
       #identity = tf.reshape(identity, [s[0],s[1],1,1])
       #identity = tf.tile(identity, [1,1,s[2],s[3]])
-      decay = self.config.decay or 0.01
       newv = tf.matmul(w, tf.matmul(wt,w))
       newv = tf.reshape(newv,self.ops.shape(v))
       newv = tf.transpose(newv, perm=[2,3,0,1])
-      newv=(1+decay)*v - decay*(newv)
+      newv=(1+self.decay)*v - self.decay*(newv)
 
       return tf.assign(v, newv)
     return None
@@ -129,16 +129,17 @@ class WeightConstraintTrainHook(BaseTrainHook):
       #m = tf.tile(m,[s[0],s[1],1,1])
       return m
     bw = tf.minimum(_r(wtw), _r(wwt))
-    decay = self.config.decay
-    wi = (v/tf.sqrt(bw))
-    if decay is not None:
-      wi = (1-decay)*v+(decay*wi)
+    #self.gan.add_metric('bw', tf.reduce_mean(bw))
+    #wi = v-(tf.sign(v)*bw)#
+    wi = (v/bw)
+    if self.decay is not None:
+      wi = (1-self.decay)*v+(self.decay*wi)
     wi = tf.reshape(wi, self.ops.shape(v))
     return tf.assign(v, wi)
 
   def _update_weight_constraint(self,v,i):
     if "Adam" in v.name or "AMSGrad" in v.name or "RMS" in v.name or "Adadelta" in v.name:
-      print("SKipping", v.name)
+      print("> skipping(name)", v.name)
       return None
 
     config = self.config
@@ -149,7 +150,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
       if self.ops.shape(v) == self.ops.shape(skip):
         print("Skipping constraints on", v)
         return None
-    constraints = self.config.weight_constraint or []
+    constraints = self.config.constraints or self.config.weight_constraint or []
     result = []
     if "ortho" in constraints:
       result.append(self._update_ortho(v,i))
@@ -165,8 +166,7 @@ class WeightConstraintTrainHook(BaseTrainHook):
     result = [r for r in result if r is not None]
     if(len(result) == 0):
       return None
-    print("Weight constraints added for ", v)
-    return tf.group(result)
+    return result
 
   def before_step(self, step, feed_dict):
     if self.config.order == "after":

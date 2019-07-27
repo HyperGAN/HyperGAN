@@ -21,36 +21,13 @@ import tensorflow as tf
 import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent
-from .base_gan import BaseGAN
+from .standard_gan import StandardGAN
 
-class StandardGAN(BaseGAN):
-    """ 
-    Standard GANs consist of:
-    
-    *required to sample*
-    
-    * latent
-    * generator
-    * sampler
-
-    *required to train*
-
-    * discriminator
-    * loss
-    * trainer
+class DistributionFilteringGAN(StandardGAN):
     """
-    def __init__(self, *args, **kwargs):
-        self.discriminator = None
-        self.latent = None
-        self.generator = None
-        self.loss = None
-        self.trainer = None
-        self.session = None
-        BaseGAN.__init__(self, *args, **kwargs)
-
-    def required(self):
-        return "generator".split()
-
+    On Stabilizing Generative Adversarial Training with Noise
+    https://arxiv.org/pdf/1906.04612v1.pdf
+    """
     def create(self):
         config = self.config
 
@@ -72,38 +49,25 @@ class StandardGAN(BaseGAN):
             self.control_z = z
 
             self.generator = self.create_component(config.generator, name="generator", input=z)
-            self.autoencoded_x = self.generator.sample
+            self.noise_generator = self.create_component((config.noise_generator or config.generator), name="noise_generator", input=z)
 
-            x, g = self.inputs.x, self.generator.sample
-            if self.ops.shape(x) == self.ops.shape(g):
-                self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
-            else:
-                self.discriminator = self.create_component(config.discriminator, name="discriminator")
+            #x, g = tf.concat([self.inputs.x, self.inputs.x + self.noise_generator.sample], axis=3), tf.concat([self.generator.sample, self.generator.sample + self.noise_generator.sample], axis=3)
+
+            x1, g1 = self.inputs.x, self.generator.sample
+            self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x1,g1],axis=0))
+            x2, g2 = self.inputs.x+self.noise_generator.sample, self.generator.sample+self.noise_generator.sample
             self.loss = self.create_component(config.loss, discriminator=self.discriminator)
+            self.noise_discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x2,g2],axis=0), reuse=True)
+            noise_loss = self.create_component(config.loss, discriminator=self.noise_discriminator)
+            self.loss.sample[0] += noise_loss.sample[0]
+            self.loss.sample[1] += noise_loss.sample[1]
             self.trainer = self.create_component(config.trainer)
 
             self.android_output = tf.reshape(self.generator.sample, [-1])
 
             self.session.run(tf.global_variables_initializer())
 
-    def create_controls(self, z_shape):
-        direction = tf.constant(0.0, shape=z_shape, name='direction') * 1.00
-        slider = tf.constant(0.0, name='slider', dtype=tf.float32) * 1.00
-        return direction, slider
-
     def g_vars(self):
-        return self.latent.variables() + self.generator.variables()
+        return self.latent.variables() + self.generator.variables() + self.noise_generator.variables()
     def d_vars(self):
         return self.discriminator.variables()
-
-    def input_nodes(self):
-        "used in hypergan build"
-        return [
-                self.android_input
-        ]
-
-    def output_nodes(self):
-        "used in hypergan build"
-        return [
-                self.android_output
-        ]

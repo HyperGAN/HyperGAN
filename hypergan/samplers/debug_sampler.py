@@ -53,9 +53,11 @@ class DebugSampler(BaseSampler):
         ]
 
         #self.samplers += [IdentitySampler(gan, tf.image.resize_images(gan.inputs.x, [128,128], method=1), samples_per_row)]
-        if hasattr(gan.generator, 'pe_layers'):
-            self.samplers += [IdentitySampler(gan, gx, samples_per_row) for gx in gan.generator.pe_layers]
-            pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+        #if hasattr(gan.generator, 'pe_layers'):
+        #    self.samplers += [IdentitySampler(gan, gx, samples_per_row) for gx in gan.generator.pe_layers]
+        #    pe_layers = self.gan.skip_connections.get_array("progressive_enhancement")
+        if hasattr(gan, 'noise_generator'):
+            self.samplers += [IdentitySampler(gan, tf.concat([gan.noise_generator.sample, gan.generator.sample, gan.noise_generator.sample + gan.generator.sample], axis=0), samples_per_row)]
         #self.samplers += 
         if hasattr(gan, 'autoencoded_x'):
           self.samplers += [IdentitySampler(gan, tf.concat([gan.inputs.x,gan.autoencoded_x], axis=0), samples_per_row)]
@@ -82,6 +84,9 @@ class DebugSampler(BaseSampler):
         #add_samples('gend32x32')
         #add_samples('gend64x64')
         #add_samples('gend128x128')
+        if "match_support_mx" in gan.discriminator.named_layers:
+            self.samplers.append(IdentitySampler(gan, tf.concat([gan.inputs.x,tf.image.resize_images(gan.discriminator.named_layers['match_support_mx'], [128,128], method=1), tf.image.resize_images(gan.discriminator.named_layers['match_support_m+x'], [128,128], method=1)],axis=0),  1) )
+            self.samplers.append(IdentitySampler(gan, tf.concat([gan.generator.sample, tf.image.resize_images(gan.discriminator.named_layers['match_support_mg'], [128,128], method=1), tf.image.resize_images(gan.discriminator.named_layers['match_support_m+g'], [128,128], method=1)],axis=0),  1) ) 
 
 
 

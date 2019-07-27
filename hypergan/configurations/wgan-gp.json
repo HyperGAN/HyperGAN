@@ -58,7 +58,7 @@
     "hooks": [
       {
         "class": "function:hypergan.train_hooks.gradient_penalty_train_hook.GradientPenaltyTrainHook",
-        "lambda": 100.00
+        "lambda": 0.001
       }
     ]
   },

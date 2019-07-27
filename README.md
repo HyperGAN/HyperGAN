@@ -6,7 +6,7 @@
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists. 
 
- 0.10 preview is **not** available in pip.  You must install from the source.  Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
+ 0.10.0 is now available in pip.  Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
 
 HyperGAN is currently in open beta.
 
@@ -15,8 +15,6 @@ HyperGAN is currently in open beta.
 _Logos generated with [examples/colorizer](#examples)_
 
 See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8002_NB7JSvA)
-
-**[StyleGAN](https://github.com/NVlabs/stylegan) is currently state of the art.  It is very cool.**
 
 # Table of contents
 
@@ -267,6 +265,12 @@ TLDR: *x.y.z*
 * _x_ is incremented on stable public releases.
 * _y_ is incremented on API breaking changes.  This includes configuration file changes and graph construction changes.
 * _z_ is incremented on non-API breaking changes.  *z* changes will be able to reload a saved graph.
+
+
+## Other GAN projects
+* [StyleGAN](https://github.com/NVlabs/stylegan)
+* https://github.com/LMescheder/GAN_stability
+* Add yours with a pull request
 
 ## Papers
 

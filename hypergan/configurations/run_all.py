@@ -17,7 +17,7 @@ class Trainer(object):
     def __init__(self, card=0):
         self.lock = threading.Lock()
         self.card = card
-        self.steps = 10
+        self.steps = 100000
         #number_samples = 60*25 # one minute video
         number_samples = 10*25 # ten second video
         self.sample_every = self.steps//number_samples
@@ -58,9 +58,9 @@ def worker(c):
 
 
 gpus = []
-gpu_count = 1
+gpu_count = 2
 gpu_offset = 0
-per_gpu = 1
+per_gpu = 2
 queue = queue.Queue()
 
 

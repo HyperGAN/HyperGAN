@@ -124,10 +124,10 @@
   },
  
   "runtime": {
-      "channels": 3,
-      "width": 128,
-      "height": 128,
-      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 1 -c l2nn_fitness --save_every 10000 --resize"
+    "channels": 3,
+    "width": 128,
+    "height": 128,
+    "train": "hypergan train [dataset] --sampler static_batch -b 8"
   },
   "hypergan_version": "0.10.0",
   "fixed_input": true,

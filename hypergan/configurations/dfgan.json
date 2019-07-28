@@ -131,12 +131,12 @@
     }
   },
   "runtime": {
-      "channels": 3,
-      "width": 128,
-      "height": 128,
-      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 1 -c dfgan --save_every 10000 --resize"
+    "channels": 3,
+    "width": 128,
+    "height": 128,
+    "train": "hypergan train [dataset] --sampler static_batch -b 8"
   },
   "hypergan_version": "0.10.0",
   "fixed_input": true,
-  "class": "class:hypergan.gans.noisy_gan.NoisyGAN"
+  "class": "class:hypergan.gans.distribution_filtering_gan.DistributionFilteringGAN"
 }

@@ -1,4 +1,4 @@
-# HyperGAN 0.10.0-alpha1
+# HyperGAN 0.10
 
 [![CircleCI](https://circleci.com/gh/HyperGAN/HyperGAN.svg?style=svg)](https://circleci.com/gh/HyperGAN/HyperGAN)
 [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
@@ -6,9 +6,9 @@
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists. 
 
- 0.10.0 is now available in pip.  Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
+ 0.10 is now available in pip.  Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
 
-HyperGAN is currently in open beta.
+HyperGAN is in open beta.
 
 ![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
 
@@ -73,7 +73,7 @@ See the [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen
 
  * [Model author JSON reference](json.md)
  * [Model author tutorial 1](tutorial1.md)
- * [0.10.0](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
+ * [0.10.x](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
  * [0.9.x](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)
  * [Test coverage](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/coverage/index.html)
 

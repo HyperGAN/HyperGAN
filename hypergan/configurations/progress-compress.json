@@ -41,13 +41,13 @@
       "reshape -1 name=w",
       "const 4*4*128",
       "adaptive_instance_norm",
-      "resize_conv 64 avg_pool=1",
+      "subpixel 64 avg_pool=1",
       "adaptive_instance_norm",
-      "resize_conv 32 avg_pool=1",
+      "subpixel 32 avg_pool=1",
       "adaptive_instance_norm",
-      "resize_conv 16",
+      "subpixel 16",
       "adaptive_instance_norm",
-      "resize_conv 3 avg_pool=1 activation=null"
+      "subpixel 3 avg_pool=1 activation=null"
     ]
 
   },
@@ -183,7 +183,7 @@
     "channels": 3,
     "width": 64,
     "height": 64,
-    "train": "hypergan train [dataset] --sample_every 100 --sampler gang --format jpg --size 64x64x3 -b 1 -c progress-compress --save_every 10000 --resize"
+    "train": "hypergan train [dataset] --sampler static_batch -b 8"
   },
   "hypergan_version": "0.10.0",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"

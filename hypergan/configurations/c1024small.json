@@ -120,7 +120,7 @@
       "channels": 3,
       "width": 1024,
       "height": 1024,
-      "train": "python3 hypergan/examples/colorizer.py train [dataset] --sample_every 100 --format jpg --size 1024x1024x3 -b 4 -c c1024 --save_every 5000 -z 1"
+      "train": "python3 [hypergan]/examples/colorizer.py train [dataset] -b 4"
   },
   "hypergan_version": "0.10.0",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"

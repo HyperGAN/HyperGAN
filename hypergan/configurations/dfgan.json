@@ -138,5 +138,5 @@
   },
   "hypergan_version": "0.10.0",
   "fixed_input": true,
-  "class": "class:hypergan.gans.noisy_gan.NoisyGAN"
+  "class": "class:hypergan.gans.distribution_filtering_gan.DistributionFilteringGAN"
 }

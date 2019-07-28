@@ -6,7 +6,7 @@
 
 A composable GAN API and CLI.  Built for developers, researchers, and artists. 
 
- 0.10.0 is now available in pip.  Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
+ 0.10 is now available in pip.  Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
 
 HyperGAN is in open beta.
 
@@ -73,7 +73,7 @@ See the [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen
 
  * [Model author JSON reference](json.md)
  * [Model author tutorial 1](tutorial1.md)
- * [0.10.0](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
+ * [0.10.x](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
  * [0.9.x](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)
  * [Test coverage](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/coverage/index.html)
 

@@ -133,6 +133,14 @@
         }
       ]
   },
+  "runtime": {
+      "channels": 3,
+      "width": 128,
+      "height": 128,
+      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 8 -c autoencode --save_every 10000 --resize"
+  },
+  "hypergan_version": "0.10.0",
+
 
   "fixed_input": true,
   "reencode": true,

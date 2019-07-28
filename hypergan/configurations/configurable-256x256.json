@@ -87,5 +87,12 @@
       }
     }
   },
+  "runtime": {
+      "channels": 3,
+      "width": 256,
+      "height": 256,
+      "train": "python3 hypergan/examples/colorizer.py train [dataset] --sample_every 100 --format jpg --size 256x256x3 -b 4 -c configurable-256x256 --save_every 5000 -z 1"
+  },
+  "hypergan_version": "0.10.0",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

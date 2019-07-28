@@ -147,8 +147,9 @@
       "channels": 3,
       "width": 128,
       "height": 128,
-      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 1 -c aligan-128x128 --save_every 10000 --resize"
+      "train": "hypergan train [dataset] --sample_every 100 --sampler debug --format jpg --size 128x128x3 -b 8 -c aligan --save_every 10000 --resize"
   },
+  "hypergan_version": "0.10.0",
 
   "class": "class:hypergan.gans.ali_gan.AliGAN",
   "manifold_guided": true

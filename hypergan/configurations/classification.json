@@ -48,7 +48,7 @@
     }
   },
   "runtime": {
-    "train": "python3 examples/classification.py train . -c classification -b 8 --sample_every 500 --steps 100000"
+    "train": "python3 [hypergan]/examples/classification.py train . -b 8"
   },
   "hypergan_version": "0.10.0",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"

@@ -74,17 +74,19 @@
           "d_rho": 1.0,
           "g_rho": 1.0,
 
-      "optimizer": {
-
+          "optimizer": {
             "class": "function:tensorflow.python.training.gradient_descent.GradientDescentOptimizer",
-           "learn_rate": 0.02
-        }
-      },
-      "hooks":[
+            "learn_rate": 0.02
+          }
+        },
+        "hooks":[
+
         {
           "class": "function:hypergan.train_hooks.experimental.input_fitness_train_hook.InputFitnessTrainHook",
-          "search_steps": 9,
-          "k_lipschitz": 3e-2
+          "search_steps": 9
+        },
+        {
+          "class": "function:hypergan.train_hooks.experimental.force_equilibrium_train_hook.ForceEquilibriumTrainHook"
         }
       ]
     }

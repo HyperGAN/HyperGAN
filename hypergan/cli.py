@@ -43,6 +43,9 @@ class CLI:
         self.sampler_name = args.sampler
         self.sampler = None
         self.validate()
+        
+        self.advSavePath = os.path.abspath("saves/"+self.config_name)+"/"
+        
         if self.args.save_file:
             self.save_file = self.args.save_file
         else:
@@ -141,7 +144,11 @@ class CLI:
                 self.args.save_every > 0 and
                 i % self.args.save_every == 0):
                 print(" |= Saving network")
-                self.gan.save(self.save_file)
+                self.gan.save(self.save_file)   
+                self.create_path(self.advSavePath+'advSave.txt')
+                    with open(self.advSavePath+'advSave.txt', 'w') as the_file:
+                        the_file.write(str(self.steps)+"\n")
+                        the_file.write(str(self.samples)+"\n")
             if self.args.ipython:
                 self.check_stdin()
             end_time = time.time()
@@ -194,6 +201,10 @@ class CLI:
             if not self.gan.load(self.save_file):
                 raise "Could not load model: "+ save_file
             else:
+                with open(self.advSavePath+'advSave.txt', 'r') as the_file:
+                    content = [x.strip() for x in the_file]
+                    self.steps = int(content[0])
+                    self.samples = int(content[1])
                 print("Model loaded")
             self.build()
         elif self.method == 'new':
@@ -203,6 +214,10 @@ class CLI:
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
             else:
+                with open(self.advSavePath+'advSave.txt', 'r') as the_file:
+                    content = [x.strip() for x in the_file]
+                    self.steps = int(content[0])
+                    self.samples = int(content[1])
                 print("Model loaded")
 
             tf.train.start_queue_runners(sess=self.gan.session)

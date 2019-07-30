@@ -192,7 +192,7 @@ class CLI:
             self.gan.session.close()
         elif self.method == 'build':
             if not self.gan.load(self.save_file):
-                raise "Could not load model: "+ save_file
+                raise ValidationException("Could not load model: "+ self.save_file)
             else:
                 print("Model loaded")
             self.build()

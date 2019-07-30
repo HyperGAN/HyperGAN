@@ -355,7 +355,7 @@ class BaseGAN(GANComponent):
         repeat = "repeat" in args
         current_step = self.gan.steps
         if repeat:
-            current_step %= steps
+            current_step %= (steps+1)
         if start == 0:
             return tf.train.polynomial_decay(r1, current_step, steps, end_learning_rate=r2, power=1, cycle=cycle)
         else:

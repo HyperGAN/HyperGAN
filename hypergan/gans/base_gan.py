@@ -370,7 +370,7 @@ class BaseGAN(GANComponent):
             onvalue = float(options["onvalue"]) or 1.0
             n = tf.random_uniform([1], minval=-1, maxval=1)
             n += tf.constant(offset, dtype=tf.float32)
-            return (tf.sign(n) + 1) /2 * tf.constant(float(options["onvalue"], dtype=tf.float32))
+            return (tf.sign(n) + 1) /2 * tf.constant(float(options["onvalue"]), dtype=tf.float32)
 
 
     def exit(self):

@@ -157,6 +157,10 @@ class BaseGAN(GANComponent):
         learn_rate = options.learn_rate or options.learning_rate
         if 'learning_rate' in options:
             del defn['learning_rate']
+        learn_rate = self.configurable_param(learn_rate)
+        if isinstance(learn_rate, float):
+            learn_rate = tf.constant(learn_rate)
+        self.learn_rate = learn_rate
         gan_component = klass(learn_rate, **defn)
         self.components.append(gan_component)
         return gan_component

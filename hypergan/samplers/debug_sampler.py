@@ -79,8 +79,8 @@ class DebugSampler(BaseSampler):
 
             self.samplers.append(IdentitySampler(gan, tf.image.resize_images(layer, [128,128], method=1), 1))
 
-        add_samples('gend8x8')
-        add_samples('gend16x16')
+        #add_samples('gend8x8')
+        #add_samples('gend16x16')
         #add_samples('gend32x32')
         #add_samples('gend64x64')
         #add_samples('gend128x128')
@@ -93,7 +93,7 @@ class DebugSampler(BaseSampler):
 
     def _sample(self):
         ss = []
-        n=4
+        n=1
         for i in range(n):
             samples = [sampler._sample(i,n)['generator'] for sampler in self.samplers]
             sample_stack = np.vstack(samples)

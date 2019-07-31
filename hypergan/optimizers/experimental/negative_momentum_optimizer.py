@@ -52,7 +52,6 @@ class NegativeMomentumOptimizer(optimizer.Optimizer):
     self._prepare()
 
     nms = [self.get_slot(v, "nm") for v in var_list]
-    self.vars = nms
     momentum = []
     for grad, nm, w in zip(grad_list, nms, var_list):
         momentum += [-self._decay * nm]
@@ -75,4 +74,4 @@ class NegativeMomentumOptimizer(optimizer.Optimizer):
     raise NotImplementedError("_apply_dense not callable.")
 
   def variables(self):
-      return self.vars + self.optimizer.variables()
+      return self.optimizer.variables()

@@ -13,7 +13,7 @@ class GangSampler(BaseSampler):
     def __init__(self, gan):
         BaseSampler.__init__(self, gan)
         self.xs = None
-        self.samples = 3
+        self.samples = 1
 
     def sample(self, path, sample_to_file):
         gan = self.gan
@@ -21,16 +21,16 @@ class GangSampler(BaseSampler):
         sess = gan.session
         config = gan.config
         if self.xs is None:
-            self.xs = [sess.run([gan.latent.sample]) for i in range(self.samples)]
+            self.xs = [sess.run([gan.inputs.x, gan.latent.sample]) for i in range(self.samples)]
 
         current_g = sess.run(gan.trainer.all_g_vars)
         
         stacks = []
         def _samples():
-            n = 3
+            n = 1
             cs = []
             for i in range(self.samples):
-                ts = [gan.latent.z]
+                ts = [gan.inputs.x, gan.latent.z]
                 vs = self.xs[i]
                 feed_dict = {}
                 for t,v in zip(ts, vs):

@@ -43,7 +43,7 @@ class GangSampler(BaseSampler):
         for sg in gan.trainer.sgs:
             gan.trainer.assign_g(sg)
             stacks.append(_samples())
-        for i in range((gan.trainer.config.nash_memory_size or 10) - len(stacks)):
+        for i in range((gan.trainer.config.nash_memory_size or 10) - len(stacks)+1):
             stacks.append(_samples())
 
         gan.trainer.assign_g(current_g)

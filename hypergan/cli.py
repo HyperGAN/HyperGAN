@@ -42,6 +42,10 @@ class CLI:
 
         self.sampler_name = args.sampler
         self.sampler = None
+        
+        if hasattr(self.sampler,"samples_per_row"):
+            self.sampler.samples_per_row = args.width
+        
         self.validate()
         
         self.advSavePath = os.path.abspath("saves/"+self.config_name)+"/"

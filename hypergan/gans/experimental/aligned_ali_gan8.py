@@ -49,29 +49,26 @@ class AlignedAliGAN8(BaseGAN):
             def random_like(x):
                 return UniformDistribution(self, config.latent, output_shape=self.ops.shape(x)).sample
             self.latent = self.create_component(config.latent, name='forcerandom_discriminator')
-            zga = self.create_component(config.encoder, input=self.inputs.xb, name='xb_to_za')
-            zgb = self.create_component(config.encoder, input=self.inputs.xa, name='xa_to_zb')
-            self.zga = zga
-            self.zgb = zgb
-            za = zga.sample
-            zb = zgb.sample
-            if config.style:
-                styleb = self.create_component(config.style_encoder, input=self.inputs.xb, name='xb_style')
-                stylea = self.create_component(config.style_encoder, input=self.inputs.xa, name='xa_style')
 
-                self.stylea = stylea
-                self.styleb = styleb
-                self.random_style = random_like(styleb.sample)
-                ga = self.create_component(config.generator, input=za, name='a_generator', features=[stylea.sample])
-                gb = self.create_component(config.generator, input=zb, name='b_generator', features=[styleb.sample])
-            elif config.skip_connections:
-                ga = self.create_component(config.generator, input=za, skip_connections=zga.layers, name='a_generator')
-                gb = self.create_component(config.generator, input=zb, skip_connections=zgb.layers, name='b_generator')
-            else:
-                ga = self.create_component(config.generator, input=za, name='a_generator')
-                gb = self.create_component(config.generator, input=zb, name='b_generator')
-                self.ga = ga
-                self.gb = gb
+
+            zgb = self.create_component(config.encoder, input=self.inputs.xa, name='xa_to_zb')
+            zb = zgb.sample
+            gb = self.create_component(config.generator, input=zb, name='b_generator')
+            self.zgb = zgb
+
+            random_gb = self.create_component(config.generator, input=zb, name='b_generator', reuse=True)
+            #random_gb = zb
+
+            zga = self.create_component(config.encoder, input=self.inputs.xb, name='xb_to_za')
+            za = zga.sample
+            ga = self.create_component(config.generator, input=za, name='a_generator')
+            self.zga = zga
+
+            #random_za = random_like(za)
+            random_ga = self.create_component(config.generator, input=zb, name='a_generator', reuse=True)
+
+            self.ga = ga
+            self.gb = gb
 
 
             re_zb = self.create_component(config.encoder, input=ga.sample, name='xa_to_zb', reuse=True)
@@ -90,8 +87,9 @@ class AlignedAliGAN8(BaseGAN):
 
 
             t0 = xb
-            t1 = gb.sample
-            f0 = re_zb.sample#za
+            t1 = random_gb.sample
+            #f0 = re_zb.sample
+            f0 = za
             f1 = zb
             stack = [t0, t1]
             stacked = ops.concat(stack, axis=0)
@@ -113,12 +111,14 @@ class AlignedAliGAN8(BaseGAN):
             self.discriminator = d
             l = self.create_loss(config.loss, d, self.inputs.xa, ga.sample, len(stack))
             self.loss = l
+            self.standard_loss = l
+            self.z_loss = l
             loss1 = l
             d_loss1 = l.d_loss
             g_loss1 = l.g_loss
 
             d_vars1 = d.variables()
-            g_vars1 = gb.variables()+zga.variables()+zgb.variables()
+            g_vars1 = gb.variables()+zga.variables()
             self.generator = gb
 
             d_loss = l.d_loss
@@ -243,7 +243,7 @@ class AlignedAliGAN8(BaseGAN):
 
             if config.mirror_joint:
                 t0 = xa
-                t1 = ga.sample
+                t1 = random_ga.sample
                 f0 = zb
                 f1 = za
                 stack = [t0, t1]
@@ -259,6 +259,7 @@ class AlignedAliGAN8(BaseGAN):
                 g_loss1 += loss3.g_loss
                 d_vars1 += z_d.variables()
                 g_vars1 += ga.variables()
+                g_vars1 += zgb.variables()
                 self.al = loss1
                 self.bl = loss3
                 self.bd = z_d

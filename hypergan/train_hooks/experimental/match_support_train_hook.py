@@ -53,6 +53,10 @@ class MatchSupportTrainHook(BaseTrainHook):
         self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.1))))*1000.0
     if self.config.loss == 'fixed':
         self.loss = tf.reduce_mean(tf.square(tf.reduce_mean(d_fake - d_real)))*(self.config.loss_lambda or 10000.0)
+    if self.config.loss == 'fixedstd':
+        self.loss = tf.reduce_mean(tf.nn.relu(tf.reduce_mean(tf.log(tf.nn.sigmoid(d_real)) - tf.log(tf.nn.sigmoid(d_fake)))))*(self.config.loss_lambda or 10000.0)
+
+        #self.loss = tf.reduce_mean(tf.abs(d_fake - d_real))*(self.config.loss_lambda or 10000.0)
     if self.config.loss == 'fixed2':
         self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
     if self.config.loss == 'ali2':

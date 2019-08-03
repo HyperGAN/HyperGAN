@@ -146,7 +146,7 @@ class CLI:
                 self.args.save_every > 0 and
                 i % self.args.save_every == 0):
                 print(" |= Saving network")
-                self.gan.save(self.save_file)   
+                self.gan.save(self.save_file)  
             if self.args.ipython:
                 self.check_stdin()
             end_time = time.time()

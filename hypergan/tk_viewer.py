@@ -29,6 +29,8 @@ class TkViewer:
             image = np.tile(image, [1,1,3])
         image = np.transpose(image, [1, 0,2])
 
+        self.size = [int(image.shape[0] * self.viewer_size), int(image.shape[1] * self.viewer_size)]
+
         if not self.screen:
 
             with contextlib.redirect_stdout(None):
@@ -72,8 +74,6 @@ class TkViewer:
                     self.tkviewer.size = [desired_width, desired_height]
                     self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
 
-
-            self.size = [int(image.shape[0] * self.viewer_size), int(image.shape[1] * self.viewer_size)]
 
             self.pg = pygame
             self.tk = tk

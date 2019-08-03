@@ -5,6 +5,7 @@ from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
 from hypergan.samplers.segment_sampler import SegmentSampler
+from hypergan.trainers.gang_trainer import GangTrainer
 import tensorflow as tf
 import numpy as np
 import hypergan as hg
@@ -14,6 +15,9 @@ class GangSampler(BaseSampler):
         BaseSampler.__init__(self, gan)
         self.xs = None
         self.samples = 1
+
+    def compatible_with(gan):
+        return isinstance(gan.trainer, GangTrainer)
 
     def sample(self, path, sample_to_file):
         gan = self.gan

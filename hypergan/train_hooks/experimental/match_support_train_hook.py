@@ -16,6 +16,8 @@ import inspect
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
+from hypergan.viewer import GlobalViewer
+
 class MatchSupportTrainHook(BaseTrainHook):
   """ Makes d_fake and d_real match by training on a zero-based addition to the input images. """
   def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook", layer="match_support", variables=["x","g"]):
@@ -126,6 +128,7 @@ class MatchSupportTrainHook(BaseTrainHook):
         print("Learn rate: ", learn_rate)
     self.gan.session.run(self.zero_x+ self.zero_g+ [self.reset_optimizer_t])
     for i in range((self.config.max_steps or 100)*(1+depth)):
+        GlobalViewer.tick()
         _ = self.gan.session.run(self.train_t, feed_dict)
         loss = self.gan.session.run(self.loss, feed_dict)
         if np.any(np.isnan(loss)) or np.any(np.isinf(loss)):

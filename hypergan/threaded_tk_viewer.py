@@ -57,14 +57,14 @@ class ThreadedTkViewerUI:
                 def _update(self, width, height):
                     self.width = width
                     self.height = height
-                    #self.config(width=self.width, height=self.height)
-                    #self.surface = self.tkviewer.pg.Surface([self.width, self.height])
-                    #self.tkviewer.size = [self.width, self.height]
-                    #self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)
-                    #self.tkviewer.screen.fill((0, 0, 0))
-                    #self.tkviewer.pg.surfarray.blit_array(self.surface, image[:,:,:3])
-                    #self.tkviewer.screen.blit(self.tkviewer.pg.transform.scale(self.surface,self.tkviewer.size),(0,0))
-                    #self.tkviewer.pg.display.flip()
+                    self.config(width=self.width, height=self.height)
+                    self.tkviewer.size = [self.width, self.height]
+                    self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)
+                    self.tkviewer.screen.fill((0, 0, 0))
+                    self.surface = self.tkviewer.pg.Surface([image.shape[0],image.shape[1]])
+                    self.tkviewer.pg.surfarray.blit_array(self.surface, image[:,:,:3])
+                    self.tkviewer.screen.blit(self.tkviewer.pg.transform.scale(self.surface,self.tkviewer.size),(0,0))
+                    self.tkviewer.pg.display.flip()
 
                 def resize(self, size):
                     pass
@@ -79,9 +79,9 @@ class ThreadedTkViewerUI:
                         desired_height = height
                         desired_width = int(height * self.aspect_ratio)
 
-                    #self.config(width=desired_width, height=desired_height)
-                    #self.tkviewer.size = [desired_width, desired_height]
-                    #self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)
+                    self.config(width=desired_width, height=desired_height)
+                    self.tkviewer.size = [desired_width, desired_height]
+                    self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)
 
 
             self.pg = pygame
@@ -207,11 +207,6 @@ class ThreadedTkViewerUI:
 
         if not hasattr(self, 'surface') or image.shape[0] != self.surface.get_width() or image.shape[1] != self.surface.get_height():
             self.surface = self.pg.Surface([image.shape[0],image.shape[1]])
-            #self.resizable_frame.resize(self.size)
-            def _enforce_aspect_ratio(*args):
-                self.resizable_frame.enforce_aspect_ratio(window_size[0], window_size[1])
-
-            self.resizable_frame.after(1, _enforce_aspect_ratio)
 
         self.screen.fill((0, 0, 0))
         self.pg.surfarray.blit_array(self.surface, image[:,:,:3])

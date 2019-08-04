@@ -14,6 +14,7 @@ import numpy as np
 import inspect
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
+from hypergan.viewer import GlobalViewer
 
 class InputFitnessTrainHook(BaseTrainHook):
   "Keep track of Xs with high discriminator values"

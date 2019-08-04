@@ -53,11 +53,12 @@ class CLI:
             self.gan.save_file = self.save_file
 
         title = "[hypergan] " + self.config_name
-        GlobalViewer.enable_menu = self.args.menu
-        GlobalViewer.title = title
-        GlobalViewer.viewer_size = self.args.viewer_size
-        GlobalViewer.enabled = self.args.viewer
-        GlobalViewer.zoom = self.args.zoom
+        GlobalViewer.set_options(
+            enable_menu = self.args.menu,
+            title = title,
+            viewer_size = self.args.viewer_size,
+            enabled = self.args.viewer,
+            zoom = self.args.zoom)
 
     def sample(self, allow_save=True):
         """ Samples to a file.  Useful for visualizing the learning process.
@@ -90,7 +91,7 @@ class CLI:
     def step(self):
         bgan = self.gan
         self.gan.step()
-        if bgan.destroy:
+        if hasattr(self.gan, 'newgan') and bgan.destroy:
             self.sampler=None
             self.gan = self.gan.newgan
             gc.collect()
@@ -119,8 +120,6 @@ class CLI:
     def sample_forever(self):
         while not self.gan.destroy:
             self.sample()
-            GlobalViewer.tick()
-
 
     def train(self):
         i=0
@@ -134,7 +133,6 @@ class CLI:
             i+=1
             start_time = time.time()
             self.step()
-            GlobalViewer.tick()
 
             if (self.args.save_every != None and
                 self.args.save_every != -1 and

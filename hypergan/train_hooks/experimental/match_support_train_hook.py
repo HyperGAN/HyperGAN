@@ -128,7 +128,6 @@ class MatchSupportTrainHook(BaseTrainHook):
         print("Learn rate: ", learn_rate)
     self.gan.session.run(self.zero_x+ self.zero_g+ [self.reset_optimizer_t])
     for i in range((self.config.max_steps or 100)*(1+depth)):
-        GlobalViewer.tick()
         _ = self.gan.session.run(self.train_t, feed_dict)
         loss = self.gan.session.run(self.loss, feed_dict)
         if np.any(np.isnan(loss)) or np.any(np.isinf(loss)):

@@ -1,27 +1,24 @@
 """
-Opens a window that displays an image.
-Usage:
-
-    from viewer import GlobalViewer
-    GlobalViewer.update(image)
-
+Opens a window and communicates over it on ui events
 """
 import numpy as np
 import os
 import contextlib
+import time
+import threading
+import random
+from queue import Queue
+import queue
 
 
-class TkViewer:
+class ThreadedTkViewerUI:
     def __init__(self, title="HyperGAN", viewer_size=1, enabled=True):
         self.screen = None
         self.title = title
         self.viewer_size = viewer_size
-        self.enabled = enabled
         self.enable_menu = True
 
-    def update(self, gan, image):
-        if not self.enabled: return
-
+    def sample(self, gan, image):
         original_image = image
         if len(np.shape(image)) == 2:
             s = np.shape(image)
@@ -43,56 +40,60 @@ class TkViewer:
             import tkinter.ttk
             class ResizableFrame(tk.Frame):
                 def __init__(self,parent,tkviewer=None,**kwargs):
+                    surface = kwargs.pop('surface')
                     tk.Frame.__init__(self,parent,**kwargs)
                     self.parent = parent
                     self.bind("<Configure>", self.on_resize)
                     self.height = kwargs['height']
                     self.width = kwargs['width']
+                    self.surface = surface
                     self.tkviewer = tkviewer
                     self.aspect_ratio = float(self.width)/float(self.height)
 
                 def on_resize(self,event):
                     self._update(event.width, event.height)
-                    self.enforce_aspect_ratio(event)
+                    self.enforce_aspect_ratio(event.width, event.height)
 
                 def _update(self, width, height):
                     self.width = width
                     self.height = height
-                    self.config(width=self.width, height=self.height)
-                    self.tkviewer.size = [self.width, self.height]
-                    self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
-                    surface = self.tkviewer.pg.Surface([image.shape[0],image.shape[1]])
-                    self.tkviewer.pg.surfarray.blit_array(surface, image[:,:,:3])
-                    self.tkviewer.screen.blit(self.tkviewer.pg.transform.scale(surface,self.tkviewer.size),(0,0))
-                    self.tkviewer.pg.display.flip()
+                    #self.config(width=self.width, height=self.height)
+                    #self.surface = self.tkviewer.pg.Surface([self.width, self.height])
+                    #self.tkviewer.size = [self.width, self.height]
+                    #self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)
+                    #self.tkviewer.screen.fill((0, 0, 0))
+                    #self.tkviewer.pg.surfarray.blit_array(self.surface, image[:,:,:3])
+                    #self.tkviewer.screen.blit(self.tkviewer.pg.transform.scale(self.surface,self.tkviewer.size),(0,0))
+                    #self.tkviewer.pg.display.flip()
 
                 def resize(self, size):
-                    self.parent.geometry(str(size[0])+"x"+str(size[1]))
-                    self._update(size[0], size[1])
+                    pass
+                    #self.parent.geometry(str(size[0])+"x"+str(size[1]))
+                    #self._update(size[0], size[1])
 
-                def enforce_aspect_ratio(self, event):
-                    desired_width = event.width
-                    desired_height = int(event.width / self.aspect_ratio)
+                def enforce_aspect_ratio(self, width, height):
+                    desired_width = width
+                    desired_height = int(width / self.aspect_ratio)
 
-                    if desired_height > event.height:
-                        desired_height = event.height
-                        desired_width = int(event.height * self.aspect_ratio)
+                    if desired_height > height:
+                        desired_height = height
+                        desired_width = int(height * self.aspect_ratio)
 
-                    self.config(width=desired_width, height=desired_height)
-                    self.tkviewer.size = [desired_width, desired_height]
-                    self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)   
+                    #self.config(width=desired_width, height=desired_height)
+                    #self.tkviewer.size = [desired_width, desired_height]
+                    #self.tkviewer.screen = self.tkviewer.pg.display.set_mode(self.tkviewer.size,self.tkviewer.pg.RESIZABLE)
 
 
             self.pg = pygame
             self.tk = tk
+            self.surface = self.pg.Surface([image.shape[0],image.shape[1]])
             root = tk.Tk(className=self.title)
-            embed = ResizableFrame(root, width=self.size[0], height=self.size[1], tkviewer=self)
-            self.resizable_frame = embed
+            self.resizable_frame = ResizableFrame(root, width=self.size[0], height=self.size[1], tkviewer=self, surface=self.surface)
             root.rowconfigure(0,weight=1)
             root.rowconfigure(1,weight=1)
             root.columnconfigure(0,weight=1)
             root.columnconfigure(1,weight=1)
-            embed.pack(expand=tk.YES, fill=tk.BOTH)
+            self.resizable_frame.pack(expand=tk.YES, fill=tk.BOTH)
 
             def _save_model(*args):
                 gan.save(gan.save_file)
@@ -111,7 +112,7 @@ class TkViewer:
                 if submenu.count > 0:
                     submenu.delete(0, submenu.count)
 
-                for (k, v) in gan.get_registered_samplers().items():
+                for (k, v) in sorted(gan.get_registered_samplers().items()):
                     showall = tk.BooleanVar()
                     showall.set(gan.selected_sampler == k)
                     if v.compatible_with(gan):
@@ -119,7 +120,6 @@ class TkViewer:
                     else:
                         state = tk.DISABLED
 
-                    print("Selected", gan.selected_sampler, k, gan.selected_sampler == k)
                     submenu.add_checkbutton(label=k, onvalue=True, offvalue=False, variable=showall, command=_select_sampler(gan, k, showall, submenu), state=state)
                 num_samplers = len(gan.get_registered_samplers())
 
@@ -191,18 +191,11 @@ class TkViewer:
             root.wm_title(self.title)
             self.resizable_frame.winfo_toplevel().title(self.title)
 
-        window_size = [self.resizable_frame.parent.winfo_width(), self.resizable_frame.parent.winfo_height()]
-        if self.status_bar is not None:
-            window_size[1] -= self.status_bar.winfo_height()
-        if self.size[0] != window_size[0] or self.size[1] != window_size[1]:
-            print("SIZE:", self.size, "WINDOW_SIZE", window_size)
-            self.resizable_frame.resize(self.size)
-            #self.resizable_frame.after(1, _refresh_sample)
-
         padw = 0
         padh = 0
         if original_image.shape[0] > original_image.shape[1]:
             padh = (original_image.shape[0] - original_image.shape[1])//2
+
         if original_image.shape[1] > original_image.shape[0]:
             padw = (original_image.shape[1] - original_image.shape[0])//2
         pad_image = np.pad(original_image, [(padw, padw), (padh,padh), (0,0)], 'constant')
@@ -212,16 +205,66 @@ class TkViewer:
         #tk_image = self.tk.PhotoImage(data=xdata, format="PPM", width=w, height=h)
         #self.root.tk.call('wm', 'iconphoto', self.root._w, tk_image.subsample(max(1, w//256), max(1, h//256)))
 
-        surface = self.pg.Surface([image.shape[0],image.shape[1]])
-        self.pg.surfarray.blit_array(surface, image[:,:,:3])
-        self.screen.blit(self.pg.transform.scale(surface,self.size),(0,0))
+        if not hasattr(self, 'surface') or image.shape[0] != self.surface.get_width() or image.shape[1] != self.surface.get_height():
+            self.surface = self.pg.Surface([image.shape[0],image.shape[1]])
+            #self.resizable_frame.resize(self.size)
+            def _enforce_aspect_ratio(*args):
+                self.resizable_frame.enforce_aspect_ratio(window_size[0], window_size[1])
+
+            self.resizable_frame.after(1, _enforce_aspect_ratio)
+
+        self.screen.fill((0, 0, 0))
+        self.pg.surfarray.blit_array(self.surface, image[:,:,:3])
+        self.screen.blit(self.pg.transform.scale(self.surface,self.size),(0,0))
         self.pg.display.flip()
 
-    def tick(self):
-        """
-            Called repeatedly regardless of gan state.
-        """
-        if hasattr(self, 'root'):
-            self.root.update()
 
-       
+    def event(self, gan, name, data):
+        self.get_queue().put({"gan": gan, "name": name, "data": data})
+
+    def get_queue(self):
+        if hasattr(self, 'queue'):
+            return self.queue
+        self.queue = Queue()
+        return self.queue
+
+    def process(self):
+        while True:
+            try:
+                msg = self.get_queue().get(0)
+                name = msg["name"]
+                data = msg["data"]
+                gan = msg["gan"]
+                if name == "sample":
+                    self.sample(gan, data)
+                else:
+                    print("Unknown event", msg)
+            except queue.Empty:
+                time.sleep(1.0/60.0)
+                if hasattr(self, 'root'):
+                    self.root.update()
+
+class ThreadedTkViewer:
+    def __init__(self, title="HyperGAN", viewer_size=1, enabled=True):
+        self.enabled = enabled
+        self.ui = ThreadedTkViewerUI(title=title, viewer_size=viewer_size, enabled=enabled)
+        self.ui_thread = threading.Thread(target=self.ui.process)
+        self.ui_thread.start()
+
+    def update(self, gan, image):
+        if not self.enabled: return
+
+        self.ui.event(gan, "sample", image)
+
+    def set_options(self, enable_menu = None, title = None, viewer_size = None, enabled = None, zoom = None):
+        self.enabled = enabled
+        self.ui.enable_menu = enable_menu
+        self.ui.title = title
+        self.ui.viewer_size = viewer_size
+        self.ui.zoom = zoom
+
+# todo
+
+# closing worker ui thread
+# why does sampling repeatedly slow?
+# changing samplers

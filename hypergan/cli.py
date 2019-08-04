@@ -42,7 +42,12 @@ class CLI:
 
         self.sampler_name = args.sampler
         self.sampler = None
+        
+        if hasattr(self.sampler,"samples_per_row"):
+            self.sampler.samples_per_row = args.width
+        
         self.validate()
+
         if self.args.save_file:
             self.save_file = self.args.save_file
         else:
@@ -139,7 +144,7 @@ class CLI:
                 self.args.save_every > 0 and
                 i % self.args.save_every == 0):
                 print(" |= Saving network")
-                self.gan.save(self.save_file)
+                self.gan.save(self.save_file)  
             if self.args.ipython:
                 self.check_stdin()
             end_time = time.time()

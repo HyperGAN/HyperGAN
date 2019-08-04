@@ -11,7 +11,7 @@ setup(
   name = 'hypergan',
   packages = ['hypergan']+subpackages,
   include_package_data=True,
-  version = '0.10.0',
+  version = '0.10.1',
   description = 'A customizable generative adversarial network with reproducible configurations.  Build your own content generator.',
   author = 'HyperGAN',
   author_email = 'hypergan@protonmail.com',

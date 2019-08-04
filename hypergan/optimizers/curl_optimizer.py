@@ -20,7 +20,7 @@ class CurlOptimizer(optimizer.Optimizer):
     self._gamma = gamma
     self.gan = gan
     self.config = config
-    self._lr_t = learning_rate or 1e-5
+    self._lr_t = learning_rate
     self.g_rho = gan.configurable_param(self.config.g_rho or 1)
     self.d_rho = gan.configurable_param(self.config.d_rho or 1)
 

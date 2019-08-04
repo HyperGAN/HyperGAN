@@ -16,6 +16,8 @@ import inspect
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
+from hypergan.viewer import GlobalViewer
+
 class MatchSupportTrainHook(BaseTrainHook):
   """ Makes d_fake and d_real match by training on a zero-based addition to the input images. """
   def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook", layer="match_support", variables=["x","g"]):
@@ -53,6 +55,10 @@ class MatchSupportTrainHook(BaseTrainHook):
         self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.1))))*1000.0
     if self.config.loss == 'fixed':
         self.loss = tf.reduce_mean(tf.square(tf.reduce_mean(d_fake - d_real)))*(self.config.loss_lambda or 10000.0)
+    if self.config.loss == 'fixedstd':
+        self.loss = tf.reduce_mean(tf.nn.relu(tf.reduce_mean(tf.log(tf.nn.sigmoid(d_real)) - tf.log(tf.nn.sigmoid(d_fake)))))*(self.config.loss_lambda or 10000.0)
+
+        #self.loss = tf.reduce_mean(tf.abs(d_fake - d_real))*(self.config.loss_lambda or 10000.0)
     if self.config.loss == 'fixed2':
         self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
     if self.config.loss == 'ali2':

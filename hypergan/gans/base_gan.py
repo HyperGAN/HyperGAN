@@ -157,6 +157,10 @@ class BaseGAN(GANComponent):
         learn_rate = options.learn_rate or options.learning_rate
         if 'learning_rate' in options:
             del defn['learning_rate']
+        learn_rate = self.configurable_param(learn_rate)
+        if isinstance(learn_rate, float):
+            learn_rate = tf.constant(learn_rate)
+        self.learn_rate = learn_rate
         gan_component = klass(learn_rate, **defn)
         self.components.append(gan_component)
         return gan_component
@@ -351,7 +355,7 @@ class BaseGAN(GANComponent):
         repeat = "repeat" in args
         current_step = self.gan.steps
         if repeat:
-            current_step %= steps
+            current_step %= (steps+1)
         if start == 0:
             return tf.train.polynomial_decay(r1, current_step, steps, end_learning_rate=r2, power=1, cycle=cycle)
         else:
@@ -366,7 +370,7 @@ class BaseGAN(GANComponent):
             onvalue = float(options["onvalue"]) or 1.0
             n = tf.random_uniform([1], minval=-1, maxval=1)
             n += tf.constant(offset, dtype=tf.float32)
-            return (tf.sign(n) + 1) /2 * tf.constant(float(options["onvalue"], dtype=tf.float32))
+            return (tf.sign(n) + 1) /2 * tf.constant(float(options["onvalue"]), dtype=tf.float32)
 
 
     def exit(self):

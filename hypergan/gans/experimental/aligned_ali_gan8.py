@@ -111,6 +111,7 @@ class AlignedAliGAN8(BaseGAN):
             self.discriminator = d
             l = self.create_loss(config.loss, d, self.inputs.xa, ga.sample, len(stack))
             self.loss = l
+            self.losses = [self.loss]
             self.standard_loss = l
             self.z_loss = l
             loss1 = l
@@ -138,6 +139,7 @@ class AlignedAliGAN8(BaseGAN):
                 features = None
                 z_d = self.create_component(config.discriminator, name='uga_discriminator', input=stacked)
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=self.inputs.xa, generator=ga, split=2)
+                self.losses.append(loss3)
                 metrics["uga_gloss"]=loss3.g_loss
                 metrics["uga_dloss"]=loss3.d_loss
                 d_loss1 += loss3.d_loss
@@ -153,6 +155,7 @@ class AlignedAliGAN8(BaseGAN):
                 features = None
                 z_d = self.create_component(config.discriminator, name='ugb_discriminator', input=stacked)
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=self.inputs.xa, generator=ga, split=2)
+                self.losses.append(loss3)
                 self.db = z_d
                 self.lb = loss3
                 metrics["ugb_gloss"]=loss3.g_loss
@@ -171,6 +174,7 @@ class AlignedAliGAN8(BaseGAN):
                 features = None
                 z_d = self.create_component(config.discriminator, name='uga_discriminator', input=stacked)
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=self.inputs.xa, generator=ga, split=3)
+                self.losses.append(loss3)
                 metrics["uga_gloss"]=loss3.g_loss
                 metrics["uga_dloss"]=loss3.d_loss
                 d_loss1 += loss3.d_loss
@@ -187,6 +191,7 @@ class AlignedAliGAN8(BaseGAN):
                 features = None
                 z_d = self.create_component(config.discriminator, name='ugb_discriminator', input=stacked)
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=self.inputs.xa, generator=ga, split=3)
+                self.losses.append(loss3)
                 metrics["ugb_gloss"]=loss3.g_loss
                 metrics["ugb_dloss"]=loss3.d_loss
                 d_loss1 += loss3.d_loss
@@ -201,6 +206,7 @@ class AlignedAliGAN8(BaseGAN):
                 features = None
                 z_d = self.create_component(config.latent, name='forcerandom_discriminator', input=stacked)
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=self.inputs.xa, generator=ga, split=2)
+                self.losses.append(loss3)
                 metrics["forcerandom_gloss"]=loss3.g_loss
                 metrics["forcerandom_dloss"]=loss3.d_loss
                 d_loss1 += loss3.d_loss
@@ -218,6 +224,7 @@ class AlignedAliGAN8(BaseGAN):
                 features = None
                 z_d = self.create_component(config.latent, name='forcerandom_discriminator2', input=stacked)
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=self.inputs.xa, generator=ga, split=2)
+                self.losses.append(loss3)
                 metrics["forcerandom2_gloss"]=loss3.g_loss
                 metrics["forcerandom2_dloss"]=loss3.d_loss
                 d_loss1 += loss3.d_loss
@@ -235,6 +242,7 @@ class AlignedAliGAN8(BaseGAN):
                 netzd = tf.concat(axis=0, values=[t0,t1,t2])
                 z_d = self.create_component(config.latent, name='latent', input=netzd)
                 loss3 = self.create_component(config.loss, discriminator = z_d, x=self.inputs.xa, generator=ga, split=3)
+                self.losses.append(loss3)
                 metrics["za_gloss"]=loss3.g_loss
                 metrics["za_dloss"]=loss3.d_loss
                 d_loss1 += loss3.d_loss
@@ -253,6 +261,7 @@ class AlignedAliGAN8(BaseGAN):
                 zua = za
                 z_d = self.create_component(config.discriminator, name='d_ba', input=stacked, features=[features])
                 loss3 = self.create_component(config.loss, discriminator = z_d, split=2)
+                self.losses.append(loss3)
                 self.gan.add_metric("ba_gloss",loss3.g_loss)
                 self.gan.add_metric("ba_dloss",loss3.d_loss)
                 d_loss1 += loss3.d_loss

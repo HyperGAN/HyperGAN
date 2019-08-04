@@ -83,6 +83,7 @@ class StandardGAN(BaseGAN):
                 print("G size", self.ops.shape(g))
                 raise ValidationException("X and G sizes differ")
             self.loss = self.create_component(config.loss, discriminator=self.discriminator)
+            self.losses = [self.loss]
             self.trainer = self.create_component(config.trainer)
 
             self.android_output = tf.reshape(self.generator.sample, [-1])

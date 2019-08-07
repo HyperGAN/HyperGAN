@@ -37,6 +37,8 @@ class CommandParser:
         parser.add_argument('--version', action='version', version='%(prog)s 0.10.0 alpha')
         parser.add_argument('--nomenu', dest='menu', action='store_false', help='Disables the file menu.')
         parser.add_argument('--width', '-w', type=int, default=8, help='Number of samples per row')
+        parser.add_argument('--loss_every', type=int, default=1, help='Saves a losses graph every X steps.')
+        parser.add_argument('--save_losses', action='store_true', help='Saves losses graph to the local `losses` directory.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)

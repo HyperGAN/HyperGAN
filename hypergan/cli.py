@@ -123,54 +123,54 @@ class CLI:
         self.steps+=1
 
         x = []
-            if(hasattr(self.gan.loss,"sample")):
-                loss = self.gan.loss.sample
-                if(self.args.save_losses):
-                    temp2 = False
-                    if(len(self.arr)==0):
-                        for i in range(0,len(loss)):
-                            self.arr.append([]);
+        if(hasattr(self.gan.loss,"sample")):
+            loss = self.gan.loss.sample
+            if(self.args.save_losses):
+                temp2 = False
+                if(len(self.arr)==0):
                     for i in range(0,len(loss)):
-                        self.arr[i].append(self.gan.session.run(loss[i]))
-                    for j in range(0,len(self.arr)):
-                        if (len(self.arr[j]) > 100):
-                            self.arr[j].pop(0)
-                            if(not temp2 == True):
-                                self.temp += 1
-                                temp2 = True
-                    if(temp2 == True):
-                        temp2 = False
-            else:
-                if(self.args.save_losses):
+                        self.arr.append([]);
+                for i in range(0,len(loss)):
+                    self.arr[i].append(self.gan.session.run(loss[i]))
+                for j in range(0,len(self.arr)):
+                    if (len(self.arr[j]) > 100):
+                        self.arr[j].pop(0)
+                        if(not temp2 == True):
+                            self.temp += 1
+                            temp2 = True
+                if(temp2 == True):
                     temp2 = False
-                    if(len(self.arr)==0):
-                        for i in range(0,len(self.gan.trainer.losses)):
-                            self.arr.append([]);
+        else:
+            if(self.args.save_losses):
+                temp2 = False
+                if(len(self.arr)==0):
                     for i in range(0,len(self.gan.trainer.losses)):
-                        self.arr[i].append(self.gan.session.run(self.gan.trainer.losses[i][1]))
-                    for j in range(0,len(self.arr)):
-                        if (len(self.arr[j]) > 100):
-                            self.arr[j].pop(0)
-                            if(not temp2 == True):
-                                self.temp += 1
-                                temp2 = True
-                    if(temp2 == True):
-                        temp2 = False
-            if(self.args.save_losses and self.steps % self.loss_every == 0):
-                for i in range(0,len(self.arr)):
-                    x2 = []
-                    for j in range(self.temp,self.temp+len(self.arr[i])):
-                        x2.append(j)
-                    x.append(x2)
-                self.ax.cla()
-                for i in range(0,len(self.arr)):
-                    self.ax.plot(x[i], self.arr[i])
-                self.ax.grid()
-                self.ax.title.set_text("HyperGAN losses")
-                self.ax.set_xlabel('Steps')
-                self.ax.set_ylabel('Losses')
-                self.create_path("losses/"+self.config_name+"/%06d.png" % (self.steps))
-                self.fig.savefig("losses/"+self.config_name+"/%06d.png" % (self.steps))
+                        self.arr.append([]);
+                for i in range(0,len(self.gan.trainer.losses)):
+                    self.arr[i].append(self.gan.session.run(self.gan.trainer.losses[i][1]))
+                for j in range(0,len(self.arr)):
+                    if (len(self.arr[j]) > 100):
+                        self.arr[j].pop(0)
+                        if(not temp2 == True):
+                            self.temp += 1
+                            temp2 = True
+                if(temp2 == True):
+                    temp2 = False
+        if(self.args.save_losses and self.steps % self.loss_every == 0):
+            for i in range(0,len(self.arr)):
+                x2 = []
+                for j in range(self.temp,self.temp+len(self.arr[i])):
+                    x2.append(j)
+                x.append(x2)
+            self.ax.cla()
+            for i in range(0,len(self.arr)):
+                self.ax.plot(x[i], self.arr[i])
+            self.ax.grid()
+            self.ax.title.set_text("HyperGAN losses")
+            self.ax.set_xlabel('Steps')
+            self.ax.set_ylabel('Losses')
+            self.create_path("losses/"+self.config_name+"/%06d.png" % (self.steps))
+            self.fig.savefig("losses/"+self.config_name+"/%06d.png" % (self.steps))
 
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)

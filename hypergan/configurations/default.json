@@ -40,6 +40,7 @@
     "final_depth": 32,
     "adaptive_instance_norm": true,
     "adaptive_instance_norm_layers": 2,
+    "adaptive_instance_norm_last_layer": true,
     "block": "resize_conv"
   },
  "loss": {

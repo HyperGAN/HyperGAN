@@ -57,18 +57,9 @@ class BaseGAN(GANComponent):
         if config == None:
             config = hg.Configuration.default()
 
-        print("DEVICE___", self.device)
         if debug and not isinstance(self.session, tf_debug.LocalCLIDebugWrapperSession):
             self.session = tf_debug.LocalCLIDebugWrapperSession(self.session)
             self.session.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
-        elif "/tpu" in self.device:
-            tpu_name = self.device.split(":")[1]
-            tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
-            run_config = tf.contrib.tpu.RunConfig(model_dir="modeldir", 
-                    cluster=tpu_cluster_resolver,
-                    session_config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=True), 
-                    tpu_config=tf.contrib.tpu.TPUConfig(1, 8)) # TODO arguments
-            self.tpu_run_config = run_config
         else:
             tfconfig = tf.ConfigProto(allow_soft_placement=True)
             #tfconfig = tf.ConfigProto(log_device_placement=True)

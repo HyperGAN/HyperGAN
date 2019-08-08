@@ -106,7 +106,7 @@ if not args.align:
               height=height,
               resize=args.resize)
 
-        gan = hg.GAN(config=config, inputs=inputs, debug=args.debug, device=args.device)
+        gan = hg.GAN(config=config, inputs=inputs, debug=args.debug)
         gan.args = args
         gan.x_width = width
         gan.x_height = height
@@ -123,7 +123,7 @@ else:
           height=height,
           resize=args.resize)
 
-    gan = hg.GAN(config=config, inputs=inputs, debug=args.debug, device=args.device)
+    gan = hg.GAN(config=config, inputs=inputs)
     gan.args = args
     gan.x_width = width
     gan.x_height = height

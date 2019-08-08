@@ -23,7 +23,6 @@ class SimultaneousTrainer(BaseTrainer):
         config.optimizer["loss"] = loss.sample
 
         self.optimizer = self.gan.create_optimizer(config.optimizer)
-        self.optimizer = tf.contrib.tpu.CrossShardOptimizer(self.optimizer)
         d_vars = self.d_vars or self.gan.d_vars()
         g_vars = self.g_vars or self.gan.g_vars()
 

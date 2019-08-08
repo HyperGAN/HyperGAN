@@ -55,39 +55,40 @@ class StandardGAN(BaseGAN):
     def create(self):
         config = self.config
 
-        self.session = self.ops.new_session(self.ops_config)
-        self.latent = self.create_component(config.z_distribution or config.latent)
-        self.uniform_distribution = self.latent
+        with tf.device(self.device):
+            self.session = self.ops.new_session(self.ops_config)
+            self.latent = self.create_component(config.z_distribution or config.latent)
+            self.uniform_distribution = self.latent
 
-        z_shape = self.ops.shape(self.latent.sample)
-        self.android_input = tf.reshape(self.latent.sample, [-1])
+            z_shape = self.ops.shape(self.latent.sample)
+            self.android_input = tf.reshape(self.latent.sample, [-1])
 
-        direction, slider = self.create_controls(self.ops.shape(self.android_input))
-        self.slider = slider
-        self.direction = direction
-        z = self.android_input + slider * direction
-        z = tf.maximum(-1., z)
-        z = tf.minimum(1., z)
-        z = tf.reshape(z, z_shape)
-        self.control_z = z
+            direction, slider = self.create_controls(self.ops.shape(self.android_input))
+            self.slider = slider
+            self.direction = direction
+            z = self.android_input + slider * direction
+            z = tf.maximum(-1., z)
+            z = tf.minimum(1., z)
+            z = tf.reshape(z, z_shape)
+            self.control_z = z
 
-        self.generator = self.create_component(config.generator, name="generator", input=z)
-        self.autoencoded_x = self.generator.sample
+            self.generator = self.create_component(config.generator, name="generator", input=z)
+            self.autoencoded_x = self.generator.sample
 
-        x, g = self.inputs.x, self.generator.sample
-        if self.ops.shape(x) == self.ops.shape(g):
-            self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
-        else:
-            print("X size", self.ops.shape(x))
-            print("G size", self.ops.shape(g))
-            raise ValidationException("X and G sizes differ")
-        self.loss = self.create_component(config.loss, discriminator=self.discriminator)
-        self.losses = [self.loss]
-        self.trainer = self.create_component(config.trainer)
+            x, g = self.inputs.x, self.generator.sample
+            if self.ops.shape(x) == self.ops.shape(g):
+                self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
+            else:
+                print("X size", self.ops.shape(x))
+                print("G size", self.ops.shape(g))
+                raise ValidationException("X and G sizes differ")
+            self.loss = self.create_component(config.loss, discriminator=self.discriminator)
+            self.losses = [self.loss]
+            self.trainer = self.create_component(config.trainer)
 
-        self.android_output = tf.reshape(self.generator.sample, [-1])
+            self.android_output = tf.reshape(self.generator.sample, [-1])
 
-        self.session.run(tf.global_variables_initializer())
+            self.session.run(tf.global_variables_initializer())
 
     def create_controls(self, z_shape):
         direction = tf.constant(0.0, shape=z_shape, name='direction') * 1.00

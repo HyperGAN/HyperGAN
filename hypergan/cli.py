@@ -131,6 +131,22 @@ class CLI:
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
+        if "tpu" in self.args.device:
+            def model_fn(features, labels, mode, config, params):
+                print("MODEL FN")
+                return tf.contrib.tpu.TPUEstimatorSpec(tf.estimator.ModeKeys.TRAIN, loss=self.gan.loss.sample, train_op=self.gan.trainer.optimize_t)
+            estimator = tf.contrib.tpu.TPUEstimator(
+                model_fn=model_fn,
+                use_tpu=True,
+                train_batch_size=self.args.batch_size(),
+                eval_batch_size=self.args.batch_size(),
+                predict_batch_size=self.args.batch_size(),
+                params={"data_dir": "datadir"},
+                config=self.gan.tpu_run_config
+            )
+            estimator.train(input_fn=input_fn, max_steps=100)
+            return
+
         while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
             i+=1
             start_time = time.time()

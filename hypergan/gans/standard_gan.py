@@ -87,7 +87,6 @@ class StandardGAN(BaseGAN):
 
         self.android_output = tf.reshape(self.generator.sample, [-1])
 
-        self.session.run(tf.global_variables_initializer())
 
     def create_controls(self, z_shape):
         direction = tf.constant(0.0, shape=z_shape, name='direction') * 1.00

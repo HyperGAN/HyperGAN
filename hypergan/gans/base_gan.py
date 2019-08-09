@@ -62,13 +62,7 @@ class BaseGAN(GANComponent):
             self.session = tf_debug.LocalCLIDebugWrapperSession(self.session)
             self.session.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
         elif "/tpu" in self.device:
-            tpu_name = self.device.split(":")[1]
-            tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
-            run_config = tf.contrib.tpu.RunConfig(model_dir="modeldir", 
-                    cluster=tpu_cluster_resolver,
-                    session_config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=True), 
-                    tpu_config=tf.contrib.tpu.TPUConfig(1, 8)) # TODO arguments
-            self.tpu_run_config = run_config
+            pass
         else:
             tfconfig = tf.ConfigProto(allow_soft_placement=True)
             #tfconfig = tf.ConfigProto(log_device_placement=True)
@@ -187,7 +181,7 @@ class BaseGAN(GANComponent):
         print("Warning: BaseGAN.create() called directly.  Please override")
 
     def step(self, feed_dict={}):
-        self.step_count = self.session.run(self.increment_step)
+        #self.step_count = self.session.run(self.increment_step)
         return self._step(feed_dict)
 
     def _step(self, feed_dict={}):

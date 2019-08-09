@@ -30,12 +30,10 @@ class ImageLoader:
         def parse_function(filename):
             def parse_record_tf(record):
                 features = tf.parse_single_example(record, features={
-                    'shape': tf.FixedLenFeature([3], tf.int64),
-                    'data': tf.FixedLenFeature([0], tf.string)
+                    'image/encoded': tf.FixedLenFeature([], tf.string)
                     })
-                data = tf.decode_raw(features['data'], tf.uint8)
-                data = tf.reshape(data, features['shape'])
-                image = tf.cast(data, tf.float32)
+                data = tf.image.decode_jpeg(features['image/encoded'], channels=3)
+                image = tf.image.convert_image_dtype(data, dtype=tf.float32)
                 # Image processing for evaluation.
                 # Crop the central [height, width] of the image.
                 if crop:
@@ -51,7 +49,10 @@ class ImageLoader:
             dataset = dataset.map(parse_record_tf, num_parallel_calls=4)
 
             return dataset
-
+        def set_shape(x):
+            x.set_shape(x.get_shape().merge_with(tf.TensorShape([self.batch_size, None, None, None])))
+            print("SHAPE", x.get_shape())
+            return x
  
         # Generate a batch of images and labels by building up a queue of examples.
         dataset = tf.data.Dataset.from_tensor_slices(filenames)
@@ -62,6 +63,7 @@ class ImageLoader:
         dataset = dataset.flat_map(lambda x: x.batch(self.batch_size))
         dataset = dataset.repeat()
         dataset = dataset.prefetch(1)
+        dataset = dataset.map(set_shape)
 
         self.dataset = dataset
 
@@ -101,7 +103,7 @@ class ImageLoader:
             dataset = dataset.shuffle(self.file_count)
         for filen in filenames:
             dataset = dataset.concatenate(parse_function(filen))
-        dataset = dataset.batch(self.batch_size, drop_remainder=True)
+        dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(self.batch_size))
         dataset = dataset.repeat()
         dataset = dataset.prefetch(1)
 

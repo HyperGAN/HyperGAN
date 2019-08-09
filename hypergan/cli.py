@@ -10,6 +10,7 @@ from hypergan.gan_component import ValidationException
 from .inputs import *
 from .viewer import GlobalViewer
 from .configuration import Configuration
+from tensorflow.contrib import tpu
 import hypergan as hg
 import time
 
@@ -23,12 +24,12 @@ from time import sleep
 
 
 class CLI:
-    def __init__(self, gan, args={}):
+    def __init__(self, args={}, gan_fn=None, inputs_fn=None, gan_config=None):
         self.samples = 0
         self.steps = 0
-        self.gan = gan
-        if gan is not None:
-            self.gan.cli = self
+        self.gan_fn = gan_fn
+        self.gan_config = gan_config
+        self.inputs_fn = inputs_fn
 
         args = hc.Config(args)
         self.args = args
@@ -51,8 +52,6 @@ class CLI:
             default_save_path = os.path.abspath("saves/"+self.config_name)
             self.save_file = default_save_path + "/model.ckpt"
             self.create_path(self.save_file)
-        if self.gan is not None:
-            self.gan.save_file = self.save_file
 
         title = "[hypergan] " + self.config_name
         GlobalViewer.set_options(
@@ -132,19 +131,35 @@ class CLI:
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         if "tpu" in self.args.device:
-            def model_fn(features, labels, mode, config, params):
-                print("MODEL FN")
-                return tf.contrib.tpu.TPUEstimatorSpec(tf.estimator.ModeKeys.TRAIN, loss=self.gan.loss.sample, train_op=self.gan.trainer.optimize_t)
-            estimator = tf.contrib.tpu.TPUEstimator(
-                model_fn=model_fn,
-                use_tpu=True,
-                train_batch_size=self.args.batch_size(),
-                eval_batch_size=self.args.batch_size(),
-                predict_batch_size=self.args.batch_size(),
-                params={"data_dir": "datadir"},
-                config=self.gan.tpu_run_config
-            )
-            estimator.train(input_fn=input_fn, max_steps=100)
+            def input_fn(params):
+                self.inputs = self.inputs_fn(params)
+                return self.inputs.dataset
+
+            with tf.Session(self.cluster_resolver.master()) as session:
+                session.run(tpu.initialize_system())
+                self.inputs = self.inputs_fn({})
+                self.gan = self.gan_fn(self.gan_config, self.inputs)
+                self.gan.session = session
+                session.run(tf.global_variables_initializer())
+                for v in self.gan.variables():
+                    print("INIT V", v)
+                    session.run(v.initializer)
+                while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
+                    i+=1
+                    start_time = time.time()
+                    self.step()
+
+                    if (self.args.save_every != None and
+                        self.args.save_every != -1 and
+                        self.args.save_every > 0 and
+                        i % self.args.save_every == 0):
+                        print(" |= Saving network")
+                        self.gan.save(self.save_file)  
+                    if self.args.ipython:
+                        self.check_stdin()
+                    end_time = time.time()
+                self.step()
+                session.run(tpu.shutdown_system())
             return
 
         while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
@@ -195,17 +210,38 @@ class CLI:
 
     def run(self):
         if self.method == 'train':
-            self.add_supervised_loss() # TODO I think this is broken now(after moving create out)
-            self.gan.session.run(tf.global_variables_initializer())
+            def model_fn(features, params):
+                print("MODEL FN")
+                #self.gan = self.gan_fn(self.gan_config, self.inputs)
+                self.gan.cli = self
+                if not self.gan.load(self.save_file):
+                    print("Initializing new model")
+                else:
+                    print("Model loaded")
 
-            if not self.gan.load(self.save_file):
-                print("Initializing new model")
-            else:
-                print("Model loaded")
+                return tf.contrib.tpu.TPUEstimatorSpec(tf.estimator.ModeKeys.TRAIN, loss=(self.gan.loss.sample[0] + self.gan.loss.sample[1]), train_op=self.gan.trainer.optimize_t)
+            
+            tpu_name = self.args.device.split(":")[1]
+            tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
+
+            run_config = tf.contrib.tpu.RunConfig(model_dir="modeldir", 
+                    cluster=tpu_cluster_resolver,
+                    session_config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=True), 
+                    tpu_config=tf.contrib.tpu.TPUConfig(1, 8)) # TODO arguments
+            self.tpu_run_config = run_config
+            self.cluster_resolver = tpu_cluster_resolver
+
+            self.estimator = tf.contrib.tpu.TPUEstimator(
+                model_fn=model_fn,
+                use_tpu=True,
+                train_batch_size=self.args.batch_size,
+                eval_batch_size=self.args.batch_size,
+                predict_batch_size=self.args.batch_size,
+                params={"data_dir": "datadir"},
+                config=self.tpu_run_config
+            )
+
             self.train()
-            self.gan.save(self.save_file)
-            tf.reset_default_graph()
-            self.gan.session.close()
         elif self.method == 'build':
             if not self.gan.load(self.save_file):
                 raise ValidationException("Could not load model: "+ self.save_file)

@@ -210,7 +210,8 @@ class BaseGAN(GANComponent):
 
         with self.graph.as_default():
             print("[hypergan] Saving network to ", save_file)
-            os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
+            if "gs://" not in save_file:
+                os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
             saver = tf.train.Saver(self.variables())
             print("Saving " +str(len(self.variables()))+ " variables: ")
             missing = set(tf.global_variables()) - set(self.variables())

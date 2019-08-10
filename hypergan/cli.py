@@ -105,7 +105,7 @@ class CLI:
 
             gc.collect()
 
-        if(self.steps % self.sample_every == 0):
+        if(self.steps % self.sample_every == 0 and self.args.sampler):
             sample_list = self.sample()
 
         self.steps+=1
@@ -224,22 +224,7 @@ class CLI:
             tpu_name = self.args.device.split(":")[1]
             tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
 
-            run_config = tf.contrib.tpu.RunConfig(model_dir="modeldir", 
-                    cluster=tpu_cluster_resolver,
-                    session_config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=True), 
-                    tpu_config=tf.contrib.tpu.TPUConfig(1, 8)) # TODO arguments
-            self.tpu_run_config = run_config
             self.cluster_resolver = tpu_cluster_resolver
-
-            self.estimator = tf.contrib.tpu.TPUEstimator(
-                model_fn=model_fn,
-                use_tpu=True,
-                train_batch_size=self.args.batch_size,
-                eval_batch_size=self.args.batch_size,
-                predict_batch_size=self.args.batch_size,
-                params={"data_dir": "datadir"},
-                config=self.tpu_run_config
-            )
 
             self.train()
         elif self.method == 'build':

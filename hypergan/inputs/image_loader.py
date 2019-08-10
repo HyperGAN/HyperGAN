@@ -16,9 +16,9 @@ class ImageLoader:
         self.batch_size = batch_size
 
     def tfrecord_create(self, directory, channels=3, width=64, height=64, crop=False, resize=False, sequential=False):
-        print("TFRECORD", directory)
         filenames = tf.io.gfile.glob(directory+"/*.tfrecord")
         filenames = natsorted(filenames)
+        print("Found tfrecord files", filenames)
 
             
         print("[loader] ImageLoader found", len(filenames))
@@ -46,12 +46,11 @@ class ImageLoader:
 
                 return image
             dataset = tf.data.TFRecordDataset(filename, buffer_size=8*1024*1024)
-            dataset = dataset.map(parse_record_tf, num_parallel_calls=4)
+            dataset = dataset.map(parse_record_tf, num_parallel_calls=self.batch_size)
 
             return dataset
         def set_shape(x):
             x.set_shape(x.get_shape().merge_with(tf.TensorShape([self.batch_size, None, None, None])))
-            print("SHAPE", x.get_shape())
             return x
  
         # Generate a batch of images and labels by building up a queue of examples.
@@ -60,9 +59,9 @@ class ImageLoader:
             print("Shuffling data")
             dataset = dataset.shuffle(self.file_count)
         dataset = dataset.map(parse_function, num_parallel_calls=4)
-        dataset = dataset.flat_map(lambda x: x.batch(self.batch_size))
+        dataset = dataset.flat_map(lambda x: x.batch(self.batch_size, drop_remainder=True))
         dataset = dataset.repeat()
-        dataset = dataset.prefetch(1)
+        dataset = dataset.prefetch(10)
         dataset = dataset.map(set_shape)
 
         self.dataset = dataset

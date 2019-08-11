@@ -1,0 +1,62 @@
+#From https://gist.github.com/EndingCredits/b5f35e84df10d46cfa716178d9c862a3
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import state_ops
+from tensorflow.python.framework import ops
+from tensorflow.python.training import optimizer
+import tensorflow as tf
+import hyperchamber as hc
+import numpy as np
+import inspect
+from operator import itemgetter
+from hypergan.train_hooks.base_train_hook import BaseTrainHook
+
+class RollingMemoryTrainHook(BaseTrainHook):
+  "Keeps a rolling memory of the best scoring discriminator samples."
+  def __init__(self, gan=None, config=None, trainer=None, name="RollingMemoryTrainHook"):
+    super().__init__(config=config, gan=gan, trainer=trainer, name=name)
+    config = hc.Config(config)
+
+    if 'lambda' in config:
+        self._lambda = self.gan.configurable_param(config['lambda'])
+    else:
+        self._lambda = 1.0
+    self.mx=tf.Variable(tf.zeros_like(self.gan.inputs.x))
+    self.mg=tf.Variable(tf.zeros_like(self.gan.inputs.x))
+    self._vlambda = self.gan.configurable_param(config.vlambda or 1.0)
+    self.m_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([self.mx, self.mg],axis=0), features=[gan.features], reuse=True)
+    self.m_loss = gan.create_component(gan.config.loss)
+    #swx = tf.maximum(0., tf.minimum(tf.sign(self.m_loss.d_real-self.gan.loss.d_real+0.5), 1.))
+    #swg = tf.maximum(0., tf.minimum(tf.sign(self.m_loss.d_fake-self.gan.loss.d_fake+0.5), 1.))
+    swx = self.m_loss.d_real
+    swg = self.m_loss.d_fake
+    if self.config.reverse_mx:
+        swx = -swx
+    if self.config.reverse_mg:
+        swg = -swg
+    swx = tf.reshape(swx, [-1])
+    swg = tf.reshape(swg, [-1])
+    swx = tf.nn.top_k(swx, k=(self.config.top_k or 1), sorted=True, name=None)
+    swg = tf.nn.top_k(swg, k=(self.config.top_k or 1), sorted=True, name=None)
+    swx = tf.one_hot(swx, self.gan.batch_size(), dtype=tf.float32)
+    swg = tf.one_hot(swg, self.gan.batch_size(), dtype=tf.float32)
+    swx = tf.reduce_sum(swx, 0)
+    swg = tf.reduce_sum(swg, 0)
+    self.gan.add_metric('swx', tf.reduce_sum(swx))
+    self.gan.add_metric('swg', tf.reduce_sum(swg))
+    swx = tf.reshape(swx, [self.gan.batch_size(), 1, 1, 1])
+    swg = tf.reshape(swg, [self.gan.batch_size(), 1, 1, 1])
+    self.assign_mx = tf.assign(self.mx, self.gan.inputs.x * swx + (1.0 - swx) * self.mx)
+    self.assign_mg = tf.assign(self.mg, self.gan.generator.sample * swg + (1.0 - swg) * self.mg)
+    self.gan.losses += [self.m_loss]
+    with tf.get_default_graph().control_dependencies([self.assign_mx, self.assign_mg]):
+        self.loss = [(self.config.lam or 1.0) * self.m_loss.sample[0], None]
+        self.gan.add_metric('roll_loss_d', self.loss[0])
+
+
+  def losses(self):
+    return self.loss

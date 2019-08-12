@@ -20,18 +20,12 @@ class RollingMemoryTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="RollingMemoryTrainHook"):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     config = hc.Config(config)
-
-    if 'lambda' in config:
-        self._lambda = self.gan.configurable_param(config['lambda'])
-    else:
-        self._lambda = 1.0
-    self.mx=tf.Variable(tf.zeros_like(self.gan.inputs.x))
-    self.mg=tf.Variable(tf.zeros_like(self.gan.inputs.x))
-    self._vlambda = self.gan.configurable_param(config.vlambda or 1.0)
+    s = self.gan.ops.shape(self.gan.inputs.x)
+    self.shape = [self.gan.batch_size() * (self.config.memory_size or 1), s[1], s[2], s[3]]
+    self.mx=tf.Variable(tf.zeros(self.shape))
+    self.mg=tf.Variable(tf.zeros(self.shape))
     self.m_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([self.mx, self.mg],axis=0), features=[gan.features], reuse=True)
-    self.m_loss = gan.create_component(gan.config.loss)
-    #swx = tf.maximum(0., tf.minimum(tf.sign(self.m_loss.d_real-self.gan.loss.d_real+0.5), 1.))
-    #swg = tf.maximum(0., tf.minimum(tf.sign(self.m_loss.d_fake-self.gan.loss.d_fake+0.5), 1.))
+    self.m_loss = gan.create_component(gan.config.loss, discriminator=self.m_discriminator)
     swx = self.m_loss.d_real
     swg = self.m_loss.d_fake
     if self.config.reverse_mx:
@@ -52,7 +46,8 @@ class RollingMemoryTrainHook(BaseTrainHook):
     swg = tf.reshape(swg, [self.gan.batch_size(), 1, 1, 1])
     self.assign_mx = tf.assign(self.mx, self.gan.inputs.x * swx + (1.0 - swx) * self.mx)
     self.assign_mg = tf.assign(self.mg, self.gan.generator.sample * swg + (1.0 - swg) * self.mg)
-    self.gan.losses += [self.m_loss]
+    self.gan.rolling_loss = self.m_loss
+    #self.gan.losses += [self.m_loss]
     with tf.get_default_graph().control_dependencies([self.assign_mx, self.assign_mg]):
         self.loss = [(self.config.lam or 1.0) * self.m_loss.sample[0], None]
         self.gan.add_metric('roll_loss_d', self.loss[0])

@@ -10,6 +10,7 @@ import numpy as np
 import hypergan as hg
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.generators.segment_generator import SegmentGenerator
+from hypergan.train_hooks.experimental.rolling_memory_train_hook import RollingMemoryTrainHook
 
 z = None
 x = None
@@ -71,6 +72,11 @@ class DebugSampler(BaseSampler):
         if hasattr(gan, 'seq'):
             self.samplers += [IdentitySampler(gan, tf.image.resize_images(gx, [128,128], method=1), samples_per_row) for gx in gan.seq]
 
+        for train_hook in self.gan.train_hooks():
+            if isinstance(train_hook, RollingMemoryTrainHook):
+                self.samplers += [IdentitySampler(gan, train_hook.mx, samples_per_row)]
+                self.samplers += [IdentitySampler(gan, train_hook.mg, samples_per_row)]
+
         default = gan.generator.sample#tf.zeros_like(gan.generator.layer('gend8x8'))
         def add_samples(layer):
             layer = gan.generator.layer(layer)
@@ -84,7 +90,7 @@ class DebugSampler(BaseSampler):
         #add_samples('gend32x32')
         #add_samples('gend64x64')
         #add_samples('gend128x128')
-        if "match_support_mx" in gan.discriminator.named_layers:
+        if hasattr(gan.discriminator, 'named_layers') and "match_support_mx" in gan.discriminator.named_layers:
             self.samplers.append(IdentitySampler(gan, tf.concat([gan.inputs.x,tf.image.resize_images(gan.discriminator.named_layers['match_support_mx'], [128,128], method=1), tf.image.resize_images(gan.discriminator.named_layers['match_support_m+x'], [128,128], method=1)],axis=0),  1) )
             self.samplers.append(IdentitySampler(gan, tf.concat([gan.generator.sample, tf.image.resize_images(gan.discriminator.named_layers['match_support_mg'], [128,128], method=1), tf.image.resize_images(gan.discriminator.named_layers['match_support_m+g'], [128,128], method=1)],axis=0),  1) ) 
 

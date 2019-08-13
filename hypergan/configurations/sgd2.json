@@ -1,6 +1,6 @@
 
 {
-  "description": "A default configuration that scales to multiple resolutionse Note that the other resolution specific configs may perform better.",
+  "description": "Uses gradient descent optimizers",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
@@ -66,10 +66,8 @@
           "alpha": 0.5,
           "beta": 0.66,
           "optimizer": {
-            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-            "learn_rate": 1e-4,
-            "beta1":0.0,
-            "beta2":0.999
+            "class": "function:tensorflow.python.training.gradient_descent.GradientDescentOptimizer",
+            "learn_rate": 1e-2
           }
         }
 
@@ -88,10 +86,8 @@
           "max_steps": 100,
           "max_depth": 1,
           "optimizer": {
-            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
-            "learn_rate": 1e-4,
-            "beta1":0.0,
-            "beta2":0.999
+            "class": "function:tensorflow.python.training.gradient_descent.GradientDescentOptimizer",
+            "learn_rate": 1e-4
           }
         }
       ]
@@ -101,6 +97,6 @@
     "anysize": true,
     "train": "hypergan train [dataset] --sampler static_batch -b 8 --size 64x64x3"
   },
-  "hypergan_version": "0.10.0",
+  "hypergan_version": "0.10.2",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

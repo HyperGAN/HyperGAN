@@ -43,9 +43,6 @@ class CLI:
         self.sampler_name = args.sampler
         self.sampler = None
         
-        if hasattr(self.sampler,"samples_per_row"):
-            self.sampler.samples_per_row = args.width
-        
         self.validate()
         
         self.loss_every = self.args.loss_every or 1
@@ -97,7 +94,7 @@ class CLI:
 
     def lazy_create(self):
         if(self.sampler == None):
-            self.sampler = self.gan.sampler_for(self.sampler_name)(self.gan)
+            self.sampler = self.gan.sampler_for(self.sampler_name)(self.gan, samples_per_row=self.args.width)
             if(self.sampler == None):
                 raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 

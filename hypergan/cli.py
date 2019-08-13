@@ -202,6 +202,7 @@ class CLI:
                 print(" |= Saving network")
                 self.gan.save(self.save_file)   
                 self.create_path(self.advSavePath+'advSave.txt')
+                if os.path.isfile(self.advSavePath+'advSave.txt'):
                     with open(self.advSavePath+'advSave.txt', 'w') as the_file:
                         the_file.write(str(self.steps)+"\n")
                         the_file.write(str(self.samples)+"\n")
@@ -270,10 +271,11 @@ class CLI:
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
             else:
-                with open(self.advSavePath+'advSave.txt', 'r') as the_file:
-                    content = [x.strip() for x in the_file]
-                    self.steps = int(content[0])
-                    self.samples = int(content[1])
+                if os.path.isfile(self.advSavePath+'advSave.txt'):
+                    with open(self.advSavePath+'advSave.txt', 'r') as the_file:
+                        content = [x.strip() for x in the_file]
+                        self.steps = int(content[0])
+                        self.samples = int(content[1])
                 print("Model loaded")
 
             tf.train.start_queue_runners(sess=self.gan.session)

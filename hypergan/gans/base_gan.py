@@ -34,7 +34,7 @@ from hypergan.samplers.gang_sampler import GangSampler
 
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps, graph=None,
-            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan", distribution_strategy=None):
+            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan", distribution_strategy=None, reuse=False):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
@@ -45,6 +45,7 @@ class BaseGAN(GANComponent):
         self._width = width
         self._height = height
         self._channels = channels
+        self.reuse = reuse
         self.debug = debug
         self.name = name
         self.session = session
@@ -72,8 +73,6 @@ class BaseGAN(GANComponent):
             with tf.device(self.device):
                 self.session = self.session or tf.Session(config=tfconfig, graph=graph)
 
-        self.global_step = tf.Variable(0, trainable=False, name='global_step')
-        self.steps = tf.Variable(0, trainable=False, name='global_step')
         if config.fixed_input:
             self.feed_x = self.inputs.x
             self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
@@ -145,8 +144,11 @@ class BaseGAN(GANComponent):
             return None
         if defn['class'] == None:
             raise ValidationException("Component definition is missing '" + name + "'")
-        print('class', defn['class'], self.ops.lookup(defn['class']))
-        gan_component = self.ops.lookup(defn['class'])(self, defn, *args, **kw_args)
+        klass = self.ops.lookup(defn['class'])
+        if self.reuse:
+            if "reuse" in inspect.getargspec(klass).args:
+                kw_args["reuse"]=True
+        gan_component = klass(self, defn, *args, **kw_args)
         self.components.append(gan_component)
         return gan_component
 
@@ -169,12 +171,18 @@ class BaseGAN(GANComponent):
         return gan_component
 
     def create_loss(self, discriminator, reuse=False, split=2):
+        if self.reuse:
+            reuse=True
         loss = self.create_component(self.config.loss, discriminator = discriminator, split=split, reuse=reuse)
         return loss
     def create_generator(self, _input, reuse=False):
+        if self.reuse:
+            reuse=True
         return self.gan.create_component(self.gan.config.generator, name='generator', input=_input, reuse=reuse)
 
     def create_discriminator(self, _input, reuse=False):
+        if self.reuse:
+            reuse=True
         return self.gan.create_component(self.gan.config.discriminator, name="discriminator", input=_input, reuse=True)
 
     def create(self):
@@ -285,7 +293,7 @@ class BaseGAN(GANComponent):
             self.gan.session.run(op, {var: val})
 
     def variables(self):
-        return list(set(self.ops.variables() + sum([c.variables() for c in self.components], []))) + [self.global_step, self.steps]
+        return list(set(self.ops.variables() + sum([c.variables() for c in self.components], [])))
 
     def weights(self):
         return self.ops.weights + sum([c.ops.weights for c in self.components], [])

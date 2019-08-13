@@ -132,30 +132,34 @@ class CLI:
 
             def train_step(x):
                 inp = hc.Config({"x": x})
-                #self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, session=session)
-                #return self.gan.trainer.distributed_step()
-                return tf.constant(0.0)
+                gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
+                return self.gan.trainer.distributed_step()
 
             #dataset = strategy.experimental_distribute_dataset(self.inputs.dataset)
         dataset = self.inputs.dataset
         input_iterator = dataset.make_initializable_iterator()
-        #inp = hc.Config({"x": input_iterator.get_next()})
-        #self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, session=session)
+        #inp = hc.Config({"x": tf.zeros([self.args.batch_size, 64, 64, 3])})
+        inp = hc.Config({"x": input_iterator.get_next()})
+        self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy)
         train = strategy.unwrap(strategy.experimental_run(train_step, input_iterator))
-        tf.contrib.distribute.initialize_tpu_system(self.cluster_resolver)
+        #tf.contrib.distribute.initialize_tpu_system(self.cluster_resolver)
 
         with tf.Session(self.cluster_resolver.master()) as session:
             session.run(tpu.initialize_system())
-            #self.gan.session = session
+            self.gan.session = session
             iterator_init = input_iterator.initializer
             session.run([iterator_init])
-            #for v in self.gan.variables():
-            #    session.run(v.initializer)
-            #if not self.gan.load(self.save_file):
-            #    print("Initializing new model")
-            #else:
-            #    print("Model loaded")
+            for v in self.gan.variables():
+                session.run(v.initializer)
+            if not self.gan.load(self.save_file):
+                print("Initializing new model")
+            else:
+                print("Model loaded")
             while((i < self.total_steps or self.total_steps == -1)):
+                if i % 1 == 0:
+                    self.gan.trainer.print_metrics(i)
+                if i % 100 == 0:
+                    self.sample()
                 i+=1
                 session.run(train)
 
@@ -164,7 +168,7 @@ class CLI:
                     self.args.save_every > 0 and
                     i % self.args.save_every == 0):
                     print(" |= Saving network")
-                    #self.gan.save(self.save_file)  
+                    self.gan.save(self.save_file)  
                 if self.args.ipython:
                     self.check_stdin()
             session.run(tpu.shutdown_system())

@@ -46,7 +46,6 @@ class StandardGAN(BaseGAN):
         self.loss = None
         self.trainer = None
         self.features = []
-        self.session = None
         BaseGAN.__init__(self, *args, **kwargs)
 
     def required(self):
@@ -55,7 +54,6 @@ class StandardGAN(BaseGAN):
     def create(self):
         config = self.config
 
-        self.session = self.ops.new_session(self.ops_config)
         self.latent = self.create_component(config.z_distribution or config.latent)
         self.uniform_distribution = self.latent
 

@@ -65,6 +65,11 @@ class AlternatingTrainer(BaseTrainer):
         if self.current_step % 1 == 0:
             print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)))
 
+    def print_metrics(self, step):
+        metrics = self.gan.metrics()
+        metric_values = self.gan.session.run(self.output_variables(metrics))
+        print(str(self.output_string(metrics) % tuple([step] + metric_values)))
+
     def distributed_step(self):
         gan = self.gan
         sess = gan.session
@@ -72,7 +77,6 @@ class AlternatingTrainer(BaseTrainer):
         loss = gan.loss
         ops = []
         for i in range(config.d_update_steps or 1):
-          ops += [self.d_optimizer_t]
-        ops += [self.g_optimizer_t]
+            ops += [self.d_optimizer_t]
         with tf.control_dependencies(ops):
-          return tf.identity(1.0)
+            return self.g_optimizer_t

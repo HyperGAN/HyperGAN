@@ -34,7 +34,7 @@ from hypergan.samplers.gang_sampler import GangSampler
 
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps, graph=None,
-            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan"):
+            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan", distribution_strategy=None):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
@@ -48,6 +48,7 @@ class BaseGAN(GANComponent):
         self.debug = debug
         self.name = name
         self.session = session
+        self.distribution_strategy = distribution_strategy
         self.skip_connections = SkipConnections()
         self.destroy = False
         if graph is None:
@@ -73,7 +74,6 @@ class BaseGAN(GANComponent):
 
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         self.steps = tf.Variable(0, trainable=False, name='global_step')
-        self.increment_step = tf.assign(self.steps, self.steps+1)
         if config.fixed_input:
             self.feed_x = self.inputs.x
             self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))

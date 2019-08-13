@@ -6,6 +6,7 @@ import sys
 import os
 import hyperchamber as hc
 import tensorflow as tf
+import numpy as np
 from hypergan.gan_component import ValidationException
 from .inputs import *
 from .viewer import GlobalViewer
@@ -122,6 +123,52 @@ class CLI:
         while not self.gan.destroy:
             self.sample()
 
+    def train_tpu(self):
+        i=0
+        strategy = tf.contrib.distribute.TPUStrategy(self.cluster_resolver)
+
+        with strategy.scope():
+            self.inputs = self.inputs_fn({})
+
+            def train_step(x):
+                inp = hc.Config({"x": x})
+                #self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, session=session)
+                #return self.gan.trainer.distributed_step()
+                return tf.constant(0.0)
+
+            #dataset = strategy.experimental_distribute_dataset(self.inputs.dataset)
+        dataset = self.inputs.dataset
+        input_iterator = dataset.make_initializable_iterator()
+        #inp = hc.Config({"x": input_iterator.get_next()})
+        #self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, session=session)
+        train = strategy.unwrap(strategy.experimental_run(train_step, input_iterator))
+        tf.contrib.distribute.initialize_tpu_system(self.cluster_resolver)
+
+        with tf.Session(self.cluster_resolver.master()) as session:
+            session.run(tpu.initialize_system())
+            #self.gan.session = session
+            iterator_init = input_iterator.initializer
+            session.run([iterator_init])
+            #for v in self.gan.variables():
+            #    session.run(v.initializer)
+            #if not self.gan.load(self.save_file):
+            #    print("Initializing new model")
+            #else:
+            #    print("Model loaded")
+            while((i < self.total_steps or self.total_steps == -1)):
+                i+=1
+                session.run(train)
+
+                if (self.args.save_every != None and
+                    self.args.save_every != -1 and
+                    self.args.save_every > 0 and
+                    i % self.args.save_every == 0):
+                    print(" |= Saving network")
+                    #self.gan.save(self.save_file)  
+                if self.args.ipython:
+                    self.check_stdin()
+            session.run(tpu.shutdown_system())
+
     def train(self):
         i=0
         if(self.args.ipython):
@@ -131,35 +178,7 @@ class CLI:
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         if "tpu" in self.args.device:
-            def input_fn(params):
-                self.inputs = self.inputs_fn(params)
-                return self.inputs.dataset
-
-            with tf.Session(self.cluster_resolver.master()) as session:
-                session.run(tpu.initialize_system())
-                self.inputs = self.inputs_fn({})
-                self.gan = self.gan_fn(self.gan_config, self.inputs)
-                self.gan.session = session
-                session.run(tf.global_variables_initializer())
-                for v in self.gan.variables():
-                    print("INIT V", v)
-                    session.run(v.initializer)
-                while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
-                    i+=1
-                    start_time = time.time()
-                    self.step()
-
-                    if (self.args.save_every != None and
-                        self.args.save_every != -1 and
-                        self.args.save_every > 0 and
-                        i % self.args.save_every == 0):
-                        print(" |= Saving network")
-                        self.gan.save(self.save_file)  
-                    if self.args.ipython:
-                        self.check_stdin()
-                    end_time = time.time()
-                self.step()
-                session.run(tpu.shutdown_system())
+            self.train_tpu()
             return
 
         while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
@@ -214,10 +233,11 @@ class CLI:
                 print("MODEL FN")
                 #self.gan = self.gan_fn(self.gan_config, self.inputs)
                 self.gan.cli = self
-                if not self.gan.load(self.save_file):
-                    print("Initializing new model")
-                else:
-                    print("Model loaded")
+                if "/tpu" not in self.args.device:
+                    if not self.gan.load(self.save_file):
+                        print("Initializing new model")
+                    else:
+                        print("Model loaded")
 
                 return tf.contrib.tpu.TPUEstimatorSpec(tf.estimator.ModeKeys.TRAIN, loss=(self.gan.loss.sample[0] + self.gan.loss.sample[1]), train_op=self.gan.trainer.optimize_t)
             

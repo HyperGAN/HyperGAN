@@ -65,9 +65,7 @@ class ImageLoader:
         dataset = dataset.map(set_shape)
 
         self.dataset = dataset
-
-        self.iterator = self.dataset.make_one_shot_iterator()
-        self.x = tf.reshape( self.iterator.get_next(), [self.batch_size, height, width, channels])
+        return dataset
 
 
     def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False):

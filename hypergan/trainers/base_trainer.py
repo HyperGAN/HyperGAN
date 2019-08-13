@@ -23,7 +23,6 @@ class BaseTrainer(GANComponent):
         g_lr = config.g_learn_rate
         d_lr = config.d_learn_rate
         self.create_called = True
-        self.global_step = tf.train.get_global_step()
         self.d_lr = d_lr
         self.g_lr = g_lr
         for hook_config in (config.hooks or []):

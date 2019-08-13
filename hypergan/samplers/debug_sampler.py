@@ -10,6 +10,7 @@ import numpy as np
 import hypergan as hg
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.generators.segment_generator import SegmentGenerator
+from hypergan.train_hooks.experimental.rolling_memory_train_hook import RollingMemoryTrainHook
 
 z = None
 x = None
@@ -70,6 +71,11 @@ class DebugSampler(BaseSampler):
 
         if hasattr(gan, 'seq'):
             self.samplers += [IdentitySampler(gan, tf.image.resize_images(gx, [128,128], method=1), samples_per_row) for gx in gan.seq]
+
+        for train_hook in self.gan.train_hooks():
+            if isinstance(train_hook, RollingMemoryTrainHook):
+                self.samplers += [IdentitySampler(gan, train_hook.mx, samples_per_row)]
+                self.samplers += [IdentitySampler(gan, train_hook.mg, samples_per_row)]
 
         default = gan.generator.sample#tf.zeros_like(gan.generator.layer('gend8x8'))
         def add_samples(layer):

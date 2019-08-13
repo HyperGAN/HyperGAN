@@ -424,6 +424,12 @@ class BaseGAN(GANComponent):
                 'segment': SegmentSampler,
                 'aligned': AlignedSampler
             }
+    def train_hooks(self):
+        result = []
+        for component in self.gan.components:
+            if hasattr(component, "train_hooks"):
+                result += component.train_hooks
+        return result
     def sampler_for(self, name, default=StaticBatchSampler):
         samplers = self.get_registered_samplers()
         self.selected_sampler = name

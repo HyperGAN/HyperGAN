@@ -1,6 +1,7 @@
 hyperchamber>=0.2.7
 numpy
 tensorflow-gpu>=1.12
+tensorflow-gan
 Pillow
 pygame
 natsort

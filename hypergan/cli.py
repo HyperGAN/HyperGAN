@@ -4,6 +4,7 @@ The command line interface.  Trains a directory of data.
 import gc
 import sys
 import os
+import functools
 import hyperchamber as hc
 import tensorflow as tf
 import numpy as np
@@ -184,38 +185,36 @@ class CLI:
 
     def train_tpu(self):
         i=0
-        tf.disable_v2_behavior()
         tpu_name = self.args.device.split(":")[1]
         cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
-        self.cluster_resolver = cluster_resolver
-        tf.tpu.experimental.initialize_tpu_system(self.cluster_resolver)
-        strategy = tf.contrib.distribute.TPUStrategy(self.cluster_resolver)
-        strategy.extended.experimental_enable_get_next_as_optional = False
 
-        self.inputs = self.inputs_fn({})
-        input_iterator = strategy.experimental_distribute_dataset(self.inputs.dataset).make_initializable_iterator()
+        config = tf.compat.v1.estimator.tpu.RunConfig(
+            cluster=cluster_resolver,
+            model_dir=self.save_file,
+            tpu_config=tf.compat.v1.estimator.tpu.TPUConfig(
+              num_shards=8,
+              iterations_per_loop=10))
 
-        with strategy.scope():
-            #inp = hc.Config({"x": tf.zeros([self.args.batch_size, 64, 64, 3])})
-            #self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, create_trainer=False)
-            inp = hc.Config({"x": tf.zeros([16, 64, 64, 3])})
-            self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, create_trainer=False)
+        def input_fn(mode, params):
+            batch_size = params["batch_size"]
+            inputs = self.inputs_fn(batch_size=batch_size)
+            x = inputs.dataset.make_one_shot_iterator().get_next()
+            x = tf.reshape(x, [batch_size, 64, 64, 3])
+            return x, x
 
-        def train_step(x):
-            #inp = hc.Config({"x": x})
-            gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
-            return gan.trainer.distributed_step()
-            #return tf.identity(x)
-            #return tf.identity(x)
+        spec = {'image/encoded': tf.FixedLenFeature([], tf.string)}
+        def serving_input_fn():
+            serialized_tf_example = tf.placeholder(dtype=tf.string, shape=None, 
+                                                   name='image/encoded')
+            # key (e.g. 'examples') should be same with the inputKey when you 
+            # buid the request for prediction
+            receiver_tensors = {'examples': serialized_tf_example}
+            features = tf.parse_example(serialized_tf_example, spec)
+            return tf.estimator.export.ServingInputReceiver(features, receiver_tensors)
 
-        #dataset = self.inputs.dataset
-        #input_iterator = dataset.make_initializable_iterator()
-        #inp = hc.Config({"x": input_iterator.get_next()})
-        #print("G2V", gan2.variables())
-        train = strategy.unwrap(strategy.experimental_run_v2(train_step, args=(next(input_iterator), )))
-        iterator_init = input_iterator.initialize()
+        self.gan = self.gan_fn(self.gan_config, None)
+        est = self.gan.tpu_gan_estimator(config)
 
-        #tf.contrib.distribute.initialize_tpu_system(self.cluster_resolver)
         config = tf.ConfigProto()
         cluster_spec = cluster_resolver.cluster_spec()
         if cluster_spec:
@@ -224,7 +223,6 @@ class CLI:
         with tf.Session(cluster_resolver.master(), config=config) as session:
 
             self.gan.session = session
-            session.run([iterator_init])
             for v in self.gan.variables():
                 session.run(v.initializer)
             if not self.gan.load(self.save_file):
@@ -233,18 +231,18 @@ class CLI:
                 print("Model loaded")
             while((i < self.total_steps or self.total_steps == -1)):
                 if i % 1 == 0:
-                    self.gan.trainer.print_metrics(i)
-                if i % 100 == 0:
-                    self.sample()
+                    print("Step ", i)
+                #if i % 100 == 0:
+                #    self.sample()
                 i+=1
-                session.run(train)
+                est.train(input_fn, max_steps=10)
 
                 if (self.args.save_every != None and
                     self.args.save_every != -1 and
                     self.args.save_every > 0 and
                     i % self.args.save_every == 0):
                     print(" |= Saving network")
-                    self.gan.save(self.save_file)  
+                    est.export_saved_model(self.save_file, serving_input_receiver_fn=serving_input_fn)  
                 if self.args.ipython:
                     self.check_stdin()
             session.run(tpu.shutdown_system())

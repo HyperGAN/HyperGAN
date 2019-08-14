@@ -108,8 +108,8 @@ if not args.align:
             gan.name = config_name
             return gan
 
-        def inputs_fn(params):
-            inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+        def inputs_fn(batch_size=args.batch_size):
+            inputs = hg.inputs.image_loader.ImageLoader(batch_size)
             inputs.create(args.directory,
                   channels=channels, 
                   format=args.format,

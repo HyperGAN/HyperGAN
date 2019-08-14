@@ -156,7 +156,7 @@ class TensorflowOps:
         self.weights.append(weight)
         self.weights = list(set(self.weights))
         if hasattr(self, 'runtime_coef'):
-            weight *= self.runtime_coef
+            weight = weight * self.runtime_coef
             delattr(self, "runtime_coef") # todo, better way to pass variables from initialiszer
         return weight
 

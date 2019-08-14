@@ -4,11 +4,12 @@ import tensorflow as tf
 import inspect
 
 class BaseTrainer(GANComponent):
-    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer"):
+    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer", create_trainer=True):
         self.current_step = 0
         self.g_vars = g_vars
         self.d_vars = d_vars
         self.train_hooks = []
+        self.create_trainer = create_trainer
         
         GANComponent.__init__(self, gan, config, name=name)
 
@@ -16,7 +17,10 @@ class BaseTrainer(GANComponent):
         raise Exception('BaseTrainer _step called directly.  Please override.')
 
     def variables(self):
-        return self.ops.variables() + self.optimizer.variables()
+        result = self.ops.variables()
+        if hasattr(self, "optimizer"):
+            result += self.optimizer.variables()
+        return result
 
     def create(self):
         config = self.config
@@ -40,7 +44,8 @@ class BaseTrainer(GANComponent):
                 self.gan.loss.sample[1] += losses[1]
             self.train_hooks.append(hook)
  
-        result = self._create()
+        if self.create_trainer:
+            result = self._create()
 
         for hook in self.train_hooks:
             hook.after_create()

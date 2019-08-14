@@ -23,19 +23,22 @@ class SimultaneousTrainer(BaseTrainer):
         config.optimizer["loss"] = loss.sample
 
         self.optimizer = self.gan.create_optimizer(config.optimizer)
-        self.optimizer = tf.contrib.tpu.CrossShardOptimizer(self.optimizer)
+        #self.optimizer = tf.contrib.tpu.CrossShardOptimizer(self.optimizer)
         d_vars = self.d_vars or self.gan.d_vars()
         g_vars = self.g_vars or self.gan.g_vars()
 
-        d_grads = tf.gradients(d_loss, d_vars)
-        g_grads = tf.gradients(g_loss, g_vars)
-        apply_vec = list(zip((d_grads + g_grads), (d_vars + g_vars))).copy()
-        self.gan.gradient_mean = sum([tf.reduce_mean(tf.abs(grad)) for grad in d_grads+g_grads])/len(d_grads+g_grads)
+        d_grads = self.optimizer.compute_gradients(d_loss, var_list=d_vars)
+        g_grads = self.optimizer.compute_gradients(g_loss, var_list=g_vars)
+        print("_D_GRADS", self.gan.variables())
+        #self.gan.gradient_mean = sum([tf.reduce_mean(tf.abs(grad)) for grad in d_grads+g_grads])/len(d_grads+g_grads)
+        #apply_vec = list(zip((d_grads + g_grads), (d_vars + g_vars))).copy()
+        apply_vec = list(d_grads + g_grads).copy()
+        print("APPLY", apply_vec)
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.gan.trainer = self
 
-        self.optimize_t = self.optimizer.apply_gradients(apply_vec, global_step=self.global_step)
+        self.optimize_t = self.optimizer.apply_gradients(apply_vec)
 
         return self.optimize_t, self.optimize_t
 
@@ -58,3 +61,10 @@ class SimultaneousTrainer(BaseTrainer):
         if self.current_step % 10 == 0:
             print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)))
 
+    def print_metrics(self, step):
+        metrics = self.gan.metrics()
+        metric_values = self.gan.session.run(self.output_variables(metrics))
+        print(str(self.output_string(metrics) % tuple([step] + metric_values)))
+
+    def distributed_step(self):
+        return self.optimize_t

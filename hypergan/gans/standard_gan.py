@@ -46,6 +46,10 @@ class StandardGAN(BaseGAN):
         self.loss = None
         self.trainer = None
         self.features = []
+        self.create_trainer = True
+        if "create_trainer" in kwargs:
+            self.create_trainer = kwargs["create_trainer"]
+            del kwargs["create_trainer"]
         BaseGAN.__init__(self, *args, **kwargs)
 
     def required(self):
@@ -81,7 +85,7 @@ class StandardGAN(BaseGAN):
             raise ValidationException("X and G sizes differ")
         self.loss = self.create_component(config.loss, discriminator=self.discriminator)
         self.losses = [self.loss]
-        self.trainer = self.create_component(config.trainer)
+        self.trainer = self.create_component(config.trainer, create_trainer=self.create_trainer)
 
         self.android_output = tf.reshape(self.generator.sample, [-1])
 

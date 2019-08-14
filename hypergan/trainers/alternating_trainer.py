@@ -71,10 +71,7 @@ class AlternatingTrainer(BaseTrainer):
         print(str(self.output_string(metrics) % tuple([step] + metric_values)))
 
     def distributed_step(self):
-        gan = self.gan
-        sess = gan.session
         config = self.config
-        loss = gan.loss
         ops = []
         for i in range(config.d_update_steps or 1):
             ops += [self.d_optimizer_t]

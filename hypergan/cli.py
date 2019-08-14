@@ -184,29 +184,46 @@ class CLI:
 
     def train_tpu(self):
         i=0
+        tf.disable_v2_behavior()
+        tpu_name = self.args.device.split(":")[1]
+        cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
+        self.cluster_resolver = cluster_resolver
+        tf.tpu.experimental.initialize_tpu_system(self.cluster_resolver)
         strategy = tf.contrib.distribute.TPUStrategy(self.cluster_resolver)
+        strategy.extended.experimental_enable_get_next_as_optional = False
+
+        self.inputs = self.inputs_fn({})
+        input_iterator = strategy.experimental_distribute_dataset(self.inputs.dataset).make_initializable_iterator()
 
         with strategy.scope():
-            self.inputs = self.inputs_fn({})
+            #inp = hc.Config({"x": tf.zeros([self.args.batch_size, 64, 64, 3])})
+            #self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, create_trainer=False)
+            inp = hc.Config({"x": tf.zeros([16, 64, 64, 3])})
+            self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, create_trainer=False)
 
-            def train_step(x):
-                inp = hc.Config({"x": x})
-                gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
-                return self.gan.trainer.distributed_step()
+        def train_step(x):
+            #inp = hc.Config({"x": x})
+            gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
+            return gan.trainer.distributed_step()
+            #return tf.identity(x)
+            #return tf.identity(x)
 
-            #dataset = strategy.experimental_distribute_dataset(self.inputs.dataset)
-        dataset = self.inputs.dataset
-        input_iterator = dataset.make_initializable_iterator()
-        #inp = hc.Config({"x": tf.zeros([self.args.batch_size, 64, 64, 3])})
-        inp = hc.Config({"x": input_iterator.get_next()})
-        self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy)
-        train = strategy.unwrap(strategy.experimental_run(train_step, input_iterator))
+        #dataset = self.inputs.dataset
+        #input_iterator = dataset.make_initializable_iterator()
+        #inp = hc.Config({"x": input_iterator.get_next()})
+        #print("G2V", gan2.variables())
+        train = strategy.unwrap(strategy.experimental_run_v2(train_step, args=(next(input_iterator), )))
+        iterator_init = input_iterator.initialize()
+
         #tf.contrib.distribute.initialize_tpu_system(self.cluster_resolver)
+        config = tf.ConfigProto()
+        cluster_spec = cluster_resolver.cluster_spec()
+        if cluster_spec:
+          config.cluster_def.CopyFrom(cluster_spec.as_cluster_def())
 
-        with tf.Session(self.cluster_resolver.master()) as session:
-            session.run(tpu.initialize_system())
+        with tf.Session(cluster_resolver.master(), config=config) as session:
+
             self.gan.session = session
-            iterator_init = input_iterator.initializer
             session.run([iterator_init])
             for v in self.gan.variables():
                 session.run(v.initializer)
@@ -296,23 +313,6 @@ class CLI:
 
     def run(self):
         if self.method == 'train':
-            def model_fn(features, params):
-                print("MODEL FN")
-                #self.gan = self.gan_fn(self.gan_config, self.inputs)
-                self.gan.cli = self
-                if "/tpu" not in self.args.device:
-                    if not self.gan.load(self.save_file):
-                        print("Initializing new model")
-                    else:
-                        print("Model loaded")
-
-                return tf.contrib.tpu.TPUEstimatorSpec(tf.estimator.ModeKeys.TRAIN, loss=(self.gan.loss.sample[0] + self.gan.loss.sample[1]), train_op=self.gan.trainer.optimize_t)
-            
-            tpu_name = self.args.device.split(":")[1]
-            tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
-
-            self.cluster_resolver = tpu_cluster_resolver
-
             self.train()
         elif self.method == 'build':
             if not self.gan.load(self.save_file):

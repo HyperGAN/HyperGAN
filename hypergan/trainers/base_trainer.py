@@ -44,8 +44,7 @@ class BaseTrainer(GANComponent):
                 self.gan.loss.sample[1] += losses[1]
             self.train_hooks.append(hook)
  
-        if self.create_trainer:
-            result = self._create()
+        result = self._create()
 
         for hook in self.train_hooks:
             hook.after_create()

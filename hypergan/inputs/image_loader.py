@@ -16,7 +16,8 @@ class ImageLoader:
         self.batch_size = batch_size
 
     def tfrecord_create(self, directory, channels=3, width=64, height=64, crop=False, resize=False, sequential=False):
-        filenames = tf.io.gfile.glob(directory+"/*.tfrecord")
+        #filenames = tf.io.gfile.glob(directory+"/*.tfrecord")
+        filenames = [directory]
         filenames = natsorted(filenames)
         print("Found tfrecord files", filenames)
 
@@ -30,10 +31,13 @@ class ImageLoader:
         def parse_function(filename):
             def parse_record_tf(record):
                 features = tf.parse_single_example(record, features={
-                    'image/encoded': tf.FixedLenFeature([], tf.string)
+                    'image': tf.FixedLenFeature([], tf.string),
+                    'label': tf.FixedLenFeature([], tf.int64)
                     })
-                data = tf.image.decode_jpeg(features['image/encoded'], channels=3)
-                image = tf.image.convert_image_dtype(data, dtype=tf.float32)
+                data = tf.decode_raw(features['image'], tf.uint8)
+                #image = tf.image.convert_image_dtype(data, dtype=tf.float32)
+                image = tf.cast(data, tf.float32)* (2.0/255)-1.0
+                image = tf.reshape(image, [width, height, channels])
                 # Image processing for evaluation.
                 # Crop the central [height, width] of the image.
                 if crop:
@@ -41,7 +45,6 @@ class ImageLoader:
                 elif resize:
                     image = tf.image.resize_images(image, [height, width], 1)
 
-                image = image / 127.5 - 1.
                 tf.Tensor.set_shape(image, [height,width,channels])
 
                 return image

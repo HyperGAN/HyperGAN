@@ -202,7 +202,7 @@ class CLI:
             self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, create_trainer=False)
 
         def train_step(x):
-            #inp = hc.Config({"x": x})
+            inp = hc.Config({"x": x})
             gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
             return gan.trainer.distributed_step()
             #return tf.identity(x)
@@ -232,7 +232,7 @@ class CLI:
             else:
                 print("Model loaded")
             while((i < self.total_steps or self.total_steps == -1)):
-                if i % 1 == 0:
+                if i % 10 == 0:
                     self.gan.trainer.print_metrics(i)
                 if i % 100 == 0:
                     self.sample()
@@ -245,8 +245,6 @@ class CLI:
                     i % self.args.save_every == 0):
                     print(" |= Saving network")
                     self.gan.save(self.save_file)  
-                if self.args.ipython:
-                    self.check_stdin()
             session.run(tpu.shutdown_system())
 
     def train(self):

@@ -23,7 +23,7 @@ class SimultaneousTrainer(BaseTrainer):
         config.optimizer["loss"] = loss.sample
 
         self.optimizer = self.gan.create_optimizer(config.optimizer)
-        #self.optimizer = tf.contrib.tpu.CrossShardOptimizer(self.optimizer)
+        self.optimizer = tf.contrib.tpu.CrossShardOptimizer(self.optimizer)
         d_vars = self.d_vars or self.gan.d_vars()
         g_vars = self.g_vars or self.gan.g_vars()
 
@@ -38,9 +38,10 @@ class SimultaneousTrainer(BaseTrainer):
         self.d_loss = d_loss
         self.gan.trainer = self
 
-        self.optimize_t = self.optimizer.apply_gradients(apply_vec)
+        if self.create_trainer:
+            self.optimize_t = self.optimizer.apply_gradients(apply_vec)
 
-        return self.optimize_t, self.optimize_t
+            return self.optimize_t, self.optimize_t
 
     def required(self):
         return "".split()

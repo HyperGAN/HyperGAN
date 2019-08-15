@@ -1,10 +1,9 @@
 {
-  "description": "Using rolling memory train hook, example 3",
+  "description": "TPU trainable config",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
     "defaults":{
-       "activation": "lrelu",
       "filter": [3,3],
       "stride": [1,1],
       "avg_pool": [2,2],

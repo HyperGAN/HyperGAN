@@ -23,7 +23,7 @@ class CommandParser:
         parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
         parser.add_argument('--align', dest='align', help='Align classes.  Takes a directory of data to align with.')
         parser.add_argument('--save_every', type=int, default=-1, help='Saves the model every n steps.')
-        parser.add_argument('--sample_every', type=int, default=5, help='Saves a sample every X steps.')
+        parser.add_argument('--sample_every', type=int, default=100, help='Saves a sample every X steps.')
         parser.add_argument('--save_samples', action='store_true', help='Saves samples to the local `samples` directory.')
         parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--sequential', dest='sequential', action='store_true', help='Input will not be shuffled.  Can be used to simulate online learning for streaming data')
@@ -36,6 +36,9 @@ class CommandParser:
         parser.add_argument('--debug', dest='debug', action='store_true', help='Start the tensorflow debugger.')
         parser.add_argument('--version', action='version', version='%(prog)s 0.10.0 alpha')
         parser.add_argument('--nomenu', dest='menu', action='store_false', help='Disables the file menu.')
+        parser.add_argument('--width', '-w', type=int, default=8, help='Number of samples per row')
+        parser.add_argument('--loss_every', type=int, default=1, help='Saves a losses graph every X steps.')
+        parser.add_argument('--save_losses', action='store_true', help='Saves losses graph to the local `losses` directory.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)

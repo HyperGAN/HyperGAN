@@ -13,13 +13,13 @@ setup(
   include_package_data=True,
   version = '0.10.1',
   description = 'A customizable generative adversarial network with reproducible configurations.  Build your own content generator.',
-  author = 'Martyn Garcia, Mikkel Garcia',
-  author_email = 'mikkel@255bits.com',
+  author = 'HyperGAN',
+  author_email = 'hypergan@protonmail.com',
   maintainer = "hypergan developers",
-  maintainer_email = "mikkel@255bits.com",
+  maintainer_email = 'hypergan@protonmail.com',
   license = "MIT",
   url = 'https://github.com/255BITS/hypergan', 
-  keywords = ['hypergan', 'neural network', 'procedural content generation', 'generative adversarial network'], # arbitrary keywords
+  keywords = ['hypergan', 'neural network', 'procedural content generation', 'generative adversarial network', 'tensorflow'], # arbitrary keywords
   classifiers = [
       'Development Status :: 4 - Beta',
       'Topic :: Scientific/Engineering :: Artificial Intelligence', 

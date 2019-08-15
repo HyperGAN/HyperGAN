@@ -7,7 +7,6 @@ Usage:
 
 Delays loading Gtk and friends until enable() is called.
 """
-from hypergan.pygame_viewer import PygameViewer
-from hypergan.tk_viewer import TkViewer
+from hypergan.threaded_tk_viewer import ThreadedTkViewer
 
-GlobalViewer = TkViewer()
+GlobalViewer = ThreadedTkViewer()

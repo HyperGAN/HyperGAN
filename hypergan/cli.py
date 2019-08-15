@@ -42,7 +42,18 @@ class CLI:
 
         self.sampler_name = args.sampler
         self.sampler = None
+        
         self.validate()
+        
+        self.loss_every = self.args.loss_every or 1
+        
+        if (self.args.save_losses):
+            import matplotlib.pyplot as plt
+            self.arr = []
+            self.fig,self.ax = plt.subplots()
+            self.temp = 0
+
+        self.advSavePath = os.path.abspath("saves/"+self.config_name)+"/"
         if self.args.save_file:
             self.save_file = self.args.save_file
         else:
@@ -53,11 +64,12 @@ class CLI:
             self.gan.save_file = self.save_file
 
         title = "[hypergan] " + self.config_name
-        GlobalViewer.enable_menu = self.args.menu
-        GlobalViewer.title = title
-        GlobalViewer.viewer_size = self.args.viewer_size
-        GlobalViewer.enabled = self.args.viewer
-        GlobalViewer.zoom = self.args.zoom
+        GlobalViewer.set_options(
+            enable_menu = self.args.menu,
+            title = title,
+            viewer_size = self.args.viewer_size,
+            enabled = self.args.viewer,
+            zoom = self.args.zoom)
 
     def sample(self, allow_save=True):
         """ Samples to a file.  Useful for visualizing the learning process.
@@ -83,14 +95,14 @@ class CLI:
 
     def lazy_create(self):
         if(self.sampler == None):
-            self.sampler = self.gan.sampler_for(self.sampler_name)(self.gan)
+            self.sampler = self.gan.sampler_for(self.sampler_name)(self.gan, samples_per_row=self.args.width)
             if(self.sampler == None):
                 raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
     def step(self):
         bgan = self.gan
         self.gan.step()
-        if bgan.destroy:
+        if hasattr(self.gan, 'newgan') and bgan.destroy:
             self.sampler=None
             self.gan = self.gan.newgan
             gc.collect()
@@ -108,6 +120,56 @@ class CLI:
 
         self.steps+=1
 
+        x = []
+        if(hasattr(self.gan.loss,"sample")):
+            loss = self.gan.loss.sample
+            if(self.args.save_losses):
+                temp2 = False
+                if(len(self.arr)==0):
+                    for i in range(0,len(loss)):
+                        self.arr.append([]);
+                for i in range(0,len(loss)):
+                    self.arr[i].append(self.gan.session.run(loss[i]))
+                for j in range(0,len(self.arr)):
+                    if (len(self.arr[j]) > 100):
+                        self.arr[j].pop(0)
+                        if(not temp2 == True):
+                            self.temp += 1
+                            temp2 = True
+                if(temp2 == True):
+                    temp2 = False
+        else:
+            if(self.args.save_losses):
+                temp2 = False
+                if(len(self.arr)==0):
+                    for i in range(0,len(self.gan.trainer.losses)):
+                        self.arr.append([]);
+                for i in range(0,len(self.gan.trainer.losses)):
+                    self.arr[i].append(self.gan.session.run(self.gan.trainer.losses[i][1]))
+                for j in range(0,len(self.arr)):
+                    if (len(self.arr[j]) > 100):
+                        self.arr[j].pop(0)
+                        if(not temp2 == True):
+                            self.temp += 1
+                            temp2 = True
+                if(temp2 == True):
+                    temp2 = False
+        if(self.args.save_losses and self.steps % self.loss_every == 0):
+            for i in range(0,len(self.arr)):
+                x2 = []
+                for j in range(self.temp,self.temp+len(self.arr[i])):
+                    x2.append(j)
+                x.append(x2)
+            self.ax.cla()
+            for i in range(0,len(self.arr)):
+                self.ax.plot(x[i], self.arr[i])
+            self.ax.grid()
+            self.ax.title.set_text("HyperGAN losses")
+            self.ax.set_xlabel('Steps')
+            self.ax.set_ylabel('Losses')
+            self.create_path("losses/"+self.config_name+"/%06d.png" % (self.steps))
+            self.fig.savefig("losses/"+self.config_name+"/%06d.png" % (self.steps))
+
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
@@ -119,8 +181,6 @@ class CLI:
     def sample_forever(self):
         while not self.gan.destroy:
             self.sample()
-            GlobalViewer.tick()
-
 
     def train(self):
         i=0
@@ -134,14 +194,18 @@ class CLI:
             i+=1
             start_time = time.time()
             self.step()
-            GlobalViewer.tick()
 
             if (self.args.save_every != None and
                 self.args.save_every != -1 and
                 self.args.save_every > 0 and
                 i % self.args.save_every == 0):
                 print(" |= Saving network")
-                self.gan.save(self.save_file)
+                self.gan.save(self.save_file)   
+                self.create_path(self.advSavePath+'advSave.txt')
+                if os.path.isfile(self.advSavePath+'advSave.txt'):
+                    with open(self.advSavePath+'advSave.txt', 'w') as the_file:
+                        the_file.write(str(self.steps)+"\n")
+                        the_file.write(str(self.samples)+"\n")
             if self.args.ipython:
                 self.check_stdin()
             end_time = time.time()
@@ -192,8 +256,12 @@ class CLI:
             self.gan.session.close()
         elif self.method == 'build':
             if not self.gan.load(self.save_file):
-                raise "Could not load model: "+ save_file
+                raise ValidationException("Could not load model: "+ self.save_file)
             else:
+                with open(self.advSavePath+'advSave.txt', 'r') as the_file:
+                    content = [x.strip() for x in the_file]
+                    self.steps = int(content[0])
+                    self.samples = int(content[1])
                 print("Model loaded")
             self.build()
         elif self.method == 'new':
@@ -203,6 +271,11 @@ class CLI:
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
             else:
+                if os.path.isfile(self.advSavePath+'advSave.txt'):
+                    with open(self.advSavePath+'advSave.txt', 'r') as the_file:
+                        content = [x.strip() for x in the_file]
+                        self.steps = int(content[0])
+                        self.samples = int(content[1])
                 print("Model loaded")
 
             tf.train.start_queue_runners(sess=self.gan.session)

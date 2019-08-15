@@ -116,10 +116,14 @@ class ResizableGenerator(ConfigurableGenerator):
                 net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
 
         elif block == "resize_conv":
-            net = self.layer_resize_conv(net, [dep], {"w": resize[0], "h": resize[1], "avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
+            net = self.layer_resize_conv(net, [dep], {"w": resize[0], "h": resize[1], "avg_pool": 1, "stride": 1, "filter": 3, "activation": "null"})
 
+            if config.adaptive_instance_norm_last_layer:
+                net = self.layer_adaptive_instance_norm(net, [], {})
+
+            final_activation = self.ops.lookup(config.final_activation or "tanh")
+            net = final_activation(net)
         else:
-            net = ops.resize_images(net, resize, config.resize_image_type or 1)
             net = block(self, net, dep, filter=config.final_filter or 3, padding=padding)
 
 

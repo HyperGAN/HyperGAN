@@ -75,3 +75,8 @@ class ImageLoader:
 
     def inputs(self):
         return [self.x,self.x]
+
+    def layer(self, name):
+        if name == "x":
+            return self.x
+        return None

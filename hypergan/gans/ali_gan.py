@@ -147,14 +147,17 @@ class AliGAN(BaseGAN):
 
             self._g_vars = g_vars
             self._d_vars = d_vars
+            self.losses = []
             standard_loss = self.create_loss(config.loss, standard_discriminator, x_input, generator, len(stacked))
             self.standard_loss = standard_loss
+            self.losses.append(standard_loss)
 
             loss1 = ["g_loss", standard_loss.g_loss]
             loss2 = ["d_loss", standard_loss.d_loss]
 
             if self.config.manifold_guided:
                 l2 = self.create_loss(config.loss, z_discriminator, x_input, generator, len(stack_z), reuse=True)
+                self.losses.append(l2)
                 d_losses.append(l2.d_loss)
                 g_losses.append(l2.g_loss)
 

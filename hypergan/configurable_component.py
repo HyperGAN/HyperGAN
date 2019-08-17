@@ -64,6 +64,7 @@ class ConfigurableComponent:
             "split": self.layer_split,
             "squash": self.layer_squash,
             "subpixel": self.layer_subpixel,
+            "tensorflowcv": self.layer_tensorflowcv,
             "turing_test": self.layer_turing_test,
             "two_sample_stack": self.layer_two_sample_stack,
             "unpool": self.layer_unpool,
@@ -416,9 +417,9 @@ class ConfigurableComponent:
         stride=options.stride or self.ops.shape(net)[1]
         stride=int(stride)
         ksize = [1,stride,stride,1]
-        size = [int(x) for x in options.slice.replace("batch_size",str(self.gan.batch_size())).split("*")]
 
         if options.slice:
+            size = [int(x) for x in options.slice.replace("batch_size",str(self.gan.batch_size())).split("*")]
             net = tf.slice(net, [0,0,0,0], size)
         net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
 
@@ -949,6 +950,54 @@ class ConfigurableComponent:
         y1 = self.layer_conv(net, args, options)
         ps = _PS(y1, r, depth)
         return ps
+
+    def layer_tensorflowcv(self, net, args, options):
+        import tensorflowcv as tfcv
+        from tensorflowcv.model_provider import get_model as tfcv_get_model
+        from tensorflowcv.model_provider import init_variables_from_state_dict as tfcv_init_variables_from_state_dict
+        pretrained = "pretrained" in args
+        data_format = "channels_last"
+        if not hasattr(tfcv, 'VERSION') or "hypergan" not in tfcv.VERSION:
+            print("We use modified fork of tensorflowcv.  Clone https://github.com/HyperGAN/imgclsmob and run 'python setup.py develop'.")
+            exit(-1)
+
+        assert self.ops.shape(net)[1] == 224
+        assert self.ops.shape(net)[2] == 224
+        if not hasattr(self.gan, 'tensorflowcv'):
+            self.gan.tensorflowcv = {}
+
+        name=self.ops.generate_name()
+        layer_index = -1
+        if "layer_index" in options:
+            layer_index = int(options["layer_index"])
+        trainable = True
+        if "trainable" in options:
+            if options["trainable"].lower() == "false":
+                trainable = False
+
+        before = tf.trainable_variables()
+        with tf.variable_scope(name, reuse=self.ops._reuse):
+            if name in self.gan.tensorflowcv:
+                tfcvnet = self.gan.tensorflowcv[name]
+            else:
+                tfcvnet = tfcv_get_model(args[0], pretrained=True, data_format="channels_last", layer_index=layer_index)
+        self.gan.tensorflowcv[name]= tfcvnet
+        result = tfcvnet(net)
+
+        after = tf.trainable_variables()
+        new_weights = list(set(after) - set(before))
+        if self.ops._reuse == False:
+            if pretrained:
+                tfcv_init_variables_from_state_dict(sess=self.gan.session, state_dict=tfcvnet.state_dict)
+                print("Loaded pretrained weights: tensorflowcv " + args[0])
+            else:
+                for w in new_weights:
+                    self.gan.session.run(w.initializer)
+                print("Initialized weights (not pretrained): tensorflowcv " + args[0])
+        if trainable:
+            self.ops.weights += new_weights
+
+        return result
 
     def layer_crop(self, net, args, options):
         options = hc.Config(options)

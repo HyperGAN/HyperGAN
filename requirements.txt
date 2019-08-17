@@ -5,3 +5,4 @@ Pillow
 pygame
 natsort
 nashpy
+git+git://github.com/HyperGAN/imgclsmob@master#egg=tensorflowcv

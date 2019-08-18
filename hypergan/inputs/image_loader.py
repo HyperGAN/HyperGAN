@@ -52,6 +52,8 @@ class ImageLoader:
                 image = hypergan.inputs.resize_image_patch.resize_image_with_crop_or_pad(image, height, width, dynamic_shape=True)
             elif resize:
                 image = tf.image.resize_images(image, [height, width], 1)
+            elif random_crop:
+                image = tf.image.random_crop(image, [height, width, channels], 1)
 
             image = image / 127.5 - 1.
             tf.Tensor.set_shape(image, [height,width,channels])
@@ -72,6 +74,7 @@ class ImageLoader:
 
         self.iterator = self.dataset.make_one_shot_iterator()
         self.x = tf.reshape( self.iterator.get_next(), [self.batch_size, height, width, channels])
+        self.xa = self.x
 
     def inputs(self):
         return [self.x,self.x]

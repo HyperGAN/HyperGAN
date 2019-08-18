@@ -20,6 +20,7 @@ class CommandParser:
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
+        parser.add_argument('--random_crop', dest='random_crop', action='store_true', help='Randomly crop images.')
         parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
         parser.add_argument('--align', dest='align', help='Align classes.  Takes a directory of data to align with.')
         parser.add_argument('--save_every', type=int, default=-1, help='Saves the model every n steps.')
@@ -106,7 +107,8 @@ if not args.align:
               sequential=args.sequential,
               width=width,
               height=height,
-              resize=args.resize)
+              resize=args.resize,
+              random_crop=args.random_crop)
 
         gan = hg.GAN(config=config, inputs=inputs, debug=args.debug)
         gan.args = args
@@ -123,7 +125,8 @@ else:
           crop=args.crop,
           width=width,
           height=height,
-          resize=args.resize)
+          resize=args.resize,
+          random_crop=args.random_crop)
 
     gan = hg.GAN(config=config, inputs=inputs)
     gan.args = args

@@ -14,7 +14,7 @@ class ConfigurationException(Exception):
     pass
 
 class ConfigurableComponent:
-    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[]):
+    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[], context={}):
         self.layers = []
         self.skip_connections = skip_connections
         self.layer_options = {}
@@ -76,6 +76,7 @@ class ConfigurableComponent:
         self.features = features
         self.controls = {}
         self.named_layers = {}
+        self.context = context
         if not hasattr(gan, "named_layers"):
             gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
@@ -90,9 +91,15 @@ class ConfigurableComponent:
             return self.named_layers[name]
         return None
 
-    def build(self, net, replace_controls={}):
+    def build(self, net, replace_controls={}, context={}):
         self.replace_controls=replace_controls
         config = self.config
+
+        for name, layer in self.context.items():
+            self.set_layer(name, layer)
+
+        for name, layer in context.items():
+            self.set_layer(name, layer)
 
         for layer in config.layers:
             net = self.parse_layer(net, layer)

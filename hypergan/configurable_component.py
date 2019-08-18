@@ -28,6 +28,7 @@ class ConfigurableComponent:
             "combine_features": self.layer_combine_features,
             "concat": self.layer_concat,
             "const": self.layer_const,
+            "const_like": self.layer_const_like,
             "control": self.layer_controls,
             "conv": self.layer_conv,
             "conv_double": self.layer_conv_double,
@@ -54,6 +55,7 @@ class ConfigurableComponent:
             "phase_shift": self.layer_phase_shift,
             "pixel_norm": self.layer_pixel_norm,
             "progressive_replace": self.layer_progressive_replace,
+            "reduce_sum": self.layer_reduce_sum,
             "reference": self.layer_reference,
             "relational": self.layer_relational,
             "reshape": self.layer_reshape,
@@ -162,15 +164,13 @@ class ConfigurableComponent:
             for j in new:
                 self.layer_options[j]=options
             after_count = self.count_number_trainable_params()
-            print("number of params in layer ", op, args, after_count-before_count)
+            print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
         else:
             print("ConfigurableComponent: Op not defined", op)
 
         return net
 
     def set_layer(self, name, net):
-        #if options['name'] in self.named_layers and op != 'reference':
-        #    raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
         self.gan.named_layers[name] = net
         self.named_layers[name]     = net
 
@@ -1221,6 +1221,25 @@ class ConfigurableComponent:
             initializer = self.ops.lookup_initializer(options["initializer"], options)
         with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
             return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
+
+    def layer_const_like(self, net, args, options):
+        options = hc.Config(options)
+        s = self.ops.shape(self.layer(args[0]))
+        s[0] = 1
+        trainable = True
+        if "trainable" in options and options["trainable"] == "false":
+            trainable = False
+        initializer = None
+        if "initializer" in options and options["initializer"] is not None:
+            initializer = self.ops.lookup_initializer(options["initializer"], options)
+        with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
+
+    def layer_reduce_sum(self, net, args, options):
+        net = tf.reduce_sum(net, axis=[1,2,3])
+        return net
+
+
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

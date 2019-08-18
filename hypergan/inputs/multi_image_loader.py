@@ -17,7 +17,7 @@ class MultiImageLoader:
         self.batch_size = batch_size
 
 
-    def create(self, directories, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False):
+    def create(self, directories, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
         filenames_list = [natsorted(glob.glob(directory+"/*."+format)) for directory in directories]
 
         imgs = []

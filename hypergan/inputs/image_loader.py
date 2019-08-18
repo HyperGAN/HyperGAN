@@ -15,7 +15,7 @@ class ImageLoader:
     def __init__(self, batch_size):
         self.batch_size = batch_size
 
-    def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False):
+    def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
         directories = glob.glob(directory+"/*")
         directories = [d for d in directories if os.path.isdir(d)]
 

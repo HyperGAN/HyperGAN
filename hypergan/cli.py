@@ -185,7 +185,8 @@ class CLI:
     def train_tpu(self):
         i=0
         tf.disable_v2_behavior()
-        tpu_name = self.args.device.split(":")[1]
+        tpu_name = self.args.device.replace("/tpu:", "")
+        print("Connecting to TPU:", tpu_name)
         cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
         self.cluster_resolver = cluster_resolver
         tf.tpu.experimental.initialize_tpu_system(self.cluster_resolver)

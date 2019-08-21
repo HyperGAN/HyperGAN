@@ -1,0 +1,92 @@
+
+{
+  "description": "swish activation",
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults":{
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2],
+      "activation": "swish",
+      "initializer": "he_normal",
+      "random_stddev": 0.02
+    },
+    "layers":[
+      "conv 32 ", 
+      "conv 64 ", 
+      "conv 128",
+      "conv 256",
+      "conv 512",
+      "linear 1 activation=null initializer=stylegan bias=false"
+    ]
+  },
+
+  "latent":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "min": -1,
+    "max": 1,
+    "z": 100
+  },
+  "generator": {
+    "class": "function:hypergan.generators.resizable_generator.ResizableGenerator",
+    "defaults":{
+      "initializer": "he_normal",
+      "activation": "swish"
+    },
+    "final_activation": "clamped_unit",
+    "final_depth": 32,
+    "adaptive_instance_norm": true,
+    "adaptive_instance_norm_layers": 2,
+    "adaptive_instance_norm_last_layer": true,
+    "block": "resize_conv"
+  },
+ "loss": {
+    "class": "function:hypergan.losses.logistic_loss.LogisticLoss",
+    "reduce": "reduce_mean"
+  },
+    "trainer": {
+      "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+      "optimizer": {
+        "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
+        "learn_rate": 0.00001,
+        "d_rho": 1.0,
+        "g_rho": 1.0,
+
+        "optimizer": {
+          "class": "function:hypergan.optimizers.experimental.negative_momentum_optimizer.NegativeMomentumOptimizer",
+          "decay": 1.0,
+          "alpha": 0.5,
+          "beta": 0.66,
+          "optimizer": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 1e-4,
+            "beta1":0.0,
+            "beta2":0.999
+          }
+        }
+
+      },
+      "hooks":[
+
+        {
+          "class": "function:hypergan.train_hooks.experimental.rolling_memory_train_hook.RollingMemoryTrainHook",
+          "types": ["mx/mg"],
+          "reverse_mg": true,
+          "top_k": 1
+        },
+        {
+          "class": "function:hypergan.train_hooks.experimental.rolling_memory_train_hook.RollingMemoryTrainHook",
+          "types": ["mg/g"],
+          "top_k": 1
+        }
+      ]
+  },
+  "runtime": {
+    "anysize": true,
+    "train": "hypergan train [dataset] --sampler static_batch -b 8 --size 64x64x3"
+  },
+  "hypergan_version": "0.10.2",
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
+}

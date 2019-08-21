@@ -196,26 +196,34 @@ class CLI:
         input_iterator = strategy.experimental_distribute_dataset(self.inputs.dataset).make_initializable_iterator()
 
         with strategy.scope():
-            #inp = hc.Config({"x": tf.zeros([self.args.batch_size, 64, 64, 3])})
-            #self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, create_trainer=False)
-            inp = hc.Config({"x": tf.zeros([16, 64, 64, 3])})
+            size = [int(x) for x in self.args.size.split("x")]
+            inp = hc.Config({"x": tf.zeros([16, size[0], size[1], size[2]])}) # TODO replica batch size
             self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, create_trainer=False)
 
         def train_step(x):
             inp = hc.Config({"x": x})
-            gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
-            return gan.trainer.distributed_step()
-            #return tf.identity(x)
-            #return tf.identity(x)
+            with tf.GradientTape(persistent=True) as tape:
+                replica_gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True, create_trainer=True)
+                d_loss = replica_gan.trainer.d_loss
+                g_loss = replica_gan.trainer.g_loss
 
-        #dataset = self.inputs.dataset
-        #input_iterator = dataset.make_initializable_iterator()
-        #inp = hc.Config({"x": input_iterator.get_next()})
-        #print("G2V", gan2.variables())
+                scaled_d_loss = d_loss / strategy.num_replicas_in_sync
+                scaled_g_loss = g_loss / strategy.num_replicas_in_sync
+            d_grads = tape.gradient(scaled_d_loss, replica_gan.d_vars())
+            g_grads = tape.gradient(scaled_g_loss, replica_gan.g_vars())
+
+            del tape
+            optimizer = self.gan.trainer.optimizer
+            variables = replica_gan.d_vars() + replica_gan.g_vars()
+            grads = d_grads + g_grads
+            update_vars = optimizer.apply_gradients(
+                            zip(grads, variables))
+            with tf.control_dependencies([update_vars]):
+                return tf.identity(scaled_d_loss)
+
         train = strategy.unwrap(strategy.experimental_run_v2(train_step, args=(next(input_iterator), )))
         iterator_init = input_iterator.initialize()
 
-        #tf.contrib.distribute.initialize_tpu_system(self.cluster_resolver)
         config = tf.ConfigProto()
         cluster_spec = cluster_resolver.cluster_spec()
         if cluster_spec:

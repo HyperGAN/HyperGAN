@@ -4,12 +4,11 @@ import tensorflow as tf
 import inspect
 
 class BaseTrainer(GANComponent):
-    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer", create_trainer=True):
+    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer"):
         self.current_step = 0
         self.g_vars = g_vars
         self.d_vars = d_vars
         self.train_hooks = []
-        self.create_trainer = create_trainer
         
         GANComponent.__init__(self, gan, config, name=name)
 
@@ -43,7 +42,7 @@ class BaseTrainer(GANComponent):
             if losses[1] is not None:
                 self.gan.loss.sample[1] += losses[1]
             self.train_hooks.append(hook)
- 
+
         result = self._create()
 
         for hook in self.train_hooks:

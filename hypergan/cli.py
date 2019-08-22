@@ -199,12 +199,12 @@ class CLI:
         with strategy.scope():
             size = [int(x) for x in self.args.size.split("x")]
             inp = hc.Config({"x": tf.zeros([16, size[0], size[1], size[2]])}) # TODO replica batch size
-            self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, create_trainer=False)
+            self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy)
 
         def train_step(x):
             inp = hc.Config({"x": x})
             with tf.GradientTape(persistent=True) as tape:
-                replica_gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True, create_trainer=True)
+                replica_gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
                 d_loss = replica_gan.trainer.d_loss
                 g_loss = replica_gan.trainer.g_loss
 

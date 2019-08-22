@@ -63,8 +63,8 @@ class ImageLoader:
             print("Shuffling data")
             dataset = dataset.shuffle(self.file_count)
         dataset = dataset.map(parse_function, num_parallel_calls=4)
-        dataset = dataset.flat_map(lambda x: x.batch(self.batch_size, drop_remainder=True).repeat().prefetch(10))
-        dataset = dataset.repeat().prefetch(10)
+        dataset = dataset.flat_map(lambda x: x.batch(self.batch_size, drop_remainder=True).repeat().prefetch(1))
+        dataset = dataset.repeat().prefetch(1)
         dataset = dataset.map(set_shape)
 
         self.dataset = dataset
@@ -119,8 +119,8 @@ class ImageLoader:
             print("Shuffling data")
             dataset = dataset.shuffle(self.file_count)
         dataset = dataset.map(parse_function, num_parallel_calls=4)
-        dataset = dataset.flat_map(lambda x: x.batch(self.batch_size, drop_remainder=True).repeat().prefetch(10))
-        dataset = dataset.repeat().prefetch(10)
+        dataset = dataset.flat_map(lambda x: x.batch(self.batch_size, drop_remainder=True).repeat().prefetch(1))
+        dataset = dataset.repeat().prefetch(1)
         dataset = dataset.map(set_shape)
 
         self.dataset = dataset

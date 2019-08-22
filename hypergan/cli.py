@@ -214,7 +214,8 @@ class CLI:
             g_grads = tape.gradient(scaled_g_loss, replica_gan.g_vars())
 
             del tape
-            optimizer = self.gan.trainer.optimizer
+            #optimizer = self.gan.trainer.optimizer
+            optimizer = tf.tpu.CrossShardOptimizer(self.gan.trainer.optimizer)
             variables = replica_gan.d_vars() + replica_gan.g_vars()
             grads = d_grads + g_grads
             update_vars = optimizer.apply_gradients(

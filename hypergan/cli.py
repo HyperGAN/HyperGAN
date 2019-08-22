@@ -198,7 +198,7 @@ class CLI:
 
         with strategy.scope():
             size = [int(x) for x in self.args.size.split("x")]
-            inp = hc.Config({"x": tf.zeros([16, size[0], size[1], size[2]])}) # TODO replica batch size
+            inp = hc.Config({"x": tf.zeros([self.args.batch_size/ strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
             self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy)
 
         def train_step(x):

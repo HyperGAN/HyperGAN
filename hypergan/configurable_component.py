@@ -679,9 +679,7 @@ class ConfigurableComponent:
         bias = True
         if options.bias == 'false':
             bias=False
-        if options.initializer is not None:
-            initializer = self.ops.lookup_initializer(options.initializer, options)
-        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
+        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, name=options.name, trainable=trainable, bias=bias)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)

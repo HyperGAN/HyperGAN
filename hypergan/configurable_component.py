@@ -31,8 +31,8 @@ class ConfigurableComponent:
             "const_like": self.layer_const_like,
             "control": self.layer_controls,
             "conv": self.layer_conv,
+            "conv_depth_to_space": self.layer_conv_dts,
             "conv_double": self.layer_conv_double,
-            "conv_dts": self.layer_conv_dts,
             "conv_reshape": self.layer_conv_reshape,
             "crop": self.layer_crop,
             "deconv": self.layer_deconv,
@@ -217,8 +217,8 @@ class ConfigurableComponent:
         depth = int(args[0])
         activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
-        stride = options.stride or 1
-        stride = int(stride)
+        _, fltr, _ = self.get_conv_options(config, options)
+        stride = [1, 1]
         shortcut = net
         initializer = None # default to global
 
@@ -228,7 +228,7 @@ class ConfigurableComponent:
                 ksize = [1,stride,stride,1]
                 net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
         else:
-            net = ops.conv2d(net, 3, 3, stride, stride, depth, initializer=initializer)
+            net = ops.conv2d(net, 3, 3, stride[0], stride[1], depth, initializer=initializer)
         net = activation(net)
         net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
         if ops.shape(net)[-1] != ops.shape(shortcut)[-1] or stride != 1:
@@ -238,7 +238,7 @@ class ConfigurableComponent:
                     ksize = [1,stride,stride,1]
                     shortcut = tf.nn.avg_pool(shortcut, ksize=ksize, strides=ksize, padding='SAME')
             else:
-                shortcut = ops.conv2d(shortcut, 3, 3, stride, stride, depth, initializer=initializer)
+                shortcut = ops.conv2d(shortcut, 3, 3, stride[0], stride[1], depth, initializer=initializer)
         net = shortcut + net
         net = activation(net)
 
@@ -327,12 +327,7 @@ class ConfigurableComponent:
             net = self.adaptive_instance_norm(net, f1,f2)
 
 
-        stride = options.stride or self.ops.config_option("stride", [2,2])
-        fltr = options.filter or self.ops.config_option("filter", [5,5])
-        if type(fltr) != type([]):
-            fltr = [int(fltr), int(fltr)]
-        if type(stride) != type([]):
-            stride = [int(stride), int(stride)]
+        stride, fltr, avg_pool = self.get_conv_options(config, options)
         if len(args) > 0:
             depth = int(args[0])
         else:
@@ -345,10 +340,7 @@ class ConfigurableComponent:
         if options.initializer is not None:
             initializer = self.ops.lookup_initializer(options.initializer, options)
         net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
-        avg_pool = options.avg_pool or self.ops.config_option("avg_pool")
-        if type(avg_pool) != type([]):
-            avg_pool = [int(avg_pool), int(avg_pool)]
-        if avg_pool:
+        if avg_pool[0] > 1 or avg_pool[1] > 1:
             ksize = [1,avg_pool[0], avg_pool[1],1]
             stride = ksize
             net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
@@ -579,11 +571,8 @@ class ConfigurableComponent:
         activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or self.ops.config_option("stride", [1,1])[0]
-        stride = int(stride)
-        fltr = options.filter or self.ops.config_option("filter", [3,3])
-        if type(fltr) == type(""):
-            fltr=[int(fltr), int(fltr)]
+        _, fltr, _ = self.get_conv_options(config, options)
+        stride = [1, 1]
         depth = int(args[0])
 
         initializer = None # default to global
@@ -594,20 +583,12 @@ class ConfigurableComponent:
         bias = True
         if options.bias == 'false':
             bias=False
-        net = ops.conv2d(net, fltr[0], fltr[1], stride, stride, depth*4, initializer=initializer, trainable=trainable, bias=bias)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth*4, initializer=initializer, trainable=trainable, bias=bias)
         s = ops.shape(net)
         net = tf.depth_to_space(net, 2)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
-
-        avg_pool = options.avg_pool or self.ops.config_option("avg_pool")
-        if type(avg_pool) == type(""):
-            avg_pool = [int(avg_pool), int(avg_pool)]
-        if avg_pool:
-            ksize = [1,avg_pool[0], avg_pool[1],1]
-            stride = ksize
-            net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
 
         return net
 
@@ -626,8 +607,8 @@ class ConfigurableComponent:
         activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
 
-        stride = options.stride or self.ops.config_option("stride", [1,1])
-        fltr = options.filter or self.ops.config_option("filter", [5,5])
+        _, fltr, _ = self.get_conv_options(config, options)
+        stride = [1, 1]
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         depth = int(args[0])
@@ -662,6 +643,22 @@ class ConfigurableComponent:
         net = self.layer_conv(net, args, options)
         return net
 
+    def get_conv_options(self, config, options):
+        stride = options.stride or self.ops.config_option("stride", [1,1])
+        fltr = options.filter or self.ops.config_option("filter", [3,3])
+        avg_pool = options.avg_pool or self.ops.config_option("avg_pool", [1,1])
+
+        if type(stride) != type([]):
+            stride = [int(stride), int(stride)]
+
+        if type(avg_pool) != type([]):
+            avg_pool = [int(avg_pool), int(avg_pool)]
+
+        if type(fltr) != type([]):
+            fltr = [int(fltr), int(fltr)]
+        return stride, fltr, avg_pool
+
+
     def layer_deconv(self, net, args, options):
         options = hc.Config(options)
         config = self.config
@@ -672,19 +669,9 @@ class ConfigurableComponent:
 
         activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
-
-        stride = options.stride or self.ops.config_option("stride", [2,2])
-        fltr = options.filter or self.ops.config_option("filter", [5,5])
         depth = int(args[0])
 
-        if type(stride) != type([]):
-            stride = [int(stride), int(stride)]
-
-        initializer = None # default to global
-        if type(fltr) == type(""):
-            fltr=[int(fltr), int(fltr)]
-        if type(fltr) == type(1):
-            fltr=[int(fltr), int(fltr)]
+        stride, fltr, _ = self.get_conv_options(config, options)
 
         trainable = True
         if options.trainable == 'false':
@@ -692,9 +679,7 @@ class ConfigurableComponent:
         bias = True
         if options.bias == 'false':
             bias=False
-        if options.initializer is not None:
-            initializer = self.ops.lookup_initializer(options.initializer, options)
-        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
+        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, name=options.name, trainable=trainable, bias=bias)
         if activation:
             #net = self.layer_regularizer(net)
             net = activation(net)
@@ -705,6 +690,8 @@ class ConfigurableComponent:
 
 
     def layer_conv_double(self, net, args, options):
+        options["stride"] = 1
+        options["avg_pool"] = 1
         x1 = self.layer_conv(net, args, options)
         y1 = self.layer_conv(net, args, options)
         x2 = self.layer_conv(net, args, options)
@@ -794,14 +781,10 @@ class ConfigurableComponent:
 
         activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
-
-        stride = options.stride or self.ops.config_option("stride", [1,1])
-        fltr = options.filter or self.ops.config_option("filter", [3,3])
-        if type(fltr) == type(""):
-            fltr=[int(fltr), int(fltr)]
-        if type(stride) == type(""):
-            stride=[int(stride), int(stride)]
         depth = int(args[0])
+
+        _, fltr, _ = self.get_conv_options(config, options)
+        stride = [1, 1]
 
         initializer = None # default to global
 

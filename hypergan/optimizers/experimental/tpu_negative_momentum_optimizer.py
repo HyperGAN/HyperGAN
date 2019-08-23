@@ -31,22 +31,14 @@ class TPUNegativeMomentumOptimizer(optimizer.Optimizer):
       new_val = grad - nm
       var_update = self.optimizer._apply_dense(new_val, var)
       save = tf.assign(nm, ((self.config.alpha or 0.666) *grad+ (1-self.config.beta or 0.5)*nm))
-      print("VAR_UPDATE1", var_update)
       with tf.control_dependencies([var_update]):
           return save
-      
-      #return control_flow_ops.group(*[var_update, save])
 
     def _resource_apply_dense(self, grad, var):
       grad = tf.to_float(grad)
       nm = self.get_slot(var, "nm")
-      #nm = tf.get_variable(var.name.split(":")[0]+"_nm", initializer=tf.zeros_initializer, shape=var.shape, aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA )
-      #nm_reduced = self.gan.distribution_strategy.extended.reduce_to(ds_reduce_util.ReduceOp.SUM, nm, grad)
-      print("::::::::",grad, nm)
       new_val = grad - nm
       var_update = self.optimizer._resource_apply_dense(new_val, var)
       save = tf.assign(nm, ((self.config.alpha or 0.666) *grad+ (1-self.config.beta or 0.5)*nm))
-      print("VAR_UPDATE2", var_update)
       with tf.control_dependencies([var_update]):
           return save
-      #return control_flow_ops.group(*[var_update, save])

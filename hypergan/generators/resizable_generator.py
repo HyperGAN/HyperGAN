@@ -79,12 +79,21 @@ class ResizableGenerator(ConfigurableGenerator):
             self.add_progressive_enhancement(net)
             dep = np.minimum(depth, config.max_depth or 512)
             print(block + " " + str(dep))
+            options = {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3}
             if block == 'deconv':
-                net = self.layer_deconv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3})
+                net = self.layer_deconv(net, [dep], options)
             elif block == 'subpixel':
-                net = self.layer_subpixel(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
+                net = self.layer_subpixel(net, [dep], options)
             elif block == 'resize_conv':
-                net = self.layer_resize_conv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
+                net = self.layer_resize_conv(net, [dep], options)
+            elif block == 'bicubic_conv':
+                net = self.layer_bicubic_conv(net, [dep], options)
+            elif block == 'conv_depth_to_space':
+                net = self.layer_conv_dts(net, [dep], options)
+            elif block == 'conv_double':
+                net = self.layer_conv_double(net, [dep], options)
+            elif block == 'conv_reshape':
+                net = self.layer_conv_reshape(net, [dep], options)
             else:
                 net = ops.resize_images(net, resize, config.resize_image_type or 1)
                 net = block(self, net, depth, filter=filter_size, padding=padding)
@@ -101,30 +110,44 @@ class ResizableGenerator(ConfigurableGenerator):
         dep = config.channels or gan.channels()
         print(block + " " + str(dep))
 
+        options = {"w": resize[0], "h": resize[1], "avg_pool": 1, "stride": 1, "filter": 3, "activation": "null"}
+
         if block == 'deconv':
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
-                net = self.layer_deconv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3, "activation": config.final_activation or "tanh"})
+                net = self.layer_deconv(net, [dep], options)
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
                 net = ops.deconv2d(net, 5, 5, 2, 2, dep)
 
         elif block == "subpixel":
             if resize != [e*2 for e in ops.shape(net)[1:3]]:
-                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
+                net = self.layer_subpixel(net, [dep], options)
                 net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
             else:
-                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
+                net = self.layer_subpixel(net, [dep], options)
 
         elif block == "resize_conv":
-            net = self.layer_resize_conv(net, [dep], {"w": resize[0], "h": resize[1], "avg_pool": 1, "stride": 1, "filter": 3, "activation": "null"})
+            net = self.layer_resize_conv(net, [dep], options)
 
-            if config.adaptive_instance_norm_last_layer:
-                net = self.layer_adaptive_instance_norm(net, [], {})
+        elif block == "bicubic_conv":
+            net = self.layer_bicubic_conv(net, [dep], options)
 
-            final_activation = self.ops.lookup(config.final_activation or "tanh")
-            net = final_activation(net)
+        elif block == "conv_depth_to_space":
+            net = self.layer_conv_dts(net, [dep], options)
+
+        elif block == "conv_double":
+            net = self.layer_conv_double(net, [dep], options)
+
+        elif block == "conv_reshape":
+            net = self.layer_conv_reshape(net, [dep], options)
         else:
             net = block(self, net, dep, filter=config.final_filter or 3, padding=padding)
+
+        if config.adaptive_instance_norm_last_layer:
+            net = self.layer_adaptive_instance_norm(net, [], {})
+
+        final_activation = self.ops.lookup(config.final_activation or "tanh")
+        net = final_activation(net)
 
 
         return net

@@ -200,6 +200,7 @@ class CLI:
             size = [int(x) for x in self.args.size.split("x")]
             inp = hc.Config({"x": tf.zeros([self.args.batch_size/ strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
             self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy)
+            self.gan.cli = self
 
         def train_step(x):
             inp = hc.Config({"x": x})
@@ -237,10 +238,10 @@ class CLI:
             session.run([iterator_init])
             for v in self.gan.variables():
                 session.run(v.initializer)
-            if not self.gan.load(self.save_file):
-                print("Initializing new model")
-            else:
+            if self.gan.load(self.save_file):
                 print("Model loaded")
+            else:
+                print("Initializing new model")
             while((i < self.total_steps or self.total_steps == -1)):
                 if i % 10 == 0:
                     self.gan.trainer.print_metrics(i)
@@ -268,6 +269,15 @@ class CLI:
         if "tpu" in self.args.device:
             self.train_tpu()
             return
+
+        self.inputs = self.inputs_fn({})
+        self.gan = self.gan_fn(self.gan_config, self.inputs)
+        self.gan.cli = self
+        self.gan.initialize_variables()
+        if self.gan.load(self.save_file):
+            print("Model loaded")
+        else:
+            print("Initializing new model")
 
         while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
             i+=1

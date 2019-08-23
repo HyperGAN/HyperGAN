@@ -59,7 +59,6 @@ class BaseGAN(GANComponent):
         if config == None:
             config = hg.Configuration.default()
 
-        print("DEVICE___", self.device)
         if debug and not isinstance(self.session, tf_debug.LocalCLIDebugWrapperSession):
             self.session = tf_debug.LocalCLIDebugWrapperSession(self.session)
             self.session.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
@@ -76,6 +75,7 @@ class BaseGAN(GANComponent):
         if config.fixed_input:
             self.feed_x = self.inputs.x
             self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
+            self.session.run(self.inputs.x.initializer)
             self.set_x = tf.assign(self.inputs.x, self.feed_x)
 
         if config.fixed_input_xa:

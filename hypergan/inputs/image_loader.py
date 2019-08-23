@@ -15,7 +15,7 @@ class ImageLoader:
     def __init__(self, batch_size):
         self.batch_size = batch_size
 
-    def tfrecords_create(self, directory, channels=3, width=64, height=64, crop=False, resize=False, sequential=False):
+    def tfrecords_create(self, directory, channels=3, width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
         filenames = tf.io.gfile.glob(directory+"/*.tfrecord")
         #filenames = [directory]
         filenames = natsorted(filenames)
@@ -71,7 +71,7 @@ class ImageLoader:
         return dataset
 
 
-    def tfrecord_create(self, directory, channels=3, width=64, height=64, crop=False, resize=False, sequential=False):
+    def tfrecord_create(self, directory, channels=3, width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
         #filenames = tf.io.gfile.glob(directory+"/*.tfrecord")
         filenames = [directory]
         filenames = natsorted(filenames)
@@ -129,9 +129,16 @@ class ImageLoader:
 
     def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
         if format == 'tfrecord':
-            return self.tfrecord_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential)
+            return self.tfrecord_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential, random_crop=random_crop)
         if format == 'tfrecords':
-            return self.tfrecords_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential)
+            return self.tfrecords_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential, random_crop=random_crop)
+        if format == 'jpg' or format == 'png':
+            return self.image_folder_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential, random_crop=random_crop)
+
+        raise ValidationError("Format not supported.  Only jpg,png,tfrecord,tfrecords are supported")
+
+
+    def image_folder_create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
    
         directories = glob.glob(directory+"/*")
         directories = [d for d in directories if os.path.isdir(d)]
@@ -178,13 +185,13 @@ class ImageLoader:
             return image
 
         # Generate a batch of images and labels by building up a queue of examples.
-        dataset = tf.data.Dataset.from_tensor_slices([])
+        dataset = tf.data.Dataset.from_tensor_slices(filenames)
         if not sequential:
             print("Shuffling data")
             dataset = dataset.shuffle(self.file_count)
-        for filen in filenames:
-            dataset = dataset.concatenate(parse_function(filen))
-        dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(self.batch_size))
+        dataset = dataset.map(parse_function, num_parallel_calls=4)
+        dataset = dataset.batch(self.batch_size, drop_remainder=True)
+
         dataset = dataset.repeat()
         dataset = dataset.prefetch(1)
 

@@ -22,11 +22,11 @@ class RollingMemoryTrainHook(BaseTrainHook):
     config = hc.Config(config)
     s = self.gan.ops.shape(self.gan.generator.sample)
     self.shape = s#[self.gan.batch_size() * (self.config.memory_size or 1), s[1], s[2], s[3]]
-    with tf.variable_scope((self.config.name or "rolling_memory"), reuse=self.gan.reuse) as scope:
+    with tf.variable_scope((self.config.name or self.name), reuse=self.gan.reuse) as scope:
         scope.set_use_resource(True)
-        self.mx=tf.get_variable("mx", s, dtype=tf.float32,
+        self.mx=tf.get_variable(self.gan.ops.generate_name(), s, dtype=tf.float32,
                   initializer=tf.zeros_initializer, aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA)
-        self.mg=tf.get_variable(self.gan.ops.generate_name("mg"), s, dtype=tf.float32,
+        self.mg=tf.get_variable(self.gan.ops.generate_name(), s, dtype=tf.float32,
                   initializer=tf.zeros_initializer, aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA)
     self.m_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([self.mx, self.mg],axis=0), features=[gan.features], reuse=True)
     self.m_loss = gan.create_component(gan.config.loss, discriminator=self.m_discriminator)

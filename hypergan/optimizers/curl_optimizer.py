@@ -70,6 +70,7 @@ class CurlOptimizer(optimizer.Optimizer):
 
 
     v1 = [tf.Variable(v, name=_name("curl",v.name)) for v in var_list]
+    self.gan.ops.weights += v1
     slots_list = []
     slots_vars = []
     if self.config.include_slots:

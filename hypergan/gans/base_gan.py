@@ -146,8 +146,7 @@ class BaseGAN(GANComponent):
             raise ValidationException("Component definition is missing '" + name + "'")
         klass = self.ops.lookup(defn['class'])
         if self.reuse:
-            if "reuse" in inspect.getargspec(klass).args:
-                kw_args["reuse"]=True
+            kw_args["reuse"]=True
         gan_component = klass(self, defn, *args, **kw_args)
         self.components.append(gan_component)
         return gan_component

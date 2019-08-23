@@ -109,7 +109,7 @@ if not args.align:
             gan.name = config_name
             return gan
 
-        def inputs_fn(params):
+        def inputs_fn():
             inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
             inputs.create(args.directory,
                   channels=channels, 
@@ -122,7 +122,7 @@ if not args.align:
             return inputs
 
 else:
-    def inputs_fn(params):
+    def inputs_fn():
         inputs = hg.inputs.multi_image_loader.MultiImageLoader(args.batch_size)
         inputs.create([args.directory, args.align],
               channels=channels, 

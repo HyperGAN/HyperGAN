@@ -4,13 +4,13 @@ import tensorflow as tf
 import inspect
 
 class BaseTrainer(GANComponent):
-    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer"):
+    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer", reuse=False):
         self.current_step = 0
         self.g_vars = g_vars
         self.d_vars = d_vars
         self.train_hooks = []
         
-        GANComponent.__init__(self, gan, config, name=name)
+        GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
 
     def _step(self, feed_dict):
         raise Exception('BaseTrainer _step called directly.  Please override.')

@@ -193,7 +193,7 @@ class CLI:
         strategy = tf.contrib.distribute.TPUStrategy(self.cluster_resolver)
         strategy.extended.experimental_enable_get_next_as_optional = False
 
-        self.inputs = self.inputs_fn({})
+        self.inputs = self.inputs_fn()
         input_iterator = strategy.experimental_distribute_dataset(self.inputs.dataset).make_initializable_iterator()
 
         with strategy.scope():
@@ -270,8 +270,9 @@ class CLI:
             self.train_tpu()
             return
 
-        self.inputs = self.inputs_fn({})
+        self.inputs = self.inputs_fn()
         self.gan = self.gan_fn(self.gan_config, self.inputs)
+        self.gan = self.gan_fn(self.gan_config, self.inputs, reuse= True)
         self.gan.cli = self
         self.gan.initialize_variables()
         if self.gan.load(self.save_file):
@@ -346,7 +347,8 @@ class CLI:
         elif self.method == 'new':
             self.new()
         elif self.method == 'sample':
-            self.add_supervised_loss()
+            self.inputs = self.inputs_fn()
+            self.gan = self.gan_fn(self.gan_config, self.inputs)
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
             else:

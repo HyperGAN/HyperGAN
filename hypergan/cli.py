@@ -208,9 +208,9 @@ class CLI:
                 replica_gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
                 d_loss = replica_gan.trainer.d_loss
                 g_loss = replica_gan.trainer.g_loss
-
-                scaled_d_loss = d_loss / strategy.num_replicas_in_sync
-                scaled_g_loss = g_loss / strategy.num_replicas_in_sync
+                if replica_gan.config.skip_gradient_mean is None:
+                    scaled_d_loss = d_loss / strategy.num_replicas_in_sync
+                    scaled_g_loss = g_loss / strategy.num_replicas_in_sync
             d_grads = tape.gradient(scaled_d_loss, replica_gan.d_vars())
             g_grads = tape.gradient(scaled_g_loss, replica_gan.g_vars())
 

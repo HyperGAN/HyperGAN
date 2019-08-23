@@ -683,6 +683,8 @@ class ConfigurableComponent:
         initializer = None # default to global
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
+        if type(fltr) == type(1):
+            fltr=[int(fltr), int(fltr)]
 
         trainable = True
         if options.trainable == 'false':

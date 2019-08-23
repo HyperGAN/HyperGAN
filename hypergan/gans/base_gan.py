@@ -280,11 +280,22 @@ class BaseGAN(GANComponent):
         for op, var, val in post_restore_vars:
             self.gan.session.run(op, {var: val})
 
+    def initialize_variables(self):
+        variables = set(self.variables())
+        print("=> Initializing GAN variables:")
+        [print("  ", v) for v in variables]
+        if hasattr(self, "do_not_initialize"):
+            print("=> Skipping initialization for:")
+            variables -= set(self.do_not_initialize)
+            [print("  ", v) for v in self.do_not_initialize]
+        initializers = [v.initializer for v in variables]
+        self.session.run(initializers)
+
     def variables(self):
         return list(set(self.ops.variables() + sum([c.variables() for c in self.components], []))) + [self.global_step, self.steps]
 
     def weights(self):
-        return self.ops.weights + sum([c.ops.weights for c in self.components], [])
+        return self.ops.weights + sum([c.ops.weights for c in self.components if hasattr(c, 'ops')], [])
 
     def inputs(self):
         """inputs() returns any input tensors"""

@@ -79,14 +79,15 @@ class ResizableGenerator(ConfigurableGenerator):
             self.add_progressive_enhancement(net)
             dep = np.minimum(depth, config.max_depth or 512)
             print(block + " " + str(dep))
+            options = {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3}
             if block == 'deconv':
-                net = self.layer_deconv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3})
+                net = self.layer_deconv(net, [dep], options)
             elif block == 'subpixel':
-                net = self.layer_subpixel(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
+                net = self.layer_subpixel(net, [dep], options)
             elif block == 'resize_conv':
-                net = self.layer_resize_conv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
+                net = self.layer_resize_conv(net, [dep], options)
             elif block == 'bicubic_conv':
-                net = self.layer_bicubic_conv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
+                net = self.layer_bicubic_conv(net, [dep], options)
             elif block == 'conv_depth_to_space':
                 net = self.layer_conv_dts(net, [dep], {"initializer": "he_normal", "avg_pool": [1,1], "stride": 1, "filter": [3,3]})
             else:

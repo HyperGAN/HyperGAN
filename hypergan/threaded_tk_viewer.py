@@ -103,7 +103,7 @@ class ThreadedTkViewerUI:
 
             def _select_sampler(gan, name, value, submenu):
                 def _select_sampler_proc():
-                    gan.cli.sampler = gan.sampler_for(name)(gan)
+                    gan.cli.sampler = gan.sampler_for(name)(gan, samples_per_row=self.gan.cli.args['samples_per_row'])
                     gan.cli.sample(False)
                     _refresh_sampler_submenu(submenu)
                 return _select_sampler_proc

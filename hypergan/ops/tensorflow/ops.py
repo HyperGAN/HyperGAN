@@ -55,7 +55,7 @@ class TensorflowOps:
             raise Exception("initializer not found", name)
 
     def assert_tensor(self, net):
-        if type(net) != tf.Tensor and type(net) != tf.Variable and type(net) != RefVariable:
+        if type(net) != tf.Tensor and not isinstance(net, tf.Variable) and type(net) != RefVariable:
             raise Exception("Expected a Tensor but received", net)
 
     def add_weights(self, weights):

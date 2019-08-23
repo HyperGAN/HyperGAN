@@ -11,8 +11,8 @@ import numpy as np
 import hypergan as hg
 
 class GangSampler(BaseSampler):
-    def __init__(self, gan):
-        BaseSampler.__init__(self, gan)
+    def __init__(self, gan, samples_per_row=8):
+        BaseSampler.__init__(self, gan, samples_per_row=samples_per_row)
         self.xs = None
         self.samples = 1
 

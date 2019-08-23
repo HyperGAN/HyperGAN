@@ -116,7 +116,7 @@ class AlphaGAN(BaseGAN):
             #    cycloss += tf.reduce_mean(tf.reshape(tf.abs(1.0-m)/ops.shape(generator.mask)[3], [-1]), axis=0) * cycloss_single_channel_lambda
 
             trainer = self.create_trainer(cycloss, z_cycloss, encoder, generator, encoder_loss, standard_loss, standard_discriminator, z_discriminator)
-            self.session.run(tf.global_variables_initializer())
+            self.initialize_variables()
 
         self.trainer = trainer
         self.generator = generator

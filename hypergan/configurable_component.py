@@ -957,6 +957,7 @@ class ConfigurableComponent:
         assert self.ops.shape(net)[2] == 224
         if not hasattr(self.gan, 'tensorflowcv'):
             self.gan.tensorflowcv = {}
+            self.gan.tensorflowcv_weights = {}
 
         name=self.ops.generate_name()
         layer_index = -1
@@ -968,27 +969,37 @@ class ConfigurableComponent:
                 trainable = False
 
         before = tf.trainable_variables()
+        weights = None
         with tf.variable_scope(name, reuse=self.ops._reuse):
             if name in self.gan.tensorflowcv:
                 tfcvnet = self.gan.tensorflowcv[name]
+                weights = self.gan.tensorflowcv_weights[name]
             else:
-                tfcvnet = tfcv_get_model(args[0], pretrained=True, data_format="channels_last", layer_index=layer_index)
+                tfcvnet = tfcv_get_model(args[0], pretrained=pretrained, data_format="channels_last", layer_index=layer_index)
         self.gan.tensorflowcv[name]= tfcvnet
         result = tfcvnet(net)
-
         after = tf.trainable_variables()
-        new_weights = list(set(after) - set(before))
-        if self.ops._reuse == False:
-            if pretrained:
-                tfcv_init_variables_from_state_dict(sess=self.gan.session, state_dict=tfcvnet.state_dict)
-                print("Loaded pretrained weights: tensorflowcv " + args[0])
-            else:
-                for w in new_weights:
-                    self.gan.session.run(w.initializer)
-                print("Initialized weights (not pretrained): tensorflowcv " + args[0])
-        if trainable:
-            self.ops.weights += new_weights
 
+        weights = list(set(after) - set(before))
+        if len(weights) > 0:
+            weights = list(set(after) - set(before))
+            if trainable:
+                self.gan.ops.weights += weights
+                assert weights[0] in tf.trainable_variables()
+                assert weights[0] in self.gan.variables()
+            if pretrained:
+                if not hasattr(self, "do_not_initialize"):
+                    self.gan.do_not_initialize = []
+                self.gan.do_not_initialize += weights
+                assert weights[0] in self.gan.do_not_initialize
+                tfcv_init_variables_from_state_dict(sess=self.gan.session, state_dict=tfcvnet.state_dict)
+                print("Loaded pretrained weights: tensorflowcv " + args[0], len(weights))
+            else:
+                for w in weights:
+                    self.gan.session.run(w.initializer)
+                print("Initialized weights (not pretrained): tensorflowcv " + args[0], len(weights))
+
+        self.gan.tensorflowcv_weights[name]= weights
         return result
 
     def layer_crop(self, net, args, options):

@@ -7,7 +7,7 @@ import importlib
 import hypergan
 from tensorflow.python.ops.variables import RefVariable
 from hypergan.ops.tensorflow import layer_regularizers
-from hypergan.ops.tensorflow.activations import lrelu, selu
+from hypergan.ops.tensorflow.activations import lrelu, selu, swish
 from hypergan.ops.tensorflow.extended_ops import *
 from hypergan.ops.tensorflow.sn import spectral_normed_weight
 class TensorflowOps:
@@ -698,6 +698,8 @@ class TensorflowOps:
         if symbol == 'l2_distance':
             return l2_distance
 
+        if symbol == 'swish':
+            return swish
         return symbol
 
     def lookup_function(self, name):

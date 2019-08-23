@@ -127,11 +127,12 @@ class ImageLoader:
         return dataset
 
 
-    def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False):
+    def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
         if format == 'tfrecord':
             return self.tfrecord_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential)
         if format == 'tfrecords':
             return self.tfrecords_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential)
+   
         directories = glob.glob(directory+"/*")
         directories = [d for d in directories if os.path.isdir(d)]
 
@@ -153,6 +154,28 @@ class ImageLoader:
             raise ValidationException("No images found in '" + directory + "'")
         filenames = tf.convert_to_tensor(filenames, dtype=tf.string)
 
+        def parse_function(filename):
+            image_string = tf.read_file(filename)
+            if format == 'jpg':
+                image = tf.image.decode_jpeg(image_string, channels=channels)
+            elif format == 'png':
+                image = tf.image.decode_png(image_string, channels=channels)
+            else:
+                print("[loader] Failed to load format", format)
+            image = tf.cast(image, tf.float32)
+            # Image processing for evaluation.
+            # Crop the central [height, width] of the image.
+            if crop:
+                image = hypergan.inputs.resize_image_patch.resize_image_with_crop_or_pad(image, height, width, dynamic_shape=True)
+            elif resize:
+                image = tf.image.resize_images(image, [height, width], 1)
+            elif random_crop:
+                image = tf.image.random_crop(image, [height, width, channels], 1)
+
+            image = image / 127.5 - 1.
+            tf.Tensor.set_shape(image, [height,width,channels])
+
+            return image
 
         # Generate a batch of images and labels by building up a queue of examples.
         dataset = tf.data.Dataset.from_tensor_slices([])
@@ -169,6 +192,7 @@ class ImageLoader:
 
         self.iterator = self.dataset.make_one_shot_iterator()
         self.x = tf.reshape( self.iterator.get_next(), [self.batch_size, height, width, channels])
+        self.xa = self.x
 
     def inputs(self):
         return [self.x,self.x]

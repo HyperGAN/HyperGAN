@@ -14,7 +14,7 @@ class ConfigurationException(Exception):
     pass
 
 class ConfigurableComponent:
-    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[]):
+    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[], context={}):
         self.layers = []
         self.skip_connections = skip_connections
         self.layer_options = {}
@@ -28,6 +28,7 @@ class ConfigurableComponent:
             "combine_features": self.layer_combine_features,
             "concat": self.layer_concat,
             "const": self.layer_const,
+            "const_like": self.layer_const_like,
             "control": self.layer_controls,
             "conv": self.layer_conv,
             "conv_double": self.layer_conv_double,
@@ -54,6 +55,7 @@ class ConfigurableComponent:
             "phase_shift": self.layer_phase_shift,
             "pixel_norm": self.layer_pixel_norm,
             "progressive_replace": self.layer_progressive_replace,
+            "reduce_sum": self.layer_reduce_sum,
             "reference": self.layer_reference,
             "relational": self.layer_relational,
             "reshape": self.layer_reshape,
@@ -64,6 +66,7 @@ class ConfigurableComponent:
             "split": self.layer_split,
             "squash": self.layer_squash,
             "subpixel": self.layer_subpixel,
+            "tensorflowcv": self.layer_tensorflowcv,
             "turing_test": self.layer_turing_test,
             "two_sample_stack": self.layer_two_sample_stack,
             "unpool": self.layer_unpool,
@@ -75,6 +78,7 @@ class ConfigurableComponent:
         self.features = features
         self.controls = {}
         self.named_layers = {}
+        self.context = context
         if not hasattr(gan, "named_layers"):
             gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
@@ -89,9 +93,15 @@ class ConfigurableComponent:
             return self.named_layers[name]
         return None
 
-    def build(self, net, replace_controls={}):
+    def build(self, net, replace_controls={}, context={}):
         self.replace_controls=replace_controls
         config = self.config
+
+        for name, layer in self.context.items():
+            self.set_layer(name, layer)
+
+        for name, layer in context.items():
+            self.set_layer(name, layer)
 
         for layer in config.layers:
             net = self.parse_layer(net, layer)
@@ -154,15 +164,13 @@ class ConfigurableComponent:
             for j in new:
                 self.layer_options[j]=options
             after_count = self.count_number_trainable_params()
-            print("number of params in layer ", op, args, after_count-before_count)
+            print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
         else:
             print("ConfigurableComponent: Op not defined", op)
 
         return net
 
     def set_layer(self, name, net):
-        #if options['name'] in self.named_layers and op != 'reference':
-        #    raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
         self.gan.named_layers[name] = net
         self.named_layers[name]     = net
 
@@ -416,9 +424,9 @@ class ConfigurableComponent:
         stride=options.stride or self.ops.shape(net)[1]
         stride=int(stride)
         ksize = [1,stride,stride,1]
-        size = [int(x) for x in options.slice.replace("batch_size",str(self.gan.batch_size())).split("*")]
 
         if options.slice:
+            size = [int(x) for x in options.slice.replace("batch_size",str(self.gan.batch_size())).split("*")]
             net = tf.slice(net, [0,0,0,0], size)
         net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
 
@@ -950,6 +958,54 @@ class ConfigurableComponent:
         ps = _PS(y1, r, depth)
         return ps
 
+    def layer_tensorflowcv(self, net, args, options):
+        import tensorflowcv as tfcv
+        from tensorflowcv.model_provider import get_model as tfcv_get_model
+        from tensorflowcv.model_provider import init_variables_from_state_dict as tfcv_init_variables_from_state_dict
+        pretrained = "pretrained" in args
+        data_format = "channels_last"
+        if not hasattr(tfcv, 'VERSION') or "hypergan" not in tfcv.VERSION:
+            print("We use modified fork of tensorflowcv.  Clone https://github.com/HyperGAN/imgclsmob and run 'python setup.py develop'.")
+            exit(-1)
+
+        assert self.ops.shape(net)[1] == 224
+        assert self.ops.shape(net)[2] == 224
+        if not hasattr(self.gan, 'tensorflowcv'):
+            self.gan.tensorflowcv = {}
+
+        name=self.ops.generate_name()
+        layer_index = -1
+        if "layer_index" in options:
+            layer_index = int(options["layer_index"])
+        trainable = True
+        if "trainable" in options:
+            if options["trainable"].lower() == "false":
+                trainable = False
+
+        before = tf.trainable_variables()
+        with tf.variable_scope(name, reuse=self.ops._reuse):
+            if name in self.gan.tensorflowcv:
+                tfcvnet = self.gan.tensorflowcv[name]
+            else:
+                tfcvnet = tfcv_get_model(args[0], pretrained=True, data_format="channels_last", layer_index=layer_index)
+        self.gan.tensorflowcv[name]= tfcvnet
+        result = tfcvnet(net)
+
+        after = tf.trainable_variables()
+        new_weights = list(set(after) - set(before))
+        if self.ops._reuse == False:
+            if pretrained:
+                tfcv_init_variables_from_state_dict(sess=self.gan.session, state_dict=tfcvnet.state_dict)
+                print("Loaded pretrained weights: tensorflowcv " + args[0])
+            else:
+                for w in new_weights:
+                    self.gan.session.run(w.initializer)
+                print("Initialized weights (not pretrained): tensorflowcv " + args[0])
+        if trainable:
+            self.ops.weights += new_weights
+
+        return result
+
     def layer_crop(self, net, args, options):
         options = hc.Config(options)
         if len(args) == 0:
@@ -1165,6 +1221,25 @@ class ConfigurableComponent:
             initializer = self.ops.lookup_initializer(options["initializer"], options)
         with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
             return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
+
+    def layer_const_like(self, net, args, options):
+        options = hc.Config(options)
+        s = self.ops.shape(self.layer(args[0]))
+        s[0] = 1
+        trainable = True
+        if "trainable" in options and options["trainable"] == "false":
+            trainable = False
+        initializer = None
+        if "initializer" in options and options["initializer"] is not None:
+            initializer = self.ops.lookup_initializer(options["initializer"], options)
+        with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
+            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
+
+    def layer_reduce_sum(self, net, args, options):
+        net = tf.reduce_sum(net, axis=[1,2,3])
+        return net
+
+
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

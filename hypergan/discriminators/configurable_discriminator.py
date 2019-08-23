@@ -11,9 +11,9 @@ from .base_discriminator import BaseDiscriminator
 from hypergan.configurable_component import ConfigurableComponent
 
 class ConfigurableDiscriminator(BaseDiscriminator, ConfigurableComponent):
-    def __init__(self, gan, config, name=None, input=None, reuse=None, features=[], skip_connections=[]):
-        ConfigurableComponent.__init__(self, gan, config, name=name, input=input,features=features,reuse=reuse)
-        BaseDiscriminator.__init__(self, gan, config, name=name, input=input,features=features,reuse=reuse)
+    def __init__(self, gan, config, *args, **kw_args):
+        ConfigurableComponent.__init__(self, gan, config,*args, **kw_args)
+        BaseDiscriminator.__init__(self, gan, config, *args, **kw_args)
 
     def layer_filter(self, net, args=[], options={}):
         config = self.config

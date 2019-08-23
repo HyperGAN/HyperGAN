@@ -39,7 +39,10 @@ class MatchSupportTrainHook(BaseTrainHook):
     else:
         self.zero_g = [tf.no_op()]
     self.loss = tf.zeros([1], dtype=tf.float32)
-    for loss in gan.losses:
+    losses = gan.losses
+    if self.config.targets:
+        losses = [getattr(gan, target) for target in self.config.targets]
+    for loss in losses:
         d_fake = loss.d_fake
         d_real = loss.d_real
         if self.config.loss == "base":
@@ -122,7 +125,7 @@ class MatchSupportTrainHook(BaseTrainHook):
     last_loss = begin
     if last_loss < self.config.loss_threshold:
         if self.config.verbose:
-            print(self.config.component, "> Loss begin " + str(begin) + " skipping training")
+            print(self.config.name, "> Loss begin " + str(begin) + " skipping training")
         return
     learn_rate = self.initial_learn_rate / 2*(depth+1)
     feed_dict[self.learn_rate] = learn_rate
@@ -155,7 +158,7 @@ class MatchSupportTrainHook(BaseTrainHook):
             print("No convergence, decreasing learn rate", feed_dict[self.learn_rate], depth, loss)
             return self.before_step(step, feed_dict, depth+1)
 
-    print(self.config.component, "> steps", i, "Loss begin " + str(begin) + " Loss end "+str(i)+":", loss, "lr", feed_dict[self.learn_rate])
+    print(self.config.name, "> steps", i, "Loss begin " + str(begin) + " Loss end "+str(i)+":", loss, "lr", feed_dict[self.learn_rate])
 
   def after_step(self, step, feed_dict):
     self.gan.session.run(self.zero_x+ self.zero_g)

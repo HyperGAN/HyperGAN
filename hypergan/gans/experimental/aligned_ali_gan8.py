@@ -289,7 +289,7 @@ class AlignedAliGAN8(BaseGAN):
             print("g_vars1", g_vars1)
             trainer = self.create_component(config.trainer)
 
-            self.session.run(tf.global_variables_initializer())
+            self.initialize_variables()
 
         self.trainer = trainer
         self.generator = gb

@@ -49,5 +49,5 @@ class AutoencoderGAN(StandardGAN):
         self.loss.sample[1] += cycloss*cycloss_lambda
         self.trainer.create()
 
-        self.session.run(tf.global_variables_initializer())
+        self.initialize_variables()
 

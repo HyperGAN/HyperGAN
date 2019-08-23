@@ -65,6 +65,20 @@ class RollingMemoryTrainHook(BaseTrainHook):
                 self.loss[0] += (self.config.lam or 1.0) * self.m_loss.sample[0]
                 self.loss[1] += (self.config.lam or 1.0) * self.m_loss.sample[1]
                 self.gan.add_metric('roll_loss_d', self.loss[0])
+            elif _type == 'mg/mx': 
+                self.mg_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([self.mg, self.gan.generator.sample],axis=0), features=[gan.features], reuse=True)
+                self.mg_loss = gan.create_component(gan.config.loss, discriminator=self.mg_discriminator)
+                self.loss[0] += (self.config.lam or 1.0) * self.mg_loss.sample[0]
+                self.loss[1] += (self.config.lam or 1.0) * self.mg_loss.sample[1]
+                self.gan.add_metric('roll_loss_mg/mx_d', self.loss[0])
+            elif _type == 'x/mx': 
+                self.mg_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([self.mg, self.gan.generator.sample],axis=0), features=[gan.features], reuse=True)
+                self.mg_loss = gan.create_component(gan.config.loss, discriminator=self.mg_discriminator)
+                self.loss[0] += (self.config.lam or 1.0) * self.mg_loss.sample[0]
+                self.loss[1] += (self.config.lam or 1.0) * self.mg_loss.sample[1]
+                self.gan.add_metric('roll_loss_x/mx_d', self.loss[0])
+
+
 
   def before_step(self, step, feed_dict):
       if step == 0:

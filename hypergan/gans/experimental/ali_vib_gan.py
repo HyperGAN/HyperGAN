@@ -173,7 +173,7 @@ class AliVibGAN(BaseGAN):
             self.uniform_distribution = latent 
             trainer = self.create_component(config.trainer, g_vars = g_vars, d_vars = d_vars)
 
-            self.session.run(tf.global_variables_initializer())
+            self.initialize_variables()
 
         self.trainer = trainer
         self.generator = generator

@@ -14,6 +14,7 @@ import numpy as np
 from tensorflow.python.framework import ops
 from tensorflow.python.tools import freeze_graph
 from tensorflow.python.tools import optimize_for_inference_lib
+from tensorflow.python.framework.errors_impl import FailedPreconditionError 
 
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.progressive_sampler import ProgressiveSampler
@@ -296,7 +297,12 @@ class BaseGAN(GANComponent):
         saver.restore(session, save_file)
 
         for op, var, val in post_restore_vars:
-            self.gan.session.run(op, {var: val})
+            try:
+                self.gan.session.run(op, {var: val})
+            except FailedPreconditionError as e:
+                print("Failed to restore ", var, "details: ", e)
+                print(" ... attempting to continue ... ")
+
 
     def initialize_variables(self):
         variables = set(self.variables())

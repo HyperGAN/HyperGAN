@@ -334,13 +334,16 @@ class CLI:
         if self.method == 'train':
             self.train()
         elif self.method == 'build':
+            self.inputs = self.inputs_fn()
+            self.gan = self.gan_fn(self.gan_config, self.inputs)
             if not self.gan.load(self.save_file):
                 raise ValidationException("Could not load model: "+ self.save_file)
             else:
-                with open(self.advSavePath+'advSave.txt', 'r') as the_file:
-                    content = [x.strip() for x in the_file]
-                    self.steps = int(content[0])
-                    self.samples = int(content[1])
+                if os.path.isfile(self.advSavePath+'advSave.txt'):
+                    with open(self.advSavePath+'advSave.txt', 'r') as the_file:
+                        content = [x.strip() for x in the_file]
+                        self.steps = int(content[0])
+                        self.samples = int(content[1])
                 print("Model loaded")
             self.build()
         elif self.method == 'new':

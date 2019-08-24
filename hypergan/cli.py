@@ -209,15 +209,14 @@ class CLI:
                 d_loss = replica_gan.trainer.d_loss
                 g_loss = replica_gan.trainer.g_loss
                 if replica_gan.config.skip_gradient_mean is None:
-                    scaled_d_loss = d_loss / strategy.num_replicas_in_sync
-                    scaled_g_loss = g_loss / strategy.num_replicas_in_sync
-            d_grads = tape.gradient(scaled_d_loss, replica_gan.d_vars())
-            g_grads = tape.gradient(scaled_g_loss, replica_gan.g_vars())
+                    d_loss = d_loss / strategy.num_replicas_in_sync
+                    g_loss = g_loss / strategy.num_replicas_in_sync
+            d_grads = tape.gradient(d_loss, replica_gan.trainable_d_vars())
+            g_grads = tape.gradient(g_loss, replica_gan.trainable_g_vars())
 
             del tape
-            #optimizer = self.gan.trainer.optimizer
             optimizer = tf.tpu.CrossShardOptimizer(self.gan.trainer.optimizer)
-            variables = replica_gan.d_vars() + replica_gan.g_vars()
+            variables = replica_gan.trainable_d_vars() + replica_gan.trainable_g_vars()
             grads = d_grads + g_grads
             update_vars = optimizer.apply_gradients(
                             zip(grads, variables))

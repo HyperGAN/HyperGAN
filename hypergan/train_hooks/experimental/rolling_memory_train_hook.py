@@ -25,9 +25,9 @@ class RollingMemoryTrainHook(BaseTrainHook):
     with tf.variable_scope((self.config.name or self.name), reuse=self.gan.reuse) as scope:
         scope.set_use_resource(True)
         self.mx=tf.get_variable(self.gan.ops.generate_name()+"_dontsave", s, dtype=tf.float32,
-                  initializer=tf.zeros_initializer, aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA)
+                  initializer=tf.zeros_initializer, aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA, trainable=False)
         self.mg=tf.get_variable(self.gan.ops.generate_name()+"_dontsave", s, dtype=tf.float32,
-                  initializer=tf.zeros_initializer, aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA)
+                  initializer=tf.zeros_initializer, aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA, trainable=False)
     self.m_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([self.mx, self.mg],axis=0), features=[gan.features], reuse=True)
     self.m_loss = gan.create_component(gan.config.loss, discriminator=self.m_discriminator)
     swx = self.m_loss.d_real

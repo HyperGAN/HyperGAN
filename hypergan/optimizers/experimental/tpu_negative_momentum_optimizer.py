@@ -31,8 +31,7 @@ class TPUNegativeMomentumOptimizer(optimizer.Optimizer):
       new_val = grad - nm
       var_update = self.optimizer._apply_dense(new_val, var)
       save = tf.assign(nm, ((self.config.alpha or 0.666) *grad+ (1-self.config.beta or 0.5)*nm))
-      with tf.control_dependencies([var_update]):
-          return save
+      return control_flow_ops.group(*[var_update, save])
 
     def _resource_apply_dense(self, grad, var):
       grad = tf.to_float(grad)
@@ -40,5 +39,4 @@ class TPUNegativeMomentumOptimizer(optimizer.Optimizer):
       new_val = grad - nm
       var_update = self.optimizer._resource_apply_dense(new_val, var)
       save = tf.assign(nm, ((self.config.alpha or 0.666) *grad+ (1-self.config.beta or 0.5)*nm))
-      with tf.control_dependencies([var_update]):
-          return save
+      return control_flow_ops.group(*[var_update, save])

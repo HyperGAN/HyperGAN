@@ -87,6 +87,7 @@ class ResizableGenerator(ConfigurableGenerator):
             elif block == 'resize_conv':
                 net = self.layer_resize_conv(net, [dep], options)
             elif block == 'bicubic_conv':
+                options['stride'] = 1
                 net = self.layer_bicubic_conv(net, [dep], options)
             elif block == 'conv_depth_to_space':
                 net = self.layer_conv_dts(net, [dep], options)

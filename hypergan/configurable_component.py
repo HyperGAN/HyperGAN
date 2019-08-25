@@ -608,7 +608,6 @@ class ConfigurableComponent:
         activation = self.ops.lookup(activation_s)
 
         _, fltr, _ = self.get_conv_options(config, options)
-        stride = [1, 1]
         if type(fltr) == type(""):
             fltr=[int(fltr), int(fltr)]
         depth = int(args[0])
@@ -623,6 +622,8 @@ class ConfigurableComponent:
                 extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
             net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
 
+        options['stride'] = 1
+        options['avg_pool'] = 1
         net = self.layer_conv(net, args, options)
 
         if options.mask_with:

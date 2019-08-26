@@ -75,16 +75,16 @@ class BaseGAN(GANComponent):
 
         if config.fixed_input:
             self.feed_x = self.inputs.x
-            self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
+            self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x), trainable=False)
             self.session.run(self.inputs.x.initializer)
             self.set_x = tf.assign(self.inputs.x, self.feed_x)
 
         if config.fixed_input_xa:
             self.feed_x = self.inputs.xa
-            self.inputs.xa = tf.Variable(tf.zeros_like(self.feed_x))
+            self.inputs.xa = tf.Variable(tf.zeros_like(self.feed_x), trainable=False)
             self.set_x = tf.assign(self.inputs.xa, self.feed_x)
             self.feed_x = self.inputs.xb
-            self.inputs.xb = tf.Variable(tf.zeros_like(self.feed_x))
+            self.inputs.xb = tf.Variable(tf.zeros_like(self.feed_x), trainable=False)
             self.set_x = tf.group([self.set_x, tf.assign(self.inputs.xb, self.feed_x)])
             self.inputs.x = self.inputs.xb
 

@@ -351,6 +351,7 @@ class CLI:
         elif self.method == 'sample':
             self.inputs = self.inputs_fn()
             self.gan = self.gan_fn(self.gan_config, self.inputs)
+            self.gan.initialize_variables()
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
             else:

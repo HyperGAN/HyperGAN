@@ -75,16 +75,16 @@ class BaseGAN(GANComponent):
 
         if config.fixed_input:
             self.feed_x = self.inputs.x
-            self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
+            self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x), trainable=False)
             self.session.run(self.inputs.x.initializer)
             self.set_x = tf.assign(self.inputs.x, self.feed_x)
 
         if config.fixed_input_xa:
             self.feed_x = self.inputs.xa
-            self.inputs.xa = tf.Variable(tf.zeros_like(self.feed_x))
+            self.inputs.xa = tf.Variable(tf.zeros_like(self.feed_x), trainable=False)
             self.set_x = tf.assign(self.inputs.xa, self.feed_x)
             self.feed_x = self.inputs.xb
-            self.inputs.xb = tf.Variable(tf.zeros_like(self.feed_x))
+            self.inputs.xb = tf.Variable(tf.zeros_like(self.feed_x), trainable=False)
             self.set_x = tf.group([self.set_x, tf.assign(self.inputs.xb, self.feed_x)])
             self.inputs.x = self.inputs.xb
 
@@ -202,8 +202,10 @@ class BaseGAN(GANComponent):
     def d_vars(self):
         return self.discriminator.variables()
 
-    def trainable_vars(self):
-        return self.trainable_d_vars(), self.trainable_g_vars()
+    def trainable_variables(self):
+        result = np.flatten(list(set(self.variables()).intersection(tf.trainable_variables())))
+        result = [r for r in result if r]
+        return result
 
     def trainable_d_vars(self):
         return list(set(self.d_vars()).intersection(tf.trainable_variables()))

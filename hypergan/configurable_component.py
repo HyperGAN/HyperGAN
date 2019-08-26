@@ -1197,8 +1197,6 @@ class ConfigurableComponent:
         #f2 = self.layer_linear(f, [w], options)
         opts = copy.deepcopy(dict(options))
         size = self.ops.shape(net)[3]
-        if "initalizer" not in opts:
-            opts["initializer"]="stylegan"
         if "activation" not in opts:
             opts["activation"]="null"
         feature = self.layer_linear(f, [size*2], opts)

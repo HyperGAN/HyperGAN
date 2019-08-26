@@ -202,8 +202,10 @@ class BaseGAN(GANComponent):
     def d_vars(self):
         return self.discriminator.variables()
 
-    def trainable_vars(self):
-        return self.trainable_d_vars(), self.trainable_g_vars()
+    def trainable_variables(self):
+        result = np.flatten(list(set(self.variables()).intersection(tf.trainable_variables())))
+        result = [r for r in result if r]
+        return result
 
     def trainable_d_vars(self):
         return list(set(self.d_vars()).intersection(tf.trainable_variables()))

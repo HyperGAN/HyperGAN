@@ -109,7 +109,7 @@ class MatchSupportTrainHook(BaseTrainHook):
         if "g" == v:
             [var_list.append(m) for m in m_g]
             continue
-        var_list.append(getattr(self.gan, v).variables())
+        var_list.append(getattr(self.gan, v).trainable_variables())
     self.initial_learn_rate = self.config.optimizer.learn_rate
     self.learn_rate = tf.Variable(self.config.optimizer.learn_rate)
     self.config.optimizer['learn_rate']=self.learn_rate

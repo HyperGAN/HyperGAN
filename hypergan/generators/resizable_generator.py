@@ -68,9 +68,9 @@ class ResizableGenerator(ConfigurableGenerator):
         if config.adaptive_instance_norm:
             w = latent
             for i in range(config.adaptive_instance_norm_layers or 2):
-                w = self.layer_linear(w, [512], {})
+                w = self.layer_linear(w, [512], {"initializer": "stylegan"})
             w = self.layer_identity(w, ["w"], {})
-            net = self.layer_adaptive_instance_norm(net, [], {})
+            net = self.do_adaptive_instance_norm(net, config)
 
         for i, depth in enumerate(depths[1:]):
             s = ops.shape(net)
@@ -100,7 +100,7 @@ class ResizableGenerator(ConfigurableGenerator):
                 net = block(self, net, depth, filter=filter_size, padding=padding)
 
             if config.adaptive_instance_norm:
-                net = self.layer_adaptive_instance_norm(net, [], {})
+                net = self.do_adaptive_instance_norm(net, config)
 
             size = resize[0]*resize[1]*depth
 
@@ -111,24 +111,20 @@ class ResizableGenerator(ConfigurableGenerator):
         dep = config.channels or gan.channels()
         print(block + " " + str(dep))
 
-        options = {"w": resize[0], "h": resize[1], "avg_pool": 1, "stride": 1, "filter": 3, "activation": "null"}
+        options = {"avg_pool": 1, "stride": 1, "filter": 3, "activation": "null"}
+        needs_resize = True
 
         if block == 'deconv':
-            if resize != [e*2 for e in ops.shape(net)[1:3]]:
-                net = self.layer_deconv(net, [dep], options)
-                net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
-            else:
-                net = ops.deconv2d(net, 5, 5, 2, 2, dep)
+            net = ops.deconv2d(net, 5, 5, 2, 2, dep)
 
         elif block == "subpixel":
-            if resize != [e*2 for e in ops.shape(net)[1:3]]:
-                net = self.layer_subpixel(net, [dep], options)
-                net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
-            else:
-                net = self.layer_subpixel(net, [dep], options)
+            net = self.layer_subpixel(net, [dep], options)
 
         elif block == "resize_conv":
+            options["w"] = resize[0]
+            options["h"] = resize[1]
             net = self.layer_resize_conv(net, [dep], options)
+            needs_resize = False
 
         elif block == "bicubic_conv":
             net = self.layer_bicubic_conv(net, [dep], options)
@@ -145,12 +141,22 @@ class ResizableGenerator(ConfigurableGenerator):
             net = block(self, net, dep, filter=config.final_filter or 3, padding=padding)
 
         if config.adaptive_instance_norm_last_layer:
-            net = self.layer_adaptive_instance_norm(net, [], {})
+            net = self.do_adaptive_instance_norm(net, config)
+
+        if needs_resize and resize != ops.shape(net)[1:3]:
+            net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
 
         final_activation = self.ops.lookup(config.final_activation or "tanh")
         net = final_activation(net)
 
 
         return net
+
+    def do_adaptive_instance_norm(self, net, config):
+        if config.adaptive_instance_norm_activation:
+            return self.layer_adaptive_instance_norm(net, [], {"activation": config.adaptive_instance_norm_activation, "initializer": "stylegan"})
+        else:
+            return self.layer_adaptive_instance_norm(net, [], {})
+
 
 

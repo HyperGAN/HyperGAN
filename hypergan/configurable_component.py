@@ -926,6 +926,7 @@ class ConfigurableComponent:
         options = hc.Config(options)
         depth = int(args[0])
         config = self.config
+        options["stride"]=1
         activation = options.activation or self.ops.config_option("activation")
         r = options.r or 2
         r = int(r)

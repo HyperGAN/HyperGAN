@@ -68,7 +68,7 @@ class ResizableGenerator(ConfigurableGenerator):
         if config.adaptive_instance_norm:
             w = latent
             for i in range(config.adaptive_instance_norm_layers or 2):
-                w = self.layer_linear(w, [512], {})
+                w = self.layer_linear(w, [512], {"initializer": "stylegan"})
             w = self.layer_identity(w, ["w"], {})
             net = self.layer_adaptive_instance_norm(net, [], {})
 

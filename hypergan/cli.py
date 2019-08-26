@@ -271,7 +271,6 @@ class CLI:
 
         self.inputs = self.inputs_fn()
         self.gan = self.gan_fn(self.gan_config, self.inputs)
-        #self.gan = self.gan_fn(self.gan_config, self.inputs, reuse= True)
         self.gan.cli = self
         self.gan.initialize_variables()
         if self.gan.load(self.save_file):

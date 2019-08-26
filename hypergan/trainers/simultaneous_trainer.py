@@ -34,6 +34,9 @@ class SimultaneousTrainer(BaseTrainer):
         d_grads = tf.gradients(d_loss, d_vars)
         g_grads = tf.gradients(g_loss, g_vars)
         apply_vec = list(zip((d_grads + g_grads), (d_vars + g_vars))).copy()
+        for grad, v in apply_vec:
+            if grad is None:
+                print("Gradient is None:", v)
         self.gan.gradient_mean = sum([tf.reduce_mean(tf.abs(grad)) for grad in d_grads+g_grads])/len(d_grads+g_grads)
         self.g_loss = g_loss
         self.d_loss = d_loss

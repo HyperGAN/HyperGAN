@@ -224,3 +224,6 @@ class GANComponent:
         for metric in self._metrics:
             metrics[metric['name']]=metric['value']
         return metrics
+
+    def trainable_variables(self):
+        return list(set(self.variables()).intersection(tf.trainable_variables()))

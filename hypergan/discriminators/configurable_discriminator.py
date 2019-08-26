@@ -13,6 +13,8 @@ from hypergan.configurable_component import ConfigurableComponent
 class ConfigurableDiscriminator(BaseDiscriminator, ConfigurableComponent):
     def __init__(self, gan, config, *args, **kw_args):
         ConfigurableComponent.__init__(self, gan, config,*args, **kw_args)
+        self.layer_ops["slice_input"] = self.layer_slice_input
+        self.layer_ops["reverse_batch"] = self.layer_reverse_batch
         BaseDiscriminator.__init__(self, gan, config, *args, **kw_args)
 
     def layer_filter(self, net, args=[], options={}):
@@ -35,3 +37,34 @@ class ConfigurableDiscriminator(BaseDiscriminator, ConfigurableComponent):
             net = tf.concat(axis=3, values=concats)
 
         return net
+
+    def layer_reverse_batch(self, net, args=[], options={}):
+        config = self.config
+        gan = self.gan
+        ops = self.ops
+
+        size = ops.shape(net)[0]//2
+        netx = tf.slice(net, [0,0,0,0], [size,-1,-1,-1])
+        netg = tf.slice(net, [size,0,0,0], [size,-1,-1,-1])
+
+        netx_a = tf.split(netx, self.gan.batch_size(), axis=0)
+        netg_a = tf.split(netg, self.gan.batch_size(), axis=0)
+
+        netx_a.reverse()
+        netg_a.reverse()
+
+        netx_b = tf.concat(netx_a, axis=0)
+        netg_b = tf.concat(netg_a, axis=0)
+        return tf.concat([netx_b, netg_b], axis=0)
+
+    def layer_slice_input(self, net, args=[], options={}):
+        config = self.config
+        gan = self.gan
+        ops = self.ops
+
+        idx = int(args[0])
+        total = int(args[1])
+
+        if len(self.ops.shape(net)) == 4:
+            return tf.strided_slice(net, [idx,0,0,0], self.ops.shape(net), [total,1,1,1])
+        return tf.strided_slice(net, [idx,0], self.ops.shape(net), [total,1])

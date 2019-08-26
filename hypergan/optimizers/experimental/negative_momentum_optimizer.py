@@ -48,10 +48,11 @@ class NegativeMomentumOptimizer(optimizer.Optimizer):
     var_list = d_vars + g_vars
 
     with ops.init_scope():
-            nms = [self._get_or_make_slot(v, tf.zeros_like(v), "nm", self._name) for v in var_list]
+        nms = [self._get_or_make_slot(v, tf.zeros_like(v), "nm", self._name) for v in var_list]
+        self.gan.ops.weights += nms
     self._prepare()
-
     nms = [self.get_slot(v, "nm") for v in var_list]
+
     momentum = []
     for grad, nm, w in zip(grad_list, nms, var_list):
         momentum += [-self._decay * nm]

@@ -6,10 +6,12 @@ import sys
 import os
 import hyperchamber as hc
 import tensorflow as tf
+import numpy as np
 from hypergan.gan_component import ValidationException
 from .inputs import *
 from .viewer import GlobalViewer
 from .configuration import Configuration
+from tensorflow.contrib import tpu
 import hypergan as hg
 import time
 
@@ -23,12 +25,12 @@ from time import sleep
 
 
 class CLI:
-    def __init__(self, gan, args={}):
+    def __init__(self, args={}, gan_fn=None, inputs_fn=None, gan_config=None):
         self.samples = 0
         self.steps = 0
-        self.gan = gan
-        if gan is not None:
-            self.gan.cli = self
+        self.gan_fn = gan_fn
+        self.gan_config = gan_config
+        self.inputs_fn = inputs_fn
 
         args = hc.Config(args)
         self.args = args
@@ -60,8 +62,6 @@ class CLI:
             default_save_path = os.path.abspath("saves/"+self.config_name)
             self.save_file = default_save_path + "/model.ckpt"
             self.create_path(self.save_file)
-        if self.gan is not None:
-            self.gan.save_file = self.save_file
 
         title = "[hypergan] " + self.config_name
         GlobalViewer.set_options(
@@ -115,7 +115,7 @@ class CLI:
 
             gc.collect()
 
-        if(self.steps % self.sample_every == 0):
+        if(self.steps % self.sample_every == 0 and self.args.sampler):
             sample_list = self.sample()
 
         self.steps+=1
@@ -182,6 +182,81 @@ class CLI:
         while not self.gan.destroy:
             self.sample()
 
+    def train_tpu(self):
+        i=0
+        tf.disable_v2_behavior()
+        tpu_name = self.args.device.replace("/tpu:", "")
+        print("Connecting to TPU:", tpu_name)
+        cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
+        self.cluster_resolver = cluster_resolver
+        tf.tpu.experimental.initialize_tpu_system(self.cluster_resolver)
+        strategy = tf.contrib.distribute.TPUStrategy(self.cluster_resolver)
+        strategy.extended.experimental_enable_get_next_as_optional = False
+
+        self.inputs = self.inputs_fn()
+        input_iterator = strategy.experimental_distribute_dataset(self.inputs.dataset).make_initializable_iterator()
+
+        with strategy.scope():
+            size = [int(x) for x in self.args.size.split("x")]
+            inp = hc.Config({"x": tf.zeros([self.args.batch_size/ strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
+            self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy)
+            self.gan.cli = self
+
+        def train_step(x):
+            inp = hc.Config({"x": x})
+            with tf.GradientTape(persistent=True) as tape:
+                replica_gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
+                d_loss = replica_gan.trainer.d_loss
+                g_loss = replica_gan.trainer.g_loss
+                if replica_gan.config.skip_gradient_mean is None:
+                    d_loss = d_loss / strategy.num_replicas_in_sync
+                    g_loss = g_loss / strategy.num_replicas_in_sync
+            d_grads = tape.gradient(d_loss, replica_gan.trainable_d_vars())
+            g_grads = tape.gradient(g_loss, replica_gan.trainable_g_vars())
+
+            del tape
+            optimizer = tf.tpu.CrossShardOptimizer(self.gan.trainer.optimizer)
+            variables = replica_gan.trainable_d_vars() + replica_gan.trainable_g_vars()
+            grads = d_grads + g_grads
+            update_vars = optimizer.apply_gradients(
+                            zip(grads, variables))
+            with tf.control_dependencies([update_vars]):
+                return tf.identity(scaled_d_loss)
+
+        train = strategy.unwrap(strategy.experimental_run_v2(train_step, args=(next(input_iterator), )))
+        iterator_init = input_iterator.initialize()
+
+        config = tf.ConfigProto()
+        cluster_spec = cluster_resolver.cluster_spec()
+        if cluster_spec:
+          config.cluster_def.CopyFrom(cluster_spec.as_cluster_def())
+
+        with tf.Session(cluster_resolver.master(), config=config) as session:
+
+            self.gan.session = session
+            session.run([iterator_init])
+            for v in self.gan.variables():
+                session.run(v.initializer)
+            if self.gan.load(self.save_file):
+                print("Model loaded")
+            else:
+                print("Initializing new model")
+            while((i < self.total_steps or self.total_steps == -1)):
+                if i % 10 == 0:
+                    self.gan.trainer.print_metrics(i)
+                if i % 100 == 0:
+                    self.sample()
+                i+=1
+                session.run(train)
+
+                if (self.args.save_every != None and
+                    self.args.save_every != -1 and
+                    self.args.save_every > 0 and
+                    i % self.args.save_every == 0):
+                    print(" |= Saving network")
+                    self.gan.save(self.save_file)  
+            session.run(tpu.shutdown_system())
+
     def train(self):
         i=0
         if(self.args.ipython):
@@ -189,6 +264,19 @@ class CLI:
             fd = sys.stdin.fileno()
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
+        if "tpu" in self.args.device:
+            self.train_tpu()
+            return
+
+        self.inputs = self.inputs_fn()
+        self.gan = self.gan_fn(self.gan_config, self.inputs)
+        self.gan.cli = self
+        self.gan.initialize_variables()
+        if self.gan.load(self.save_file):
+            print("Model loaded")
+        else:
+            print("Initializing new model")
 
         while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
             i+=1
@@ -243,31 +331,26 @@ class CLI:
 
     def run(self):
         if self.method == 'train':
-            self.add_supervised_loss() # TODO I think this is broken now(after moving create out)
-            self.gan.session.run(tf.global_variables_initializer())
-
-            if not self.gan.load(self.save_file):
-                print("Initializing new model")
-            else:
-                print("Model loaded")
             self.train()
-            self.gan.save(self.save_file)
-            tf.reset_default_graph()
-            self.gan.session.close()
         elif self.method == 'build':
+            self.inputs = self.inputs_fn()
+            self.gan = self.gan_fn(self.gan_config, self.inputs)
             if not self.gan.load(self.save_file):
                 raise ValidationException("Could not load model: "+ self.save_file)
             else:
-                with open(self.advSavePath+'advSave.txt', 'r') as the_file:
-                    content = [x.strip() for x in the_file]
-                    self.steps = int(content[0])
-                    self.samples = int(content[1])
+                if os.path.isfile(self.advSavePath+'advSave.txt'):
+                    with open(self.advSavePath+'advSave.txt', 'r') as the_file:
+                        content = [x.strip() for x in the_file]
+                        self.steps = int(content[0])
+                        self.samples = int(content[1])
                 print("Model loaded")
             self.build()
         elif self.method == 'new':
             self.new()
         elif self.method == 'sample':
-            self.add_supervised_loss()
+            self.inputs = self.inputs_fn()
+            self.gan = self.gan_fn(self.gan_config, self.inputs)
+            self.gan.initialize_variables()
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
             else:

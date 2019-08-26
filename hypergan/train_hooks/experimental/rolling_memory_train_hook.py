@@ -20,10 +20,14 @@ class RollingMemoryTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="RollingMemoryTrainHook"):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     config = hc.Config(config)
-    s = self.gan.ops.shape(self.gan.inputs.x)
-    self.shape = [self.gan.batch_size() * (self.config.memory_size or 1), s[1], s[2], s[3]]
-    self.mx=tf.Variable(tf.zeros(self.shape))
-    self.mg=tf.Variable(tf.zeros(self.shape))
+    s = self.gan.ops.shape(self.gan.generator.sample)
+    self.shape = s#[self.gan.batch_size() * (self.config.memory_size or 1), s[1], s[2], s[3]]
+    with tf.variable_scope((self.config.name or self.name), reuse=self.gan.reuse) as scope:
+        scope.set_use_resource(True)
+        self.mx=tf.get_variable(self.gan.ops.generate_name()+"_dontsave", s, dtype=tf.float32,
+                  initializer=tf.zeros_initializer, aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA, trainable=False)
+        self.mg=tf.get_variable(self.gan.ops.generate_name()+"_dontsave", s, dtype=tf.float32,
+                  initializer=tf.zeros_initializer, aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA, trainable=False)
     self.m_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([self.mx, self.mg],axis=0), features=[gan.features], reuse=True)
     self.m_loss = gan.create_component(gan.config.loss, discriminator=self.m_discriminator)
     swx = self.m_loss.d_real
@@ -81,6 +85,8 @@ class RollingMemoryTrainHook(BaseTrainHook):
           self.gan.session.run(tf.assign(self.mx, self.gan.inputs.x))
           self.gan.session.run(tf.assign(self.mg, self.gan.generator.sample))
 
+  def variables(self):
+      return [self.mx, self.mg]
 
   def losses(self):
     return self.loss

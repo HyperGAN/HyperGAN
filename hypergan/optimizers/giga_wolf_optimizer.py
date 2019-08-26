@@ -41,7 +41,7 @@ class GigaWolfOptimizer(optimizer.Optimizer):
         slots_list = []
         for name in self.optimizer.get_slot_names():
             for var in self.optimizer.variables():
-                self._get_or_make_slot(var, var, "zt", "zt")
+                slot = self._get_or_make_slot(var, var, "zt", "zt")
     self._prepare()
 
     def _name(post, s):
@@ -49,7 +49,9 @@ class GigaWolfOptimizer(optimizer.Optimizer):
         return ss[0] + "_" + post + "_dontsave"
     zt = [self.get_slot(v, "zt") for _,v in grads_and_vars]
     xt = [tf.Variable(v, name=_name("gigaxt",v.name)) for _,v in grads_and_vars]
+    self.gan.ops.weights += xt
     tmp = [tf.Variable(v, name=_name("gigatmp",v.name)) for _,v in grads_and_vars]
+    self.gan.ops.weights += tmp
     xslots_list = []
     zslots_list = []
     tmpslots_list = []
@@ -60,6 +62,8 @@ class GigaWolfOptimizer(optimizer.Optimizer):
             xslots_list.append(tf.Variable(var))
             zslots_list.append(self._get_or_make_slot(var, var, "zt", "zt"))
             tmpslots_list.append(tf.Variable(var, name=_name("gigaslottmp", var.name)))
+    self.gan.ops.weights += xslots_list
+    self.gan.ops.weights += tmpslots_list
 
 
     restored_vars = var_list + slots_vars

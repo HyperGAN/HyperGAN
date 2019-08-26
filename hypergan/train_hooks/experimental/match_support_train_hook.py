@@ -22,7 +22,7 @@ class MatchSupportTrainHook(BaseTrainHook):
   """ 
     Makes d_fake and d_real balance by running an optimizer.
   """
-  def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook", layer="match_support", variables=["x","g"]):
+  def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook", layer="match_support", variables=["x","g"], reuse=False):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     component = getattr(self.gan,self.config.component or "discriminator")
         
@@ -109,7 +109,7 @@ class MatchSupportTrainHook(BaseTrainHook):
         if "g" == v:
             [var_list.append(m) for m in m_g]
             continue
-        var_list.append(getattr(self.gan, v).variables())
+        var_list.append(getattr(self.gan, v).trainable_variables())
     self.initial_learn_rate = self.config.optimizer.learn_rate
     self.learn_rate = tf.Variable(self.config.optimizer.learn_rate)
     self.config.optimizer['learn_rate']=self.learn_rate

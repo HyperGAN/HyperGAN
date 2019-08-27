@@ -9,6 +9,7 @@ from functools import reduce
 
 from hypergan.ops.tensorflow.extended_ops import bicubic_interp_2d
 from .gan_component import GANComponent
+from hypergan.gan_component import ValidationException
 
 class ConfigurationException(Exception):
     pass
@@ -241,6 +242,9 @@ class ConfigurableComponent:
         else:
             raise ValidationException("Unknown operation" + op)
 
+        if options.reshape is not None:
+            net = tf.reshape(net, [self.ops.shape(net)[0]] + options.reshape)
+
         if op != ops.linear and (avg_pool[0] > 1 or avg_pool[1] > 1):
             ksize = [1,avg_pool[0], avg_pool[1],1]
             stride = ksize
@@ -385,10 +389,8 @@ class ConfigurableComponent:
             reshape = None
         net = self.ops.reshape(net, [self.ops.shape(net)[0], -1])
 
+        options['reshape'] = reshape
         net = self.do_ops_layer(self.ops.linear, net, size, options)
-
-        if reshape is not None:
-            net = tf.reshape(net, [self.ops.shape(net)[0]] + reshape)
 
         return net
 
@@ -514,6 +516,8 @@ class ConfigurableComponent:
         start = int(args[0])
         size = int(args[1])
         bs = self.gan.batch_size()
+        if self.ops.shape(net)[1] < start + size:
+            raise ValidationException("start " + str(start) + " + size " + str(size) + " of slice is larger than input: "+str(self.ops.shape(net)[1]))
         return tf.slice(net, [0, start], [bs, size])
 
 
@@ -976,7 +980,6 @@ class ConfigurableComponent:
 
     def layer_latent(self, net, args, options):
         return self.gan.latent.sample
-        return tf.random_uniform([self.ops.shape(net)[0], args[0]], -1, 1)
 
     def layer_layer(self, net, args, options):
         options = hc.Config(options)

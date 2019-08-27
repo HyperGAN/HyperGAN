@@ -221,7 +221,7 @@ class CLI:
             update_vars = optimizer.apply_gradients(
                             zip(grads, variables))
             with tf.control_dependencies([update_vars]):
-                return tf.identity(scaled_d_loss)
+                return tf.identity(d_loss)
 
         train = strategy.unwrap(strategy.experimental_run_v2(train_step, args=(next(input_iterator), )))
         iterator_init = input_iterator.initialize()

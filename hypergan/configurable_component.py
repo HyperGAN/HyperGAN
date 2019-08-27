@@ -230,11 +230,11 @@ class ConfigurableComponent:
                 net = tf.concat([net, sk], axis=3)
 
         if op == ops.conv2d:
-            net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, initializer=initializer, name=options.name, trainable=trainable)
+            net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, initializer=initializer, name=name, trainable=trainable)
 
         elif op == ops.deconv2d:
             print("DECONV", net, fltr, stride)
-            net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, name=options.name, trainable=trainable, bias=bias)
+            net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, name=name, trainable=trainable, bias=bias)
 
         elif op == ops.linear:
             net = ops.linear(net, channels, initializer=initializer, name=name, trainable=trainable, bias=bias)

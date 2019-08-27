@@ -127,79 +127,90 @@ class ImageLoader:
         return dataset
 
 
-    def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
+    def create(self, directories, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
+        directory = directories[0]
         if format == 'tfrecord':
             return self.tfrecord_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential, random_crop=random_crop)
         if format == 'tfrecords':
             return self.tfrecords_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential, random_crop=random_crop)
         if format == 'jpg' or format == 'png':
-            return self.image_folder_create(directory, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential, random_crop=random_crop)
+            return self.image_folder_create(directories, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential, random_crop=random_crop, format=format)
 
         raise ValidationError("Format not supported.  Only jpg,png,tfrecord,tfrecords are supported")
 
 
-    def image_folder_create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
-   
-        directories = glob.glob(directory+"/*")
-        directories = [d for d in directories if os.path.isdir(d)]
+    def image_folder_create(self, directories, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
+        self.datasets = []
 
-        if(len(directories) == 0):
-            directories = [directory] 
+        print("CREATING WITH", directories)
 
-        # Create a queue that produces the filenames to read.
-        if(len(directories) == 1):
-            # No subdirectories, use all the images in the passed in path
-            filenames = glob.glob(directory+"/*."+format)
-        else:
-            filenames = glob.glob(directory+"/**/*."+format)
+        for directory in directories:
+            dirs = glob.glob(directory+"/*")
+            dirs = [d for d in dirs if os.path.isdir(d)]
 
-        filenames = natsorted(filenames)
+            if(len(dirs) == 0):
+                dirs = [directory] 
 
-        print("[loader] ImageLoader found", len(filenames))
-        self.file_count = len(filenames)
-        if self.file_count == 0:
-            raise ValidationException("No images found in '" + directory + "'")
-        filenames = tf.convert_to_tensor(filenames, dtype=tf.string)
-
-        def parse_function(filename):
-            image_string = tf.read_file(filename)
-            if format == 'jpg':
-                image = tf.image.decode_jpeg(image_string, channels=channels)
-            elif format == 'png':
-                image = tf.image.decode_png(image_string, channels=channels)
+            # Create a queue that produces the filenames to read.
+            if(len(dirs) == 1):
+                # No subdirectories, use all the images in the passed in path
+                filenames = glob.glob(directory+"/*."+format)
+                print("GLOB", directory+"/*."+format)
             else:
-                print("[loader] Failed to load format", format)
-            image = tf.cast(image, tf.float32)
-            # Image processing for evaluation.
-            # Crop the central [height, width] of the image.
-            if crop:
-                image = hypergan.inputs.resize_image_patch.resize_image_with_crop_or_pad(image, height, width, dynamic_shape=True)
-            elif resize:
-                image = tf.image.resize_images(image, [height, width], 1)
-            elif random_crop:
-                image = tf.image.random_crop(image, [height, width, channels], 1)
+                filenames = glob.glob(directory+"/**/*."+format)
+                print("GLOB", directory+"/**/*."+format)
 
-            image = image / 127.5 - 1.
-            tf.Tensor.set_shape(image, [height,width,channels])
+            filenames = natsorted(filenames)
 
-            return image
+            print("[loader] ImageLoader found", len(filenames))
+            self.file_count = len(filenames)
+            if self.file_count == 0:
+                raise ValidationException("No images found in '" + directory + "'")
+            filenames = tf.convert_to_tensor(filenames, dtype=tf.string)
 
-        # Generate a batch of images and labels by building up a queue of examples.
-        dataset = tf.data.Dataset.from_tensor_slices(filenames)
-        if not sequential:
-            print("Shuffling data")
-            dataset = dataset.shuffle(self.file_count)
-        dataset = dataset.map(parse_function, num_parallel_calls=4)
-        dataset = dataset.batch(self.batch_size, drop_remainder=True)
+            def parse_function(filename):
+                image_string = tf.read_file(filename)
+                if format == 'jpg':
+                    image = tf.image.decode_jpeg(image_string, channels=channels)
+                elif format == 'png':
+                    image = tf.image.decode_png(image_string, channels=channels)
+                else:
+                    print("[loader] Failed to load format", format)
+                image = tf.cast(image, tf.float32)
+                # Image processing for evaluation.
+                # Crop the central [height, width] of the image.
+                if crop:
+                    image = hypergan.inputs.resize_image_patch.resize_image_with_crop_or_pad(image, height, width, dynamic_shape=True)
+                elif resize:
+                    image = tf.image.resize_images(image, [height, width], 1)
+                elif random_crop:
+                    image = tf.image.random_crop(image, [height, width, channels], 1)
 
-        dataset = dataset.repeat()
-        dataset = dataset.prefetch(1)
+                image = image / 127.5 - 1.
+                tf.Tensor.set_shape(image, [height,width,channels])
 
-        self.dataset = dataset
+                return image
 
-        self.iterator = self.dataset.make_one_shot_iterator()
-        self.x = tf.reshape( self.iterator.get_next(), [self.batch_size, height, width, channels])
-        self.xa = self.x
+            # Generate a batch of images and labels by building up a queue of examples.
+            dataset = tf.data.Dataset.from_tensor_slices(filenames)
+            if not sequential:
+                print("Shuffling data")
+                dataset = dataset.shuffle(self.file_count)
+            dataset = dataset.map(parse_function, num_parallel_calls=4)
+            dataset = dataset.batch(self.batch_size, drop_remainder=True)
+
+            dataset = dataset.repeat()
+            dataset = dataset.prefetch(1)
+
+            self.datasets.append(tf.reshape(dataset.make_one_shot_iterator().get_next(), [self.batch_size, height, width, channels]))
+
+        self.xs = self.datasets
+        self.xa = self.datasets[0]
+        if len(self.datasets) > 1:
+            self.xb = self.datasets[1]
+        self.x = self.datasets[0]
+        return self.xs
+
 
     def inputs(self):
         return [self.x,self.x]

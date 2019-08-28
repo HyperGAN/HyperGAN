@@ -495,7 +495,7 @@ class AliNextFrameGAN(BaseGAN):
                 config.trainer["hooks"] = []
             config.trainer["hooks"].append({"class":RollingMemoryTrainHook})
             trainer = self.create_component(config.trainer)
-            self.session.run(tf.global_variables_initializer())
+            self.initialize_variables()
 
         self.trainer = trainer
         self.z_hat = gy.sample

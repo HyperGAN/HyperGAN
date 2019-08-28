@@ -10,6 +10,7 @@ from tensorflow.python.training import optimizer
 import tensorflow as tf
 import hyperchamber as hc
 import inspect
+from hypergan.gan_component import ValidationException
 
 class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
   """ From https://arxiv.org/abs/1612.00796 """
@@ -46,7 +47,7 @@ class ElasticWeightConsolidationOptimizer(optimizer.Optimizer):
             g_vars += [var]
             g_grads += [grad]
         else:
-            raise("Couldn't find var in g_vars or d_vars")
+            raise ValidationException("Couldn't find var in g_vars or d_vars " + var.name)
     all_grads = d_grads + g_grads
     var_list = d_vars + g_vars
 

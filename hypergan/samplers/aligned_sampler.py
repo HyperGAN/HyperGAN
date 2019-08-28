@@ -4,8 +4,8 @@ import tensorflow as tf
 import numpy as np
 
 class AlignedSampler(BaseSampler):
-    def __init__(self, gan):
-        BaseSampler.__init__(self, gan)
+    def __init__(self, gan, samples_per_row):
+        BaseSampler.__init__(self, gan, samples_per_row = samples_per_row)
         self.xa_v = None
         self.xb_v = None
         self.created = False

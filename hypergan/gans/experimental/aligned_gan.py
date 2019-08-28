@@ -80,7 +80,7 @@ class AlignedGAN(BaseGAN):
             encoder_loss = self.create_loss(config.eloss or config.loss, z_discriminator, z_input, encoder, 2)
 
             trainer = self.create_trainer(None, None, encoder, generator, encoder_loss, standard_loss, standard_discriminator, z_discriminator)
-            self.session.run(tf.global_variables_initializer())
+            self.initialize_variables()
 
         self.trainer = trainer
         self.generator = generator

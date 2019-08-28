@@ -123,7 +123,7 @@ class AliStyleGAN(BaseGAN):
             lossa = hc.Config({'sample': [d_loss1, g_loss1], 'metrics': metrics})
             trainer = ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)
 
-            self.session.run(tf.global_variables_initializer())
+            self.initialize_variables()
 
         self.trainer = trainer
         self.generator = generator

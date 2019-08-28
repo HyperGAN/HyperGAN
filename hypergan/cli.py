@@ -223,7 +223,9 @@ class CLI:
             with tf.control_dependencies([update_vars]):
                 return tf.identity(d_loss)
 
+        print("Creating replica graph")
         train = strategy.unwrap(strategy.experimental_run_v2(train_step, args=(next(input_iterator), )))
+        print("Initializing TPU")
         iterator_init = input_iterator.initialize()
 
         config = tf.ConfigProto()
@@ -234,9 +236,17 @@ class CLI:
         with tf.Session(cluster_resolver.master(), config=config) as session:
 
             self.gan.session = session
+            print("Initializing iterator")
             session.run([iterator_init])
+            print("Initializing Variables")
+            v_ops = [v.initializer for v in self.gan.variables()]
+            session.run(v_ops)
             for v in self.gan.variables():
                 session.run(v.initializer)
+            print("Train hook step 0")
+            for train_hook in self.gan.trainer.train_hooks:
+                train_hook.before_step(0,{})
+            print("Loading model, if available")
             if self.gan.load(self.save_file):
                 print("Model loaded")
             else:

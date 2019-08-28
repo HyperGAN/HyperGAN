@@ -14,6 +14,7 @@ import numpy as np
 import inspect
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
+from hypergan.viewer import GlobalViewer
 
 class InputFitnessTrainHook(BaseTrainHook):
   "Keep track of Xs with high discriminator values"
@@ -34,7 +35,7 @@ class InputFitnessTrainHook(BaseTrainHook):
 
     self.sample_batch = self.gan.set_x
     cache_count = self.gan.batch_size()
-    self.cache = [tf.Variable(tf.zeros_like(self.input[i])) for i in range(len(self.input))]
+    self.cache = [tf.Variable(tf.zeros_like(self.input[i]), trainable=False) for i in range(len(self.input))]
     print("C ", self.cache, self.input)
     self.set_cache = [tf.assign(c, x) for c, x in zip(self.cache, self.input)]
     if self.config.skip_restore is None:

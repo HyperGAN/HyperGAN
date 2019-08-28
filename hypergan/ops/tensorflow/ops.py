@@ -7,7 +7,7 @@ import importlib
 import hypergan
 from tensorflow.python.ops.variables import RefVariable
 from hypergan.ops.tensorflow import layer_regularizers
-from hypergan.ops.tensorflow.activations import lrelu, selu
+from hypergan.ops.tensorflow.activations import lrelu, selu, swish
 from hypergan.ops.tensorflow.extended_ops import *
 from hypergan.ops.tensorflow.sn import spectral_normed_weight
 class TensorflowOps:
@@ -55,7 +55,7 @@ class TensorflowOps:
             raise Exception("initializer not found", name)
 
     def assert_tensor(self, net):
-        if type(net) != tf.Tensor and type(net) != tf.Variable and type(net) != RefVariable:
+        if type(net) != tf.Tensor and not isinstance(net, tf.Variable) and type(net) != RefVariable:
             raise Exception("Expected a Tensor but received", net)
 
     def add_weights(self, weights):
@@ -153,8 +153,8 @@ class TensorflowOps:
             initializer = self.initializer
         initializer = initializer(shape)
         weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
-        if not self._reuse:
-            self.weights.append(weight)
+        self.weights.append(weight)
+        self.weights = list(set(self.weights))
         if hasattr(self, 'runtime_coef'):
             weight *= self.runtime_coef
             delattr(self, "runtime_coef") # todo, better way to pass variables from initialiszer
@@ -164,8 +164,8 @@ class TensorflowOps:
         if name == None:
             name='b'
         bias = tf.get_variable(name, shape, initializer=tf.constant_initializer(constant, dtype=self.dtype), dtype=self.dtype, trainable=trainable)
-        if not self._reuse:
-            self.biases.append(bias)
+        self.biases.append(bias)
+        self.biases = list(set(self.biases))
         return bias
     
     def parse_dtype(self, dtype):
@@ -698,6 +698,8 @@ class TensorflowOps:
         if symbol == 'l2_distance':
             return l2_distance
 
+        if symbol == 'swish':
+            return swish
         return symbol
 
     def lookup_function(self, name):
@@ -708,20 +710,3 @@ class TensorflowOps:
 
     def lookup_class(self, name):
         return self.lookup_function(name)
-
-    def initialize_variables(self, session):
-        with tf.device(self.device):
-            if len(self.variables()) == 0:
-                return
-            init = tf.variables_initializer(self.variables())
-            session.run(init)
-            self.initialized = True
-
-    def new_session(self, tfconfig):
-        if tfconfig is None:
-            tfconfig = tf.ConfigProto(allow_soft_placement=True)
-            #tfconfig = tf.ConfigProto(log_device_placement=True)
-            tfconfig.gpu_options.allow_growth=True
-
-        with tf.device(self.device):
-            return tf.Session(config=tfconfig)

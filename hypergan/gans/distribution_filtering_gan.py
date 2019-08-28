@@ -65,7 +65,7 @@ class DistributionFilteringGAN(StandardGAN):
 
             self.android_output = tf.reshape(self.generator.sample, [-1])
 
-            self.session.run(tf.global_variables_initializer())
+            self.initialize_variables()
 
     def g_vars(self):
         return self.latent.variables() + self.generator.variables() + self.noise_generator.variables()

@@ -47,11 +47,6 @@
     "class": "function:hypergan.losses.logistic_loss.LogisticLoss",
     "reduce": "reduce_mean"
   },
-  "fixed_input": true,
-  "trainer": {
-    "class": "function:hypergan.trainers.batch_fitness_trainer.BatchFitnessTrainer",
-    "heuristic": 0,
-    "search_steps": 100000,
     "trainer": {
       "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
       "optimizer": {
@@ -75,10 +70,22 @@
 
       },
       "hooks":[
+
         {
-          "class": "function:hypergan.train_hooks.experimental.input_fitness_train_hook.InputFitnessTrainHook",
-          "heuristic": 0,
-          "search_steps": 100000
+          "class": "function:hypergan.train_hooks.experimental.rolling_memory_train_hook.RollingMemoryTrainHook",
+          "types": ["mx/mg"],
+          "reverse_mg": true,
+          "top_k": 1
+        },
+        {
+          "class": "function:hypergan.train_hooks.experimental.rolling_memory_train_hook.RollingMemoryTrainHook",
+          "types": ["mg/g"],
+          "top_k": 1
+        },
+        {
+          "class": "function:hypergan.train_hooks.experimental.rolling_memory_train_hook.RollingMemoryTrainHook",
+          "types": ["mx/mg", "mg/g"],
+          "top_k": 1
         },
         {
           "class": "function:hypergan.train_hooks.experimental.match_support_train_hook.MatchSupportTrainHook",
@@ -94,8 +101,8 @@
             "beta2":0.999
           }
         }
+
       ]
-    }
   },
   "runtime": {
     "anysize": true,

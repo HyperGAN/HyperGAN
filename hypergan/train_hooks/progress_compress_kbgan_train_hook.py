@@ -44,7 +44,7 @@ class KBGAN(BaseGAN):
             self.discriminator = self.create_component(config.discriminator, name="discriminator", input=d_input)
             self.loss = self.create_component(config.loss, discriminator=self.discriminator)
             self.trainer = self.create_component(config.trainer)
-            self.session.run(tf.global_variables_initializer())
+            self.initialize_variables()
 
     def create_generator(self, latent, reuse=False):
         return self.create_component(self.config.generator, name="generator", input=latent, reuse=reuse)

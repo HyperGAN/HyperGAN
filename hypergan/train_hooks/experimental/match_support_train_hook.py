@@ -16,9 +16,13 @@ import inspect
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
+from hypergan.viewer import GlobalViewer
+
 class MatchSupportTrainHook(BaseTrainHook):
-  """ Makes d_fake and d_real match by training on a zero-based addition to the input images. """
-  def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook", layer="match_support", variables=["x","g"]):
+  """ 
+    Makes d_fake and d_real balance by running an optimizer.
+  """
+  def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook", layer="match_support", variables=["x","g"], reuse=False):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
     component = getattr(self.gan,self.config.component or "discriminator")
         
@@ -34,58 +38,65 @@ class MatchSupportTrainHook(BaseTrainHook):
         self.zero_g = [tf.assign(m, tf.zeros_like(m)) for m in m_g]
     else:
         self.zero_g = [tf.no_op()]
-    target = getattr(self.gan, self.config.target or "loss")
-    self.target = target
-    d_fake = target.d_fake
-    d_real = target.d_real
-    if self.config.loss == "base":
-        self.loss = tf.reduce_mean(tf.square(d_fake - d_real))*(self.config.loss_lambda or 10000.0)
-    if self.config.loss == "zero":
-        self.loss += tf.reduce_mean(tf.square(d_fake))*10000.0
-    if self.config.loss == "wgan":
-        self.loss = tf.reduce_mean(tf.square(d_fake))*10000.0
-        self.loss += tf.reduce_mean(tf.square(d_real))*10000.0
-    if self.config.loss == "close":
-        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(-d_fake-0.1)))*1000.0
-        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(d_fake-0.1)))*1000.0
-    if self.config.loss == "close2":
-        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.1))))*1000.0
-        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.1))))*1000.0
-    if self.config.loss == 'fixed':
-        self.loss = tf.reduce_mean(tf.square(tf.reduce_mean(d_fake - d_real)))*(self.config.loss_lambda or 10000.0)
-    if self.config.loss == 'fixed2':
-        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
-    if self.config.loss == 'ali2':
-        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(self.gan.standard_loss.d_real) - tf.reduce_mean(self.gan.standard_loss.d_fake))))*(self.config.loss_lambda or 10000.0)
-        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(self.gan.z_loss.d_real) - tf.reduce_mean(self.gan.z_loss.d_fake))))*(self.config.loss_lambda or 10000.0)
+    self.loss = tf.zeros([1], dtype=tf.float32)
+    losses = gan.losses
+    if self.config.targets:
+        losses = [getattr(gan, target) for target in self.config.targets]
+    for loss in losses:
+        d_fake = loss.d_fake
+        d_real = loss.d_real
+        if self.config.loss == "base":
+            self.loss += tf.reduce_mean(tf.square(d_fake - d_real))*(self.config.loss_lambda or 10000.0)
+        if self.config.loss == "zero":
+            self.loss += tf.reduce_mean(tf.square(d_fake))*10000.0
+        if self.config.loss == "wgan":
+            self.loss = tf.reduce_mean(tf.square(d_fake))*10000.0
+            self.loss += tf.reduce_mean(tf.square(d_real))*10000.0
+        if self.config.loss == "close":
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(-d_fake-0.1)))*1000.0
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(d_fake-0.1)))*1000.0
+        if self.config.loss == "close2":
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.1))))*1000.0
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.1))))*1000.0
+        if self.config.loss == 'fixed':
+            self.loss += tf.reduce_mean(tf.square(tf.reduce_mean(d_fake - d_real)))*(self.config.loss_lambda or 10000.0)
+        if self.config.loss == 'fixedstd':
+            self.loss += tf.reduce_mean(tf.nn.relu(tf.reduce_mean(tf.log(tf.nn.sigmoid(d_real)) - tf.log(tf.nn.sigmoid(d_fake)))))*(self.config.loss_lambda or 10000.0)
 
-    if self.config.loss == 'fixed5':
-        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
-        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.01))))*10000.0
-        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.01))))*10000.0
-        self.gan.add_metric('d_fake_ms', tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.01))))*10000.0)
-        self.gan.add_metric('ms_loss', self.loss)
-    if self.config.loss == 'fixed7':
-        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.01))))*10000.0
-        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.01))))*10000.0
-    if self.config.loss == 'd1':
-        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.01))))*10000.0
-        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.01))))*10000.0
- 
-    if self.config.loss == "fixed3":
-        self.loss = tf.reduce_mean(tf.square(d_real+0.05))*1000.0
-        self.loss += tf.reduce_mean(tf.square(d_fake-0.05))*1000.0
-    if self.config.loss == 'fixed4':
-        self.loss = tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
-        self.loss += tf.reduce_mean(tf.square(tf.nn.relu(-d_fake)))*(self.config.loss_lambda or 10000.0)
-    if self.config.loss == 'targets':
-        self.loss = tf.reduce_mean(tf.square(-d_fake-1e3))*(self.config.loss_lambda or 10000.0)
-        self.loss += tf.reduce_mean(tf.square(d_real-1e3))*(self.config.loss_lambda or 10000.0)
-    if self.config.loss == 'absdiff':
-        self.loss = tf.reduce_mean(tf.square(tf.abs(d_fake)-tf.abs(d_real)))*(self.config.loss_lambda or 10000.0)
-    if self.config.loss == 'xor':
-        self.loss = tf.reduce_mean(tf.square(d_fake+d_real))*(self.config.loss_lambda or 10000.0)
-        self.loss += tf.reduce_mean(tf.square(tf.abs(d_fake) - 0.01))*1000.0
+            #self.loss = tf.reduce_mean(tf.abs(d_fake - d_real))*(self.config.loss_lambda or 10000.0)
+        if self.config.loss == 'fixed2':
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
+        if self.config.loss == 'ali2':
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(self.gan.standard_loss.d_real) - tf.reduce_mean(self.gan.standard_loss.d_fake))))*(self.config.loss_lambda or 10000.0)
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(self.gan.z_loss.d_real) - tf.reduce_mean(self.gan.z_loss.d_fake))))*(self.config.loss_lambda or 10000.0)
+
+        if self.config.loss == 'fixed5':
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.01))))*10000.0
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.01))))*10000.0
+            self.gan.add_metric('d_fake_ms', tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.01))))*10000.0)
+            self.gan.add_metric('ms_loss', self.loss)
+        if self.config.loss == 'fixed7':
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.01))))*10000.0
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.01))))*10000.0
+        if self.config.loss == 'd1':
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_fake)-(self.config.distance or 0.01))))*10000.0
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.abs(d_real)-(self.config.distance or 0.01))))*10000.0
+     
+        if self.config.loss == "fixed3":
+            self.loss += tf.reduce_mean(tf.square(d_real+0.05))*1000.0
+            self.loss += tf.reduce_mean(tf.square(d_fake-0.05))*1000.0
+        if self.config.loss == 'fixed4':
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(tf.reduce_mean(d_real) - tf.reduce_mean(d_fake))))*(self.config.loss_lambda or 10000.0)
+            self.loss += tf.reduce_mean(tf.square(tf.nn.relu(-d_fake)))*(self.config.loss_lambda or 10000.0)
+        if self.config.loss == 'targets':
+            self.loss += tf.reduce_mean(tf.square(-d_fake-1e3))*(self.config.loss_lambda or 10000.0)
+            self.loss += tf.reduce_mean(tf.square(d_real-1e3))*(self.config.loss_lambda or 10000.0)
+        if self.config.loss == 'absdiff':
+            self.loss += tf.reduce_mean(tf.square(tf.abs(d_fake)-tf.abs(d_real)))*(self.config.loss_lambda or 10000.0)
+        if self.config.loss == 'xor':
+            self.loss += tf.reduce_mean(tf.square(d_fake+d_real))*(self.config.loss_lambda or 10000.0)
+            self.loss += tf.reduce_mean(tf.square(tf.abs(d_fake) - 0.01))*1000.0
 
 
 
@@ -98,7 +109,7 @@ class MatchSupportTrainHook(BaseTrainHook):
         if "g" == v:
             [var_list.append(m) for m in m_g]
             continue
-        var_list.append(getattr(self.gan, v).variables())
+        var_list.append(getattr(self.gan, v).trainable_variables())
     self.initial_learn_rate = self.config.optimizer.learn_rate
     self.learn_rate = tf.Variable(self.config.optimizer.learn_rate)
     self.config.optimizer['learn_rate']=self.learn_rate
@@ -114,7 +125,7 @@ class MatchSupportTrainHook(BaseTrainHook):
     last_loss = begin
     if last_loss < self.config.loss_threshold:
         if self.config.verbose:
-            print(self.config.component, "> Loss begin " + str(begin) + " skipping training")
+            print(self.config.name, "> Loss begin " + str(begin) + " skipping training")
         return
     learn_rate = self.initial_learn_rate / 2*(depth+1)
     feed_dict[self.learn_rate] = learn_rate
@@ -147,7 +158,7 @@ class MatchSupportTrainHook(BaseTrainHook):
             print("No convergence, decreasing learn rate", feed_dict[self.learn_rate], depth, loss)
             return self.before_step(step, feed_dict, depth+1)
 
-    print(self.config.component, "> steps", i, "Loss begin " + str(begin) + " Loss end "+str(i)+":", loss, "lr", feed_dict[self.learn_rate])
+    print(self.config.name, "> steps", i, "Loss begin " + str(begin) + " Loss end "+str(i)+":", loss, "lr", feed_dict[self.learn_rate])
 
   def after_step(self, step, feed_dict):
     self.gan.session.run(self.zero_x+ self.zero_g)

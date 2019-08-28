@@ -159,11 +159,15 @@ class CLI:
             return
 
     def new(self):
-        template = self.args.directory + '.json'
-        print("[hypergan] Creating new configuration file '"+template+"' based off of '"+self.config_name+".json'")
+        if self.args.toml:
+            config_format = '.toml'
+        else:
+            config_format = '.json'
+        template = self.args.directory + config_format
+        print("[hypergan] Creating new configuration file '"+template+"' based off of '"+self.config_name+config_format)
         if os.path.isfile(template):
             raise ValidationException("File exists: " + template)
-        source_configuration = Configuration.find(self.config_name+".json")
+        source_configuration = Configuration.find(self.config_name+config_format, config_format=config_format)
         shutil.copyfile(source_configuration, template)
 
         return

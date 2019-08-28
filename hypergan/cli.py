@@ -241,8 +241,6 @@ class CLI:
             print("Initializing Variables")
             v_ops = [v.initializer for v in self.gan.variables()]
             session.run(v_ops)
-            for v in self.gan.variables():
-                session.run(v.initializer)
             print("Train hook step 0")
             for train_hook in self.gan.trainer.train_hooks:
                 train_hook.before_step(0,{})

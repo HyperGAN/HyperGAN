@@ -4,28 +4,26 @@ import tensorflow as tf
 import inspect
 
 class BaseTrainer(GANComponent):
-    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer", reuse=False):
+    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer"):
         self.current_step = 0
         self.g_vars = g_vars
         self.d_vars = d_vars
         self.train_hooks = []
         
-        GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
+        GANComponent.__init__(self, gan, config, name=name)
 
     def _step(self, feed_dict):
         raise Exception('BaseTrainer _step called directly.  Please override.')
 
     def variables(self):
-        result = self.ops.variables()
-        if hasattr(self, "optimizer"):
-            result += self.optimizer.variables()
-        return result
+        return self.ops.variables() + self.optimizer.variables()
 
     def create(self):
         config = self.config
         g_lr = config.g_learn_rate
         d_lr = config.d_learn_rate
         self.create_called = True
+        self.global_step = tf.train.get_global_step()
         self.d_lr = d_lr
         self.g_lr = g_lr
         for hook_config in (config.hooks or []):
@@ -42,7 +40,7 @@ class BaseTrainer(GANComponent):
             if losses[1] is not None:
                 self.gan.loss.sample[1] += losses[1]
             self.train_hooks.append(hook)
-
+ 
         result = self._create()
 
         for hook in self.train_hooks:

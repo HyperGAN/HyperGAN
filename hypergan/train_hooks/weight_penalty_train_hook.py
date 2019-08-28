@@ -46,7 +46,7 @@ class WeightPenaltyTrainHook(BaseTrainHook):
             d_losses.append(l2nn_penalty)
     if "ortho" in config.constraints:
         penalties = []
-        for w in weights:
+        for w in self.gan.weights():
             print("PENALTY", w)
             w = tf.reshape(w, [-1, self.ops.shape(w)[-1]])
             wt = tf.transpose(w)
@@ -67,6 +67,7 @@ class WeightPenaltyTrainHook(BaseTrainHook):
         d_losses.append(penalty)
 
 
+    print("D_LOSSES", d_losses)
     self.loss = tf.add_n(d_losses)
 
   def losses(self):

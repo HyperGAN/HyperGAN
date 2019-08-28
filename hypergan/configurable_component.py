@@ -9,13 +9,12 @@ from functools import reduce
 
 from hypergan.ops.tensorflow.extended_ops import bicubic_interp_2d
 from .gan_component import GANComponent
-from hypergan.gan_component import ValidationException
 
 class ConfigurationException(Exception):
     pass
 
 class ConfigurableComponent:
-    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[], context={}):
+    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[]):
         self.layers = []
         self.skip_connections = skip_connections
         self.layer_options = {}
@@ -29,11 +28,10 @@ class ConfigurableComponent:
             "combine_features": self.layer_combine_features,
             "concat": self.layer_concat,
             "const": self.layer_const,
-            "const_like": self.layer_const_like,
             "control": self.layer_controls,
             "conv": self.layer_conv,
-            "conv_depth_to_space": self.layer_conv_dts,
             "conv_double": self.layer_conv_double,
+            "conv_dts": self.layer_conv_dts,
             "conv_reshape": self.layer_conv_reshape,
             "crop": self.layer_crop,
             "deconv": self.layer_deconv,
@@ -56,7 +54,6 @@ class ConfigurableComponent:
             "phase_shift": self.layer_phase_shift,
             "pixel_norm": self.layer_pixel_norm,
             "progressive_replace": self.layer_progressive_replace,
-            "reduce_sum": self.layer_reduce_sum,
             "reference": self.layer_reference,
             "relational": self.layer_relational,
             "reshape": self.layer_reshape,
@@ -67,7 +64,6 @@ class ConfigurableComponent:
             "split": self.layer_split,
             "squash": self.layer_squash,
             "subpixel": self.layer_subpixel,
-            "tensorflowcv": self.layer_tensorflowcv,
             "turing_test": self.layer_turing_test,
             "two_sample_stack": self.layer_two_sample_stack,
             "unpool": self.layer_unpool,
@@ -79,7 +75,6 @@ class ConfigurableComponent:
         self.features = features
         self.controls = {}
         self.named_layers = {}
-        self.context = context
         if not hasattr(gan, "named_layers"):
             gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
@@ -94,15 +89,9 @@ class ConfigurableComponent:
             return self.named_layers[name]
         return None
 
-    def build(self, net, replace_controls={}, context={}):
+    def build(self, net, replace_controls={}):
         self.replace_controls=replace_controls
         config = self.config
-
-        for name, layer in self.context.items():
-            self.set_layer(name, layer)
-
-        for name, layer in context.items():
-            self.set_layer(name, layer)
 
         for layer in config.layers:
             net = self.parse_layer(net, layer)
@@ -165,13 +154,15 @@ class ConfigurableComponent:
             for j in new:
                 self.layer_options[j]=options
             after_count = self.count_number_trainable_params()
-            print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
+            print("number of params in layer ", op, args, after_count-before_count)
         else:
             print("ConfigurableComponent: Op not defined", op)
 
         return net
 
     def set_layer(self, name, net):
+        #if options['name'] in self.named_layers and op != 'reference':
+        #    raise ConfigurationException("Named layer " + options['name'] + " with " + str(net) + " already exists as " + str(self.named_layers[options['name']]))
         self.gan.named_layers[name] = net
         self.named_layers[name]     = net
 
@@ -195,77 +186,6 @@ class ConfigurableComponent:
             current_nb_params = get_nb_params_shape(shape)
             tot_nb_params = tot_nb_params + current_nb_params
         return tot_nb_params
-
-    def do_ops_layer(self, op, net, channels, options):
-        options = hc.Config(options)
-        config = self.config
-        ops = self.ops
-
-        self.ops.activation_name = options.activation_name
-        self.ops.activation_trainable = options.trainable
-
-        activation_s = options.activation or self.ops.config_option("activation")
-        activation = self.ops.lookup(activation_s)
-        initializer = None # default to global
-
-        stride, fltr, avg_pool = self.get_conv_options(config, options)
-
-        trainable = True
-        if options.trainable == 'false':
-            trainable = False
-        if options.initializer is not None:
-            initializer = self.ops.lookup_initializer(options.initializer, options)
-
-        name = None
-        if options.name:
-            name = self.ops.description+options.name
-        bias = True
-        if options.bias == 'false':
-            bias=False
-
-
-        for sk in self.skip_connections:
-            if len(ops.shape(sk)) == len(ops.shape(net)) and ops.shape(sk)[1] == ops.shape(net)[1]:
-
-                net = tf.concat([net, sk], axis=3)
-
-        if op == ops.conv2d:
-            net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, initializer=initializer, name=name, trainable=trainable)
-
-        elif op == ops.deconv2d:
-            print("DECONV", net, fltr, stride)
-            net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, name=name, trainable=trainable, bias=bias)
-
-        elif op == ops.linear:
-            net = ops.linear(net, channels, initializer=initializer, name=name, trainable=trainable, bias=bias)
-
-        else:
-            raise ValidationException("Unknown operation" + op)
-
-        if options.reshape is not None:
-            net = tf.reshape(net, [self.ops.shape(net)[0]] + options.reshape)
-
-        if op != ops.linear and (avg_pool[0] > 1 or avg_pool[1] > 1):
-            ksize = [1,avg_pool[0], avg_pool[1],1]
-            stride = ksize
-            net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
-
-        if options.adaptive_instance_norm is not None and len(ops.shape(net)) == 4:
-            net = self.layer_adaptive_instance_norm(net, [channels], {'w': options.adaptive_instance_norm, "activation": "null", "initializer": options.adaptive_instance_norm_initializer})
-
-        if options.adaptive_instance_norm2 is not None and len(ops.shape(net)) == 4:
-            net = self.layer_adaptive_instance_norm2(net, [channels], {"w": options.adaptive_instance_norm2, "activation": "null", "initializer": options.adaptive_instance_norm_initializer})
-
-        if activation:
-            #net = self.layer_regularizer(net)
-            net = activation(net)
-
-        self.ops.activation_name = None
-        self.ops.activation_trainable = None
-
-        return net
-
-
     def layer_filter(self, net, args=[], options={}):
         """
             If a layer filter is defined, apply it.  Layer filters allow for adding information
@@ -289,8 +209,8 @@ class ConfigurableComponent:
         depth = int(args[0])
         activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
-        _, fltr, _ = self.get_conv_options(config, options)
-        stride = [1, 1]
+        stride = options.stride or 1
+        stride = int(stride)
         shortcut = net
         initializer = None # default to global
 
@@ -300,7 +220,7 @@ class ConfigurableComponent:
                 ksize = [1,stride,stride,1]
                 net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
         else:
-            net = ops.conv2d(net, 3, 3, stride[0], stride[1], depth, initializer=initializer)
+            net = ops.conv2d(net, 3, 3, stride, stride, depth, initializer=initializer)
         net = activation(net)
         net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
         if ops.shape(net)[-1] != ops.shape(shortcut)[-1] or stride != 1:
@@ -310,7 +230,7 @@ class ConfigurableComponent:
                     ksize = [1,stride,stride,1]
                     shortcut = tf.nn.avg_pool(shortcut, ksize=ksize, strides=ksize, padding='SAME')
             else:
-                shortcut = ops.conv2d(shortcut, 3, 3, stride[0], stride[1], depth, initializer=initializer)
+                shortcut = ops.conv2d(shortcut, 3, 3, stride, stride, depth, initializer=initializer)
         net = shortcut + net
         net = activation(net)
 
@@ -372,14 +292,82 @@ class ConfigurableComponent:
         return net
 
     def layer_conv(self, net, args, options):
-        if len(args) > 0:
-            channels = int(args[0])
-        else:
-            channels = self.ops.shape(net)[-1]
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
 
-        return self.do_ops_layer(self.ops.conv2d, net, channels, options)
+        self.ops.activation_name = options.activation_name
+        self.ops.activation_trainable = options.trainable
+
+        activation_s = options.activation or self.ops.config_option("activation")
+        activation = self.ops.lookup(activation_s)
+
+        for sk in self.skip_connections:
+            if len(ops.shape(sk)) == len(ops.shape(net)) and ops.shape(sk)[1] == ops.shape(net)[1]:
+
+                net = tf.concat([net, sk], axis=3)
+
+        if (options.adaptive_instance_norm or self.ops.config_option("adaptive_instance_norm")) and len(self.features) > 0:
+            feature = self.features[0]
+            feature = self.layer_linear(feature, [128], options)
+            opts = copy.deepcopy(dict(options))
+            opts['activation']='null'
+            size = self.ops.shape(net)[3]
+            feature = self.layer_linear(feature, [size*2], opts)
+            f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
+            f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
+            net = self.adaptive_instance_norm(net, f1,f2)
+
+
+        stride = options.stride or self.ops.config_option("stride", [2,2])
+        fltr = options.filter or self.ops.config_option("filter", [5,5])
+        if type(fltr) != type([]):
+            fltr = [int(fltr), int(fltr)]
+        if type(stride) != type([]):
+            stride = [int(stride), int(stride)]
+        if len(args) > 0:
+            depth = int(args[0])
+        else:
+            depth = self.ops.shape(net)[-1]
+        initializer = None # default to global
+
+        trainable = True
+        if options.trainable == 'false':
+            trainable = False
+        if options.initializer is not None:
+            initializer = self.ops.lookup_initializer(options.initializer, options)
+        net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable)
+        avg_pool = options.avg_pool or self.ops.config_option("avg_pool")
+        if type(avg_pool) != type([]):
+            avg_pool = [int(avg_pool), int(avg_pool)]
+        if avg_pool:
+            ksize = [1,avg_pool[0], avg_pool[1],1]
+            stride = ksize
+            net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
+
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+
+        self.ops.activation_name = None
+        self.ops.activation_trainable = None
+
+        return net
+
 
     def layer_linear(self, net, args, options):
+
+        options = hc.Config(options)
+        ops = self.ops
+        config = self.config
+        fltr = options.filter or self.ops.config_option("filter")
+
+        self.ops.activation_name = options.activation_name
+        self.ops.activation_trainable = options.trainable
+
+        activation_s = options.activation or self.ops.config_option("activation")
+        activation = self.ops.lookup(activation_s)
+
 
         if "*" in str(args[0]):
             reshape = [int(x) for x in args[0].split("*")]
@@ -387,10 +375,32 @@ class ConfigurableComponent:
         else:
             size = int(args[0])
             reshape = None
-        net = self.ops.reshape(net, [self.ops.shape(net)[0], -1])
+        net = ops.reshape(net, [ops.shape(net)[0], -1])
 
-        options['reshape'] = reshape
-        net = self.do_ops_layer(self.ops.linear, net, size, options)
+        trainable = True
+        if options.trainable == 'false':
+            trainable = False
+        bias = True
+        if options.bias == 'false':
+            bias=False
+
+        if options.initializer is not None:
+            initializer = self.ops.lookup_initializer(options.initializer, options)
+        else:
+            initializer = None
+        name = None
+        if options.name:
+            name = self.ops.description+options.name
+        net = ops.linear(net, size, initializer=initializer, name=name, trainable=trainable, bias=bias)
+
+        if reshape is not None:
+            net = tf.reshape(net, [ops.shape(net)[0]] + reshape)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+
+        self.ops.activation_name = None
+        self.ops.activation_trainable = None
 
         return net
 
@@ -406,9 +416,9 @@ class ConfigurableComponent:
         stride=options.stride or self.ops.shape(net)[1]
         stride=int(stride)
         ksize = [1,stride,stride,1]
+        size = [int(x) for x in options.slice.replace("batch_size",str(self.gan.batch_size())).split("*")]
 
         if options.slice:
-            size = [int(x) for x in options.slice.replace("batch_size",str(self.gan.batch_size())).split("*")]
             net = tf.slice(net, [0,0,0,0], size)
         net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
 
@@ -467,15 +477,7 @@ class ConfigurableComponent:
         c_std = tf.sqrt(c_var + epsilon)
         return (1+gamma) * ((content - c_mean) / c_std) + beta
 
-    # https://github.com/ftokarev/tf-adain/blob/master/adain/norm.py
-    def adaptive_instance_norm2(self, content, style, epsilon=1e-5):
-        axes = [1, 2]
 
-        c_mean, c_var = tf.nn.moments(content, axes=axes, keep_dims=True)
-        s_mean, s_var = tf.nn.moments(style, axes=axes, keep_dims=True)
-        c_std, s_std = tf.sqrt(c_var + epsilon), tf.sqrt(s_var + epsilon)
-
-        return s_std * (content - c_mean) / c_std + s_mean
 
     def layer_image_statistics(self, net, args, options):
         s = self.ops.shape(net)
@@ -516,8 +518,6 @@ class ConfigurableComponent:
         start = int(args[0])
         size = int(args[1])
         bs = self.gan.batch_size()
-        if self.ops.shape(net)[1] < start + size:
-            raise ValidationException("start " + str(start) + " + size " + str(size) + " of slice is larger than input: "+str(self.ops.shape(net)[1]))
         return tf.slice(net, [0, start], [bs, size])
 
 
@@ -567,9 +567,39 @@ class ConfigurableComponent:
         config = self.config
         ops = self.ops
 
-        net = self.do_ops_layer(self.ops.conv2d, net, int(args[0]*4), options)
+        self.ops.activation_name = options.activation_name
+        activation_s = options.activation or self.ops.config_option("activation")
+        activation = self.ops.lookup(activation_s)
+
+        stride = options.stride or self.ops.config_option("stride", [1,1])[0]
+        stride = int(stride)
+        fltr = options.filter or self.ops.config_option("filter", [3,3])
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+        depth = int(args[0])
+
+        initializer = None # default to global
+
+        trainable = True
+        if options.trainable == 'false':
+            trainable = False
+        bias = True
+        if options.bias == 'false':
+            bias=False
+        net = ops.conv2d(net, fltr[0], fltr[1], stride, stride, depth*4, initializer=initializer, trainable=trainable, bias=bias)
         s = ops.shape(net)
         net = tf.depth_to_space(net, 2)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
+
+        avg_pool = options.avg_pool or self.ops.config_option("avg_pool")
+        if type(avg_pool) == type(""):
+            avg_pool = [int(avg_pool), int(avg_pool)]
+        if avg_pool:
+            ksize = [1,avg_pool[0], avg_pool[1],1]
+            stride = ksize
+            net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
 
         return net
 
@@ -585,6 +615,17 @@ class ConfigurableComponent:
         config = self.config
         ops = self.ops
 
+        activation_s = options.activation or self.ops.config_option("activation")
+        activation = self.ops.lookup(activation_s)
+
+        stride = options.stride or self.ops.config_option("stride", [1,1])
+        fltr = options.filter or self.ops.config_option("filter", [5,5])
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+        depth = int(args[0])
+        initializer = None # default to global
+
+        original = net
         net = tf.image.resize_images(net, [options.w or ops.shape(net)[1]*2, options.h or ops.shape(net)[2]*2],1)
 
         if options.concat:
@@ -593,11 +634,19 @@ class ConfigurableComponent:
                 extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
             net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
 
-        options = options.copy()
-        options['stride'] = 1
-        options['avg_pool'] = 1
+        net = self.layer_conv(net, args, options)
 
-        return self.do_ops_layer(self.ops.conv2d, net, int(args[0]), options)
+        if options.mask_with:
+            extra = self.layer(options.mask_with)
+            mask = tf.image.resize_images(original, [ops.shape(original)[1]*2, ops.shape(original)[2]*2],1)
+            options['activation'] = 'sigmoid'
+            mask = self.layer_conv(mask, [1], options)
+            mask = tf.tile(mask, [1,1,1,3])
+            if options.mask_square:
+                mask = tf.square(mask)
+            net = (1 - mask) * net + mask * extra
+
+        return net
 
     def layer_bicubic_conv(self, net, args, options):
         s = self.ops.shape(net)
@@ -605,28 +654,47 @@ class ConfigurableComponent:
         net = self.layer_conv(net, args, options)
         return net
 
-    def get_conv_options(self, config, options):
-        stride = options.stride or self.ops.config_option("stride", [1,1])
-        fltr = options.filter or self.ops.config_option("filter", [3,3])
-        avg_pool = options.avg_pool or self.ops.config_option("avg_pool", [1,1])
+    def layer_deconv(self, net, args, options):
+        options = hc.Config(options)
+        config = self.config
+        ops = self.ops
+
+        self.ops.activation_name = options.activation_name
+        self.ops.activation_trainable = options.trainable
+
+        activation_s = options.activation or self.ops.config_option("activation")
+        activation = self.ops.lookup(activation_s)
+
+        stride = options.stride or self.ops.config_option("stride", [2,2])
+        fltr = options.filter or self.ops.config_option("filter", [5,5])
+        depth = int(args[0])
 
         if type(stride) != type([]):
             stride = [int(stride), int(stride)]
 
-        if type(avg_pool) != type([]):
-            avg_pool = [int(avg_pool), int(avg_pool)]
+        initializer = None # default to global
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
 
-        if type(fltr) != type([]):
-            fltr = [int(fltr), int(fltr)]
-        return stride, fltr, avg_pool
+        trainable = True
+        if options.trainable == 'false':
+            trainable = False
+        bias = True
+        if options.bias == 'false':
+            bias=False
+        if options.initializer is not None:
+            initializer = self.ops.lookup_initializer(options.initializer, options)
+        net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], depth, initializer=initializer, name=options.name, trainable=trainable, bias=bias)
+        if activation:
+            #net = self.layer_regularizer(net)
+            net = activation(net)
 
+        self.ops.activation_trainable = None
+        self.ops.activation_name = None
+        return net
 
-    def layer_deconv(self, net, args, options):
-        return self.do_ops_layer(self.ops.deconv2d, net, int(args[0]), options)
 
     def layer_conv_double(self, net, args, options):
-        options["stride"] = 1
-        options["avg_pool"] = 1
         x1 = self.layer_conv(net, args, options)
         y1 = self.layer_conv(net, args, options)
         x2 = self.layer_conv(net, args, options)
@@ -641,10 +709,9 @@ class ConfigurableComponent:
         ops = self.ops
         options = hc.Config(options)
         gan = self.gan
-
-        oj_lambda = 1.0
-        if "lambda" in options:
-            oj_lambda = options["lambda"]
+        oj_lambda = options["lambda"]
+        if oj_lambda is None:
+            oj_lambda = 1.0
         c_scale = float(options.c_scale or 8)
 
         def _flatten(_net):
@@ -717,10 +784,14 @@ class ConfigurableComponent:
 
         activation_s = options.activation or self.ops.config_option("activation")
         activation = self.ops.lookup(activation_s)
-        depth = int(args[0])
 
-        _, fltr, _ = self.get_conv_options(config, options)
-        stride = [1, 1]
+        stride = options.stride or self.ops.config_option("stride", [1,1])
+        fltr = options.filter or self.ops.config_option("filter", [3,3])
+        if type(fltr) == type(""):
+            fltr=[int(fltr), int(fltr)]
+        if type(stride) == type(""):
+            stride=[int(stride), int(stride)]
+        depth = int(args[0])
 
         initializer = None # default to global
 
@@ -861,7 +932,6 @@ class ConfigurableComponent:
         options = hc.Config(options)
         depth = int(args[0])
         config = self.config
-        options["stride"]=1
         activation = options.activation or self.ops.config_option("activation")
         r = options.r or 2
         r = int(r)
@@ -879,65 +949,6 @@ class ConfigurableComponent:
         y1 = self.layer_conv(net, args, options)
         ps = _PS(y1, r, depth)
         return ps
-
-    def layer_tensorflowcv(self, net, args, options):
-        import tensorflowcv as tfcv
-        from tensorflowcv.model_provider import get_model as tfcv_get_model
-        from tensorflowcv.model_provider import init_variables_from_state_dict as tfcv_init_variables_from_state_dict
-        pretrained = "pretrained" in args
-        data_format = "channels_last"
-        if not hasattr(tfcv, 'VERSION') or "hypergan" not in tfcv.VERSION:
-            print("We use modified fork of tensorflowcv.  Clone https://github.com/HyperGAN/imgclsmob and run 'python setup.py develop'.")
-            exit(-1)
-
-        assert self.ops.shape(net)[1] == 224
-        assert self.ops.shape(net)[2] == 224
-        if not hasattr(self.gan, 'tensorflowcv'):
-            self.gan.tensorflowcv = {}
-            self.gan.tensorflowcv_weights = {}
-
-        name=self.ops.generate_name()
-        layer_index = -1
-        if "layer_index" in options:
-            layer_index = int(options["layer_index"])
-        trainable = True
-        if "trainable" in options:
-            if options["trainable"].lower() == "false":
-                trainable = False
-
-        before = tf.trainable_variables()
-        weights = None
-        with tf.variable_scope(name, reuse=self.ops._reuse):
-            if name in self.gan.tensorflowcv:
-                tfcvnet = self.gan.tensorflowcv[name]
-                weights = self.gan.tensorflowcv_weights[name]
-            else:
-                tfcvnet = tfcv_get_model(args[0], pretrained=pretrained, data_format="channels_last", layer_index=layer_index)
-        self.gan.tensorflowcv[name]= tfcvnet
-        result = tfcvnet(net)
-        after = tf.trainable_variables()
-
-        weights = list(set(after) - set(before))
-        if len(weights) > 0:
-            weights = list(set(after) - set(before))
-            if trainable:
-                self.gan.ops.weights += weights
-                assert weights[0] in tf.trainable_variables()
-                assert weights[0] in self.gan.variables()
-            if pretrained:
-                if not hasattr(self, "do_not_initialize"):
-                    self.gan.do_not_initialize = []
-                self.gan.do_not_initialize += weights
-                assert weights[0] in self.gan.do_not_initialize
-                tfcv_init_variables_from_state_dict(sess=self.gan.session, state_dict=tfcvnet.state_dict)
-                print("Loaded pretrained weights: tensorflowcv " + args[0], len(weights))
-            else:
-                for w in weights:
-                    self.gan.session.run(w.initializer)
-                print("Initialized weights (not pretrained): tensorflowcv " + args[0], len(weights))
-
-        self.gan.tensorflowcv_weights[name]= weights
-        return result
 
     def layer_crop(self, net, args, options):
         options = hc.Config(options)
@@ -980,6 +991,7 @@ class ConfigurableComponent:
 
     def layer_latent(self, net, args, options):
         return self.gan.latent.sample
+        return tf.random_uniform([self.ops.shape(net)[0], args[0]], -1, 1)
 
     def layer_layer(self, net, args, options):
         options = hc.Config(options)
@@ -1132,20 +1144,12 @@ class ConfigurableComponent:
         #f2 = self.layer_linear(f, [w], options)
         opts = copy.deepcopy(dict(options))
         size = self.ops.shape(net)[3]
-        if "activation" not in opts:
-            opts["activation"]="null"
+        opts["activation"]="null"
         feature = self.layer_linear(f, [size*2], opts)
         f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
         f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
         net = self.adaptive_instance_norm(net, f1,f2)
         return net
-
-    def layer_adaptive_instance_norm2(self, net, args, options):
-        if 'w' in options:
-            f = self.layer(options['w'])
-        else:
-            f = self.layer('w')
-        return self.adaptive_instance_norm2(net, f)
 
     def layer_zeros_like(self, net, args, options):
         return tf.zeros_like(net)
@@ -1161,25 +1165,6 @@ class ConfigurableComponent:
             initializer = self.ops.lookup_initializer(options["initializer"], options)
         with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
             return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
-
-    def layer_const_like(self, net, args, options):
-        options = hc.Config(options)
-        s = self.ops.shape(self.layer(args[0]))
-        s[0] = 1
-        trainable = True
-        if "trainable" in options and options["trainable"] == "false":
-            trainable = False
-        initializer = None
-        if "initializer" in options and options["initializer"] is not None:
-            initializer = self.ops.lookup_initializer(options["initializer"], options)
-        with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
-            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
-
-    def layer_reduce_sum(self, net, args, options):
-        net = tf.reduce_sum(net, axis=[1,2,3])
-        return net
-
-
 
     def layer_reference(self, net, args, options):
         options = hc.Config(options)

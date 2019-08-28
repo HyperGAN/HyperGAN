@@ -11,6 +11,7 @@ class BaseSampler:
     def _sample(self):
         raise "raw _sample method called.  You must override this"
 
+
     def compatible_with(gan):
         return False
 
@@ -27,7 +28,7 @@ class BaseSampler:
             width = min(width, np.shape(data)[0])
             stacks = [np.hstack(data[i*width:i*width+width]) for i in range(np.shape(data)[0]//width)]
             sample_data = np.vstack(stacks)
-            image = self.plot(sample_data, path, save_samples)
+            self.plot(sample_data, path, save_samples)
             sample_name = 'generator'
             samples = [[sample_data, sample_name]]
 
@@ -62,4 +63,3 @@ class BaseSampler:
                 print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
                 print(e)
         GlobalViewer.update(self.gan, image)
-        return image

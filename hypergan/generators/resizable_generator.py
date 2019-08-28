@@ -50,14 +50,7 @@ class ResizableGenerator(ConfigurableGenerator):
         initial_depth = np.minimum(depths[0], config.max_depth or 512)
         str_depth = str(primes[0])+"*"+str(primes[1])+"*"+str(initial_depth)
         new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
-
-        if config.adaptive_instance_norm:
-            w = latent
-            for i in range(config.adaptive_instance_norm_layers or 2):
-                w = self.do_layer(self.layer_linear, w, [512], {"adaptive_instance_norm_off": True})
-            w = self.layer_identity(w, ["w"], {})
-
-        net = self.do_layer(self.layer_linear, net, [str_depth], {})
+        net = self.layer_linear(net, [str_depth], {"initializer": "stylegan"})
         net = ops.reshape(net, new_shape)
         print("Generator Architecture:")
         print("linear "+str_depth)
@@ -71,6 +64,14 @@ class ResizableGenerator(ConfigurableGenerator):
 
         filter_size = config.filter or 3
 
+
+        if config.adaptive_instance_norm:
+            w = latent
+            for i in range(config.adaptive_instance_norm_layers or 2):
+                w = self.layer_linear(w, [512], {})
+            w = self.layer_identity(w, ["w"], {})
+            net = self.layer_adaptive_instance_norm(net, [], {})
+
         for i, depth in enumerate(depths[1:]):
             s = ops.shape(net)
             resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
@@ -78,24 +79,18 @@ class ResizableGenerator(ConfigurableGenerator):
             self.add_progressive_enhancement(net)
             dep = np.minimum(depth, config.max_depth or 512)
             print(block + " " + str(dep))
-            options = {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3}
             if block == 'deconv':
-                options['stride'] = 2
-                net = self.do_layer(self.layer_deconv, net, [dep], options)
+                net = self.layer_deconv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3})
             elif block == 'subpixel':
-                net = self.do_layer(self.layer_subpixel, net, [dep], options)
+                net = self.layer_subpixel(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
             elif block == 'resize_conv':
-                net = self.do_layer(self.layer_resize_conv, net, [dep], options)
-            elif block == 'bicubic_conv':
-                net = self.do_layer(self.layer_bicubic_conv, net, [dep], options)
-            elif block == 'conv_depth_to_space':
-                net = self.do_layer(self.layer_conv_dts, net, [dep], options)
-            elif block == 'conv_double':
-                net = self.do_layer(self.layer_conv_double, net, [dep], options)
-            elif block == 'conv_reshape':
-                net = self.do_layer(self.layer_conv_reshape, net, [dep], options)
+                net = self.layer_resize_conv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3})
             else:
-                raise ValidationException("Unknown block type")
+                net = ops.resize_images(net, resize, config.resize_image_type or 1)
+                net = block(self, net, depth, filter=filter_size, padding=padding)
+
+            if config.adaptive_instance_norm:
+                net = self.layer_adaptive_instance_norm(net, [], {})
 
             size = resize[0]*resize[1]*depth
 
@@ -106,46 +101,28 @@ class ResizableGenerator(ConfigurableGenerator):
         dep = config.channels or gan.channels()
         print(block + " " + str(dep))
 
-        options = {"avg_pool": 1, "stride": 1, "filter": 3, "activation": "null"}
-        needs_resize = True
-
         if block == 'deconv':
-            options["stride"] = 2
-            net = self.do_layer(self.layer_deconv, net, [dep], options)
+            if resize != [e*2 for e in ops.shape(net)[1:3]]:
+                net = self.layer_deconv(net, [dep], {"initializer": "he_normal", "avg_pool": 1, "stride": 2, "filter": 3, "activation": config.final_activation or "tanh"})
+                net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
+            else:
+                net = ops.deconv2d(net, 5, 5, 2, 2, dep)
 
         elif block == "subpixel":
-            net = self.do_layer(self.layer_subpixel, net, [dep], options)
+            if resize != [e*2 for e in ops.shape(net)[1:3]]:
+                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
+                net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
+            else:
+                net = self.layer_subpixel(net, [dep], {"avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
 
         elif block == "resize_conv":
-            options["w"] = resize[0]
-            options["h"] = resize[1]
-            net = self.do_layer(self.layer_resize_conv, net, [dep], options)
-            needs_resize = False
+            net = self.layer_resize_conv(net, [dep], {"w": resize[0], "h": resize[1], "avg_pool": 1, "stride": 1, "filter": 3, "activation": config.final_activation or "tanh"})
 
-        elif block == "bicubic_conv":
-            net = self.do_layer(self.layer_bicubic_conv, net, [dep], options)
+        else:
+            net = ops.resize_images(net, resize, config.resize_image_type or 1)
+            net = block(self, net, dep, filter=config.final_filter or 3, padding=padding)
 
-        elif block == "conv_depth_to_space":
-            net = self.do_layer(self.layer_conv_dts, net, [dep], options)
-
-        elif block == "conv_double":
-            net = self.do_layer(self.layer_conv_double, net, [dep], options)
-
-        elif block == "conv_reshape":
-            net = self.do_layer(self.layer_conv_reshape, net, [dep], options)
-
-        if needs_resize and resize != ops.shape(net)[1:3]:
-            net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
-
-        final_activation = self.ops.lookup(config.final_activation or "tanh")
-        net = final_activation(net)
 
         return net
 
-    def do_layer(self, layer_fn, net, args, overrides):
-        options = self.config.copy()
-        options.update(overrides)
-        if layer_fn == self.layer_linear:
-            if "initializer" not in options:
-                options["initializer"] = "stylegan"
-        return layer_fn(net, args, options)
+

@@ -21,14 +21,12 @@ class CommandParser:
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
-        parser.add_argument('--random_crop', dest='random_crop', action='store_true', help='Randomly crop images.')
         parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
-        parser.add_argument('--align', '-a', nargs='?', dest='align', help='Adds an additional input folder.')
+        parser.add_argument('--align', dest='align', help='Align classes.  Takes a directory of data to align with.')
         parser.add_argument('--save_every', type=int, default=-1, help='Saves the model every n steps.')
-        parser.add_argument('--sample_every', type=int, default=100, help='Saves a sample every X steps.')
+        parser.add_argument('--sample_every', type=int, default=5, help='Saves a sample every X steps.')
         parser.add_argument('--save_samples', action='store_true', help='Saves samples to the local `samples` directory.')
-        parser.add_argument('--sampler', type=str, default=None, help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
-        parser.add_argument('--save_file', type=str, default=None, help='The save file to load and save from.  Use gs://bucket/mymodel/model.ckpt for TPU saving')
+        parser.add_argument('--sampler', type=str, default='static_batch', help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--sequential', dest='sequential', action='store_true', help='Input will not be shuffled.  Can be used to simulate online learning for streaming data')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
@@ -39,9 +37,6 @@ class CommandParser:
         parser.add_argument('--debug', dest='debug', action='store_true', help='Start the tensorflow debugger.')
         parser.add_argument('--version', action='version', version='%(prog)s 0.10.0 alpha')
         parser.add_argument('--nomenu', dest='menu', action='store_false', help='Disables the file menu.')
-        parser.add_argument('--width', '-w', type=int, default=8, help='Number of samples per row')
-        parser.add_argument('--loss_every', type=int, default=1, help='Saves a losses graph every X steps.')
-        parser.add_argument('--save_losses', action='store_true', help='Saves losses graph to the local `losses` directory.')
 
     def get_parser(self):
         parser = argparse.ArgumentParser(description='Train, run, and deploy your GANs.', add_help=True)
@@ -100,26 +95,14 @@ if args.list_templates:
         if template.runtime and "train" in template.runtime:
             print("  > %s" %  (template.runtime["train"]))
     exit(0)
-if args.method == 'new' or args.method == 'test':
-    gan = None
-    pass
+if not args.align:
+    if args.method == 'new' or args.method == 'test':
+        gan = None
+        pass
 
-else:
-    def gan_fn(config, inputs, distribution_strategy=None, session=None, reuse=False):
-        gan = hg.GAN(config=config, inputs=inputs, debug=args.debug, device=args.device, distribution_strategy=distribution_strategy, session=session, reuse=reuse)
-        gan.args = args
-        gan.x_width = width
-        gan.x_height = height
-        gan.x_channels = channels
-        gan.name = config_name
-        return gan
-
-    def inputs_fn():
+    else:
         inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-        directories = [args.directory]
-        if args.align:
-            directories+=args.align.split(" ")
-        inputs.create(directories,
+        inputs.create(args.directory,
               channels=channels, 
               format=args.format,
               crop=args.crop,
@@ -127,8 +110,32 @@ else:
               width=width,
               height=height,
               resize=args.resize)
-        return inputs
+
+        gan = hg.GAN(config=config, inputs=inputs, debug=args.debug)
+        gan.args = args
+        gan.x_width = width
+        gan.x_height = height
+        gan.x_channels = channels
+        gan.name = config_name
+else:
+    inputs = hg.inputs.multi_image_loader.MultiImageLoader(args.batch_size)
+    inputs.create([args.directory, args.align],
+          channels=channels, 
+          format=args.format,
+          sequential=args.sequential,
+          crop=args.crop,
+          width=width,
+          height=height,
+          resize=args.resize)
+
+    gan = hg.GAN(config=config, inputs=inputs)
+    gan.args = args
+    gan.x_width = width
+    gan.x_height = height
+    gan.x_channels = channels
+    gan.name = config_name
 
 
-gancli = cli.CLI(args=vars(args), gan_fn=gan_fn, inputs_fn=inputs_fn, gan_config=config)
+gancli = cli.CLI(gan, args=vars(args))
+del gan
 gancli.run()

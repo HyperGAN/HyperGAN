@@ -19,10 +19,6 @@ class WeightConstraintTrainHook(BaseTrainHook):
     self.max = self.gan.configurable_param(self.config.max)
     self.decay = self.gan.configurable_param(self.config.decay)
     allvars = self.gan.variables()
-    if self.config.components:
-        allvars = []
-        for c in self.config.components:
-            allvars += getattr(self.gan, c).variables()
     self.update_weight_constraints = [self._update_weight_constraint(v,i) for i,v in enumerate(allvars)]
     self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
 

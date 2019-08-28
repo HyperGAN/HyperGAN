@@ -14,7 +14,6 @@ import numpy as np
 from tensorflow.python.framework import ops
 from tensorflow.python.tools import freeze_graph
 from tensorflow.python.tools import optimize_for_inference_lib
-from tensorflow.python.framework.errors_impl import FailedPreconditionError 
 
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.progressive_sampler import ProgressiveSampler
@@ -35,7 +34,7 @@ from hypergan.samplers.gang_sampler import GangSampler
 
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps, graph=None,
-            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan", distribution_strategy=None, reuse=False):
+            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan"):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
@@ -46,11 +45,9 @@ class BaseGAN(GANComponent):
         self._width = width
         self._height = height
         self._channels = channels
-        self.reuse = reuse
         self.debug = debug
         self.name = name
         self.session = session
-        self.distribution_strategy = distribution_strategy
         self.skip_connections = SkipConnections()
         self.destroy = False
         if graph is None:
@@ -63,8 +60,6 @@ class BaseGAN(GANComponent):
         if debug and not isinstance(self.session, tf_debug.LocalCLIDebugWrapperSession):
             self.session = tf_debug.LocalCLIDebugWrapperSession(self.session)
             self.session.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
-        elif "/tpu" in self.device:
-            pass
         else:
             tfconfig = tf.ConfigProto(allow_soft_placement=True)
             #tfconfig = tf.ConfigProto(log_device_placement=True)
@@ -73,18 +68,20 @@ class BaseGAN(GANComponent):
             with tf.device(self.device):
                 self.session = self.session or tf.Session(config=tfconfig, graph=graph)
 
+        self.global_step = tf.Variable(0, trainable=False, name='global_step')
+        self.steps = tf.Variable(0, trainable=False, name='global_step')
+        self.increment_step = tf.assign(self.steps, self.steps+1)
         if config.fixed_input:
             self.feed_x = self.inputs.x
-            self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x), trainable=False)
-            self.session.run(self.inputs.x.initializer)
+            self.inputs.x = tf.Variable(tf.zeros_like(self.feed_x))
             self.set_x = tf.assign(self.inputs.x, self.feed_x)
 
         if config.fixed_input_xa:
             self.feed_x = self.inputs.xa
-            self.inputs.xa = tf.Variable(tf.zeros_like(self.feed_x), trainable=False)
+            self.inputs.xa = tf.Variable(tf.zeros_like(self.feed_x))
             self.set_x = tf.assign(self.inputs.xa, self.feed_x)
             self.feed_x = self.inputs.xb
-            self.inputs.xb = tf.Variable(tf.zeros_like(self.feed_x), trainable=False)
+            self.inputs.xb = tf.Variable(tf.zeros_like(self.feed_x))
             self.set_x = tf.group([self.set_x, tf.assign(self.inputs.xb, self.feed_x)])
             self.inputs.x = self.inputs.xb
 
@@ -145,10 +142,8 @@ class BaseGAN(GANComponent):
             return None
         if defn['class'] == None:
             raise ValidationException("Component definition is missing '" + name + "'")
-        klass = self.ops.lookup(defn['class'])
-        if self.reuse:
-            kw_args["reuse"]=True
-        gan_component = klass(self, defn, *args, **kw_args)
+        print('class', defn['class'], self.ops.lookup(defn['class']))
+        gan_component = self.ops.lookup(defn['class'])(self, defn, *args, **kw_args)
         self.components.append(gan_component)
         return gan_component
 
@@ -162,34 +157,24 @@ class BaseGAN(GANComponent):
         learn_rate = options.learn_rate or options.learning_rate
         if 'learning_rate' in options:
             del defn['learning_rate']
-        learn_rate = self.configurable_param(learn_rate)
-        if isinstance(learn_rate, float):
-            learn_rate = tf.constant(learn_rate)
-        self.learn_rate = learn_rate
         gan_component = klass(learn_rate, **defn)
         self.components.append(gan_component)
         return gan_component
 
     def create_loss(self, discriminator, reuse=False, split=2):
-        if self.reuse:
-            reuse=True
         loss = self.create_component(self.config.loss, discriminator = discriminator, split=split, reuse=reuse)
         return loss
     def create_generator(self, _input, reuse=False):
-        if self.reuse:
-            reuse=True
         return self.gan.create_component(self.gan.config.generator, name='generator', input=_input, reuse=reuse)
 
     def create_discriminator(self, _input, reuse=False):
-        if self.reuse:
-            reuse=True
         return self.gan.create_component(self.gan.config.discriminator, name="discriminator", input=_input, reuse=True)
 
     def create(self):
         print("Warning: BaseGAN.create() called directly.  Please override")
 
     def step(self, feed_dict={}):
-        #self.step_count = self.session.run(self.increment_step)
+        self.step_count = self.session.run(self.increment_step)
         return self._step(feed_dict)
 
     def _step(self, feed_dict={}):
@@ -202,10 +187,8 @@ class BaseGAN(GANComponent):
     def d_vars(self):
         return self.discriminator.variables()
 
-    def trainable_variables(self):
-        result = np.flatten(list(set(self.variables()).intersection(tf.trainable_variables())))
-        result = [r for r in result if r]
-        return result
+    def trainable_vars(self):
+        return self.trainable_d_vars(), self.trainable_g_vars()
 
     def trainable_d_vars(self):
         return list(set(self.d_vars()).intersection(tf.trainable_variables()))
@@ -220,8 +203,7 @@ class BaseGAN(GANComponent):
 
         with self.graph.as_default():
             print("[hypergan] Saving network to ", save_file)
-            if "gs://" not in save_file:
-                os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
+            os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
             saver = tf.train.Saver(self.variables())
             print("Saving " +str(len(self.variables()))+ " variables: ")
             missing = set(tf.global_variables()) - set(self.variables())
@@ -232,24 +214,17 @@ class BaseGAN(GANComponent):
 
 
     def load(self, save_file):
-        if "gs://" not in save_file:
-            save_file = os.path.expanduser(save_file)
-        if tf.gfile.Exists(save_file) or tf.gfile.Exists(save_file + ".index" ):
-            if "gs://" in save_file:
-                print("[hypergan] |= Loading network from google storage "+ save_file)
-                ckpt = tf.train.get_checkpoint_state(save_file)
+        save_file = os.path.expanduser(save_file)
+        if os.path.isfile(save_file) or os.path.isfile(save_file + ".index" ):
+            print("[hypergan] |= Loading network from "+ save_file)
+            dir = os.path.dirname(save_file)
+            print("[hypergan] |= Loading checkpoint from "+ dir)
+            ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
+            if ckpt and ckpt.model_checkpoint_path:
                 self.optimistic_restore(self.session, save_file, self.variables())
+                return True
             else:
-                save_file = os.path.expanduser(save_file)
-                print("[hypergan] |= Loading network from "+ save_file)
-                dir = os.path.dirname(save_file)
-                print("[hypergan] |= Loading checkpoint from "+ dir)
-                ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
-                if ckpt and ckpt.model_checkpoint_path:
-                    self.optimistic_restore(self.session, save_file, self.variables())
-                    return True
-                else:
-                    return False
+                return False
         else:
             return False
 
@@ -299,29 +274,13 @@ class BaseGAN(GANComponent):
         saver.restore(session, save_file)
 
         for op, var, val in post_restore_vars:
-            try:
-                self.gan.session.run(op, {var: val})
-            except FailedPreconditionError as e:
-                print("Failed to restore ", var, "details: ", e)
-                print(" ... attempting to continue ... ")
-
-
-    def initialize_variables(self):
-        variables = set(self.variables())
-        print("=> Initializing GAN variables:")
-        [print("  ", v) for v in variables]
-        if hasattr(self, "do_not_initialize"):
-            print("=> Skipping initialization for:")
-            variables -= set(self.do_not_initialize)
-            [print("  ", v) for v in self.do_not_initialize]
-        initializers = [v.initializer for v in variables]
-        self.session.run(initializers)
+            self.gan.session.run(op, {var: val})
 
     def variables(self):
-        return list(set(self.ops.variables() + sum([c.variables() for c in self.components], [])))
+        return list(set(self.ops.variables() + sum([c.variables() for c in self.components], []))) + [self.global_step, self.steps]
 
     def weights(self):
-        return self.ops.weights + sum([c.ops.weights for c in self.components if hasattr(c, 'ops')], [])
+        return self.ops.weights + sum([c.ops.weights for c in self.components], [])
 
     def inputs(self):
         """inputs() returns any input tensors"""
@@ -392,7 +351,7 @@ class BaseGAN(GANComponent):
         repeat = "repeat" in args
         current_step = self.gan.steps
         if repeat:
-            current_step %= (steps+1)
+            current_step %= steps
         if start == 0:
             return tf.train.polynomial_decay(r1, current_step, steps, end_learning_rate=r2, power=1, cycle=cycle)
         else:
@@ -407,7 +366,7 @@ class BaseGAN(GANComponent):
             onvalue = float(options["onvalue"]) or 1.0
             n = tf.random_uniform([1], minval=-1, maxval=1)
             n += tf.constant(offset, dtype=tf.float32)
-            return (tf.sign(n) + 1) /2 * tf.constant(float(options["onvalue"]), dtype=tf.float32)
+            return (tf.sign(n) + 1) /2 * tf.constant(float(options["onvalue"], dtype=tf.float32))
 
 
     def exit(self):
@@ -461,12 +420,6 @@ class BaseGAN(GANComponent):
                 'segment': SegmentSampler,
                 'aligned': AlignedSampler
             }
-    def train_hooks(self):
-        result = []
-        for component in self.gan.components:
-            if hasattr(component, "train_hooks"):
-                result += component.train_hooks
-        return result
     def sampler_for(self, name, default=StaticBatchSampler):
         samplers = self.get_registered_samplers()
         self.selected_sampler = name

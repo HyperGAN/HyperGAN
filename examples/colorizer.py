@@ -93,7 +93,7 @@ def add_bw(gan, config, net):
             filtered += tf.random_normal(filtered.get_shape(), mean=0, stddev=config.colorizer_noise, dtype=tf.float32)
 
         if gan.config.add_full_image_frame:
-            bw = filtered
+            bw = tf.image.rgb_to_grayscale(filtered)
             bw = tf.tile(bw,[1,1,1,3])
             filtered = apply_mask(gan,config,bw, x)
     else:

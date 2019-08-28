@@ -4,7 +4,6 @@ import hyperchamber as hc
 import inspect
 
 from hypergan.trainers.base_trainer import BaseTrainer
-from hypergan.viewer import GlobalViewer
 
 TINY = 1e-12
 

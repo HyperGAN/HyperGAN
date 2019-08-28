@@ -132,7 +132,7 @@ class AliGANCombined(BaseGAN):
             self.uniform_distribution = uniform_encoder
             trainer = self.create_component(config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
 
-            self.initialize_variables()
+            self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
         self.generator = generator

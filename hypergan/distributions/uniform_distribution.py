@@ -8,7 +8,7 @@ from ..gan_component import ValidationException
 TINY=1e-12
 
 class UniformDistribution(BaseDistribution):
-    def __init__(self, gan, config, name="LatentDistribution", output_shape=None, z=None, reuse=False):
+    def __init__(self, gan, config, name="LatentDistribution", output_shape=None, z=None):
         self.output_shape = output_shape
         self.z = z
         BaseDistribution.__init__(self, gan, config, name=name)

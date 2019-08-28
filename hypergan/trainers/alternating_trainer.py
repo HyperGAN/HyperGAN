@@ -23,18 +23,16 @@ class AlternatingTrainer(BaseTrainer):
         g_optimizer["loss"] = g_loss
         g_optimizer = self.gan.create_optimizer(g_optimizer)
         d_optimizer = self.gan.create_optimizer(d_optimizer)
-
+        
         d_grads = tf.gradients(d_loss, gan.trainable_d_vars())
         g_grads = tf.gradients(g_loss, gan.trainable_g_vars())
-        #d_grads = [gan.distribution_strategy.reduce( tf.distribute.ReduceOp.SUM, grad, axis=None) for grad in d_grads]
-        #g_grads = [gan.distribution_strategy.reduce( tf.distribute.ReduceOp.SUM, grad, axis=None) for grad in g_grads]
         apply_vec_g = list(zip((g_grads), (gan.trainable_g_vars()))).copy()
         apply_vec_d = list(zip((d_grads), (gan.trainable_d_vars()))).copy()
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.gan.trainer = self
-        g_optimizer_t = g_optimizer.apply_gradients(apply_vec_g)
-        d_optimizer_t = d_optimizer.apply_gradients(apply_vec_d)
+        g_optimizer_t = g_optimizer.apply_gradients(apply_vec_g, global_step=self.global_step)
+        d_optimizer_t = d_optimizer.apply_gradients(apply_vec_d, global_step=self.global_step)
 
         self.d_optimizer = d_optimizer
         self.d_optimizer_t = d_optimizer_t
@@ -62,18 +60,6 @@ class AlternatingTrainer(BaseTrainer):
         metric_values = sess.run([self.g_optimizer_t] + self.output_variables(metrics), feed_dict)[1:]
         self.after_step(self.current_step, feed_dict)
 
-        if self.current_step % 1 == 0:
+        if self.current_step % 10 == 0:
             print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)))
 
-    def print_metrics(self, step):
-        metrics = self.gan.metrics()
-        metric_values = self.gan.session.run(self.output_variables(metrics))
-        print(str(self.output_string(metrics) % tuple([step] + metric_values)))
-
-    def distributed_step(self):
-        config = self.config
-        ops = []
-        for i in range(config.d_update_steps or 1):
-            ops += [self.d_optimizer_t]
-        with tf.control_dependencies(ops):
-            return self.g_optimizer_t

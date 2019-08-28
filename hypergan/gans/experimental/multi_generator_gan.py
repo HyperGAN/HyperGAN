@@ -197,6 +197,6 @@ class MultiGeneratorGAN(BaseGAN):
             self.trainer = MultiStepTrainer(self, self.config.trainer, steps, var_lists=var_lists, metrics=metrics)
             self.trainer.create()
 
-            self.initialize_variables()
+            self.session.run(tf.global_variables_initializer())
             self.uniform_sample = tf.concat(generator_samples, axis=1)
 

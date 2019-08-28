@@ -93,6 +93,3 @@ def minmaxzero(net):
     net = tf.minimum(net, 1)
     net = tf.maximum(net, 0)
     return net
-
-def swish(x):
-    return (x * tf.math.sigmoid(x))

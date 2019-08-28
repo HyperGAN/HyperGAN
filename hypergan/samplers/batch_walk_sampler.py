@@ -18,9 +18,6 @@ class BatchWalkSampler(BaseSampler):
         self.rows = 2
         self.columns = 4
         self.needed = int(self.rows*self.columns / gan.batch_size())
-        if hasattr(self.gan, 'set_x'):
-            self.gan.session.run(self.gan.set_x)
-        self.set_x_step = 0
         #self.style_t = gan.styleb.sample
         #self.style_v = gan.session.run(self.style_t)
 
@@ -62,11 +59,7 @@ class BatchWalkSampler(BaseSampler):
             self.step=0
 
         gs = []
-        self.set_x_step += 1
         for i in range(int(self.needed)):
-            if self.set_x_step % 100 == 0:
-                if hasattr(self.gan, 'set_x'):
-                    self.gan.session.run(self.gan.set_x)
             z = self.steps[i][self.step]
             z = np.expand_dims(z,axis=0)
             g = gan.session.run(gan.generator.sample, feed_dict={z_t: z})
@@ -82,7 +75,7 @@ class BatchWalkSampler(BaseSampler):
         }
 
     def compatible_with(gan):
-        if hasattr(gan, 'latent'):
+        if hasattr(gan, 'latent') and gan.batch_size() == 1:
             return True
         return False
 

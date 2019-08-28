@@ -131,7 +131,7 @@ class AlignedAliGAN3(BaseGAN):
             self.loss=loss
             self.generator = gb
             trainer = self.create_component(config.trainer)
-            self.initialize_variables()
+            self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
         self.latent = hc.Config({'sample':zb})

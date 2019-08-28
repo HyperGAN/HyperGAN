@@ -117,7 +117,7 @@ class AlignedAliGAN(BaseGAN):
 
             loss = hc.Config({'sample': [d_loss, g_loss], 'metrics': metrics})
             trainer = ConsensusTrainer(self, config.trainer, loss = loss, g_vars = g_vars, d_vars = d_vars)
-            self.initialize_variables()
+            self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
         self.generator = ga

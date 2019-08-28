@@ -20,7 +20,7 @@ class CurlOptimizer(optimizer.Optimizer):
     self._gamma = gamma
     self.gan = gan
     self.config = config
-    self._lr_t = learning_rate
+    self._lr_t = learning_rate or 1e-5
     self.g_rho = gan.configurable_param(self.config.g_rho or 1)
     self.d_rho = gan.configurable_param(self.config.d_rho or 1)
 
@@ -70,7 +70,6 @@ class CurlOptimizer(optimizer.Optimizer):
 
 
     v1 = [tf.Variable(v, name=_name("curl",v.name)) for v in var_list]
-    self.gan.ops.weights += v1
     slots_list = []
     slots_vars = []
     if self.config.include_slots:

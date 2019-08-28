@@ -85,6 +85,7 @@ class BaseLoss(GANComponent):
 
         d_loss = ops.squash(d_loss, config.reduce or tf.reduce_mean) #linear doesn't work with this
 
+        # TODO: Why are we squashing before gradient penalty?
         self.add_metric('d_loss', d_loss)
         if g_loss is not None:
             g_loss = ops.squash(g_loss, config.reduce or tf.reduce_mean)

@@ -11,7 +11,7 @@ from examples.common import *
 import numpy as np
 from examples.common import *
 from hypergan.search.alphagan_random_search import AlphaGANRandomSearch
-from hypergan.gans.experimental.alpha_gan import AlphaGAN
+from hypergan.gans.alpha_gan import AlphaGAN
 
 arg_parser = ArgumentParser("Learn from a text file", require_directory=False)
 arg_parser.parser.add_argument('--one_hot', action='store_true', help='Use character one-hot encodings.')
@@ -52,6 +52,8 @@ if args.action == 'search':
 
 def setup_gan(config, inputs, args):
     gan = hg.GAN(config, inputs=inputs)
+
+    gan.create()
 
     if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)

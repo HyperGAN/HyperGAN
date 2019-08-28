@@ -366,7 +366,7 @@ class AliNextFrameGAN(BaseGAN):
             self._g_vars = self.g_vars
             self._d_vars = d_vars
             trainer = self.create_component(config.trainer, loss = lossa, g_vars = self.g_vars, d_vars = d_vars)
-            self.initialize_variables()
+            self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
         self.generator = gx

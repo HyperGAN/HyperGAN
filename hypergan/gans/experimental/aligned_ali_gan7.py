@@ -217,7 +217,7 @@ class AlignedAliGAN7(BaseGAN):
             trainers += [ConsensusTrainer(self, config.trainer, loss = lossa, g_vars = g_vars1, d_vars = d_vars1)]
             #trainers += [ConsensusTrainer(self, config.trainer, loss = lossb, g_vars = g_vars2, d_vars = d_vars2)]
             trainer = MultiTrainerTrainer(trainers)
-            self.initialize_variables()
+            self.session.run(tf.global_variables_initializer())
 
         self.trainer = trainer
         self.generator = ga

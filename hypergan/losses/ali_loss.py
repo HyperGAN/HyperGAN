@@ -46,10 +46,10 @@ class AliLoss(BaseLoss):
             d_loss = self.sigmoid_kl_with_logits(d_real, 1.-label_smooth) + \
                     tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)
         else:
-            g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=ones) + \
-                     tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=zeros)
-            d_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=ones) + \
-                     tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)
+            g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros) + \
+                     tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=ones)
+            d_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=zeros) + \
+                     tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=ones)
 
         return [d_loss, g_loss]
 

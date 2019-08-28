@@ -194,11 +194,13 @@ class CLI:
         strategy.extended.experimental_enable_get_next_as_optional = False
 
         self.inputs = self.inputs_fn()
-        input_iterator = strategy.experimental_distribute_dataset(self.inputs.dataset).make_initializable_iterator()
+        local_iterator = self.inputs.dataset.make_initializable_iterator()
+        distributed_dataset = strategy.experimental_distribute_dataset(self.inputs.dataset)
+        input_iterator = distributed_dataset.make_initializable_iterator()
 
         with strategy.scope():
             size = [int(x) for x in self.args.size.split("x")]
-            inp = hc.Config({"x": tf.zeros([self.args.batch_size/ strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
+            inp = hc.Config({"x": tf.slice(local_iterator.get_next(), [0,0,0,0], [self.args.batch_size//strategy.num_replicas_in_sync, -1, -1, -1])})#tf.zeros([self.args.batch_size/ strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
             self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy)
             self.gan.cli = self
 
@@ -238,6 +240,8 @@ class CLI:
             self.gan.session = session
             print("Initializing iterator")
             session.run([iterator_init])
+            print("Initializing local iterator")
+            session.run([local_iterator.initializer])
             print("Initializing Variables")
             v_ops = [v.initializer for v in self.gan.variables()]
             session.run(v_ops)

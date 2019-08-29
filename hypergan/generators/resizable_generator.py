@@ -54,7 +54,7 @@ class ResizableGenerator(ConfigurableGenerator):
         if config.adaptive_instance_norm:
             w = latent
             for i in range(config.adaptive_instance_norm_layers or 2):
-                w = self.do_layer(self.layer_linear, w, [512], {"adaptive_instance_norm_off": True})
+                w = self.do_layer(self.layer_linear, w, [512], {})
             w = self.layer_identity(w, ["w"], {})
 
         net = self.do_layer(self.layer_linear, net, [str_depth], {})

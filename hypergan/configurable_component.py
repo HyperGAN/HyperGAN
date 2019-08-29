@@ -251,7 +251,10 @@ class ConfigurableComponent:
             net = tf.nn.avg_pool(net, ksize=ksize, strides=stride, padding='SAME')
 
         if options.adaptive_instance_norm is not None and len(ops.shape(net)) == 4:
-            net = self.layer_adaptive_instance_norm(net, [channels], {'w': options.adaptive_instance_norm, "activation": "null", "initializer": options.adaptive_instance_norm_initializer})
+            w = options.adaptive_instance_norm
+            if w == True:
+                w = "w"
+            net = self.layer_adaptive_instance_norm(net, [channels], {'w': w, "activation": "null", "initializer": options.adaptive_instance_norm_initializer})
 
         if options.adaptive_instance_norm2 is not None and len(ops.shape(net)) == 4:
             net = self.layer_adaptive_instance_norm2(net, [channels], {"w": options.adaptive_instance_norm2, "activation": "null", "initializer": options.adaptive_instance_norm_initializer})

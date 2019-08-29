@@ -23,7 +23,7 @@ class ForceEquilibriumTrainHook(BaseTrainHook):
     klip = self.gan.configurable_param(distance)
     k_lip = (lam * tf.nn.relu(tf.abs(tf.reduce_mean(self.gan.loss.d_real-self.gan.loss.d_fake))-klip))
     self.gan.add_metric("force_eq", k_lip)
-    self.loss = [k_lip, None]
+    self.loss = [None, k_lip]
 
   def losses(self):
       return self.loss

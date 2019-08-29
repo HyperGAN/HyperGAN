@@ -210,22 +210,35 @@ class CLI:
                 replica_gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
                 d_loss = replica_gan.trainer.d_loss
                 g_loss = replica_gan.trainer.g_loss
-                if replica_gan.config.skip_gradient_mean is None:
-                    d_loss = d_loss / strategy.num_replicas_in_sync
-                    g_loss = g_loss / strategy.num_replicas_in_sync
             d_grads = tape.gradient(d_loss, replica_gan.trainable_d_vars())
             g_grads = tape.gradient(g_loss, replica_gan.trainable_g_vars())
+            train_hook_grads = [t.gradient(tape) for t in replica_gan.trainer.train_hooks]
 
             del tape
-            optimizer = tf.tpu.CrossShardOptimizer(self.gan.trainer.optimizer)
+            optimizer = tf.tpu.CrossShardOptimizer(self.gan.trainer.optimizer, reduction="weighted_sum")
             variables = replica_gan.trainable_d_vars() + replica_gan.trainable_g_vars()
             grads = d_grads + g_grads
             update_vars = optimizer.apply_gradients(
                             zip(grads, variables))
             update_train_hooks = [t.update_op() for t in replica_gan.trainer.train_hooks]
             update_train_hooks = [op for op in update_train_hooks if op is not None]
-            with tf.control_dependencies([update_vars] + update_train_hooks):
-                return tf.identity(d_loss)
+            if self.gan.config.alternating:
+                update_vars_g = optimizer.apply_gradients(
+                                zip(g_grads, replica_gan.trainable_g_vars()))
+                update_vars_d = optimizer.apply_gradients(
+                                zip(d_grads, replica_gan.trainable_d_vars()))
+                with tf.control_dependencies([update_vars_d] + update_train_hooks):
+                    with tf.control_dependencies([update_vars_g]):
+                        train_hook_updates = [replica_gan.trainer.train_hooks[i].apply_gradients(optimizer, grad) for i,grad in enumerate(train_hook_grads) if grad is not None]
+                        train_hook_updates = [op for op in train_hook_updates if op is not None]
+                        print("Train hook update count: ", len(train_hook_updates))
+                        if len(train_hook_updates) == 0:
+                            return tf.identity(d_loss)
+                        with tf.control_dependencies(train_hook_updates):
+                            return tf.identity(d_loss)
+            else:
+                with tf.control_dependencies([update_vars] + update_train_hooks):
+                    return tf.identity(d_loss)
 
         print("Creating replica graph")
         train = strategy.unwrap(strategy.experimental_run_v2(train_step, args=(next(input_iterator), )))

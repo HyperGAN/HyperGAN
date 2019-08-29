@@ -17,6 +17,7 @@ class CommandParser:
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
         parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
+        parser.add_argument('--toml', '-T', action='store_true', help='Use TOML as configration file format instead of JSON')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
         parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
@@ -73,21 +74,26 @@ else:
 width = size[0] or 64
 height = size[1] or 64
 channels = size[2] or 3
-
+if args.toml:
+    use_toml = True
+    config_format = '.toml'
+else:
+    use_toml = False
+    config_format = '.json'
 config_name = args.config or 'default'
-config_filename = hg.Configuration.find(config_name)
-config = hc.Selector().load(config_filename)
+config_filename = hg.Configuration.find(config_name, config_format=config_format)
+config = hc.Selector().load(config_filename, load_toml=use_toml)
 if 'inherit' in config:
-    base_filename = hg.Configuration.find(config['inherit']+'.json')
-    base_config = hc.Selector().load(base_filename)
+    base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
+    base_config = hc.Selector().load(base_filename, load_toml=use_toml)
     config = {**base_config, **config}
 
 
 if args.list_templates:
-    configs = hg.Configuration.list()
+    configs = hg.Configuration.list(config_format=config_format)
     for config in configs:
         try:
-            template = hg.Configuration.load(config+'.json', verbose=False)
+            template = hg.Configuration.load(config+config_format, verbose=False, use_toml=use_toml)
         except Exception as e:
             template = hc.Config({"description": str(e), "publication": "error"})
         print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))

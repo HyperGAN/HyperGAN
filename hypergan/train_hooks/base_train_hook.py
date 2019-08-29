@@ -33,3 +33,6 @@ class BaseTrainHook(GANComponent):
 
   def after_create(self):
     pass
+
+  def update_op(self):
+    return None

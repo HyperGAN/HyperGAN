@@ -222,7 +222,9 @@ class CLI:
             grads = d_grads + g_grads
             update_vars = optimizer.apply_gradients(
                             zip(grads, variables))
-            with tf.control_dependencies([update_vars]):
+            update_train_hooks = [t.update_op() for t in replica_gan.trainer.train_hooks]
+            update_train_hooks = [op for op in update_train_hooks if op is not None]
+            with tf.control_dependencies([update_vars] + update_train_hooks):
                 return tf.identity(d_loss)
 
         print("Creating replica graph")

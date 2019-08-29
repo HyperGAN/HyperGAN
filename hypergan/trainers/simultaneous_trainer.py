@@ -22,6 +22,7 @@ class SimultaneousTrainer(BaseTrainer):
         self.d_log = -tf.log(tf.abs(d_loss+TINY))
         self.d_loss = d_loss
         self.g_loss = g_loss
+        self.step_ops = None
         config.optimizer["loss"] = loss.sample
 
         self.optimizer = self.gan.create_optimizer(config.optimizer)
@@ -57,10 +58,16 @@ class SimultaneousTrainer(BaseTrainer):
         d_loss, g_loss = loss.sample
 
         self.before_step(self.current_step, feed_dict)
-        metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]
+        if self.step_ops is None:
+            ops = [self.optimize_t]
+            update_train_hooks = [t.update_op() for t in self.train_hooks]
+            update_train_hooks = [op for op in update_train_hooks if op is not None]
+            self.step_ops = ops + update_train_hooks
+        sess.run(self.step_ops, feed_dict)
         self.after_step(self.current_step, feed_dict)
 
         if self.current_step % 10 == 0:
+            metric_values = self.gan.session.run(self.output_variables(metrics))
             self.print_metrics(self.current_step)
 
     def print_metrics(self, step):

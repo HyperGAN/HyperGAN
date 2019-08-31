@@ -194,13 +194,14 @@ class CLI:
         strategy.extended.experimental_enable_get_next_as_optional = False
 
         self.inputs = self.inputs_fn()
-        local_iterator = self.inputs.dataset.make_initializable_iterator()
+        #local_iterator = self.inputs.dataset.make_initializable_iterator()
         distributed_dataset = strategy.experimental_distribute_dataset(self.inputs.dataset)
         input_iterator = distributed_dataset.make_initializable_iterator()
 
         with strategy.scope():
             size = [int(x) for x in self.args.size.split("x")]
-            inp = hc.Config({"x": tf.slice(local_iterator.get_next(), [0,0,0,0], [self.args.batch_size//strategy.num_replicas_in_sync, -1, -1, -1])})#tf.zeros([self.args.batch_size/ strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
+            #inp = hc.Config({"x": tf.slice(local_iterator.get_next(), [0,0,0,0], [self.args.batch_size//strategy.num_replicas_in_sync, -1, -1, -1])})#tf.zeros([self.args.batch_size/ strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
+            inp = hc.Config({"x": tf.constant(-1000.0, dtype=tf.float32, shape=[self.args.batch_size/ strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
             self.gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy)
             self.gan.cli = self
 
@@ -208,6 +209,7 @@ class CLI:
             inp = hc.Config({"x": x})
             with tf.GradientTape(persistent=True) as tape:
                 replica_gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
+                self.gan.replica = replica_gan
                 d_loss = replica_gan.trainer.d_loss
                 g_loss = replica_gan.trainer.g_loss
             d_grads = tape.gradient(d_loss, replica_gan.trainable_d_vars())
@@ -241,7 +243,16 @@ class CLI:
                     return tf.identity(d_loss)
 
         print("Creating replica graph")
-        train = strategy.unwrap(strategy.experimental_run_v2(train_step, args=(next(input_iterator), )))
+        input_iterator_next = next(input_iterator)
+        train = strategy.unwrap(strategy.experimental_run_v2(train_step, args=(input_iterator_next, )))
+        train_hook_update_steps = []
+        for t in self.gan.trainer.train_hooks:
+            train_hook_update_steps += t.distributed_step(input_iterator_next)
+        train_hook_update_steps = [strategy.unwrap(t) for t in train_hook_update_steps]
+        print("TR", train_hook_update_steps)
+
+        #update_train_hooks_for_each_replica = self.gan.distribution_strategy.group(train_hook_update_steps)
+        update_train_hooks_for_each_replica = train_hook_update_steps
         print("Initializing TPU")
         iterator_init = input_iterator.initialize()
 
@@ -255,26 +266,38 @@ class CLI:
             self.gan.session = session
             print("Initializing iterator")
             session.run([iterator_init])
-            print("Initializing local iterator")
-            session.run([local_iterator.initializer])
-            print("Initializing Variables")
-            v_ops = [v.initializer for v in self.gan.variables()]
+            #print("Initializing local iterator")
+            #session.run([local_iterator.initializer])
+            print("Initializing generator variables")
+            g_ops = [v.initializer for v in self.gan.generator.variables()]
+            session.run(g_ops)
+            print("Initializing other variables")
+            v_ops = list(set([v.initializer for v in self.gan.variables()])-set(g_ops))
             session.run(v_ops)
-            print("Train hook step 0")
-            for train_hook in self.gan.trainer.train_hooks:
-                train_hook.before_step(0,{})
             print("Loading model, if available")
             if self.gan.load(self.save_file):
                 print("Model loaded")
             else:
                 print("Initializing new model")
+            init_steps = []
+            for train_hook in self.gan.trainer.train_hooks:
+                init_steps += train_hook.distributed_initial_step(input_iterator_next)
+            init_steps = [strategy.unwrap(t) for t in init_steps]
+            #init_steps = self.gan.distribution_strategy.group(init_steps)
+            self.gan.session.run(init_steps)
+
+            update_train_hooks = [t.update_op() for t in self.gan.trainer.train_hooks]
+            update_train_hooks = tf.group(*[op for op in update_train_hooks if op is not None])
             while((i < self.total_steps or self.total_steps == -1)):
                 if i % 10 == 0:
                     self.gan.trainer.print_metrics(i)
                 if i % 100 == 0:
                     self.sample()
                 i+=1
-                session.run(train)
+                #for train_hook in self.gan.trainer.train_hooks:
+                #    train_hook.before_step(i,{})
+                #session.run(update_train_hooks)
+                session.run(update_train_hooks_for_each_replica+ [train])
 
                 if (self.args.save_every != None and
                     self.args.save_every != -1 and

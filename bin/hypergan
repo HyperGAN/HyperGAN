@@ -2,10 +2,12 @@
 
 import argparse
 import sys, os
+import traceback
 
 import hyperchamber as hc
 import hypergan as hg
 import hypergan.cli as cli
+from hypergan.viewer import GlobalViewer
 
 class CommandParser:
     def common(self, parser, directory=True):
@@ -61,74 +63,79 @@ class CommandParser:
 
         return parser
 
-args = CommandParser().get_parser().parse_args()
+try:
+    args = CommandParser().get_parser().parse_args()
 
-if args.method == 'train' and args.save_every == -1 and not args.viewer:
-    print("Error, there is no way to save the model.  Refusing to run.  Please add --save_every N")
-    exit(1)
+    if args.method == 'train' and args.save_every == -1 and not args.viewer:
+        print("Error, there is no way to save the model.  Refusing to run.  Please add --save_every N")
+        exit(1)
 
-if args.size:
-    size = [int(x) for x in args.size.split("x")] + [None, None, None]
-else:
-    size = [None, None, None]
-width = size[0] or 64
-height = size[1] or 64
-channels = size[2] or 3
-if args.toml:
-    use_toml = True
-    config_format = '.toml'
-else:
-    use_toml = False
-    config_format = '.json'
-config_name = args.config or 'default'
-config_filename = hg.Configuration.find(config_name, config_format=config_format)
-config = hc.Selector().load(config_filename, load_toml=use_toml)
-if 'inherit' in config:
-    base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
-    base_config = hc.Selector().load(base_filename, load_toml=use_toml)
-    config = {**base_config, **config}
-
-
-if args.list_templates:
-    configs = hg.Configuration.list(config_format=config_format)
-    for config in configs:
-        try:
-            template = hg.Configuration.load(config+config_format, verbose=False, use_toml=use_toml)
-        except Exception as e:
-            template = hc.Config({"description": str(e), "publication": "error"})
-        print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
-        if template.runtime and "train" in template.runtime:
-            print("  > %s" %  (template.runtime["train"]))
-    exit(0)
-if args.method == 'new' or args.method == 'test':
-    gan = None
-    pass
-
-else:
-    def gan_fn(config, inputs, distribution_strategy=None, session=None, reuse=False):
-        gan = hg.GAN(config=config, inputs=inputs, debug=args.debug, device=args.device, distribution_strategy=distribution_strategy, session=session, reuse=reuse)
-        gan.args = args
-        gan.x_width = width
-        gan.x_height = height
-        gan.x_channels = channels
-        gan.name = config_name
-        return gan
-
-    def inputs_fn():
-        inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-        directories = [args.directory]
-        if args.align:
-            directories+=args.align.split(" ")
-        inputs.create(directories,
-              channels=channels, 
-              format=args.format,
-              crop=args.crop,
-              sequential=args.sequential,
-              width=width,
-              height=height,
-              resize=args.resize)
-        return inputs
+    if args.size:
+        size = [int(x) for x in args.size.split("x")] + [None, None, None]
+    else:
+        size = [None, None, None]
+    width = size[0] or 64
+    height = size[1] or 64
+    channels = size[2] or 3
+    if args.toml:
+        use_toml = True
+        config_format = '.toml'
+    else:
+        use_toml = False
+        config_format = '.json'
+    config_name = args.config or 'default'
+    config_filename = hg.Configuration.find(config_name, config_format=config_format)
+    config = hc.Selector().load(config_filename, load_toml=use_toml)
+    if 'inherit' in config:
+        base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
+        base_config = hc.Selector().load(base_filename, load_toml=use_toml)
+        config = {**base_config, **config}
 
 
-gancli = cli.CLI(args=vars(args), gan_fn=gan_fn, inputs_fn=inputs_fn, gan_config=config)
-gancli.run()
+    if args.list_templates:
+        configs = hg.Configuration.list(config_format=config_format)
+        for config in configs:
+            try:
+                template = hg.Configuration.load(config+config_format, verbose=False, use_toml=use_toml)
+            except Exception as e:
+                template = hc.Config({"description": str(e), "publication": "error"})
+            print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
+            if template.runtime and "train" in template.runtime:
+                print("  > %s" %  (template.runtime["train"]))
+        exit(0)
+    if args.method == 'new' or args.method == 'test':
+        gan = None
+        pass
+
+    else:
+        def gan_fn(config, inputs, distribution_strategy=None, session=None, reuse=False):
+            gan = hg.GAN(config=config, inputs=inputs, debug=args.debug, device=args.device, distribution_strategy=distribution_strategy, session=session, reuse=reuse)
+            gan.args = args
+            gan.x_width = width
+            gan.x_height = height
+            gan.x_channels = channels
+            gan.name = config_name
+            return gan
+
+        def inputs_fn():
+            inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
+            directories = [args.directory]
+            if args.align:
+                directories+=args.align.split(" ")
+            inputs.create(directories,
+                  channels=channels, 
+                  format=args.format,
+                  crop=args.crop,
+                  sequential=args.sequential,
+                  width=width,
+                  height=height,
+                  resize=args.resize)
+            return inputs
+
+
+    gancli = cli.CLI(args=vars(args), gan_fn=gan_fn, inputs_fn=inputs_fn, gan_config=config)
+    gancli.run()
+except:
+    traceback.print_exc()
+    print("Error detected, HyperGAN exitting")
+    GlobalViewer.close()

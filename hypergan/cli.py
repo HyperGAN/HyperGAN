@@ -214,7 +214,7 @@ class CLI:
                 g_loss = replica_gan.trainer.g_loss
             d_grads = tape.gradient(d_loss, replica_gan.trainable_d_vars())
             g_grads = tape.gradient(g_loss, replica_gan.trainable_g_vars())
-            train_hook_grads = [t.gradient(tape) for t in replica_gan.trainer.train_hooks]
+            #train_hook_grads = [t.gradient(tape) for t in replica_gan.trainer.train_hooks]
 
             del tape
             optimizer = tf.tpu.CrossShardOptimizer(self.gan.trainer.optimizer, reduction="weighted_sum")
@@ -231,13 +231,14 @@ class CLI:
                                 zip(d_grads, replica_gan.trainable_d_vars()))
                 with tf.control_dependencies([update_vars_d] + update_train_hooks):
                     with tf.control_dependencies([update_vars_g]):
-                        train_hook_updates = [replica_gan.trainer.train_hooks[i].apply_gradients(optimizer, grad) for i,grad in enumerate(train_hook_grads) if grad is not None]
-                        train_hook_updates = [op for op in train_hook_updates if op is not None]
-                        print("Train hook update count: ", len(train_hook_updates))
-                        if len(train_hook_updates) == 0:
-                            return tf.identity(d_loss)
-                        with tf.control_dependencies(train_hook_updates):
-                            return tf.identity(d_loss)
+                        return tf.identity(d_loss)
+                        #train_hook_updates = [replica_gan.trainer.train_hooks[i].apply_gradients(optimizer, grad) for i,grad in enumerate(train_hook_grads) if grad is not None]
+                        #train_hook_updates = [op for op in train_hook_updates if op is not None]
+                        #print("Train hook update count: ", len(train_hook_updates))
+                        #if len(train_hook_updates) == 0:
+                        #    return tf.identity(d_loss)
+                        #with tf.control_dependencies(train_hook_updates):
+                        #    return tf.identity(d_loss)
             else:
                 with tf.control_dependencies([update_vars] + update_train_hooks):
                     return tf.identity(d_loss)

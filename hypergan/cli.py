@@ -440,4 +440,5 @@ class CLI:
                 print("Congratulations!  Tensorflow and hypergan both look installed correctly.  If you still experience issues come let us know on discord.")
             else:
                 print("There were errors in the test, please see the logs")
+        GlobalViewer.close()
 

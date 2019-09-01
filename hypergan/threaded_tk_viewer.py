@@ -223,8 +223,8 @@ class ThreadedTkViewerUI:
         self.queue = Queue()
         return self.queue
 
-    def process(self):
-        while True:
+    def process(self, thread):
+        while not thread.stopped():
             try:
                 msg = self.get_queue().get(0)
                 name = msg["name"]
@@ -239,12 +239,34 @@ class ThreadedTkViewerUI:
                 if hasattr(self, 'root'):
                     self.root.update()
 
+class StoppableThread(threading.Thread):
+    """Thread class with a stop() method. The thread itself has to check
+    regularly for the stopped() condition."""
+
+    def __init__(self, *args, **kwargs):
+        self.ui = args[0]
+        args = args[1:]
+        super(StoppableThread, self).__init__(*args, **kwargs)
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def run(self):
+        return self.ui.process(self)
+
+    def stopped(self):
+        return self._stop_event.is_set()
+
 class ThreadedTkViewer:
     def __init__(self, title="HyperGAN", viewer_size=1, enabled=True):
         self.enabled = enabled
         self.ui = ThreadedTkViewerUI(title=title, viewer_size=viewer_size, enabled=enabled)
-        self.ui_thread = threading.Thread(target=self.ui.process)
+        self.ui_thread = StoppableThread(self.ui)
         self.ui_thread.start()
+
+    def close(self):
+        self.ui_thread.stop()
 
     def update(self, gan, image):
         if not self.enabled: return

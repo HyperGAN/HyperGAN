@@ -101,7 +101,8 @@ class RollingMemoryTrainHook(BaseTrainHook):
     #mgop = self.gan.distribution_strategy.extended.update(self.mg, assign_mg, args=(self.gan.generator.sample, self.swg,))
     ops = []
     for name, memory in self.memories.items():
-        ops.append(self.gan.distribution_strategy.extended.call_for_each_replica(assign_m, args=(name,)))
+        if name[0] == "m":
+            ops.append(self.gan.distribution_strategy.extended.call_for_each_replica(assign_m, args=(name,)))
     return ops
 
   def distributed_debug(self):

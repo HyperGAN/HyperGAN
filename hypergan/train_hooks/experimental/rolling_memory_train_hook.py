@@ -47,29 +47,10 @@ class RollingMemoryTrainHook(BaseTrainHook):
     swg = tf.reshape(swg, [self.gan.batch_size(), 1, 1, 1])
     self.swx = swx
     self.swg = swg
-    #self.assign_mx = tf.assign(self.mx, self.gan.inputs.x * swx + (1.0 - swx) * self.mx)
-    #self.assign_mg = tf.assign(self.mg, self.gan.generator.sample * swg + (1.0 - swg) * self.mg)
-    def update(v, nv, sw):
-        result = nv * sw + (1.0 - sw) * v
-        return tf.assign(v, result)
-    def update_mx(v, sw):
-        return update(v, self.gan.inputs.x, sw)
-    def update_mg(v, sw):
-        return update(v, self.gan.generator.sample, sw)
-    print("REPLICA ", tf.distribute.get_replica_context())
-    #if tf.distribute.in_cross_replica_context() == True:
-    #    self.assign_mx = self.gan.distribution_strategy.extended.update(self.mx, update_mx, args=(swx,))
-    #    self.assign_mg = self.gan.distribution_strategy.extended.update(self.mg, update_mg, args=(swg,))
-    #else:
     self.assign_mx = tf.assign(self.mx, self.gan.inputs.x * swx + (1.0 - swx) * self.mx)
     self.assign_mg = tf.assign(self.mg, self.gan.generator.sample * swg + (1.0 - swg) * self.mg)
+    self.assign_ops = tf.group(*[self.assign_mx, self.assign_mg])
     self.train_hook_index = len(trainer.train_hooks)
-        #self.assign_mx = tf.no_op()
-        #self.assign_mg = tf.no_op()
-    #self.assign_mx = tf.assign(self.mx, self.gan.inputs.x)
-    #self.assign_mg = tf.assign(self.mg, self.gan.generator.sample)
-    self.gan.rolling_loss = self.m_loss
-    #self.gan.losses += [self.m_loss]
     self.loss = [tf.zeros(1), tf.zeros(1)]
     for _type in self.config.types or ['mx/mg']:
         if _type == 'mg/g':
@@ -95,8 +76,6 @@ class RollingMemoryTrainHook(BaseTrainHook):
             self.loss[0] += (self.config.lam or 1.0) * self.mg_loss.sample[0]
             self.loss[1] += (self.config.lam or 1.0) * self.mg_loss.sample[1]
             self.gan.add_metric('roll_loss_x/mg', self.loss[0])
-
-
         elif _type == 'x/mx': 
             self.mg_discriminator = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([self.mg, self.gan.generator.sample],axis=0), features=[gan.features], reuse=True)
             self.mg_loss = gan.create_component(gan.config.loss, discriminator=self.mg_discriminator)
@@ -111,14 +90,10 @@ class RollingMemoryTrainHook(BaseTrainHook):
         op=self.gan.replica.trainer.train_hooks[self.train_hook_index].assign_mx
         with tf.control_dependencies([op]):
             return tf.no_op()
-        #return mx.assign(inp2 * swx + (1.0 - swx) * mx)
     def assign_mg(mg, gen, swg):
         op = self.gan.replica.trainer.train_hooks[self.train_hook_index].assign_mg
         with tf.control_dependencies([op]):
             return tf.no_op()
-        #return mg.assign(gen * swg + (1.0 - swg) * mg)
-    #mxop = self.gan.distribution_strategy.extended.update(self.mx, assign_mx, args=(self.swx,))
-    #mgop = self.gan.distribution_strategy.extended.update(self.mg, assign_mg, args=(self.gan.generator.sample, self.swg,))
     mxop = self.gan.distribution_strategy.extended.call_for_each_replica(assign_mx, args=(self.mx, input_iterator_next, self.swx,))
     mgop = self.gan.distribution_strategy.extended.call_for_each_replica(assign_mg, args=(self.mg, self.gan.generator.sample, self.swg,))
 
@@ -139,18 +114,16 @@ class RollingMemoryTrainHook(BaseTrainHook):
 
     mxop = self.gan.distribution_strategy.extended.call_for_each_replica(assign_mx, args=(self.mx,input_iterator_next,))
     mgop = self.gan.distribution_strategy.extended.call_for_each_replica(assign_mg, args=(self.mg,self.gan.generator.sample,))
-    #mxop = self.gan.distribution_strategy.extended.update(self.mx, assign_mx)
-    #mgop = self.gan.distribution_strategy.extended.update(self.mg, assign_mg, args=(self.gan.generator.sample,))
     return [mxop, mgop]
 
-
-  #def update_op(self):
-  #    return tf.group(self.assign_mg, self.assign_mx)
 
   def before_step(self, step, feed_dict):
       if step == 0:
           self.gan.session.run(tf.assign(self.mx, self.gan.inputs.x))
           self.gan.session.run(tf.assign(self.mg, self.gan.generator.sample))
+
+  def after_step(self, step, feed_dict):
+      self.gan.session.run(self.assign_ops)
 
   def variables(self):
       return [self.mx, self.mg]

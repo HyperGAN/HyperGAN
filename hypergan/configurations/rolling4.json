@@ -1,6 +1,6 @@
 
 {
-  "description": "A default configuration that scales to multiple resolutionse Note that the other resolution specific configs may perform better.",
+  "description": "Using rolling memory train hook, example 4",
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",

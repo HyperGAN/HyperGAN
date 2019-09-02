@@ -1,0 +1,129 @@
+
+{
+  "description": "Using rolling memory (2) train hook, example 5",
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults":{
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2],
+      "activation": "lrelu",
+      "initializer": "he_normal",
+      "random_stddev": 0.02
+    },
+    "layers":[
+      "conv 32 ", 
+      "conv 64 ", 
+      "conv 128",
+      "attention heads=4 dot_product_similarity=true",
+      "conv 256",
+      "attention heads=4 dot_product_similarity=true",
+      "conv 512",
+      "linear 1 activation=null initializer=stylegan bias=false"
+    ]
+  },
+
+  "latent":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "min": -1,
+    "max": 1,
+    "z": 128
+  },
+  "generator": 
+  {
+    "class": "class:hypergan.generators.configurable_generator.ConfigurableGenerator",
+    "defaults":{
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [1,1],
+      "activation": "relu",
+      "initializer": "he_normal",
+      "random_stddev": 0.02
+    },
+    "layers":[
+      "identity name=oz",
+      "slice 0 64",
+
+      "linear 512 initializer=stylegan",
+      "linear 512 initializer=stylegan name=w_",
+      "latent",
+      "slice 64 64",
+      "linear 4*4*512 initializer=stylegan name=w adaptive_instance_norm=w_",
+      "resize_conv 256 name=w2 adaptive_instance_norm=w_", 
+      "resize_conv 128 name=w3 adaptive_instance_norm=w_", 
+      "resize_conv 64 name=w4 adaptive_instance_norm=w_", 
+      "resize_conv 32 name=w5 adaptive_instance_norm=w_", 
+      "resize_conv 3 activation=tanh name=w6 adaptive_instance_norm=w_"
+    ]
+  },
+
+
+ "loss": {
+    "class": "function:hypergan.losses.logistic_loss.LogisticLoss",
+    "reduce": "reduce_mean"
+  },
+  "fixed_input": true,
+  "trainer": {
+    "class": "function:hypergan.trainers.batch_fitness_trainer.BatchFitnessTrainer",
+    "heuristic": 0,
+    "search_steps": 100000,
+ 
+    "trainer": {
+      "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+      "optimizer": {
+        "class": "function:hypergan.optimizers.curl_optimizer.CurlOptimizer",
+        "learn_rate": 0.00001,
+        "d_rho": 1.0,
+        "g_rho": 1.0,
+
+        "optimizer": {
+          "class": "function:hypergan.optimizers.experimental.tpu_negative_momentum_optimizer.TPUNegativeMomentumOptimizer",
+          "decay": 1.0,
+          "alpha": 0.5,
+          "beta": 0.66,
+          "optimizer": {
+            "class": "function:hypergan.ops.tensorflow.adamirror.AdamirrorOptimizer",
+            "learn_rate": 1e-4,
+            "beta1": 0.9074537537537538,
+            "beta2": 0.9973000000000001
+          }
+        }
+
+      },
+      "hooks":[
+        {
+          "class": "function:hypergan.train_hooks.experimental.input_fitness_train_hook.InputFitnessTrainHook",
+          "heuristic": 0,
+          "search_steps": 100000
+        },
+        {
+          "class": "function:hypergan.train_hooks.experimental.match_support_train_hook.MatchSupportTrainHook",
+          "variables": ["generator"],
+          "loss_threshold": 1.0,
+          "loss": "fixed2",
+          "max_steps": 100,
+          "max_depth": 1,
+          "optimizer": {
+            "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+            "learn_rate": 1e-4,
+            "beta1":0.0,
+            "beta2":0.999
+          }
+        },
+        {
+          "class": "function:hypergan.train_hooks.experimental.rolling_memory_2_train_hook.RollingMemoryTrainHook",
+          "types": ["mx+/mg-", "mg+/g", "mx+/x"],
+          "top_k": 1
+        }
+
+      ]
+  }},
+  "runtime": {
+    "anysize": true,
+    "train": "hypergan train [dataset] --sampler static_batch -b 8 --size 64x64x3"
+  },
+  "hypergan_version": "0.10.0",
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
+}

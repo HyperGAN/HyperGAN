@@ -41,6 +41,8 @@ class BaseTrainer(GANComponent):
                 self.gan.loss.sample[0] += losses[0]
             if losses[1] is not None:
                 self.gan.loss.sample[1] += losses[1]
+            if "only" in hook_config and hook_config["only"]:
+                self.gan.loss = hc.Config({"sample": losses})
             self.train_hooks.append(hook)
 
         result = self._create()

@@ -11,6 +11,7 @@ import hypergan as hg
 from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.generators.segment_generator import SegmentGenerator
 from hypergan.train_hooks.experimental.rolling_memory_train_hook import RollingMemoryTrainHook
+from hypergan.train_hooks.experimental.rolling_memory_2_train_hook import RollingMemoryTrainHook as RollingMemory2TrainHook
 
 z = None
 x = None
@@ -74,8 +75,19 @@ class DebugSampler(BaseSampler):
 
         for train_hook in self.gan.train_hooks():
             if isinstance(train_hook, RollingMemoryTrainHook):
-                self.samplers += [IdentitySampler(gan, train_hook.mx, samples_per_row)]
-                self.samplers += [IdentitySampler(gan, train_hook.mg, samples_per_row)]
+                if "is_cross_replica_context" in dir(tf.distribute) and tf.distribute.is_cross_replica_context():
+                    for debug in train_hook.distributed_debug():
+                        self.samplers += [IdentitySampler(gan, debug, samples_per_row)]
+                else:
+                    self.samplers += [IdentitySampler(gan, train_hook.mx, samples_per_row)]
+                    self.samplers += [IdentitySampler(gan, train_hook.mg, samples_per_row)]
+            if isinstance(train_hook, RollingMemory2TrainHook):
+                if "is_cross_replica_context" in dir(tf.distribute) and tf.distribute.is_cross_replica_context():
+                    for debug in train_hook.distributed_debug():
+                        self.samplers += [IdentitySampler(gan, debug, samples_per_row)]
+                else:
+                    for v in train_hook.variables():
+                        self.samplers += [IdentitySampler(gan, v, samples_per_row)]
 
         default = gan.generator.sample#tf.zeros_like(gan.generator.layer('gend8x8'))
         def add_samples(layer):

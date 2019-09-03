@@ -214,7 +214,7 @@ class BaseGAN(GANComponent):
         return list(set(self.g_vars()).intersection(tf.trainable_variables()))
 
     def save(self, save_file):
-        if(np.any(np.isnan(self.session.run(self.loss.d_fake)))):
+        if(np.any(np.isnan(self.session.run(self.loss.sample)))):
             print("[Error] NAN detected.  Refusing to save")
             exit()
 

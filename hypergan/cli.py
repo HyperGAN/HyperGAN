@@ -290,9 +290,8 @@ class CLI:
             update_train_hooks = [t.update_op() for t in self.gan.trainer.train_hooks]
             update_train_hooks = tf.group(*[op for op in update_train_hooks if op is not None])
             while((i < self.total_steps or self.total_steps == -1)):
-                if i % 100 == 0:
+                if i % self.sample_every == 0:
                     self.gan.trainer.print_metrics(i)
-                if i % 100 == 0:
                     self.sample()
                 i+=1
                 #for train_hook in self.gan.trainer.train_hooks:

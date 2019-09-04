@@ -309,15 +309,40 @@ class CLI:
     def tpu_save(self, save_file):
         if "gs://" in save_file:
             return self.gan.save(save_file)
-        if not has_attr(self, "cpu_gan"):
+        if not hasattr(self, "cpu_gan"):
+            self.tpu_read_ops = {}
+            for v in self.gan.variables():
+                self.tpu_read_ops[v] = self.gan.distribution_strategy.extended.read_var(v)
             with tf.device('/cpu:0'):
-                self.cpu_gan = self.gan_fn(self.gan_config, self.inputs)
-                tfconfig = tf.ConfigProto(allow_soft_placement=True)
-                tfconfig.gpu_options.allow_growth=True
+                with tf.variable_scope("save", reuse=False) as scope:
+                    size = [int(x) for x in self.args.size.split("x")]
+                    graph = tf.Graph()
+                    with graph.as_default():
+                        inp = hc.Config({"x": tf.constant(-1000.0, dtype=tf.float32, shape=[self.args.batch_size/ self.gan.distribution_strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
+                        self.cpu_gan = self.gan_fn(self.gan_config, inp, graph=graph)
+                        self.cpu_placeholders = [tf.zeros_like(v) for v in self.cpu_gan.variables()]
+                        self.cpu_assigns = [tf.assign(v, placeholder) for v, placeholder in zip(self.cpu_gan.variables(), self.cpu_placeholders)]
+        tfconfig = tf.ConfigProto(allow_soft_placement=True)
+        tfconfig.gpu_options.allow_growth=True
 
-                with tf.Session(config=tfconfig, graph=graph) as session:
-                    for tpu_weight,cpu_weight in zip(self.gan.variables(), self.cpu_gan.variables):
-                        session.run(tf.assign(cpu_weight, tpu_weight))
+        with tf.Session(config=tfconfig, graph=self.cpu_gan.graph) as session:
+            print(" |=> Copying weights from TPU to CPU")
+            self.cpu_gan.session = session
+            self.cpu_gan.initialize_variables()
+            for tpu_weight in self.gan.variables():
+                tpu_read_op = self.tpu_read_ops[tpu_weight]
+                matching_cpu_weight = None
+                matching_cpu_assign = None
+                matching_cpu_placeholder = None
+                for cpu_placeholder, cpu_assign, cpu_weight in zip(self.cpu_placeholders, self.cpu_assigns, self.cpu_gan.variables()):
+                    if cpu_weight.name.replace("save/","") == tpu_weight.name:
+                        matching_cpu_weight = cpu_weight
+                        matching_cpu_assign = cpu_assign
+                        matching_cpu_placeholder = cpu_placeholder
+                tpu_val = self.gan.session.run(tpu_read_op)
+                session.run(matching_cpu_assign, {matching_cpu_placeholder: tpu_val})
+            print(" |=> Saving CPU")
+            self.cpu_gan.save(save_file)
 
 
     def train(self):

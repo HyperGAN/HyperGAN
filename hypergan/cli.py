@@ -304,8 +304,21 @@ class CLI:
                     self.args.save_every > 0 and
                     i % self.args.save_every == 0):
                     print(" |= Saving network")
-                    self.gan.save(self.save_file)  
+                    self.tpu_save(self.save_file)  
             session.run(tpu.shutdown_system())
+    def tpu_save(self, save_file):
+        if "gs://" in save_file:
+            return self.gan.save(save_file)
+        if not has_attr(self, "cpu_gan"):
+            with tf.device('/cpu:0'):
+                self.cpu_gan = self.gan_fn(self.gan_config, self.inputs)
+                tfconfig = tf.ConfigProto(allow_soft_placement=True)
+                tfconfig.gpu_options.allow_growth=True
+
+                with tf.Session(config=tfconfig, graph=graph) as session:
+                    for tpu_weight,cpu_weight in zip(self.gan.variables(), self.cpu_gan.variables):
+                        session.run(tf.assign(cpu_weight, tpu_weight))
+
 
     def train(self):
         i=0

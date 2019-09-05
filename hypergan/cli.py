@@ -263,7 +263,6 @@ class CLI:
           config.cluster_def.CopyFrom(cluster_spec.as_cluster_def())
 
         with tf.Session(cluster_resolver.master(), config=config) as session:
-
             self.gan.session = session
             print("Initializing iterator")
             session.run([iterator_init])
@@ -276,7 +275,7 @@ class CLI:
             v_ops = list(set([v.initializer for v in self.gan.variables()])-set(g_ops))
             session.run(v_ops)
             print("Loading model, if available")
-            if self.gan.load(self.save_file):
+            if self.tpu_load(self.save_file):
                 print("Model loaded")
             else:
                 print("Initializing new model")
@@ -306,9 +305,42 @@ class CLI:
                     print(" |= Saving network")
                     self.tpu_save(self.save_file)  
             session.run(tpu.shutdown_system())
-    def tpu_save(self, save_file):
+
+    def tpu_load(self, save_file):
         if "gs://" in save_file:
-            return self.gan.save(save_file)
+            return self.gan.load(save_file)
+        self.lazy_cpu_gan_init()
+        print(" |= Loading network from local filesystem")
+
+        self.tpu_write_ops = {}
+        self.tpu_placeholders = {}
+        for v in self.gan.variables():
+            with self.gan.distribution_strategy.scope():
+                ph = tf.zeros_like(v)
+                self.tpu_placeholders[v] = ph
+
+            def assign(v, ph):
+                return v.assign(ph)
+            op = self.gan.distribution_strategy.extended.call_for_each_replica(assign, args=(v,ph,))
+            self.tpu_write_ops[v] = self.gan.distribution_strategy.unwrap([op])
+        with tf.Session(graph=self.cpu_gan.graph) as session:
+            print(" |=> Copying weights from CPU to TPU")
+            self.cpu_gan.session = session
+            self.cpu_gan.load(save_file)
+
+                    #self.tpu_write_ops[v] = self.gan.distribution_strategy.extended.update(v, args=(ph,))
+            for tpu_weight in self.gan.variables():
+                matching_cpu_weight = None
+                for cpu_placeholder, cpu_assign, cpu_weight in zip(self.cpu_placeholders, self.cpu_assigns, self.cpu_gan.variables()):
+                    if cpu_weight.name.replace("save/","") == tpu_weight.name:
+                        matching_cpu_weight = cpu_weight
+                tpu_placeholder = self.tpu_placeholders[v]
+                tpu_write_op = self.tpu_write_ops[v]
+                cpu_val = self.cpu_gan.session.run(matching_cpu_weight)
+                session.run(tpu_write_op, {tpu_placeholder: cpu_val})
+
+
+    def lazy_cpu_gan_init(self):
         if not hasattr(self, "cpu_gan"):
             self.tpu_read_ops = {}
             for v in self.gan.variables():
@@ -322,13 +354,20 @@ class CLI:
                         self.cpu_gan = self.gan_fn(self.gan_config, inp, graph=graph)
                         self.cpu_placeholders = [tf.zeros_like(v) for v in self.cpu_gan.variables()]
                         self.cpu_assigns = [tf.assign(v, placeholder) for v, placeholder in zip(self.cpu_gan.variables(), self.cpu_placeholders)]
-        tfconfig = tf.ConfigProto(allow_soft_placement=True)
-        tfconfig.gpu_options.allow_growth=True
+            with tf.Session(graph=self.cpu_gan.graph) as session:
+                self.cpu_gan.session = session
+                self.cpu_gan.initialize_variables()
+                for train_hook in self.cpu_gan.trainer.train_hooks:
+                    train_hook.before_step(0,{})
 
-        with tf.Session(config=tfconfig, graph=self.cpu_gan.graph) as session:
+    def tpu_save(self, save_file):
+        if "gs://" in save_file:
+            return self.gan.save(save_file)
+        self.lazy_cpu_gan_init()
+
+        with tf.Session(graph=self.cpu_gan.graph) as session:
             print(" |=> Copying weights from TPU to CPU")
             self.cpu_gan.session = session
-            self.cpu_gan.initialize_variables()
             for tpu_weight in self.gan.variables():
                 tpu_read_op = self.tpu_read_ops[tpu_weight]
                 matching_cpu_weight = None

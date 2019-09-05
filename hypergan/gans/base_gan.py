@@ -89,9 +89,6 @@ class BaseGAN(GANComponent):
             self.inputs.x = self.inputs.xb
 
 
-
-        # A GAN as a component has a parent of itself
-        # gan.gan.gan.gan.gan.gan
         GANComponent.__init__(self, self, config, name=self.name)
         self.ops.debug = debug
 

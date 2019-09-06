@@ -250,7 +250,6 @@ class CLI:
         for t in self.gan.trainer.train_hooks:
             train_hook_update_steps += t.distributed_step(input_iterator_next)
         train_hook_update_steps = [strategy.unwrap(t) for t in train_hook_update_steps]
-        print("TR", train_hook_update_steps)
 
         #update_train_hooks_for_each_replica = self.gan.distribution_strategy.group(train_hook_update_steps)
         update_train_hooks_for_each_replica = train_hook_update_steps
@@ -268,11 +267,8 @@ class CLI:
             session.run([iterator_init])
             #print("Initializing local iterator")
             #session.run([local_iterator.initializer])
-            print("Initializing generator variables")
-            g_ops = [v.initializer for v in self.gan.generator.variables()]
-            session.run(g_ops)
-            print("Initializing other variables")
-            v_ops = list(set([v.initializer for v in self.gan.variables()])-set(g_ops))
+            print("Initializing variables")
+            v_ops = [v.initializer for v in self.gan.variables()]
             session.run(v_ops)
             print("Loading model, if available")
             if self.tpu_load(self.save_file):
@@ -309,39 +305,36 @@ class CLI:
     def tpu_load(self, save_file):
         if "gs://" in save_file:
             return self.gan.load(save_file)
-        self.lazy_cpu_gan_init()
+        if not tf.gfile.Exists(save_file) and not tf.gfile.Exists(save_file + ".index" ):
+            return False
+        self.cpu_gan_init()
         print(" |= Loading network from local filesystem")
+        def set_weight_cross_replica(distribution, v, cpu_val):
+            return v.assign(cpu_val)
+        self.cpu_variables = {}
+        self.cpu_gan.initialize_variables()
+        self.cpu_gan.load(save_file)
 
-        self.tpu_write_ops = {}
-        self.tpu_placeholders = {}
-        for v in self.gan.variables():
-            with self.gan.distribution_strategy.scope():
-                ph = tf.zeros_like(v)
-                self.tpu_placeholders[v] = ph
-
-            def assign(v, ph):
-                return v.assign(ph)
-            op = self.gan.distribution_strategy.extended.call_for_each_replica(assign, args=(v,ph,))
-            self.tpu_write_ops[v] = self.gan.distribution_strategy.unwrap([op])
-        with tf.Session(graph=self.cpu_gan.graph) as session:
-            print(" |=> Copying weights from CPU to TPU")
-            self.cpu_gan.session = session
-            self.cpu_gan.load(save_file)
-
-                    #self.tpu_write_ops[v] = self.gan.distribution_strategy.extended.update(v, args=(ph,))
-            for tpu_weight in self.gan.variables():
-                matching_cpu_weight = None
-                for cpu_placeholder, cpu_assign, cpu_weight in zip(self.cpu_placeholders, self.cpu_assigns, self.cpu_gan.variables()):
-                    if cpu_weight.name.replace("save/","") == tpu_weight.name:
-                        matching_cpu_weight = cpu_weight
-                tpu_placeholder = self.tpu_placeholders[v]
-                tpu_write_op = self.tpu_write_ops[v]
-                cpu_val = self.cpu_gan.session.run(matching_cpu_weight)
-                session.run(tpu_write_op, {tpu_placeholder: cpu_val})
+        print(" |=> Copying weights from CPU to TPU")
+        assert(len(self.gan.variables()) == len(self.cpu_gan.variables()))
+        for tpu_weight in self.gan.variables():
+            matching_cpu_weight = None
+            for cpu_weight in self.cpu_gan.variables():
+                if cpu_weight.name.replace("save/","") == tpu_weight.name:
+                    matching_cpu_weight = cpu_weight
+            cpu_val = self.cpu_gan.session.run(matching_cpu_weight)
+            self.cpu_variables[tpu_weight]=cpu_val
+        ops = []
+        for tpu_weight, cpu_val in self.cpu_variables.items():
+            ops += [tf.distribute.get_replica_context().merge_call(set_weight_cross_replica, args=(tpu_weight, cpu_val,))]
+        self.gan.session.run(ops)
+        self.cpu_variables = None
+        #delattr(self, 'cpu_gan')
+        return True
 
 
-    def lazy_cpu_gan_init(self):
-        if not hasattr(self, "cpu_gan"):
+    def cpu_gan_init(self):
+        if not hasattr(self, 'cpu_gan'):
             self.tpu_read_ops = {}
             for v in self.gan.variables():
                 self.tpu_read_ops[v] = self.gan.distribution_strategy.extended.read_var(v)
@@ -352,36 +345,41 @@ class CLI:
                     with graph.as_default():
                         inp = hc.Config({"x": tf.constant(-1000.0, dtype=tf.float32, shape=[self.args.batch_size/ self.gan.distribution_strategy.num_replicas_in_sync, size[0], size[1], size[2]])})
                         self.cpu_gan = self.gan_fn(self.gan_config, inp, graph=graph)
-                        self.cpu_placeholders = [tf.zeros_like(v) for v in self.cpu_gan.variables()]
-                        self.cpu_assigns = [tf.assign(v, placeholder) for v, placeholder in zip(self.cpu_gan.variables(), self.cpu_placeholders)]
-            with tf.Session(graph=self.cpu_gan.graph) as session:
-                self.cpu_gan.session = session
-                self.cpu_gan.initialize_variables()
-                for train_hook in self.cpu_gan.trainer.train_hooks:
-                    train_hook.before_step(0,{})
+
+                        assert(len(self.gan.variables()) == len(self.cpu_gan.variables()))
+                        self.cpu_placeholders = {}
+                        self.cpu_assigns = {}
+                        for v in self.cpu_gan.variables():
+                            self.cpu_placeholders[v] = tf.zeros_like(v) 
+                            self.cpu_assigns[v] = tf.assign(v, self.cpu_placeholders[v])
+            session = tf.Session(graph=self.cpu_gan.graph)
+            self.cpu_gan.session = session
+            self.cpu_gan.initialize_variables()
+            for train_hook in self.cpu_gan.trainer.train_hooks:
+                train_hook.before_step(0,{})
 
     def tpu_save(self, save_file):
         if "gs://" in save_file:
             return self.gan.save(save_file)
-        self.lazy_cpu_gan_init()
+        self.cpu_gan_init()
 
-        with tf.Session(graph=self.cpu_gan.graph) as session:
-            print(" |=> Copying weights from TPU to CPU")
-            self.cpu_gan.session = session
-            for tpu_weight in self.gan.variables():
-                tpu_read_op = self.tpu_read_ops[tpu_weight]
-                matching_cpu_weight = None
-                matching_cpu_assign = None
-                matching_cpu_placeholder = None
-                for cpu_placeholder, cpu_assign, cpu_weight in zip(self.cpu_placeholders, self.cpu_assigns, self.cpu_gan.variables()):
-                    if cpu_weight.name.replace("save/","") == tpu_weight.name:
-                        matching_cpu_weight = cpu_weight
-                        matching_cpu_assign = cpu_assign
-                        matching_cpu_placeholder = cpu_placeholder
-                tpu_val = self.gan.session.run(tpu_read_op)
-                session.run(matching_cpu_assign, {matching_cpu_placeholder: tpu_val})
-            print(" |=> Saving CPU")
-            self.cpu_gan.save(save_file)
+        print(" |=> Copying weights from TPU to CPU")
+        assert(len(self.gan.variables()) == len(self.cpu_gan.variables()))
+        for tpu_weight in self.gan.variables():
+            tpu_read_op = self.tpu_read_ops[tpu_weight]
+            matching_cpu_weight = None
+            matching_cpu_assign = None
+            matching_cpu_placeholder = None
+            for cpu_weight in self.cpu_gan.variables():
+                if cpu_weight.name.replace("save/","") == tpu_weight.name:
+                    matching_cpu_weight = cpu_weight
+                    matching_cpu_assign = self.cpu_assigns[cpu_weight]
+                    matching_cpu_placeholder = self.cpu_placeholders[cpu_weight]
+            tpu_val = self.gan.session.run(tpu_read_op)
+            self.cpu_gan.session.run(matching_cpu_assign, {matching_cpu_placeholder: tpu_val})
+        print(" |=> Saving CPU")
+        self.cpu_gan.save(save_file)
+        #delattr(self, 'cpu_gan')
 
 
     def train(self):

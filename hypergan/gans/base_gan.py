@@ -89,9 +89,6 @@ class BaseGAN(GANComponent):
             self.inputs.x = self.inputs.xb
 
 
-
-        # A GAN as a component has a parent of itself
-        # gan.gan.gan.gan.gan.gan
         GANComponent.__init__(self, self, config, name=self.name)
         self.ops.debug = debug
 
@@ -150,6 +147,7 @@ class BaseGAN(GANComponent):
             kw_args["reuse"]=True
         gan_component = klass(self, defn, *args, **kw_args)
         self.components.append(gan_component)
+        self.components = list(set(self.components))
         return gan_component
 
     def create_optimizer(self, options):
@@ -318,7 +316,16 @@ class BaseGAN(GANComponent):
         self.session.run(initializers)
 
     def variables(self):
-        return list(set(self.ops.variables() + sum([c.variables() for c in self.components], [])))
+        slot_vars = []
+        for c in self.components:
+            if hasattr(c, '_slots'):
+                for name, variable_object in sorted(c._slots.items()):
+                    slot_vars += variable_object.values()
+            if hasattr(c, '_non_slot_dict'):
+                for (name, _), variable_object in sorted(c._non_slot_dict.items(),
+                    key=lambda item: item[0][0]):
+                    slot_vars += [variable_object]
+        return list(set(self.ops.variables() + slot_vars + sum([c.variables() for c in self.components], [])))
 
     def weights(self):
         return self.ops.weights + sum([c.ops.weights for c in self.components if hasattr(c, 'ops')], [])

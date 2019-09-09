@@ -37,8 +37,8 @@ class GANComponent:
 
         if reuse:
             self.ops.reuse()
-
-        self.create()
+        with self.gan.graph.as_default():
+            self.create()
 
     def create_ops(self, config):
         """

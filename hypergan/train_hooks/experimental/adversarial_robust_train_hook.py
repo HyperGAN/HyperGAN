@@ -55,5 +55,7 @@ class AdversarialRobustTrainHook(BaseTrainHook):
         self.gan.add_metric('vx', tf.reduce_sum(self.v[0]))
         self.gan.add_metric('vg', tf.reduce_sum(self.v[1]))
 
+  def variables(self):
+      return [self.trainablex, self.trainableg]
   def losses(self):
     return self.loss

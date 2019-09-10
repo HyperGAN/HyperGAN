@@ -18,6 +18,7 @@ import time
 import os
 import shutil
 import sys
+import tempfile
 
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.multi_component import MultiComponent
@@ -304,7 +305,13 @@ class CLI:
 
     def tpu_load(self, save_file):
         if "gs://" in save_file:
-            return self.gan.load(save_file)
+            temp_name = next(tempfile._get_candidate_names())
+            temp_dir = tempfile._get_default_tempdir()
+            temp_file = temp_dir+"/"+temp_name
+            tf.io.gfile.copy(save_file, temp_file)
+            result = self.tpu_load(temp_file)
+            return result
+            # TODO: remove
         if not tf.gfile.Exists(save_file) and not tf.gfile.Exists(save_file + ".index" ):
             return False
         self.cpu_gan_init()

@@ -307,9 +307,13 @@ class CLI:
         if "gs://" in save_file:
             temp_name = next(tempfile._get_candidate_names())
             temp_dir = tempfile._get_default_tempdir()
-            temp_file = temp_dir+"/"+temp_name
-            tf.io.gfile.copy(save_file, temp_file)
-            result = self.tpu_load(temp_file)
+            temp_dir = temp_dir+"/"+temp_name
+            tf.gfile.MkDir(temp_dir)
+            for f in tf.gfile.ListDirectory(save_file):
+                if f != "/":
+                    print("Copying "+save_file + "/" + f + " to "+temp_dir + "/" + f)
+                    tf.io.gfile.copy(save_file+"/"+f, temp_dir+"/"+f)
+            result = self.tpu_load(temp_dir)
             return result
             # TODO: remove
         if not tf.gfile.Exists(save_file) and not tf.gfile.Exists(save_file + ".index" ):

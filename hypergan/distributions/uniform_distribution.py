@@ -30,7 +30,7 @@ class UniformDistribution(BaseDistribution):
         batch_size = self.gan.batch_size()
         if self.z is None:
             output_shape = self.output_shape or [batch_size, int(config.z)]
-            self.z = tf.random_uniform(output_shape, config.min or -1, config.max or 1, dtype=ops.dtype)
+            self.z = tf.random.uniform(output_shape, config.min or -1, config.max or 1, dtype=ops.dtype)
 
         if 'projections' in config:
             for projection in config.projections:

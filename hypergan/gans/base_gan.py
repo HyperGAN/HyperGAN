@@ -54,7 +54,7 @@ class BaseGAN(GANComponent):
         self.skip_connections = SkipConnections()
         self.destroy = False
         if graph is None:
-            graph = tf.get_default_graph()
+            graph = tf.compat.v1.get_default_graph()
         self.graph = graph
 
         if config == None:

@@ -19,9 +19,8 @@ class ImageLoader:
         filenames = tf.io.gfile.glob(directory+"/*.tfrecord")
         #filenames = [directory]
         filenames = natsorted(filenames)
-        print("Found tfrecord files", filenames)
+        print("Found tfrecord files", len(filenames))
 
-            
         print("[loader] ImageLoader found", len(filenames))
         self.file_count = len(filenames)
         if self.file_count == 0:
@@ -31,7 +30,7 @@ class ImageLoader:
         def parse_function(filename):
             def parse_record_tf(record):
                 features = tf.parse_single_example(record, features={
-                    'image/encoded': tf.FixedLenFeature([], tf.string)
+                    'image/encoded': tf.io.FixedLenFeature([], tf.string)
                     #'image': tf.FixedLenFeature([], tf.string)
                     })
                 #data = tf.decode_raw(features['image'], tf.uint8)
@@ -75,9 +74,8 @@ class ImageLoader:
         #filenames = tf.io.gfile.glob(directory+"/*.tfrecord")
         filenames = [directory]
         filenames = natsorted(filenames)
-        print("Found tfrecord files", filenames)
+        print("Found tfrecord files: ", len(filenames))
 
-            
         print("[loader] ImageLoader found", len(filenames))
         self.file_count = len(filenames)
         if self.file_count == 0:
@@ -88,7 +86,7 @@ class ImageLoader:
             def parse_record_tf(record):
                 features = tf.parse_single_example(record, features={
                     #'image/encoded': tf.FixedLenFeature([], tf.string)
-                    'image': tf.FixedLenFeature([], tf.string)
+                    'image': tf.io.FixedLenFeature([], tf.string)
                     })
                 data = tf.decode_raw(features['image'], tf.uint8)
                 #data = tf.image.decode_jpeg(features['image/encoded'], channels=channels)

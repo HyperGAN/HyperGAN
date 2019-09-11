@@ -165,7 +165,8 @@ class ConfigurableComponent:
             for j in new:
                 self.layer_options[j]=options
             after_count = self.count_number_trainable_params()
-            print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
+            if not self.ops._reuse:
+                print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
         else:
             print("ConfigurableComponent: Op not defined", op)
 
@@ -233,7 +234,6 @@ class ConfigurableComponent:
             net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, initializer=initializer, name=name, trainable=trainable)
 
         elif op == ops.deconv2d:
-            print("DECONV", net, fltr, stride)
             net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, name=name, trainable=trainable, bias=bias)
 
         elif op == ops.linear:

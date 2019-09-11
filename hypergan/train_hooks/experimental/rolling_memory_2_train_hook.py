@@ -76,7 +76,6 @@ class RollingMemoryTrainHook(BaseTrainHook):
     def create_disc(var):
       return self.gan.create_component(self.gan.config.discriminator, name="discriminator", input=tf.concat([var, var],axis=0), features=[self.gan.features], reuse=True)
 
-    print(self.memories)
     d = create_disc(var)
     l = self.gan.create_component(self.gan.config.loss, discriminator=d)
 

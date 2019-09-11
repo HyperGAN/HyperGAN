@@ -77,7 +77,6 @@ class BaseLoss(GANComponent):
         d_regularizers += self.d_regularizers()
         g_regularizers += self.g_regularizers()
 
-        print("prereg", d_loss)
         if len(d_regularizers) > 0:
             d_loss += tf.add_n(d_regularizers)
         if len(g_regularizers) > 0:

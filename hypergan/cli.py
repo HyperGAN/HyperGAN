@@ -58,7 +58,7 @@ class CLI:
 
         self.advSavePath = os.path.abspath("saves/"+self.config_name)+"/"
         if self.args.save_file:
-            self.save_file = self.args.save_file
+            self.save_file = self.args.save_file + "/model.ckpt"
         else:
             default_save_path = os.path.abspath("saves/"+self.config_name)
             self.save_file = default_save_path + "/model.ckpt"
@@ -185,7 +185,7 @@ class CLI:
 
     def train_tpu(self):
         i=0
-        tf.disable_v2_behavior()
+        tf.compat.v1.disable_v2_behavior()
         tpu_name = self.args.device.replace("/tpu:", "")
         print("Connecting to TPU:", tpu_name)
         cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
@@ -305,18 +305,20 @@ class CLI:
 
     def tpu_load(self, save_file):
         if "gs://" in save_file:
+            if not tf.io.gfile.exists(save_file):
+                return False
             temp_name = next(tempfile._get_candidate_names())
             temp_dir = tempfile._get_default_tempdir()
             temp_dir = temp_dir+"/"+temp_name
-            tf.gfile.MkDir(temp_dir)
-            for f in tf.gfile.ListDirectory(save_file):
+            tf.io.gfile.mkdir(temp_dir)
+            for f in tf.io.gfile.listdir(save_file):
                 if f != "/":
                     print("Copying "+save_file + "/" + f + " to "+temp_dir + "/" + f)
                     tf.io.gfile.copy(save_file+"/"+f, temp_dir+"/"+f)
-            result = self.tpu_load(temp_dir)
+            result = self.tpu_load(temp_dir+"/model.ckpt")
             return result
             # TODO: remove
-        if not tf.gfile.Exists(save_file) and not tf.gfile.Exists(save_file + ".index" ):
+        if not tf.io.gfile.exists(save_file) and not tf.io.gfile.exists(save_file + ".index" ):
             return False
         self.cpu_gan_init()
         print(" |= Loading network from local filesystem")

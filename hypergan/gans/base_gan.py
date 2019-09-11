@@ -230,24 +230,18 @@ class BaseGAN(GANComponent):
 
 
     def load(self, save_file):
-        if "gs://" not in save_file:
-            save_file = os.path.expanduser(save_file)
+        save_file = os.path.expanduser(save_file)
         if tf.gfile.Exists(save_file) or tf.gfile.Exists(save_file + ".index" ):
-            if "gs://" in save_file:
-                print("[hypergan] |= Loading network from google storage "+ save_file)
-                ckpt = tf.train.get_checkpoint_state(save_file)
+            save_file = os.path.expanduser(save_file)
+            print("[hypergan] |= Loading network from "+ save_file)
+            dir = os.path.dirname(save_file)
+            print("[hypergan] |= Loading checkpoint from "+ dir)
+            ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
+            if ckpt and ckpt.model_checkpoint_path:
                 self.optimistic_restore(self.session, save_file, self.variables())
+                return True
             else:
-                save_file = os.path.expanduser(save_file)
-                print("[hypergan] |= Loading network from "+ save_file)
-                dir = os.path.dirname(save_file)
-                print("[hypergan] |= Loading checkpoint from "+ dir)
-                ckpt = tf.train.get_checkpoint_state(os.path.expanduser(dir))
-                if ckpt and ckpt.model_checkpoint_path:
-                    self.optimistic_restore(self.session, save_file, self.variables())
-                    return True
-                else:
-                    return False
+                return False
         else:
             return False
 

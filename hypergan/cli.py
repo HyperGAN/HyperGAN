@@ -304,28 +304,28 @@ class CLI:
             session.run(tpu.shutdown_system())
 
     def tpu_load(self, save_file):
+        if not tf.io.gfile.exists(save_file) and not tf.io.gfile.exists(save_file + ".index" ):
+            return False
         if "gs://" in save_file:
-            if not tf.io.gfile.exists(save_file):
-                return False
+            save_dir = "/".join(save_file.split("/")[0:-1])
             temp_name = next(tempfile._get_candidate_names())
             temp_dir = tempfile._get_default_tempdir()
             temp_dir = temp_dir+"/"+temp_name
             tf.io.gfile.mkdir(temp_dir)
-            for f in tf.io.gfile.listdir(save_file):
+            for f in tf.io.gfile.listdir(save_dir):
                 if f != "/":
-                    print("Copying "+save_file + "/" + f + " to "+temp_dir + "/" + f)
-                    tf.io.gfile.copy(save_file+"/"+f, temp_dir+"/"+f)
+                    print("Copying "+save_dir + "/" + f + " to "+temp_dir + "/" + f)
+                    tf.io.gfile.copy(save_dir+"/"+f, temp_dir+"/"+f)
             result = self.tpu_load(temp_dir+"/model.ckpt")
             return result
             # TODO: remove
-        if not tf.io.gfile.exists(save_file) and not tf.io.gfile.exists(save_file + ".index" ):
-            return False
         self.cpu_gan_init()
         print(" |= Loading network from local filesystem")
         def set_weight_cross_replica(distribution, v, cpu_val):
             return v.assign(cpu_val)
         self.cpu_variables = {}
         self.cpu_gan.initialize_variables()
+        print(" |= Loading from save ", save_file)
         self.cpu_gan.load(save_file)
 
         print(" |=> Copying weights from CPU to TPU")

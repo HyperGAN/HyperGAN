@@ -65,5 +65,8 @@ class AdamirrorOptimizer(optimizer.Optimizer):
     var_update = state_ops.assign_sub(var, 2. * lr_t * g_t - lr_t * g_t_1) #Adam would be lr_t * g_t
     return control_flow_ops.group(*[var_update, m_t, v_t, g_t])
   
+  def _resource_apply_dense(self, grad, handle):
+    return self._apply_dense(grad, handle)
+
   def _apply_sparse(self, grad, var):
     raise NotImplementedError("Sparse gradient updates are not supported.")

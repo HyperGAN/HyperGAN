@@ -29,4 +29,4 @@ class ForceEquilibriumTrainHook(BaseTrainHook):
       return self.loss
 
   def distributed_step(self, input_iterator_next):
-      return tf.no_op()
+      return [tf.no_op()]

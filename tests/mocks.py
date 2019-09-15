@@ -4,7 +4,7 @@ import hypergan as hg
 
 from hypergan.gan_component import GANComponent
 
-def mock_gan(batch_size=1, y=1, config=None):
+def mock_gan(batch_size=1, y=1, config=None, generator_config=None):
     mock_config = config or hc.Config({
         "latent": {
             "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",

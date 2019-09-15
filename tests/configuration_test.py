@@ -2,7 +2,7 @@ import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
 import hypergan as hg
-from hypergan.discriminators.pyramid_discriminator import PyramidDiscriminator
+from hypergan.discriminators.experimental.pyramid_discriminator import PyramidDiscriminator
 from hypergan.gan_component import ValidationException
 from hypergan.ops import TensorflowOps
 

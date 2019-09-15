@@ -1,6 +1,6 @@
 import tensorflow as tf
 from hypergan.multi_component import MultiComponent
-from tests.mocks import MockDiscriminator, mock_gan
+from mocks import MockDiscriminator, mock_gan
 from hypergan.distributions.uniform_distribution import UniformDistribution
 from hypergan.losses.supervised_loss import SupervisedLoss
 from hypergan.losses.standard_loss import StandardLoss

@@ -277,6 +277,8 @@ class ConfigurableComponent:
         ops = self.ops
         gan = self.gan
         config = self.config
+        if config.layer_filter is None:
+            return net
         fltr = config.layer_filter(gan, self.config, net)
         if "only" in options:
             return fltr
@@ -497,6 +499,8 @@ class ConfigurableComponent:
     def layer_activation(self, net, args, options):
         options = hc.Config(options)
         activation_s = options.activation or self.ops.config_option("activation")
+        if len(args) > 0:
+            activation_s = args[0]
         activation = self.ops.lookup(activation_s)
         return activation(net)
 
@@ -644,10 +648,10 @@ class ConfigurableComponent:
         ops = self.ops
         options = hc.Config(options)
         gan = self.gan
-
-        oj_lambda = 1.0
         if "lambda" in options:
             oj_lambda = options["lambda"]
+        else:
+            oj_lambda = 1.0
         c_scale = float(options.c_scale or 8)
 
         def _flatten(_net):
@@ -977,6 +981,8 @@ class ConfigurableComponent:
             options['activation']=tf.nn.sigmoid
             mask = self.layer_conv(net, args, options)
             net += tf.random_normal(self.ops.shape(net), stddev=0.1) * mask
+        elif options.uniform:
+            return tf.random_uniform(self.ops.shape(net), minval=-1, maxval=1, dtype=tf.float32)
         else:
             net += tf.random_normal(self.ops.shape(net), stddev=0.1)
         return net
@@ -1020,8 +1026,12 @@ class ConfigurableComponent:
         return net
 
     def layer_concat(self, net, args, options):
+        options = hc.Config(options)
         if len(args) > 0 and args[0] == 'noise':
-            extra = tf.random_normal(self.ops.shape(net), stddev=0.1)
+            if options.type == 'uniform':
+                extra = tf.random_uniform(self.ops.shape(net), -1, 1)
+            else:
+                extra = tf.random_normal(self.ops.shape(net), stddev=0.1)
         if 'layer' in options:
             extra = self.layer(options['layer'])
 

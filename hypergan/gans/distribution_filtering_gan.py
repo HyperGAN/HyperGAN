@@ -31,41 +31,39 @@ class DistributionFilteringGAN(StandardGAN):
     def create(self):
         config = self.config
 
-        with tf.device(self.device):
-            self.session = self.ops.new_session(self.ops_config)
-            self.latent = self.create_component(config.z_distribution or config.latent)
-            self.uniform_distribution = self.latent
+        self.latent = self.create_component(config.z_distribution or config.latent)
+        self.uniform_distribution = self.latent
 
-            z_shape = self.ops.shape(self.latent.sample)
-            self.android_input = tf.reshape(self.latent.sample, [-1])
+        z_shape = self.ops.shape(self.latent.sample)
+        self.android_input = tf.reshape(self.latent.sample, [-1])
 
-            direction, slider = self.create_controls(self.ops.shape(self.android_input))
-            self.slider = slider
-            self.direction = direction
-            z = self.android_input + slider * direction
-            z = tf.maximum(-1., z)
-            z = tf.minimum(1., z)
-            z = tf.reshape(z, z_shape)
-            self.control_z = z
+        direction, slider = self.create_controls(self.ops.shape(self.android_input))
+        self.slider = slider
+        self.direction = direction
+        z = self.android_input + slider * direction
+        z = tf.maximum(-1., z)
+        z = tf.minimum(1., z)
+        z = tf.reshape(z, z_shape)
+        self.control_z = z
 
-            self.generator = self.create_component(config.generator, name="generator", input=z)
-            self.noise_generator = self.create_component((config.noise_generator or config.generator), name="noise_generator", input=z)
+        self.generator = self.create_component(config.generator, name="generator", input=z)
+        self.noise_generator = self.create_component((config.noise_generator or config.generator), name="noise_generator", input=z)
 
-            #x, g = tf.concat([self.inputs.x, self.inputs.x + self.noise_generator.sample], axis=3), tf.concat([self.generator.sample, self.generator.sample + self.noise_generator.sample], axis=3)
+        #x, g = tf.concat([self.inputs.x, self.inputs.x + self.noise_generator.sample], axis=3), tf.concat([self.generator.sample, self.generator.sample + self.noise_generator.sample], axis=3)
 
-            x1, g1 = self.inputs.x, self.generator.sample
-            self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x1,g1],axis=0))
-            x2, g2 = self.inputs.x+self.noise_generator.sample, self.generator.sample+self.noise_generator.sample
-            self.loss = self.create_component(config.loss, discriminator=self.discriminator)
-            self.noise_discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x2,g2],axis=0), reuse=True)
-            noise_loss = self.create_component(config.loss, discriminator=self.noise_discriminator)
-            self.loss.sample[0] += noise_loss.sample[0]
-            self.loss.sample[1] += noise_loss.sample[1]
-            self.trainer = self.create_component(config.trainer)
+        x1, g1 = self.inputs.x, self.generator.sample
+        self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x1,g1],axis=0))
+        x2, g2 = self.inputs.x+self.noise_generator.sample, self.generator.sample+self.noise_generator.sample
+        self.loss = self.create_component(config.loss, discriminator=self.discriminator)
+        self.noise_discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x2,g2],axis=0), reuse=True)
+        noise_loss = self.create_component(config.loss, discriminator=self.noise_discriminator)
+        self.loss.sample[0] += noise_loss.sample[0]
+        self.loss.sample[1] += noise_loss.sample[1]
+        self.trainer = self.create_component(config.trainer)
 
-            self.android_output = tf.reshape(self.generator.sample, [-1])
+        self.android_output = tf.reshape(self.generator.sample, [-1])
 
-            self.initialize_variables()
+        self.initialize_variables()
 
     def g_vars(self):
         return self.latent.variables() + self.generator.variables() + self.noise_generator.variables()

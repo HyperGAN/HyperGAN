@@ -227,3 +227,11 @@ class GANComponent:
 
     def trainable_variables(self):
         return list(set(self.variables()).intersection(tf.trainable_variables()))
+
+    def distributed_step(self, _):
+        return []
+    def distributed_initial_step(self, _):
+        return []
+
+    def update_op(self):
+        return tf.no_op()

@@ -35,7 +35,10 @@ class RollingMemoryTrainHook(BaseTrainHook):
             else:
                 with tf.variable_scope((self.config.name or self.name), reuse=self.gan.reuse) as scope:
                     mem=tf.get_variable(self.gan.ops.generate_name()+"_dontsave", s, dtype=tf.float32,
-                              initializer=tf.compat.v1.constant_initializer(-100), aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA, trainable=False)
+                              initializer=tf.compat.v1.constant_initializer(0), 
+                              aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA, 
+                              trainable=False, 
+                              synchronization=tf.VariableSynchronization.NONE)
                 src = self.source(_type)
                 self.memories[_type]={"var": mem, "source": src, "sw": self.sw(src, _type),
                                       "assign": tf.assign(mem, src * self.sw(src, _type) + (1.0 - self.sw(src, _type)) * mem)

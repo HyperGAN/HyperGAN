@@ -1,6 +1,6 @@
 import hypergan as hg
 import tensorflow as tf
-from tests.mocks import MockDiscriminator, mock_gan
+from mocks import MockDiscriminator, mock_gan
 
 class GanTest(tf.test.TestCase):
     def test_hg_gan(self):

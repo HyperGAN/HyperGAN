@@ -96,7 +96,7 @@ class ThreadedTkViewerUI:
             self.resizable_frame.pack(expand=tk.YES, fill=tk.BOTH)
 
             def _save_model(*args):
-                gan.save(gan.save_file)
+                gan.save(gan.cli.save_file)
 
             def _exit(*args):
                 gan.exit()

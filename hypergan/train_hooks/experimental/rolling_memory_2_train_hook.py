@@ -155,7 +155,7 @@ class RollingMemoryTrainHook(BaseTrainHook):
     for _type, memory in self.memories.items():
       if "var" in memory and "assign" in memory:
         var += [memory["var"]]
-      return var
+    return var
 
   def losses(self):
     return self.loss

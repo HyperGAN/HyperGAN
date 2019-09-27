@@ -211,11 +211,8 @@ class CLI:
             with tf.GradientTape(persistent=True) as tape:
                 replica_gan = self.gan_fn(self.gan_config, inp, distribution_strategy=strategy, reuse=True)
                 self.gan.replica = replica_gan
-                d_loss = replica_gan.trainer.d_loss / strategy.num_replicas_in_sync
-                g_loss = replica_gan.trainer.g_loss  / strategy.num_replicas_in_sync
-            train_hook_losses = [t.losses() for t in replica_gan.trainer.train_hooks]
-            [d_loss += l[0] / strategy.num_replicas_in_sync for l in train_hook_losses if l is not None]
-            [g_loss += l[1] / strategy.num_replicas_in_sync for l in train_hook_losses if l is not None]
+                d_loss = replica_gan.trainer.d_loss
+                g_loss = replica_gan.trainer.g_loss
             d_grads = tape.gradient(d_loss, replica_gan.trainable_d_vars())
             g_grads = tape.gradient(g_loss, replica_gan.trainable_g_vars())
             #train_hook_grads = [t.gradient(tape) for t in replica_gan.trainer.train_hooks]

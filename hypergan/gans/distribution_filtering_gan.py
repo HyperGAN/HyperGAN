@@ -59,6 +59,7 @@ class DistributionFilteringGAN(StandardGAN):
         noise_loss = self.create_component(config.loss, discriminator=self.noise_discriminator)
         self.loss.sample[0] += noise_loss.sample[0]
         self.loss.sample[1] += noise_loss.sample[1]
+        self.losses = [self.loss]
         self.trainer = self.create_component(config.trainer)
 
         self.android_output = tf.reshape(self.generator.sample, [-1])

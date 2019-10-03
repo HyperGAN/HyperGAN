@@ -44,14 +44,20 @@ class RollingMemoryTrainHook(BaseTrainHook):
                                       "assign": tf.assign(mem, src * self.sw(src, _type) + (1.0 - self.sw(src, _type)) * mem)
                                       }
     self.loss = [tf.zeros(1), tf.zeros(1)]
-    for pair in self.config.types:
+    for i, pair in enumerate(self.config.types):
         left, right = pair.split("/")
         vleft = self.memories[left]["var"]
         vright = self.memories[right]["var"]
         d = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([vleft, vright],axis=0), features=[gan.features], reuse=True)
         l = gan.create_component(gan.config.loss, discriminator=d)
-        self.loss[0] += (self.config.lam or 1.0) * l.sample[0]
-        self.loss[1] += (self.config.lam or 1.0) * l.sample[1]
+        if self.config.add_to_losses:
+            self.gan.losses += [l]
+        if self.config.lambdas and i < len(self.config.lambdas):
+            lam = self.config.lambdas[i]
+        else:
+            lam = (self.config.lam or 1.0)
+        self.loss[0] += lam  * l.sample[0]
+        self.loss[1] += lam * l.sample[1]
         self.gan.add_metric("rolling_d_loss_"+pair, self.loss[0])
     self.update_memory = []
     for _type, memory in self.memories.items():

@@ -218,7 +218,7 @@ class CLI:
             #train_hook_grads = [t.gradient(tape) for t in replica_gan.trainer.train_hooks]
 
             del tape
-            optimizer = tf.tpu.CrossShardOptimizer(self.gan.trainer.optimizer, reduction="weighted_sum")
+            optimizer = tf.tpu.CrossShardOptimizer(self.gan.trainer.optimizer)
             variables = replica_gan.trainable_d_vars() + replica_gan.trainable_g_vars()
             grads = d_grads + g_grads
             update_vars = optimizer.apply_gradients(

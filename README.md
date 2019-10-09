@@ -67,7 +67,7 @@ HyperGAN is a community project.  GANs are a very new and active field of resear
 
 # Showcase
 
-[![Hypergan Mobile released!](https://miro.medium.com/max/1404/1*uJmzGUvoP0WdaQPkkT8s-Q.jpeg)
+![Hypergan Mobile released!](https://miro.medium.com/max/1404/1*uJmzGUvoP0WdaQPkkT8s-Q.jpeg)
 
 Run trained models with HyperGAN on your android device!
 

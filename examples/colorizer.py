@@ -139,6 +139,7 @@ os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
 def setup_gan(config, inputs, args):
     gan = hg.GAN(config, inputs=inputs, name=args.config)
+    gan.initialize_variables()
 
     if(os.path.isfile(save_file+".meta")):
         gan.load(save_file)

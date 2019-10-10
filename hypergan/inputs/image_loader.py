@@ -141,6 +141,8 @@ class ImageLoader:
         self.datasets = []
 
         print("CREATING WITH", directories)
+        if(not isinstance(directories, list)):
+            directories = [directories]
 
         for directory in directories:
             dirs = glob.glob(directory+"/*")

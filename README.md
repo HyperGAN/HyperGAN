@@ -67,7 +67,15 @@ HyperGAN is a community project.  GANs are a very new and active field of resear
 
 # Showcase
 
-See the [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
+![Hypergan Mobile released!](https://miro.medium.com/max/1404/1*uJmzGUvoP0WdaQPkkT8s-Q.jpeg)
+
+Run trained models with HyperGAN on your android device!
+
+---
+
+Submit your showcase with a pull request!
+
+For more, see the #showcase room in [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
 
 # Documentation
 

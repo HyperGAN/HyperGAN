@@ -3,6 +3,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from hypergan.gan_component import ValidationException
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import state_ops
@@ -22,32 +23,47 @@ class RollingMemoryTrainHook(BaseTrainHook):
     self.train_hook_index = len(trainer.train_hooks)
     config = hc.Config(config)
     s = self.gan.ops.shape(self.gan.generator.sample)
-    self.shape = s#[self.gan.batch_size() * (self.config.memory_size or 1), s[1], s[2], s[3]]
     self.memories = {}
     for pairs in self.config.types:
         for _type in pairs.split("/"):
             if _type in self.memories:
                 pass
             elif _type == "g":
-                self.memories["g"]={"var": self.gan.generator.sample}
+                self.memories["g"]={"d_input": self.gan.generator.sample}
             elif _type == "x":
                 self.memories["x"]={"var": self.gan.inputs.x}
-            else:
+            elif _type[0:4] == "g(mz":
+                src = self.source(_type)
                 with tf.variable_scope((self.config.name or self.name), reuse=self.gan.reuse) as scope:
-                    mem=tf.get_variable(self.gan.ops.generate_name()+"_dontsave", s, dtype=tf.float32,
+                    mem=tf.get_variable(self.gan.ops.generate_name()+"_z_dontsave", src.shape, dtype=tf.float32,
                               initializer=tf.compat.v1.constant_initializer(0), 
                               aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA, 
                               trainable=False, 
                               synchronization=tf.VariableSynchronization.NONE)
+                mem_gen = self.gan.create_component(self.gan.config.generator, name='generator', input=mem, reuse=True).sample
+                gen = self.gan.generator.sample
+                mem_sw = tf.reshape(self.sw(mem_gen, _type), [self.gan.batch_size(), 1])
+                self.memories[_type]={"var": mem, "source": src, "sw": mem_sw,
+                                      "d_input": mem_gen,
+                                      "assign": tf.assign(mem, self.select_top(src, gen, _type) * mem_sw + (1.0 - mem_sw) * mem)
+                                      }
+            else:
                 src = self.source(_type)
+                with tf.variable_scope((self.config.name or self.name), reuse=self.gan.reuse) as scope:
+                    mem=tf.get_variable(self.gan.ops.generate_name()+"_dontsave", src.shape, dtype=tf.float32,
+                              initializer=tf.compat.v1.constant_initializer(0), 
+                              aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA, 
+                              trainable=False, 
+                              synchronization=tf.VariableSynchronization.NONE)
                 self.memories[_type]={"var": mem, "source": src, "sw": self.sw(src, _type),
-                                      "assign": tf.assign(mem, src * self.sw(src, _type) + (1.0 - self.sw(src, _type)) * mem)
+                                      "d_input": mem,
+                                      "assign": tf.assign(mem, self.select_top(src, src, _type) * self.sw(mem, _type) + (1.0 - self.sw(mem, _type)) * mem)
                                       }
     self.loss = [tf.zeros(1), tf.zeros(1)]
     for i, pair in enumerate(self.config.types):
         left, right = pair.split("/")
-        vleft = self.memories[left]["var"]
-        vright = self.memories[right]["var"]
+        vleft = self.memories[left]["d_input"]
+        vright = self.memories[right]["d_input"]
         d = gan.create_component(gan.config.discriminator, name="discriminator", input=tf.concat([vleft, vright],axis=0), features=[gan.features], reuse=True)
         l = gan.create_component(gan.config.loss, discriminator=d)
         if self.config.add_to_losses:
@@ -71,7 +87,26 @@ class RollingMemoryTrainHook(BaseTrainHook):
       return self.gan.generator.sample
     if name == "mx":
       return self.gan.inputs.x
-    raise ValidationError("Unknown rolling type: " + name)
+    if name[0:4] == "g(mz":
+      return self.gan.latent.sample
+    raise ValidationException("Unknown rolling type: " + name)
+
+  def select_top(self, src, var, name):
+    if (self.config.top_k or 1) != 1:
+      return var#unsupported
+    print("VAR ", var, "SRNC", src, self.sw(var, name))
+    if self.config.reverse_top:
+        if "+" in name:
+            name = name.replace('+','-')
+        else:
+            name = name.replace('-','+')
+
+    sw = self.sw(var, name)
+    sw = tf.reshape(sw, [self.ops.shape(src)[0]] + [1 for i in range(len(self.ops.shape(src))-1)])
+    top = src * sw
+    top = tf.reduce_sum(top, axis=[0], keep_dims=True)
+    top = tf.tile(top, [self.ops.shape(src)[0]] + [1 for i in range(len(self.ops.shape(src))-1)])
+    return top
 
   def sw(self, var, name):
     def calculate(dscore):
@@ -97,7 +132,13 @@ class RollingMemoryTrainHook(BaseTrainHook):
     if name == "mx+":
         return calculate(l.d_real)
 
-    raise ValidationError("Unknown rolling type: " + name)
+    if name == "g(mz-)":
+        return calculate(-l.d_fake)
+    if name == "g(mz+)":
+        return calculate(l.d_real)
+
+
+    raise ValidationException("Unknown rolling type: " + name)
 
   def distributed_step(self, input_iterator_next):
     def assign_m(name):
@@ -154,7 +195,8 @@ class RollingMemoryTrainHook(BaseTrainHook):
           #self.gan.session.run(tf.assign(self.mg, self.gan.generator.sample))
 
   def after_step(self, step, feed_dict):
-      self.gan.session.run(self.update_memory)
+      if (step % (self.config.steps_between_memory_update or 1)) == (self.config.offset_memory_update or 0):
+          self.gan.session.run(self.update_memory)
 
   def variables(self):
     var = []
@@ -162,6 +204,14 @@ class RollingMemoryTrainHook(BaseTrainHook):
       if "var" in memory and "assign" in memory:
         var += [memory["var"]]
     return var
+
+  def d_inputs(self):
+    var = []
+    for _type, memory in self.memories.items():
+      if "d_input" in memory and "assign" in memory:
+        var += [memory["d_input"]]
+    return var
+
 
   def losses(self):
     return self.loss

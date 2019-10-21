@@ -104,7 +104,8 @@ try:
                 print("  > %s" %  (template.runtime["train"]))
         exit(0)
     if args.method == 'new' or args.method == 'test':
-        gan = None
+        gan_fn = None
+        inputs_fn = None
         pass
 
     else:

@@ -99,7 +99,10 @@ class CompetitiveOptimizer(optimizer.Optimizer):
     #hyp_y = [_h * _g for _h, _g in zip(hyp_y, scaled_grad_y)]
     self.gan.add_metric('hyp_x', sum([ tf.reduce_mean(_p) for _p in hyp_x]))
     self.gan.add_metric('hyp_y', sum([ tf.reduce_mean(_p) for _p in hyp_y]))
-    rhs_x = [g + lr*hyp for g, hyp in zip(grad_x, hyp_x)]
+    if self.config.neg:
+        rhs_x = [g - lr*hyp for g, hyp in zip(grad_x, hyp_x)]
+    else:
+        rhs_x = [g + lr*hyp for g, hyp in zip(grad_x, hyp_x)]
     rhs_y = [g - lr*hyp for g, hyp in zip(grad_y, hyp_y)]
     #old_y = [tf.zeros_like(_d * tf.math.sqrt(self.learning_rate)) for _d in d_grads]
     #
@@ -123,6 +126,94 @@ class CompetitiveOptimizer(optimizer.Optimizer):
         #rhs_x = [_cg_x * _rhs_x for _cg_x, _rhs_x in zip(cg_x, rhs_x)]
         #rhs_y = [_cg_y * _rhs_y for _cg_y, _rhs_y in zip(cg_y, rhs_y)]
     #-----
+    if self.config.conjugate3:
+        cg_y = self.conjugate_gradient(grad_x=grad_y, grad_y=grad_y_rev,
+                x_params=min_params, y_params=max_params, x=rhs_y, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+
+        cg_x = self.conjugate_gradient(grad_x=grad_x, grad_y=grad_x_rev,
+                x_params=max_params, y_params=min_params, x=rhs_x, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+        if self.config.sum == "1-":
+            rhs_x = [(1.0-_cg_x) * _rhs_x for _cg_x, _rhs_x in zip(cg_x, rhs_x)]
+            rhs_y = [(1.0-_cg_y) * _rhs_y for _cg_y, _rhs_y in zip(cg_y, rhs_y)]
+        if self.config.sum == "1+":
+            rhs_x = [(1.0+_cg_x) * _rhs_x for _cg_x, _rhs_x in zip(cg_x, rhs_x)]
+            rhs_y = [(1.0+_cg_y) * _rhs_y for _cg_y, _rhs_y in zip(cg_y, rhs_y)]
+        elif self.config.sum == "=":
+            #rhs_x = [(1.0-_cg_x) * _rhs_x for _cg_x, _rhs_x in zip(cg_x, rhs_x)]
+            #rhs_y = [(1.0-_cg_y) * _rhs_y for _cg_y, _rhs_y in zip(cg_y, rhs_y)]
+            rhs_x = cg_x
+            rhs_y = cg_y
+        else:
+            rhs_x = [_cg_x * _rhs_x for _cg_x, _rhs_x in zip(cg_x, rhs_x)]
+            rhs_y = [_cg_y * _rhs_y for _cg_y, _rhs_y in zip(cg_y, rhs_y)]
+        self.gan.add_metric('cg_x', sum([ tf.reduce_mean(_p) for _p in cg_x]))
+        self.gan.add_metric('cg_y', sum([ tf.reduce_mean(_p) for _p in cg_y]))
+
+    if self.config.conjugate5:
+        cg_y = self.conjugate_gradient(grad_x=rhs_y, grad_y=grad_y_rev,
+                x_params=min_params, y_params=max_params, x=rhs_y, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+
+        cg_x = self.conjugate_gradient(grad_x=rhs_x, grad_y=grad_x_rev,
+                x_params=max_params, y_params=min_params, x=rhs_x, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+
+        rhs_x = cg_x
+        rhs_y = cg_y
+        self.gan.add_metric('cg_x', sum([ tf.reduce_mean(_p) for _p in cg_x]))
+        self.gan.add_metric('cg_y', sum([ tf.reduce_mean(_p) for _p in cg_y]))
+
+    if self.config.conjugate6:
+        cg_y = self.conjugate_gradient2(grad_x=rhs_y, grad_y=grad_y_rev,
+                x_params=min_params, y_params=max_params, x=rhs_y, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+
+        cg_x = self.conjugate_gradient2(grad_x=rhs_x, grad_y=grad_x_rev,
+                x_params=max_params, y_params=min_params, x=rhs_x, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+
+        rhs_x = cg_x
+        rhs_y = cg_y
+        self.gan.add_metric('cg_x', sum([ tf.reduce_mean(_p) for _p in cg_x]))
+        self.gan.add_metric('cg_y', sum([ tf.reduce_mean(_p) for _p in cg_y]))
+
+    if self.config.conjugate8:
+        cg_y = self.conjugate_gradient2(grad_x=grad_y, grad_y=grad_y_rev,
+                x_params=min_params, y_params=max_params, x=rhs_y, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+
+        cg_x = self.conjugate_gradient2(grad_x=grad_x, grad_y=grad_x_rev,
+                x_params=max_params, y_params=min_params, x=rhs_x, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+
+        rhs_x = [(1.0+_cg_x) * _rhs_x for _cg_x, _rhs_x in zip(cg_x, rhs_x)]
+        rhs_y = [(1.0+_cg_y) * _rhs_y for _cg_y, _rhs_y in zip(cg_y, rhs_y)]
+        self.gan.add_metric('cg_x', sum([ tf.reduce_mean(_p) for _p in cg_x]))
+        self.gan.add_metric('cg_y', sum([ tf.reduce_mean(_p) for _p in cg_y]))
+
+
+
+    if self.config.conjugate7:
+        cg_y = self.conjugate_gradient(grad_x=rhs_y, grad_y=grad_y_rev,
+                x_params=min_params, y_params=max_params, x=rhs_y, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+
+        cg_x = self.conjugate_gradient(grad_x=rhs_x, grad_y=grad_x_rev,
+                x_params=max_params, y_params=min_params, x=rhs_x, nsteps=(self.config.nsteps or 3),
+                lr_x=self.learning_rate, lr_y=self.learning_rate)
+
+        rhs_x = cg_x
+        rhs_y = cg_y
+        self.gan.add_metric('cg_x', sum([ tf.reduce_mean(_p) for _p in cg_x]))
+        self.gan.add_metric('cg_y', sum([ tf.reduce_mean(_p) for _p in cg_y]))
+
+
+
+
+
+
     if self.config.conjugate2:
         cg_x = self.mgeneral_conjugate_gradient(grad_x=grad_x, grad_y=grad_x_rev,
                 x_params=max_params, y_params=min_params, b=rhs_x, x=None, nsteps=(self.config.nsteps or 3),
@@ -168,6 +259,26 @@ class CompetitiveOptimizer(optimizer.Optimizer):
     result = tf.gradients(elemwise_products, x)
     return result
 
+  def conjugate_gradient(self, grad_x, grad_y, x_params, y_params, lr_x, lr_y, x, nsteps=10):
+    gy = grad_y
+    for i in range(nsteps):
+        gx = [_g*lr_x for _g in x]
+        h_1_v = self.fwd_gradients(gx, y_params, stop_gradients=y_params)
+        gy = [ _h_1_v + _g  for _h_1_v, _g in zip(h_1_v, gy)]
+        h_2_v = self.fwd_gradients(gy, x_params, stop_gradients=x_params)
+        x = [_h_2_v + _x for _h_2_v, _x in zip(h_2_v, x)]
+    return x
+
+  def conjugate_gradient2(self, grad_x, grad_y, x_params, y_params, lr_x, lr_y, x, nsteps=10):
+    for i in range(nsteps):
+        h_1_v = self.hvpvec([_g*lr_x for _g in grad_x], y_params, [lr_x * _p for _p in x])
+        h_1 = [lr_y * v for v in h_1_v]
+        h_2 = self.hvpvec([_g*lr_y for _g in grad_y], x_params, h_1)
+        x = [_h_2 + _x for _h_2, _x in zip(h_2, x)]
+    return x
+
+
+
   def mgeneral_conjugate_gradient(self, grad_x, grad_y, x_params, y_params, b, lr_x, lr_y, x=None, nsteps=10):
     if x is None:
         x = [tf.zeros_like(_b) for _b in b]
@@ -175,10 +286,9 @@ class CompetitiveOptimizer(optimizer.Optimizer):
     r = [tf.identity(_b) for _b in b]
     p = [tf.identity(_r) for _r in r]
     rdotr = [self.dot(_r, _r) for _r in r]
-    lr_x_mul_p = [lr_x * _p for _p in p]
     for i in range(nsteps):
         #self.gan.add_metric("hp", sum([ tf.reduce_mean(_p) for _p in lr_x_mul_p]))
-        h_1_v = self.hvpvec([_g*lr_x for _g in grad_x], y_params, lr_x_mul_p)
+        h_1_v = self.hvpvec([_g*lr_x for _g in grad_x], y_params, [lr_x * _p for _p in p])
         h_1 = [lr_y * v for v in h_1_v]
         #self.gan.add_metric("h_1", sum([ tf.reduce_mean(_p) for _p in h_1]))
         h_2_v = self.hvpvec([_g*lr_y for _g in grad_y], x_params, h_1)

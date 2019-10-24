@@ -99,11 +99,15 @@ class CompetitiveOptimizer(optimizer.Optimizer):
     #hyp_y = [_h * _g for _h, _g in zip(hyp_y, scaled_grad_y)]
     self.gan.add_metric('hyp_x', sum([ tf.reduce_mean(_p) for _p in hyp_x]))
     self.gan.add_metric('hyp_y', sum([ tf.reduce_mean(_p) for _p in hyp_y]))
-    if self.config.neg:
-        rhs_x = [g - lr*hyp for g, hyp in zip(grad_x, hyp_x)]
+    if self.config.sga_lambda == 0:
+        rhs_x = grad_x
+        rhs_y = grad_y
     else:
-        rhs_x = [g + lr*hyp for g, hyp in zip(grad_x, hyp_x)]
-    rhs_y = [g - lr*hyp for g, hyp in zip(grad_y, hyp_y)]
+        if self.config.neg:
+            rhs_x = [g - (self.config.sga_lambda or lr)*hyp for g, hyp in zip(grad_x, hyp_x)]
+        else:
+            rhs_x = [g + (self.config.sga_lambda or lr)*hyp for g, hyp in zip(grad_x, hyp_x)]
+        rhs_y = [g - lr*hyp for g, hyp in zip(grad_y, hyp_y)]
     #old_y = [tf.zeros_like(_d * tf.math.sqrt(self.learning_rate)) for _d in d_grads]
     #
     #p_y2 = [_c * tf.math.sqrt(self.learning_rate) for _c in p_y]

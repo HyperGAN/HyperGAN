@@ -51,8 +51,6 @@
     "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
     "optimizer": {
       "class": "function:hypergan.optimizers.experimental.competitive_optimizer.CompetitiveOptimizer",
-      "conjugate6": true,
-      "neg": true,
       "nsteps": 3,
       "learn_rate": 1e-4,
       "optimizer": {

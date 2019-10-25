@@ -64,7 +64,7 @@ class CompetitiveOptimizer(optimizer.Optimizer):
     self.gan.add_metric('hyp_y', sum([ tf.reduce_mean(_p) for _p in hyp_y]))
 
     rhs_x = [g - (self.config.sga_lambda or lr)*hyp for g, hyp in zip(grad_x, hyp_x)]
-    rhs_y = [g - lr*hyp for g, hyp in zip(grad_y, hyp_y)]
+    rhs_y = [g - (self.config.sga_lambda or lr)*hyp for g, hyp in zip(grad_y, hyp_y)]
 
     cg_y = self.conjugate_gradient(grad_x=rhs_y, grad_y=grad_y_rev,
             x_params=min_params, y_params=max_params, x=rhs_y, nsteps=(self.config.nsteps or 3),

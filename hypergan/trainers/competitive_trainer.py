@@ -65,9 +65,8 @@ def tf_conjugate_gradient(operator,
 
     with tf.name_scope(name):
       x = [tf.zeros_like(h) for h in rhs]
-      i = tf.constant(0)
       rdotr = [dot(_r, _r) for _r in rhs]
-      state = cg_state(i=i, x=x, r=rhs, p=rhs, lr=lr, rdotr=rdotr)
+      state = cg_state(i=0, x=x, r=rhs, p=rhs, lr=lr, rdotr=rdotr)
       state, variables = build_vars(state)
       def update_op(state):
         return update_vars(state, cg_step(state))
@@ -116,12 +115,14 @@ class CompetitiveTrainer(BaseTrainer):
         self.d_loss = d_loss
         self.gan.trainer = self
 
-        rhs_y = d_grads
-        rhs_x = g_grads
         min_params = gan.d_vars()
         max_params = gan.g_vars()
         clarified_d_grads = [tf.Variable(tf.zeros_like(v), trainable=False, name=v.name.split(":")[0]+"_sv_dontsave") for v in d_grads]
         clarified_g_grads = [tf.Variable(tf.zeros_like(v), trainable=False, name=v.name.split(":")[0]+"_sv_dontsave") for v in g_grads]
+        rhs_y = clarified_d_grads
+        rhs_x = clarified_g_grads
+        #rhs_y = d_grads
+        #hs_x = g_grads
         clarified_grads = clarified_d_grads + clarified_g_grads
         lr = self.config.learn_rate
         class CGOperator:
@@ -134,21 +135,41 @@ class CompetitiveTrainer(BaseTrainer):
 
             def apply(self, p):
                 h_1_v = self.hvp(self.x_loss, self.y_params, self.x_params, [lr * _p for _p in p])
-                return  self.hvp(self.y_loss, self.x_params, self.y_params, [lr * _h for _h in h_1_v])
+                for _x, _h in zip(self.x_params, h_1_v):
+                    if _h is None:
+                        print("X none", _x)
+                return self.hvp(self.y_loss, self.x_params, self.y_params, [lr * _h for _h in h_1_v])
 
         operator_x = CGOperator(hvp=self.hessian_vector_product, x_loss=x_loss, y_loss=y_loss, x_params=min_params, y_params=max_params)
         reset_x_op, cg_x_op, var_x, state_x = tf_conjugate_gradient( operator_x, rhs_x, lr=lr, max_iter=(self.config.nsteps or 10) )
         operator_y = CGOperator(hvp=self.hessian_vector_product, x_loss=y_loss, y_loss=x_loss, x_params=max_params, y_params=min_params)
         reset_y_op, cg_y_op, var_y, state_y = tf_conjugate_gradient( operator_y, rhs_y, lr=lr, max_iter=(self.config.nsteps or 10) )
         self._variables = var_x + var_y + clarified_g_grads + clarified_d_grads
-        with tf.control_dependencies([tf.group(reset_x_op, reset_y_op)]):
-            assign_x = [tf.assign(c, x) for c, x in zip(clarified_d_grads, state_y.x)]
-            assign_y = [tf.assign(c, y) for c, y in zip(clarified_g_grads, state_x.x)]
-            self.reset_conjugate_gradient = tf.group(*(assign_x+assign_y))
-        with tf.control_dependencies([tf.group(cg_x_op, cg_y_op)]):
-            assign_x = [tf.assign(c, x) for c, x in zip(clarified_d_grads, state_y.x)]
-            assign_y = [tf.assign(c, y) for c, y in zip(clarified_g_grads, state_x.x)]
-            self.conjugate_gradient_descend_t = tf.group(*(assign_x+assign_y))
+
+        assign_x = [tf.assign(c, x) for c, x in zip(clarified_d_grads, d_grads)]
+        assign_y = [tf.assign(c, y) for c, y in zip(clarified_g_grads, g_grads)]
+        self.reset_clarified_gradients = tf.group(*(assign_x+assign_y))
+        self.reset_conjugate_tracker = tf.group(reset_x_op, reset_y_op)
+        self.conjugate_gradient_descend_t_1 = tf.group(cg_x_op, cg_y_op)
+        assign_x = [tf.assign(c, x) for c, x in zip(clarified_d_grads, state_y.x)]
+        assign_y = [tf.assign(c, y) for c, y in zip(clarified_g_grads, state_x.x)]
+        self.conjugate_gradient_descend_t_2 = tf.group(*(assign_x+assign_y))
+        self.gan.add_metric('cg_g', sum([ tf.reduce_sum(tf.abs(_p)) for _p in clarified_g_grads]))
+
+        f = d_loss
+        g = g_loss
+        dyg = tf.gradients(g, max_params)
+        dxf = tf.gradients(f, min_params)
+
+        if self.config.sga_lambda:
+            hyp_y = self.hessian_vector_product(f, max_params, min_params, [self.config.sga_lambda * _g for _g in dyg])
+            hyp_x = self.hessian_vector_product(g, min_params, max_params, [self.config.sga_lambda * _g for _g in dxf])
+            sga_x_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_g_grads, hyp_x)]
+            sga_y_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_d_grads, hyp_y)]
+            self.sga_step_t = tf.group(*(sga_x_op + sga_y_op))
+            self.gan.add_metric('hyp_x', sum([ tf.reduce_mean(_p) for _p in hyp_x]))
+            self.gan.add_metric('hyp_y', sum([ tf.reduce_mean(_p) for _p in hyp_y]))
+
         self.clarification_metric_x = sum(state_x.rdotr)
         self.clarification_metric_y = sum(state_y.rdotr)
         self.state_x = state_x
@@ -174,13 +195,17 @@ class CompetitiveTrainer(BaseTrainer):
         d_loss, g_loss = loss.sample
 
         self.before_step(self.current_step, feed_dict)
-        sess.run([self.reset_conjugate_gradient], feed_dict)
+        sess.run(self.reset_clarified_gradients, feed_dict)
+        sess.run(self.reset_conjugate_tracker, feed_dict)
         i=0
+        if self.config.sga_lambda:
+            sess.run(self.sga_step_t, feed_dict)
         while True:
             i+=1
-            mx, my, _ = sess.run([self.clarification_metric_x, self.clarification_metric_y, self.conjugate_gradient_descend_t], feed_dict)
+            mx, my, _ = sess.run([self.clarification_metric_x, self.clarification_metric_y, self.conjugate_gradient_descend_t_1], feed_dict)
             if mx < (self.config.threshold or 1e-4) and \
                my < (self.config.threshold or 1e-4):
+                   sess.run(self.conjugate_gradient_descend_t_2)
                    print("Found in ", i)
                    break
         metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]

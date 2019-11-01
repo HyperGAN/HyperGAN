@@ -53,9 +53,9 @@ def tf_conjugate_gradient(operator,
       Avp_ = [_p + state.lr*_h_2 for _p, _h_2 in zip(state.p, h_2_v)]
 
       alpha = [_rdotr / (dot(_p, _avp_)+1e-8) for _rdotr, _p, _avp_ in zip(state.rdotr, state.p, Avp_)]
-      x = [_alpha * _p for _alpha, _p in zip(alpha, state.p)]
+      x = [_alpha * _p + state.lr * _x for _alpha, _p, _x in zip(alpha, state.p, state.x)]
 
-      r = [_alpha * _avp_ for _alpha, _avp_ in zip(alpha, Avp_)]
+      r = [-_alpha * _avp_+_r for _alpha, _avp_,_r in zip(alpha, Avp_, state.r)]
       new_rdotr = [dot(_r, _r) for _r in r]
       beta = [_new_rdotr / (_rdotr+1e-8) for _new_rdotr, _rdotr in zip(new_rdotr, state.rdotr)]
       p = [_r + _beta * _p for _r, _beta, _p in zip(r,beta,state.p)]

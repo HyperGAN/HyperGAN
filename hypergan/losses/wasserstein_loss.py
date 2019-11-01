@@ -9,12 +9,8 @@ class WassersteinLoss(BaseLoss):
         config = self.config
 
         print("Initializing Wasserstein loss", config.reverse)
-        if(config.reverse):
-            d_loss = -d_real + d_fake
-            g_loss = -d_fake
-        else:
-            d_loss = d_real - d_fake
-            g_loss = d_fake
+        d_loss = -d_real + d_fake
+        g_loss = -d_fake
 
         if config.kl:
             # https://arxiv.org/abs/1910.09779

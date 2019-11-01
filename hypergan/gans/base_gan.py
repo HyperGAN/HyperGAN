@@ -220,7 +220,9 @@ class BaseGAN(GANComponent):
             print("[hypergan] Saving network to ", save_file)
             if "gs://" not in save_file:
                 os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
-            saver = tf.train.Saver(self.variables())
+            variables = self.variables()
+            variables = [ o for o in variables if "dontsave" not in o.name ]
+            saver = tf.train.Saver(variables)
             print("Saving " +str(len(self.variables()))+ " variables: ")
             missing = set(tf.global_variables()) - set(self.variables())
             missing = [ o for o in missing if "dontsave" not in o.name ]
@@ -255,6 +257,8 @@ class BaseGAN(GANComponent):
         name2var = dict(zip(map(lambda x:x.name.split(':')[0], variables), variables))
         with tf.variable_scope('', reuse=True):
             for var_name, saved_var_name in var_names:
+                if "dontsave" in saved_var_name:
+                    continue
                 curr_var = name2var[saved_var_name]
                 var_shape = curr_var.get_shape().as_list()
                 if saved_shapes[saved_var_name] is None:

@@ -41,7 +41,7 @@ def tf_conjugate_gradient(operator,
                        max_iter=20,
                        name="conjugate_gradient"):
     r"""
-        modified from tensorflow/contrib/solvers/python/ops/linear_equations.py to work with arrays
+        modified from tensorflow/contrib/solvers/python/ops/linear_equations.py
     """
     def dot(x, y):
       return tf.reduce_sum(tf.conj(x) * y)
@@ -72,6 +72,22 @@ def tf_conjugate_gradient(operator,
         return update_vars(state, cg_step(cg_state(i=0, x=x, r=rhs, p=rhs, rdotr=rdotr)))
       return [reset_op(state, rhs), update_op(state), variables, state]
 
+class CGOperator:
+    def __init__(self, hvp, x_loss, y_loss, x_params, y_params, lr):
+        self.hvp = hvp
+        self.x_loss = x_loss
+        self.y_loss = y_loss
+        self.x_params = x_params
+        self.y_params = y_params
+        self.lr = lr
+
+    def apply(self, p):
+        h_1_v = self.hvp(self.x_loss, self.y_params, self.x_params, [self.lr * _p for _p in p])
+        for _x, _h in zip(self.x_params, h_1_v):
+            if _h is None:
+                print("X none", _x)
+        return self.hvp(self.y_loss, self.x_params, self.y_params, [self.lr * _h for _h in h_1_v])
+
 class CompetitiveTrainer(BaseTrainer):
     def hessian_vector_product(self, ys, xs, xs2, vs, grads=None):
         if len(vs) != len(xs):
@@ -89,93 +105,71 @@ class CompetitiveTrainer(BaseTrainer):
 
         return tf.gradients(elemwise_products, xs2)
 
-    """ Steps G and D simultaneously """
     def _create(self):
         gan = self.gan
         config = self.config
+        lr = self.config.learn_rate
 
         loss = self.gan.loss
         d_loss, g_loss = loss.sample
 
-        self.d_log = -tf.log(tf.abs(d_loss+TINY))
         config.optimizer["loss"] = loss.sample
 
         self.optimizer = self.gan.create_optimizer(config.optimizer)
 
         d_grads = tf.gradients(d_loss, gan.d_vars())
         g_grads = tf.gradients(g_loss, gan.g_vars())
-        dx = d_grads
-        dy = g_grads
-        x_loss = d_loss
-        y_loss = g_loss
 
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.gan.trainer = self
 
-        min_params = gan.d_vars()
-        max_params = gan.g_vars()
+        d_params = gan.d_vars()
+        g_params = gan.g_vars()
         clarified_d_grads = [tf.Variable(tf.zeros_like(v), trainable=False, name=v.name.split(":")[0]+"_sv_dontsave") for v in d_grads]
         clarified_g_grads = [tf.Variable(tf.zeros_like(v), trainable=False, name=v.name.split(":")[0]+"_sv_dontsave") for v in g_grads]
-        rhs_y = clarified_d_grads
-        rhs_x = clarified_g_grads
-        #rhs_y = d_grads
-        #hs_x = g_grads
+
         clarified_grads = clarified_d_grads + clarified_g_grads
-        lr = self.config.learn_rate
-        class CGOperator:
-            def __init__(self, hvp, x_loss, y_loss, x_params, y_params):
-                self.hvp = hvp
-                self.x_loss = x_loss
-                self.y_loss = y_loss
-                self.x_params = x_params
-                self.y_params = y_params
+        operator_g = CGOperator(hvp=self.hessian_vector_product, x_loss=d_loss, y_loss=g_loss, x_params=d_params, y_params=g_params, lr=lr)
+        reset_g_op, cg_g_op, var_g, state_g = tf_conjugate_gradient( operator_g, clarified_g_grads, max_iter=(self.config.nsteps or 10) )
+        operator_d = CGOperator(hvp=self.hessian_vector_product, x_loss=g_loss, y_loss=d_loss, x_params=g_params, y_params=d_params, lr=lr)
+        reset_d_op, cg_d_op, var_d, state_d = tf_conjugate_gradient( operator_d, clarified_d_grads, max_iter=(self.config.nsteps or 10) )
+        self._variables = var_g + var_d + clarified_g_grads + clarified_d_grads
 
-            def apply(self, p):
-                h_1_v = self.hvp(self.x_loss, self.y_params, self.x_params, [lr * _p for _p in p])
-                for _x, _h in zip(self.x_params, h_1_v):
-                    if _h is None:
-                        print("X none", _x)
-                return self.hvp(self.y_loss, self.x_params, self.y_params, [lr * _h for _h in h_1_v])
+        assign_d = [tf.assign(c, x) for c, x in zip(clarified_d_grads, d_grads)]
+        assign_g = [tf.assign(c, y) for c, y in zip(clarified_g_grads, g_grads)]
+        self.reset_clarified_gradients = tf.group(*(assign_d+assign_g))
 
-        operator_x = CGOperator(hvp=self.hessian_vector_product, x_loss=x_loss, y_loss=y_loss, x_params=min_params, y_params=max_params)
-        reset_x_op, cg_x_op, var_x, state_x = tf_conjugate_gradient( operator_x, rhs_x, max_iter=(self.config.nsteps or 10) )
-        operator_y = CGOperator(hvp=self.hessian_vector_product, x_loss=y_loss, y_loss=x_loss, x_params=max_params, y_params=min_params)
-        reset_y_op, cg_y_op, var_y, state_y = tf_conjugate_gradient( operator_y, rhs_y, max_iter=(self.config.nsteps or 10) )
-        self._variables = var_x + var_y + clarified_g_grads + clarified_d_grads
+        self.reset_conjugate_tracker = tf.group(reset_g_op, reset_d_op)
+        self.conjugate_gradient_descend_t_1 = tf.group(cg_g_op, cg_d_op)
 
-        assign_x = [tf.assign(c, x) for c, x in zip(clarified_d_grads, d_grads)]
-        assign_y = [tf.assign(c, y) for c, y in zip(clarified_g_grads, g_grads)]
-        self.reset_clarified_gradients = tf.group(*(assign_x+assign_y))
-        self.reset_conjugate_tracker = tf.group(reset_x_op, reset_y_op)
-        self.conjugate_gradient_descend_t_1 = tf.group(cg_x_op, cg_y_op)
-        assign_x = [tf.assign(c, x) for c, x in zip(clarified_d_grads, state_y.x)]
-        assign_y = [tf.assign(c, y) for c, y in zip(clarified_g_grads, state_x.x)]
-        self.conjugate_gradient_descend_t_2 = tf.group(*(assign_x+assign_y))
+        assign_d2 = [tf.assign(c, x) for c, x in zip(clarified_d_grads, state_d.x)]
+        assign_g2 = [tf.assign(c, y) for c, y in zip(clarified_g_grads, state_g.x)]
+
+        self.conjugate_gradient_descend_t_2 = tf.group(*(assign_d2+assign_g2))
         self.gan.add_metric('cg_g', sum([ tf.reduce_sum(tf.abs(_p)) for _p in clarified_g_grads]))
 
-        f = d_loss
-        g = g_loss
-        dyg = tf.gradients(g, max_params)
-        dxf = tf.gradients(f, min_params)
-
         if self.config.sga_lambda:
-            hyp_y = self.hessian_vector_product(f, max_params, min_params, [self.config.sga_lambda * _g for _g in dyg])
-            hyp_x = self.hessian_vector_product(g, min_params, max_params, [self.config.sga_lambda * _g for _g in dxf])
-            sga_x_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_g_grads, hyp_x)]
-            sga_y_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_d_grads, hyp_y)]
-            self.sga_step_t = tf.group(*(sga_x_op + sga_y_op))
-            self.gan.add_metric('hyp_x', sum([ tf.reduce_mean(_p) for _p in hyp_x]))
-            self.gan.add_metric('hyp_y', sum([ tf.reduce_mean(_p) for _p in hyp_y]))
+            dyg = tf.gradients(g_loss, g_params)
+            dxf = tf.gradients(d_loss, d_params)
+            hyp_d = self.hessian_vector_product(d_loss, g_params, d_params, [self.config.sga_lambda * _g for _g in dyg])
+            hyp_g = self.hessian_vector_product(g_loss, d_params, g_params, [self.config.sga_lambda * _g for _g in dxf])
+            sga_g_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_g_grads, hyp_g)]
+            sga_d_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_d_grads, hyp_d)]
+            self.sga_step_t = tf.group(*(sga_d_op + sga_g_op))
+            self.gan.add_metric('hyp_g', sum([ tf.reduce_mean(_p) for _p in hyp_g]))
+            self.gan.add_metric('hyp_d', sum([ tf.reduce_mean(_p) for _p in hyp_d]))
 
-        self.clarification_metric_x = sum(state_x.rdotr)
-        self.clarification_metric_y = sum(state_y.rdotr)
-        self.state_x = state_x
+        self.clarification_metric_g = sum(state_g.rdotr)
+        self.clarification_metric_d = sum(state_d.rdotr)
 
-        all_vars = min_params + max_params
+        all_vars = d_params + g_params
         new_grads_and_vars = list(zip(clarified_grads, all_vars)).copy()
 
         self.optimize_t = self.optimizer.apply_gradients(new_grads_and_vars)
+
+        self.threshold_d = config.threshold or 1e-4
+        self.threshold_g = config.threshold or 1e-4
 
     def required(self):
         return "".split()
@@ -189,6 +183,8 @@ class CompetitiveTrainer(BaseTrainer):
         config = self.config
         loss = gan.loss
         metrics = gan.metrics()
+        threshold_d = self.threshold_d
+        threshold_g = self.threshold_g
 
         d_loss, g_loss = loss.sample
 
@@ -196,32 +192,25 @@ class CompetitiveTrainer(BaseTrainer):
         sess.run(self.reset_clarified_gradients, feed_dict)
         sess.run(self.reset_conjugate_tracker, feed_dict)
         i=0
+
         if self.config.sga_lambda:
             sess.run(self.sga_step_t, feed_dict)
         while True:
             i+=1
-            mx, my, _ = sess.run([self.clarification_metric_x, self.clarification_metric_y, self.conjugate_gradient_descend_t_1], feed_dict)
+            mx, my, _ = sess.run([self.clarification_metric_d, self.clarification_metric_g, self.conjugate_gradient_descend_t_1], feed_dict)
             if self.config.max_steps and i > self.config.max_steps:
                if self.config.verbose:
                    print("Max steps ", self.config.max_steps, "mx", mx, "my", my)
                break
-            if self.config.trim_threshold is not None and (mx > self.config.trim_threshold or my > self.config.trim_threshold):
-                print("Trimming MX = %.2e MY = %.2e" % (mx, my))
-                self.trim.before_step(self.current_step, feed_dict)
-                result = self._step(feed_dict)
-                self.trim.after_step(self.current_step, feed_dict)
-                return result
-            #if self.config.verbose:
-            #    print("MX = %.2e MY = %.2e" % (mx, my))
             if mx < (threshold_g) and \
                my < (threshold_d):
                    sess.run(self.conjugate_gradient_descend_t_2)
-                   print("Found in ", i)
+                   if self.config.verbose:
+                       print("Found in ", i, "mx", mx, "my", my)
                    break
         metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]
         self.after_step(self.current_step, feed_dict)
 
         if self.current_step % 10 == 0:
-            #print("METRICS", list(zip(sorted(metrics.keys()), metric_values)))
             print(str(self.output_string(metrics) % tuple([self.current_step] + metric_values)))
 

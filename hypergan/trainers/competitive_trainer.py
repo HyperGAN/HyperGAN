@@ -10,7 +10,7 @@ from tensorflow.python.ops import gradients_impl
 
 TINY = 1e-12
 
-cg_state = collections.namedtuple("CGState", ["i", "x", "r", "p", "lr", "rdotr"])
+cg_state = collections.namedtuple("CGState", ["i", "x", "r", "p", "rdotr"])
 def update_vars(state1, state2):
   ops = []
   for name in state1._fields:
@@ -30,7 +30,6 @@ def build_vars(state):
         sv = [tf.Variable(tf.zeros_like(v), trainable=False, name=name+"_sv_dontsave") for v in vs]
         variables += sv
     else:
-        print(vs, name)
         sv = tf.Variable(tf.zeros_like(vs), trainable=False, name=name+"_sv_dontsave")
         variables += [sv]
     args.append(sv)
@@ -38,7 +37,6 @@ def build_vars(state):
 
 def tf_conjugate_gradient(operator,
                        rhs,
-                       lr=1e-4,
                        tol=1e-4,
                        max_iter=20,
                        name="conjugate_gradient"):
@@ -50,7 +48,7 @@ def tf_conjugate_gradient(operator,
 
     def cg_step(state):  # pylint: disable=missing-docstring
       h_2_v = operator.apply(state.p)
-      Avp_ = [_p + state.lr*_h_2 for _p, _h_2 in zip(state.p, h_2_v)]
+      Avp_ = [_p + _h_2 for _p, _h_2 in zip(state.p, h_2_v)]
 
       alpha = [_rdotr / (dot(_p, _avp_)+1e-8) for _rdotr, _p, _avp_ in zip(state.rdotr, state.p, Avp_)]
       x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, state.p, state.x)]
@@ -61,17 +59,17 @@ def tf_conjugate_gradient(operator,
       p = [_r + _beta * _p for _r, _beta, _p in zip(r,beta,state.p)]
       i = state.i + 1
 
-      return cg_state(i, x, r, p, lr, new_rdotr)
+      return cg_state(i, x, r, p, new_rdotr)
 
     with tf.name_scope(name):
       x = [tf.zeros_like(h) for h in rhs]
       rdotr = [dot(_r, _r) for _r in rhs]
-      state = cg_state(i=0, x=x, r=rhs, p=rhs, lr=lr, rdotr=rdotr)
+      state = cg_state(i=0, x=x, r=rhs, p=rhs, rdotr=rdotr)
       state, variables = build_vars(state)
       def update_op(state):
         return update_vars(state, cg_step(state))
       def reset_op(state, rhs):
-        return update_vars(state, cg_step(cg_state(i=0, x=x, r=rhs, p=rhs, lr=lr, rdotr=rdotr)))
+        return update_vars(state, cg_step(cg_state(i=0, x=x, r=rhs, p=rhs, rdotr=rdotr)))
       return [reset_op(state, rhs), update_op(state), variables, state]
 
 class CompetitiveTrainer(BaseTrainer):
@@ -141,9 +139,9 @@ class CompetitiveTrainer(BaseTrainer):
                 return self.hvp(self.y_loss, self.x_params, self.y_params, [lr * _h for _h in h_1_v])
 
         operator_x = CGOperator(hvp=self.hessian_vector_product, x_loss=x_loss, y_loss=y_loss, x_params=min_params, y_params=max_params)
-        reset_x_op, cg_x_op, var_x, state_x = tf_conjugate_gradient( operator_x, rhs_x, lr=lr, max_iter=(self.config.nsteps or 10) )
+        reset_x_op, cg_x_op, var_x, state_x = tf_conjugate_gradient( operator_x, rhs_x, max_iter=(self.config.nsteps or 10) )
         operator_y = CGOperator(hvp=self.hessian_vector_product, x_loss=y_loss, y_loss=x_loss, x_params=max_params, y_params=min_params)
-        reset_y_op, cg_y_op, var_y, state_y = tf_conjugate_gradient( operator_y, rhs_y, lr=lr, max_iter=(self.config.nsteps or 10) )
+        reset_y_op, cg_y_op, var_y, state_y = tf_conjugate_gradient( operator_y, rhs_y, max_iter=(self.config.nsteps or 10) )
         self._variables = var_x + var_y + clarified_g_grads + clarified_d_grads
 
         assign_x = [tf.assign(c, x) for c, x in zip(clarified_d_grads, d_grads)]

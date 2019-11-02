@@ -53,7 +53,7 @@ def tf_conjugate_gradient(operator,
       Avp_ = [_p + state.lr*_h_2 for _p, _h_2 in zip(state.p, h_2_v)]
 
       alpha = [_rdotr / (dot(_p, _avp_)+1e-8) for _rdotr, _p, _avp_ in zip(state.rdotr, state.p, Avp_)]
-      x = [_alpha * _p + state.lr * _x for _alpha, _p, _x in zip(alpha, state.p, state.x)]
+      x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, state.p, state.x)]
 
       r = [-_alpha * _avp_+_r for _alpha, _avp_,_r in zip(alpha, Avp_, state.r)]
       new_rdotr = [dot(_r, _r) for _r in r]
@@ -203,8 +203,20 @@ class CompetitiveTrainer(BaseTrainer):
         while True:
             i+=1
             mx, my, _ = sess.run([self.clarification_metric_x, self.clarification_metric_y, self.conjugate_gradient_descend_t_1], feed_dict)
-            if mx < (self.config.threshold or 1e-4) and \
-               my < (self.config.threshold or 1e-4):
+            if self.config.max_steps and i > self.config.max_steps:
+               if self.config.verbose:
+                   print("Max steps ", self.config.max_steps, "mx", mx, "my", my)
+               break
+            if self.config.trim_threshold is not None and (mx > self.config.trim_threshold or my > self.config.trim_threshold):
+                print("Trimming MX = %.2e MY = %.2e" % (mx, my))
+                self.trim.before_step(self.current_step, feed_dict)
+                result = self._step(feed_dict)
+                self.trim.after_step(self.current_step, feed_dict)
+                return result
+            #if self.config.verbose:
+            #    print("MX = %.2e MY = %.2e" % (mx, my))
+            if mx < (threshold_g) and \
+               my < (threshold_d):
                    sess.run(self.conjugate_gradient_descend_t_2)
                    print("Found in ", i)
                    break

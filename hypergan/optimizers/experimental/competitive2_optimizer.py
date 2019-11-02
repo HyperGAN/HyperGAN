@@ -211,13 +211,13 @@ class CompetitiveOptimizer(optimizer.Optimizer):
         Avp_ = [_p + lr_x*_h_2 for _p, _h_2 in zip(p, h_2_v)]
 
         alpha = [_rdotr / (self.dot(_p, _avp_)+eps) for _rdotr, _p, _avp_ in zip(rdotr, p, Avp_)]
-        x = [_alpha * _p for _alpha, _p in zip(alpha, p)]
+        x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, p, x)]
 
-        r = [_alpha * _avp_ for _alpha, _avp_ in zip(alpha, Avp_)]
+        r = [-_alpha * _avp_+_r for _alpha, _avp_,_r in zip(alpha, Avp_, r)]
         new_rdotr = [self.dot(_r, _r) for _r in r]
         beta = [_new_rdotr / (_rdotr+eps) for _new_rdotr, _rdotr in zip(new_rdotr, rdotr)]
         p = [_r + _beta * _p for _r, _beta, _p in zip(r,beta,p)]
-        self.gan.add_metric('rdotr', sum([ tf.reduce_sum(tf.abs(_p)) for _p in rdotr]))
+        #self.gan.add_metric('rdotr', sum([ tf.reduce_sum(tf.abs(_p)) for _p in rdotr]))
 
         rdotr = new_rdotr
     return x

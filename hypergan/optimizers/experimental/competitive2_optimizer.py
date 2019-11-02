@@ -208,7 +208,7 @@ class CompetitiveOptimizer(optimizer.Optimizer):
         h_1_v = self.hessian_vector_product(x_loss, y_params, x_params, [lr_x * _p for _p in p])
         h_2_v = self.hessian_vector_product(y_loss, x_params, y_params, [lr_x * _h for _h in h_1_v])
 
-        Avp_ = [_p + lr_x*_h_2 for _p, _h_2 in zip(p, h_2_v)]
+        Avp_ = [_p + _h_2 for _p, _h_2 in zip(p, h_2_v)]
 
         alpha = [_rdotr / (self.dot(_p, _avp_)+eps) for _rdotr, _p, _avp_ in zip(rdotr, p, Avp_)]
         x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, p, x)]

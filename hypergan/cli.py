@@ -416,6 +416,8 @@ class CLI:
         else:
             print("Initializing new model")
 
+        self.sample()
+
         while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
             i+=1
             start_time = time.time()

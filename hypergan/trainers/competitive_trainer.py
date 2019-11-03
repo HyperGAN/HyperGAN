@@ -133,9 +133,9 @@ class CompetitiveTrainer(BaseTrainer):
 
         clarified_grads = clarified_d_grads + clarified_g_grads
         operator_g = CGOperator(hvp=self.hessian_vector_product, x_loss=d_loss, y_loss=g_loss, x_params=d_params, y_params=g_params, lr=lr)
-        reset_g_op, cg_g_op, var_g, state_g = tf_conjugate_gradient( operator_g, clarified_g_grads, max_iter=(self.config.nsteps or 10) )
+        reset_g_op, cg_g_op, var_g, state_g = tf_conjugate_gradient( operator_g, [lr * _g for _g in clarified_g_grads], max_iter=(self.config.nsteps or 10) )
         operator_d = CGOperator(hvp=self.hessian_vector_product, x_loss=g_loss, y_loss=d_loss, x_params=g_params, y_params=d_params, lr=lr)
-        reset_d_op, cg_d_op, var_d, state_d = tf_conjugate_gradient( operator_d, clarified_d_grads, max_iter=(self.config.nsteps or 10) )
+        reset_d_op, cg_d_op, var_d, state_d = tf_conjugate_gradient( operator_d, [lr * _g for _g in clarified_d_grads], max_iter=(self.config.nsteps or 10) )
         self._variables = var_g + var_d + clarified_g_grads + clarified_d_grads
 
         assign_d = [tf.assign(c, x) for c, x in zip(clarified_d_grads, d_grads)]

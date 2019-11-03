@@ -44,18 +44,18 @@ def tf_conjugate_gradient(operator,
         modified from tensorflow/contrib/solvers/python/ops/linear_equations.py
     """
     def dot(x, y):
-      return tf.reduce_sum(tf.conj(x) * y)
+      return tf.reduce_sum(tf.multiply(x,y))
 
     def cg_step(state):  # pylint: disable=missing-docstring
-      h_2_v = operator.apply(state.p)
-      Avp_ = [_p + _h_2 for _p, _h_2 in zip(state.p, h_2_v)]
+      #z = [p * h2 for p, h2 in zip(state.p, operator.apply(state.p))]
+      z = operator.apply(state.p)
 
-      alpha = [_rdotr / (dot(_p, _avp_)+1e-8) for _rdotr, _p, _avp_ in zip(state.rdotr, state.p, Avp_)]
+      alpha = [_r / (dot(_p, _p+_z)+1e-12) for _r, _p, _z in zip(state.rdotr, state.p, z)]
       x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, state.p, state.x)]
 
-      r = [-_alpha * _avp_+_r for _alpha, _avp_,_r in zip(alpha, Avp_, state.r)]
+      r = [-_alpha * (_z+_p) + _r for _alpha, _z,_r,_p in zip(alpha, z, state.r, state.p)]
       new_rdotr = [dot(_r, _r) for _r in r]
-      beta = [_new_rdotr / (_rdotr+1e-8) for _new_rdotr, _rdotr in zip(new_rdotr, state.rdotr)]
+      beta = [_new_rdotr / (_rdotr+1e-12) for _new_rdotr, _rdotr in zip(new_rdotr, state.rdotr)]
       p = [_r + _beta * _p for _r, _beta, _p in zip(r,beta,state.p)]
       i = state.i + 1
 
@@ -82,11 +82,13 @@ class CGOperator:
         self.lr = lr
 
     def apply(self, p):
-        h_1_v = self.hvp(self.x_loss, self.y_params, self.x_params, [self.lr * _p for _p in p])
+        lr_x = tf.sqrt(self.lr)
+        lr_y = self.lr
+        h_1_v = self.hvp(self.x_loss, self.y_params, self.x_params, [lr_x * _p for _p in p])
         for _x, _h in zip(self.x_params, h_1_v):
             if _h is None:
                 print("X none", _x)
-        return self.hvp(self.y_loss, self.x_params, self.y_params, [self.lr * _h for _h in h_1_v])
+        return [lr_x * _x for _x in self.hvp(self.y_loss, self.x_params, self.y_params, [lr_y * _h for _h in h_1_v])]
 
 class CompetitiveTrainer(BaseTrainer):
     def hessian_vector_product(self, ys, xs, xs2, vs, grads=None):
@@ -160,16 +162,19 @@ class CompetitiveTrainer(BaseTrainer):
             self.gan.add_metric('hyp_g', sum([ tf.reduce_mean(_p) for _p in hyp_g]))
             self.gan.add_metric('hyp_d', sum([ tf.reduce_mean(_p) for _p in hyp_d]))
 
-        self.clarification_metric_g = sum(state_g.rdotr)
-        self.clarification_metric_d = sum(state_d.rdotr)
+        #self.clarification_metric_g = sum(state_g.rdotr)
+        #self.clarification_metric_d = sum(state_d.rdotr)
+        def _metric(r):
+            #return tf.reduce_max(tf.convert_to_tensor([tf.reduce_max(tf.norm(_r)) for _r in r]))
+            return [tf.reduce_max(tf.norm(_r)) for _r in r][0]
+        self.clarification_metric_g = _metric(state_g.r)
+        self.clarification_metric_d = _metric(state_d.r)
 
         all_vars = d_params + g_params
         new_grads_and_vars = list(zip(clarified_grads, all_vars)).copy()
+    
 
         self.optimize_t = self.optimizer.apply_gradients(new_grads_and_vars)
-
-        self.threshold_d = config.threshold or 1e-4
-        self.threshold_g = config.threshold or 1e-4
 
     def required(self):
         return "".split()
@@ -183,8 +188,6 @@ class CompetitiveTrainer(BaseTrainer):
         config = self.config
         loss = gan.loss
         metrics = gan.metrics()
-        threshold_d = self.threshold_d
-        threshold_g = self.threshold_g
 
         d_loss, g_loss = loss.sample
 
@@ -195,18 +198,26 @@ class CompetitiveTrainer(BaseTrainer):
 
         if self.config.sga_lambda:
             sess.run(self.sga_step_t, feed_dict)
+
         while True:
             i+=1
             mx, my, _ = sess.run([self.clarification_metric_d, self.clarification_metric_g, self.conjugate_gradient_descend_t_1], feed_dict)
+            if i == 1:
+                initial_clarification_metric_g = my
+                initial_clarification_metric_d = mx
+
+            threshold = my / (initial_clarification_metric_g+1e-12) + mx / (initial_clarification_metric_d+1e-12)
+
+            if self.config.log_level == "info":
+                print("-MD %e MG %e" % (mx, my))
             if self.config.max_steps and i > self.config.max_steps:
                if self.config.verbose:
-                   print("Max steps ", self.config.max_steps, "mx", mx, "my", my)
+                   print("Max steps ", self.config.max_steps, "threshold", threshold, "max", self.config.threshold)
                break
-            if mx < (threshold_g) and \
-               my < (threshold_d):
+            if threshold < (self.config.threshold or 0.9): # must be < 0.9 * initial
                    sess.run(self.conjugate_gradient_descend_t_2)
                    if self.config.verbose:
-                       print("Found in ", i, "mx", mx, "my", my)
+                       print("Found in ", i, "threshold", threshold)
                    break
         metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]
         self.after_step(self.current_step, feed_dict)

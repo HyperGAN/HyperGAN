@@ -96,11 +96,11 @@ class CompetitiveOptimizer(optimizer.Optimizer):
  
     elif self.config.con6:
         cg_x = self.mgeneral_conjugate_gradient(grad_x=rhs_y, grad_y=rhs_x, x_loss=x_loss, y_loss=y_loss,
-                x_params=min_params, y_params=max_params, b=rhs_x, nsteps=(self.config.nsteps or 3),
+                x_params=min_params, y_params=max_params, b=[ lr * _g for _g in rhs_x ], nsteps=(self.config.nsteps or 3),
                 lr=self.learning_rate)
 
         cg_y = self.mgeneral_conjugate_gradient(grad_x=rhs_x, grad_y=rhs_y, x_loss=y_loss, y_loss=x_loss,
-                x_params=max_params, y_params=min_params, b=rhs_y, nsteps=(self.config.nsteps or 3),
+                x_params=max_params, y_params=min_params, b=[ lr * _g for _g in rhs_y ], nsteps=(self.config.nsteps or 3),
                 lr=self.learning_rate)
 
     elif self.config.con4:

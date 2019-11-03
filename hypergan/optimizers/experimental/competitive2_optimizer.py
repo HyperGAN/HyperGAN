@@ -88,30 +88,29 @@ class CompetitiveOptimizer(optimizer.Optimizer):
     if self.config.con5:
         cg_x = self.mgeneral_conjugate_gradient(grad_x=rhs_y, grad_y=rhs_x, x_loss=x_loss, y_loss=y_loss,
                 x_params=min_params, y_params=max_params, x=rhs_x, b=rhs_x, nsteps=(self.config.nsteps or 3),
-                lr_x=self.learning_rate, lr_y=self.learning_rate)
+                lr=self.learning_rate)
 
         cg_y = self.mgeneral_conjugate_gradient(grad_x=rhs_x, grad_y=rhs_y, x_loss=y_loss, y_loss=x_loss,
                 x_params=max_params, y_params=min_params, x=rhs_y, b=rhs_y, nsteps=(self.config.nsteps or 3),
-                lr_x=self.learning_rate, lr_y=self.learning_rate)
+                lr=self.learning_rate)
+ 
     elif self.config.con6:
         cg_x = self.mgeneral_conjugate_gradient(grad_x=rhs_y, grad_y=rhs_x, x_loss=x_loss, y_loss=y_loss,
                 x_params=min_params, y_params=max_params, b=rhs_x, nsteps=(self.config.nsteps or 3),
-                lr_x=self.learning_rate, lr_y=self.learning_rate)
+                lr=self.learning_rate)
 
         cg_y = self.mgeneral_conjugate_gradient(grad_x=rhs_x, grad_y=rhs_y, x_loss=y_loss, y_loss=x_loss,
                 x_params=max_params, y_params=min_params, b=rhs_y, nsteps=(self.config.nsteps or 3),
-                lr_x=self.learning_rate, lr_y=self.learning_rate)
+                lr=self.learning_rate)
 
     elif self.config.con4:
         cg_x, cg_y = self.sum_ak(x_grads=x_grads, y_grads=y_grads, x_loss=y_loss, y_loss=x_loss, x_params=min_params, y_params=max_params, nsteps=(self.config.nsteps or 3), lr=self.learning_rate)
     else:
         cg_x, cg_y = self.sum_ak(x_grads=x_grads, y_grads=y_grads, x_loss=x_loss, y_loss=y_loss, x_params=min_params, y_params=max_params, nsteps=(self.config.nsteps or 3), lr=self.learning_rate)
-    #cg_x = self.sum_ak(x_grads=y_grads, y_grads=x_grads, x_loss=y_loss, y_loss=x_loss, x_params=max_params, y_params=min_params, nsteps=(self.config.nsteps or 3), lr=self.learning_rate)
+
     self.gan.add_metric('cg_x', sum([ tf.reduce_mean(_p) for _p in cg_x]))
     self.gan.add_metric('cg_y', sum([ tf.reduce_mean(_p) for _p in cg_y]))
 
-    #new_grad_x = [_c * _g for _c, _g in zip(cg_x, rhs_x)]
-    #new_grad_y = [_c * _g for _c, _g in zip(cg_y, rhs_y)]
     new_grad_x = cg_x
     new_grad_y = cg_y
 
@@ -163,15 +162,14 @@ class CompetitiveOptimizer(optimizer.Optimizer):
   
   def hessian_vector_product(self, ys, xs, xs2, vs, grads=None):
     # Validate the input
-      length = len(xs)
-      if len(vs) != length:
+      if len(vs) != len(xs):
           raise ValueError("xs and v must have the same length.")
 
       # First backprop
       if grads is None:
           grads = tf.gradients(ys, xs)
 
-      assert len(grads) == length
+      assert len(grads) == len(xs)
       elemwise_products = [
               math_ops.multiply(grad_elem, tf.stop_gradient(v_elem))
               for grad_elem, v_elem in zip(grads, vs)
@@ -197,23 +195,23 @@ class CompetitiveOptimizer(optimizer.Optimizer):
         #self.gan.add_metric('m2', sum([ tf.reduce_sum(tf.abs(_m2)) for _m2 in move2]))
     return x_grads, y_grads
 
-  def mgeneral_conjugate_gradient(self, x_loss, y_loss, grad_x, grad_y, x_params, y_params, b, lr_x, lr_y, x=None, nsteps=10):
+  def mgeneral_conjugate_gradient(self, x_loss, y_loss, grad_x, grad_y, x_params, y_params, b, lr, x=None, nsteps=10):
     if x is None:
         x = [tf.zeros_like(_b) for _b in b]
-    eps = 1e-8
+    eps = 1e-12
     r = [tf.identity(_b) for _b in b]
     p = [tf.identity(_r) for _r in r]
     rdotr = [self.dot(_r, _r) for _r in r]
     for i in range(nsteps):
-        h_1_v = self.hessian_vector_product(x_loss, y_params, x_params, [lr_x * _p for _p in p])
-        h_2_v = self.hessian_vector_product(y_loss, x_params, y_params, [lr_x * _h for _h in h_1_v])
+        h_1_v = self.hessian_vector_product(x_loss, y_params, x_params, [tf.sqrt(lr) * _p for _p in p])
+        h_2_v = self.hessian_vector_product(y_loss, x_params, y_params, [lr * _h for _h in h_1_v])
 
-        Avp_ = [_p + _h_2 for _p, _h_2 in zip(p, h_2_v)]
+        z = [tf.sqrt(lr)*_h for _h in h_2_v]
 
-        alpha = [_rdotr / (self.dot(_p, _avp_)+eps) for _rdotr, _p, _avp_ in zip(rdotr, p, Avp_)]
+        alpha = [_rdotr / (self.dot(_p, _p+_z)+eps) for _rdotr, _p, _z in zip(rdotr, p, z)]
         x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, p, x)]
 
-        r = [-_alpha * _avp_+_r for _alpha, _avp_,_r in zip(alpha, Avp_, r)]
+        r = [-_alpha * (_z+_p)+_r for _alpha, _z,_r,_p in zip(alpha, z, r, p)]
         new_rdotr = [self.dot(_r, _r) for _r in r]
         beta = [_new_rdotr / (_rdotr+eps) for _new_rdotr, _rdotr in zip(new_rdotr, rdotr)]
         p = [_r + _beta * _p for _r, _beta, _p in zip(r,beta,p)]
@@ -222,13 +220,8 @@ class CompetitiveOptimizer(optimizer.Optimizer):
         rdotr = new_rdotr
     return x
 
-  def dot(self, r, p):
-    return r * p
-    s = r.shape
-    r = tf.reshape(r, [-1])
-    p = tf.reshape(p, [-1])
-    result = tf.tensordot(r, p, axes=0)
-    return tf.reshape(result, s)
+  def dot(self, x, y):
+    return tf.reduce_sum(tf.multiply(x,y))
 
   def hvpvec(self, ys, xs, vs):
     #print("VS", len(vs), "XS", len(xs), "YS", len(ys))

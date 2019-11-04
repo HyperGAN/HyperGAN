@@ -201,27 +201,38 @@ class CompetitiveOptimizer(optimizer.Optimizer):
     eps = 1e-12
     r = [tf.identity(_b) for _b in b]
     p = [tf.identity(_r) for _r in r]
-    rdotr = [self.dot(_r, _r) for _r in r]
+    rdotr = self.dot(r, r)
     for i in range(nsteps):
-        h_1_v = self.hessian_vector_product(x_loss, y_params, x_params, [tf.sqrt(lr) * _p for _p in p])
+        h_1_v = self.hessian_vector_product(x_loss, y_params, x_params, [lr * _p for _p in p])
         h_2_v = self.hessian_vector_product(y_loss, x_params, y_params, [lr * _h for _h in h_1_v])
 
-        z = [tf.sqrt(lr)*_h for _h in h_2_v]
+        z = h_2_v
 
-        alpha = [_rdotr / (self.dot(_p, _p+_z)+eps) for _rdotr, _p, _z in zip(rdotr, p, z)]
-        x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, p, x)]
+        #alpha = [self.dot(_z, _z) / (self.dot(_p, _p)+1e-32) for _rdotr, _p, _z in zip(rdotr, p, z)]
+        alpha = 1.0
+        x = [alpha * _p + _x for _p, _x in zip(p, x)]
 
-        r = [-_alpha * (_z+_p)+_r for _alpha, _z,_r,_p in zip(alpha, z, r, p)]
-        new_rdotr = [self.dot(_r, _r) for _r in r]
-        beta = [_new_rdotr / (_rdotr+eps) for _new_rdotr, _rdotr in zip(new_rdotr, rdotr)]
-        p = [_r + _beta * _p for _r, _beta, _p in zip(r,beta,p)]
-        #self.gan.add_metric('rdotr', sum([ tf.reduce_sum(tf.abs(_p)) for _p in rdotr]))
+        r_1 = r
+        r = z
+        new_rdotr = self.dot(r, r)
+        #beta_pk =[ tf.nn.relu(self.dot(_r, ( _r - _p)) / (self.dot(_p, _p)+1e-32)) for _r, _p in zip(z, p) ]
+        y = [_r - _p for _r, _p in zip(r, p)]
+        beta_bycd = new_rdotr / (tf.maximum( self.dot( p, y ), self.dot( [-_p for _p in p], r_1 ) )+1e-32)
+        p = [_r + beta_bycd * _p for _r, _p in zip(r,p)]
+        self.gan.add_metric('new_rdotr', new_rdotr)
+        self.gan.add_metric('rdotr', rdotr)
 
         rdotr = new_rdotr
     return x
 
   def dot(self, x, y):
+    x = [tf.reshape(_x, [-1]) for _x in x]
+    y = [tf.reshape(_y, [-1]) for _y in y]
+    x = tf.concat(x, axis=0)
+    y = tf.concat(y, axis=0)
     return tf.reduce_sum(tf.multiply(x,y))
+
+
 
   def hvpvec(self, ys, xs, vs):
     #print("VS", len(vs), "XS", len(xs), "YS", len(ys))

@@ -43,6 +43,9 @@ def tf_conjugate_gradient(operator,
                        tol=1e-4,
                        max_iter=20,
                        alpha=1.0,
+                       config={},
+                       loss=None,
+                       params=None,
                        name="conjugate_gradient"):
     r"""
         modified from tensorflow/contrib/solvers/python/ops/linear_equations.py
@@ -57,24 +60,35 @@ def tf_conjugate_gradient(operator,
     def cg_step(state):  # pylint: disable=missing-docstring
       #z = [p * h2 for p, h2 in zip(state.p, operator.apply(state.p))]
       grad = operator.apply(state.p)
-      z = [_grad + _p for _grad, _p in zip(grad, state.p)]
-      #z = grad
+      if config.z == "p+grad":
+        z = [_grad + _p for _grad, _p in zip(grad, state.p)]
+      else:
+        z = grad
 
-      #alpha = dot(z,z) / (dot(state.p, state.p)+1e-32)
-      alpha = state.alpha#tf.Print(state.alpha, [state.alpha], "Alpha:")
+      if config.alpha == "hager_zhang":
+          ValueAndGradient = collections.namedtuple('ValueAndGradient', ['x', 'f', 'df'])
+          def value_and_gradients_function(x):
+              return ValueAndGradient(x=params, f=loss, df=tf.gradients(loss, params))
+          ls_result = tfp.optimizer.linesearch.hager_zhang(value_and_gradients_function, initial_step_size=1.0)
+          alpha = ls_result.left
+      else:
+          #alpha = dot(z,z) / (dot(state.p, state.p)+1e-32)
+          alpha = state.alpha#tf.Print(state.alpha, [state.alpha], "Alpha:")
 
       #x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, state.p, state.x)]
       print("X", state.x)
       print("P", state.p)
       print("alpha", alpha)
       x = [alpha * _p + _x for  _p, _x in zip(state.p, state.x)]
+      r_1 = state.r
       r = grad#z#[alpha * _z + _r for _z, _r in zip(z, state.r)]
 
       new_rdotr = dot(r, r)
       beta_fr = new_rdotr / (rdotr+1e-32)
       y = [_r - _p for _r, _p in zip(r, state.p)]
       beta_pk = tf.nn.relu(dot(r,  y) / (dot(state.p, state.p)+1e-32))
-      p = [_r + beta_pk * _p for _r, _p in zip(r,state.p)]
+      beta_bycd = dot(r, r) / tf.maximum( dot( state.p, y ), dot( [-_p for _p in state.p], r_1 ) )
+      p = [_r + beta_bycd * _p for _r, _p in zip(r,state.p)]
       i = state.i + 1
 
       return cg_state(i, x, r, p, new_rdotr, alpha)
@@ -155,9 +169,9 @@ class CompetitiveTrainer(BaseTrainer):
 
         clarified_grads = clarified_d_grads + clarified_g_grads
         operator_g = CGOperator(hvp=self.hessian_vector_product, x_loss=d_loss, y_loss=g_loss, x_params=d_params, y_params=g_params, lr=lr)
-        reset_g_op, cg_g_op, var_g, state_g = tf_conjugate_gradient( operator_g, clarified_g_grads, max_iter=(self.config.nsteps or 10), alpha=(self.config.initial_alpha or 1.0) )
+        reset_g_op, cg_g_op, var_g, state_g = tf_conjugate_gradient( operator_g, clarified_g_grads, max_iter=(self.config.nsteps or 10), config=(self.config.conjugate or hc.Config({})), alpha=(self.config.initial_alpha or 1.0), loss=g_loss, params=g_params)
         operator_d = CGOperator(hvp=self.hessian_vector_product, x_loss=g_loss, y_loss=d_loss, x_params=g_params, y_params=d_params, lr=lr)
-        reset_d_op, cg_d_op, var_d, state_d = tf_conjugate_gradient( operator_d, clarified_d_grads, max_iter=(self.config.nsteps or 10), alpha=(self.config.initial_alpha or 1.0) )
+        reset_d_op, cg_d_op, var_d, state_d = tf_conjugate_gradient( operator_d, clarified_d_grads, max_iter=(self.config.nsteps or 10), config=(self.config.conjugate or hc.Config({})), alpha=(self.config.initial_alpha or 1.0), loss=d_loss, params=d_params)
         self._variables = var_g + var_d + clarified_g_grads + clarified_d_grads
 
         assign_d = [tf.assign(c, x) for c, x in zip(clarified_d_grads, d_grads)]
@@ -250,17 +264,20 @@ class CompetitiveTrainer(BaseTrainer):
                 alpha = sess.run(self.alpha)
                 print("-MD %e MG %e alpha %e" % (mx, my, alpha))
 
-            #if mx > initial_clarification_metric_d or my > initial_clarification_metric_g:
-            #    sess.run(self.set_alpha, {self.alpha_value: alpha / 2.0})
-            #    sess.run(self.reset_clarified_gradients, feed_dict)
-            #    sess.run(self.reset_conjugate_tracker, feed_dict)
-            #    if self.config.sga_lambda:
-            #        sess.run(self.sga_step_t, feed_dict)
-            #    new_alpha = sess.run(self.alpha)
-            #    print(i, "Explosion detected, reduced alpha from ", alpha, "to", new_alpha)
-            #    alpha = new_alpha
-            #    i=0
-            #    continue
+            if mx > initial_clarification_metric_d or my > initial_clarification_metric_g or np.isnan(mx) or np.isnan(my) or np.isinf(mx) or np.isinf(my):
+                sess.run(self.set_alpha, {self.alpha_value: alpha / 2.0})
+                sess.run(self.reset_clarified_gradients, feed_dict)
+                sess.run(self.reset_conjugate_tracker, feed_dict)
+                if self.config.sga_lambda:
+                    sess.run(self.sga_step_t, feed_dict)
+                new_alpha = sess.run(self.alpha)
+                if new_alpha < 1e-10:
+                    print("Alpha too low, exploding")
+                    break
+                print(i, "Explosion detected, reduced alpha from ", alpha, "to", new_alpha)
+                alpha = new_alpha
+                i=0
+                continue
 
             threshold_x =  mx / (initial_clarification_metric_d+1e-12)
             threshold_y = my / (initial_clarification_metric_g+1e-12)

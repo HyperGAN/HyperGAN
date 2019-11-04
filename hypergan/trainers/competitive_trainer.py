@@ -10,7 +10,7 @@ from tensorflow.python.ops import gradients_impl
 
 TINY = 1e-12
 
-cg_state = collections.namedtuple("CGState", ["i", "x", "r", "p", "rdotr"])
+cg_state = collections.namedtuple("CGState", ["i", "x", "r", "p", "rdotr", "alpha"])
 def update_vars(state1, state2):
   ops = []
   for name in state1._fields:
@@ -26,7 +26,10 @@ def build_vars(state):
   variables = []
   for name in state._fields:
     vs = getattr(state, name)
-    if isinstance(vs, list):
+    if name == 'alpha':
+        sv = tf.Variable(vs, trainable=False, name=name+"_sv_dontsave")
+        variables += [sv]
+    elif isinstance(vs, list):
         sv = [tf.Variable(tf.zeros_like(v), trainable=False, name=name+"_sv_dontsave") for v in vs]
         variables += sv
     else:
@@ -39,37 +42,54 @@ def tf_conjugate_gradient(operator,
                        rhs,
                        tol=1e-4,
                        max_iter=20,
+                       alpha=1.0,
                        name="conjugate_gradient"):
     r"""
         modified from tensorflow/contrib/solvers/python/ops/linear_equations.py
     """
     def dot(x, y):
+      x = [tf.reshape(_x, [-1]) for _x in x]
+      y = [tf.reshape(_y, [-1]) for _y in y]
+      x = tf.concat(x, axis=0)
+      y = tf.concat(y, axis=0)
       return tf.reduce_sum(tf.multiply(x,y))
 
     def cg_step(state):  # pylint: disable=missing-docstring
       #z = [p * h2 for p, h2 in zip(state.p, operator.apply(state.p))]
-      z = operator.apply(state.p)
+      grad = operator.apply(state.p)
+      z = [_grad + _p for _grad, _p in zip(grad, state.p)]
+      #z = grad
 
-      alpha = [_r / (dot(_p, _p+_z)+1e-12) for _r, _p, _z in zip(state.rdotr, state.p, z)]
-      x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, state.p, state.x)]
+      #alpha = dot(z,z) / (dot(state.p, state.p)+1e-32)
+      alpha = state.alpha#tf.Print(state.alpha, [state.alpha], "Alpha:")
 
-      r = [-_alpha * (_z+_p) + _r for _alpha, _z,_r,_p in zip(alpha, z, state.r, state.p)]
-      new_rdotr = [dot(_r, _r) for _r in r]
-      beta = [_new_rdotr / (_rdotr+1e-12) for _new_rdotr, _rdotr in zip(new_rdotr, state.rdotr)]
-      p = [_r + _beta * _p for _r, _beta, _p in zip(r,beta,state.p)]
+      #x = [_alpha * _p + _x for _alpha, _p, _x in zip(alpha, state.p, state.x)]
+      print("X", state.x)
+      print("P", state.p)
+      print("alpha", alpha)
+      x = [alpha * _p + _x for  _p, _x in zip(state.p, state.x)]
+      r = grad#z#[alpha * _z + _r for _z, _r in zip(z, state.r)]
+
+      new_rdotr = dot(r, r)
+      beta_fr = new_rdotr / (rdotr+1e-32)
+      y = [_r - _p for _r, _p in zip(r, state.p)]
+      beta_pk = tf.nn.relu(dot(r,  y) / (dot(state.p, state.p)+1e-32))
+      p = [_r + beta_pk * _p for _r, _p in zip(r,state.p)]
       i = state.i + 1
 
-      return cg_state(i, x, r, p, new_rdotr)
+      return cg_state(i, x, r, p, new_rdotr, alpha)
 
     with tf.name_scope(name):
       x = [tf.zeros_like(h) for h in rhs]
-      rdotr = [dot(_r, _r) for _r in rhs]
-      state = cg_state(i=0, x=x, r=rhs, p=rhs, rdotr=rdotr)
+      rdotr = dot(rhs, rhs)
+      #p = [-_p for _p in rhs]
+      p = rhs
+      state = cg_state(i=0, x=x, r=p, p=p, rdotr=rdotr, alpha=alpha)
       state, variables = build_vars(state)
       def update_op(state):
         return update_vars(state, cg_step(state))
       def reset_op(state, rhs):
-        return update_vars(state, cg_step(cg_state(i=0, x=x, r=rhs, p=rhs, rdotr=rdotr)))
+        return update_vars(state, cg_step(cg_state(i=0, x=x, r=[state.alpha * _g for _g in rhs], p=[state.alpha * _g for _g in rhs], rdotr=rdotr, alpha=state.alpha)))
       return [reset_op(state, rhs), update_op(state), variables, state]
 
 class CGOperator:
@@ -82,13 +102,15 @@ class CGOperator:
         self.lr = lr
 
     def apply(self, p):
-        lr_x = tf.sqrt(self.lr)
+        lr_x = self.lr#tf.sqrt(self.lr)
         lr_y = self.lr
         h_1_v = self.hvp(self.x_loss, self.y_params, self.x_params, [lr_x * _p for _p in p])
         for _x, _h in zip(self.x_params, h_1_v):
             if _h is None:
                 print("X none", _x)
-        return [lr_x * _x for _x in self.hvp(self.y_loss, self.x_params, self.y_params, [lr_y * _h for _h in h_1_v])]
+        h_2_v = self.hvp(self.y_loss, self.x_params, self.y_params, [lr_y * _h for _h in h_1_v])
+        return h_2_v
+        #return [lr_x * _g for _g in h_2_v]
 
 class CompetitiveTrainer(BaseTrainer):
     def hessian_vector_product(self, ys, xs, xs2, vs, grads=None):
@@ -133,9 +155,9 @@ class CompetitiveTrainer(BaseTrainer):
 
         clarified_grads = clarified_d_grads + clarified_g_grads
         operator_g = CGOperator(hvp=self.hessian_vector_product, x_loss=d_loss, y_loss=g_loss, x_params=d_params, y_params=g_params, lr=lr)
-        reset_g_op, cg_g_op, var_g, state_g = tf_conjugate_gradient( operator_g, clarified_g_grads, max_iter=(self.config.nsteps or 10) )
+        reset_g_op, cg_g_op, var_g, state_g = tf_conjugate_gradient( operator_g, clarified_g_grads, max_iter=(self.config.nsteps or 10), alpha=(self.config.initial_alpha or 1.0) )
         operator_d = CGOperator(hvp=self.hessian_vector_product, x_loss=g_loss, y_loss=d_loss, x_params=g_params, y_params=d_params, lr=lr)
-        reset_d_op, cg_d_op, var_d, state_d = tf_conjugate_gradient( operator_d, clarified_d_grads, max_iter=(self.config.nsteps or 10) )
+        reset_d_op, cg_d_op, var_d, state_d = tf_conjugate_gradient( operator_d, clarified_d_grads, max_iter=(self.config.nsteps or 10), alpha=(self.config.initial_alpha or 1.0) )
         self._variables = var_g + var_d + clarified_g_grads + clarified_d_grads
 
         assign_d = [tf.assign(c, x) for c, x in zip(clarified_d_grads, d_grads)]
@@ -156,8 +178,8 @@ class CompetitiveTrainer(BaseTrainer):
             dxf = tf.gradients(d_loss, d_params)
             hyp_d = self.hessian_vector_product(d_loss, g_params, d_params, [self.config.sga_lambda * _g for _g in dyg])
             hyp_g = self.hessian_vector_product(g_loss, d_params, g_params, [self.config.sga_lambda * _g for _g in dxf])
-            sga_g_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_g_grads, hyp_g)]
-            sga_d_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_d_grads, hyp_d)]
+            sga_g_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_g_grads, ([state_g.alpha * _g for _g in hyp_g]))]
+            sga_d_op = [tf.assign_sub(_g, _h) for _g, _h in zip(clarified_d_grads, ([state_d.alpha * _g for _g in hyp_d]))]
             self.sga_step_t = tf.group(*(sga_d_op + sga_g_op))
             self.gan.add_metric('hyp_g', sum([ tf.reduce_mean(_p) for _p in hyp_g]))
             self.gan.add_metric('hyp_d', sum([ tf.reduce_mean(_p) for _p in hyp_d]))
@@ -167,13 +189,20 @@ class CompetitiveTrainer(BaseTrainer):
         def _metric(r):
             #return tf.reduce_max(tf.convert_to_tensor([tf.reduce_max(tf.norm(_r)) for _r in r]))
             return [tf.reduce_max(tf.norm(_r)) for _r in r][0]
-        self.clarification_metric_g = _metric(state_g.r)
-        self.clarification_metric_d = _metric(state_d.r)
+        self.clarification_metric_g = state_g.rdotr
+        self.clarification_metric_d = state_d.rdotr
 
         all_vars = d_params + g_params
         new_grads_and_vars = list(zip(clarified_grads, all_vars)).copy()
     
+        self.last_mx = 1e12
+        self.last_my = 1e12
 
+        self.alpha = state_g.alpha
+        self.alpha_value= tf.constant(1.0)
+        set_alpha_d = tf.assign(state_d.alpha, self.alpha_value)
+        set_alpha_g = tf.assign(state_g.alpha, self.alpha_value)
+        self.set_alpha = tf.group(set_alpha_d, set_alpha_g)
         self.optimize_t = self.optimizer.apply_gradients(new_grads_and_vars)
 
     def required(self):
@@ -195,6 +224,8 @@ class CompetitiveTrainer(BaseTrainer):
         sess.run(self.reset_clarified_gradients, feed_dict)
         sess.run(self.reset_conjugate_tracker, feed_dict)
         i=0
+        sess.run(self.set_alpha, {self.alpha_value: (self.config.initial_alpha or 1.0)})
+        alpha = sess.run(self.alpha)
 
         if self.config.sga_lambda:
             sess.run(self.sga_step_t, feed_dict)
@@ -205,20 +236,53 @@ class CompetitiveTrainer(BaseTrainer):
             if i == 1:
                 initial_clarification_metric_g = my
                 initial_clarification_metric_d = mx
-
-            threshold = my / (initial_clarification_metric_g+1e-12) + mx / (initial_clarification_metric_d+1e-12)
+                dy = my
+                dx = mx
+                my_t1 = my
+                mx_t1 = mx
+            else:
+                dy = my_t1 - my
+                dx = mx_t1 - mx
+                my_t1 = my
+                mx_t1 = mx
 
             if self.config.log_level == "info":
-                print("-MD %e MG %e" % (mx, my))
+                alpha = sess.run(self.alpha)
+                print("-MD %e MG %e alpha %e" % (mx, my, alpha))
+
+            #if mx > initial_clarification_metric_d or my > initial_clarification_metric_g:
+            #    sess.run(self.set_alpha, {self.alpha_value: alpha / 2.0})
+            #    sess.run(self.reset_clarified_gradients, feed_dict)
+            #    sess.run(self.reset_conjugate_tracker, feed_dict)
+            #    if self.config.sga_lambda:
+            #        sess.run(self.sga_step_t, feed_dict)
+            #    new_alpha = sess.run(self.alpha)
+            #    print(i, "Explosion detected, reduced alpha from ", alpha, "to", new_alpha)
+            #    alpha = new_alpha
+            #    i=0
+            #    continue
+
+            threshold_x =  mx / (initial_clarification_metric_d+1e-12)
+            threshold_y = my / (initial_clarification_metric_g+1e-12)
+            threshold = threshold_x + threshold_y
+
             if self.config.max_steps and i > self.config.max_steps:
                if self.config.verbose:
-                   print("Max steps ", self.config.max_steps, "threshold", threshold, "max", self.config.threshold)
+                   print("Max steps ", self.config.max_steps, "threshold", threshold, "max", self.config.threshold, "mx", mx, "my", my)
                break
-            if threshold < (self.config.threshold or 0.9): # must be < 0.9 * initial
-                   sess.run(self.conjugate_gradient_descend_t_2)
-                   if self.config.verbose:
-                       print("Found in ", i, "threshold", threshold)
-                   break
+            #print( "p", i, dx / mx, dy / my, self.config.threshold, dy / my > self.config.threshold)
+            if i % 100 == 0 and i != 0:
+                print("Threshold at", i, threshold_x, threshold_y, "last", self.last_mx, self.last_my, "m", mx, my, "d", dx, dy)
+            #self.last_mx = (self.last_mx + 1e-16) * 1.05
+            #self.last_my = (self.last_my + 1e-16) * 1.05
+            #if ((dx / (initial_clarification_metric_d+1e-12)) < self.config.threshold and (dy / (initial_clarification_metric_g+1e-12)) < self.config.threshold and my <= self.last_my and mx <= self.last_mx):
+            if mx < self.config.threshold and my < self.config.threshold:
+                #self.last_mx = mx
+                #self.last_my = my
+                sess.run(self.conjugate_gradient_descend_t_2)
+                if self.config.verbose:
+                    print("Found in ", i, "threshold", threshold, "mx", mx, "my", my, "alpha", alpha)
+                break
         metric_values = sess.run([self.optimize_t] + self.output_variables(metrics), feed_dict)[1:]
         self.after_step(self.current_step, feed_dict)
 

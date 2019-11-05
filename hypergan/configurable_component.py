@@ -15,7 +15,7 @@ class ConfigurationException(Exception):
     pass
 
 class ConfigurableComponent:
-    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[], context={}):
+    def __init__(self, gan, config, name=None, input=None, reuse=None, weights=None, biases=None, x=None, g=None, features=[], skip_connections=[], context={}):
         self.layers = []
         self.skip_connections = skip_connections
         self.layer_options = {}

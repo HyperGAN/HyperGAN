@@ -115,19 +115,6 @@ class MultiMarginalGAN(BaseGAN):
             d_vars1 = d.variables()
             g_vars1 = []
 
-            def mi_loss(d):
-
-                ds = self.split_batch(d.sample, 2)
-
-                d_real, d_fake = ds
-
-                zeros = tf.zeros_like(d_fake)
-                ones = tf.ones_like(d_fake)
-                g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=ones)
-                d_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=ones) + \
-                         tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)
-                return g_loss, d_loss
-
             for i in range(len(x_hats)):
                 x_h = x_hats[i].sample
                 x_source = xs[i+1]
@@ -136,8 +123,9 @@ class MultiMarginalGAN(BaseGAN):
                 d2 = self.create_component(config.discriminator, name='d_ab', 
                         skip_connections=skip_connections,
                         input=stacked, features=[features], reuse=True)
-                #l_g = self.create_loss(config.loss, d2, None, None, 2)
-                mi_g_loss, mi_d_loss = mi_loss(d2)
+                l_g = self.create_loss(config.mi_loss or config.loss, d2, None, None, 2)
+                mi_g_loss = l_g.g_loss
+                mi_d_loss =l_g.d_loss
                 grad_penalty_lambda = config.grad_penalty_lambda or 10
 
                 d3 = self.create_component(config.discriminator, name='d_ab', 

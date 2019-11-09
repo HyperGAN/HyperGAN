@@ -115,6 +115,19 @@ class MultiMarginalGAN(BaseGAN):
             d_vars1 = d.variables()
             g_vars1 = []
 
+            def mi_loss(d):
+
+                ds = self.split_batch(d.sample, 2)
+
+                d_real, d_fake = ds
+
+                zeros = tf.zeros_like(d_fake)
+                ones = tf.ones_like(d_fake)
+                g_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=ones)
+                d_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_real, labels=ones) + \
+                         tf.nn.sigmoid_cross_entropy_with_logits(logits=d_fake, labels=zeros)
+                return g_loss, d_loss
+
             for i in range(len(x_hats)):
                 x_h = x_hats[i].sample
                 x_source = xs[i+1]
@@ -123,26 +136,34 @@ class MultiMarginalGAN(BaseGAN):
                 d2 = self.create_component(config.discriminator, name='d_ab', 
                         skip_connections=skip_connections,
                         input=stacked, features=[features], reuse=True)
-                l_g = self.create_loss(config.loss, d2, None, None, 2)
-                grad_penalty_lambda = config.grad_penalty_lambda or 0.1
+                #l_g = self.create_loss(config.loss, d2, None, None, 2)
+                mi_g_loss, mi_d_loss = mi_loss(d2)
+                grad_penalty_lambda = config.grad_penalty_lambda or 10
 
                 d3 = self.create_component(config.discriminator, name='d_ab', 
                         skip_connections=skip_connections,
                         input=x_interp, features=[features], reuse=True)
 
+                lf = config.lf or 1
+
                 gds = tf.gradients(d3.sample, d_vars1)
-                grad_penalty = [grad_penalty_lambda * tf.square(tf.abs(gd) - l_g.d_loss) for gd in gds]
-                grad_penalty = [tf.reduce_mean(_grad) for _grad in grad_penalty]
-                grad_penalty = tf.add_n(grad_penalty)
-                d_loss1 += grad_penalty
-                d_loss1 += l_g.d_loss * interdomain_lambda
-                g_loss1 += l_g.g_loss * interdomain_lambda
+                grad_penalty = [tf.reduce_sum(tf.square(tf.abs(gd))) for gd in gds]
+                grad_penalty = [tf.sqrt(gd) for gd in gds]
+                grad_penalty = [tf.reduce_max(tf.nn.relu(_grad - lf)) for _grad in grad_penalty]
+                grad_penalty = tf.square(tf.add_n(grad_penalty)/len(grad_penalty))
+                self.add_metric("gp", grad_penalty * grad_penalty_lambda)
+                self.add_metric("mi_g", mi_g_loss * interdomain_lambda)
+                self.add_metric("mi_d", mi_d_loss * interdomain_lambda)
+                d_loss1 += grad_penalty * grad_penalty_lambda
+
+                d_loss1 += mi_d_loss * interdomain_lambda
+                g_loss1 += mi_g_loss * interdomain_lambda
                 g_vars1 += x_hats[i].variables()
 
             self.generator = x_hats[0]
 
-            d_loss = l.d_loss
-            g_loss = l.g_loss
+            d_loss = d_loss1
+            g_loss = g_loss1
 
 
             metrics = {

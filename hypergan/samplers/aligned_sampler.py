@@ -23,10 +23,7 @@ class AlignedSampler(BaseSampler):
         sess = gan.session
         config = gan.config
 
-        xs, x_hats = sess.run([gan.inputs.xs[0]]+[_x.sample for _x in gan.x_hats])
-        x_hats = [x_hats]
-        print("---")
-        print(gan.inputs.xs[0])
+        xs, *x_hats = sess.run([gan.inputs.xs[0]]+[_x.sample for _x in gan.x_hats])
 
         stacks = []
         bs = gan.batch_size() // 2
@@ -37,7 +34,6 @@ class AlignedSampler(BaseSampler):
             for i in range(1):
                 stacks.append([x_h[i*width+j] for j in range(width)])
 
-        print([np.shape(s) for s in stacks])
         images = np.vstack([np.hstack(s) for s in stacks])
 
         self.plot(images, path, sample_to_file)

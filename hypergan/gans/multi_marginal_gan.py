@@ -80,7 +80,7 @@ class MultiMarginalGAN(BaseGAN):
 
             x_interps = interp(xs[0], x_hats)
 
-            interdomain_lambda = config.interdomain_lambda or 10
+            interdomain_lambda = config.interdomain_lambda or 1
 
             self.ga = x_hat
             self.gb = x_hat
@@ -108,8 +108,8 @@ class MultiMarginalGAN(BaseGAN):
             self.standard_loss = l
             self.z_loss = l
             loss1 = l
-            d_loss1 = l.d_loss
-            g_loss1 = l.g_loss
+            d_loss1 = l.d_loss * (self.config.d_lambda or 1)
+            g_loss1 = l.g_loss * (self.config.d_lambda or 1)
 
 
             d_vars1 = d.variables()
@@ -119,10 +119,8 @@ class MultiMarginalGAN(BaseGAN):
                 x_h = x_hats[i].sample
                 x_source = xs[i+1]
                 x_interp = x_interps[i]
-                stacked = tf.concat([x_source, x_h], axis=0)
                 d2 = self.create_component(config.discriminator, name='d_ab', 
-                        skip_connections=skip_connections,
-                        input=stacked, features=[features], reuse=True)
+                        input=tf.concat([x_source, x_h], axis=0), features=[features], reuse=True)
                 l_g = self.create_loss(config.mi_loss or config.loss, d2, None, None, 2)
                 mi_g_loss = l_g.g_loss
                 mi_d_loss =l_g.d_loss
@@ -135,7 +133,7 @@ class MultiMarginalGAN(BaseGAN):
                 lf = config.lf or 1
 
                 gds = tf.gradients(d3.sample, d_vars1)
-                grad_penalty = [tf.reduce_sum(tf.square(tf.abs(gd))) for gd in gds]
+                grad_penalty = [tf.reduce_sum(tf.square(gd)) for gd in gds]
                 grad_penalty = [tf.sqrt(gd) for gd in gds]
                 grad_penalty = [tf.reduce_max(tf.nn.relu(_grad - lf)) for _grad in grad_penalty]
                 grad_penalty = tf.square(tf.add_n(grad_penalty)/len(grad_penalty))

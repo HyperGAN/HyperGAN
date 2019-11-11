@@ -95,12 +95,9 @@ class MultiMarginalGAN(BaseGAN):
             features = None
             self.features = features
 
-            skip_connections = []
-            d = self.create_component(config.discriminator, name='d_ab', 
-                    skip_connections=skip_connections,
+            d = self.create_component(config.discriminator, name='discriminator',
                     input=stacked, features=[features])
 
-            self.skip_connections = skip_connections
             self.discriminator = d
             l = self.create_loss(config.loss, d, None, None, len(stack))
             self.loss = l
@@ -110,24 +107,27 @@ class MultiMarginalGAN(BaseGAN):
             loss1 = l
             d_loss1 = l.d_loss * (self.config.d_lambda or 1)
             g_loss1 = l.g_loss * (self.config.d_lambda or 1)
+            d_loss2 = d_loss1
+            g_loss2 = g_loss1
+            c_loss = None
 
 
             d_vars1 = d.variables()
+            c_vars = d.variables()
             g_vars1 = []
 
             for i in range(len(x_hats)):
                 x_h = x_hats[i].sample
                 x_source = xs[i+1]
                 x_interp = x_interps[i]
-                d2 = self.create_component(config.discriminator, name='d_ab', 
+                d2 = self.create_component(config.discriminator, name='discriminator',
                         input=tf.concat([x_source, x_h], axis=0), features=[features], reuse=True)
                 l_g = self.create_loss(config.mi_loss or config.loss, d2, None, None, 2)
                 mi_g_loss = l_g.g_loss
-                mi_d_loss =l_g.d_loss
+                mi_d_loss = l_g.d_loss
                 grad_penalty_lambda = config.grad_penalty_lambda or 10
 
-                d3 = self.create_component(config.discriminator, name='d_ab', 
-                        skip_connections=skip_connections,
+                d3 = self.create_component(config.discriminator, name='discriminator',
                         input=x_interp, features=[features], reuse=True)
 
                 lf = config.lf or 1
@@ -140,11 +140,20 @@ class MultiMarginalGAN(BaseGAN):
                 self.add_metric("gp", grad_penalty * grad_penalty_lambda)
                 self.add_metric("mi_g", mi_g_loss * interdomain_lambda)
                 self.add_metric("mi_d", mi_d_loss * interdomain_lambda)
-                d_loss1 += grad_penalty * grad_penalty_lambda
 
+                d_loss1 -= grad_penalty * grad_penalty_lambda
                 d_loss1 += mi_d_loss * interdomain_lambda
                 g_loss1 += mi_g_loss * interdomain_lambda
                 g_vars1 += x_hats[i].variables()
+
+                # for custom trainer
+                d_loss2 += grad_penalty * grad_penalty_lambda
+                if c_loss == None:
+                    c_loss = mi_d_loss * interdomain_lambda
+                else:
+                    c_loss += mi_d_loss * interdomain_lambda
+                g_loss2 += mi_g_loss * interdomain_lambda
+
 
             self.generator = x_hats[0]
 
@@ -154,16 +163,19 @@ class MultiMarginalGAN(BaseGAN):
 
             metrics = {
                     'g_loss': l.g_loss,
-                    'd_loss': l.d_loss
+                    'd_loss': l.d_loss,
+                    'c_loss': c_loss
                 }
 
             self._g_vars = g_vars1
             self._d_vars = d_vars1
+            self._c_vars = c_vars
 
             self.loss = hc.Config({
                 'd_fake':l.d_fake,
                 'd_real':l.d_real,
                 'sample': [d_loss1, g_loss1],
+                'sample_cdg': [c_loss, d_loss2, g_loss2],
                 'metrics': metrics
                 })
             trainer = self.create_component(config.trainer)
@@ -177,6 +189,12 @@ class MultiMarginalGAN(BaseGAN):
 
     def g_vars(self):
         return self._g_vars
+
+    def c_vars(self):
+        return self._c_vars
+
+    def trainable_c_vars(self):
+        return list(set(self.c_vars()).intersection(tf.trainable_variables()))
 
     def fitness_inputs(self):
         return [

@@ -15,6 +15,7 @@ def update_vars(state1, state2):
   ops = []
   for name in state1._fields:
     state1_vs = getattr(state1, name)
+    print("NN", name)
     if isinstance(state1_vs, list):
       ops += [tf.assign(_v1, _v2) for _v1, _v2 in zip(state1_vs, getattr(state2, name))]
     else:
@@ -82,7 +83,7 @@ def tf_conjugate_gradient(operator,
       def _sum(state):
           h_2_v = operator.apply(state.p)
           if(config.normalize):
-              norm_factor = tf.sqrt(dot(state.p,state.p)) / tf.sqrt(dot(h_2_v, h_2_v))
+              norm_factor = tf.sqrt(dot(state.p,state.p)) / (tf.sqrt(dot(h_2_v, h_2_v))+1e-32)
               h_2_v = [norm_factor * _h for _h in h_2_v]
           p = [_p + (config.decay or 0.05)*_h_2_v for _p, _h_2_v, _r1 in zip(state.p, h_2_v, state.r)]
 
@@ -91,14 +92,12 @@ def tf_conjugate_gradient(operator,
           #rdotr = dot(r, r)
           #rdotr = tf.Print(rdotr, [rdotr], "rdotr")
           if config.metric == "ddr":
-            rdotr = tf.abs(dot(r,r)-dot(state.r,state.r)) / (dot(rhs,rhs)+1e-32)
-            metric = tf.abs(rdotr - state.rdotr)
+            rdotr = dot(r,r)-dot(state.r,state.r) / (dot(rhs,rhs)+1e-32)
+            metric = rdotr - state.rdotr
           else:
             rdotr = dot(r,r)/ (dot(rhs,rhs)+1e-32)
             metric = rdotr
 
-          if(config.normalize):
-            metric = norm_factor
           #rdotr = sum([tf.reduce_sum(tf.abs(_x)) for _x in x])
           #metric = tf.abs((rdotr-state.rdotr) / rdotr)
 
@@ -153,7 +152,7 @@ def tf_conjugate_gradient(operator,
           def update_op(state):
             return update_vars(state, cg_step(state))
           def reset_op(state, rhs):
-            return update_vars(state, cg_step(cg_state(i=0, x=x, r=rhs, p=rhs, lr=lr, rdotr=rdotr, metric=1.0)))
+            return update_vars(state, cg_step(cg_state(i=0, x=x, r=r, p=r, lr=lr, rdotr=rdotr, metric=1.0)))
       return [reset_op(state, rhs), update_op(state), variables, state]
 
 class CompetitiveAlternatingTrainer(BaseTrainer):
@@ -299,11 +298,12 @@ class CompetitiveAlternatingTrainer(BaseTrainer):
                 self.y_params = y_params
 
             def apply(self, p):
-                h_1_v = self.hvp(self.x_loss, self.y_params, self.x_params, [lr * _p for _p in p])
+                print("D %d %d %d %d" % (len(self.y_params), len(self.x_params), len(p), len(gan.d_vars())))
+                h_1_v = self.hvp(self.x_loss, self.x_params, self.y_params, [lr * _p for _p in p])
                 for _x, _h in zip(self.x_params, h_1_v):
                     if _h is None:
                         print("X none", _x)
-                return self.hvp(self.y_loss, self.x_params, self.y_params, [lr * _h for _h in h_1_v])
+                return self.hvp(self.y_loss, self.y_params, self.x_params, [lr * _h for _h in h_1_v])
 
         old_y = [tf.Variable(tf.zeros_like(v), trainable=False, name=v.name.split(":")[0]+"_oldx_dontsave") for v in d_grads]
         old_x = [tf.Variable(tf.zeros_like(v), trainable=False, name=v.name.split(":")[0]+"_oldy_dontsave") for v in g_grads]
@@ -328,10 +328,10 @@ class CompetitiveAlternatingTrainer(BaseTrainer):
 
 
         operator_x = CGOperator(hvp=hvp, x_loss=x_loss, y_loss=y_loss, x_params=min_params, y_params=max_params)
-        reset_x_op, cg_x_op, var_x, state_x = tf_conjugate_gradient( operator_x, rhs_x, x=old_x, lr=lr, max_iter=(self.config.nsteps or 10), config=self.config.conjugate, gan=self.gan )
+        reset_x_op, cg_x_op, var_x, state_x = tf_conjugate_gradient( operator_x, rhs=rhs_y, x=old_y, lr=lr, max_iter=(self.config.nsteps or 10), config=self.config.conjugate, gan=self.gan )
         operator_y = CGOperator(hvp=hvp, x_loss=y_loss, y_loss=x_loss, x_params=max_params, y_params=min_params)
-        reset_y_op, cg_y_op, var_y, state_y = tf_conjugate_gradient( operator_y, rhs_y, x=old_y, lr=lr, max_iter=(self.config.nsteps or 10), config=self.config.conjugate, gan=self.gan )
-        self._variables = var_x + var_y + clarified_g_grads + clarified_d_grads + old_y + old_x
+        reset_y_op, cg_y_op, var_y, state_y = tf_conjugate_gradient( operator_y, rhs=rhs_x, x=old_x, lr=lr, max_iter=(self.config.nsteps or 10), config=self.config.conjugate, gan=self.gan )
+        self._variables = var_x + var_y + clarified_g_grads + clarified_d_grads + old_x + old_y
 
         self.reset_y = [tf.assign(c, x) for c, x in zip(clarified_d_grads, d_grads)]
         self.reset_x = [tf.assign(c, y) for c, y in zip(clarified_g_grads, g_grads)]
@@ -355,10 +355,10 @@ class CompetitiveAlternatingTrainer(BaseTrainer):
             self.conjugate_gradient_descend_x2 = tf.group(*(assign_x + assign_old_y))
             self.conjugate_gradient_descend_y2 = tf.group(*(assign_y + assign_old_x))
         else:
-            final_y = [((self.config.risk or 0.0) * _g) + ((1.0-(self.config.risk or 0.0)) * _s) for _g, _s in zip(clarified_d_grads, state_y.x)]
-            final_x = [((self.config.risk or 0.0) * _g) + ((1.0-(self.config.risk or 0.0)) * _s) for _g, _s in zip(clarified_g_grads, state_x.x)]
-            assign_y = [tf.assign(c, x) for c, x in zip(clarified_d_grads, final_y)]
-            assign_x = [tf.assign(c, y) for c, y in zip(clarified_g_grads, final_x)]
+            final_y = [((self.config.risk or 0.0) * _g) + ((1.0-(self.config.risk or 0.0)) * _s) for _g, _s in zip(clarified_g_grads, state_y.x)]
+            final_x = [((self.config.risk or 0.0) * _g) + ((1.0-(self.config.risk or 0.0)) * _s) for _g, _s in zip(clarified_d_grads, state_x.x)]
+            assign_y = [tf.assign(c, x) for c, x in zip(clarified_g_grads, final_y)]
+            assign_x = [tf.assign(c, y) for c, y in zip(clarified_d_grads, final_x)]
             self.conjugate_gradient_descend_x2 = assign_x
             self.conjugate_gradient_descend_y2 = assign_y
 

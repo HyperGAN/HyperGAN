@@ -92,7 +92,7 @@ def tf_conjugate_gradient(operator,
           #rdotr = dot(r, r)
           #rdotr = tf.Print(rdotr, [rdotr], "rdotr")
           if config.metric == "ddr":
-            rdotr = dot(r,r)-dot(state.r,state.r) / (dot(rhs,rhs)+1e-32)
+            rdotr = (dot(r,r)-dot(state.r,state.r)) / (dot(rhs,rhs)+1e-32)
             metric = rdotr - state.rdotr
           else:
             rdotr = dot(r,r)/ (dot(rhs,rhs)+1e-32)

@@ -62,7 +62,7 @@ class ConfigurableComponent:
             "reshape": self.layer_reshape,
             "resize_conv": self.layer_resize_conv,
             "resize_images": self.layer_resize_images,
-            "resnet": self.layer_resnet,
+            "residual": self.layer_residual,
             "slice": self.layer_slice,
             "split": self.layer_split,
             "squash": self.layer_squash,
@@ -287,39 +287,10 @@ class ConfigurableComponent:
         return net
 
 
-    def layer_resnet(self, net, args, options):
-        options = hc.Config(options)
-        config = self.config
-        ops = self.ops
-        depth = int(args[0])
-        activation_s = options.activation or self.ops.config_option("activation")
-        activation = self.ops.lookup(activation_s)
-        _, fltr, _ = self.get_conv_options(config, options)
-        stride = [1, 1]
-        shortcut = net
-        initializer = None # default to global
+    def layer_residual(self, net, args, options):
+        res = self.layer_conv(net, args, options)
 
-        if self.ops.config_option("avg_pool"):
-            net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
-            if stride != 1:
-                ksize = [1,stride,stride,1]
-                net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
-        else:
-            net = ops.conv2d(net, 3, 3, stride[0], stride[1], depth, initializer=initializer)
-        net = activation(net)
-        net = ops.conv2d(net, 3, 3, 1, 1, depth, initializer=initializer)
-        if ops.shape(net)[-1] != ops.shape(shortcut)[-1] or stride != 1:
-            if self.ops.config_option("avg_pool"):
-                shortcut = ops.conv2d(shortcut, 3, 3, 1, 1, depth, initializer=initializer)
-                if stride != 1:
-                    ksize = [1,stride,stride,1]
-                    shortcut = tf.nn.avg_pool(shortcut, ksize=ksize, strides=ksize, padding='SAME')
-            else:
-                shortcut = ops.conv2d(shortcut, 3, 3, stride[0], stride[1], depth, initializer=initializer)
-        net = shortcut + net
-        net = activation(net)
-
-        return net
+        return net + res
     
     def layer_zeros(self, net, args, options):
         options = hc.Config(options)

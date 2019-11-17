@@ -35,7 +35,7 @@ class CompetitiveTrainHook(BaseTrainHook):
       if self.config.hvp == 13:
           hvp = self.hvp13
       if self.config.hvp == 15:
-          hvp = self.hvp13
+          hvp = self.hvp15
       if i >= nsteps:
           return p
       lr = self.config.learn_rate or 1e-4
@@ -49,7 +49,10 @@ class CompetitiveTrainHook(BaseTrainHook):
 
       norm_factor = tf.sqrt(dot(p,p)) / (tf.sqrt(dot(h_2_v, h_2_v))+1e-32)
       h_2_v = [norm_factor * _h for _h in h_2_v]
-      p = [_p + (self.config.decay or 0.01)*_h_2_v for _p, _h_2_v in zip(p, h_2_v)]
+      if self.config.force:
+          p = h_2_v
+      else:
+          p = [_p + (self.config.decay or 0.01)*_h_2_v for _p, _h_2_v in zip(p, h_2_v)]
       self.gan.add_metric("cnorm", norm_factor)
 
       return self.step(i+1, nsteps, p, x_grads, y_grads, x_loss, y_loss, x_params, y_params)

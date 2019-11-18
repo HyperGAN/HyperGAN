@@ -82,10 +82,34 @@ def tf_conjugate_gradient(operator,
           return cg_state(i, x, r, p, lr, dot(r,r), metric)
       def _sum(state):
           h_2_v = operator.apply(state.p)
-          if(config.normalize):
+          if(config.normalize == True):
               norm_factor = tf.sqrt(dot(state.p,state.p)) / (tf.sqrt(dot(h_2_v, h_2_v))+1e-32)
               h_2_v = [norm_factor * _h for _h in h_2_v]
-          p = [_p + (config.decay or 0.05)*_h_2_v for _p, _h_2_v, _r1 in zip(state.p, h_2_v, state.r)]
+          if(config.normalize == 2):
+              norm_factor = tf.sqrt(tf.abs(dot(h_2_v,state.p))) / (tf.sqrt(dot(h_2_v, h_2_v))+1e-32)
+              h_2_v = [norm_factor * _h for _h in h_2_v]
+          if(config.normalize == 3):
+              norm_factor = tf.sqrt(tf.abs(dot(rhs,rhs))) / (tf.sqrt(dot(h_2_v, h_2_v))+1e-32)
+              h_2_v = [norm_factor * _h for _h in h_2_v]
+          if(config.normalize == 4):
+              rhs_mean = [tf.reduce_mean(tf.abs(_g)) for _g in rhs]
+              h_2_v_mean = [tf.reduce_mean(tf.abs(_g)) for _g in h_2_v]
+              rhs_mean = sum(rhs_mean)  / len(rhs_mean)
+              h_2_v_mean = sum(h_2_v_mean)  / len(h_2_v_mean)
+              norm_factor = rhs_mean / h_2_v_mean
+              h_2_v = [norm_factor * _h for _h in h_2_v]
+          if(config.normalize == 5):
+              rhs_mean = [tf.reduce_mean(tf.abs(_g)) for _g in rhs]
+              h_2_v_mean = [tf.reduce_mean(tf.abs(_g)) for _g in h_2_v]
+              norm_factor = [_r / (_h+1e-32) for _r, _h in zip(rhs_mean, h_2_v_mean)]
+              h_2_v = [_n * _h for _n, _h in zip(norm_factor, h_2_v)]
+              norm_factor = sum(norm_factor) / len(norm_factor)
+
+
+          if config.force:
+              p = h_2_v
+          else:
+              p = [_p + (config.decay or 0.05)*_h_2_v for _p, _h_2_v, _r1 in zip(state.p, h_2_v, state.r)]
 
           x = p
           r = h_2_v

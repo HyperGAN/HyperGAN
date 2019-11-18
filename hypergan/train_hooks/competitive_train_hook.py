@@ -40,15 +40,29 @@ class CompetitiveTrainHook(BaseTrainHook):
           return p
       lr = self.config.learn_rate or 1e-4
       if self.config.hvp == 15 or self.config.hvp == 13:
-          print("D %d %d %d %d" % (len(y_params), len(x_params), len(p), len(self.gan.d_vars())))
-          h_1_v = hvp(x_loss, x_params, y_params, [lr * _p for _p in p])
-          h_2_v = hvp(y_loss, y_params, x_params, [lr * _h for _h in h_1_v])
+          if self.config.reverse_loss:
+              print("D %d %d %d %d" % (len(y_params), len(x_params), len(p), len(self.gan.d_vars())))
+              h_1_v = hvp(y_loss, x_params, y_params, [lr * _p for _p in p])
+              h_2_v = hvp(x_loss, y_params, x_params, [lr * _h for _h in h_1_v])
+          else:
+              print("D %d %d %d %d" % (len(y_params), len(x_params), len(p), len(self.gan.d_vars())))
+              h_1_v = hvp(x_loss, x_params, y_params, [lr * _p for _p in p])
+              h_2_v = hvp(y_loss, y_params, x_params, [lr * _h for _h in h_1_v])
       else:
           h_1_v = hvp(x_grads, x_params, y_params, [lr * _p for _p in p])
           h_2_v = hvp(y_grads, y_params, x_params, [lr * _h for _h in h_1_v])
 
-      norm_factor = tf.sqrt(dot(p,p)) / (tf.sqrt(dot(h_2_v, h_2_v))+1e-32)
-      h_2_v = [norm_factor * _h for _h in h_2_v]
+      if(self.config.normalize == 5):
+          rhs = p
+          rhs_mean = [tf.reduce_mean(tf.abs(_g)) for _g in rhs]
+          h_2_v_mean = [tf.reduce_mean(tf.abs(_g)) for _g in h_2_v]
+          norm_factor = [_r / (_h+1e-32) for _r, _h in zip(rhs_mean, h_2_v_mean)]
+          h_2_v = [_n * _h for _n, _h in zip(norm_factor, h_2_v)]
+          norm_factor = sum(norm_factor) / len(norm_factor)
+      else:
+          norm_factor = tf.sqrt(dot(p,p)) / (tf.sqrt(dot(h_2_v, h_2_v))+1e-32)
+          h_2_v = [norm_factor * _h for _h in h_2_v]
+
       if self.config.force:
           p = h_2_v
       else:

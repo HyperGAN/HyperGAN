@@ -22,6 +22,42 @@ def dot(x, y):
     y = tf.concat(y, axis=0)
     return tf.reduce_sum(tf.multiply(x,y))
 
+def normalize(v, r, method):
+  if(method == True):
+      norm_factor = tf.sqrt(dot(state.p,state.p)) / (tf.sqrt(dot(v, v))+1e-32)
+      v = [norm_factor * _h for _h in v]
+  if(method == 2):
+      norm_factor = tf.sqrt(tf.abs(dot(v,state.p))) / (tf.sqrt(dot(v, v))+1e-32)
+      v = [norm_factor * _h for _h in v]
+  if(method == 3):
+      norm_factor = tf.sqrt(tf.abs(dot(r,r))) / (tf.sqrt(dot(v, v))+1e-32)
+      v = [norm_factor * _h for _h in v]
+  if(method == 4):
+      r_mean = [tf.reduce_mean(tf.abs(_g)) for _g in r]
+      v_mean = [tf.reduce_mean(tf.abs(_g)) for _g in v]
+      r_mean = sum(r_mean)  / len(r_mean)
+      v_mean = sum(v_mean)  / len(v_mean)
+      norm_factor = r_mean / v_mean
+      v = [norm_factor * _h for _h in v]
+  if(method == 5):
+      r_mean = [tf.reduce_mean(tf.abs(_g)) for _g in r]
+      v_mean = [tf.reduce_mean(tf.abs(_g)) for _g in v]
+      norm_factor = [_r / (_h+1e-32) for _r, _h in zip(r_mean, v_mean)]
+      v = [_n * _h for _n, _h in zip(norm_factor, v)]
+      norm_factor = sum(norm_factor) / len(norm_factor)
+
+  if method == 6:
+      def median(x):
+        return tf.contrib.distributions.percentile(x, 50.0)
+      r_mean = [median(tf.abs(_g)) for _g in r]
+      v_mean = [median(tf.abs(_g)) for _g in v]
+      norm_factor = [_r / (_h+1e-32) for _r, _h in zip(r_mean, v_mean)]
+      v = [_n * _h for _n, _h in zip(norm_factor, v)]
+      norm_factor = sum(norm_factor) / len(norm_factor)
+
+  return v
+
+
 class CompetitiveTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="CompetitiveTrainHook"):
       super().__init__(config=config, gan=gan, trainer=trainer, name=name)
@@ -38,7 +74,15 @@ class CompetitiveTrainHook(BaseTrainHook):
           hvp = self.hvp15
       if i >= nsteps:
           return p
+
       lr = self.config.learn_rate or 1e-4
+      if i == 0 and self.config.sga_lambda:
+        # SGA term on rhs
+        grad_rev = tf.gradients(x_loss, y_params)#, grad_ys=self.gan.loss.sample[1], stop_gradients=min_params)
+        sga = hvp(x_loss, y_params, x_params, [lr * _g for _g in grad_rev])
+        sga = normalize(sga, p, self.config.normalize)
+        p = [_p - (self.config.sga_lambda)*_s for _p, _s in zip(p, sga)]
+
       if self.config.hvp == 15 or self.config.hvp == 13:
           if self.config.reverse_loss:
               print("D %d %d %d %d" % (len(y_params), len(x_params), len(p), len(self.gan.d_vars())))
@@ -46,28 +90,18 @@ class CompetitiveTrainHook(BaseTrainHook):
               h_2_v = hvp(x_loss, y_params, x_params, [lr * _h for _h in h_1_v])
           else:
               print("D %d %d %d %d" % (len(y_params), len(x_params), len(p), len(self.gan.d_vars())))
-              h_1_v = hvp(x_loss, x_params, y_params, [lr * _p for _p in p])
-              h_2_v = hvp(y_loss, y_params, x_params, [lr * _h for _h in h_1_v])
+              h_1_v = hvp(x_loss, x_params, y_params, [lr * _p for _p in p], grads=x_grads)
+              h_2_v = hvp(y_loss, y_params, x_params, [lr * _h for _h in h_1_v], grads=y_grads)
       else:
           h_1_v = hvp(x_grads, x_params, y_params, [lr * _p for _p in p])
           h_2_v = hvp(y_grads, y_params, x_params, [lr * _h for _h in h_1_v])
 
-      if(self.config.normalize == 5):
-          rhs = p
-          rhs_mean = [tf.reduce_mean(tf.abs(_g)) for _g in rhs]
-          h_2_v_mean = [tf.reduce_mean(tf.abs(_g)) for _g in h_2_v]
-          norm_factor = [_r / (_h+1e-32) for _r, _h in zip(rhs_mean, h_2_v_mean)]
-          h_2_v = [_n * _h for _n, _h in zip(norm_factor, h_2_v)]
-          norm_factor = sum(norm_factor) / len(norm_factor)
-      else:
-          norm_factor = tf.sqrt(dot(p,p)) / (tf.sqrt(dot(h_2_v, h_2_v))+1e-32)
-          h_2_v = [norm_factor * _h for _h in h_2_v]
+      h_2_v = normalize(h_2_v, p, self.config.normalize)
 
       if self.config.force:
           p = h_2_v
       else:
           p = [_p + (self.config.decay or 0.01)*_h_2_v for _p, _h_2_v in zip(p, h_2_v)]
-      self.gan.add_metric("cnorm", norm_factor)
 
       return self.step(i+1, nsteps, p, x_grads, y_grads, x_loss, y_loss, x_params, y_params)
 
@@ -115,7 +149,8 @@ class CompetitiveTrainHook(BaseTrainHook):
             raise ValueError("xs and v must have the same length.")
         #offset = [_x + _o for _x, _o in zip(xs, vs)]
 
-        grads = tf.gradients(ys, xs)
+        if grads is None:
+            grads = tf.gradients(ys, xs)
         #grads = [_g + _v for _g, _v in zip(grads, vs)]
         grads = [_g * (self.config.hvp_lambda or self.config.learn_rate) for _g in grads]
         ones = [tf.ones_like(_v) for _v in grads]
@@ -129,7 +164,8 @@ class CompetitiveTrainHook(BaseTrainHook):
             raise ValueError("xs and v must have the same length.")
         #offset = [_x + _o for _x, _o in zip(xs, vs)]
 
-        grads = tf.gradients(ys, xs)
+        if grads is None:
+            grads = tf.gradients(ys, xs)
         grads = [_g * (self.config.hvp_lambda or self.config.learn_rate) for _g in grads]
         #grads = [_g + _v for _g, _v in zip(grads, vs)]
         print("vS", vs)

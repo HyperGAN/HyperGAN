@@ -40,6 +40,7 @@ class SimultaneousTrainer(BaseTrainer):
                 print("Gradient is None:", v)
         for t in self.train_hooks:
             d_grads, g_grads = t.gradients(d_grads, g_grads)
+        apply_vec = list(zip((d_grads + g_grads), (d_vars + g_vars))).copy()
         self.g_loss = g_loss
         self.d_loss = d_loss
         self.gan.trainer = self

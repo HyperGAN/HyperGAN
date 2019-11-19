@@ -42,7 +42,7 @@ def normalize(v, r, method):
   if(method == 5):
       r_mean = [tf.reduce_mean(tf.abs(_g)) for _g in r]
       v_mean = [tf.reduce_mean(tf.abs(_g)) for _g in v]
-      norm_factor = [_r / (_h+1e-32) for _r, _h in zip(r_mean, v_mean)]
+      norm_factor = [_r / (_h+1e-12) for _r, _h in zip(r_mean, v_mean)]
       v = [_n * _h for _n, _h in zip(norm_factor, v)]
       norm_factor = sum(norm_factor) / len(norm_factor)
 
@@ -63,23 +63,16 @@ class CompetitiveTrainHook(BaseTrainHook):
       super().__init__(config=config, gan=gan, trainer=trainer, name=name)
 
   def step(self, i, nsteps, p, x_grads, y_grads, x_loss, y_loss, x_params, y_params):
-      hvp = self.hvp
-      if self.config.hvp == 1:
-          hvp = self.hvp1
-      if self.config.hvp == 2:
-          hvp = self.hvp2
-      if self.config.hvp == 13:
-          hvp = self.hvp13
-      if self.config.hvp == 15:
-          hvp = self.hvp15
+      print("I >= ", i, nsteps)
       if i >= nsteps:
           return p
 
+      hvp = self.hvp_function()
       lr = self.config.learn_rate or 1e-4
       if i == 0 and self.config.sga_lambda:
         # SGA term on rhs
         grad_rev = tf.gradients(x_loss, y_params)#, grad_ys=self.gan.loss.sample[1], stop_gradients=min_params)
-        sga = hvp(x_loss, y_params, x_params, [lr * _g for _g in grad_rev])
+        sga = hvp(x_loss, y_params, x_params, [lr * _g for _g in grad_rev], grads=grad_rev)
         sga = normalize(sga, p, self.config.normalize)
         p = [_p - (self.config.sga_lambda)*_s for _p, _s in zip(p, sga)]
 
@@ -100,18 +93,61 @@ class CompetitiveTrainHook(BaseTrainHook):
 
       if self.config.force:
           p = h_2_v
+      elif self.config.merge:
+          p = [(1.0 - self.config.decay)*_p + self.config.decay*_h_2_v for _p, _h_2_v in zip(p, h_2_v)]
       else:
           p = [_p + (self.config.decay or 0.01)*_h_2_v for _p, _h_2_v in zip(p, h_2_v)]
 
       return self.step(i+1, nsteps, p, x_grads, y_grads, x_loss, y_loss, x_params, y_params)
 
   def gradients(self, d_grads, g_grads):
-      nsteps = self.config.nsteps or 5
+      nsteps = self.config.nsteps
       d_loss, g_loss = self.gan.loss.sample
-      d_grads = self.step(0, nsteps, d_grads, d_grads, g_grads, d_loss, g_loss, self.gan.d_vars(), self.gan.g_vars())
-      g_grads = self.step(0, nsteps, g_grads, g_grads, d_grads, g_loss, d_loss, self.gan.g_vars(), self.gan.d_vars())
+      d_params = self.gan.d_vars()
+      g_params = self.gan.g_vars()
+      lr = self.config.learn_rate or 1e-4
+      d_grads = self.step(0, nsteps, d_grads, d_grads, g_grads, d_loss, g_loss, d_params, g_params)
+      g_grads = self.step(0, nsteps, g_grads, g_grads, d_grads, g_loss, d_loss, g_params, d_params)
+      if self.config.final_hvp:
+          hvp = self.hvp_function()
+          d_grads2 = hvp(g_loss, g_params, d_params, [lr * _g for _g in g_grads])
+          g_grads2 = hvp(d_loss, d_params, g_params, [lr * _d for _d in d_grads])
+          d_grads = normalize(d_grads2, d_grads, self.config.normalize)
+          g_grads = normalize(g_grads2, g_grads, self.config.normalize)
+      else:
+          p = [_p + (self.config.decay or 0.01)*_h_2_v for _p, _h_2_v in zip(p, h_2_v)]
+
+      return self.step(i+1, nsteps, p, x_grads, y_grads, x_loss, y_loss, x_params, y_params)
+
+  def gradients(self, d_grads, g_grads):
+      nsteps = self.config.nsteps
+      d_loss, g_loss = self.gan.loss.sample
+      d_params = self.gan.d_vars()
+      g_params = self.gan.g_vars()
+      lr = self.config.learn_rate or 1e-4
+      d_grads = self.step(0, nsteps, d_grads, d_grads, g_grads, d_loss, g_loss, d_params, g_params)
+      g_grads = self.step(0, nsteps, g_grads, g_grads, d_grads, g_loss, d_loss, g_params, d_params)
+      if self.config.final_hvp:
+          hvp = self.hvp_function()
+          d_grads2 = hvp(g_loss, g_params, d_params, [lr * _g for _g in g_grads])
+          g_grads2 = hvp(d_loss, d_params, g_params, [lr * _d for _d in d_grads])
+          d_grads = normalize(d_grads2, d_grads, self.config.normalize)
+          g_grads = normalize(g_grads2, g_grads, self.config.normalize)
       return [d_grads, g_grads]
 
+  def hvp_function(self):
+      hvp = self.hvp
+      mode = self.config.hvp
+      if mode == 1:
+          hvp = self.hvp1
+      if mode == 2:
+          hvp = self.hvp2
+      if mode == 13:
+          hvp = self.hvp13
+      if mode == 15:
+          hvp = self.hvp15
+      return hvp
+ 
   def hvp1(self, grads, x_params, y_params, vs):
       grads = [_g * (self.config.hvp_lambda or self.config.learn_rate or 1e-4) for _g in grads]
       ones = [tf.ones_like(_v) for _v in x_params]
@@ -156,6 +192,7 @@ class CompetitiveTrainHook(BaseTrainHook):
         ones = [tf.ones_like(_v) for _v in grads]
         lop = tf.gradients(grads, xs, grad_ys=ones)
         rop = tf.gradients(lop, ones, grad_ys=vs)
+        rop = [_g * (self.config.hvp_lambda or self.config.learn_rate) for _g in rop]
         rop = tf.gradients(rop, xs2)
         return rop
 

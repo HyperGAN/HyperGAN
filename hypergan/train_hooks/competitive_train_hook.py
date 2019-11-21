@@ -108,29 +108,11 @@ class CompetitiveTrainHook(BaseTrainHook):
           hvp = self.hvp_function()
           d_grads2 = hvp(g_loss, g_params, d_params, [lr * _g for _g in g_grads])
           g_grads2 = hvp(d_loss, d_params, g_params, [lr * _d for _d in d_grads])
-          d_grads2 = [_p + _g * self.config.decay for _p, _g in zip(d_grads, d_grads2)]
-          g_grads2 = [_p + _g * self.config.decay for _p, _g in zip(g_grads, g_grads2)]
+          d_grads2 = [_p + _g * (self.config.d_final_decay or self.config.final_decay or self.config.decay) for _p, _g in zip(d_grads, d_grads2)]
+          g_grads2 = [_p + _g * (self.config.g_final_decay or self.config.final_decay or self.config.decay) for _p, _g in zip(g_grads, g_grads2)]
           d_grads = normalize(d_grads2, d_grads, self.config.normalize)
           g_grads = normalize(g_grads2, g_grads, self.config.normalize)
-      else:
-          p = [_p + (self.config.decay or 0.01)*_h_2_v for _p, _h_2_v in zip(p, h_2_v)]
 
-      return self.step(i+1, nsteps, p, x_grads, y_grads, x_loss, y_loss, x_params, y_params)
-
-  def gradients(self, d_grads, g_grads):
-      nsteps = self.config.nsteps
-      d_loss, g_loss = self.gan.loss.sample
-      d_params = self.gan.d_vars()
-      g_params = self.gan.g_vars()
-      lr = self.config.learn_rate or 1e-4
-      d_grads = self.step(0, nsteps, d_grads, d_grads, g_grads, d_loss, g_loss, d_params, g_params)
-      g_grads = self.step(0, nsteps, g_grads, g_grads, d_grads, g_loss, d_loss, g_params, d_params)
-      if self.config.final_hvp:
-          hvp = self.hvp_function()
-          d_grads2 = hvp(g_loss, g_params, d_params, [lr * _g for _g in g_grads])
-          g_grads2 = hvp(d_loss, d_params, g_params, [lr * _d for _d in d_grads])
-          d_grads = normalize(d_grads2, d_grads, self.config.normalize)
-          g_grads = normalize(g_grads2, g_grads, self.config.normalize)
       return [d_grads, g_grads]
 
   def hvp_function(self):

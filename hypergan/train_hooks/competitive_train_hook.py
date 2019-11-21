@@ -76,18 +76,14 @@ class CompetitiveTrainHook(BaseTrainHook):
         sga = normalize(sga, p, self.config.normalize)
         p = [_p - (self.config.sga_lambda)*_s for _p, _s in zip(p, sga)]
 
-      if self.config.hvp == 15 or self.config.hvp == 13:
-          if self.config.reverse_loss:
-              print("D %d %d %d %d" % (len(y_params), len(x_params), len(p), len(self.gan.d_vars())))
-              h_1_v = hvp(y_loss, x_params, y_params, [lr * _p for _p in p])
-              h_2_v = hvp(x_loss, y_params, x_params, [lr * _h for _h in h_1_v])
-          else:
-              print("D %d %d %d %d" % (len(y_params), len(x_params), len(p), len(self.gan.d_vars())))
-              h_1_v = hvp(x_loss, x_params, y_params, [lr * _p for _p in p], grads=x_grads)
-              h_2_v = hvp(y_loss, y_params, x_params, [lr * _h for _h in h_1_v], grads=y_grads)
+      if self.config.reverse_loss:
+          print("D %d %d %d %d" % (len(y_params), len(x_params), len(p), len(self.gan.d_vars())))
+          h_1_v = hvp(y_loss, x_params, y_params, [lr * _p for _p in p])
+          h_2_v = hvp(x_loss, y_params, x_params, [lr * _h for _h in h_1_v])
       else:
-          h_1_v = hvp(x_grads, x_params, y_params, [lr * _p for _p in p])
-          h_2_v = hvp(y_grads, y_params, x_params, [lr * _h for _h in h_1_v])
+          print("D %d %d %d %d" % (len(y_params), len(x_params), len(p), len(self.gan.d_vars())))
+          h_1_v = hvp(x_loss, x_params, y_params, [lr * _p for _p in p], grads=x_grads)
+          h_2_v = hvp(y_loss, y_params, x_params, [lr * _h for _h in h_1_v], grads=y_grads)
 
       h_2_v = normalize(h_2_v, p, self.config.normalize)
 
@@ -112,6 +108,8 @@ class CompetitiveTrainHook(BaseTrainHook):
           hvp = self.hvp_function()
           d_grads2 = hvp(g_loss, g_params, d_params, [lr * _g for _g in g_grads])
           g_grads2 = hvp(d_loss, d_params, g_params, [lr * _d for _d in d_grads])
+          d_grads2 = [_p + _g * self.config.decay for _p, _g in zip(d_grads, d_grads2)]
+          g_grads2 = [_p + _g * self.config.decay for _p, _g in zip(g_grads, g_grads2)]
           d_grads = normalize(d_grads2, d_grads, self.config.normalize)
           g_grads = normalize(g_grads2, g_grads, self.config.normalize)
       else:
@@ -148,27 +146,35 @@ class CompetitiveTrainHook(BaseTrainHook):
           hvp = self.hvp15
       return hvp
  
-  def hvp1(self, grads, x_params, y_params, vs):
+  def hvp1(self, ys, xs, xs2, vs, grads=None):
       grads = [_g * (self.config.hvp_lambda or self.config.learn_rate or 1e-4) for _g in grads]
-      ones = [tf.ones_like(_v) for _v in x_params]
-      lop = tf.gradients(grads, x_params, grad_ys=ones)
+      if grads is None:
+          grads = tf.gradients(ys, xs)
+      ones = [tf.ones_like(_v) for _v in xs]
+      lop = tf.gradients(grads, xs, grad_ys=ones)
       rop = tf.gradients(lop, ones, grad_ys=vs)
-      return tf.gradients(grads, y_params)
+      return tf.gradients(grads, xs2)
 
-  def hvp2(self, grads, x_params, y_params, vs):
+  def hvp2(self, ys, xs, xs2, vs, grads=None):
+      if grads is None:
+          grads = tf.gradients(ys, xs)
       grads = [_g * (self.config.hvp_lambda or self.config.learn_rate or 1e-4) for _g in grads]
-      lop = tf.gradients(grads, y_params, grad_ys=vs)
+      lop = tf.gradients(grads, xs2, grad_ys=vs)
       return tf.gradients(lop, vs)
 
-  def hvp(self, grads, x_params, y_params, vs):
+  def hvp(self, ys, xs, xs2, vs, grads=None):
+      if grads is None:
+        grads = tf.gradients(ys, xs)
       grads = [_g * (self.config.hvp_lambda or self.config.learn_rate or 1e-4) for _g in grads]
-      return tf.gradients(grads, y_params, grad_ys=vs)
+      return tf.gradients(grads, xs2, grad_ys=vs)
 
   def hvp13(self, ys, xs, xs2, vs, grads=None):
         if len(vs) != len(xs):
             raise ValueError("xs and v must have the same length.")
         #offset = [_x + _o for _x, _o in zip(xs, vs)]
 
+        if grads is None:
+            grads = tf.gradients(ys, xs)
         grads = tf.gradients(ys, xs)
         #grads = [_g + _v for _g, _v in zip(grads, vs)]
         grads = [_g * (self.config.hvp_lambda or self.config.learn_rate or 1e-4) for _g in grads]

@@ -28,8 +28,8 @@ class ConjectureTrainHook(BaseTrainHook):
       lr = self.config.learn_rate or 1e-2
 
       if self.config.fast_conjectures:
-          d_grads2 = self.hvp(g_loss, g_params, d_params, g_grads)
-          g_grads2 = self.hvp(d_loss, d_params, g_params, d_grads)
+          d_grads2 = self.hvp(g_loss, g_params, d_params, [lr * _g for _g in g_grads])
+          g_grads2 = self.hvp(d_loss, d_params, g_params, [lr * _d for _d in d_grads])
           d_grads = [_p + _g * (self.config.fast_conjectures_gamma) for _p, _g in zip(d_grads, d_grads2)]
           g_grads = [_p + _g * (self.config.fast_conjectures_gamma) for _p, _g in zip(g_grads, g_grads2)]
 
@@ -43,11 +43,11 @@ class ConjectureTrainHook(BaseTrainHook):
           d1f1 = tf.gradients(f1, p1)
           d2f1 = tf.gradients(f1, p2)
 
-          d12f1d2f2 = self.hvp(f1, p2, p1, d2f2)
-          d12f2d2f1 = self.hvp(f2, p2, p1, d2f1)
+          d12f1d2f2 = self.hvp(f1, p2, p1, [lr * _g for _g in d2f2])
+          d12f2d2f1 = self.hvp(f2, p2, p1, [lr * _g for _g in d2f1])
 
-          d21f2d1f1 = self.hvp(f2, p1, p2, d1f1)
-          d21f1d1f2 = self.hvp(f1, p1, p2, d1f2)
+          d21f2d1f1 = self.hvp(f2, p1, p2, [lr * _g for _g in d1f1])
+          d21f1d1f2 = self.hvp(f1, p1, p2, [lr * _g for _g in d1f2])
           d_grads = [_p - (_g1 + _g2) * (self.config.fast_strategic_conjectures_gamma) for _p, _g1, _g2 in zip(d_grads, d12f1d2f2, d12f2d2f1)]
           g_grads = [_p - (_g1 + _g2) * (self.config.fast_strategic_conjectures_gamma) for _p, _g1, _g2 in zip(g_grads, d21f1d1f2, d21f2d1f1)]
 
@@ -56,7 +56,5 @@ class ConjectureTrainHook(BaseTrainHook):
   def hvp(self, ys, xs, xs2, vs, grads=None):
       if grads is None:
         grads = tf.gradients(ys, xs)
-      if self.config.hvp_lambda or self.config.learn_rate:
-          vs = [_g * (self.config.hvp_lambda or self.config.learn_rate) for _g in grads]
-          grads = [_g * (self.config.hvp_lambda or self.config.learn_rate) for _g in grads]
+      grads = [_g * (self.config.hvp_lambda or self.config.learn_rate or 1.0) for _g in grads]
       return tf.gradients(grads, xs2, grad_ys=vs)

@@ -57,5 +57,5 @@ class ConjectureTrainHook(BaseTrainHook):
         grads = tf.gradients(ys, xs)
       if self.config.hvp_lambda or self.config.learn_rate:
           vs = [_g * (self.config.hvp_lambda or self.config.learn_rate) for _g in grads]
-          grads = [_g * (self.config.hvp_lambda or self.config.learn_rate) for _g in grads]
+          grads = [_g * (self.config.hvp_lambda or self.config.learn_rate) for _g in vs]
       return tf.gradients(grads, xs2, grad_ys=vs)

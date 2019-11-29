@@ -30,8 +30,10 @@ class ConjectureTrainHook(BaseTrainHook):
       if self.config.fast_conjectures:
           d_grads2 = self.hvp(g_loss, g_params, d_params, [lr * _g for _g in g_grads])
           g_grads2 = self.hvp(d_loss, d_params, g_params, [lr * _d for _d in d_grads])
-          d_grads = [_p + _g * (self.config.fast_conjectures_gamma) for _p, _g in zip(d_grads, d_grads2)]
-          g_grads = [_p + _g * (self.config.fast_conjectures_gamma) for _p, _g in zip(g_grads, g_grads2)]
+          if self.config.d_fast_conjectures_gamma != 0:
+              d_grads = [_p + _g * (self.config.d_fast_conjectures_gamma or self.config.fast_conjectures_gamma) for _p, _g in zip(d_grads, d_grads2)]
+          if self.config.g_fast_conjectures_gamma != 0:
+              g_grads = [_p + _g * (self.config.g_fast_conjectures_gamma or self.config.fast_conjectures_gamma) for _p, _g in zip(g_grads, g_grads2)]
 
       if self.config.fast_strategic_conjectures:
           f1 = d_loss
@@ -48,8 +50,10 @@ class ConjectureTrainHook(BaseTrainHook):
 
           d21f2d1f1 = self.hvp(f2, p1, p2, [lr * _g for _g in d1f1])
           d21f1d1f2 = self.hvp(f1, p1, p2, [lr * _g for _g in d1f2])
-          d_grads = [_p - (_g1 + _g2) * (self.config.fast_strategic_conjectures_gamma) for _p, _g1, _g2 in zip(d_grads, d12f1d2f2, d12f2d2f1)]
-          g_grads = [_p - (_g1 + _g2) * (self.config.fast_strategic_conjectures_gamma) for _p, _g1, _g2 in zip(g_grads, d21f1d1f2, d21f2d1f1)]
+          if self.config.d_fast_strategic_conjectures_gamma != 0:
+              d_grads = [_p - (_g1 + _g2) * (self.config.d_fast_strategic_conjectures_gamma or self.config.fast_strategic_conjectures_gamma) for _p, _g1, _g2 in zip(d_grads, d12f1d2f2, d12f2d2f1)]
+          if self.config.g_fast_strategic_conjectures_gamma != 0:
+              g_grads = [_p - (_g1 + _g2) * (self.config.g_fast_strategic_conjectures_gamma or self.config.fast_strategic_conjectures_gamma) for _p, _g1, _g2 in zip(g_grads, d21f1d1f2, d21f2d1f1)]
 
       if self.config.jare:
           # https://github.com/weilinie/JARE/blob/master/src/ops.py#L226
@@ -85,9 +89,10 @@ class ConjectureTrainHook(BaseTrainHook):
           g_grad_rev = tf.gradients(d_loss, g_params)
           d_sga = self.hvp(d_loss, g_params, d_params, [lr * _g for _g in g_grad_rev])
           g_sga = self.hvp(g_loss, d_params, g_params, [lr * _g for _g in d_grad_rev])
-          d_grads = [_p - (self.config.sga_gamma)*_s for _p, _s in zip(d_grads, d_sga)]
-          g_grads = [_p - (self.config.sga_gamma)*_s for _p, _s in zip(g_grads, g_sga)]
-
+          if self.config.d_sga_gamma != 0:
+              d_grads = [_p - (self.config.d_sga_gamma or self.config.sga_gamma)*_s for _p, _s in zip(d_grads, d_sga)]
+          if self.config.g_sga_gamma != 0:
+              g_grads = [_p - (self.config.g_sga_gamma or self.config.sga_gamma)*_s for _p, _s in zip(g_grads, g_sga)]
 
       return [d_grads, g_grads]
 

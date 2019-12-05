@@ -221,7 +221,7 @@ class ConfigurableComponent:
         if options.name:
             name = self.ops.description+options.name
         bias = True
-        if options.bias == 'false':
+        if options.bias is not None and options.bias.lower() == 'false':
             bias=False
 
 
@@ -231,7 +231,7 @@ class ConfigurableComponent:
                 net = tf.concat([net, sk], axis=3)
 
         if op == ops.conv2d:
-            net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, initializer=initializer, name=name, trainable=trainable)
+            net = ops.conv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, initializer=initializer, name=name, trainable=trainable, bias=bias)
 
         elif op == ops.deconv2d:
             net = ops.deconv2d(net, fltr[0], fltr[1], stride[0], stride[1], channels, name=name, trainable=trainable, bias=bias)
@@ -1059,7 +1059,6 @@ class ConfigurableComponent:
         net = tf.reshape(net, shape=[bs, shape[1], shape[1], -1])
 
         return net
-
 
     def layer_minibatch(self, net, args, options):
         options = hc.Config(options)

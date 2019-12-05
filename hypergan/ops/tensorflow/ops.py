@@ -610,6 +610,8 @@ class TensorflowOps:
         """
         Takes any size tensor and reduces it to a single value using `reduce`.
         """
+        if reduce == "identity":
+            return net
         while(sum(self.shape(net)) > 1):
             net = reduce(net)
             net = tf.squeeze(net)

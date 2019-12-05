@@ -51,9 +51,8 @@ class EmaOptimizer(optimizer.Optimizer):
     with ops.init_scope():
         [self._get_or_make_slot(v, v, "ema", self._name) for v in ema_vars]
         self.optimizer._create_slots([v for g,v in grads_and_vars])
-        for name in self.optimizer.get_slot_names():
-            for var in self.optimizer.variables():
-                self._zeros_slot(var, "ema", self.name)
+        for var in self.optimizer.variables():
+            self._zeros_slot(var, "ema", self.name)
 
     self._prepare()
     ema_slots = [self.get_slot(v, "ema") for v in ema_vars]

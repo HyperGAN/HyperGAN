@@ -88,6 +88,8 @@ class BaseGAN(GANComponent):
             self.set_x = tf.group([self.set_x, tf.assign(self.inputs.xb, self.feed_x)])
             self.inputs.x = self.inputs.xb
 
+        self.steps = tf.Variable(0, trainable=False, name='gan.steps')
+        self.increment_step = self.steps.assign(self.steps+1)
 
         GANComponent.__init__(self, self, config, name=self.name)
         self.ops.debug = debug
@@ -193,6 +195,7 @@ class BaseGAN(GANComponent):
     def _step(self, feed_dict={}):
         if self.trainer == None:
             raise ValidationException("gan.trainer is missing.  Cannot train.")
+        self.session.run(self.increment_step)
         return self.trainer.step(feed_dict)
 
     def g_vars(self):
@@ -319,7 +322,7 @@ class BaseGAN(GANComponent):
                 for (name, _), variable_object in sorted(c._non_slot_dict.items(),
                     key=lambda item: item[0][0]):
                     slot_vars += [variable_object]
-        return list(set(self.ops.variables() + slot_vars + sum([c.variables() for c in self.components], [])))
+        return [self.steps] + list(set(self.ops.variables() + slot_vars + sum([c.variables() for c in self.components], [])))
 
     def weights(self):
         return self.ops.weights + sum([c.ops.weights for c in self.components if hasattr(c, 'ops')], [])

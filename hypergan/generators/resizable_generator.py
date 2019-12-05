@@ -44,6 +44,7 @@ class ResizableGenerator(ConfigurableGenerator):
         padding = config.padding or "SAME"
         latent = net
 
+        before_count = self.count_number_trainable_params()
         net = ops.reshape(net, [ops.shape(net)[0], -1])
         primes = config.initial_dimensions or [4, 4]
         depths = self.depths(primes[0])
@@ -57,10 +58,15 @@ class ResizableGenerator(ConfigurableGenerator):
                 w = self.do_layer(self.layer_linear, w, [512], {})
             w = self.layer_identity(w, ["w"], {})
 
+            print("adaptive instance w weights", self.count_number_trainable_params() - before_count)
+
+        before_count = self.count_number_trainable_params()
         net = self.do_layer(self.layer_linear, net, [str_depth], {})
         net = ops.reshape(net, new_shape)
         print("Generator Architecture:")
         print("linear "+str_depth)
+        print("  weights", self.count_number_trainable_params() - before_count)
+        before_count = self.count_number_trainable_params()
 
         shape = ops.shape(net)
 
@@ -98,6 +104,8 @@ class ResizableGenerator(ConfigurableGenerator):
                 raise ValidationException("Unknown block type")
 
             size = resize[0]*resize[1]*depth
+            print("  weights", self.count_number_trainable_params() - before_count)
+            before_count = self.count_number_trainable_params()
 
         net = self.layer_regularizer(net)
 
@@ -139,6 +147,7 @@ class ResizableGenerator(ConfigurableGenerator):
 
         final_activation = self.ops.lookup(config.final_activation or "tanh")
         net = final_activation(net)
+        print("  final weights", self.count_number_trainable_params() - before_count)
 
         return net
 

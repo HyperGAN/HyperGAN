@@ -18,7 +18,7 @@ from hypergan.train_hooks.base_train_hook import BaseTrainHook
 class WeightPenaltyTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="WeightPenaltyTrainHook", memory_size=2, top_k=1):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
-    d_losses = []
+    losses = []
     weights = self.gan.weights()
     config = hc.Config(config)
     if config.only_d:
@@ -40,10 +40,10 @@ class WeightPenaltyTrainHook(BaseTrainHook):
                     m = tf.reduce_max(m, axis=1,keep_dims=True)
                     return m
                 l2nn_penalties.append(tf.minimum(_l(wtw), _l(wwt)))
-            print('l2nn_penalty', self.config.l2nn_penalty, l2nn_penalties)
             l2nn_penalty = self.config.l2nn_penalty * tf.add_n(l2nn_penalties)
-            self.add_metric('l2nn_penalty', self.gan.ops.squash(l2nn_penalty))
-            d_losses.append(l2nn_penalty)
+            if self.config.constrain_every is None:
+                self.add_metric('l2nn_penalty', self.gan.ops.squash(l2nn_penalty))
+            losses.append(l2nn_penalty)
     if "ortho" in config.constraints:
         penalties = []
         for w in weights:
@@ -60,14 +60,32 @@ class WeightPenaltyTrainHook(BaseTrainHook):
                 return l
             penalties.append(tf.minimum(_l(w, mwtw), _l(wt, mwwt)))
         penalty = self.config.ortho_penalty * tf.add_n(penalties)
-        self.add_metric('ortho_penalty', self.gan.ops.squash(penalty))
+        if self.config.constrain_every is None:
+            self.add_metric('ortho_penalty', self.gan.ops.squash(penalty))
         print("PENALTY", penalty)
         penalty = tf.reshape(penalty, [1,1])
         penalty = tf.tile(penalty, [self.gan.batch_size(), 1])
-        d_losses.append(penalty)
-
-
-    self.loss = tf.add_n(d_losses)
+        losses.append(penalty)
+    if "diversity" in config.constraints:
+        #Diversity regularized adversarial training
+        penalties = []
+        if len(weights) > 0:
+            for w in weights:
+                w = tf.reshape(w, [-1, self.ops.shape(w)[-1]])
+                wt = tf.transpose(w)
+                wt_n = tf.math.l2_normalize(wt)
+                sim = tf.matmul(wt_n, tf.transpose(wt_n))
+                sim = sim * (tf.ones_like(sim)-tf.eye(self.ops.shape(sim)[0]))
+                mask = tf.nn.relu(tf.abs(sim)+1e-8)
+                penalty = tf.reduce_sum(tf.square(sim*mask))
+                penalties.append(penalty)
+            full_penalty = self.config.diversity_penalty * tf.add_n(penalties)
+            if self.config.constraint_every is None:
+                self.add_metric('diversity_loss', self.gan.ops.squash(full_penalty))
+            losses.append(full_penalty)
+    print("D_L", losses)
+    losses = [self.ops.squash(_l) for _l in losses]
+    self.loss = tf.add_n(losses)
 
   def losses(self):
     return [self.loss, self.loss]

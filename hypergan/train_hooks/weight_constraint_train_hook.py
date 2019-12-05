@@ -1,4 +1,3 @@
-#From https://gist.github.com/EndingCredits/b5f35e84df10d46cfa716178d9c862a3
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -25,6 +24,24 @@ class WeightConstraintTrainHook(BaseTrainHook):
             allvars += getattr(self.gan, c).variables()
     self.update_weight_constraints = [self._update_weight_constraint(v,i) for i,v in enumerate(allvars)]
     self.update_weight_constraints = [v for v in self.update_weight_constraints if v is not None]
+
+  def _update_diversity(self, v, i):
+    #Diversity regularized adversarial training
+    if len(self.ops.shape(v)) == 0:
+        return tf.no_op()
+    w = tf.reshape(v, [-1, self.ops.shape(v)[-1]])
+    wt = tf.transpose(w)
+    wt_n = tf.math.l2_normalize(wt)
+    s1 = tf.matmul(wt_n, tf.transpose(wt_n))
+    print("W  : ", self.ops.shape(w))
+    print("WT : ", self.ops.shape(wt))
+    print("WTN: ", self.ops.shape(wt_n))
+    print("S1 : ", self.ops.shape(s1), "wt dot wt_n")
+    s2 = tf.reshape(s1, self.ops.shape(v))
+    sim = s2 * (tf.zeros_like(s2)+tf.eye(self.ops.shape(s2)[0]))
+    print("SIM : ", self.ops.shape(sim), "eye")
+    mask = tf.reshape(sim * tf.nn.relu(tf.sign(tf.abs(sim))+1e-8), self.ops.shape(v))
+    return tf.assign(v, mask)
 
   def _update_ortho(self,v,i):
     s = self.gan.ops.shape(v)
@@ -167,6 +184,8 @@ class WeightConstraintTrainHook(BaseTrainHook):
     if "l2nn-d" in constraints:
       if v in d_vars:
         result.append(self._update_l2nn(v,i))
+    if "diversity" in constraints:
+        result.append(self._update_diversity(v, i))
     result = [r for r in result if r is not None]
     if(len(result) == 0):
       return None

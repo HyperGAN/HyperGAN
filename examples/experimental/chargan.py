@@ -31,7 +31,9 @@ def search(config, args):
         myfile.write(config_filename+","+",".join([str(x) for x in metric_sum])+"\n")
 
 
-save_file = "save/model.ckpt"
+config_name = args.config
+save_file = "saves/"+config_name+"/model.ckpt"
+os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
 config = lookup_config(args)
 
@@ -52,13 +54,14 @@ if args.action == 'search':
 
 def setup_gan(config, inputs, args):
     gan = hg.GAN(config, inputs=inputs)
+    gan.initialize_variables()
 
     if(args.action != 'search' and os.path.isfile(save_file+".meta")):
         gan.load(save_file)
 
     with tf.device(args.device):
         with gan.session.as_default():
-            inputs.table.init.run()
+            inputs.table.initializer.run()
     tf.train.start_queue_runners(sess=gan.session)
 
     return gan
@@ -97,7 +100,7 @@ def train(config, inputs, args):
 
 
             if i % args.sample_every == 0:
-                g, x_val = gan.session.run([gan.generator.sample, gan.inputs.x], {gan.latent.z: z_0})
+                g, x_val = gan.session.run([gan.generator.sample, gan.inputs.x])#, {gan.latent.z: z_0})
                 bs = np.shape(x_val)[0]
                 samples+=1
                 print("X: "+inputs.sample_output(x_val[0]))

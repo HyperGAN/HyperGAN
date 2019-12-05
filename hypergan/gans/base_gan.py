@@ -204,9 +204,7 @@ class BaseGAN(GANComponent):
         return self.discriminator.variables()
 
     def trainable_variables(self):
-        result = np.flatten(list(set(self.variables()).intersection(tf.trainable_variables())))
-        result = [r for r in result if r]
-        return result
+        return self.trainable_d_vars() + self.trainable_g_vars()
 
     def trainable_d_vars(self):
         return list(set(self.d_vars()).intersection(tf.trainable_variables()))
@@ -214,8 +212,19 @@ class BaseGAN(GANComponent):
     def trainable_g_vars(self):
         return list(set(self.g_vars()).intersection(tf.trainable_variables()))
 
+    def parameter_count(self):
+        return np.sum([np.prod(self.ops.shape(t)[1:]) for t in self.trainable_variables()])
+
+    def parameter_count_d(self):
+        return np.sum([np.prod(self.ops.shape(t)[1:]) for t in self.trainable_d_vars()])
+
+    def parameter_count_g(self):
+        return np.sum([np.prod(self.ops.shape(t)[1:]) for t in self.trainable_g_vars()])
+
     def save(self, save_file):
-        if(np.any(np.isnan(self.session.run(self.loss.sample)))):
+        losses = self.session.run(self.loss.sample)
+
+        if(np.any(np.isnan(losses))):
             print("[Error] NAN detected.  Refusing to save")
             exit()
 

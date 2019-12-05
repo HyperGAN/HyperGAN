@@ -84,10 +84,10 @@ class BaseLoss(GANComponent):
 
         d_loss = ops.squash(d_loss, config.reduce or tf.reduce_mean) #linear doesn't work with this
 
-        self.add_metric('d_loss', d_loss)
+        self.add_metric('d_loss', ops.squash(d_loss, tf.reduce_mean))
         if g_loss is not None:
             g_loss = ops.squash(g_loss, config.reduce or tf.reduce_mean)
-            self.add_metric('g_loss', g_loss)
+            self.add_metric('g_loss', ops.squash(g_loss, tf.reduce_mean))
 
         self.sample = [d_loss, g_loss]
         self.d_loss = d_loss

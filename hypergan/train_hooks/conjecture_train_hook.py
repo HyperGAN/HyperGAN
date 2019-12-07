@@ -94,7 +94,48 @@ class ConjectureTrainHook(BaseTrainHook):
           if self.config.g_sga_gamma != 0:
               g_grads = [_p - (self.config.g_sga_gamma or self.config.sga_gamma)*_s for _p, _s in zip(g_grads, g_sga)]
 
+
+      if self.config.dropout:
+          # https://arxiv.org/abs/1912.00144
+          mean = tf.constant(self.config.dropout_mean or 0.5)
+          da = [tf.where((tf.random_uniform(self.ops.shape(_d_grads))- mean) < 0, tf.ones_like(_d_grads), tf.zeros_like(_d_grads)) for _d_grads in d_grads]
+          ga = [tf.where((tf.random_uniform(self.ops.shape(_g_grads))- mean) < 0, tf.ones_like(_g_grads), tf.zeros_like(_g_grads)) for _g_grads in g_grads]
+          d_grads = [_a * _grad for _a, _grad in zip(da, d_grads)]
+          g_grads = [_a * _grad for _a, _grad in zip(ga, g_grads)]
+          self.gan.add_metric('d_mask', sum([self.ops.squash(_a, tf.reduce_sum) for _a in da]) / (self.gan.parameter_count(da)))
+
       return [d_grads, g_grads]
+
+  def losses(self):
+      d_loss = self.gan.loss.sample[0]
+      g_loss = self.gan.loss.sample[1]
+      d_params = self.gan.d_vars()
+      g_params = self.gan.g_vars()
+      if self.config.locally_stable:
+          d_gradient_norm_sq = tf.square(tf.global_norm(tf.gradients(g_loss, d_params)))
+          self.d_loss = self.config.locally_stable_gamma * d_gradient_norm_sq
+          self.gan.add_metric('locally_stable', self.d_loss)
+
+      if self.config.stabilizing_training_js:
+          # https://github.com/rothk/Stabilizing_GANs
+          d1 = tf.nn.sigmoid(d_loss)
+          d2 = tf.nn.sigmoid(g_loss)
+          d1_grads = tf.gradients(d_loss, d_params)
+          d2_grads = tf.gradients(g_loss, g_params)
+          print(d1_grads)
+          print("???")
+          print(d_loss)
+          d1_norm = [tf.norm(tf.reshape(_d1_grads, [-1])) for _d1_grads in d1_grads]
+          d2_norm = [tf.norm(tf.reshape(_d2_grads, [-1])) for _d2_grads in d2_grads]
+
+          reg_d1 = [tf.multiply(tf.square(1.0-d1), tf.square(_d1_norm)) for _d1_norm in d1_norm]
+          reg_d2 = [tf.multiply(tf.square(d2), tf.square(_d2_norm)) for _d2_norm in d2_norm]
+          reg_d1 = sum(reg_d1)
+          reg_d2 = sum(reg_d2)
+          self.d_loss = self.config.stabilizing_training_js_gamma * (reg_d1 + reg_d2)
+          self.gan.add_metric('stable_js', self.ops.squash(self.d_loss))
+
+      return [self.d_loss, self.g_loss]
 
   def hvp(self, ys, xs, xs2, vs, grads=None):
       if grads is None:

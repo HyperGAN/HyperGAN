@@ -212,8 +212,8 @@ class BaseGAN(GANComponent):
     def trainable_g_vars(self):
         return list(set(self.g_vars()).intersection(tf.trainable_variables()))
 
-    def parameter_count(self):
-        return np.sum([np.prod(self.ops.shape(t)[1:]) for t in self.trainable_variables()])
+    def parameter_count(self, variables=None):
+        return np.sum([np.prod(self.ops.shape(t)[1:]) for t in (variables or self.trainable_variables())])
 
     def parameter_count_d(self):
         return np.sum([np.prod(self.ops.shape(t)[1:]) for t in self.trainable_d_vars()])

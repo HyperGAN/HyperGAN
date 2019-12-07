@@ -90,6 +90,7 @@ class BaseLoss(GANComponent):
             self.add_metric('g_loss', ops.squash(g_loss, tf.reduce_mean))
 
         self.sample = [d_loss, g_loss]
+        self.original_sample = [tf.identity(d_loss), tf.identity(g_loss)]
         self.d_loss = d_loss
         self.g_loss = g_loss
         self.d_fake = d_fake

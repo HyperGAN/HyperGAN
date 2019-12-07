@@ -19,15 +19,20 @@ class ConjectureTrainHook(BaseTrainHook):
   """ https://faculty.washington.edu/ratliffl/research/2019conjectures.pdf """
   def __init__(self, gan=None, config=None, trainer=None, name="ConjectureTrainHook"):
       super().__init__(config=config, gan=gan, trainer=trainer, name=name)
+      self.d_loss = None
+      self.g_loss = None
+
 
   def gradients(self, d_grads, g_grads):
       nsteps = self.config.nsteps
-      d_loss, g_loss = self.gan.loss.sample
+      d_loss, g_loss = self.gan.loss.original_sample
       d_params = self.gan.d_vars()
       g_params = self.gan.g_vars()
       lr = self.config.learn_rate or 1e-2
 
       if self.config.fast_conjectures:
+          g_grads = tf.gradients(g_loss, g_params)
+          d_grads = tf.gradients(d_loss, d_params)
           d_grads2 = self.hvp(g_loss, g_params, d_params, [lr * _g for _g in g_grads])
           g_grads2 = self.hvp(d_loss, d_params, g_params, [lr * _d for _d in d_grads])
           if self.config.d_fast_conjectures_gamma != 0:

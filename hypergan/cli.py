@@ -87,7 +87,8 @@ class CLI:
         self.create_path(sample_file)
         self.lazy_create()
         sample_list = self.sampler.sample(sample_file, allow_save and self.args.save_samples)
-        self.samples += 1
+        if allow_save:
+            self.samples += 1
 
         return sample_list
 

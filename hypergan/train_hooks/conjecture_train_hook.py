@@ -103,10 +103,16 @@ class ConjectureTrainHook(BaseTrainHook):
       if self.config.dropout:
           # https://arxiv.org/abs/1912.00144
           mean = tf.constant(self.config.dropout_mean or 0.5)
-          da = [tf.where((tf.random_uniform(self.ops.shape(_d_grads))- mean) < 0, tf.ones_like(_d_grads), tf.zeros_like(_d_grads)) for _d_grads in d_grads]
-          ga = [tf.where((tf.random_uniform(self.ops.shape(_g_grads))- mean) < 0, tf.ones_like(_g_grads), tf.zeros_like(_g_grads)) for _g_grads in g_grads]
-          d_grads = [_a * _grad for _a, _grad in zip(da, d_grads)]
-          g_grads = [_a * _grad for _a, _grad in zip(ga, g_grads)]
+          d_ones = [tf.constant(self.config.dropout_ones or 1.0, shape=self.ops.shape(_g)) for _g in d_grads]
+          g_ones = [tf.constant(self.config.dropout_ones or 1.0, shape=self.ops.shape(_g)) for _g in g_grads]
+          d_zeros = [tf.constant(self.config.dropout_zeros or 0.0, shape=self.ops.shape(_g)) for _g in d_grads]
+          g_zeros = [tf.constant(self.config.dropout_zeros or 0.0, shape=self.ops.shape(_g)) for _g in g_grads]
+          da = [tf.where((tf.random_uniform(self.ops.shape(_d_grads))- mean) < 0, _o, _z) for _d_grads, _o, _z in zip(d_grads, d_ones, d_zeros)]
+          ga = [tf.where((tf.random_uniform(self.ops.shape(_g_grads))- mean) < 0, _o, _z) for _g_grads, _o, _z in zip(g_grads, g_ones, g_zeros)]
+          if self.config.dropout_skip_d is None:
+              d_grads = [_a * _grad for _a, _grad in zip(da, d_grads)]
+          if self.config.dropout_skip_g is None:
+              g_grads = [_a * _grad for _a, _grad in zip(ga, g_grads)]
           self.gan.add_metric('d_mask', sum([self.ops.squash(_a, tf.reduce_sum) for _a in da]) / (self.gan.parameter_count(da)))
 
       return [d_grads, g_grads]

@@ -1,6 +1,6 @@
 # README
 
-## HyperGAN 0.10
+## HyperGAN 0.11
 
 [![CircleCI](https://circleci.com/gh/HyperGAN/HyperGAN.svg?style=svg)](https://circleci.com/gh/HyperGAN/HyperGAN) [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF) [![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
 
@@ -64,16 +64,6 @@ HyperGAN is a community project. GANs are a very new and active field of researc
 * GUI\(pygame and tk\)
 * API
 * CLI
-
-## Showcase
-
-![Hypergan Mobile released!](https://miro.medium.com/max/1404/1*uJmzGUvoP0WdaQPkkT8s-Q.jpeg)
-
-Run trained models with HyperGAN on your android device!
-
-Submit your showcase with a pull request!
-
-For more, see the \#showcase room in [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
 
 ## Documentation
 
@@ -218,40 +208,6 @@ To see a detailed list, run
 ### Examples
 
 See the example documentation [https://github.com/hypergan/HyperGAN/tree/master/examples](https://github.com/hypergan/HyperGAN/tree/master/examples)
-
-## Datasets
-
-To build a new network you need a dataset. Your data should be structured like:
-
-```text
-  [folder]/[directory]/*.png
-```
-
-### Creating a Dataset
-
-Datasets in HyperGAN are meant to be simple to create. Just use a folder of images.
-
-```text
- [folder]/*.png
-```
-
-For jpg\(pass `-f jpg`\)
-
-### Downloadable datasets
-
-* Loose images of any kind can be used
-* CelebA aligned faces [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html)
-* MS Coco [http://mscoco.org/](http://mscoco.org/)
-* ImageNet [http://image-net.org/](http://image-net.org/)
-* youtube-dl \(see [examples/Readme.md](examples-1/2d.md)\)
-
-### Cleaning up data
-
-To convert and resize your data for processing, you can use imagemagick
-
-```text
-for i in *.jpg; do convert $i  -resize "300x256" -gravity north   -extent 256x256 -format png -crop 256x256+0+0 +repage $i-256x256.png;done
-```
 
 ## Contributing
 

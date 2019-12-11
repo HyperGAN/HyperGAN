@@ -5,6 +5,10 @@
 * [Changelog](changelog.md)
 * [Configuration files](json.md)
 
+## Showcase <a id="projects-using-hypergan"></a>
+
+* [AI Explorer for Android](projects-using-hypergan/ai-explorer-for-android.md)
+
 ## Examples <a id="examples-1"></a>
 
 * [2D](examples-1/2d.md)
@@ -16,6 +20,7 @@
 
 * [Training a GAN](tutorials/training.md)
 * [Pygame inference](tutorials/pygame.md)
+* [Creating an image dataset](tutorials/creating-an-image-dataset.md)
 * [Searching for hyperparameters](tutorials/searching-for-hyperparameters.md)
 
 ## Components

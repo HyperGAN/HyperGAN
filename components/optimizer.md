@@ -4,6 +4,8 @@ description: Optimizers move weights along gradients.  They are managed by the t
 
 # Optimizer
 
+[https://www.tensorflow.org/api\_docs/python/tf/compat/v1/train/Optimizer](https://www.tensorflow.org/api_docs/python/tf/compat/v1/train/Optimizer)
+
 ## Access
 
 ```python

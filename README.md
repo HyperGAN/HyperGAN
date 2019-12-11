@@ -243,7 +243,7 @@ For jpg\(pass `-f jpg`\)
 * CelebA aligned faces [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html)
 * MS Coco [http://mscoco.org/](http://mscoco.org/)
 * ImageNet [http://image-net.org/](http://image-net.org/)
-* youtube-dl \(see [examples/Readme.md](examples-1/examples.md)\)
+* youtube-dl \(see [examples/Readme.md](examples-1/2d.md)\)
 
 ### Cleaning up data
 

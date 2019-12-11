@@ -1,0 +1,2 @@
+# DCGAN Discriminator
+

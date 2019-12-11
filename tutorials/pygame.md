@@ -1,2 +1,2 @@
-# Pygame deployment
+# Pygame inference
 

@@ -4,7 +4,7 @@ description: Trains the GAN object.
 
 # Trainer
 
-## Component creation
+## Creation
 
 The trainer creates the optimizer, and any associated train hooks.
 
@@ -13,14 +13,16 @@ trainer_config = {...}
 gan.create_component(trainer_config)
 ```
 
-{% hint style="info" %}
-Trainers are setup by the GAN objects during initialization and are available as `gan.trainer`
-{% endhint %}
+## Access
 
-## Training step
+```text
+gan.trainer
+```
+
+## Actions
 
 ```python
-gan.trainer.step(feed_dict)
+gan.trainer.step(feed_dict) # Step forward
 ```
 
 ## Events

@@ -8,7 +8,7 @@ Hypergan comes with a simple DSL to design your own network architectures. A Con
 
 ### ConfigurableDiscriminator
 
-For example, a discriminator component can be defined as:
+For example, a discriminator component ca--\*-\*/\*\*/\*----\*//\*--------/n be defined as:
 
 ```javascript
 ...

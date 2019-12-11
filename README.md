@@ -2,10 +2,7 @@
 
 ## HyperGAN 0.10
 
-
-[![docs](https://img.shields.io/badge/gitbook-docs-yellowgreen)](https://hypergan.gitbook.io/hypergan/)
-[![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
-[![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
+[![docs](https://img.shields.io/badge/gitbook-docs-yellowgreen)](https://hypergan.gitbook.io/hypergan/) [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF) [![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
 
 A composable GAN API and CLI. Built for developers, researchers, and artists.
 
@@ -99,73 +96,78 @@ Recommended: GTX 1080+
 ### Install
 
 #### Comprehensive HyperGAN Installation Tutorial
-0. Notes
-    - The point of this guide is to install HyperGAN with GPU support.
-    - Installation tested and working on ElementaryOS 5.0 Juno (equivilant to Ubuntu 18.04), NVIDIA GeForce 970M.
-    - Some restarts might be unnecessary, but do them, just to be sure.
-    - If you follow these instructions and need further help, please visit the Discord.
-    - Written 10.29.2019.
-0.5. Disabling Secure Boot
-    - From the "GPU Support" page, www.tensorflow.org - 
-    "Secure Boot complicates installation of the NVIDIA driver and is beyond the scope of these instructions."
-    - A quick Google search such as "disable secure boot {motherboard}" will get you more detailed instructions for this step.
-    - After disabling secure boot, restart your computer.
-1. Installing the proper GPU drivers 
-    - We're going to need to update our drivers to be above 410.x to run HyperGAN.
-    - To check what installation you need, use the command `ubuntu-driver devices`.
-    - The name of your graphics card should pop up, with a list of drivers after.
-    - You're going to want to choose the one that states "third party free reccommended".
-    - Go ahead and run the command 'sudo apt-get install nvidia-driver-xxx` with the correct numbers to update your drivers.
-    - After install, restart your computer.
-    - When rebooted, make sure your drivers are installed properly by running `nvidia-smi`.
-    - The output should show your graphics card model and driver version.
-2. Installing tensorflow-gpu Dependencies
-    - HyperGAN requires the use of Google's TensorFlow to run.
-    - In addition, TensorFlow needs NVIDIA's CUDA toolkit and cuDNN (NVIDIA CUDA® Deep Neural Network library).
-    - We're going to be installing 2 things in this section: the CUDA toolkit and the cuDNN.
-        - CUDA toolkit:
-            - https://developer.nvidia.com/cuda-10.0-download-archive
-            - (It is important that you download the 10.0 version of the toolkit, linked above.)
-            - Click the buttons to narrow down your target platform.
-            - Once you've selected your OS version, select deb(local).
-            - Download this file and follow the instructions on the site to complete installation.
-            - After you have finished following those instructions, restart your computer.
-        - cuDNN:
-            - https://developer.nvidia.com/rdp/cudnn-download
-            - (It is important that you download v7.6.4, compatible with the 10.0 version of the CUDA toolkit.)
-            - To download the cuDNN, you're going to have to sign up for a NVIDIA account.
-            - Create an account (or sign in with Google) and log in.
-            - Download cuDNN v7.6.4 for CUDA 10.0. Choose the "cuDNN Runtime Library for UbuntuXX.XX (Deb)".
-            - Navigate to where you downloaded the program and use `sudo dpkg -i` followed by the .deb file name to finish installation.
-            - After the package is installed, reboot your computer.
-3. Installing HyperGAN 
-    - Now it is time to install HyperGAN and it's dependencies.
-    - If you haven't installed pip3, install it using `sudo apt-get install python3-pip`.
-    - Run the command `pip3 install hypergan tensorflow-gpu hyperchamber pillow pygame natsort nashpy'
-    - The newest version of numpy spits out a ton of non-pretty warnings, so we'll install an older version using `pip3 install numpy==1.16.4'.
-    - Reboot your computer, for the last time.
-4. Checking HyperGAN installation
-    - Test that HyperGAN and TensorFlow are correctly installed on your computer by running the command `hypergan test`.
-    - If you're all good to go and have followed these instructions, a message should be returned saying `Congratulations! Tensorflow and hypergan both look installed correctly'.
-    - If your installation has been completed, jump to step 6.
-    - If something has gone wrong, continue to step 5.
-5. Troubleshooting
-    - "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running."
-        - Something has gone wrong with the installation of your drivers.
-        - Run the command `sudo apt-get purge nvidia-* && sudo apt-get autoremove'.
-        - Go back to step 1 and retry the driver installation.
-    - "FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'."
-        - This is a warning message. If you want to remove it, downgrade numpy.
-        - Run the command `pip3 uninstall numpy && pip3 install numpy==1.16.4'.
-    - "ImportError: libcudart.so.10.0: cannot open shared object file: No such file or directory"
-        - This error means that there was a problem installing the CUDA toolkit.
-        - Please reinstall that step of the instructions, making sure you download the 10.0 version.
-    -  "ImportError: libcudnn.so.7: cannot open shared object file: No such file or directory"
-        - This error means that there was a problem installing the cuDNN.
-        - Please reinstall that step of the instructions, making sure you download cuDNN v7.6.4 for CUDA 10.0.
-6. Conclusion 
-    - Congrats! Now you're ready to start using HyperGAN.
-    - Once you've made something cool, be sure to share it on the Discord (https://discord.gg/t4WWBPF).
+
+1. Notes
+   * The point of this guide is to install HyperGAN with GPU support.
+   * Installation tested and working on ElementaryOS 5.0 Juno \(equivilant to Ubuntu 18.04\), NVIDIA GeForce 970M.
+   * Some restarts might be unnecessary, but do them, just to be sure.
+   * If you follow these instructions and need further help, please visit the Discord.
+   * Written 10.29.2019.
+
+     0.5. Disabling Secure Boot
+
+   * From the "GPU Support" page, www.tensorflow.org - 
+
+     "Secure Boot complicates installation of the NVIDIA driver and is beyond the scope of these instructions."
+
+   * A quick Google search such as "disable secure boot {motherboard}" will get you more detailed instructions for this step.
+   * After disabling secure boot, restart your computer.
+2. Installing the proper GPU drivers 
+   * We're going to need to update our drivers to be above 410.x to run HyperGAN.
+   * To check what installation you need, use the command `ubuntu-driver devices`.
+   * The name of your graphics card should pop up, with a list of drivers after.
+   * You're going to want to choose the one that states "third party free reccommended".
+   * Go ahead and run the command 'sudo apt-get install nvidia-driver-xxx\` with the correct numbers to update your drivers.
+   * After install, restart your computer.
+   * When rebooted, make sure your drivers are installed properly by running `nvidia-smi`.
+   * The output should show your graphics card model and driver version.
+3. Installing tensorflow-gpu Dependencies
+   * HyperGAN requires the use of Google's TensorFlow to run.
+   * In addition, TensorFlow needs NVIDIA's CUDA toolkit and cuDNN \(NVIDIA CUDA® Deep Neural Network library\).
+   * We're going to be installing 2 things in this section: the CUDA toolkit and the cuDNN.
+     * CUDA toolkit:
+       * [https://developer.nvidia.com/cuda-10.0-download-archive](https://developer.nvidia.com/cuda-10.0-download-archive)
+       * \(It is important that you download the 10.0 version of the toolkit, linked above.\)
+       * Click the buttons to narrow down your target platform.
+       * Once you've selected your OS version, select deb\(local\).
+       * Download this file and follow the instructions on the site to complete installation.
+       * After you have finished following those instructions, restart your computer.
+     * cuDNN:
+       * [https://developer.nvidia.com/rdp/cudnn-download](https://developer.nvidia.com/rdp/cudnn-download)
+       * \(It is important that you download v7.6.4, compatible with the 10.0 version of the CUDA toolkit.\)
+       * To download the cuDNN, you're going to have to sign up for a NVIDIA account.
+       * Create an account \(or sign in with Google\) and log in.
+       * Download cuDNN v7.6.4 for CUDA 10.0. Choose the "cuDNN Runtime Library for UbuntuXX.XX \(Deb\)".
+       * Navigate to where you downloaded the program and use `sudo dpkg -i` followed by the .deb file name to finish installation.
+       * After the package is installed, reboot your computer.
+4. Installing HyperGAN 
+   * Now it is time to install HyperGAN and it's dependencies.
+   * If you haven't installed pip3, install it using `sudo apt-get install python3-pip`.
+   * Run the command \`pip3 install hypergan tensorflow-gpu hyperchamber pillow pygame natsort nashpy'
+   * The newest version of numpy spits out a ton of non-pretty warnings, so we'll install an older version using \`pip3 install numpy==1.16.4'.
+   * Reboot your computer, for the last time.
+5. Checking HyperGAN installation
+   * Test that HyperGAN and TensorFlow are correctly installed on your computer by running the command `hypergan test`.
+   * If you're all good to go and have followed these instructions, a message should be returned saying \`Congratulations! Tensorflow and hypergan both look installed correctly'.
+   * If your installation has been completed, jump to step 6.
+   * If something has gone wrong, continue to step 5.
+6. Troubleshooting
+   * "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running."
+     * Something has gone wrong with the installation of your drivers.
+     * Run the command \`sudo apt-get purge nvidia-\* && sudo apt-get autoremove'.
+     * Go back to step 1 and retry the driver installation.
+   * "FutureWarning: Passing \(type, 1\) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as \(type, \(1,\)\) / '\(1,\)type'."
+     * This is a warning message. If you want to remove it, downgrade numpy.
+     * Run the command \`pip3 uninstall numpy && pip3 install numpy==1.16.4'.
+   * "ImportError: libcudart.so.10.0: cannot open shared object file: No such file or directory"
+     * This error means that there was a problem installing the CUDA toolkit.
+     * Please reinstall that step of the instructions, making sure you download the 10.0 version.
+   * "ImportError: libcudnn.so.7: cannot open shared object file: No such file or directory"
+     * This error means that there was a problem installing the cuDNN.
+     * Please reinstall that step of the instructions, making sure you download cuDNN v7.6.4 for CUDA 10.0.
+7. Conclusion 
+   * Congrats! Now you're ready to start using HyperGAN.
+   * Once you've made something cool, be sure to share it on the Discord \([https://discord.gg/t4WWBPF](https://discord.gg/t4WWBPF)\).
 
 #### Optional `virtualenv`:
 
@@ -300,7 +302,7 @@ for i in *.jpg; do convert $i  -resize "300x256" -gravity north   -extent 256x25
 
 Contributions are welcome and appreciated! We have many open issues in the _Issues_ tab. Join the discord.
 
-See [how to contribute.]()
+See [how to contribute.](./)
 
 ## Versioning
 

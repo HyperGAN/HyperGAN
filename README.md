@@ -78,7 +78,7 @@ For more, see the \#showcase room in [![Discord](https://img.shields.io/badge/di
 ## Documentation
 
 * [Model author JSON reference](json.md)
-* [Model author tutorial 1](tutorial1.md)
+* [Model author tutorial 1](tutorials/training.md)
 * [0.10.x](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
 * [0.9.x](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)
 * [Test coverage](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/coverage/index.html)
@@ -243,7 +243,7 @@ For jpg\(pass `-f jpg`\)
 * CelebA aligned faces [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html)
 * MS Coco [http://mscoco.org/](http://mscoco.org/)
 * ImageNet [http://image-net.org/](http://image-net.org/)
-* youtube-dl \(see [examples/Readme.md](examples/examples.md)\)
+* youtube-dl \(see [examples/Readme.md](examples-1/examples.md)\)
 
 ### Cleaning up data
 

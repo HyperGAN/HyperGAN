@@ -1,4 +1,4 @@
-# Hypergan tutorial 1
+# Training a GAN
 
 Thanks for trying out hypergan. This tutorial will walk you through creating your first model, exploring it, and building/deploying the generator.
 

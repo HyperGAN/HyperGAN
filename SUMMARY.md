@@ -1,6 +1,6 @@
 # Table of contents
 
-* [README](README.md)
+* [About](README.md)
 * [Getting started](gettingstarted.md)
 * [Changelog](changelog.md)
 * [Configuration files](json.md)
@@ -48,4 +48,5 @@
 * [Trainer](components/trainer.md)
 * [Optimizer](components/optimizer.md)
 * [Train Hook](components/trainhook.md)
+* [Other GAN implementations](other-gan-implementations.md)
 

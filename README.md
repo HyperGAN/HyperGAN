@@ -1,18 +1,16 @@
-# README
+---
+description: >-
+  HyperGAN is a composable GAN API and CLI. Built for developers, researchers,
+  and artists.
+---
 
-## HyperGAN 0.11
+# About
 
-[![CircleCI](https://circleci.com/gh/HyperGAN/HyperGAN.svg?style=svg)](https://circleci.com/gh/HyperGAN/HyperGAN) [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF) [![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
+ [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF) [![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
 
-A composable GAN API and CLI. Built for developers, researchers, and artists.
-
-0.10 is now available in pip. Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
+0.11 is now available in pip. Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
 
 HyperGAN is in open beta.
-
-![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
-
-_Logos generated with_ [_examples/colorizer_](./#examples)
 
 See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8002_NB7JSvA)
 
@@ -187,10 +185,6 @@ Don't train on CPU! It's too slow.
 
 By default hypergan will not save samples to disk. To change this, use `--save_samples`.
 
-One way a network learns:
-
-[![Demo CountPages alpha](https://j.gifs.com/58KmzA.gif)](https://www.youtube.com/watch?v=tj3ZLNfcJFo&list=PLWW3WtkBA3MuSnAVS__D0FkENZzuTbHFg&index=1)
-
 To create videos:
 
 ```bash
@@ -213,8 +207,6 @@ See the example documentation [https://github.com/hypergan/HyperGAN/tree/master/
 
 Contributions are welcome and appreciated! We have many open issues in the _Issues_ tab. Join the discord.
 
-See [how to contribute.]()
-
 ## Versioning
 
 HyperGAN uses semantic versioning. [http://semver.org/](http://semver.org/)
@@ -224,41 +216,6 @@ TLDR: _x.y.z_
 * _x_ is incremented on stable public releases.
 * _y_ is incremented on API breaking changes.  This includes configuration file changes and graph construction changes.
 * _z_ is incremented on non-API breaking changes.  _z_ changes will be able to reload a saved graph.
-
-### Other GAN projects
-
-* [StyleGAN](https://github.com/NVlabs/stylegan)
-* [https://github.com/LMescheder/GAN\_stability](https://github.com/LMescheder/GAN_stability)
-* Add yours with a pull request
-
-### Papers
-
-* GAN - [https://arxiv.org/abs/1406.2661](https://arxiv.org/abs/1406.2661)
-* DCGAN - [https://arxiv.org/abs/1511.06434](https://arxiv.org/abs/1511.06434)
-* InfoGAN - [https://arxiv.org/abs/1606.03657](https://arxiv.org/abs/1606.03657)
-* Improved GAN - [https://arxiv.org/abs/1606.03498](https://arxiv.org/abs/1606.03498)
-* Adversarial Inference - [https://arxiv.org/abs/1606.00704](https://arxiv.org/abs/1606.00704)
-* Energy-based Generative Adversarial Network - [https://arxiv.org/abs/1609.03126](https://arxiv.org/abs/1609.03126)
-* Wasserstein GAN - [https://arxiv.org/abs/1701.07875](https://arxiv.org/abs/1701.07875)
-* Least Squares GAN - [https://arxiv.org/pdf/1611.04076v2.pdf](https://arxiv.org/pdf/1611.04076v2.pdf)
-* Boundary Equilibrium GAN - [https://arxiv.org/abs/1703.10717](https://arxiv.org/abs/1703.10717)
-* Self-Normalizing Neural Networks - [https://arxiv.org/abs/1706.02515](https://arxiv.org/abs/1706.02515)
-* Variational Approaches for Auto-Encoding
-
-  Generative Adversarial Networks - [https://arxiv.org/pdf/1706.04987.pdf](https://arxiv.org/pdf/1706.04987.pdf)
-
-* CycleGAN - [https://junyanz.github.io/CycleGAN/](https://junyanz.github.io/CycleGAN/)
-* DiscoGAN - [https://arxiv.org/pdf/1703.05192.pdf](https://arxiv.org/pdf/1703.05192.pdf)
-* Softmax GAN - [https://arxiv.org/abs/1704.06191](https://arxiv.org/abs/1704.06191)
-* The Cramer Distance as a Solution to Biased Wasserstein Gradients - [https://arxiv.org/abs/1705.10743](https://arxiv.org/abs/1705.10743)
-* Improved Training of Wasserstein GANs - [https://arxiv.org/abs/1704.00028](https://arxiv.org/abs/1704.00028)
-* More...
-
-### Sources
-
-* DCGAN - [https://github.com/carpedm20/DCGAN-tensorflow](https://github.com/carpedm20/DCGAN-tensorflow)
-* InfoGAN - [https://github.com/openai/InfoGAN](https://github.com/openai/InfoGAN)
-* Improved GAN - [https://github.com/openai/improved-gan](https://github.com/openai/improved-gan)
 
 ## Citation
 

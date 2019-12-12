@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11 ~ Usability improvements+
+
+* Documentation update \(gitbook\)
+* New train hooks
+* Mobile AI explorer released
+* Multithreaded UI - no more slowdowns
+* More...
+
 ## 0.10 ~ Community Project release
 
 * HyperGAN 0.10 released as a community project

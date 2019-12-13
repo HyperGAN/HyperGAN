@@ -93,8 +93,6 @@ class ConjectureTrainHook(BaseTrainHook):
           d_grads = [_p - (self.config.sga_gamma)*_s for _p, _s in zip(d_grads, d_sga)]
           g_grads = [_p - (self.config.sga_gamma)*_s for _p, _s in zip(g_grads, g_sga)]
 
-
-
       if self.config.dropout:
           # https://arxiv.org/abs/1912.00144
           mean = tf.constant(self.config.dropout_mean or 0.5)

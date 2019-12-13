@@ -366,6 +366,7 @@ class BaseGAN(GANComponent):
     def configurable_param(self, string):
         self.param_ops = {
             "decay": self.configurable_params_decay,
+            "anneal": self.configurable_params_anneal,
             "on": self.configurable_params_turn_on
         }
         if isinstance(string, str):
@@ -397,6 +398,12 @@ class BaseGAN(GANComponent):
             else:
                 args.append(x)
         return args, options
+
+    def configurable_params_anneal(self, args, options):
+        steps = int(options.T or options.steps or 1000)
+        alpha = float(args[0])
+        t = self.gan.steps
+        return tf.pow(alpha, tf.dtypes.cast(t, tf.float32) / steps)
 
     def configurable_params_decay(self, args, options):
         _range = options.range or "0:1"

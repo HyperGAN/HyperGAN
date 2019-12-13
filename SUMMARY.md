@@ -4,6 +4,7 @@
 * [Getting started](gettingstarted.md)
 * [Changelog](changelog.md)
 * [Configuration files](json.md)
+* [Configurable Parameters](configurable-parameters.md)
 
 ## Showcase <a id="projects-using-hypergan"></a>
 
@@ -15,6 +16,7 @@
 * [Text](examples-1/text.md)
 * [Classification](examples-1/classification.md)
 * [Colorizer](examples-1/colorizer.md)
+* [Next Frame \(video\)](examples-1/next-frame-video.md)
 
 ## Tutorials
 

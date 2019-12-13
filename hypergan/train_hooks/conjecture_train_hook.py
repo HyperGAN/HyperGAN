@@ -25,7 +25,7 @@ class ConjectureTrainHook(BaseTrainHook):
 
   def gradients(self, d_grads, g_grads):
       nsteps = self.config.nsteps
-      d_loss, g_loss = self.gan.loss.original_sample
+      d_loss, g_loss = self.gan.loss.sample
       d_params = self.gan.d_vars()
       g_params = self.gan.g_vars()
       lr = self.config.learn_rate or 1e-2

@@ -5,7 +5,7 @@ description: 'https://arxiv.org/pdf/1704.00028.pdf'
 # Gradient Penalty
 
 $$
-lambda * || relu(abs(gradients(target, components)) - flex) ||_2
+lambda * relu(||gradients(target, components)||_2 - flex) ^2
 $$
 
 ## examples

@@ -6,22 +6,9 @@ description: >-
 
 # About
 
- [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF) [![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
-
-0.11 is now available in pip. Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
-
-HyperGAN is in open beta.
-
-See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8002_NB7JSvA)
-
-## Table of contents
-
-* [About](./#about)
-* [Showcase](./#showcase)
 * [Documentation](./#documentation)
-* [Changelog](./#changelog)
 * [Quick start](./#quick-start)
-  * [Requirements](./#requirements)
+* * [Requirements](./#requirements)
   * [Install](./#install)
   * [Testing install](./#testing-install)
   * [Train](./#train)
@@ -30,17 +17,6 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
 * [The pip package hypergan](./#the-pip-package-hypergan)
   * [Training](./#training)
   * [Sampling](./#sampling)
-* [API](https://github.com/HyperGAN/HyperGAN/tree/d6a6b01045d9c756ffc4a04e9a932dcc0739754e/API/README.md)
-  * [Examples](./#examples)
-* [Datasets](./#datasets)
-  * [Creating a Dataset](./#creating-a-dataset)
-  * [Downloadable Datasets](./#downloadable-datasets)
-  * [Cleaning up data](./#cleaning-up-data)
-* [Contributing](./#contributing)
-* [Versioning](./#Versioning)
-* [Sources](./#sources)
-* [Papers](./#papers)
-* [Citation](./#citation)
 
 ## About
 
@@ -65,7 +41,7 @@ HyperGAN is a community project. GANs are a very new and active field of researc
 
 ## Documentation
 
-* [Model author JSON reference](json.md)
+* [Model author JSON reference](configuration/)
 * [Model author tutorial 1](tutorials/training.md)
 * [0.10.x](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
 * [0.9.x](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)

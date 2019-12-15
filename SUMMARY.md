@@ -3,12 +3,13 @@
 * [About](README.md)
 * [Getting started](gettingstarted.md)
 * [Changelog](changelog.md)
-* [Configuration files](json.md)
-* [Configurable Parameters](configurable-parameters.md)
+* [Configurations](configuration/README.md)
+  * [Configurable Parameters](configuration/configurable-parameters.md)
 
 ## Showcase <a id="projects-using-hypergan"></a>
 
 * [AI Explorer for Android](projects-using-hypergan/ai-explorer-for-android.md)
+* [Youtube, Twitter,  Discord +](projects-using-hypergan/youtube-twitter-discord-+.md)
 
 ## Examples <a id="examples-1"></a>
 
@@ -49,6 +50,7 @@
   * [Uniform Distribution](components/latent/uniform-distribution.md)
 * [Trainer](components/trainer.md)
 * [Optimizer](components/optimizer.md)
-* [Train Hook](components/trainhook.md)
+* [Train Hook](components/trainhook/README.md)
+  * [Gradient Penalty](components/trainhook/gradient-penalty.md)
 * [Other GAN implementations](other-gan-implementations.md)
 

@@ -57,7 +57,7 @@ class RollingMemoryTrainHook(BaseTrainHook):
                               synchronization=tf.VariableSynchronization.NONE)
                 self.memories[_type]={"var": mem, "source": src, "sw": self.sw(src, _type),
                                       "d_input": mem,
-                                      "assign": tf.assign(mem, self.select_top(src, src, _type) * self.sw(mem, _type) + (1.0 - self.sw(mem, _type)) * mem)
+                                      "assign": tf.assign(mem, src * self.sw(src, _type) + (1.0 - self.sw(src, _type)) * src)
                                       }
     self.loss = [tf.zeros(1), tf.zeros(1)]
     for i, pair in enumerate(self.config.types):

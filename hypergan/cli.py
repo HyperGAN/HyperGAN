@@ -11,7 +11,6 @@ from hypergan.gan_component import ValidationException
 from .inputs import *
 from .viewer import GlobalViewer
 from .configuration import Configuration
-from tensorflow.contrib import tpu
 import hypergan as hg
 import time
 
@@ -185,6 +184,7 @@ class CLI:
             self.sample()
 
     def train_tpu(self):
+        from tensorflow.contrib import tpu
         i=0
         tf.compat.v1.disable_v2_behavior()
         tpu_name = self.args.device.replace("/tpu:", "")

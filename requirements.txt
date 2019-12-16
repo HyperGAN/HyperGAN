@@ -1,4 +1,4 @@
-hyperchamber>=0.2.7
+hyperchamber>=0.3
 numpy
 tensorflow-gpu>=1.12
 Pillow

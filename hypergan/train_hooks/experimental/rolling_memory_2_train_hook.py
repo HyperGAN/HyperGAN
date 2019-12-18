@@ -31,7 +31,7 @@ class RollingMemoryTrainHook(BaseTrainHook):
             elif _type == "g":
                 self.memories["g"]={"d_input": self.gan.generator.sample}
             elif _type == "x":
-                self.memories["x"]={"var": self.gan.inputs.x}
+                self.memories["x"]={"d_input": self.gan.inputs.x}
             elif _type[0:4] == "g(mz":
                 src = self.source(_type)
                 with tf.variable_scope((self.config.name or self.name), reuse=self.gan.reuse) as scope:
@@ -135,7 +135,7 @@ class RollingMemoryTrainHook(BaseTrainHook):
     if name == "g(mz-)":
         return calculate(-l.d_fake)
     if name == "g(mz+)":
-        return calculate(l.d_real)
+        return calculate(l.d_fake)
 
 
     raise ValidationException("Unknown rolling type: " + name)
@@ -207,9 +207,10 @@ class RollingMemoryTrainHook(BaseTrainHook):
 
   def d_inputs(self):
     var = []
-    for _type, memory in self.memories.items():
-      if "d_input" in memory and "assign" in memory:
-        var += [memory["d_input"]]
+    for pairs in self.config.types:
+      for _type in pairs.split("/"):
+        if _type in self.memories:
+          var += [self.memories[_type]["d_input"]]
     return var
 
 

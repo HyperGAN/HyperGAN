@@ -44,7 +44,7 @@ $$
 ### Examples
 
 ```javascript
-"stabilizing_training_js_gamma": "anneal(0.9 T=100)"
+"gamma": "anneal(0.9 T=100)"
 ```
 
 ### Options

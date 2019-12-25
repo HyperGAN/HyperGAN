@@ -288,6 +288,10 @@ class ConfigurableComponent:
 
 
     def layer_residual(self, net, args, options):
+        if args == []:
+            args = [self.ops.shape(net)[-1]]
+        options["stride"] = 1
+        options["avg_pool"] = 1
         res = self.layer_conv(net, args, options)
 
         return net + res

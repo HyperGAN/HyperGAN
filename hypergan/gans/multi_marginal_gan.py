@@ -100,11 +100,8 @@ class MultiMarginalGAN(BaseGAN):
 
             self.discriminator = d
             l = self.create_loss(config.loss, d, None, None, len(stack))
-            self.loss = l
-            self.losses = [self.loss]
-            self.standard_loss = l
-            self.z_loss = l
             loss1 = l
+            self.losses = [l]
             d_loss1 = l.d_loss * (self.config.d_lambda or 1)
             g_loss1 = l.g_loss * (self.config.d_lambda or 1)
             d_loss2 = d_loss1
@@ -123,9 +120,10 @@ class MultiMarginalGAN(BaseGAN):
                 d2 = self.create_component(config.discriminator, name='discriminator',
                         input=tf.concat([x_source, x_h], axis=0), features=[features], reuse=True)
                 l_g = self.create_loss(config.mi_loss or config.loss, d2, None, None, 2)
+                self.losses.append(l_g)
                 mi_g_loss = l_g.g_loss
                 mi_d_loss = l_g.d_loss
-                grad_penalty_lambda = config.grad_penalty_lambda or 10
+                grad_penalty_lambda = config.gradient_penalty_lambda or 0.10
 
                 d3 = self.create_component(config.discriminator, name='discriminator',
                         input=x_interp, features=[features], reuse=True)
@@ -154,8 +152,28 @@ class MultiMarginalGAN(BaseGAN):
                     c_loss += mi_d_loss * interdomain_lambda
                 g_loss2 += mi_g_loss * interdomain_lambda
 
+                if config.l1_loss:
+                    l1 = config.l1_loss * tf.reduce_mean(tf.abs(x_hats[i].reuse(enc(x_source, reuse=True).sample) - x_source))
+                    g_loss1 += l1
+                    g_loss2 += l1
+                    self.add_metric('l1', l1)
 
-            self.generator = x_hats[0]
+                if config.classifier:
+                    labels = tf.constant([1 if i==j else 0 for j in range(len(x_hats))])
+                    logits = d2.named_layers['classifier']
+                    print("---", logits, labels, self.gan.batch_size())
+                    labels = tf.tile(labels, [self.gan.batch_size()*2])
+                    labels = tf.reshape(labels, self.ops.shape(logits))
+                    softmax = self.ops.squash(tf.nn.softmax_cross_entropy_with_logits( labels=labels, logits=logits ))
+                    g_loss1 += softmax * config.classifier
+                    g_loss2 += softmax * config.classifier
+                    c_loss += softmax * config.classifier
+                    d_loss1 += softmax * config.classifier
+                    self.add_metric('c', softmax * config.classifier)
+
+            self.generator = x_hats[-1]
+            self.generators = x_hats
+            self.encoder = encoder
 
             d_loss = d_loss1
             g_loss = g_loss1

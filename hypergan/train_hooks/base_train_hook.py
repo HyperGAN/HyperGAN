@@ -36,3 +36,6 @@ class BaseTrainHook(GANComponent):
 
   def update_op(self):
     return None
+
+  def gradients(self, d_grads, g_grads):
+    return [d_grads, g_grads]

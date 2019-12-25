@@ -15,7 +15,7 @@ class ConfigurationException(Exception):
     pass
 
 class ConfigurableComponent:
-    def __init__(self, gan, config, name=None, input=None, reuse=None, x=None, g=None, features=[], skip_connections=[], context={}):
+    def __init__(self, gan, config, name=None, input=None, reuse=None, weights=None, biases=None, x=None, g=None, features=[], skip_connections=[], context={}):
         self.layers = []
         self.skip_connections = skip_connections
         self.layer_options = {}
@@ -1173,7 +1173,20 @@ class ConfigurableComponent:
         if "initializer" in options and options["initializer"] is not None:
             initializer = self.ops.lookup_initializer(options["initializer"], options)
         with tf.variable_scope(self.ops.generate_name(), reuse=self.ops._reuse):
-            return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
+            if options.mode=='softmax':
+                possible = self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer)
+                if len(s) == 4:
+                    selected = self.do_ops_layer(self.ops.linear, net, str(s[3]), options)
+                    selected = tf.reshape(selected, [self.gan.batch_size(),1,1,s[3]])
+                    selected = tf.nn.softmax(selected, axis=3)
+                    return possible * selected
+                if len(s) == 5:
+                    selected = self.do_ops_layer(self.ops.linear, net, str(s[4]), options)
+                    selected = tf.reshape(selected, [self.gan.batch_size(),1,1,1,s[4]])
+                    selected = tf.nn.softmax(selected, axis=4)
+                    return tf.reduce_sum(possible * selected, axis=4)
+            else:
+                return tf.tile(self.ops.get_weight(s, name='const', trainable=trainable, initializer=initializer), [self.gan.batch_size(), 1,1,1])
 
     def layer_const_like(self, net, args, options):
         options = hc.Config(options)

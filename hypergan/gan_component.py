@@ -18,7 +18,7 @@ class GANComponent:
 
     GAN objects are also GANComponents.
     """
-    def __init__(self, gan, config, name=None, reuse=False):
+    def __init__(self, gan, config, name=None, reuse=False, weights=None, biases=None):
         """
         Initializes a gan component based on a `gan` and a `config` dictionary.
 
@@ -34,6 +34,10 @@ class GANComponent:
         self.create_ops(config)
         self.ops.describe(name or self.__class__.__name__)
         self._metrics = []
+        if weights is not None:
+            self.ops.queued_weights = weights
+        if biases is not None:
+            self.ops.queued_biases = biases
 
         if reuse:
             self.ops.reuse()

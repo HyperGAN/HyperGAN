@@ -27,6 +27,8 @@ class TensorflowOps:
         self._reuse = False
         self.reuse_scope_count = 0
         self.reuse_context = 0
+        self.queued_weights = None
+        self.queued_biases = None
         self.initializer = self.lookup_initializer(initializer, config)
 
     def config_option(self, name, default=None, config=None):
@@ -152,9 +154,12 @@ class TensorflowOps:
         if initializer == None:
             initializer = self.initializer
         initializer = initializer(shape)
-        weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
-        self.weights.append(weight)
-        self.weights = list(set(self.weights))
+        if self.queued_weights is not None and len(self.queued_weights) > 0:
+            weight = self.queued_weights.pop(0)
+            assert weight.shape == shape
+        else:
+            weight = tf.get_variable(name, shape, dtype=self.dtype, initializer=initializer, trainable=trainable)
+            self.weights.append(weight)
         if hasattr(self, 'runtime_coef'):
             weight *= self.runtime_coef
             delattr(self, "runtime_coef") # todo, better way to pass variables from initialiszer
@@ -163,9 +168,12 @@ class TensorflowOps:
     def get_bias(self, shape, constant=0.0, name=None, trainable=None):
         if name == None:
             name='b'
-        bias = tf.get_variable(name, shape, initializer=tf.constant_initializer(constant, dtype=self.dtype), dtype=self.dtype, trainable=trainable)
-        self.biases.append(bias)
-        self.biases = list(set(self.biases))
+        if self.queued_biases is not None and len(self.queued_biases) > 0:
+            bias = self.queued_biases.pop(0)
+            assert bias.shape == shape
+        else:
+            bias = tf.get_variable(name, shape, initializer=tf.constant_initializer(constant, dtype=self.dtype), dtype=self.dtype, trainable=trainable)
+            self.biases.append(bias)
         return bias
     
     def parse_dtype(self, dtype):

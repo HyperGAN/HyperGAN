@@ -237,6 +237,7 @@ def train(config, args):
         config.generator["class"]="class:__main__.Custom2DGenerator" # TODO
         config.discriminator["class"]="class:__main__.Custom2DDiscriminator" # TODO
         gan = hg.GAN(config, inputs = Custom2DInputDistribution(args))
+        gan.initialize_variables()
         gan.name = args.config
 
         accuracy_x_to_g=distribution_accuracy(gan.inputs.x, gan.generator.sample)

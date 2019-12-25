@@ -48,19 +48,17 @@ class PredictiveMethodOptimizer(optimizer.Optimizer):
     with ops.init_scope():
         v1 = [self._zeros_slot(v, "v1", self._name) for _,v in grads_and_vars]
         if self.config.include_slots:
-            for name in self.optimizer.get_slot_names():
-                for var in self.optimizer.variables():
-                    self._zeros_slot(var, "pm", "pm")
+            for var in self.optimizer.variables():
+                self._zeros_slot(var, "pm", "pm")
     self._prepare()
 
     v1 = [self.get_slot(v, "v1") for _,v in grads_and_vars]
     slots_list = []
     slots_vars = []
     if self.config.include_slots:
-        for name in self.optimizer.get_slot_names():
-            for var in self.optimizer.variables():
-                slots_vars += [var]
-                slots_list.append(self._zeros_slot(var, "pm", "pm"))
+        for var in self.optimizer.variables():
+            slots_vars += [var]
+            slots_list.append(self._zeros_slot(var, "pm", "pm"))
 
 
     current_vars = var_list + slots_vars

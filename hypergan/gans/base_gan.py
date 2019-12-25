@@ -88,6 +88,8 @@ class BaseGAN(GANComponent):
             self.set_x = tf.group([self.set_x, tf.assign(self.inputs.xb, self.feed_x)])
             self.inputs.x = self.inputs.xb
 
+        self.steps = tf.Variable(0, trainable=False, name='gan.steps')
+        self.increment_step = self.steps.assign(self.steps+1)
 
         GANComponent.__init__(self, self, config, name=self.name)
         self.ops.debug = debug
@@ -193,6 +195,7 @@ class BaseGAN(GANComponent):
     def _step(self, feed_dict={}):
         if self.trainer == None:
             raise ValidationException("gan.trainer is missing.  Cannot train.")
+        self.session.run(self.increment_step)
         return self.trainer.step(feed_dict)
 
     def g_vars(self):
@@ -201,9 +204,7 @@ class BaseGAN(GANComponent):
         return self.discriminator.variables()
 
     def trainable_variables(self):
-        result = np.flatten(list(set(self.variables()).intersection(tf.trainable_variables())))
-        result = [r for r in result if r]
-        return result
+        return self.trainable_d_vars() + self.trainable_g_vars()
 
     def trainable_d_vars(self):
         return list(set(self.d_vars()).intersection(tf.trainable_variables()))
@@ -211,8 +212,19 @@ class BaseGAN(GANComponent):
     def trainable_g_vars(self):
         return list(set(self.g_vars()).intersection(tf.trainable_variables()))
 
+    def parameter_count(self, variables=None):
+        return np.sum([np.prod(self.ops.shape(t)[1:]) for t in (variables or self.trainable_variables())])
+
+    def parameter_count_d(self):
+        return np.sum([np.prod(self.ops.shape(t)[1:]) for t in self.trainable_d_vars()])
+
+    def parameter_count_g(self):
+        return np.sum([np.prod(self.ops.shape(t)[1:]) for t in self.trainable_g_vars()])
+
     def save(self, save_file):
-        if(np.any(np.isnan(self.session.run(self.loss.sample)))):
+        losses = self.session.run(self.loss.sample)
+
+        if(np.any(np.isnan(losses))):
             print("[Error] NAN detected.  Refusing to save")
             exit()
 
@@ -220,7 +232,9 @@ class BaseGAN(GANComponent):
             print("[hypergan] Saving network to ", save_file)
             if "gs://" not in save_file:
                 os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
-            saver = tf.train.Saver(self.variables())
+            variables = self.variables()
+            variables = [ o for o in variables if "dontsave" not in o.name ]
+            saver = tf.train.Saver(variables)
             print("Saving " +str(len(self.variables()))+ " variables: ")
             missing = set(tf.global_variables()) - set(self.variables())
             missing = [ o for o in missing if "dontsave" not in o.name ]
@@ -255,6 +269,8 @@ class BaseGAN(GANComponent):
         name2var = dict(zip(map(lambda x:x.name.split(':')[0], variables), variables))
         with tf.variable_scope('', reuse=True):
             for var_name, saved_var_name in var_names:
+                if "dontsave" in saved_var_name:
+                    continue
                 curr_var = name2var[saved_var_name]
                 var_shape = curr_var.get_shape().as_list()
                 if saved_shapes[saved_var_name] is None:
@@ -319,7 +335,7 @@ class BaseGAN(GANComponent):
                 for (name, _), variable_object in sorted(c._non_slot_dict.items(),
                     key=lambda item: item[0][0]):
                     slot_vars += [variable_object]
-        return list(set(self.ops.variables() + slot_vars + sum([c.variables() for c in self.components], [])))
+        return [self.steps] + list(set(self.ops.variables() + slot_vars + sum([c.variables() for c in self.components], [])))
 
     def weights(self):
         return self.ops.weights + sum([c.ops.weights for c in self.components if hasattr(c, 'ops')], [])
@@ -350,6 +366,7 @@ class BaseGAN(GANComponent):
     def configurable_param(self, string):
         self.param_ops = {
             "decay": self.configurable_params_decay,
+            "anneal": self.configurable_params_anneal,
             "on": self.configurable_params_turn_on
         }
         if isinstance(string, str):
@@ -381,6 +398,12 @@ class BaseGAN(GANComponent):
             else:
                 args.append(x)
         return args, options
+
+    def configurable_params_anneal(self, args, options):
+        steps = int(options.T or options.steps or 1000)
+        alpha = float(args[0])
+        t = self.gan.steps
+        return tf.pow(alpha, tf.dtypes.cast(t, tf.float32) / steps)
 
     def configurable_params_decay(self, args, options):
         _range = options.range or "0:1"

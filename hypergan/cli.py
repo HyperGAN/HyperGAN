@@ -11,7 +11,6 @@ from hypergan.gan_component import ValidationException
 from .inputs import *
 from .viewer import GlobalViewer
 from .configuration import Configuration
-from tensorflow.contrib import tpu
 import hypergan as hg
 import time
 
@@ -87,7 +86,8 @@ class CLI:
         self.create_path(sample_file)
         self.lazy_create()
         sample_list = self.sampler.sample(sample_file, allow_save and self.args.save_samples)
-        self.samples += 1
+        if allow_save:
+            self.samples += 1
 
         return sample_list
 
@@ -184,6 +184,7 @@ class CLI:
             self.sample()
 
     def train_tpu(self):
+        from tensorflow.contrib import tpu
         i=0
         tf.compat.v1.disable_v2_behavior()
         tpu_name = self.args.device.replace("/tpu:", "")
@@ -415,6 +416,8 @@ class CLI:
             print("Model loaded")
         else:
             print("Initializing new model")
+
+        self.sample()
 
         while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
             i+=1

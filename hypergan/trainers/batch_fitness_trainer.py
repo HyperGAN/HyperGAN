@@ -50,6 +50,16 @@ class BatchFitnessTrainer(BaseTrainer):
         metrics = gan.metrics()
 
         feed_dict = {}
+        if self.config.stop_after:
+            if self.config.stop_after == self.current_step:
+                print("Turning off batch fitness", self.current_step)
+            if self.config.stop_after <= self.current_step:
+                print("...")
+                self.before_step(self.current_step, feed_dict)
+                self._delegate.step(feed_dict)
+
+                self.after_step(self.current_step, feed_dict)
+                return
 
         fit = False
         if self.zs is None:

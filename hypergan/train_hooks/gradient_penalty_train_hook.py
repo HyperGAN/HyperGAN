@@ -47,9 +47,9 @@ class GradientPenaltyTrainHook(BaseTrainHook):
                 split_target = tf.split(target, len(self.config.flex))
                 gd = tf.gradients(split_target, target_vars)
                 fc = self.gan.configurable_param(flex)
-                gds += [tf.square(tf.nn.relu(tf.abs(_gd) - fc)) for _gd in gd if _gd is not None]
+                gds += [tf.square(tf.nn.relu(tf.norm(_gd) - fc)) for _gd in gd if _gd is not None]
         else:
-            gds = [tf.square(tf.nn.relu(tf.abs(_gd) - flex)) for _gd in gd if _gd is not None]
+            gds = [tf.square(tf.nn.relu(tf.norm(_gd) - flex)) for _gd in gd if _gd is not None]
     self.loss = tf.add_n([self._lambda * tf.reduce_mean(_r) for _r in gds])
     self.gds = gds
     self.gd = gd

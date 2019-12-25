@@ -84,12 +84,13 @@ class BaseLoss(GANComponent):
 
         d_loss = ops.squash(d_loss, config.reduce or tf.reduce_mean) #linear doesn't work with this
 
-        self.add_metric('d_loss', d_loss)
+        self.add_metric('d_loss', ops.squash(d_loss, tf.reduce_mean))
         if g_loss is not None:
             g_loss = ops.squash(g_loss, config.reduce or tf.reduce_mean)
-            self.add_metric('g_loss', g_loss)
+            self.add_metric('g_loss', ops.squash(g_loss, tf.reduce_mean))
 
         self.sample = [d_loss, g_loss]
+        self.original_sample = [tf.identity(d_loss), tf.identity(g_loss)]
         self.d_loss = d_loss
         self.g_loss = g_loss
         self.d_fake = d_fake
@@ -102,34 +103,6 @@ class BaseLoss(GANComponent):
 
     def g_regularizers(self):
         return []
-
-    def rothk_penalty(self, d_real, d_fake):
-        config = self.config
-        g_sample = self.gan.uniform_sample
-        x = self.gan.inputs.x
-        gradx = tf.gradients(d_real, [x])[0]
-        gradg = tf.gradients(d_fake, [g_sample])[0]
-        gradx = tf.reshape(gradx, [self.ops.shape(gradx)[0], -1])
-        gradg = tf.reshape(gradg, [self.ops.shape(gradg)[0], -1])
-        gradx_norm = tf.norm(gradx, axis=1, keep_dims=True)
-        gradg_norm = tf.norm(gradg, axis=1, keep_dims=True)
-        if int(gradx_norm.get_shape()[0]) != int(d_real.get_shape()[0]):
-            print("Condensing along batch for rothk")
-            gradx_norm = tf.reduce_mean(gradx_norm, axis=0)
-            gradg_norm = tf.reduce_mean(gradg_norm, axis=0)
-        gradx = tf.square(gradx_norm) * tf.square(1-tf.nn.sigmoid(d_real))
-        gradg = tf.square(gradg_norm) * tf.square(tf.nn.sigmoid(d_fake))
-        loss = gradx + gradg
-        loss *= config.rothk_lambda or 1
-        if config.rothk_decay:
-            decay_function = config.decay_function or tf.train.exponential_decay
-            decay_steps = config.decay_steps or 50000
-            decay_rate = config.decay_rate or 0.9
-            decay_staircase = config.decay_staircase or False
-            global_step = tf.train.get_global_step()
-            loss = decay_function(loss, global_step, decay_steps, decay_rate, decay_staircase)
-
-        return loss
 
     def random_penalty(self, d_fake, d_real):
         config = self.config

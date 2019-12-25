@@ -1,29 +1,14 @@
-# README
+---
+description: >-
+  HyperGAN is a composable GAN API and CLI. Built for developers, researchers,
+  and artists.
+---
 
-## HyperGAN 0.10
+# About
 
-[![CircleCI](https://circleci.com/gh/HyperGAN/HyperGAN.svg?style=svg)](https://circleci.com/gh/HyperGAN/HyperGAN) [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF) [![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
-
-A composable GAN API and CLI. Built for developers, researchers, and artists.
-
-0.10 is now available in pip. Installation instructions and support are available in our [discord](https://discord.gg/t4WWBPF)
-
-HyperGAN is in open beta.
-
-![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
-
-_Logos generated with_ [_examples/colorizer_](./#examples)
-
-See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8002_NB7JSvA)
-
-## Table of contents
-
-* [About](./#about)
-* [Showcase](./#showcase)
 * [Documentation](./#documentation)
-* [Changelog](./#changelog)
 * [Quick start](./#quick-start)
-  * [Requirements](./#requirements)
+* * [Requirements](./#requirements)
   * [Install](./#install)
   * [Testing install](./#testing-install)
   * [Train](./#train)
@@ -32,17 +17,6 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
 * [The pip package hypergan](./#the-pip-package-hypergan)
   * [Training](./#training)
   * [Sampling](./#sampling)
-* [API](https://github.com/HyperGAN/HyperGAN/tree/d6a6b01045d9c756ffc4a04e9a932dcc0739754e/API/README.md)
-  * [Examples](./#examples)
-* [Datasets](./#datasets)
-  * [Creating a Dataset](./#creating-a-dataset)
-  * [Downloadable Datasets](./#downloadable-datasets)
-  * [Cleaning up data](./#cleaning-up-data)
-* [Contributing](./#contributing)
-* [Versioning](./#Versioning)
-* [Sources](./#sources)
-* [Papers](./#papers)
-* [Citation](./#citation)
 
 ## About
 
@@ -65,20 +39,10 @@ HyperGAN is a community project. GANs are a very new and active field of researc
 * API
 * CLI
 
-## Showcase
-
-![Hypergan Mobile released!](https://miro.medium.com/max/1404/1*uJmzGUvoP0WdaQPkkT8s-Q.jpeg)
-
-Run trained models with HyperGAN on your android device!
-
-Submit your showcase with a pull request!
-
-For more, see the \#showcase room in [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
-
 ## Documentation
 
-* [Model author JSON reference](json.md)
-* [Model author tutorial 1](tutorial1.md)
+* [Model author JSON reference](configuration/)
+* [Model author tutorial 1](tutorials/training.md)
 * [0.10.x](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
 * [0.9.x](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)
 * [Test coverage](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/coverage/index.html)
@@ -197,10 +161,6 @@ Don't train on CPU! It's too slow.
 
 By default hypergan will not save samples to disk. To change this, use `--save_samples`.
 
-One way a network learns:
-
-[![Demo CountPages alpha](https://j.gifs.com/58KmzA.gif)](https://www.youtube.com/watch?v=tj3ZLNfcJFo&list=PLWW3WtkBA3MuSnAVS__D0FkENZzuTbHFg&index=1)
-
 To create videos:
 
 ```bash
@@ -219,45 +179,9 @@ To see a detailed list, run
 
 See the example documentation [https://github.com/hypergan/HyperGAN/tree/master/examples](https://github.com/hypergan/HyperGAN/tree/master/examples)
 
-## Datasets
-
-To build a new network you need a dataset. Your data should be structured like:
-
-```text
-  [folder]/[directory]/*.png
-```
-
-### Creating a Dataset
-
-Datasets in HyperGAN are meant to be simple to create. Just use a folder of images.
-
-```text
- [folder]/*.png
-```
-
-For jpg\(pass `-f jpg`\)
-
-### Downloadable datasets
-
-* Loose images of any kind can be used
-* CelebA aligned faces [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html)
-* MS Coco [http://mscoco.org/](http://mscoco.org/)
-* ImageNet [http://image-net.org/](http://image-net.org/)
-* youtube-dl \(see [examples/Readme.md](examples/examples.md)\)
-
-### Cleaning up data
-
-To convert and resize your data for processing, you can use imagemagick
-
-```text
-for i in *.jpg; do convert $i  -resize "300x256" -gravity north   -extent 256x256 -format png -crop 256x256+0+0 +repage $i-256x256.png;done
-```
-
 ## Contributing
 
 Contributions are welcome and appreciated! We have many open issues in the _Issues_ tab. Join the discord.
-
-See [how to contribute.]()
 
 ## Versioning
 
@@ -268,41 +192,6 @@ TLDR: _x.y.z_
 * _x_ is incremented on stable public releases.
 * _y_ is incremented on API breaking changes.  This includes configuration file changes and graph construction changes.
 * _z_ is incremented on non-API breaking changes.  _z_ changes will be able to reload a saved graph.
-
-### Other GAN projects
-
-* [StyleGAN](https://github.com/NVlabs/stylegan)
-* [https://github.com/LMescheder/GAN\_stability](https://github.com/LMescheder/GAN_stability)
-* Add yours with a pull request
-
-### Papers
-
-* GAN - [https://arxiv.org/abs/1406.2661](https://arxiv.org/abs/1406.2661)
-* DCGAN - [https://arxiv.org/abs/1511.06434](https://arxiv.org/abs/1511.06434)
-* InfoGAN - [https://arxiv.org/abs/1606.03657](https://arxiv.org/abs/1606.03657)
-* Improved GAN - [https://arxiv.org/abs/1606.03498](https://arxiv.org/abs/1606.03498)
-* Adversarial Inference - [https://arxiv.org/abs/1606.00704](https://arxiv.org/abs/1606.00704)
-* Energy-based Generative Adversarial Network - [https://arxiv.org/abs/1609.03126](https://arxiv.org/abs/1609.03126)
-* Wasserstein GAN - [https://arxiv.org/abs/1701.07875](https://arxiv.org/abs/1701.07875)
-* Least Squares GAN - [https://arxiv.org/pdf/1611.04076v2.pdf](https://arxiv.org/pdf/1611.04076v2.pdf)
-* Boundary Equilibrium GAN - [https://arxiv.org/abs/1703.10717](https://arxiv.org/abs/1703.10717)
-* Self-Normalizing Neural Networks - [https://arxiv.org/abs/1706.02515](https://arxiv.org/abs/1706.02515)
-* Variational Approaches for Auto-Encoding
-
-  Generative Adversarial Networks - [https://arxiv.org/pdf/1706.04987.pdf](https://arxiv.org/pdf/1706.04987.pdf)
-
-* CycleGAN - [https://junyanz.github.io/CycleGAN/](https://junyanz.github.io/CycleGAN/)
-* DiscoGAN - [https://arxiv.org/pdf/1703.05192.pdf](https://arxiv.org/pdf/1703.05192.pdf)
-* Softmax GAN - [https://arxiv.org/abs/1704.06191](https://arxiv.org/abs/1704.06191)
-* The Cramer Distance as a Solution to Biased Wasserstein Gradients - [https://arxiv.org/abs/1705.10743](https://arxiv.org/abs/1705.10743)
-* Improved Training of Wasserstein GANs - [https://arxiv.org/abs/1704.00028](https://arxiv.org/abs/1704.00028)
-* More...
-
-### Sources
-
-* DCGAN - [https://github.com/carpedm20/DCGAN-tensorflow](https://github.com/carpedm20/DCGAN-tensorflow)
-* InfoGAN - [https://github.com/openai/InfoGAN](https://github.com/openai/InfoGAN)
-* Improved GAN - [https://github.com/openai/improved-gan](https://github.com/openai/improved-gan)
 
 ## Citation
 

@@ -67,6 +67,10 @@ class MultiMarginalGAN(BaseGAN):
                     generators.append(self.create_component(config.generator, input=source, name='generator_'+str(i), reuse=False))
                 return generators
 
+            def enc(source, reuse=False):
+                return self.create_component(config.encoder, input=source, name='encoder', reuse=reuse)
+
+
             def interp(source, targets):
                 interps = []
                 for target in targets:
@@ -74,11 +78,16 @@ class MultiMarginalGAN(BaseGAN):
                     interps.append(source * p_uniform + target.sample * (1 - p_uniform))
                 return interps
 
-            x_hats = gen(xs[0], len(xs)-1)
+            encoder = enc(self.inputs.x)
+
+            if config.shared_encoder:
+                x_hats = gen(encoder.sample, len(xs)-1)
+            else:
+                x_hats = gen(self.inputs.x, len(xs)-1)
             self.x_hats = x_hats
             x_hat = x_hats[0].sample
 
-            x_interps = interp(xs[0], x_hats)
+            x_interps = interp(self.inputs.x, x_hats)
 
             interdomain_lambda = config.interdomain_lambda or 1
 
@@ -87,8 +96,7 @@ class MultiMarginalGAN(BaseGAN):
 
             self.uniform_sample = x_hat
 
-            t0 = xs[0]
-            t1 = x_hat
+            t0 = self.inputs.x
 
             stack = [t0] + [x_h.sample for x_h in x_hats]
             stacked = ops.concat(stack, axis=0)
@@ -100,18 +108,24 @@ class MultiMarginalGAN(BaseGAN):
 
             self.discriminator = d
             l = self.create_loss(config.loss, d, None, None, len(stack))
+            self.loss = l
+            self.losses = [self.loss]
+            self.standard_loss = l
+            self.z_loss = l
             loss1 = l
-            self.losses = [l]
             d_loss1 = l.d_loss * (self.config.d_lambda or 1)
             g_loss1 = l.g_loss * (self.config.d_lambda or 1)
-            d_loss2 = d_loss1
-            g_loss2 = g_loss1
+            d_loss2 = tf.identity(d_loss1)
+            g_loss2 = tf.identity(g_loss1)
             c_loss = None
 
 
             d_vars1 = d.variables()
             c_vars = d.variables()
-            g_vars1 = []
+            if config.shared_encoder:
+                g_vars1 = encoder.variables()
+            else:
+                g_vars1 = []
 
             for i in range(len(x_hats)):
                 x_h = x_hats[i].sample
@@ -120,32 +134,31 @@ class MultiMarginalGAN(BaseGAN):
                 d2 = self.create_component(config.discriminator, name='discriminator',
                         input=tf.concat([x_source, x_h], axis=0), features=[features], reuse=True)
                 l_g = self.create_loss(config.mi_loss or config.loss, d2, None, None, 2)
-                self.losses.append(l_g)
                 mi_g_loss = l_g.g_loss
                 mi_d_loss = l_g.d_loss
-                grad_penalty_lambda = config.gradient_penalty_lambda or 0.10
+                grad_penalty_lambda = config.gradient_penalty_lambda or 10
 
                 d3 = self.create_component(config.discriminator, name='discriminator',
                         input=x_interp, features=[features], reuse=True)
 
                 lf = config.lf or 1
-
-                gds = tf.gradients(d3.sample, d_vars1)
-                grad_penalty = [tf.reduce_sum(tf.square(gd)) for gd in gds]
-                grad_penalty = [tf.sqrt(gd) for gd in gds]
-                grad_penalty = [tf.reduce_max(tf.nn.relu(_grad - lf)) for _grad in grad_penalty]
-                grad_penalty = tf.square(tf.add_n(grad_penalty)/len(grad_penalty))
-                self.add_metric("gp", grad_penalty * grad_penalty_lambda)
                 self.add_metric("mi_g", mi_g_loss * interdomain_lambda)
                 self.add_metric("mi_d", mi_d_loss * interdomain_lambda)
 
-                d_loss1 -= grad_penalty * grad_penalty_lambda
                 d_loss1 += mi_d_loss * interdomain_lambda
                 g_loss1 += mi_g_loss * interdomain_lambda
                 g_vars1 += x_hats[i].variables()
 
                 # for custom trainer
-                d_loss2 += grad_penalty * grad_penalty_lambda
+                if config.gradient_penalty:
+                    gds = [gd for gd in tf.gradients(d3.sample, d_vars1) if gd is not None]
+                    grad_penalty = [tf.reduce_sum(tf.square(gd)) for gd in gds]
+                    grad_penalty = [tf.sqrt(gd) for gd in gds]
+                    grad_penalty = [tf.reduce_max(tf.nn.relu(_grad - lf)) for _grad in grad_penalty]
+                    grad_penalty = tf.square(tf.add_n(grad_penalty)/len(grad_penalty))
+                    d_loss1 += grad_penalty * grad_penalty_lambda
+                    d_loss2 += grad_penalty * grad_penalty_lambda
+
                 if c_loss == None:
                     c_loss = mi_d_loss * interdomain_lambda
                 else:
@@ -164,16 +177,14 @@ class MultiMarginalGAN(BaseGAN):
                     print("---", logits, labels, self.gan.batch_size())
                     labels = tf.tile(labels, [self.gan.batch_size()*2])
                     labels = tf.reshape(labels, self.ops.shape(logits))
-                    softmax = self.ops.squash(tf.nn.softmax_cross_entropy_with_logits( labels=labels, logits=logits ))
-                    g_loss1 += softmax * config.classifier
-                    g_loss2 += softmax * config.classifier
-                    c_loss += softmax * config.classifier
-                    d_loss1 += softmax * config.classifier
-                    self.add_metric('c', softmax * config.classifier)
+                    softmax = tf.nn.softmax_cross_entropy_with_logits( labels=labels, logits=logits )
+                    g_loss1 += softmax
+                    g_loss2 += softmax
+                    c_loss += softmax
+                    d_loss1 += softmax
+                    self.add_metric('c', softmax)
 
-            self.generator = x_hats[-1]
-            self.generators = x_hats
-            self.encoder = encoder
+            self.generator = x_hats[0]
 
             d_loss = d_loss1
             g_loss = g_loss1

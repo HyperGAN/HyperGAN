@@ -37,6 +37,7 @@ class ConfigurableComponent:
             "conv_reshape": self.layer_conv_reshape,
             "crop": self.layer_crop,
             "deconv": self.layer_deconv,
+            "dropout": self.layer_dropout,
             "double_resolution": self.layer_double_resolution,
             "fractional_avg_pool": self.layer_fractional_avg_pool,
             "gram_matrix": self.layer_gram_matrix,
@@ -511,6 +512,12 @@ class ConfigurableComponent:
         net = tf.concat([net, net2], axis=3)
         return net
 
+    def layer_dropout(self, net, args, options):
+        options = hc.Config(options)
+        if self.gan.method != "train":
+            return net
+        net = tf.nn.dropout(net, (float)(args[0]))
+        return net
     
     def layer_split(self, net, args, options):
         options = hc.Config(options)

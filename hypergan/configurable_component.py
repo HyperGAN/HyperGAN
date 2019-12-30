@@ -1007,7 +1007,11 @@ class ConfigurableComponent:
             obj = getattr(self.gan, options.src)
         else:
             obj = self
-        return obj.layer(args[0])
+        result = obj.layer(args[0])
+        if result is None:
+            print("Layer options: ", obj.named_layers.keys())
+            raise ValidationException("layer "+args[0]+" not found.")
+        return result
     def layer_layer_norm(self, net, args, options):
         return self.ops.lookup("layer_norm")(self, net)
 

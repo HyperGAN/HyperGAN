@@ -167,6 +167,9 @@ class ConfigurableComponent:
                 self.layer_options[j]=options
             after_count = self.count_number_trainable_params()
             if not self.ops._reuse:
+                if net == None:
+                    print("[Error] Layer resulted in null return value: ", op, args, options)
+                    raise ValidationException("Configurable layer is null")
                 print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
         else:
             print("ConfigurableComponent: Op not defined", op)

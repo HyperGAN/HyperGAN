@@ -35,13 +35,14 @@ from hypergan.samplers.gang_sampler import GangSampler
 
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps, graph=None,
-            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan", distribution_strategy=None, reuse=False):
+            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan", distribution_strategy=None, reuse=False, method="train"):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
         self.ops_backend = ops_backend
         self.ops_config = ops_config
         self.components = []
+        self.method = method
         self._batch_size = batch_size
         self._width = width
         self._height = height

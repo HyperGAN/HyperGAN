@@ -4,6 +4,7 @@ from hypergan.ops import TensorflowOps
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.skip_connections import SkipConnections
 
+import math
 import re
 import os
 import inspect
@@ -35,13 +36,14 @@ from hypergan.samplers.gang_sampler import GangSampler
 
 class BaseGAN(GANComponent):
     def __init__(self, config=None, inputs=None, device='/gpu:0', ops_config=None, ops_backend=TensorflowOps, graph=None,
-            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan", distribution_strategy=None, reuse=False):
+            batch_size=None, width=None, height=None, channels=None, debug=None, session=None, name="hypergan", distribution_strategy=None, reuse=False, method="train"):
         """ Initialized a new GAN."""
         self.inputs = inputs
         self.device = device
         self.ops_backend = ops_backend
         self.ops_config = ops_config
         self.components = []
+        self.method = method
         self._batch_size = batch_size
         self._width = width
         self._height = height
@@ -367,6 +369,7 @@ class BaseGAN(GANComponent):
         self.param_ops = {
             "decay": self.configurable_params_decay,
             "anneal": self.configurable_params_anneal,
+            "oscillate": self.configurable_params_oscillate,
             "on": self.configurable_params_turn_on
         }
         if isinstance(string, str):
@@ -399,10 +402,28 @@ class BaseGAN(GANComponent):
                 args.append(x)
         return args, options
 
+    def configurable_params_oscillate(self, args, options):
+        offset = int(options.offset or 0)
+        steps = int(options.T or options.steps or 1000)
+        method = options.method or "sin"
+        _range = options.range or "0:1"
+        r1,r2 = _range.split(":")
+        r1 = float(r1)
+        r2 = float(r2)
+ 
+        if method == "sin":
+            t = self.gan.steps
+            t = tf.dtypes.cast(t, tf.float32)
+            n1_to_1 = tf.math.sin((tf.constant(math.pi) * 2 * t + tf.constant(offset, tf.float32))/ (steps))
+            n = (n1_to_1+1)/2.0
+            return (1-n)*r1 + n*r2
+        else:
+            raise ValidationException(options.method + " not a supported oscillation method")
     def configurable_params_anneal(self, args, options):
         steps = int(options.T or options.steps or 1000)
         alpha = float(args[0])
         t = self.gan.steps
+        t = tf.dtypes.cast(t, tf.float32)
         return tf.pow(alpha, tf.dtypes.cast(t, tf.float32) / steps)
 
     def configurable_params_decay(self, args, options):

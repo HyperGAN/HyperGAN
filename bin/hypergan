@@ -110,7 +110,7 @@ try:
 
     else:
         def gan_fn(config, inputs, distribution_strategy=None, session=None, reuse=False, graph=None):
-            gan = hg.GAN(config=config, inputs=inputs, debug=args.debug, device=args.device, distribution_strategy=distribution_strategy, session=session, reuse=reuse, graph=graph)
+            gan = hg.GAN(config=config, inputs=inputs, debug=args.debug, device=args.device, distribution_strategy=distribution_strategy, session=session, reuse=reuse, graph=graph, method=args.method)
             gan.args = args
             gan.x_width = width
             gan.x_height = height

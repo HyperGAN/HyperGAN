@@ -37,6 +37,7 @@ class ConfigurableComponent:
             "conv_reshape": self.layer_conv_reshape,
             "crop": self.layer_crop,
             "deconv": self.layer_deconv,
+            "dropout": self.layer_dropout,
             "double_resolution": self.layer_double_resolution,
             "fractional_avg_pool": self.layer_fractional_avg_pool,
             "gram_matrix": self.layer_gram_matrix,
@@ -166,6 +167,9 @@ class ConfigurableComponent:
                 self.layer_options[j]=options
             after_count = self.count_number_trainable_params()
             if not self.ops._reuse:
+                if net == None:
+                    print("[Error] Layer resulted in null return value: ", op, args, options)
+                    raise ValidationException("Configurable layer is null")
                 print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
         else:
             print("ConfigurableComponent: Op not defined", op)
@@ -486,6 +490,12 @@ class ConfigurableComponent:
         net = tf.concat([net, net2], axis=3)
         return net
 
+    def layer_dropout(self, net, args, options):
+        options = hc.Config(options)
+        if self.gan.method != "train":
+            return net
+        net = tf.nn.dropout(net, (float)(args[0]))
+        return net
     
     def layer_split(self, net, args, options):
         options = hc.Config(options)
@@ -972,7 +982,11 @@ class ConfigurableComponent:
             obj = getattr(self.gan, options.src)
         else:
             obj = self
-        return obj.layer(args[0])
+        result = obj.layer(args[0])
+        if result is None:
+            print("Layer options: ", obj.named_layers.keys())
+            raise ValidationException("layer "+args[0]+" not found.")
+        return result
     def layer_layer_norm(self, net, args, options):
         return self.ops.lookup("layer_norm")(self, net)
 

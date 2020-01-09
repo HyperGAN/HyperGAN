@@ -70,9 +70,15 @@ class BatchWalkSampler(BaseSampler):
             z = self.steps[i][self.step]
             z = np.expand_dims(z,axis=0)
             x = self.xs[i]
-            g = gan.session.run(gan.generator.sample, feed_dict={z_t: z, x_t: x})
-            gs.append(x)
-            gs.append(g)
+            if hasattr(gan, "generators_cache"):
+                feed_dict={z_t: z, x_t: x}
+                x_hats = gan.session.run([g.sample for g in gan.generators_cache.values()], feed_dict)
+                gs += [x] + x_hats
+
+            else:
+                g = gan.session.run(gan.generator.sample, feed_dict={z_t: z, x_t: x})
+                gs.append(x)
+                gs.append(g)
         g = np.hstack(gs)
         xshape = gan.ops.shape(gan.inputs.x)
         g = np.reshape(gs, [self.rows*2, self.columns, xshape[1], xshape[2], xshape[3]])

@@ -373,9 +373,9 @@ class BaseGAN(GANComponent):
             "on": self.configurable_params_turn_on
         }
         if isinstance(string, str):
-            if re.match("^\d+$", string):
+            if re.match("^-?\d+$", string):
                 return int(string)
-            if re.match("^\d+?\.\d+?$", string):
+            if re.match("^-?\d+?\.\d+?$", string):
                 return float(string)
             if "(" not in string:
                 return string

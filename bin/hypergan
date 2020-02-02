@@ -25,7 +25,7 @@ class CommandParser:
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--random_crop', dest='random_crop', action='store_true', help='Randomly crop images.')
         parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
-        parser.add_argument('--align', '-a', nargs='?', dest='align', help='Adds an additional input folder.')
+        parser.add_argument('--align', '-a', nargs='?', action='append', dest='align', help='Adds an additional input folder.')
         parser.add_argument('--save_every', type=int, default=-1, help='Saves the model every n steps.')
         parser.add_argument('--sample_every', type=int, default=100, help='Saves a sample every X steps.')
         parser.add_argument('--save_samples', action='store_true', help='Saves samples to the local `samples` directory.')
@@ -122,7 +122,8 @@ try:
             inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
             directories = [args.directory]
             if args.align:
-                directories+=args.align.split(" ")
+                directories+=args.align
+
             inputs.create(directories,
                   channels=channels, 
                   format=args.format,

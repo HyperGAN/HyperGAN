@@ -140,7 +140,6 @@ class ImageLoader:
     def image_folder_create(self, directories, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
         self.datasets = []
 
-        print("CREATING WITH", directories)
         if(not isinstance(directories, list)):
             directories = [directories]
 
@@ -155,10 +154,8 @@ class ImageLoader:
             if(len(dirs) == 1):
                 # No subdirectories, use all the images in the passed in path
                 filenames = glob.glob(directory+"/*."+format)
-                print("GLOB", directory+"/*."+format)
             else:
                 filenames = glob.glob(directory+"/**/*."+format)
-                print("GLOB", directory+"/**/*."+format)
 
             filenames = natsorted(filenames)
 

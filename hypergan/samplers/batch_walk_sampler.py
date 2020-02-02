@@ -20,6 +20,7 @@ class BatchWalkSampler(BaseSampler):
         self.needed = int(self.rows*self.columns / gan.batch_size())
         if hasattr(self.gan, 'set_x'):
             self.gan.session.run(self.gan.set_x)
+        self.xs = [self.gan.session.run(self.gan.inputs.x) for i in range(self.needed)]
         self.set_x_step = 0
         #self.style_t = gan.styleb.sample
         #self.style_v = gan.session.run(self.style_t)
@@ -28,7 +29,6 @@ class BatchWalkSampler(BaseSampler):
     def regenerate_steps(self):
         gan = self.gan
         z_t = gan.latent.sample
-        inputs_t = gan.inputs.x
 
         s=np.shape(gan.session.run(gan.latent.sample))
         bs = 16
@@ -54,14 +54,14 @@ class BatchWalkSampler(BaseSampler):
     def _sample(self):
         gan = self.gan
         z_t = gan.latent.sample
-        inputs_t = gan.inputs.x
+        x_t = gan.inputs.x
         self.step+=1
 
         if(len(self.steps) == 0 or self.step >= len(self.steps[0])):
             self.steps = self.regenerate_steps()
             self.step=0
 
-        gs = []
+        gs = []#self.xs
         self.set_x_step += 1
         for i in range(int(self.needed)):
             if self.set_x_step % 100 == 0:
@@ -69,11 +69,19 @@ class BatchWalkSampler(BaseSampler):
                     self.gan.session.run(self.gan.set_x)
             z = self.steps[i][self.step]
             z = np.expand_dims(z,axis=0)
-            g = gan.session.run(gan.generator.sample, feed_dict={z_t: z})
-            gs.append(g)
+            x = self.xs[i]
+            if hasattr(gan, "generators_cache"):
+                feed_dict={z_t: z, x_t: x}
+                x_hats = gan.session.run([g.sample for g in gan.generators_cache.values()], feed_dict)
+                gs += [x] + x_hats
+
+            else:
+                g = gan.session.run(gan.generator.sample, feed_dict={z_t: z, x_t: x})
+                gs.append(x)
+                gs.append(g)
         g = np.hstack(gs)
         xshape = gan.ops.shape(gan.inputs.x)
-        g = np.reshape(gs, [self.rows, self.columns, xshape[1], xshape[2], xshape[3]])
+        g = np.reshape(gs, [self.rows*2, self.columns, xshape[1], xshape[2], xshape[3]])
         g = np.concatenate(g, axis=1)
         g = np.concatenate(g, axis=1)
         g = np.expand_dims(g, axis=0)

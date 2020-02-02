@@ -218,7 +218,7 @@ class GANComponent:
         self._metrics.append({
             "description": self.ops.description,
             "name": name,
-            "value": value
+            "value": self.ops.squash(value)
         })
         return self._metrics
 

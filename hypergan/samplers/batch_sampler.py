@@ -1,14 +1,17 @@
 from hypergan.samplers.base_sampler import BaseSampler
-import tensorflow as tf
+import numpy as np
 
 class BatchSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         BaseSampler.__init__(self, gan, samples_per_row)
 
-    def _sample(self):
-        gan = self.gan
+    def compatible_with(gan):
+        if hasattr(gan, 'latent'):
+            return True
+        return False
 
+    def _sample(self):
         return {
-            'generator': gan.session.run(gan.generator.sample)
+            'generator': self.gan.generator.forward(self.gan.latent.sample())
         }
 

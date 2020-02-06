@@ -51,8 +51,7 @@ class BaseTrainer(GANComponent):
             hook.after_create()
 
     def step(self, feed_dict={}):
-        with self.gan.graph.as_default():
-            step = self._step(feed_dict)
+        step = self._step(feed_dict)
         self.current_step += 1
         return step
 
@@ -69,7 +68,6 @@ class BaseTrainer(GANComponent):
 
     def output_variables(self, metrics):
         gan = self.gan
-        sess = gan.session
         return [metrics[k] for k in sorted(metrics.keys())]
 
 

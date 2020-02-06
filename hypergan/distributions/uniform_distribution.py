@@ -1,4 +1,3 @@
-import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
 from .base_distribution import BaseDistribution
@@ -24,20 +23,17 @@ class UniformDistribution(BaseDistribution):
 
     def create(self):
         gan = self.gan
-        ops = self.ops
         config = self.config
         projections = []
         batch_size = self.gan.batch_size()
-        if self.z is None:
-            output_shape = self.output_shape or [batch_size, int(config.z)]
-            self.z = tf.random.uniform(output_shape, config.min or -1, config.max or 1, dtype=ops.dtype)
+        self.z = 0 #TODO pytorch
 
         if 'projections' in config:
             for projection in config.projections:
                 projections.append(self.lookup(projection)(config, gan, self.z))
         else:
                 projections.append(self.z)
-        self.sample = tf.concat(axis=len(self.z.get_shape())-1, values=projections)
+        self.sample = projections
         return self.sample
 
     def lookup(self, projection):
@@ -51,8 +47,7 @@ class UniformDistribution(BaseDistribution):
             return gaussian
         if projection == 'periodic':
             return periodic
-        return self.ops.lookup(projection)
-        
+        return self.lookup_function(projection)
 
 def identity(config, gan, net):
     return net

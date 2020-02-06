@@ -55,25 +55,11 @@ class StandardGAN(BaseGAN):
         config = self.config
 
         self.latent = self.create_component(config.z_distribution or config.latent)
-        self.uniform_distribution = self.latent
 
-        z_shape = self.ops.shape(self.latent.sample)
-        self.android_input = tf.reshape(self.latent.sample, [-1])
+        self.generator = self.create_component(config.generator, name="generator", input=self.latent)
 
-        direction, slider = self.create_controls(self.ops.shape(self.android_input))
-        self.slider = slider
-        self.direction = direction
-        z = self.android_input + slider * direction
-        z = tf.maximum(-1., z)
-        z = tf.minimum(1., z)
-        z = tf.reshape(z, z_shape)
-        self.control_z = z
-
-        self.generator = self.create_component(config.generator, name="generator", input=z)
-        self.autoencoded_x = self.generator.sample
-
-        x, g = self.inputs.x, self.generator.sample
-        if self.ops.shape(x) == self.ops.shape(g):
+        x, g = self.inputs.next()[0], self.generator.sample
+        if x.size() == g.size():
             self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
         else:
             print("X size", self.ops.shape(x))
@@ -85,11 +71,6 @@ class StandardGAN(BaseGAN):
 
         self.android_output = tf.reshape(self.generator.sample, [-1])
 
-
-    def create_controls(self, z_shape):
-        direction = tf.constant(0.0, shape=z_shape, name='direction') * 1.00
-        slider = tf.constant(0.0, name='slider', dtype=tf.float32) * 1.00
-        return direction, slider
 
     def g_vars(self):
         return self.latent.variables() + self.generator.variables()

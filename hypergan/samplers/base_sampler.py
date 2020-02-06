@@ -1,5 +1,4 @@
 import numpy as np
-import tensorflow as tf
 from PIL import Image
 from hypergan.viewer import GlobalViewer
 
@@ -17,29 +16,18 @@ class BaseSampler:
     def sample(self, path, save_samples):
         gan = self.gan
 
-        with gan.session.as_default():
+        sample = self._sample()
 
-            sample = self._sample()
+        data = sample['generator'].permute(0,2,3,1).numpy()
+        slots = min(gan.batch_size(), self.samples_per_row)
+        slots = min(slots, np.shape(data)[0])
+        stacks = [np.hstack(data[i*slots:i*slots+slots]) for i in range(np.shape(data)[0]//slots)]
+        sample_data = np.vstack(stacks)
+        image = self.plot(sample_data, path, save_samples)
+        sample_name = 'generator'
+        samples = [[sample_data, sample_name]]
 
-            data = sample['generator']
-
-            width = min(gan.batch_size(), self.samples_per_row)
-            width = min(width, np.shape(data)[0])
-            stacks = [np.hstack(data[i*width:i*width+width]) for i in range(np.shape(data)[0]//width)]
-            sample_data = np.vstack(stacks)
-            image = self.plot(sample_data, path, save_samples)
-            sample_name = 'generator'
-            samples = [[sample_data, sample_name]]
-
-            return [{'image':path, 'label':'sample'} for sample_data, sample_filename in samples]
-
-
-    def replace_none(self, t):
-        """
-        This method replaces None with 0.
-        This can be used for sampling.  If sampling None, the viewer turns black and does not recover.
-        """
-        return tf.where(tf.is_nan(t),tf.zeros_like(t),t)
+        return [{'image':path, 'label':'sample'} for sample_data, sample_filename in samples]
 
     def plot(self, image, filename, save_sample, regularize=True):
         """ Plot an image."""

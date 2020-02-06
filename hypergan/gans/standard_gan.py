@@ -55,22 +55,11 @@ class StandardGAN(BaseGAN):
         config = self.config
 
         self.latent = self.create_component(config.z_distribution or config.latent)
-
-        self.generator = self.create_component(config.generator, name="generator", input=self.latent)
-
-        x, g = self.inputs.next()[0], self.generator.sample
-        if x.size() == g.size():
-            self.discriminator = self.create_component(config.discriminator, name="discriminator", input=tf.concat([x,g],axis=0))
-        else:
-            print("X size", self.ops.shape(x))
-            print("G size", self.ops.shape(g))
-            raise ValidationException("X and G sizes differ")
+        self.generator = self.create_component(config.generator, input=self.latent)
+        self.discriminator = self.create_component(config.discriminator)
         self.loss = self.create_component(config.loss, discriminator=self.discriminator)
         self.losses = [self.loss]
         self.trainer = self.create_component(config.trainer)
-
-        self.android_output = tf.reshape(self.generator.sample, [-1])
-
 
     def g_vars(self):
         return self.latent.variables() + self.generator.variables()

@@ -1,16 +1,16 @@
 import hyperchamber as hc
 import numpy as np
+import torch
 from .base_distribution import BaseDistribution
 
 from ..gan_component import ValidationException
+from torch.distributions import uniform
 
 TINY=1e-12
 
 class UniformDistribution(BaseDistribution):
-    def __init__(self, gan, config, name="LatentDistribution", output_shape=None, z=None, reuse=False):
-        self.output_shape = output_shape
-        self.z = z
-        BaseDistribution.__init__(self, gan, config, name=name)
+    def __init__(self, gan, config):
+        BaseDistribution.__init__(self, gan, config)
 
     def required(self):
         return "".split()
@@ -26,15 +26,7 @@ class UniformDistribution(BaseDistribution):
         config = self.config
         projections = []
         batch_size = self.gan.batch_size()
-        self.z = 0 #TODO pytorch
-
-        if 'projections' in config:
-            for projection in config.projections:
-                projections.append(self.lookup(projection)(config, gan, self.z))
-        else:
-                projections.append(self.z)
-        self.sample = projections
-        return self.sample
+        self.z = uniform.Uniform(torch.Tensor([-1.0]),torch.Tensor([1.0]))
 
     def lookup(self, projection):
         if callable(projection):
@@ -48,6 +40,16 @@ class UniformDistribution(BaseDistribution):
         if projection == 'periodic':
             return periodic
         return self.lookup_function(projection)
+
+    def sample(self):
+        #if 'projections' in config:
+        #    for projection in config.projections:
+        #        projections.append(self.lookup(projection)(config, gan, self.z))
+        #else:
+        #        projections.append(self.z)
+
+
+        return self.z.sample(torch.Size([self.gan.batch_size(), self.config.z])).view(self.gan.batch_size(), self.config.z)
 
 def identity(config, gan, net):
     return net

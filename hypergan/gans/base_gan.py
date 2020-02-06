@@ -42,7 +42,7 @@ class BaseGAN(GANComponent):
         if config == None:
             config = hg.Configuration.default()
 
-        GANComponent.__init__(self, self, config, name=self.name)
+        GANComponent.__init__(self, self, config)
 
     def batch_size(self):
         return self.inputs.samples[0].size()[0]

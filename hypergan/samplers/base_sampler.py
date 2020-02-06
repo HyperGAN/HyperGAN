@@ -18,7 +18,7 @@ class BaseSampler:
 
         sample = self._sample()
 
-        data = sample['generator'].permute(0,2,3,1).numpy()
+        data = sample['generator'].permute(0,2,3,1).detach().numpy()
         slots = min(gan.batch_size(), self.samples_per_row)
         slots = min(slots, np.shape(data)[0])
         stacks = [np.hstack(data[i*slots:i*slots+slots]) for i in range(np.shape(data)[0]//slots)]

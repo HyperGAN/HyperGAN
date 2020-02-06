@@ -3,6 +3,7 @@ import inspect
 import itertools
 import types
 import importlib
+import torch.nn as nn
 
 class ValidationException(Exception):
     """
@@ -12,13 +13,13 @@ class ValidationException(Exception):
     """
     pass
 
-class GANComponent:
+class GANComponent(nn.Module):
     """
     GANComponents are pluggable pieces within a GAN.
 
     GAN objects are also GANComponents.
     """
-    def __init__(self, gan, config, name=None, reuse=False, weights=None, biases=None):
+    def __init__(self, gan, config):
         """
         Initializes a gan component based on a `gan` and a `config` dictionary.
 
@@ -26,6 +27,7 @@ class GANComponent:
 
         A `ValidationException` is raised if the GAN component configuration fails to validate.
         """
+        super(GANComponent, self).__init__()
         self.gan = gan
         self.config = hc.Config(config)
         errors = self.validate()

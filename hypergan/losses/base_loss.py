@@ -4,8 +4,8 @@ import tensorflow as tf
 
 class BaseLoss(GANComponent):
     def __init__(self, gan, config, discriminator=None):
-        self.discriminator = discriminator
         GANComponent.__init__(self, gan, config)
+        self.discriminator = discriminator
 
     def create(self):
         gan = self.gan

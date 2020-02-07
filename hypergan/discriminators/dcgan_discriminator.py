@@ -12,7 +12,18 @@ class DCGANDiscriminator(BaseDiscriminator):
         return []
 
     def create(self):
-        self.net = nn.Sequential(nn.Linear(64*64*3, 1))
+        self.net = nn.Sequential(
+                nn.Conv2d(3, 64, 3, 2, 1),
+                nn.ReLU(),
+                nn.Conv2d(64, 128, 3, 2, 1),
+                nn.ReLU(),
+                nn.Conv2d(128, 256, 3, 2, 1),
+                nn.ReLU(),
+                nn.Conv2d(256, 512, 3, 2, 1),
+                nn.ReLU()
+        )
+        self.linear = nn.Linear(4*4*512, 1)
 
     def forward(self, x):
-        return self.net(x.view(self.gan.batch_size(), -1)).view(self.gan.batch_size(),1)
+        net = self.net(x).view(self.gan.batch_size(), -1)
+        return self.linear(net).view(self.gan.batch_size(),1)

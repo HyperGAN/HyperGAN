@@ -44,7 +44,7 @@ class BaseGAN():
             config = hg.Configuration.default()
 
         self.config = config
-        self._metrics = []
+        self._metrics = {}
         self.create()
 
     def add_metric(self, name, value):
@@ -52,24 +52,12 @@ class BaseGAN():
             name:string
             value:Tensor
         """
-        counters = 0
-        for m in self._metrics:
-            if name == m["name"]:
-                return self._metrics
-
-        self._metrics.append({
-            "name": name,
-            "value": value
-        })
+        self._metrics[name] = value
         return self._metrics
 
     def metrics(self):
         """returns a metric : tensor hash"""
-        metrics = {}
-        for metric in self._metrics:
-            metrics[metric['name']]=metric['value']
-        return metrics
-
+        return self._metrics
 
     def batch_size(self):
         return self.inputs.samples[0].size()[0]
@@ -155,12 +143,6 @@ class BaseGAN():
 
     def initialize_variables(self):
         pass
-
-    def metrics(self):
-        metrics = {}
-        for metric in self._metrics:
-            metrics[metric['name']]=metric['value']
-        return metrics
 
     def configurable_param(self, string):
         self.param_ops = {

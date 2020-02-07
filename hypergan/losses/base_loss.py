@@ -15,8 +15,7 @@ class BaseLoss():
         d_loss, g_loss = [c.mean() for c in self._forward(d_real, d_fake)]
 
         self.gan.add_metric('d_loss', d_loss)
-        if g_loss is not None:
-            self.gan.add_metric('g_loss', g_loss)
+        self.gan.add_metric('g_loss', g_loss)
 
         self.sample = [d_loss, g_loss]
         self.d_loss = d_loss

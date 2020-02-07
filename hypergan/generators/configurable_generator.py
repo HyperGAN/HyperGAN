@@ -8,7 +8,6 @@ from functools import reduce
 from .base_generator import BaseGenerator
 from hypergan.configurable_component import ConfigurableComponent
 
-class ConfigurableGenerator(BaseGenerator, ConfigurableComponent):
-    def __init__(self, gan, config, name=None, input=None, reuse=None, weights=None, biases=None, x=None, g=None, features=[], skip_connections=[]):
-        ConfigurableComponent.__init__(self, gan, config, name=name, input=input,features=features,reuse=reuse, x=x, g=g)
-        BaseGenerator.__init__(self, gan, config, name=name, input=input,reuse=reuse, weights=weights, biases=biases)
+class ConfigurableGenerator(ConfigurableComponent):
+    def __init__(self, gan, config, *args, **kw_args):
+        ConfigurableComponent.__init__(self, gan, config,*args, **kw_args)

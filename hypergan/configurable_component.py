@@ -366,16 +366,22 @@ class ConfigurableComponent(GANComponent):
         options = hc.Config(options)
 
         self.nn_layers.append(nn.Conv2d(self.current_channels, channels, options.filter or 3, options.stride or 2, (options.filter or 3)//2))
-        self.nn_layers.append(nn.ReLU())#TODO
+        if options.activation != "null":
+            self.nn_layers.append(nn.ReLU())#TODO
         self.current_channels = channels
         self.current_width = self.current_width // 2 #TODO
         self.current_height = self.current_height // 2 #TODO
         self.current_input_size = self.current_channels * self.current_width * self.current_height
 
     def layer_linear(self, net, args, options):
-
+        options = hc.Config(options)
         self.nn_layers.append(nn.Flatten())#TODO only if necessary
         self.nn_layers.append(nn.Linear(self.current_input_size, int(args[0])))
+        if options.activation != "null":
+            self.nn_layers.append(nn.ReLU())#TODO
+        #TODO activation
+
+        self.current_input_size = int(args[0])
 
     def layer_reshape(self, net, args, options):
         dims = [int(x) for x in args[0].split("*")]
@@ -613,7 +619,18 @@ class ConfigurableComponent(GANComponent):
 
 
     def layer_deconv(self, net, args, options):
-        return self.do_ops_layer(self.ops.deconv2d, net, int(args[0]), options)
+        if len(args) > 0:
+            channels = int(args[0])
+        else:
+            channels = self.ops.shape(net)[-1]
+
+        options = hc.Config(options)
+        self.nn_layers.append(nn.ConvTranspose2d(self.current_channels, channels, options.filter or 3, options.stride or 2, (options.stride or 2) // 1))
+        self.nn_layers.append(nn.ReLU())#TODO
+        self.current_channels = channels
+        self.current_width = self.current_width * 2 #TODO
+        self.current_height = self.current_height * 2 #TODO
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
 
     def layer_conv_double(self, net, args, options):
         options["stride"] = 1

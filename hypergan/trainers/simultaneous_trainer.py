@@ -31,19 +31,14 @@ class SimultaneousTrainer(BaseTrainer):
 
         self.optimizer.zero_grad()
 
-        G = self.gan.generator(self.gan.latent.sample().cuda())
+        G = self.gan.generator(self.gan.latent.sample())
         D = self.gan.discriminator
-        G.cuda()
-        d_real = D(self.gan.inputs.next()[0].cuda())
+        d_real = D(self.gan.inputs.next()[0])
         d_fake = D(G)
-        d_real.cuda()
-        d_fake.cuda()
 
         criterion = torch.nn.BCEWithLogitsLoss()
         g_loss = criterion(d_fake, torch.ones_like(d_fake))
         d_loss = criterion(d_real, torch.ones_like(d_real)) + criterion(d_fake, torch.zeros_like(d_fake))
-        g_loss.cuda()
-        d_loss.cuda()
 
         #d_loss, g_loss = loss.sample
 

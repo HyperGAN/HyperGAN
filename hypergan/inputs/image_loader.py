@@ -39,5 +39,5 @@ class ImageLoader:
         self.next()
 
     def next(self):
-        self.samples = [d.next()[0] for d in self.datasets]
+        self.samples = [d.next()[0].cuda() for d in self.datasets]
         return self.samples

@@ -1,6 +1,5 @@
 import hyperchamber as hc
 import torch.nn as nn
-from hypergan.discriminators.common import *
 import inspect
 import os
 

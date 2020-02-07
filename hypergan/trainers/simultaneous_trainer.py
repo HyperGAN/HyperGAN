@@ -25,16 +25,26 @@ class SimultaneousTrainer(BaseTrainer):
 
         self.before_step(self.current_step, feed_dict)
 
+
         d_loss, g_loss = self.gan.forward_loss()
+
+        for p in self.gan.g_parameters():
+            p.requires_grad = True
+        for p in self.gan.d_parameters():
+            p.requires_grad = False
         g_loss.mean().backward(retain_graph=True)
-        self.optimizer.step()
-        self.optimizer.zero_grad()
+        for p in self.gan.d_parameters():
+            p.requires_grad = True
+        for p in self.gan.g_parameters():
+            p.requires_grad = False
         d_loss.mean().backward()
+        for p in self.gan.g_parameters():
+            p.requires_grad = True
+        self.optimizer.step()
 
         if self.current_step % 10 == 0:
             self.print_metrics(self.current_step)
 
-        self.optimizer.step()
 
     def print_metrics(self, step):
         metrics = self.gan.metrics()

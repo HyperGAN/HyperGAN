@@ -55,6 +55,18 @@ class BaseGAN():
         self._metrics[name] = value
         return self._metrics
 
+    def parameters(self):
+        for param in self.g_parameters():
+            yield param
+        for param in self.d_parameters():
+            yield param
+
+    def g_parameters(self):
+        print("Warning: BaseGAN.g_parameters() called directly.  Please override")
+
+    def d_parameters(self):
+        print("Warning: BaseGAN.d_parameters() called directly.  Please override")
+
     def metrics(self):
         """returns a metric : tensor hash"""
         return self._metrics

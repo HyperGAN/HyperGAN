@@ -75,3 +75,9 @@ class StandardGAN(BaseGAN):
         "used in hypergan build"
         return [
         ]
+
+    def g_parameters(self):
+        return self.generator.parameters()
+
+    def d_parameters(self):
+        return self.discriminator.parameters()

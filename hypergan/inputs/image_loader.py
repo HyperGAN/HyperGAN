@@ -35,7 +35,7 @@ class ImageLoader:
         for directory in directories:
             #TODO channels
             image_folder = torchvision.datasets.ImageFolder(directory, transform=transform)
-            self.datasets.append(iter(data.DataLoader(image_folder, batch_size=self.batch_size, shuffle=True, num_workers=4)))
+            self.datasets.append(iter(data.DataLoader(image_folder, batch_size=self.batch_size, shuffle=True, num_workers=4, drop_last=True)))
         self.next()
 
     def next(self):

@@ -5,6 +5,7 @@ import re
 import os
 import operator
 from functools import reduce
+import torch.nn as nn
 
 from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
@@ -12,9 +13,13 @@ from hypergan.gan_component import ValidationException
 class ConfigurationException(Exception):
     pass
 
-class ConfigurableComponent:
+class ConfigurableComponent(GANComponent):
     def __init__(self, gan, config, name=None, input=None, reuse=None, weights=None, biases=None, x=None, g=None, features=[], skip_connections=[], context={}):
+        self.current_channels = gan.channels()
+        self.current_width = gan.width()
+        self.current_height = gan.height()
         self.layers = []
+        self.nn_layers = []
         self.skip_connections = skip_connections
         self.layer_options = {}
         self.layer_ops = {
@@ -82,6 +87,7 @@ class ConfigurableComponent:
         if not hasattr(gan, "named_layers"):
             gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
+        GANComponent.__init__(self, gan, config)
 
     def required(self):
         return "layers defaults".split()
@@ -109,6 +115,13 @@ class ConfigurableComponent:
 
         return net
 
+    def create(self):
+        for layer in self.config.layers:
+            net = self.parse_layer(layer)
+            self.layers += [net]
+
+        self.net = nn.Sequential(*self.nn_layers)
+
     def parse_args(self, strs):
         options = {}
         args = []
@@ -120,7 +133,7 @@ class ConfigurableComponent:
                 args.append(self.gan.configurable_param(x))
         return args, options
 
-    def parse_layer(self, net, layer):
+    def parse_layer(self, layer):
         config = self.config
 
         if isinstance(layer, list):
@@ -130,11 +143,8 @@ class ConfigurableComponent:
                 if isinstance(l, int):
                     axis = l
                     continue
-                n = self.parse_layer(net, l)
+                n = self.parse_layer(l)
                 ns += [n]
-            net = tf.concat(ns, axis=axis)
-
-            return net
 
         else:
             parens = re.findall('\(.*?\)',layer)
@@ -146,33 +156,27 @@ class ConfigurableComponent:
                     d[i] = d[i].replace("PAREN"+str(j), paren)
             op = d[0]
             args, options = self.parse_args(d[1:])
-        
-            net = self.build_layer(net, op, args, options)
-            return net
-            
+            self.build_layer(op, args, options)
 
-    def build_layer(self, net, op, args, options):
+    def build_layer(self, op, args, options):
         if self.layer_ops[op]:
-            before = self.variables()
-            before_count = self.count_number_trainable_params()
-            net = self.layer_ops[op](net, args, options)
+            #before_count = self.count_number_trainable_params()
+            self.layer_ops[op](None, args, options)
             if 'name' in options:
-                self.set_layer(options['name'], net)
+                self.set_layer(options['name'], self.nn_layers[-1])
 
-            after = self.variables()
-            new = set(after) - set(before)
-            for j in new:
-                self.layer_options[j]=options
-            after_count = self.count_number_trainable_params()
-            if not self.ops._reuse:
-                if net == None:
-                    print("[Error] Layer resulted in null return value: ", op, args, options)
-                    raise ValidationException("Configurable layer is null")
-                print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
+            #after = self.variables()
+            #new = set(after) - set(before)
+            #for j in new:
+            #    self.layer_options[j]=options
+            #after_count = self.count_number_trainable_params()
+            #if not self.ops._reuse:
+            #    if net == None:
+            #        print("[Error] Layer resulted in null return value: ", op, args, options)
+            #        raise ValidationException("Configurable layer is null")
+            #    print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
         else:
             print("ConfigurableComponent: Op not defined", op)
-
-        return net
 
     def set_layer(self, name, net):
         self.gan.named_layers[name] = net
@@ -359,22 +363,19 @@ class ConfigurableComponent:
         else:
             channels = self.ops.shape(net)[-1]
 
-        return self.do_ops_layer(self.ops.conv2d, net, channels, options)
+        options = hc.Config(options)
+
+        self.nn_layers.append(nn.Conv2d(self.current_channels, channels, options.filter or 3, options.stride or 2, (options.filter or 3)//2))
+        self.nn_layers.append(nn.ReLU())#TODO
+        self.current_channels = channels
+        self.current_width = self.current_width // 2 #TODO
+        self.current_height = self.current_height // 2 #TODO
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
 
     def layer_linear(self, net, args, options):
 
-        if "*" in str(args[0]):
-            reshape = [int(x) for x in args[0].split("*")]
-            size = reduce(operator.mul, reshape)
-        else:
-            size = int(args[0])
-            reshape = None
-        net = self.ops.reshape(net, [self.ops.shape(net)[0], -1])
-
-        options['reshape'] = reshape
-        net = self.do_ops_layer(self.ops.linear, net, size, options)
-
-        return net
+        self.nn_layers.append(nn.Flatten())#TODO only if necessary
+        self.nn_layers.append(nn.Linear(self.current_input_size, int(args[0])))
 
     def layer_reshape(self, net, args, options):
         dims = [int(x) for x in args[0].split("*")]
@@ -1246,3 +1247,5 @@ class ConfigurableComponent:
             net = tf.identity(net, name=options["name"])
         return net
 
+    def forward(self, x):
+        return self.net(x).view(self.gan.batch_size(), -1)

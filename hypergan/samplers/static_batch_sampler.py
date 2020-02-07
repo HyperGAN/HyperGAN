@@ -4,7 +4,7 @@ import numpy as np
 class StaticBatchSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         BaseSampler.__init__(self, gan, samples_per_row)
-        self.latent = self.gan.latent.sample()
+        self.latent = self.gan.latent.sample().cuda()
 
     def compatible_with(gan):
         if hasattr(gan, 'latent'):

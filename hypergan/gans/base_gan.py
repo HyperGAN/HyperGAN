@@ -9,6 +9,7 @@ import os
 import inspect
 import hypergan as hg
 import numpy as np
+import torch.nn as nn
 
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.progressive_sampler import ProgressiveSampler
@@ -28,7 +29,7 @@ from hypergan.samplers.segment_sampler import SegmentSampler
 from hypergan.samplers.y_sampler import YSampler
 from hypergan.samplers.gang_sampler import GangSampler
 
-class BaseGAN(GANComponent):
+class BaseGAN():
     def __init__(self, config=None, inputs=None, debug=None, name="hypergan", method="train"):
         """ Initialized a new GAN."""
         self.inputs = inputs
@@ -42,7 +43,34 @@ class BaseGAN(GANComponent):
         if config == None:
             config = hg.Configuration.default()
 
-        GANComponent.__init__(self, self, config)
+        self.config = config
+        self._metrics = []
+        self.create()
+
+    def add_metric(self, name, value):
+        """adds metric to monitor during training
+            name:string
+            value:Tensor
+        """
+        counters = 0
+        for m in self._metrics:
+            if name == m["name"] or m["name"].startswith(name):
+                counters += 1
+        if counters != 0:
+            name += "_"+str(counters+1)
+        self._metrics.append({
+            "name": name,
+            "value": value
+        })
+        return self._metrics
+
+    def metrics(self):
+        """returns a metric : tensor hash"""
+        metrics = {}
+        for metric in self._metrics:
+            metrics[metric['name']]=metric['value']
+        return metrics
+
 
     def batch_size(self):
         return self.inputs.samples[0].size()[0]
@@ -70,7 +98,7 @@ class BaseGAN(GANComponent):
             return None
         if defn['class'] == None:
             raise ValidationException("Component definition is missing '" + name + "'")
-        klass = self.lookup_class(defn['class'])
+        klass = GANComponent.lookup_function(None, defn['class'])
         gan_component = klass(self, defn, *args, **kw_args)
         self.components.append(gan_component)
         self.components = list(set(self.components))
@@ -117,11 +145,6 @@ class BaseGAN(GANComponent):
         metrics = {}
         for metric in self._metrics:
             metrics[metric['name']]=metric['value']
-        for c in self.components:
-            try:
-                metrics.update(c.metrics())
-            except AttributeError:
-                pass
         return metrics
 
     def configurable_param(self, string):

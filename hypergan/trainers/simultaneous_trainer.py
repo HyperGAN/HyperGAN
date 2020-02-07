@@ -31,10 +31,10 @@ class SimultaneousTrainer(BaseTrainer):
 
         self.optimizer.zero_grad()
 
-        G = self.gan.generator(self.gan.latent.sample())
+        G = self.gan.generator(self.gan.latent.sample().cuda())
         D = self.gan.discriminator
         G.cuda()
-        d_real = D(self.gan.inputs.next()[0])
+        d_real = D(self.gan.inputs.next()[0].cuda())
         d_fake = D(G)
         d_real.cuda()
         d_fake.cuda()

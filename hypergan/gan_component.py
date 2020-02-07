@@ -33,7 +33,6 @@ class GANComponent(nn.Module):
         errors = self.validate()
         if errors != []:
             raise ValidationException(self.__class__.__name__+": " +"\n".join(errors))
-        self._metrics = []
         self.create()
 
     def create(self, *args):
@@ -67,36 +66,24 @@ class GANComponent(nn.Module):
             errors.append("GANComponent constructed without GAN")
         return errors
 
+    def add_metric(self, name, value):
+        """adds metric to monitor during training
+            name:string
+            value:Tensor
+        """
+        return self.gan.add_metric(name, value)
+
+    def metrics(self):
+        """returns a metric : tensor hash"""
+        return self.gan.metrics()
+
+
     def layer_regularizer(self, net):
         symbol = self.config.layer_regularizer
         op = self.lookup_function(symbol)
         if op and isinstance(op, types.FunctionType):
             net = op(self, net)
         return net
-
-    def add_metric(self, name, value):
-        """adds metric to monitor during training
-            name:string
-            value:Tensor
-        """
-        counters = 0
-        for m in self._metrics:
-            if name == m["name"] or m["name"].startswith(name):
-                counters += 1
-        if counters != 0:
-            name += "_"+str(counters+1)
-        self._metrics.append({
-            "name": name,
-            "value": value
-        })
-        return self._metrics
-
-    def metrics(self):
-        """returns a metric : tensor hash"""
-        metrics = {}
-        for metric in self._metrics:
-            metrics[metric['name']]=metric['value']
-        return metrics
 
     def lookup_function(self, name):
         namespaced_method = name.split(":")[1]

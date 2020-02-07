@@ -7,7 +7,6 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import state_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.training import optimizer
-import tensorflow as tf
 import hyperchamber as hc
 import inspect
 from hypergan.gan_component import ValidationException

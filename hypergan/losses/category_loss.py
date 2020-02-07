@@ -1,7 +1,6 @@
 from hypergan.losses.base_loss import BaseLoss
 
 import numpy as np
-import tensorflow as tf
 
 TINY = 1e-12
 class CategoryLoss(BaseLoss):

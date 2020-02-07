@@ -1,4 +1,3 @@
-import tensorflow as tf
 import hyperchamber as hc
 import inspect
 import copy
@@ -7,7 +6,6 @@ import os
 import operator
 from functools import reduce
 
-from hypergan.ops.tensorflow.extended_ops import bicubic_interp_2d
 from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
 
@@ -874,7 +872,6 @@ class ConfigurableComponent:
         return ps
 
     def layer_tensorflowcv(self, net, args, options):
-        import tensorflowcv as tfcv
         from tensorflowcv.model_provider import get_model as tfcv_get_model
         from tensorflowcv.model_provider import init_variables_from_state_dict as tfcv_init_variables_from_state_dict
         pretrained = "pretrained" in args

@@ -1,4 +1,3 @@
-import tensorflow as tf
 import hyperchamber as hc
 import inspect
 import copy
@@ -6,7 +5,6 @@ import os
 import operator
 from functools import reduce
 
-from hypergan.ops.tensorflow.extended_ops import bicubic_interp_2d
 from .base_discriminator import BaseDiscriminator
 from hypergan.configurable_component import ConfigurableComponent
 

@@ -9,7 +9,6 @@ from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.training import optimizer
 from tensorflow.python.ops.clip_ops import clip_by_value
-import tensorflow as tf
 
 """Implements AdaBound algorithm.
     It has been proposed in `Adaptive Gradient Methods with Dynamic Bound of Learning Rate`_.

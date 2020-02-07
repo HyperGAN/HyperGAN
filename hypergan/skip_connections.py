@@ -1,5 +1,4 @@
 import hyperchamber as hc
-import tensorflow as tf
 
 class SkipConnections:
     """

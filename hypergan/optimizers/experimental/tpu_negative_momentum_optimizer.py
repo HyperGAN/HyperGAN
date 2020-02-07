@@ -5,7 +5,6 @@ from tensorflow.python.ops import resource_variable_ops
 from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.training import optimizer
-import tensorflow as tf
 
 
 class TPUNegativeMomentumOptimizer(optimizer.Optimizer):

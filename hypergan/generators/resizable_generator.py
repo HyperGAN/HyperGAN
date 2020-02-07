@@ -1,7 +1,5 @@
-import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
-from hypergan.generators.common import *
 from hypergan.generators.configurable_generator import ConfigurableGenerator
 
 from .base_generator import BaseGenerator

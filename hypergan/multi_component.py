@@ -1,6 +1,5 @@
 from hypergan.gan_component import GANComponent
 
-import tensorflow as tf
 
 class MultiComponent():
     """

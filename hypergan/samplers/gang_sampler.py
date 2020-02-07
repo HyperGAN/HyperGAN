@@ -6,7 +6,6 @@ from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
 from hypergan.samplers.segment_sampler import SegmentSampler
 from hypergan.trainers.gang_trainer import GangTrainer
-import tensorflow as tf
 import numpy as np
 import hypergan as hg
 

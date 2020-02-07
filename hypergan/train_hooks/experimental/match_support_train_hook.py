@@ -9,7 +9,6 @@ from tensorflow.python.ops import state_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.training import optimizer
 from hypergan.viewer import GlobalViewer
-import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
 import inspect

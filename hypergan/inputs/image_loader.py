@@ -1,9 +1,7 @@
 import glob
 import os
-import hypergan.inputs.resize_image_patch
 import torchvision
 import torch.utils.data as data
-from natsort import natsorted, ns
 from hypergan.gan_component import ValidationException, GANComponent
 
 class ImageLoader:

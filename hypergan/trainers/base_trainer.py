@@ -1,6 +1,5 @@
 from hypergan.gan_component import GANComponent
 import hyperchamber as hc
-import tensorflow as tf
 import inspect
 
 class BaseTrainer(GANComponent):

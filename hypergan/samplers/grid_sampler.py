@@ -1,6 +1,5 @@
 from hypergan.samplers.base_sampler import BaseSampler
 import numpy as np
-import tensorflow as tf
 
 
 class GridSampler(BaseSampler):

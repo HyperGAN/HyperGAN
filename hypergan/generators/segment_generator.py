@@ -1,7 +1,5 @@
-import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
-from hypergan.generators.common import *
 
 from .base_generator import BaseGenerator
 from .resizable_generator import ResizableGenerator

@@ -16,8 +16,6 @@ from hypergan.trainers import *
 
 import hyperchamber as hc
 from hyperchamber import Config
-from hypergan.ops import TensorflowOps
-import tensorflow as tf
 import hypergan as hg
 
 from hypergan.gan_component import ValidationException, GANComponent

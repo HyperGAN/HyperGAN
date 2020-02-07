@@ -1,4 +1,3 @@
-import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
 

@@ -1,6 +1,5 @@
 from hypergan.gan_component import GANComponent
 import numpy as np
-import tensorflow as tf
 
 class BaseLoss(GANComponent):
     def __init__(self, gan, config, discriminator=None):

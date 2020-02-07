@@ -1,7 +1,6 @@
 from hypergan.samplers.base_sampler import BaseSampler
 from hypergan.gan_component import ValidationException, GANComponent
 
-import tensorflow as tf
 import numpy as np
 
 class AlignedSampler(BaseSampler):

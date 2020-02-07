@@ -1,4 +1,3 @@
-import tensorflow as tf
 import hyperchamber as hc
 import inspect
 import os

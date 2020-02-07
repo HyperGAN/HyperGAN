@@ -1,5 +1,4 @@
 #https://arxiv.org/pdf/1811.07296.pdf
-import tensorflow as tf
 import hyperchamber as hc
 from functools import reduce
 

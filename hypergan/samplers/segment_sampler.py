@@ -1,6 +1,5 @@
 from hypergan.samplers.base_sampler import BaseSampler
 
-import tensorflow as tf
 import numpy as np
 
 class SegmentSampler(BaseSampler):

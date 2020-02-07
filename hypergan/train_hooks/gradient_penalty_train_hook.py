@@ -17,10 +17,7 @@ from hypergan.train_hooks.base_train_hook import BaseTrainHook
 class GradientPenaltyTrainHook(BaseTrainHook):
   def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook"):
     super().__init__(config=config, gan=gan, trainer=trainer, name=name)
-    if hasattr(self.gan, 'x0'):
-        gan_inputs = self.gan.x0
-    else:
-        gan_inputs = self.gan.inputs.x
+    gan_inputs = self.gan.inputs.sample
 
     self._lambda = self.gan.configurable_param(config['lambda'] or 1)
 

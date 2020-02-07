@@ -72,16 +72,16 @@ class BaseGAN():
         return self._metrics
 
     def batch_size(self):
-        return self.inputs.samples[0].size()[0]
+        return self.inputs.sample.size()[0]
 
     def channels(self):
-        return self.inputs.samples[0].size()[1]
+        return self.inputs.sample.size()[1]
 
     def width(self):
-        return self.inputs.samples[0].size()[3]
+        return self.inputs.sample.size()[3]
 
     def height(self):
-        return self.inputs.samples[0].size()[2]
+        return self.inputs.sample.size()[2]
 
     def output_shape(self):
         return [self.width(), self.height(), self.channels()]

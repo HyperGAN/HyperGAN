@@ -32,12 +32,18 @@ class ImageLoader:
         if(not isinstance(directories, list)):
             directories = [directories]
 
+        self.dataloaders = []
         for directory in directories:
             #TODO channels
             image_folder = torchvision.datasets.ImageFolder(directory, transform=transform)
-            self.datasets.append(iter(data.DataLoader(image_folder, batch_size=self.batch_size, shuffle=True, num_workers=4, drop_last=True)))
+            self.dataloaders.append(data.DataLoader(image_folder, batch_size=self.batch_size, shuffle=True, num_workers=4, drop_last=True))
+            self.datasets.append(iter(self.dataloaders[-1]))
         self.next()
 
-    def next(self):
-        self.samples = [d.next()[0].cuda() for d in self.datasets]
-        return self.samples
+    def next(self, index=0):
+        try:
+            self.sample = self.datasets[index].next()[0].cuda()
+            return self.sample
+        except StopIteration:
+            self.datasets[index] = iter(self.dataloaders[index])
+            return self.next(index)

@@ -4,10 +4,9 @@ from hypergan.losses.base_loss import BaseLoss
 
 class WassersteinLoss(BaseLoss):
 
-    def _create(self, d_real, d_fake):
+    def _forward(self, d_real, d_fake):
         config = self.config
 
-        print("Initializing Wasserstein loss", config.reverse)
         d_loss = -d_real + d_fake
         g_loss = -d_fake
 

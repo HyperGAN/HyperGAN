@@ -10,7 +10,7 @@ TINY = 1e-12
 class SimultaneousTrainer(BaseTrainer):
     """ Steps G and D simultaneously """
     def _create(self):
-        self.optimizer = torch.optim.Adam(self.gan.generator.parameters(), lr=1e-3, betas=(.9,.999))
+        self.optimizer = torch.optim.Adam(self.gan.generator.parameters(), lr=1e-3, betas=(0,.999))
 
     def required(self):
         return "".split()

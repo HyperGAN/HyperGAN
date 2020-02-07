@@ -31,11 +31,17 @@ class SimultaneousTrainer(BaseTrainer):
 
         self.optimizer.zero_grad()
 
-        g_loss = torch.abs(self.gan.generator(self.gan.latent.sample()))
+        G = self.gan.generator(self.gan.latent.sample())
+        d_real = self.gan.discriminator(self.gan.inputs.next()[0])
+        d_fake = self.gan.discriminator(G)
+
+        g_loss = d_fake
+        d_loss = d_real - d_fake
 
         #d_loss, g_loss = loss.sample
 
-        (-g_loss.mean()).backward()
+        g_loss.mean().backward(retain_graph=True)
+        d_loss.mean().backward()
 
         self.before_step(self.current_step, feed_dict)
 

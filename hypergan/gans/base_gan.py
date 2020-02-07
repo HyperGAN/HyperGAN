@@ -54,10 +54,9 @@ class BaseGAN():
         """
         counters = 0
         for m in self._metrics:
-            if name == m["name"] or m["name"].startswith(name):
-                counters += 1
-        if counters != 0:
-            name += "_"+str(counters+1)
+            if name == m["name"]:
+                return self._metrics
+
         self._metrics.append({
             "name": name,
             "value": value
@@ -100,7 +99,8 @@ class BaseGAN():
             raise ValidationException("Component definition is missing '" + name + "'")
         klass = GANComponent.lookup_function(None, defn['class'])
         gan_component = klass(self, defn, *args, **kw_args)
-        gan_component.cuda()
+        if(isinstance(gan_component, nn.Module)):
+            gan_component.cuda()
         self.components.append(gan_component)
         self.components = list(set(self.components))
         return gan_component
@@ -123,6 +123,20 @@ class BaseGAN():
 
     def create(self):
         print("Warning: BaseGAN.create() called directly.  Please override")
+
+    def forward_discriminator(self):
+        """
+            Runs a forward pass through the GAN and returns (d_real, d_fake)
+        """
+        print("Warning: BaseGAN.forward_discriminator() called directly.  Please override")
+        return None, None
+
+    def forward_loss(self):
+        """
+            Runs a forward pass through the GAN and returns (d_real, d_fake)
+        """
+        d_real, d_fake = self.forward_discriminator()
+        return self.loss.forward(d_real, d_fake)
 
     def step(self, feed_dict={}):
         #self.step_count = self.session.run(self.increment_step)

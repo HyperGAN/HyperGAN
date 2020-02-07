@@ -1,21 +1,22 @@
 from hypergan.gan_component import GANComponent
 import numpy as np
 
-class BaseLoss(GANComponent):
-    def __init__(self, gan, config, discriminator=None):
-        GANComponent.__init__(self, gan, config)
-        self.discriminator = discriminator
+class BaseLoss():
+    def __init__(self, gan, config):
+        self.gan = gan
+        self.config = config
 
-    def create(self):
+    def required(self):
+        return "reduce".split()
+
+    def forward(self, d_real, d_fake):
         gan = self.gan
 
-        d_real = 0
-        d_fake = 0
-        d_loss, g_loss = self._create(d_real, d_fake)
+        d_loss, g_loss = [c.mean() for c in self._forward(d_real, d_fake)]
 
-        self.add_metric('d_loss', d_loss)
+        self.gan.add_metric('d_loss', d_loss)
         if g_loss is not None:
-            self.add_metric('g_loss', g_loss)
+            self.gan.add_metric('g_loss', g_loss)
 
         self.sample = [d_loss, g_loss]
         self.d_loss = d_loss

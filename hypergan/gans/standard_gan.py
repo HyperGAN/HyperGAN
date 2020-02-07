@@ -55,23 +55,23 @@ class StandardGAN(BaseGAN):
         self.latent = self.create_component(config.z_distribution or config.latent)
         self.generator = self.create_component(config.generator, input=self.latent)
         self.discriminator = self.create_component(config.discriminator)
-        self.loss = self.create_component(config.loss, discriminator=self.discriminator)
+        self.loss = self.create_component(config.loss)
         self.losses = [self.loss]
         self.trainer = self.create_component(config.trainer)
 
-    def g_vars(self):
-        return self.latent.variables() + self.generator.variables()
-    def d_vars(self):
-        return self.discriminator.variables()
+    def forward_discriminator(self):
+        G = self.generator(self.latent.sample())
+        D = self.discriminator
+        d_real = D(self.inputs.next()[0])
+        d_fake = D(G)
+        return d_real, d_fake
 
     def input_nodes(self):
         "used in hypergan build"
         return [
-                self.android_input
         ]
 
     def output_nodes(self):
         "used in hypergan build"
         return [
-                self.android_output
         ]

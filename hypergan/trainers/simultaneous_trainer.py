@@ -11,14 +11,6 @@ class SimultaneousTrainer(BaseTrainer):
     """ Steps G and D simultaneously """
     def _create(self):
         self.optimizer = torch.optim.Adam(self.gan.generator.parameters(), lr=1e-3, betas=(.9,.999))
-        #remaining
-        #* set optimizer from config
-        #* use discriminator
-        #* use loss
-        #* make sure metrics work
-        #* generator architecture
-        #* gan.parameters() sholud return all component params
-
 
     def required(self):
         return "".split()
@@ -31,21 +23,13 @@ class SimultaneousTrainer(BaseTrainer):
 
         self.optimizer.zero_grad()
 
-        G = self.gan.generator(self.gan.latent.sample())
-        D = self.gan.discriminator
-        d_real = D(self.gan.inputs.next()[0])
-        d_fake = D(G)
-
-        criterion = torch.nn.BCEWithLogitsLoss()
-        g_loss = criterion(d_fake, torch.ones_like(d_fake))
-        d_loss = criterion(d_real, torch.ones_like(d_real)) + criterion(d_fake, torch.zeros_like(d_fake))
-
-        #d_loss, g_loss = loss.sample
-
-        #g_loss.mean().backward(retain_graph=True)
-        (g_loss.mean() + d_loss.mean()).backward()
-
         self.before_step(self.current_step, feed_dict)
+
+        d_loss, g_loss = self.gan.forward_loss()
+        g_loss.mean().backward(retain_graph=True)
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+        d_loss.mean().backward()
 
         if self.current_step % 10 == 0:
             self.print_metrics(self.current_step)

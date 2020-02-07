@@ -31,13 +31,13 @@ class SimultaneousTrainer(BaseTrainer):
 
         self.optimizer.zero_grad()
 
-        G = self.gan.generator(self.gan.latent.sample())
-        d_real = self.gan.discriminator(self.gan.inputs.next()[0])
-        d_fake = self.gan.discriminator(G)
+        G = self.gan.generator.cuda()(self.gan.latent.sample())
+        d_real = self.gan.discriminator.cuda()(self.gan.inputs.next()[0])
+        d_fake = self.gan.discriminator.cuda()(G)
 
         criterion = torch.nn.BCEWithLogitsLoss()
-        g_loss = criterion(d_fake, torch.ones_like(d_fake))
-        d_loss = criterion(d_real, torch.ones_like(d_real)) + criterion(d_fake, torch.zeros_like(d_fake))
+        g_loss = criterion(d_fake, torch.ones_like(d_fake)).cuda()
+        d_loss = criterion(d_real, torch.ones_like(d_real)).cuda() + criterion(d_fake, torch.zeros_like(d_fake)).cuda()
 
         #d_loss, g_loss = loss.sample
 

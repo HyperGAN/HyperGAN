@@ -358,16 +358,14 @@ class ConfigurableComponent(GANComponent):
         return net
 
     def layer_conv(self, net, args, options):
-        if len(args) > 0:
-            channels = int(args[0])
-        else:
-            channels = self.ops.shape(net)[-1]
-
+        channels = int(args[0])
         options = hc.Config(options)
+        print("Channels", channels)
 
-        self.nn_layers.append(nn.Conv2d(self.current_channels, channels, options.filter or 3, options.stride or 2, (options.filter or 3)//2))
+        layers = [nn.Conv2d(self.current_channels, channels, options.filter or 3, options.stride or 2, (options.filter or 3)//2)]
         if options.activation != "null":
-            self.nn_layers.append(nn.ReLU())#TODO
+            layers.append(nn.ReLU())#TODO
+        self.nn_layers.append(nn.Sequential(*layers))
         self.current_channels = channels
         self.current_width = self.current_width // 2 #TODO
         self.current_height = self.current_height // 2 #TODO
@@ -375,11 +373,13 @@ class ConfigurableComponent(GANComponent):
 
     def layer_linear(self, net, args, options):
         options = hc.Config(options)
-        self.nn_layers.append(nn.Flatten())#TODO only if necessary
-        self.nn_layers.append(nn.Linear(self.current_input_size, int(args[0])))
+        layers = [
+            nn.Flatten(),
+            nn.Linear(self.current_input_size, int(args[0]))
+        ]
         if options.activation != "null":
-            self.nn_layers.append(nn.ReLU())#TODO
-        #TODO activation
+            layers.append(nn.ReLU())#TODO
+        self.nn_layers.append(nn.Sequential(*layers))
 
         self.current_input_size = int(args[0])
 
@@ -619,14 +619,17 @@ class ConfigurableComponent(GANComponent):
 
 
     def layer_deconv(self, net, args, options):
-        if len(args) > 0:
-            channels = int(args[0])
-        else:
-            channels = self.ops.shape(net)[-1]
+        channels = int(args[0])
+        options = hc.Config(options)
 
         options = hc.Config(options)
-        self.nn_layers.append(nn.ConvTranspose2d(self.current_channels, channels, options.filter or 3, options.stride or 2, (options.stride or 2) // 1))
-        self.nn_layers.append(nn.ReLU())#TODO
+        filter = 4 #TODO
+        stride = 2
+        padding = 1
+        layers = [nn.ConvTranspose2d(self.current_channels, channels, 4, 2, 1)]
+        if options.activation != "null":
+            layers.append(nn.ReLU())#TODO
+        self.nn_layers.append(nn.Sequential(*layers))
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO

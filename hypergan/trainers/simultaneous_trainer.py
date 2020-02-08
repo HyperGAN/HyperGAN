@@ -29,8 +29,10 @@ class SimultaneousTrainer(BaseTrainer):
         d_loss, g_loss = self.gan.forward_loss()
         for hook in self.train_hooks:
             loss = hook.forward()
-            d_loss += loss[0]
-            g_loss += loss[1]
+            if loss[0] is not None:
+                d_loss += loss[0]
+            if loss[1] is not None:
+                g_loss += loss[1]
 
         for p in self.gan.g_parameters():
             p.requires_grad = True

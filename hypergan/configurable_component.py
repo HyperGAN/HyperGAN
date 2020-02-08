@@ -186,10 +186,21 @@ class ConfigurableComponent(GANComponent):
         self.named_layers[name]     = net
 
     def activation_to_module(self, name):
-        if name == "relu":
-            return nn.ReLU()
-        if name == "tanh":
-            return nn.Tanh()
+        return {
+            "celu": nn.CELU,
+            "gelu": nn.GELU,
+            "lrelu": nn.LeakyReLU,
+            "prelu": nn.PReLU,
+            "relu": nn.ReLU,
+            "relu6": nn.ReLU6,
+            "selu": nn.SELU,
+            "sigmoid": nn.Sigmoid,
+            "softplus": nn.Softplus,
+            "softshrink": nn.Softshrink,
+            "softsign": nn.Softsign,
+            "tanh": nn.Tanh,
+            "tanhshrink": nn.Tanhshrink
+        }[name]()
 
     def count_number_trainable_params(self):
         '''
@@ -373,7 +384,7 @@ class ConfigurableComponent(GANComponent):
 
         layers = [nn.Conv2d(self.current_channels, channels, options.filter or 3, options.stride or 2, (options.filter or 3)//2)]
         if options.activation != "null":
-            layers.append(nn.ReLU())#TODO
+            layers.append(self.activation_to_module(options.activation or "relu"))
         self.current_channels = channels
         self.current_width = self.current_width // 2 #TODO
         self.current_height = self.current_height // 2 #TODO
@@ -630,7 +641,7 @@ class ConfigurableComponent(GANComponent):
         padding = 1
         layers = [nn.ConvTranspose2d(self.current_channels, channels, 4, 2, 1)]
         if options.activation != "null":
-            layers.append(nn.ReLU())#TODO
+            layers.append(self.activation_to_module(options.activation or "relu"))
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -879,7 +890,7 @@ class ConfigurableComponent(GANComponent):
         layers = [nn.Upsample((w, h), mode="bilinear"),
                 nn.Conv2d(self.current_channels, channels, options.filter or 3, 1, 1)]
         if options.activation != "null":
-            layers.append(nn.ReLU())#TODO
+            layers.append(self.activation_to_module(options.activation or "relu"))
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -891,7 +902,7 @@ class ConfigurableComponent(GANComponent):
 
         layers = [nn.Conv2d(self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
         if options.activation != "null":
-            layers.append(nn.ReLU())#TODO
+            layers.append(self.activation_to_module(options.activation or "relu"))
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
         self.current_channels = channels

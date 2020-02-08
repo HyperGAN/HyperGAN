@@ -40,7 +40,7 @@
     "hooks": [
       {
         "class": "function:hypergan.train_hooks.stabilizing_training_train_hook.StabilizingTrainingTrainHook",
-        "gamma": 20.0
+        "gamma": 0.1
       }
     ]
   },

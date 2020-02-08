@@ -10,6 +10,8 @@ import torch.nn as nn
 from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
 
+from hypergan.modules.reshape import Reshape
+
 class ConfigurationException(Exception):
     pass
 
@@ -182,6 +184,12 @@ class ConfigurableComponent(GANComponent):
     def set_layer(self, name, net):
         self.gan.named_layers[name] = net
         self.named_layers[name]     = net
+
+    def activation_to_module(self, name):
+        if name == "relu":
+            return nn.ReLU()
+        if name == "tanh":
+            return nn.Tanh()
 
     def count_number_trainable_params(self):
         '''
@@ -374,14 +382,26 @@ class ConfigurableComponent(GANComponent):
 
     def layer_linear(self, net, args, options):
         options = hc.Config(options)
+        shape = [int(x) for x in str(args[0]).split("*")]
+        output_size = 1
+        for dim in shape:
+            output_size *= dim
+
         layers = [
             nn.Flatten(),
-            nn.Linear(self.current_input_size, int(args[0]))
+            nn.Linear(self.current_input_size, output_size)
         ]
-        if options.activation != "null":
-            layers.append(nn.ReLU())#TODO
+        if len(shape) > 1:
+            self.current_channels = shape[2]
+            self.current_width = shape[0]
+            self.current_height = shape[1]
+            layers.append(Reshape(self.current_channels, self.current_height, self.current_width))
 
-        self.current_input_size = int(args[0])
+        if options.activation != "null":
+            layers.append(self.activation_to_module(options.activation or "relu"))
+
+        self.current_input_size = output_size
+
         return nn.Sequential(*layers)
 
     def layer_reshape(self, net, args, options):
@@ -1255,4 +1275,4 @@ class ConfigurableComponent(GANComponent):
         return net
 
     def forward(self, x):
-        return self.net(x).view(self.gan.batch_size(), -1)
+        return self.net(x)

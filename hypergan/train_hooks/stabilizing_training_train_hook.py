@@ -31,8 +31,8 @@ class StabilizingTrainingTrainHook(BaseTrainHook):
       d2_logits = self.gan.discriminator(d2_params)
       d1 = self.sig(d1_logits)
       d2 = self.sig(d2_logits)
-      d1_params = list(self.gan.discriminator.parameters()) + [d1_logits]
-      d2_params = list(self.gan.discriminator.parameters()) + [d2_logits]
+      d1_params = list(self.gan.discriminator.parameters())# + [d1_logits]
+      d2_params = list(self.gan.discriminator.parameters())# + [d2_logits]
       d1_grads = torch_grad(outputs=d1_logits.mean(), inputs=d1_params, retain_graph=True, create_graph=True)
       d2_grads = torch_grad(outputs=d2_logits.mean(), inputs=d2_params, retain_graph=True, create_graph=True)
       d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]

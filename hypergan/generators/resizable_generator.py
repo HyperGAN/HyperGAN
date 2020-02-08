@@ -56,37 +56,30 @@ class ResizableGenerator(ConfigurableGenerator):
         conv_layers = []
 
         for i, depth in enumerate(depths[1:]):
-            resize = [min(self.current_height, gan.height()), min(self.current_width, gan.width())]
             dep = np.minimum(depth, config.max_depth or 512)
             options = {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3}
             if block == 'deconv':
                 options['stride'] = 2
                 net = self.layer_deconv(None, [dep], options)
             elif block == 'subpixel':
-                self.layer_subpixel(None, [dep], options)
+                net = self.layer_subpixel(None, [dep], options)
             elif block == 'resize_conv':
-                self.layer_resize_conv(None, [dep], options)
+                net = self.layer_resize_conv(None, [dep], options)
             conv_layers.append(net)
-
-            size = resize[0]*resize[1]*depth
 
         dep = config.channels or gan.channels()
 
         options = {"avg_pool": 1, "stride": 1, "filter": 3, "activation": "null"}
-        needs_resize = True
 
         if block == 'deconv':
             options["stride"] = 2
             net = self.layer_deconv(None, [dep], options)
 
         elif block == "subpixel":
-            net = self.do_layer(self.layer_subpixel, net, [dep], options)
+            net = self.layer_subpixel(None, [dep], options)
 
         elif block == "resize_conv":
-            options["w"] = resize[0]
-            options["h"] = resize[1]
-            net = self.do_layer(self.layer_resize_conv, net, [dep], options)
-            needs_resize = False
+            net = self.layer_resize_conv(None, [dep], options)
 
         conv_layers.append(net)
         conv_layers.append(nn.Tanh())

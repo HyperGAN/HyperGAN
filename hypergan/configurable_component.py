@@ -578,25 +578,6 @@ class ConfigurableComponent(GANComponent):
 
         return net
 
-    def layer_resize_conv(self, net, args, options):
-        options = hc.Config(options)
-        config = self.config
-        ops = self.ops
-
-        net = tf.image.resize_images(net, [options.w or ops.shape(net)[1]*2, options.h or ops.shape(net)[2]*2],1)
-
-        if options.concat:
-            extra = self.layer(options.concat)
-            if self.ops.shape(extra) != self.ops.shape(net):
-                extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
-            net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
-
-        options = options.copy()
-        options['stride'] = 1
-        options['avg_pool'] = 1
-
-        return self.do_ops_layer(self.ops.conv2d, net, int(args[0]), options)
-
     def layer_bicubic_conv(self, net, args, options):
         s = self.ops.shape(net)
         net = bicubic_interp_2d(net, [s[1]*2, s[2]*2])
@@ -869,29 +850,34 @@ class ConfigurableComponent(GANComponent):
         return phase_shift(net, int(args[0]), color=True)
 
 
+    def layer_resize_conv(self, net, args, options):
+        options = hc.Config(options)
+        channels = int(args[0])
+
+        w = options.w or self.current_width * 2
+        h = options.h or self.current_height * 2
+        layers = [nn.Upsample((w, h), mode="bilinear"),
+                nn.Conv2d(self.current_channels, channels, options.filter or 3, 1, 1)]
+        if options.activation != "null":
+            layers.append(nn.ReLU())#TODO
+        self.current_channels = channels
+        self.current_width = self.current_width * 2 #TODO
+        self.current_height = self.current_height * 2 #TODO
+        return nn.Sequential(*layers)
+
     def layer_subpixel(self, net, args, options):
         options = hc.Config(options)
-        depth = int(args[0])
-        config = self.config
-        if "stride" not in options:
-            options["stride"]=1
-        activation = options.activation or self.ops.config_option("activation")
-        r = options.r or 2
-        r = int(r)
-        def _PS(X, r, n_out_channel):
-                if n_out_channel >= 1:
-                    bsize, a, b, c = X.get_shape().as_list()
-                    bsize = tf.shape(X)[0] # Handling Dimension(None) type for undefined batch dim
-                    Xs=tf.split(X,r,3) #b*h*w*r*r
-                    Xr=tf.concat(Xs,2) #b*h*(r*w)*r
-                    X=tf.reshape(Xr,(bsize,r*a,r*b,n_out_channel)) # b*(r*h)*(r*w)*c
-                return X
-        args[0]=depth*(r**2)
-        if (activation == 'crelu' or activation == 'double_sided'):
-            args[0] //= 2 
-        y1 = self.layer_conv(net, args, options)
-        ps = _PS(y1, r, depth)
-        return ps
+        channels = int(args[0])
+
+        layers = [nn.Conv2d(self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
+        if options.activation != "null":
+            layers.append(nn.ReLU())#TODO
+        self.current_width = self.current_width * 2 #TODO
+        self.current_height = self.current_height * 2 #TODO
+        self.current_channels = channels
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        return nn.Sequential(*layers)
+
 
     def layer_tensorflowcv(self, net, args, options):
         from tensorflowcv.model_provider import get_model as tfcv_get_model

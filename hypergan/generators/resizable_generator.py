@@ -41,8 +41,7 @@ class ResizableGenerator(ConfigurableGenerator):
         self.initial_depth = np.minimum(depths[0], config.max_depth or 512)
 
         self.current_input_size = self.gan.latent.config.z
-        self.layer_linear(None, [primes[0]*primes[1]*self.initial_depth], {})
-        self.linear = self.nn_layers[-1]
+        self.linear = self.layer_linear(None, [primes[0]*primes[1]*self.initial_depth], {})
 
         depths = self.depths(initial_width = self.initial_dimensions[0])
 
@@ -62,12 +61,12 @@ class ResizableGenerator(ConfigurableGenerator):
             options = {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3}
             if block == 'deconv':
                 options['stride'] = 2
-                self.layer_deconv(None, [dep], options)
+                net = self.layer_deconv(None, [dep], options)
             elif block == 'subpixel':
-                self.do_layer(self.layer_subpixel, net, [dep], options)
+                self.layer_subpixel(None, [dep], options)
             elif block == 'resize_conv':
-                self.do_layer(self.layer_resize_conv, net, [dep], options)
-            conv_layers.append(self.nn_layers[-1])
+                self.layer_resize_conv(None, [dep], options)
+            conv_layers.append(net)
 
             size = resize[0]*resize[1]*depth
 
@@ -78,7 +77,7 @@ class ResizableGenerator(ConfigurableGenerator):
 
         if block == 'deconv':
             options["stride"] = 2
-            self.layer_deconv(None, [dep], options)
+            net = self.layer_deconv(None, [dep], options)
 
         elif block == "subpixel":
             net = self.do_layer(self.layer_subpixel, net, [dep], options)
@@ -89,8 +88,8 @@ class ResizableGenerator(ConfigurableGenerator):
             net = self.do_layer(self.layer_resize_conv, net, [dep], options)
             needs_resize = False
 
+        conv_layers.append(net)
         conv_layers.append(nn.Tanh())
-        conv_layers.append(self.nn_layers[-1])
         self.net = nn.Sequential(*conv_layers)
 
     def forward(self, x):

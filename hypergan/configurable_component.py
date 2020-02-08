@@ -118,7 +118,7 @@ class ConfigurableComponent(GANComponent):
     def create(self):
         for layer in self.config.layers:
             net = self.parse_layer(layer)
-            self.layers += [net]
+            self.nn_layers.append(net)
 
         self.net = nn.Sequential(*self.nn_layers)
 
@@ -156,14 +156,15 @@ class ConfigurableComponent(GANComponent):
                     d[i] = d[i].replace("PAREN"+str(j), paren)
             op = d[0]
             args, options = self.parse_args(d[1:])
-            self.build_layer(op, args, options)
+            return self.build_layer(op, args, options)
 
     def build_layer(self, op, args, options):
         if self.layer_ops[op]:
             #before_count = self.count_number_trainable_params()
-            self.layer_ops[op](None, args, options)
+            net = self.layer_ops[op](None, args, options)
             if 'name' in options:
-                self.set_layer(options['name'], self.nn_layers[-1])
+                self.set_layer(options['name'], net)
+            return net
 
             #after = self.variables()
             #new = set(after) - set(before)
@@ -365,11 +366,11 @@ class ConfigurableComponent(GANComponent):
         layers = [nn.Conv2d(self.current_channels, channels, options.filter or 3, options.stride or 2, (options.filter or 3)//2)]
         if options.activation != "null":
             layers.append(nn.ReLU())#TODO
-        self.nn_layers.append(nn.Sequential(*layers))
         self.current_channels = channels
         self.current_width = self.current_width // 2 #TODO
         self.current_height = self.current_height // 2 #TODO
         self.current_input_size = self.current_channels * self.current_width * self.current_height
+        return nn.Sequential(*layers)
 
     def layer_linear(self, net, args, options):
         options = hc.Config(options)
@@ -379,9 +380,9 @@ class ConfigurableComponent(GANComponent):
         ]
         if options.activation != "null":
             layers.append(nn.ReLU())#TODO
-        self.nn_layers.append(nn.Sequential(*layers))
 
         self.current_input_size = int(args[0])
+        return nn.Sequential(*layers)
 
     def layer_reshape(self, net, args, options):
         dims = [int(x) for x in args[0].split("*")]
@@ -629,11 +630,11 @@ class ConfigurableComponent(GANComponent):
         layers = [nn.ConvTranspose2d(self.current_channels, channels, 4, 2, 1)]
         if options.activation != "null":
             layers.append(nn.ReLU())#TODO
-        self.nn_layers.append(nn.Sequential(*layers))
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
         self.current_input_size = self.current_channels * self.current_width * self.current_height
+        return nn.Sequential(*layers)
 
     def layer_conv_double(self, net, args, options):
         options["stride"] = 1

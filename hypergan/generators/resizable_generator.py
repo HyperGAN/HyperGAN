@@ -41,7 +41,7 @@ class ResizableGenerator(ConfigurableGenerator):
         self.initial_depth = np.minimum(depths[0], config.max_depth or 512)
 
         self.current_input_size = self.gan.latent.config.z
-        self.linear = self.layer_linear(None, [primes[0]*primes[1]*self.initial_depth], {})
+        self.linear = nn.Sequential(self.layer_linear(None, [primes[0]*primes[1]*self.initial_depth], {}), nn.LeakyReLU())
 
         depths = self.depths(initial_width = self.initial_dimensions[0])
 
@@ -57,7 +57,7 @@ class ResizableGenerator(ConfigurableGenerator):
 
         for i, depth in enumerate(depths[1:]):
             dep = np.minimum(depth, config.max_depth or 512)
-            options = {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3}
+            options = {}
             if block == 'deconv':
                 options['stride'] = 2
                 net = self.layer_deconv(None, [dep], options)
@@ -66,10 +66,11 @@ class ResizableGenerator(ConfigurableGenerator):
             elif block == 'resize_conv':
                 net = self.layer_resize_conv(None, [dep], options)
             conv_layers.append(net)
+            conv_layers.append(nn.LeakyReLU())
 
         dep = config.channels or gan.channels()
 
-        options = {"avg_pool": 1, "stride": 1, "filter": 3, "activation": "null"}
+        options = {}
 
         if block == 'deconv':
             options["stride"] = 2

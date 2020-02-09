@@ -1,8 +1,5 @@
 hyperchamber>=0.3
 numpy
-tensorflow-gpu>=1.12
-Pillow
+torch
 pygame
-natsort
 nashpy
-git+git://github.com/HyperGAN/imgclsmob@master#egg=tensorflowcv

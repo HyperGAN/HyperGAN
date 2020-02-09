@@ -395,12 +395,15 @@ class ConfigurableComponent(GANComponent):
     def layer_linear(self, net, args, options):
         options = hc.Config(options)
         shape = [int(x) for x in str(args[0]).split("*")]
+        bias = True
+        if options.bias == "false":
+            bias = False
         output_size = 1
         for dim in shape:
             output_size *= dim
 
         layers = [
-            nn.Linear(self.current_input_size, output_size)
+            nn.Linear(self.current_input_size, output_size, bias=bias)
         ]
         if len(shape) > 1:
             self.current_channels = shape[2]

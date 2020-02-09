@@ -14,6 +14,7 @@ class UniformDistribution(BaseDistribution):
         self.current_channels = config["z"]
         self.current_width = 1
         self.current_height = 1
+        self.current_input_size = config["z"]
 
     def required(self):
         return "".split()
@@ -50,7 +51,6 @@ class UniformDistribution(BaseDistribution):
         #        projections.append(self.lookup(projection)(config, gan, self.z))
         #else:
         #        projections.append(self.z)
-
 
         return self.z.sample(torch.Size([self.gan.batch_size(), self.config.z])).view(self.gan.batch_size(), self.config.z).cuda()
 

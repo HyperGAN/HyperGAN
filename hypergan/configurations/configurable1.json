@@ -25,10 +25,6 @@
       "conv 512",
       "relu",
       "flatten",
-      "linear 512",
-      "relu",
-      "linear 64",
-      "relu",
       "linear 1 bias=false"
     ]
   },
@@ -65,13 +61,13 @@
       "deconv 256",
       "adaptive_instance_norm",
       "relu",
-      "subpixel 128",
+      "deconv 128",
       "adaptive_instance_norm",
       "relu",
-      "subpixel 64",
+      "deconv 64",
       "adaptive_instance_norm",
       "relu",
-      "resize_conv 3",
+      "deconv 3",
       "adaptive_instance_norm",
       "tanh"
     ]

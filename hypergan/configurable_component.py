@@ -14,6 +14,7 @@ from hypergan.modules.reshape import Reshape
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.residual import Residual
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
+from hypergan.modules.no_op import NoOp
 
 class ConfigurationException(Exception):
     pass
@@ -30,7 +31,7 @@ class ConfigurableComponent(GANComponent):
         self.layers = []
         self.nn_layers = []
         self.layer_options = {}
-        self.parsed_names = []
+        self.parsed_opts = []
         self.layer_ops = {**self.activations(),
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
             "add": self.layer_add,
@@ -165,7 +166,7 @@ class ConfigurableComponent(GANComponent):
             op = d[0]
             args, options = self.parse_args(d[1:])
             options = hc.Config(options)
-            self.parsed_names.append(options.name)
+            self.parsed_opts.append([op, options.name, args])
             return self.build_layer(op, args, options)
 
     def build_layer(self, op, args, options):
@@ -195,12 +196,14 @@ class ConfigurableComponent(GANComponent):
     def set_layer(self, name, net):
         self.gan.named_layers[name] = net
         self.named_layers[name]     = net
+        if name == "w":
+            self.adaptive_instance_norm_size = self.current_input_size
 
     def activations(self):
         return {
             "celu": nn.CELU(),
             "gelu": nn.GELU(),
-            "lrelu": nn.LeakyReLU(),
+            "lrelu": nn.LeakyReLU(0.2),
             "prelu": nn.PReLU(),
             "relu": nn.ReLU(),
             "relu6": nn.ReLU6(),
@@ -377,12 +380,13 @@ class ConfigurableComponent(GANComponent):
         return net
 
     def layer_identity(self, net, args, options):
-        if len(args) > 0:
-            self.set_layer(args[0], net)
-        return net
+        return NoOp()
 
     def layer_conv(self, net, args, options):
-        channels = int(args[0])
+        if len(args) > 0:
+            channels = int(args[0])
+        else:
+            channels = self.current_channels
         options = hc.Config(options)
         stride = options.stride or 2
         print("Channels", channels)
@@ -972,19 +976,12 @@ class ConfigurableComponent(GANComponent):
         return net
 
     def layer_latent(self, net, args, options):
-        return self.gan.latent.sample
+        self.current_input_size = self.gan.latent.current_input_size
+        return NoOp()
 
     def layer_layer(self, net, args, options):
-        options = hc.Config(options)
-        if "src" in options:
-            obj = getattr(self.gan, options.src)
-        else:
-            obj = self
-        result = obj.layer(args[0])
-        if result is None:
-            print("Layer options: ", obj.named_layers.keys())
-            raise ValidationException("layer "+args[0]+" not found.")
-        return result
+        return NoOp()
+
     def layer_layer_norm(self, net, args, options):
         return self.ops.lookup("layer_norm")(self, net)
 
@@ -1198,12 +1195,17 @@ class ConfigurableComponent(GANComponent):
         return net
 
     def forward(self, input):
-        adaptive_instance_norm_style = None
-        for module, name in zip(self.net, self.parsed_names):
-            if isinstance(module, AdaptiveInstanceNorm):
-                input = module(input, adaptive_instance_norm_style)
+        named_layers = {}
+        for module, opts in zip(self.net, self.parsed_opts):
+            layer_name, name, args = opts
+            if layer_name == "adaptive_instance_norm":
+                input = module(input, named_layers['w'])
+            elif layer_name == "layer":
+                input = named_layers[args[0]]
+            elif layer_name == "latent":
+                input = self.gan.latent.sample()
             else:
                 input = module(input)
-            if name == "w":
-                adaptive_instance_norm_style = input
+            if name is not None:
+                named_layers[name] = input
         return input

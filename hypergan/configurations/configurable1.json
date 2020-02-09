@@ -1,0 +1,111 @@
+{
+  "description": "The original famous DCGAN.  Limited to 64x64x3",
+  "publication": "https://arxiv.org/abs/1511.06434",
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "defaults":{
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2],
+      "activation": "lrelu",
+      "initializer": "he_normal",
+      "lrmul": 1.0,
+      "random_stddev": 0.02
+    },
+    "layers":[
+      "conv 64 ", 
+      "relu",
+      "conv 128",
+      "relu",
+      "conv 256",
+      "relu",
+      "conv 512",
+      "relu",
+      "conv 512",
+      "relu",
+      "flatten",
+      "linear 512",
+      "relu",
+      "linear 64",
+      "relu",
+      "linear 1 bias=false"
+    ]
+  },
+ 
+  "latent":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "min": -1,
+    "max": 1,
+    "z": 100
+  },
+
+  "generator": 
+  {
+    "class": "class:hypergan.generators.configurable_generator.ConfigurableGenerator",
+    "defaults":{
+      "filter": [3,3],
+      "stride": [1,1],
+      "avg_pool": [2,2],
+      "activation": "lrelu",
+      "initializer": "he_normal",
+      "lrmul": 1.0,
+      "random_stddev": 0.02
+    },
+    "layers":[
+      "linear 512",
+      "relu name=w",
+      "linear 4*4*512",
+      "adaptive_instance_norm",
+      "relu",
+      "deconv 256",
+      "adaptive_instance_norm",
+      "relu",
+      "subpixel 128",
+      "adaptive_instance_norm",
+      "relu",
+      "subpixel 64",
+      "adaptive_instance_norm",
+      "relu",
+      "resize_conv 3",
+      "adaptive_instance_norm",
+      "tanh"
+    ]
+  },
+
+  "loss":
+  {
+    "class": "function:hypergan.losses.standard_loss.StandardLoss",
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+    "optimizer": {
+      "class": "function:tensorflow.python.training.adam.AdamOptimizer",
+      "learn_rate": 1e-4,
+      "beta1":0.0,
+      "beta2":0.999
+    },
+    "hooks": [
+      {
+        "class": "function:hypergan.train_hooks.stabilizing_training_train_hook.StabilizingTrainingTrainHook",
+        "gamma": 1.0
+      }
+    ]
+
+  },
+  "runtime": {
+    "channels": 3,
+    "width": 64,
+    "height": 64,
+    "train": "hypergan train [dataset] --sampler static_batch -b 8"
+  },
+
+  "hypergan_version": "0.10.0",
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
+
+}

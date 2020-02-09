@@ -13,6 +13,7 @@ from hypergan.gan_component import ValidationException
 from hypergan.modules.reshape import Reshape
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.residual import Residual
+from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 
 class ConfigurationException(Exception):
     pass
@@ -29,11 +30,13 @@ class ConfigurableComponent(GANComponent):
         self.layers = []
         self.nn_layers = []
         self.layer_options = {}
+        self.parsed_names = []
         self.layer_ops = {**self.activations(),
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
             "add": self.layer_add,
             "attention": self.layer_attention,
             "avg_pool": self.layer_avg_pool,
+            "adaptive_avg_pool": self.layer_adaptive_avg_pool,
             "batch_norm": self.layer_batch_norm,
             "bicubic_conv": self.layer_bicubic_conv,
             "combine_features": self.layer_combine_features,
@@ -66,7 +69,6 @@ class ConfigurableComponent(GANComponent):
             "minibatch": self.layer_minibatch,
             "noise": self.layer_noise,
             "pad": self.layer_pad,
-            "phase_shift": self.layer_phase_shift,
             "pixel_norm": self.layer_pixel_norm,
             "progressive_replace": self.layer_progressive_replace,
             "reduce_sum": self.layer_reduce_sum,
@@ -74,7 +76,6 @@ class ConfigurableComponent(GANComponent):
             "relational": self.layer_relational,
             "reshape": self.layer_reshape,
             "resize_conv": self.layer_resize_conv,
-            "resize_images": self.layer_resize_images,
             "residual": self.layer_residual,
             "slice": self.layer_slice,
             "split": self.layer_split,
@@ -163,6 +164,8 @@ class ConfigurableComponent(GANComponent):
                     d[i] = d[i].replace("PAREN"+str(j), paren)
             op = d[0]
             args, options = self.parse_args(d[1:])
+            options = hc.Config(options)
+            self.parsed_names.append(options.name)
             return self.build_layer(op, args, options)
 
     def build_layer(self, op, args, options):
@@ -421,19 +424,17 @@ class ConfigurableComponent(GANComponent):
         net = tf.reshape(net, dims)
         return net
 
+    def layer_adaptive_avg_pool(self, net, args, options):
+        self.current_height //= 2
+        self.current_width //= 2
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        return nn.AvgPool2d(2, 2)
+
     def layer_avg_pool(self, net, args, options):
-
-        options = hc.Config(options)
-        stride=options.stride or self.ops.shape(net)[1]
-        stride=int(stride)
-        ksize = [1,stride,stride,1]
-
-        if options.slice:
-            size = [int(x) for x in options.slice.replace("batch_size",str(self.gan.batch_size())).split("*")]
-            net = tf.slice(net, [0,0,0,0], size)
-        net = tf.nn.avg_pool(net, ksize=ksize, strides=ksize, padding='SAME')
-
-        return net 
+        self.current_height //= 2
+        self.current_width //= 2
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        return nn.AdaptiveAvgPool2d([self.current_height, self.current_width])
 
     def layer_combine_features(self, net, args, options):
         op = None
@@ -846,40 +847,6 @@ class ConfigurableComponent(GANComponent):
 
         return net 
 
-    def layer_phase_shift(self, net, args, options):
- 
-        def _phase_shift(I, r):
-            def _squeeze(x):
-                single_batch = (int(x.get_shape()[0]) == 1)
-                x = tf.squeeze(x)
-                if single_batch:
-                    x_shape = [1]+x.get_shape().as_list()
-                    x = tf.reshape(x, x_shape)
-                return x
-
-            # Helper function with main phase shift operation
-            bsize, a, b, c = I.get_shape().as_list()
-            X = tf.reshape(I, (bsize, a, b, r, r))
-            X = tf.transpose(X, (0, 1, 2, 4, 3))  # bsize, a, b, 1, 1
-            X = tf.split(axis=1, num_or_size_splits=a, value=X)  # a, [bsize, b, r, r]
-            X = tf.concat(axis=2, values=[_squeeze(x) for x in X])  # bsize, b, a*r, r
-            X = tf.split(axis=1, num_or_size_splits=b, value=X)  # b, [bsize, a*r, r]
-            X = tf.concat(axis=2, values=[_squeeze(x) for x in X])  #
-            bsize, a*r, b*r
-            return tf.reshape(X, (bsize, a*r, b*r, 1))
-
-        def phase_shift(X, r, color=False):
-          # Main OP that you can arbitrarily use in you tensorflow code
-          if color:
-            Xc = tf.split(axis=3, num_or_size_splits=3, value=X)
-            X = tf.concat(axis=3, values=[_phase_shift(x, r) for x in Xc])
-          else:
-            X = _phase_shift(X, r)
-          return X
-
-        return phase_shift(net, int(args[0]), color=True)
-
-
     def layer_resize_conv(self, net, args, options):
         options = hc.Config(options)
         channels = int(args[0])
@@ -1132,26 +1099,7 @@ class ConfigurableComponent(GANComponent):
         #return tf.concat(pieces, axis=3)
 
     def layer_adaptive_instance_norm(self, net, args, options):
-        if 'w' in options:
-            f = self.layer(options['w'])
-        else:
-            f = self.layer('w')
-        if f is None:
-            raise("ERROR: Could not find named generator layer 'w', add name=w to the input layer in your generator")
-        if len(args) > 0:
-            w = args[0]
-        else:
-            w = 128
-        #f2 = self.layer_linear(f, [w], options)
-        opts = copy.deepcopy(dict(options))
-        size = self.ops.shape(net)[3]
-        if "activation" not in opts:
-            opts["activation"]="null"
-        feature = self.layer_linear(f, [size*2], opts)
-        f1 = tf.reshape(self.ops.slice(feature, [0,0], [-1, size]), [-1, 1, 1, size])
-        f2 = tf.reshape(self.ops.slice(feature, [0,size], [-1, size]), [-1, 1, 1, size])
-        net = self.adaptive_instance_norm(net, f1,f2)
-        return net
+        return AdaptiveInstanceNorm(self.adaptive_instance_norm_size, self.current_channels)
 
     def layer_adaptive_instance_norm2(self, net, args, options):
         if 'w' in options:
@@ -1228,17 +1176,6 @@ class ConfigurableComponent(GANComponent):
         self.knowledge_base.append([options['name'], kb])
         return tf.concat([net, kb], axis=-1)
 
-    def layer_resize_images(self, net, args, options):
-        options = hc.Config(options)
-        if len(args) == 0:
-            w = self.gan.width()
-            h = self.gan.height()
-        else:
-            w = int(args[0])
-            h = int(args[1])
-        method = options.method or 1
-        return tf.image.resize_images(net, [w, h], method=method)
-    
     def layer_progressive_replace(self, net, args, options):
         start = self.layer(options["start"])
         end = self.layer(options["end"])
@@ -1260,5 +1197,13 @@ class ConfigurableComponent(GANComponent):
             net = tf.identity(net, name=options["name"])
         return net
 
-    def forward(self, x):
-        return self.net(x)
+    def forward(self, input):
+        adaptive_instance_norm_style = None
+        for module, name in zip(self.net, self.parsed_names):
+            if isinstance(module, AdaptiveInstanceNorm):
+                input = module(input, adaptive_instance_norm_style)
+            else:
+                input = module(input)
+            if name == "w":
+                adaptive_instance_norm_style = input
+        return input

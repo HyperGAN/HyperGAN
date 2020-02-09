@@ -16,6 +16,7 @@ class AdaptiveInstanceNorm(nn.Module):
         return feat_mean, feat_std
 
     def forward(self, content, style, epsilon=1e-5):
+        style = style.view(content.shape[0], -1)
         gamma = self.gamma(style)
         beta = self.beta(style)
         c_mean, c_var = self.calc_mean_std(content, epsilon)

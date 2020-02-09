@@ -29,8 +29,7 @@ class ConfigurableComponent(GANComponent):
         self.layers = []
         self.nn_layers = []
         self.layer_options = {}
-        self.layer_ops = {
-            "activation": self.layer_activation,
+        self.layer_ops = {**self.activations(),
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
             "add": self.layer_add,
             "attention": self.layer_attention,
@@ -50,6 +49,7 @@ class ConfigurableComponent(GANComponent):
             "deconv": self.layer_deconv,
             "dropout": self.layer_dropout,
             "double_resolution": self.layer_double_resolution,
+            "flatten": nn.Flatten(),
             "fractional_avg_pool": self.layer_fractional_avg_pool,
             "gram_matrix": self.layer_gram_matrix,
             "identity": self.layer_identity,
@@ -167,8 +167,11 @@ class ConfigurableComponent(GANComponent):
 
     def build_layer(self, op, args, options):
         if self.layer_ops[op]:
-            #before_count = self.count_number_trainable_params()
-            net = self.layer_ops[op](None, args, options)
+            if isinstance(self.layer_ops[op], nn.Module):
+                net = self.layer_ops[op]
+            else:
+                #before_count = self.count_number_trainable_params()
+                net = self.layer_ops[op](None, args, options)
             if 'name' in options:
                 self.set_layer(options['name'], net)
             return net
@@ -190,22 +193,22 @@ class ConfigurableComponent(GANComponent):
         self.gan.named_layers[name] = net
         self.named_layers[name]     = net
 
-    def activation_to_module(self, name):
+    def activations(self):
         return {
-            "celu": nn.CELU,
-            "gelu": nn.GELU,
-            "lrelu": nn.LeakyReLU,
-            "prelu": nn.PReLU,
-            "relu": nn.ReLU,
-            "relu6": nn.ReLU6,
-            "selu": nn.SELU,
-            "sigmoid": nn.Sigmoid,
-            "softplus": nn.Softplus,
-            "softshrink": nn.Softshrink,
-            "softsign": nn.Softsign,
-            "tanh": nn.Tanh,
-            "tanhshrink": nn.Tanhshrink
-        }[name]()
+            "celu": nn.CELU(),
+            "gelu": nn.GELU(),
+            "lrelu": nn.LeakyReLU(),
+            "prelu": nn.PReLU(),
+            "relu": nn.ReLU(),
+            "relu6": nn.ReLU6(),
+            "selu": nn.SELU(),
+            "sigmoid": nn.Sigmoid(),
+            "softplus": nn.Softplus(),
+            "softshrink": nn.Softshrink(),
+            "softsign": nn.Softsign(),
+            "tanh": nn.Tanh(),
+            "tanhshrink": nn.Tanhshrink()
+        }
 
     def count_number_trainable_params(self):
         '''
@@ -382,8 +385,6 @@ class ConfigurableComponent(GANComponent):
         print("Channels", channels)
 
         layers = [nn.Conv2d(self.current_channels, channels, options.filter or 3, stride, (options.filter or 3)//2)]
-        if options.activation != "null":
-            layers.append(self.activation_to_module(options.activation or "relu"))
         self.current_channels = channels
         if stride > 1:
             self.current_width = self.current_width // stride #TODO
@@ -399,7 +400,6 @@ class ConfigurableComponent(GANComponent):
             output_size *= dim
 
         layers = [
-            nn.Flatten(),
             nn.Linear(self.current_input_size, output_size)
         ]
         if len(shape) > 1:
@@ -407,9 +407,6 @@ class ConfigurableComponent(GANComponent):
             self.current_width = shape[0]
             self.current_height = shape[1]
             layers.append(Reshape(self.current_channels, self.current_height, self.current_width))
-
-        if options.activation != "null":
-            layers.append(self.activation_to_module(options.activation or "relu"))
 
         self.current_input_size = output_size
 
@@ -513,15 +510,6 @@ class ConfigurableComponent(GANComponent):
         net = tf.reshape(net, [batch_size, -1])
 
         return net
-        
-
-    def layer_activation(self, net, args, options):
-        options = hc.Config(options)
-        activation_s = options.activation or self.ops.config_option("activation")
-        if len(args) > 0:
-            activation_s = args[0]
-        activation = self.ops.lookup(activation_s)
-        return activation(net)
 
     def layer_turing_test(self, net, args, options):
         """https://arxiv.org/pdf/1810.10948"""
@@ -646,8 +634,6 @@ class ConfigurableComponent(GANComponent):
         stride = 2
         padding = 1
         layers = [nn.ConvTranspose2d(self.current_channels, channels, 4, 2, 1)]
-        if options.activation != "null":
-            layers.append(self.activation_to_module(options.activation or "relu"))
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -895,8 +881,6 @@ class ConfigurableComponent(GANComponent):
         h = options.h or self.current_height * 2
         layers = [nn.Upsample((w, h), mode="bilinear"),
                 nn.Conv2d(self.current_channels, channels, options.filter or 3, 1, 1)]
-        if options.activation != "null":
-            layers.append(self.activation_to_module(options.activation or "relu"))
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -907,8 +891,6 @@ class ConfigurableComponent(GANComponent):
         channels = int(args[0])
 
         layers = [nn.Conv2d(self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
-        if options.activation != "null":
-            layers.append(self.activation_to_module(options.activation or "relu"))
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
         self.current_channels = channels

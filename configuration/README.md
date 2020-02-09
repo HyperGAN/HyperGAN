@@ -16,26 +16,25 @@ For example, a discriminator component can be defined as:
   {
       "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
       "defaults":{
-        "activation": "tanh",
-        "initializer": "he_normal",
-        "filter": [3,3],
-        "stride": [1,1],
-        "avg_pool": [2,2]
+        "filter": [3,3]
       },
       "layers":[
         "conv 32",
+        "relu",
         "conv 64 ", 
+        "relu",
         "conv 128",
+        "relu",
         "conv 256",
-        "linear 1 activation=null"
+        "relu",
+        "flatten",
+        "linear 1"
       ]
 
   }
 ```
 
-This means to create a network composed of 4 convolution layers that decrease along stride and increase filter size, ending in a linear without activation. Losses expect `activation=null` on the last layer.
-
-We can modify this to contain `resnet` instead of `conv` blocks to increase model capacity\(though its not clear by how much\).
+This means to create a network composed of 4 convolution layers that decrease along stride and increase filter size, ending in a linear without activation. End the discriminator in a logit(output of conv/linear/etc)
 
 ### ConfigurableGenerator
 
@@ -43,34 +42,37 @@ We can modify this to contain `resnet` instead of `conv` blocks to increase mode
   "generator": {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
     "defaults": {
-      "activation": "tanh",
-      "initializer": "he_normal",
       "filter": [3,3],
-      "stride": [1,1],
-      "avg_pool": [1,1]
     },
     "layers": [
-      "linear 128",
-      "reshape -1 name=w",
+      "linear 128 name=w",
       "const 1*1*128",
-      "adaptive_instance_norm",
       "resize_conv 256",
       "adaptive_instance_norm",
+      "relu",
       "resize_conv 256",
       "adaptive_instance_norm",
+      "relu",
       "resize_conv 256",
       "adaptive_instance_norm",
+      "relu",
       "resize_conv 256",
       "adaptive_instance_norm",
+      "relu",
       "resize_conv 256",
       "adaptive_instance_norm",
+      "relu",
       "resize_conv 128",
       "adaptive_instance_norm",
+      "relu",
       "resize_conv 64",
       "adaptive_instance_norm",
+      "relu",
       "resize_conv 32",
       "adaptive_instance_norm",
-      "resize_conv 3 activation=null"
+      "relu",
+      "resize_conv 3",
+      "tanh"
     ]
 
   }
@@ -80,7 +82,7 @@ This is a generator. A generator takes in a latent space and returns a data type
 
 `adaptive_instance_norm` looks up the layer named 'w' and uses it to perform the adaptive instance norm.
 
-Our output range depends on our input loader. In the case of images, our output range is covered by both `tanh` and `null`.
+HyperGAN defaults to the image space of (-1, 1), which is the same range as tanh.
 
 ## Layers
 
@@ -96,13 +98,13 @@ Creates a linear layer.
 
 `conv [filters] (options)`
 
-A convolution. Average pool and stride are applied if they are set. For example: `conv [filters] filter=5 avg_pool=2 stride=1` will run set stride to 1 and run avg\_pool of 2 with a filter size of 5.
+A convolution. Stride is applied if it is set. For example: `conv [filters] filter=5 stride=1` will run set stride to 1 and with a filter size of 5.
 
 ### deconv
 
 `deconv [filters] (options)`
 
-Set stride=2 to double the width and height of your tensor.
+Doubles the width and height of your tensor. Called conv2d_transpose in literature
 
 ### resize\_conv
 
@@ -116,6 +118,10 @@ size can be:
 
 * -1
 * `*` delimited dimensions.
+
+### flatten
+
+Same as `reshape -1`
 
 ### const
 
@@ -143,17 +149,9 @@ Defaults to the input resolution if no arguments are specified.
 
 Output: A tensor with the form \[batch\_size, w, h, d\]
 
-### resize\_images
+### upsample
 
-`resize_images [w h] (method=1...4)`
-
-Resizes the network to the output size.
-
-Defaults to the input resolution if no arguments are specified.
-
-Output: A tensor with the form \[batch\_size, w, h, channels\]
-
-See [https://www.tensorflow.org/api\_docs/python/tf/image/resize\_images](https://www.tensorflow.org/api_docs/python/tf/image/resize_images)
+TODO
 
 ## Configuration
 

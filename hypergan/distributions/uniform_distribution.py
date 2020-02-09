@@ -11,6 +11,9 @@ TINY=1e-12
 class UniformDistribution(BaseDistribution):
     def __init__(self, gan, config):
         BaseDistribution.__init__(self, gan, config)
+        self.current_channels = config["z"]
+        self.current_width = 1
+        self.current_height = 1
 
     def required(self):
         return "".split()

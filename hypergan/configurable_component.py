@@ -499,7 +499,11 @@ class ConfigurableComponent(GANComponent):
         return s_std * (content - c_mean) / c_std + s_mean
 
     def layer_instance_norm(self, net, args, options):
-        return nn.InstanceNorm2d(self.current_channels)
+        options = hc.Config(options)
+        affine = True
+        if options.affine == "false":
+            affine = False
+        return nn.InstanceNorm2d(self.current_channels, affine=affine)
 
     def layer_image_statistics(self, net, args, options):
         s = self.ops.shape(net)

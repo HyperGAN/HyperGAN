@@ -33,6 +33,7 @@ class ConfigurableComponent(GANComponent):
             "add": self.layer_add,
             "attention": self.layer_attention,
             "avg_pool": self.layer_avg_pool,
+            "batch_norm": self.layer_batch_norm,
             "bicubic_conv": self.layer_bicubic_conv,
             "combine_features": self.layer_combine_features,
             "concat": self.layer_concat,
@@ -611,6 +612,9 @@ class ConfigurableComponent(GANComponent):
         self.controls[args[0]] = net
 
         return net
+
+    def layer_batch_norm(self, net, args, options):
+        return nn.BatchNorm2d(self.current_channels)
 
     def layer_bicubic_conv(self, net, args, options):
         s = self.ops.shape(net)

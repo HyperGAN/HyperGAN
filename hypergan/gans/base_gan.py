@@ -3,6 +3,8 @@ from hyperchamber import Config
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.skip_connections import SkipConnections
 
+from pathlib import Path
+
 import math
 import re
 import os
@@ -10,6 +12,7 @@ import inspect
 import hypergan as hg
 import numpy as np
 import torch.nn as nn
+import torch
 
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.progressive_sampler import ProgressiveSampler
@@ -102,7 +105,6 @@ class BaseGAN():
         if(isinstance(gan_component, nn.Module)):
             gan_component.cuda()
         self.components.append(gan_component)
-        self.components = list(set(self.components))
         return gan_component
 
     def create_optimizer(self, options):
@@ -148,10 +150,35 @@ class BaseGAN():
         return self.trainer.step(feed_dict)
 
     def save(self, save_file):
-        pass
+        print("Saving..." + str(len(self.components)))
+        full_path = os.path.expanduser(os.path.dirname(save_file))
+        os.makedirs(full_path, exist_ok=True)
+        index = 0
+        for component in self.components:
+            if isinstance(component, nn.Module):
+                path = full_path + "/component"+str(index)+".save"
+                print("Saving " + path)
+                print(component.state_dict().keys())
+                torch.save(component.state_dict(), path)
+                index += 1 #TODO probably should label these
 
     def load(self, save_file):
-        pass
+        print("Loading..." + str(len(self.components)))
+        full_path = os.path.expanduser(os.path.dirname(save_file))
+        index = 0
+        loaded = False
+        for component in self.components:
+            if isinstance(component, nn.Module):
+                path = full_path + "/component"+str(index)+".save"
+                if Path(path).is_file():
+                    print("Loading " + path)
+                    component.load_state_dict(torch.load(path))
+                    component.eval()
+                    index += 1 #TODO probably should label these
+                    loaded = True
+                else:
+                    print("Could not load " + path)
+        return loaded
 
     def initialize_variables(self):
         pass

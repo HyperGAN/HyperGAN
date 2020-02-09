@@ -133,7 +133,7 @@ class BaseGAN():
 
     def forward_loss(self):
         """
-            Runs a forward pass through the GAN and returns (d_real, d_fake)
+            Runs a forward pass through the GAN and returns (d_loss, g_loss)
         """
         d_real, d_fake = self.forward_discriminator()
         return self.loss.forward(d_real, d_fake)

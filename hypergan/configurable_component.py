@@ -16,13 +16,16 @@ class ConfigurationException(Exception):
     pass
 
 class ConfigurableComponent(GANComponent):
-    def __init__(self, gan, config, name=None, input=None, reuse=None, weights=None, biases=None, x=None, g=None, features=[], skip_connections=[], context={}):
+    def __init__(self, gan, config, input=None, context={}):
         self.current_channels = gan.channels()
         self.current_width = gan.width()
         self.current_height = gan.height()
+        if input:
+            self.current_channels = input.current_channels
+            self.current_width = input.current_width
+            self.current_height = input.current_height
         self.layers = []
         self.nn_layers = []
-        self.skip_connections = skip_connections
         self.layer_options = {}
         self.layer_ops = {
             "activation": self.layer_activation,
@@ -82,8 +85,6 @@ class ConfigurableComponent(GANComponent):
             "zeros": self.layer_zeros,
             "zeros_like": self.layer_zeros_like
             }
-        self.features = features
-        self.controls = {}
         self.named_layers = {}
         self.context = context
         if not hasattr(gan, "named_layers"):
@@ -380,14 +381,16 @@ class ConfigurableComponent(GANComponent):
     def layer_conv(self, net, args, options):
         channels = int(args[0])
         options = hc.Config(options)
+        stride = options.stride or 2
         print("Channels", channels)
 
-        layers = [nn.Conv2d(self.current_channels, channels, options.filter or 3, options.stride or 2, (options.filter or 3)//2)]
+        layers = [nn.Conv2d(self.current_channels, channels, options.filter or 3, stride, (options.filter or 3)//2)]
         if options.activation != "null":
             layers.append(self.activation_to_module(options.activation or "relu"))
         self.current_channels = channels
-        self.current_width = self.current_width // 2 #TODO
-        self.current_height = self.current_height // 2 #TODO
+        if stride > 1:
+            self.current_width = self.current_width // stride #TODO
+            self.current_height = self.current_height // stride #TODO
         self.current_input_size = self.current_channels * self.current_width * self.current_height
         return nn.Sequential(*layers)
 

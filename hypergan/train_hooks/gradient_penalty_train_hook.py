@@ -25,13 +25,13 @@ class GradientPenaltyTrainHook(BaseTrainHook):
     gamma= self.gan.configurable_param(self.config['lambda'] or 1)
 
     d = self.gan.discriminator(interpolated)
+    parameters = list(self.gan.d_parameters())+ [interpolated]
 
-    grad = torch_grad(outputs=d, inputs=interpolated,
-                               grad_outputs=torch.ones(d.size()).cuda(),
-                               create_graph=True, retain_graph=True)[0]
+    grad = torch_grad(outputs=d.mean(), inputs=parameters, create_graph=True, retain_graph=True)
 
-    grad = grad.view(self.gan.batch_size(), -1) 
-    grad_loss = ((torch.sqrt(torch.sum(grad**2, dim=1) +1e-12) - 1) ** 2).mean()
+    grad = [_g.view(-1) for _g in grad]
+    grad_loss = [((torch.sqrt(torch.sum(_g**2, dim=0) +1e-12) - 1) ** 2).mean() for _g in grad]
+    grad_loss = sum(grad_loss)
 
     loss = gamma*grad_loss
     return [loss, loss]

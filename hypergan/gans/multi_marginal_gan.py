@@ -93,6 +93,14 @@ class MultiMarginalGAN(BaseGAN):
         d_loss = d_loss0 * lambda0 + d_loss1 * lambdaN
         g_loss = g_loss0 * lambda0 + g_loss1 * lambdaN
 
+        if self.config.l1_loss:
+            E = self.encoder
+            G = self.generators[0]
+            inp = self.inputs.next(index = 1)
+            l1_loss = (G(E(inp)) - inp).abs().mean()
+            self.add_metric("l1", l1_loss)
+            g_loss += l1_loss
+
         return d_loss, g_loss
 
         #def interp(source, targets):

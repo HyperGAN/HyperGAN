@@ -54,10 +54,10 @@ class CLI:
 
         self.advSavePath = os.path.abspath("saves/"+self.config_name)+"/"
         if self.args.save_file:
-            self.save_file = self.args.save_file + "/model.ckpt"
+            self.save_file = self.args.save_file + "/"
         else:
             default_save_path = os.path.abspath("saves/"+self.config_name)
-            self.save_file = default_save_path + "/model.ckpt"
+            self.save_file = default_save_path + "/"
             self.create_path(self.save_file)
 
         title = "[hypergan] " + self.config_name

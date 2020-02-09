@@ -12,6 +12,7 @@ from hypergan.gan_component import ValidationException
 
 from hypergan.modules.reshape import Reshape
 from hypergan.modules.concat_noise import ConcatNoise
+from hypergan.modules.residual import Residual
 
 class ConfigurationException(Exception):
     pass
@@ -53,6 +54,7 @@ class ConfigurableComponent(GANComponent):
             "gram_matrix": self.layer_gram_matrix,
             "identity": self.layer_identity,
             "image_statistics": self.layer_image_statistics,
+            "instance_norm": self.layer_instance_norm,
             "knowledge_base": self.layer_knowledge_base,
             "layer_filter": self.layer_filter,
             "layer_norm": self.layer_layer_norm,
@@ -316,7 +318,7 @@ class ConfigurableComponent(GANComponent):
         return net
 
     def layer_residual(self, net, args, options):
-        return None
+        return Residual(self.current_channels)
 
     def layer_zeros(self, net, args, options):
         options = hc.Config(options)
@@ -495,6 +497,9 @@ class ConfigurableComponent(GANComponent):
         c_std, s_std = tf.sqrt(c_var + epsilon), tf.sqrt(s_var + epsilon)
 
         return s_std * (content - c_mean) / c_std + s_mean
+
+    def layer_instance_norm(self, net, args, options):
+        return nn.InstanceNorm2d(self.current_channels)
 
     def layer_image_statistics(self, net, args, options):
         s = self.ops.shape(net)

@@ -11,6 +11,7 @@ from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
 
 from hypergan.modules.reshape import Reshape
+from hypergan.modules.concat_noise import ConcatNoise
 
 class ConfigurationException(Exception):
     pass
@@ -314,16 +315,9 @@ class ConfigurableComponent(GANComponent):
             net = ops.concat(axis=3, values=[net, fltr])
         return net
 
-
     def layer_residual(self, net, args, options):
-        if args == []:
-            args = [self.ops.shape(net)[-1]]
-        options["stride"] = 1
-        options["avg_pool"] = 1
-        res = self.layer_conv(net, args, options)
+        return None
 
-        return net + res
-    
     def layer_zeros(self, net, args, options):
         options = hc.Config(options)
         config = self.config
@@ -1052,32 +1046,12 @@ class ConfigurableComponent(GANComponent):
                 self.gan.variational=[[mu,sigma]]
         return z
 
-
-    def layer_concat_noise(self, net, args, options):
-        noise = tf.random_normal(self.ops.shape(net), stddev=0.1)
-        net = tf.concat([net, noise], axis=len(self.ops.shape(net))-1)
-        return net
-
     def layer_concat(self, net, args, options):
         options = hc.Config(options)
         if len(args) > 0 and args[0] == 'noise':
-            if options.type == 'uniform':
-                extra = tf.random_uniform(self.ops.shape(net), -1, 1)
-            else:
-                extra = tf.random_normal(self.ops.shape(net), stddev=0.1)
-        if 'layer' in options:
-            extra = self.layer(options['layer'])
-
-        if self.ops.shape(extra) != self.ops.shape(net):
-            extra = tf.image.resize_images(extra, [self.ops.shape(net)[1],self.ops.shape(net)[2]], 1)
-
-        if 'mask' in options:
-            options['activation']=tf.nn.sigmoid
-            mask = self.layer_conv(net, [self.ops.shape(net)[-1]], options)
-            extra *= mask
-
-        net = tf.concat([net, extra], axis=len(self.ops.shape(net))-1)
-        return net
+            self.current_channels *= 2
+            return ConcatNoise()
+        print("Warning: only 'concat noise' is supported for now.")
 
     def layer_gram_matrix(self, net, args, options):
 

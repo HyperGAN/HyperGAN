@@ -424,9 +424,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_reshape(self, net, args, options):
         dims = [int(x) for x in args[0].split("*")]
-        dims = [self.ops.shape(net)[0]] + dims
-        net = tf.reshape(net, dims)
-        return net
+        return Reshape(dims)
 
     def layer_adaptive_avg_pool(self, net, args, options):
         self.current_height //= 2

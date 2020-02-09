@@ -3,9 +3,7 @@ import hyperchamber as hc
 import inspect
 import collections
 
-from tensorflow.python.ops import math_ops
 from hypergan.trainers.base_trainer import BaseTrainer
-from tensorflow.python.ops import gradients_impl
 
 TINY = 1e-12
 

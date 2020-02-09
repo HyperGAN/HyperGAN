@@ -4,11 +4,6 @@ from __future__ import division
 from __future__ import print_function
 
 from hypergan.gan_component import GANComponent
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import state_ops
-from tensorflow.python.framework import ops
-from tensorflow.python.training import optimizer
 import hyperchamber as hc
 import inspect
 

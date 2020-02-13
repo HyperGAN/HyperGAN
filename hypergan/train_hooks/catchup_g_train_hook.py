@@ -48,9 +48,13 @@ class CatchupGTrainHook(BaseTrainHook):
       reg_d1 = sum(reg_d1)
       #reg_d2 = sum(reg_d1)
       #self.d_loss = self.gamma * reg_d1.mean()
-      self.d_loss = self.gamma * reg_d1.mean()
-      if "g" in self.config.components:
-          self.g_loss = self.d_loss
+      if self.config.loss:
+        if "g" in self.config.loss:
+            self.g_loss = self.gamma * reg_d1.mean()
+        if "d" in self.config.loss:
+            self.d_loss = self.gamma * reg_d1.mean()
+      else:
+        self.d_loss = self.gamma * reg_d1.mean()
       #self.gan.add_metric('stable_js', self.ops.squash(self.d_loss))
 
       return [self.d_loss, self.g_loss]

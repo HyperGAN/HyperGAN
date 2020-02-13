@@ -38,6 +38,8 @@ class CatchupGTrainHook(BaseTrainHook):
           for component in self.config.components:
               params += list(getattr(self.gan, component).parameters())
       loss = self.relu(d1_logits.mean() - d2_logits.mean()) ** 2
+      if loss == 0:
+          return [None, None]
       d1_grads = torch_grad(outputs=loss, inputs=d1_params, retain_graph=True, create_graph=True)
       d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
       reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
@@ -47,6 +49,8 @@ class CatchupGTrainHook(BaseTrainHook):
       #reg_d2 = sum(reg_d1)
       #self.d_loss = self.gamma * reg_d1.mean()
       self.d_loss = self.gamma * reg_d1.mean()
+      if "g" in self.config.components:
+          self.g_loss = self.d_loss
       #self.gan.add_metric('stable_js', self.ops.squash(self.d_loss))
 
       return [self.d_loss, self.g_loss]

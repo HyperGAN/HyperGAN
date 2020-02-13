@@ -25,6 +25,8 @@ class ImageLoader:
 
         if resize:
             transform_list.append(torchvision.transforms.Resize((height, width)))
+        if random_crop:
+            transform_list.append(torchvision.transforms.RandomCrop((height, width), pad_if_needed=True, padding_mode='edge'))
 
         transform_list.append(torchvision.transforms.ToTensor())
         transform = torchvision.transforms.Compose(transform_list)

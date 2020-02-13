@@ -1,104 +1,119 @@
+
 # From https://gist.github.com/lgeiger/10a3b1a0b94b52bc64d14d949ad74595
 # Training GANs with Optimism using Tensorflow (https://github.com/vsyrgkanis/optimistic_GAN_training/) 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-from tensorflow.python.eager import context
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import state_ops
-from tensorflow.python.framework import ops
-from tensorflow.python.training import optimizer
+import math
+import torch
+from torch.optim import Optimizer
 
 
-class AdamirrorOptimizer(optimizer.Optimizer):
-    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8,
-                 use_locking=False, name="Adamirror"):
-        super(AdamirrorOptimizer, self).__init__(use_locking, name)
-        self._lr = learning_rate
-        self._beta1 = beta1
-        self._beta2 = beta2
-        self._epsilon = epsilon
+class Adamirror(Optimizer):
+    r"""Implements Adam algorithm.
 
-        # Tensor versions of the constructor arguments, created in _prepare().
-        self._lr_t = None
-        self._beta1_t = None
-        self._beta2_t = None
-        self._epsilon_t = None
+    It has been proposed in `Adam: A Method for Stochastic Optimization`_.
 
-    def _get_beta_accumulators(self):
-        if context.executing_eagerly():
-            graph = None
-        else:
-            graph = ops.get_default_graph()
-        return (self._get_non_slot_variable("beta1_power", graph=graph),
-                self._get_non_slot_variable("beta2_power", graph=graph))
+    Arguments:
+        params (iterable): iterable of parameters to optimize or dicts defining
+            parameter groups
+        lr (float, optional): learning rate (default: 1e-3)
+        betas (Tuple[float, float], optional): coefficients used for computing
+            running averages of gradient and its square (default: (0.9, 0.999))
+        eps (float, optional): term added to the denominator to improve
+            numerical stability (default: 1e-8)
+        weight_decay (float, optional): weight decay (L2 penalty) (default: 0)
+        amsgrad (boolean, optional): whether to use the AMSGrad variant of this
+            algorithm from the paper `On the Convergence of Adam and Beyond`_
+            (default: False)
 
-    def _create_slots(self, var_list):
-        # Create the beta1 and beta2 accumulators on the same device as the first
-        # variable. Sort the var_list to make sure this device is consistent across
-        # workers (these need to go on the same PS, otherwise some updates are
-        # silently ignored).
-        first_var = min(var_list, key=lambda x: x.name)
-        self._create_non_slot_variable(initial_value=self._beta1,
-                                       name="beta1_power",
-                                       colocate_with=first_var)
-        self._create_non_slot_variable(initial_value=self._beta2,
-                                       name="beta2_power",
-                                       colocate_with=first_var)
+    .. _Adam\: A Method for Stochastic Optimization:
+        https://arxiv.org/abs/1412.6980
+    .. _On the Convergence of Adam and Beyond:
+        https://openreview.net/forum?id=ryQu7f-RZ
+    """
 
-        # Create slots for the first and second moments.
-        for v in var_list:
-            self._zeros_slot(v, "m", self._name)
-            self._zeros_slot(v, "v", self._name)
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0, amsgrad=False):
+        if not 0.0 <= lr:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if not 0.0 <= eps:
+            raise ValueError("Invalid epsilon value: {}".format(eps))
+        if not 0.0 <= betas[0] < 1.0:
+            raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
+        if not 0.0 <= betas[1] < 1.0:
+            raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay, amsgrad=amsgrad)
 
-    def _prepare(self):
-        self._lr_t = ops.convert_to_tensor(self._lr, name="learning_rate")
-        self._beta1_t = ops.convert_to_tensor(self._beta1, name="beta1")
-        self._beta2_t = ops.convert_to_tensor(self._beta2, name="beta2")
-        self._epsilon_t = ops.convert_to_tensor(self._epsilon, name="epsilon")
+        self.prev_step_size = 0.0
+        super(Adamirror, self).__init__(params, defaults)
 
-    def _apply_dense(self, grad, var):
-        beta1_power, beta2_power = self._get_beta_accumulators()
-        beta1_power = math_ops.cast(beta1_power, var.dtype.base_dtype)
-        beta2_power = math_ops.cast(beta2_power, var.dtype.base_dtype)
-        lr_t = math_ops.cast(self._lr_t, var.dtype.base_dtype)
-        beta1_t = math_ops.cast(self._beta1_t, var.dtype.base_dtype)
-        beta2_t = math_ops.cast(self._beta2_t, var.dtype.base_dtype)
-        epsilon_t = math_ops.cast(self._epsilon_t, var.dtype.base_dtype)
+    def __setstate__(self, state):
+        super(Adam, self).__setstate__(state)
+        for group in self.param_groups:
+            group.setdefault('amsgrad', False)
 
-        lr = lr_t * math_ops.sqrt(1 - beta2_power) / (1 - beta1_power)
+    def step(self, closure=None):
+        """Performs a single optimization step.
 
-        m = self.get_slot(var, "m")
-        v = self.get_slot(var, "v")
+        Arguments:
+            closure (callable, optional): A closure that reevaluates the model
+                and returns the loss.
+        """
+        loss = None
+        if closure is not None:
+            loss = closure()
 
-        old_update = lr * m / (math_ops.sqrt(v) + epsilon_t)
-        var_update = state_ops.assign_add(var, old_update, use_locking=self._use_locking)
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                grad = p.grad.data
+                if grad.is_sparse:
+                    raise RuntimeError('Adam does not support sparse gradients, please consider SparseAdam instead')
+                amsgrad = group['amsgrad']
 
-        with ops.control_dependencies([var_update]):
-            m_t = state_ops.assign(m,
-                                   m * beta1_t + (grad * (1 - beta1_t)),
-                                   use_locking=self._use_locking)
+                state = self.state[p]
 
-            v_t = state_ops.assign(v,
-                                   v * beta2_t + ((grad * grad) * (1 - beta2_t)),
-                                   use_locking=self._use_locking)
+                # State initialization
+                if len(state) == 0:
+                    state['step'] = 0
+                    # Exponential moving average of gradient values
+                    state['exp_avg'] = torch.zeros_like(p.data, memory_format=torch.preserve_format)
+                    # Exponential moving average of squared gradient values
+                    state['exp_avg_sq'] = torch.zeros_like(p.data, memory_format=torch.preserve_format)
+                    if amsgrad:
+                        # Maintains max of all exp. moving avg. of sq. grad. values
+                        state['max_exp_avg_sq'] = torch.zeros_like(p.data, memory_format=torch.preserve_format)
+                    state['prev_step_size'] = 0.0
+                    state['prev_exp_avg'] = torch.zeros_like(p.data, memory_format=torch.preserve_format, dtype=torch.float) #optimistic
+                    state['prev_denom'] = torch.zeros_like(p.data, memory_format=torch.preserve_format, dtype=torch.float) #optimistic
 
-        var_update = state_ops.assign_sub(var,
-                                          2 * lr * m_t / (math_ops.sqrt(v_t) + epsilon_t),
-                                          use_locking=self._use_locking)
-        return control_flow_ops.group(*[var_update, m_t, v_t])
+                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
 
-    def _resource_apply_dense(self, grad, handle):
-        return self._apply_dense(grad, handle)
+                if amsgrad:
+                    max_exp_avg_sq = state['max_exp_avg_sq']
+                beta1, beta2 = group['betas']
 
-    def _finish(self, update_ops, name_scope):
-        # Update the power accumulators.
-        with ops.control_dependencies(update_ops):
-            beta1_power, beta2_power = self._get_beta_accumulators()
-            with ops.colocate_with(beta1_power):
-                update_beta1 = beta1_power.assign(beta1_power * self._beta1_t, use_locking=self._use_locking)
-                update_beta2 = beta2_power.assign(beta2_power * self._beta2_t, use_locking=self._use_locking)
-        return control_flow_ops.group(*update_ops + [update_beta1, update_beta2], name=name_scope)
+                state['step'] += 1
+                bias_correction1 = 1 - beta1 ** state['step']
+                bias_correction2 = 1 - beta2 ** state['step']
 
+                step_size = group['lr'] / bias_correction1
+
+                denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
+                p.data.addcdiv_(step_size, exp_avg, denom)
+
+                if group['weight_decay'] != 0:
+                    grad.add_(group['weight_decay'], p.data)
+
+                # Decay the first and second moment running average coefficient
+                exp_avg.mul_(beta1).add_(1 - beta1, grad)
+                exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, grad, grad)
+                if amsgrad:
+                    # Maintains the maximum of all 2nd moment running avg. till now
+                    torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
+                    # Use the max. for normalizing running avg. of gradient
+                    denom = (max_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
+                else:
+                    denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
+
+                p.data.addcdiv_(-2 * step_size, exp_avg, denom)

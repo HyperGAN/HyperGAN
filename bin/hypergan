@@ -119,10 +119,11 @@ try:
             return hg.inputs.image_loader.ImageLoader(args.batch_size, directories,
                   channels=channels,
                   crop=args.crop,
-                  sequential=args.sequential,
-                  width=width,
                   height=height,
-                  resize=args.resize)
+                  random_crop=args.random_crop,
+                  resize=args.resize,
+                  sequential=args.sequential,
+                  width=width)
 
     gancli = cli.CLI(args=vars(args), gan_fn=gan_fn, inputs_fn=inputs_fn, gan_config=config)
     gancli.run()

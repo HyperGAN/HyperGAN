@@ -24,10 +24,12 @@ class ConfigurableComponent(GANComponent):
         self.current_channels = gan.channels()
         self.current_width = gan.width()
         self.current_height = gan.height()
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
         if input:
             self.current_channels = input.current_channels
             self.current_width = input.current_width
             self.current_height = input.current_height
+            self.current_input_size = input.current_input_size
         self.layers = []
         self.nn_layers = []
         self.layer_options = {}
@@ -58,6 +60,7 @@ class ConfigurableComponent(GANComponent):
             "gram_matrix": self.layer_gram_matrix,
             "identity": self.layer_identity,
             "image_statistics": self.layer_image_statistics,
+            "initializer": self.layer_initializer,
             "instance_norm": self.layer_instance_norm,
             "knowledge_base": self.layer_knowledge_base,
             "layer_filter": self.layer_filter,
@@ -392,6 +395,7 @@ class ConfigurableComponent(GANComponent):
         print("Channels", channels)
 
         layers = [nn.Conv2d(self.current_channels, channels, options.filter or 3, stride, (options.filter or 3)//2)]
+        self.last_logit_layer = layers[0]
         self.current_channels = channels
         if stride > 1:
             self.current_width = self.current_width // stride #TODO
@@ -412,6 +416,7 @@ class ConfigurableComponent(GANComponent):
         layers = [
             nn.Linear(self.current_input_size, output_size, bias=bias)
         ]
+        self.last_logit_layer = layers[0]
         if len(shape) > 1:
             self.current_channels = shape[2]
             self.current_width = shape[0]
@@ -513,6 +518,51 @@ class ConfigurableComponent(GANComponent):
         if options.affine == "false":
             affine = False
         return nn.InstanceNorm2d(self.current_channels, affine=affine)
+
+    def layer_initializer(self, net, args, options):
+        layer = self.last_logit_layer.weight.data
+        if args[0] == "uniform":
+            a = float(args[1])
+            b = float(args[2])
+            nn.init.uniform_(layer, a, b)
+        elif args[0] == "normal":
+            mean = float(args[1])
+            std = float(args[2])
+            nn.init.normal_(layer, mean, std)
+        elif args[0] == "constant":
+            val = float(args[1])
+            nn.init.constant_(layer, val)
+        elif args[0] == "ones":
+            nn.init.ones_(layer)
+        elif args[0] == "zeros":
+            nn.init.zeros_(layer)
+        elif args[0] == "eye":
+            nn.init.eye_(layer)
+        elif args[0] == "dirac":
+            nn.init.dirac_(layer)
+        elif args[0] == "xavier_uniform":
+            gain = nn.init.calculate_gain(options["gain"])
+            nn.init.xavier_uniform_(layer, gain=gain)
+        elif args[0] == "xavier_normal":
+            gain = nn.init.calculate_gain(options["gain"])
+            nn.init.xavier_uniform_(layer, gain=gain)
+        elif args[0] == "kaiming_uniform":
+            a = 0 #TODO wrong
+            nn.init.kaiming_uniform_(layer, mode="fan_in", nonlinearity=options["gain"])
+        elif args[0] == "kaiming_normal":
+            a = 0 #TODO wrong
+            nn.init.kaiming_normal_(layer, mode="fan_in", nonlinearity=options["gain"])
+        elif args[0] == "orthogonal":
+            if "gain" in options:
+                gain = nn.init.calculate_gain(options["gain"])
+            else:
+                gain = 1
+            nn.init.orthogonal_(layer, gain=gain)
+        else:
+            print("Warning: No initializer found for " + args[0])
+        if "gain" in options:
+            layer.mul_(nn.init.calculate_gain(options["gain"]))
+        return NoOp()
 
     def layer_image_statistics(self, net, args, options):
         s = self.ops.shape(net)
@@ -650,6 +700,7 @@ class ConfigurableComponent(GANComponent):
         stride = 2
         padding = 1
         layers = [nn.ConvTranspose2d(self.current_channels, channels, 4, 2, 1)]
+        self.last_logit_layer = layers[0]
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -863,6 +914,7 @@ class ConfigurableComponent(GANComponent):
         h = options.h or self.current_height * 2
         layers = [nn.Upsample((w, h), mode="bilinear"),
                 nn.Conv2d(self.current_channels, channels, options.filter or 3, 1, 1)]
+        self.last_logit_layer = layers[-1]
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -873,6 +925,7 @@ class ConfigurableComponent(GANComponent):
         channels = int(args[0])
 
         layers = [nn.Conv2d(self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
+        self.last_logit_layer = layers[0]
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
         self.current_channels = channels

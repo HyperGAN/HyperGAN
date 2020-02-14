@@ -1,25 +1,25 @@
+from .base_gan import BaseGAN
+from hyperchamber import Config
+from hypergan.discriminators import *
+from hypergan.distributions import *
+from hypergan.gan_component import ValidationException, GANComponent
+from hypergan.generators import *
+from hypergan.inputs import *
+from hypergan.samplers import *
+from hypergan.trainers import *
+from torch.autograd import Variable
+from torch.autograd import grad as torch_grad
+import copy
+import hyperchamber as hc
+import hypergan as hg
 import importlib
 import json
 import numpy as np
 import os
 import sys
 import time
+import torch
 import uuid
-import copy
-
-from hypergan.discriminators import *
-from hypergan.distributions import *
-from hypergan.generators import *
-from hypergan.inputs import *
-from hypergan.samplers import *
-from hypergan.trainers import *
-
-import hyperchamber as hc
-from hyperchamber import Config
-import hypergan as hg
-
-from hypergan.gan_component import ValidationException, GANComponent
-from .base_gan import BaseGAN
 
 class StandardGAN(BaseGAN):
     """ 
@@ -59,11 +59,12 @@ class StandardGAN(BaseGAN):
         self.trainer = self.create_component("trainer")
 
     def forward_discriminator(self):
-        G = self.generator(self.latent.sample())
+        self.x = self.inputs.next()
+        g = self.generator(self.latent.sample())
         D = self.discriminator
-        self.generator_sample = G
-        d_real = D(self.inputs.next())
-        d_fake = D(G)
+        d_real = D(self.x)
+        d_fake = D(g)
+        self.d_fake = d_fake
         return d_real, d_fake
 
     def input_nodes(self):
@@ -81,3 +82,21 @@ class StandardGAN(BaseGAN):
 
     def d_parameters(self):
         return self.discriminator.parameters()
+
+    def regularize_gradient_norm(self, calculate_loss):
+        x = Variable(self.x, requires_grad=True).cuda()
+        d1_logits = self.discriminator(x)
+        d2_logits = self.d_fake
+
+        loss = calculate_loss(d1_logits, d2_logits)
+
+        if loss == 0:
+            return [None, None]
+
+        d1_grads = torch_grad(outputs=loss, inputs=x, retain_graph=True, create_graph=True)
+        d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
+
+        reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
+        reg_d1 = sum(reg_d1)
+
+        return loss, reg_d1

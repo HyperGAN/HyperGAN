@@ -305,3 +305,8 @@ class BaseGAN():
         else:
             print("[hypergan] No sampler found for ", name, ".  Defaulting to", default)
             return default
+
+    def regularize_gradient_norm(self, calculate_loss):
+        raise ValidationException("Not implemented")
+
+

@@ -4,13 +4,17 @@ import hyperchamber as hc
 import inspect
 
 from hypergan.trainers.base_trainer import BaseTrainer
+from hypergan.optimizers.adamirror import Adamirror
 
 TINY = 1e-12
 
 class SimultaneousTrainer(BaseTrainer):
     """ Steps G and D simultaneously """
     def _create(self):
-        self.optimizer = torch.optim.Adam(self.gan.parameters(), lr=1e-4, betas=(0,.999))
+        #self.optimizer = torch.optim.Adam(self.gan.parameters(), lr=self.config.optimizer["learn_rate"], betas=(0,.999))
+        #self.optimizer = Adamirror(self.gan.parameters(), lr=self.config.optimizer["learn_rate"], betas=(0.0,.999))
+        self.optimizer = Adamirror(self.gan.parameters(), lr=self.config.optimizer["learn_rate"], betas=(0.907453,.997))
+        self.gan.add_component("optimizer", optimizer)
 
     def required(self):
         return "".split()

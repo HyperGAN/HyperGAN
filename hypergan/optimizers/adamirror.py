@@ -83,9 +83,6 @@ class Adamirror(Optimizer):
                     if amsgrad:
                         # Maintains max of all exp. moving avg. of sq. grad. values
                         state['max_exp_avg_sq'] = torch.zeros_like(p.data, memory_format=torch.preserve_format)
-                    state['prev_step_size'] = 0.0
-                    state['prev_exp_avg'] = torch.zeros_like(p.data, memory_format=torch.preserve_format, dtype=torch.float) #optimistic
-                    state['prev_denom'] = torch.zeros_like(p.data, memory_format=torch.preserve_format, dtype=torch.float) #optimistic
 
                 exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
 

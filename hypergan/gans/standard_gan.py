@@ -52,12 +52,11 @@ class StandardGAN(BaseGAN):
     def create(self):
         config = self.config
 
-        self.latent = self.create_component(config.z_distribution or config.latent)
-        self.generator = self.create_component(config.generator, input=self.latent)
-        self.discriminator = self.create_component(config.discriminator)
-        self.loss = self.create_component(config.loss)
-        self.losses = [self.loss]
-        self.trainer = self.create_component(config.trainer)
+        self.latent = self.create_component("latent")
+        self.generator = self.create_component("generator", input=self.latent)
+        self.discriminator = self.create_component("discriminator")
+        self.loss = self.create_component("loss")
+        self.trainer = self.create_component("trainer")
 
     def forward_discriminator(self):
         G = self.generator(self.latent.sample())

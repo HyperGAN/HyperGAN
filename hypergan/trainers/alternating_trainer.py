@@ -12,6 +12,8 @@ class AlternatingTrainer(BaseTrainer):
     def _create(self):
         self.d_optimizer = torch.optim.Adam(self.gan.d_parameters(), lr=1e-3, betas=(0,.999))
         self.g_optimizer = torch.optim.Adam(self.gan.g_parameters(), lr=1e-3, betas=(0,.999))
+        self.gan.add_component("d_optimizer", d_optimizer)
+        self.gan.add_component("g_optimizer", g_optimizer)
 
     def required(self):
         return "".split()
@@ -27,11 +29,21 @@ class AlternatingTrainer(BaseTrainer):
         self.before_step(self.current_step, feed_dict)
 
         d_loss, g_loss = self.gan.forward_loss()
+        for hook in self.train_hooks:
+            loss = hook.forward()
+            if loss[0] is not None:
+                d_loss += loss[0]
+
+
         d_loss.mean().backward()
         self.d_optimizer.step()
 
         self.g_optimizer.zero_grad()
         d_loss, g_loss = self.gan.forward_loss()
+        for hook in self.train_hooks:
+            loss = hook.forward()
+            if loss[1] is not None:
+                g_loss += loss[1]
         g_loss.mean().backward()
         self.g_optimizer.step()
 

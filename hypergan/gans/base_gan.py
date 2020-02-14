@@ -36,7 +36,7 @@ class BaseGAN():
     def __init__(self, config=None, inputs=None, debug=None, name="hypergan", method="train"):
         """ Initialized a new GAN."""
         self.inputs = inputs
-        self.components = []
+        self.components = {}
         self.method = method
         self.debug = debug
         self.name = name
@@ -95,32 +95,24 @@ class BaseGAN():
             return config
         return None
 
-    def create_component(self, defn, *args, **kw_args):
+    def add_component(self, name, component):
+        index = 0
+        while(name+str(index) in self.components):
+            index+=1
+        self.components[name+str(index)] = component
+
+    def create_component(self, name, *args, **kw_args):
+        defn = self.config[name]
         if defn == None:
+            print("No definition found for " + name)
             return None
         if defn['class'] == None:
             raise ValidationException("Component definition is missing '" + name + "'")
         klass = GANComponent.lookup_function(None, defn['class'])
         gan_component = klass(self, defn, *args, **kw_args)
+        self.add_component(name, gan_component)
         if(isinstance(gan_component, nn.Module)):
             gan_component.cuda()
-        self.components.append(gan_component)
-        return gan_component
-
-    def create_optimizer(self, options):
-        options = hc.lookup_functions(options)
-        klass = options['class']
-        newopts = options.copy()
-        newopts['gan']=self.gan
-        newopts['config']=options
-        defn = {k: v for k, v in newopts.items() if k in inspect.getargspec(klass).args}
-        learn_rate = options.learn_rate or options.learning_rate
-        if 'learning_rate' in options:
-            del defn['learning_rate']
-        learn_rate = self.configurable_param(learn_rate)
-        self.learn_rate = learn_rate
-        gan_component = klass(learn_rate, **defn)
-        self.components.append(gan_component)
         return gan_component
 
     def create(self):
@@ -153,23 +145,21 @@ class BaseGAN():
         print("Saving..." + str(len(self.components)))
         full_path = os.path.expanduser(os.path.dirname(save_file))
         os.makedirs(full_path, exist_ok=True)
-        index = 0
-        for component in self.components:
+        for name, component in self.components.items():
             if isinstance(component, nn.Module):
-                path = full_path + "/component"+str(index)+".save"
+                path = full_path + "/"+name+".save"
                 print("Saving " + path)
                 print(component.state_dict().keys())
                 torch.save(component.state_dict(), path)
-                index += 1 #TODO probably should label these
 
     def load(self, save_file):
         print("Loading..." + str(len(self.components)))
         full_path = os.path.expanduser(os.path.dirname(save_file))
         index = 0
         loaded = False
-        for component in self.components:
+        for name, component in self.components.items():
             if isinstance(component, nn.Module):
-                path = full_path + "/component"+str(index)+".save"
+                path = full_path + "/"+name+".save"
                 if Path(path).is_file():
                     print("Loading " + path)
                     component.load_state_dict(torch.load(path))

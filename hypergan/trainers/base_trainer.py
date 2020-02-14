@@ -32,7 +32,7 @@ class BaseTrainer(GANComponent):
             defn['config']=hook_config
             defn['trainer']=self
             hook = hook_config["class"](**defn)
-            self.gan.components += [hook]
+            self.gan.add_component("hook", hook)
             losses = hook.losses()
             if losses[0] is not None:
                 self.gan.loss.sample[0] += losses[0]

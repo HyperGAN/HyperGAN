@@ -43,13 +43,13 @@ class MultiMarginalGAN(BaseGAN):
     def create(self):
         config = self.config
 
-        self.latent = self.create_component(config.latent)
-        self.encoder = self.create_component(config.encoder)
-        self.generators = [self.create_component(config.generator, input=self.encoder) for _d in self.inputs.datasets[1:]]
+        self.latent = self.create_component("latent")
+        self.encoder = self.create_component("encoder")
+        self.generators = [self.create_component("generator", input=self.encoder) for _d in self.inputs.datasets[1:]]
         self.generator = self.generators[0]
-        self.discriminator = self.create_component(config.discriminator)
-        self.loss = self.create_component(config.loss)
-        self.trainer = self.create_component(config.trainer)
+        self.discriminator = self.create_component("discriminator")
+        self.loss = self.create_component("loss")
+        self.trainer = self.create_component("trainer")
 
     def g_parameters(self):
         for gen in self.generators:

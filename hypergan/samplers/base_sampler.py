@@ -19,7 +19,7 @@ class BaseSampler:
         sample = self._sample()
 
         stacks = []
-        for key, data in sample.items():
+        for key, data in sample:
             data = data.cpu().permute(0,2,3,1).detach().numpy()
             slots = min(gan.batch_size(), self.samples_per_row)
             slots = min(slots, np.shape(data)[0])

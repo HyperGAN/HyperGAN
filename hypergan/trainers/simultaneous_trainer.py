@@ -14,7 +14,7 @@ class SimultaneousTrainer(BaseTrainer):
         #self.optimizer = torch.optim.Adam(self.gan.parameters(), lr=self.config.optimizer["learn_rate"], betas=(0,.999))
         #self.optimizer = Adamirror(self.gan.parameters(), lr=self.config.optimizer["learn_rate"], betas=(0.0,.999))
         self.optimizer = Adamirror(self.gan.parameters(), lr=self.config.optimizer["learn_rate"], betas=(0.907453,.997))
-        self.gan.add_component("optimizer", optimizer)
+        self.gan.add_component("optimizer", self.optimizer)
 
     def required(self):
         return "".split()

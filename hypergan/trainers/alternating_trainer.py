@@ -12,8 +12,8 @@ class AlternatingTrainer(BaseTrainer):
     def _create(self):
         self.d_optimizer = torch.optim.Adam(self.gan.d_parameters(), lr=1e-3, betas=(0,.999))
         self.g_optimizer = torch.optim.Adam(self.gan.g_parameters(), lr=1e-3, betas=(0,.999))
-        self.gan.add_component("d_optimizer", d_optimizer)
-        self.gan.add_component("g_optimizer", g_optimizer)
+        self.gan.add_component("d_optimizer", self.d_optimizer)
+        self.gan.add_component("g_optimizer", self.g_optimizer)
 
     def required(self):
         return "".split()

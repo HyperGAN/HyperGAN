@@ -55,29 +55,33 @@ class AliGAN(BaseGAN):
         E = self.encoder
         D = self.discriminator
         G = self.generator
-        self.x = self.inputs.next()
-        enc_real = E(self.x)
-        G_sample = G(enc_real)
 
         if self.classes_count == 1:
-            d_real = D(self.x, context={"z": enc_real})
-            d_fake = D(G_sample, context={"z": enc_real})
+            real = self.inputs.next()
+            enc_real = E(real)
+            g = G(enc_real)
+            d_real = D(real, context={"z": enc_real})
+            d_fake = D(g, context={"z": enc_real})
             self.z = enc_real
+            self.x = real
         elif self.classes_count == 2:
             E2 = self.encoder2
+            real = self.inputs.next()
+            enc_real = E2(real)
+            g = G(enc_real)
             real1 = self.inputs.next(1)
-            enc_real1 = E2(real1)
+            enc_real1 = E(real1)
             d_real = D(real1, context={"z": enc_real1})
-            d_fake = D(G_sample, context={"z": enc_real})
+            d_fake = D(g, context={"z": enc_real})
             self.z = enc_real1
+            self.x = real1
         self.d_fake = d_fake
 
         return d_real, d_fake
 
     def regularize_gradient_norm(self, calculate_loss):
         x = Variable(self.x, requires_grad=True).cuda()
-        z = Variable(self.z, requires_grad=True).cuda()
-        d1_logits = self.discriminator(x, context={"z":z})
+        d1_logits = self.discriminator(x, context={"z":self.z})
         d2_logits = self.d_fake
 
         loss = calculate_loss(d1_logits, d2_logits)
@@ -85,14 +89,9 @@ class AliGAN(BaseGAN):
         if loss == 0:
             return [None, None]
 
-        d1_grads = torch_grad(outputs=loss, inputs=x, retain_graph=True, create_graph=True)
-        d1_z_grads = torch_grad(outputs=loss, inputs=z, retain_graph=True)
-
+        d1_grads = torch_grad(outputs=loss, inputs=x, create_graph=True)
         d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
-        d1_z_norm = [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_z_grads]
-
         reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
-        reg_d1 += [((_d1_norm**2).cuda()) for _d1_norm in d1_z_norm]
         reg_d1 = sum(reg_d1)
 
         return loss, reg_d1

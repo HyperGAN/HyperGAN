@@ -28,8 +28,10 @@ class CatchupGTrainHook(BaseTrainHook):
       g = self.gan.generator_sample
       d1_params = Variable(x, requires_grad=True).cuda()#self.gan.d_parameters()
       d2_params = Variable(g, requires_grad=True).cuda()#self.gan.g_parameters()
-      d1_logits = self.gan.discriminator(d1_params)
-      d2_logits = self.gan.discriminator(d2_params)
+      d1_z_params = Variable(self.gan.gp_context_x["z"], requires_grad=True).cuda()
+      d2_z_params = Variable(self.gan.gp_context_g["z"], requires_grad=True).cuda()
+      d1_logits = self.gan.discriminator(d1_params, context={"z":d1_z_params})
+      d2_logits = self.gan.discriminator(d2_params, context={"z":d2_z_params})
       d1 = self.sig(d1_logits)
       d2 = self.sig(d2_logits)
       params = list(self.gan.discriminator.parameters())# + [d1_logits]
@@ -41,8 +43,11 @@ class CatchupGTrainHook(BaseTrainHook):
       if loss == 0:
           return [None, None]
       d1_grads = torch_grad(outputs=loss, inputs=d1_params, retain_graph=True, create_graph=True)
+      d1_z_grads = torch_grad(outputs=loss, inputs=d1_z_params, retain_graph=True, create_graph=True)
       d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
+      d1_z_norm = [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_z_grads]
       reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
+      reg_d1 += [((_d1_norm**2).cuda()) for _d1_norm in d1_z_norm]
       #reg_d1 = [((d1**2).cuda() * (_d1_norm**2).cuda()) for _d1_norm in d1_norm]
       #reg_d2 = [(((1.0-d2)**2).cuda() * (_d2_norm**2).cuda()) for _d2_norm in d2_norm]
       reg_d1 = sum(reg_d1)

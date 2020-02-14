@@ -30,19 +30,24 @@ class AliGAN(BaseGAN):
         BaseGAN.__init__(self, *args, **kwargs)
 
     def create(self):
+        self.classes_count = len(self.inputs.datasets)
         self.latent = self.create_component("latent")
         self.encoder = self.create_component("encoder")
+        if self.classes_count == 2:
+            self.encoder2 = self.create_component("encoder")
         self.generator = self.create_component("generator", input=self.encoder)
         self.discriminator = self.create_component("discriminator")
         self.loss = self.create_component("loss")
         self.trainer = self.create_component("trainer")
-        self.classes_count = len(self.inputs.datasets)
 
     def g_parameters(self):
         for param in self.generator.parameters():
             yield param
         for param in self.encoder.parameters():
             yield param
+        if self.classes_count == 2:
+            for param in self.encoder2.parameters():
+                yield param
 
     def d_parameters(self):
         return self.discriminator.parameters()
@@ -58,14 +63,19 @@ class AliGAN(BaseGAN):
         if self.classes_count == 1:
             d_real = D(real, context={"z": enc_real})
             d_fake = D(G_sample, context={"z": enc_real})
+            self.gp_context = {"z":enc_real}
+            self.gp_context_x = {"z":enc_real}
+            self.gp_context_g = {"z":enc_real}
         elif self.classes_count == 2:
+            E2 = self.encoder2
             real1 = self.inputs.next(1)
-            enc_real1 = E(real1)
+            enc_real1 = E2(real1)
             d_real = D(real1, context={"z": enc_real1})
             d_fake = D(G_sample, context={"z": enc_real})
+            self.gp_context_x = {"z":enc_real1}
+            self.gp_context_g = {"z":enc_real}
 
         self.generator_sample = G_sample
-        self.gp_context = {"z":enc_real}
 
         return d_real, d_fake
 

@@ -5,6 +5,8 @@ import re
 import os
 import operator
 from functools import reduce
+
+import torch
 import torch.nn as nn
 
 from .gan_component import GANComponent
@@ -394,7 +396,7 @@ class ConfigurableComponent(GANComponent):
         stride = options.stride or 2
         print("Channels", channels)
 
-        layers = [nn.Conv2d(self.current_channels, channels, options.filter or 3, stride, (options.filter or 3)//2)]
+        layers = [nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, stride, (options.filter or 3)//2)]
         self.last_logit_layer = layers[0]
         self.current_channels = channels
         if stride > 1:
@@ -1066,7 +1068,10 @@ class ConfigurableComponent(GANComponent):
         if len(args) > 0 and args[0] == 'noise':
             self.current_channels *= 2
             return ConcatNoise()
-        print("Warning: only 'concat noise' is supported for now.")
+        elif args[1] == 'layer':
+            return NoOp()
+        else:
+            print("Warning: only 'concat noise' and 'concat layer' is supported for now.")
 
     def layer_gram_matrix(self, net, args, options):
 
@@ -1251,12 +1256,15 @@ class ConfigurableComponent(GANComponent):
             net = tf.identity(net, name=options["name"])
         return net
 
-    def forward(self, input):
+    def forward(self, input, context={}):
         named_layers = {}
         for module, opts in zip(self.net, self.parsed_opts):
             layer_name, name, args = opts
             if layer_name == "adaptive_instance_norm":
                 input = module(input, named_layers['w'])
+            elif layer_name == "concat":
+                if args[0] == "layer":
+                    input = torch.cat((input, context[args[1]]), axis=1)
             elif layer_name == "layer":
                 input = named_layers[args[0]]
             elif layer_name == "latent":

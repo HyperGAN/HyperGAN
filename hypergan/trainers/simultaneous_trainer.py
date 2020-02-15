@@ -42,14 +42,29 @@ class SimultaneousTrainer(BaseTrainer):
             p.requires_grad = True
         for p in self.gan.d_parameters():
             p.requires_grad = False
-        g_loss.mean().backward(retain_graph=True)
+        g_loss = g_loss.mean()
+        g_loss.backward(retain_graph=True)
         for p in self.gan.d_parameters():
             p.requires_grad = True
         for p in self.gan.g_parameters():
             p.requires_grad = False
-        d_loss.mean().backward()
+        d_loss = d_loss.mean()
+        d_loss.backward(retain_graph=True)
+        self.d_loss = d_loss
+        self.g_loss = g_loss
         for p in self.gan.g_parameters():
             p.requires_grad = True
+
+        d_grads = [p.grad for p in self.gan.d_parameters()]
+        g_grads = [p.grad for p in self.gan.g_parameters()]
+
+        for hook in self.train_hooks:
+            d_grads, g_grads = hook.gradients(d_grads, g_grads)
+        for p, np in zip(self.gan.d_parameters(), d_grads):
+            p.grad = np
+        for p, np in zip(self.gan.g_parameters(), g_grads):
+            p.grad = np
+
         self.optimizer.step()
 
         if self.current_step % 10 == 0:

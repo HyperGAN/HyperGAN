@@ -1,5 +1,4 @@
 import argparse
-import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 import numpy as np
@@ -206,8 +205,7 @@ def parse_size(size):
     return [width, height, channels]
 
 def lookup_config(args):
-    if args.action != 'search':
-        return hg.configuration.Configuration.load(args.config+".json")
+    return hg.configuration.Configuration.load(args.config+".json")
     
 def random_config_from_list(config_list_file):
     """ Chooses a random configuration from a list of configs (separated by newline) """

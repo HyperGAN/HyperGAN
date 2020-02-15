@@ -915,7 +915,7 @@ class ConfigurableComponent(GANComponent):
         w = options.w or self.current_width * 2
         h = options.h or self.current_height * 2
         layers = [nn.Upsample((w, h), mode="bilinear"),
-                nn.Conv2d(self.current_channels, channels, options.filter or 3, 1, 1)]
+                nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
         self.last_logit_layer = layers[-1]
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
@@ -1068,9 +1068,10 @@ class ConfigurableComponent(GANComponent):
         if len(args) > 0 and args[0] == 'noise':
             self.current_channels *= 2
             return ConcatNoise()
-        elif args[1] == 'layer':
+        elif args[0] == 'layer':
             return NoOp()
         else:
+            print("Got: ", args[0])
             print("Warning: only 'concat noise' and 'concat layer' is supported for now.")
 
     def layer_gram_matrix(self, net, args, options):
@@ -1264,7 +1265,7 @@ class ConfigurableComponent(GANComponent):
                 input = module(input, named_layers['w'])
             elif layer_name == "concat":
                 if args[0] == "layer":
-                    input = torch.cat((input, context[args[1]]), axis=1)
+                    input = torch.cat((input, context[args[1]]), dim=1)
             elif layer_name == "layer":
                 input = named_layers[args[0]]
             elif layer_name == "latent":

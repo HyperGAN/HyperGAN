@@ -9,8 +9,9 @@ class ImageLoader:
     ImageLoader loads a set of images
     """
 
-    def __init__(self, batch_size, directories, channels=3, width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False):
+    def __init__(self, batch_size, directories, channels=3, width=64, height=64, crop=False, resize=False, sequential=False, random_crop=False, shuffle=True):
         self.batch_size = batch_size
+        self.shuffle = shuffle
 
         directory = directories[0]
         return self.image_folder_create(directories, channels=channels, width=width, height=height, crop=crop, resize=resize, sequential=sequential, random_crop=random_crop)
@@ -38,7 +39,7 @@ class ImageLoader:
         for directory in directories:
             #TODO channels
             image_folder = torchvision.datasets.ImageFolder(directory, transform=transform)
-            self.dataloaders.append(data.DataLoader(image_folder, batch_size=self.batch_size, shuffle=True, num_workers=4, drop_last=True))
+            self.dataloaders.append(data.DataLoader(image_folder, batch_size=self.batch_size, shuffle=self.shuffle, num_workers=4, drop_last=True))
             self.datasets.append(iter(self.dataloaders[-1]))
         self.next()
 

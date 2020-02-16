@@ -26,7 +26,6 @@ from time import sleep
 class CLI:
     def __init__(self, args={}, gan_fn=None, inputs_fn=None, gan_config=None):
         self.samples = 0
-        self.steps = 0
         self.gan_fn = gan_fn
         self.gan_config = gan_config
         self.inputs_fn = inputs_fn
@@ -97,10 +96,8 @@ class CLI:
     def step(self):
         self.gan.step()
 
-        if(self.steps % self.sample_every == 0 and self.args.sampler):
+        if(self.gan.steps % self.sample_every == 0 and self.args.sampler):
             sample_list = self.sample()
-
-        self.steps+=1
 
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
@@ -149,7 +146,6 @@ class CLI:
                 self.create_path(self.advSavePath+'advSave.txt')
                 if os.path.isfile(self.advSavePath+'advSave.txt'):
                     with open(self.advSavePath+'advSave.txt', 'w') as the_file:
-                        the_file.write(str(self.steps)+"\n")
                         the_file.write(str(self.samples)+"\n")
             if self.args.ipython:
                 self.check_stdin()
@@ -202,7 +198,6 @@ class CLI:
                 if os.path.isfile(self.advSavePath+'advSave.txt'):
                     with open(self.advSavePath+'advSave.txt', 'r') as the_file:
                         content = [x.strip() for x in the_file]
-                        self.steps = int(content[0])
                         self.samples = int(content[1])
                 print("Model loaded")
             self.build()
@@ -218,7 +213,6 @@ class CLI:
                 if os.path.isfile(self.advSavePath+'advSave.txt'):
                     with open(self.advSavePath+'advSave.txt', 'r') as the_file:
                         content = [x.strip() for x in the_file]
-                        self.steps = int(content[0])
                         self.samples = int(content[1])
                 print("Model loaded")
 

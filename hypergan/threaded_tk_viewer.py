@@ -136,8 +136,7 @@ class ThreadedTkViewerUI:
                 label = tk.Label(statusbar, text="Starting", font=12)
                 label.grid(row=0, column=2) 
                 def __update_step():
-                    if hasattr(gan, 'step_count'):
-                        label['text']=("Step " + str(gan.step_count))
+                    label['text']=("Step " + str(int(gan.steps[0])))
                     root.after(1000, __update_step)
 
 

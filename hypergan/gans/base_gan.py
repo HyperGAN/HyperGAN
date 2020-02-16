@@ -1,40 +1,40 @@
-import hyperchamber as hc
 from hyperchamber import Config
 from hypergan.gan_component import ValidationException, GANComponent
-from hypergan.skip_connections import SkipConnections
-
-from pathlib import Path
-
-import math
-import re
-import os
-import inspect
-import hypergan as hg
-import numpy as np
-import torch.nn as nn
-import torch
-
-from hypergan.samplers.static_batch_sampler import StaticBatchSampler
-from hypergan.samplers.progressive_sampler import ProgressiveSampler
-from hypergan.samplers.batch_sampler import BatchSampler
-from hypergan.samplers.input_sampler import InputSampler
-from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
-from hypergan.samplers.grid_sampler import GridSampler
-from hypergan.samplers.sorted_sampler import SortedSampler
-from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.aligned_sampler import AlignedSampler
-from hypergan.samplers.autoencode_sampler import AutoencodeSampler
-from hypergan.samplers.random_walk_sampler import RandomWalkSampler
-from hypergan.samplers.style_walk_sampler import StyleWalkSampler
 from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
+from hypergan.samplers.autoencode_sampler import AutoencodeSampler
+from hypergan.samplers.batch_sampler import BatchSampler
+from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
+from hypergan.samplers.began_sampler import BeganSampler
 from hypergan.samplers.debug_sampler import DebugSampler
-from hypergan.samplers.segment_sampler import SegmentSampler
-from hypergan.samplers.y_sampler import YSampler
 from hypergan.samplers.gang_sampler import GangSampler
+from hypergan.samplers.grid_sampler import GridSampler
+from hypergan.samplers.input_sampler import InputSampler
+from hypergan.samplers.progressive_sampler import ProgressiveSampler
+from hypergan.samplers.random_walk_sampler import RandomWalkSampler
+from hypergan.samplers.segment_sampler import SegmentSampler
+from hypergan.samplers.sorted_sampler import SortedSampler
+from hypergan.samplers.static_batch_sampler import StaticBatchSampler
+from hypergan.samplers.style_walk_sampler import StyleWalkSampler
+from hypergan.samplers.y_sampler import YSampler
+from hypergan.skip_connections import SkipConnections
+from pathlib import Path
+from torch.autograd import Variable
+from torch.autograd import grad as torch_grad
+import hyperchamber as hc
+import hypergan as hg
+import inspect
+import math
+import numpy as np
+import os
+import re
+import torch
+import torch.nn as nn
 
 class BaseGAN():
     def __init__(self, config=None, inputs=None, debug=None, name="hypergan", method="train"):
         """ Initialized a new GAN."""
+        self.steps = Variable(torch.zeros([1]))
         self.inputs = inputs
         self.components = {}
         self.method = method
@@ -63,6 +63,7 @@ class BaseGAN():
             yield param
         for param in self.d_parameters():
             yield param
+        yield self.steps
 
     def g_parameters(self):
         print("Warning: BaseGAN.g_parameters() called directly.  Please override")
@@ -133,7 +134,7 @@ class BaseGAN():
         return self.loss.forward(d_real, d_fake)
 
     def step(self, feed_dict={}):
-        #self.step_count = self.session.run(self.increment_step)
+        self.steps += 1
         return self._step(feed_dict)
 
     def _step(self, feed_dict={}):
@@ -220,7 +221,7 @@ class BaseGAN():
         r2 = float(r2)
  
         if method == "sin":
-            t = self.gan.steps
+            t = self.steps
             t = tf.dtypes.cast(t, tf.float32)
             n1_to_1 = tf.math.sin((tf.constant(math.pi) * 2 * t + tf.constant(offset, tf.float32))/ (steps))
             n = (n1_to_1+1)/2.0
@@ -231,7 +232,7 @@ class BaseGAN():
     def configurable_params_anneal(self, args, options):
         steps = int(options.T or options.steps or 1000)
         alpha = float(args[0])
-        t = self.gan.steps
+        t = self.steps
         t = tf.dtypes.cast(t, tf.float32)
         return tf.pow(alpha, tf.dtypes.cast(t, tf.float32) / steps)
 
@@ -244,7 +245,7 @@ class BaseGAN():
         r2 = float(r2)
         cycle = "cycle" in args
         repeat = "repeat" in args
-        current_step = self.gan.steps
+        current_step = self.steps
         if repeat:
             current_step %= (steps+1)
         if start == 0:

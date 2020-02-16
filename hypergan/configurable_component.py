@@ -217,6 +217,7 @@ class ConfigurableComponent(GANComponent):
             "softplus": nn.Softplus(),
             "softshrink": nn.Softshrink(),
             "softsign": nn.Softsign(),
+            "hardtanh": nn.Hardtanh(),
             "tanh": nn.Tanh(),
             "tanhshrink": nn.Tanhshrink()
         }

@@ -163,8 +163,12 @@ class BaseGAN():
                 path = full_path + "/"+name+".save"
                 if Path(path).is_file():
                     print("Loading " + path)
-                    component.load_state_dict(torch.load(path))
-                    component.eval()
+                    try:
+                        component.load_state_dict(torch.load(path))
+                        component.eval()
+                    except:
+                        print("Warning: Could not load component " + name)
+
                     index += 1 #TODO probably should label these
                     loaded = True
                 else:

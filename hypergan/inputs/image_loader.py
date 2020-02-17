@@ -45,7 +45,7 @@ class ImageLoader:
 
     def next(self, index=0):
         try:
-            self.sample = self.datasets[index].next()[0].cuda()
+            self.sample = self.datasets[index].next()[0].cuda() * 2.0 - 1.0
             return self.sample
         except StopIteration:
             self.datasets[index] = iter(self.dataloaders[index])

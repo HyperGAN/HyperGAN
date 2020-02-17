@@ -42,7 +42,7 @@ class BaseSampler:
         else:
             fmt = "RGB"
         # Scale to 0..255.
-        imin, imax = image.min(), image.max()
+        imin, imax = -1.0, 1.0
         image = (image - imin) * 255. / (imax - imin) + .5
         image = image.astype(np.uint8)
         if save_sample:

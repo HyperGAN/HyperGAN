@@ -43,12 +43,9 @@ class ConfigurableComponent(GANComponent):
             "avg_pool": self.layer_avg_pool,
             "avg_pool3d": self.layer_avg_pool3d,
             "batch_norm": self.layer_batch_norm,
-            "bicubic_conv": self.layer_bicubic_conv,
-            "combine_features": self.layer_combine_features,
             "concat": self.layer_concat,
             "conv": self.layer_conv,
             "conv3d": self.layer_conv3d,
-            "crop": self.layer_crop,
             "deconv": self.layer_deconv,
             "dropout": self.layer_dropout,
             "flatten": nn.Flatten(),
@@ -58,16 +55,15 @@ class ConfigurableComponent(GANComponent):
             "latent": self.layer_latent,
             "layer": self.layer_layer,
             "linear": self.layer_linear,
-            "noise": self.layer_noise,
             "pad": self.layer_pad,
-            "relational": self.layer_relational,
             "reshape": self.layer_reshape,
             "residual": self.layer_residual, #TODO options
             "resize_conv": self.layer_resize_conv,
             "subpixel": self.layer_subpixel,
-            "unpool": self.layer_unpool, #TODO https://arxiv.org/abs/1505.04366
             "vae": self.layer_vae
             #"add": self.layer_add, #TODO
+            # "crop": self.layer_crop,
+            # "noise": self.layer_noise, #TODO
             #"attention": self.layer_attention, #TODO
             #"const": self.layer_const, #TODO
             #"gram_matrix": self.layer_gram_matrix, #TODO
@@ -81,6 +77,8 @@ class ConfigurableComponent(GANComponent):
             #"pixel_norm": self.layer_pixel_norm,#TODO
             #"progressive_replace": self.layer_progressive_replace,#TODO
             #"reduce_sum": self.layer_reduce_sum,#TODO might want to just do "reduce sum" instead
+            #"relational": self.layer_relational,#TODO
+            #"unpool": self.layer_unpool, #TODO https://arxiv.org/abs/1505.04366
             #"split": self.layer_split, #TODO
             #"squash": self.layer_squash, #TODO
             #"tensorflowcv": self.layer_tensorflowcv, #TODO layer torchvision instead?

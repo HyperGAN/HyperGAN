@@ -20,6 +20,7 @@ import os
 import sys
 import time
 import torch
+import torch.nn as nn
 import uuid
 
 class AliGAN(BaseGAN):
@@ -62,6 +63,7 @@ class AliGAN(BaseGAN):
             g = G(enc_real)
             d_real = D(real, context={"z": enc_real})
             d_fake = D(g, context={"z": enc_real})
+            self.g = g
             self.z = enc_real
             self.x = real
         elif self.classes_count == 2:
@@ -75,9 +77,41 @@ class AliGAN(BaseGAN):
             d_fake = D(g, context={"z": enc_real})
             self.z = enc_real1
             self.x = real1
+            self.g = G(enc_real1)
         self.d_fake = d_fake
 
         return d_real, d_fake
+
+    def forward_loss(self):
+        """
+            Runs a forward pass through the GAN and returns (d_loss, g_loss)
+        """
+        d_real, d_fake = self.forward_discriminator()
+        d_loss, g_loss = self.loss.forward(d_real, d_fake)
+        mse_criterion = nn.MSELoss()
+        if self.config.vae:
+            logvar = self.encoder.vae.sigma
+            mu = self.encoder.vae.mu
+            vae = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            #vae = (self.config.vae_lambda or 1) * vae
+            self.add_metric('vae0', vae)
+
+            if self.classes_count == 2:
+                logvar = self.encoder2.vae.sigma
+                mu = self.encoder2.vae.mu
+                vae1 = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+                #vae1 = (self.config.vae_lambda or 1) * vae1
+                vae += vae1
+                self.add_metric('vae1', vae1)
+ 
+            g_loss += vae
+            if self.config.mse:
+                mse = mse_criterion(self.g, self.x)
+                self.add_metric('mse', mse)
+                g_loss += mse
+
+        return d_loss, g_loss
+
 
     def regularize_gradient_norm(self, calculate_loss):
         x = Variable(self.x, requires_grad=True).cuda()
@@ -90,7 +124,7 @@ class AliGAN(BaseGAN):
             return [None, None]
 
         d1_grads = torch_grad(outputs=loss, inputs=x, create_graph=True)
-        d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
+        d1_norm = [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
         reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
         reg_d1 = sum(reg_d1)
 

@@ -1,5 +1,6 @@
 # https://arxiv.org/pdf/1911.00888v1.pdf
 from .base_gan import BaseGAN
+import torch.nn as nn
 from hyperchamber import Config
 from hypergan.discriminators import *
 from hypergan.distributions import *
@@ -72,11 +73,11 @@ class MultiMarginalGAN(BaseGAN):
 
         d_real0, d_fake0 = self.forward_discriminator(self.generator, x0)
         d_loss0, g_loss0 = self.loss.forward(d_real0, d_fake0)
-        lambda0 = 0.001
+        lambda0 = self.config.lambda0 or 0.1
 
         d_real1, d_fake1 = self.forward_discriminator(self.generator, x1)
         d_loss1, g_loss1 = self.loss.forward(d_real1, d_fake1)
-        lambdaN = 10
+        lambdaN = 1.0 - lambda0
 
         d_loss = d_loss0 * lambda0 + d_loss1 * lambdaN
         g_loss = g_loss0 * lambda0 + g_loss1 * lambdaN
@@ -88,7 +89,7 @@ class MultiMarginalGAN(BaseGAN):
             E = self.encoder
             G = self.generators[0]
             inp = self.inputs.next(index = 1)
-            l1_loss = (G(E(inp)) - inp).abs().mean()
+            l1_loss = nn.MSELoss()(G(E(inp)),  inp)
             self.add_metric("l1", l1_loss)
             g_loss += l1_loss
 
@@ -96,15 +97,13 @@ class MultiMarginalGAN(BaseGAN):
 
     def regularize_gradient_norm(self, calculate_loss):
         reg_d1 = []
-        for x_, d_fake in zip(self.xs, self.d_fakes):
+        loss = 0.0
+        for x_, d_fake in zip(self.xs[1:], self.d_fakes[1:]):
             x = Variable(x_, requires_grad=True).cuda()
             d1_logits = self.discriminator(x)
             d2_logits = d_fake
 
-            loss = calculate_loss(d1_logits, d2_logits)
-
-            if loss == 0:
-                return [None, None]
+            loss += calculate_loss(d1_logits, d2_logits)
 
             d1_grads = torch_grad(outputs=loss, inputs=x, retain_graph=True, create_graph=True)
             d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]

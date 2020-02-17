@@ -218,10 +218,10 @@ class NextFrameGAN(BaseGAN):
         gs = []
         gcs = []
         for gen in range(self.config.forward_frames or 4):
-            gcs.append(c)
             g = G(c, context={"z":z})
             z = EZ(g, context={"z":z})
             c = EC(z, context={"c":c})
+            gcs.append(c)
             gs.append(g)
         self.last_g = g
         return cs, gs, gcs, rgs, rcs

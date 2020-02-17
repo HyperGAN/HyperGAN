@@ -200,20 +200,22 @@ class NextFrameGAN(BaseGAN):
         z = self.gen_z()
 
         if(self.config.random):
-            rg = G(c, context={"z":z})
+            rz = z
+            rc = c
+            rg = G(rc, context={"z":rz})
             rgs.append(rg)
+            for i in range(len(frames)-1):
+                rz = EZ(rg, context={"z":rz})
+                rc = EC(rz, context={"c":rc})
+                rg = G(rc, context={"z":rz})
+                rgs.append(rg)
+                rcs.append(rc)
 
         cs = []
         for frame in xs:
             z = EZ(frame, context={"z":z})
             c = EC(z, context={"c":c})
             cs.append(c)
-            if(self.config.random):
-                rz = EZ(rg, context={"z":z})
-                rc = EC(rz, context={"c":c})
-                rg = G(c, context={"z":z})
-                rgs.append(rg)
-                rcs.append(rc)
 
         gs = []
         gcs = []
@@ -276,11 +278,11 @@ class NextFrameGAN(BaseGAN):
             d2_logits = self.od_fake
             loss = calculate_loss(d1_logits, d2_logits)
 
-        #if self.config.video_discriminator:
-        #    cs = Variable(self.cs_cat, requires_grad=True).cuda()
-        #    d1_logits = self.video_discriminator(cs)
-        #    d2_logits = self.vd_fake
-        #    v_loss = calculate_loss(d1_logits, d2_logits)
+        if self.config.video_discriminator:
+            cs = Variable(self.cs_cat, requires_grad=True).cuda()
+            d1_logits = self.video_discriminator(cs)
+            d2_logits = self.vd_fake
+            v_loss = calculate_loss(d1_logits, d2_logits)
 
         if self.config.image_discriminator:
             ix = Variable(self.ix, requires_grad=True).cuda()
@@ -288,29 +290,29 @@ class NextFrameGAN(BaseGAN):
             d2_logits = self.id_fake
             i_loss = calculate_loss(d1_logits, d2_logits)
 
-        #if self.config.c_discriminator:
-        #    c = Variable(self.gen_c(), requires_grad=True).cuda()
-        #    cd1_logits = c
-        #    cd2_logits = self.cd_fake
-        #    c_loss = calculate_loss(cd1_logits, cd2_logits)
+        if self.config.c_discriminator:
+            c = Variable(self.gen_c(), requires_grad=True).cuda()
+            cd1_logits = c
+            cd2_logits = self.cd_fake
+            c_loss = calculate_loss(cd1_logits, cd2_logits)
 
         d1_grads = []
         d1_norm = []
         if self.config.discriminator:
             d1_grads = torch_grad(outputs=loss, inputs=x, create_graph=True)
             d1_norm += [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
-        #$if self.config.video_discriminator:
-        #$    d1_grads = torch_grad(outputs=v_loss, inputs=cs, create_graph=True)
-        #$    d1_norm += [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
-        #$    loss += v_loss
+        if self.config.video_discriminator:
+            d1_grads = torch_grad(outputs=v_loss, inputs=cs, create_graph=True)
+            d1_norm += [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
+            loss += v_loss
         if self.config.image_discriminator:
             d1_grads = torch_grad(outputs=i_loss, inputs=ix, create_graph=True)
             d1_norm += [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
             loss += i_loss
-        #if self.config.c_discriminator:
-        #    d1_c_grads = torch_grad(outputs=c_loss, inputs=c, create_graph=True)
-        #    d1_norm += [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_c_grads]
-        #    loss += c_loss
+        if self.config.c_discriminator:
+            d1_c_grads = torch_grad(outputs=c_loss, inputs=c, create_graph=True)
+            d1_norm += [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_c_grads]
+            loss += c_loss
         reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
         reg_d1 = sum(reg_d1)
 

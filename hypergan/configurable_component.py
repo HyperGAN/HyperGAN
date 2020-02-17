@@ -16,6 +16,7 @@ from hypergan.modules.reshape import Reshape
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.residual import Residual
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
+from hypergan.modules.variational import Variational
 from hypergan.modules.no_op import NoOp
 
 class ConfigurationException(Exception):
@@ -41,6 +42,7 @@ class ConfigurableComponent(GANComponent):
             "add": self.layer_add,
             "attention": self.layer_attention,
             "avg_pool": self.layer_avg_pool,
+            "avg_pool3d": self.layer_avg_pool3d,
             "adaptive_avg_pool": self.layer_adaptive_avg_pool,
             "batch_norm": self.layer_batch_norm,
             "bicubic_conv": self.layer_bicubic_conv,
@@ -50,6 +52,7 @@ class ConfigurableComponent(GANComponent):
             "const_like": self.layer_const_like,
             "control": self.layer_controls,
             "conv": self.layer_conv,
+            "conv3d": self.layer_conv3d,
             "conv_depth_to_space": self.layer_conv_dts,
             "conv_double": self.layer_conv_double,
             "conv_reshape": self.layer_conv_reshape,
@@ -91,8 +94,7 @@ class ConfigurableComponent(GANComponent):
             "turing_test": self.layer_turing_test,
             "two_sample_stack": self.layer_two_sample_stack,
             "unpool": self.layer_unpool,
-            "variational": self.layer_variational,
-            "variational_noise": self.layer_variational_noise,
+            "vae": self.layer_vae,
             "zeros": self.layer_zeros,
             "zeros_like": self.layer_zeros_like
             }
@@ -388,23 +390,57 @@ class ConfigurableComponent(GANComponent):
     def layer_identity(self, net, args, options):
         return NoOp()
 
+    def get_same_padding(self, input_rows, filter_rows, stride, dilation):
+        out_rows = (input_rows + stride - 1) // stride
+        return max(0, (out_rows - 1) * stride + (filter_rows - 1) * dilation + 1 - input_rows) // 2
+
     def layer_conv(self, net, args, options):
         if len(args) > 0:
             channels = int(args[0])
         else:
             channels = self.current_channels
+        print("Options:", options)
         options = hc.Config(options)
-        stride = options.stride or 2
-        print("Channels", channels)
+        stride = options.stride or 1
+        fltr = options.filter or 3
+        dilation = 1
 
-        layers = [nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, stride, (options.filter or 3)//2)]
+        padding = options.padding or 1#self.get_same_padding(self.current_width, self.current_width, stride, dilation)
+
+        print("conv start", self.current_width, self.current_height, self.current_channels, stride)
+        layers = [nn.Conv2d(options.input_channels or self.current_channels, channels, fltr, stride, padding = (padding, padding))]
         self.last_logit_layer = layers[0]
         self.current_channels = channels
         if stride > 1:
             self.current_width = self.current_width // stride #TODO
             self.current_height = self.current_height // stride #TODO
+        print("conv", self.current_width, self.current_height, self.current_channels, stride)
         self.current_input_size = self.current_channels * self.current_width * self.current_height
         return nn.Sequential(*layers)
+
+    def layer_conv3d(self, net, args, options):
+        if len(args) > 0:
+            channels = int(args[0])
+        else:
+            channels = self.current_channels
+        options = hc.Config(options)
+        stride = options.stride or 1
+        fltr = options.filter or 3
+        dilation = 1
+
+        padding = options.padding or 1#self.get_same_padding(self.current_width, self.current_width, stride, dilation)
+        print("PADDING", padding)
+
+        layers = [nn.Conv3d(options.input_channels or self.current_channels, channels, fltr, stride, padding = padding)]
+        self.last_logit_layer = layers[0]
+        self.current_channels = channels
+        if stride > 1:
+            self.current_width = self.current_width // stride #TODO
+            self.current_height = self.current_height // stride #TODO
+            print("conv", self.current_width, self.current_height, self.current_channels)
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        return nn.Sequential(*layers)
+
 
     def layer_linear(self, net, args, options):
         options = hc.Config(options)
@@ -415,9 +451,9 @@ class ConfigurableComponent(GANComponent):
         output_size = 1
         for dim in shape:
             output_size *= dim
-
+        print("+", options.input_size or self.current_input_size, self.current_width, self.current_height, self.current_channels)
         layers = [
-            nn.Linear(self.current_input_size, output_size, bias=bias)
+            nn.Linear(options.input_size or self.current_input_size, output_size, bias=bias)
         ]
         self.last_logit_layer = layers[0]
         if len(shape) > 1:
@@ -441,16 +477,24 @@ class ConfigurableComponent(GANComponent):
         return Reshape(*dims)
 
     def layer_adaptive_avg_pool(self, net, args, options):
+        print("adaptive start", self.current_width, self.current_height, self.current_channels)
         self.current_height //= 2
         self.current_width //= 2
         self.current_input_size = self.current_channels * self.current_width * self.current_height
-        return nn.AvgPool2d(2, 2)
+        return nn.AdaptiveAvgPool2d([self.current_height, self.current_width])
 
     def layer_avg_pool(self, net, args, options):
         self.current_height //= 2
         self.current_width //= 2
         self.current_input_size = self.current_channels * self.current_width * self.current_height
-        return nn.AdaptiveAvgPool2d([self.current_height, self.current_width])
+        return nn.AvgPool2d(2, 2)
+
+    def layer_avg_pool3d(self, net, args, options):
+        self.current_height //= 2
+        self.current_width //= 2
+        self.current_frames = 4 #todo
+        self.current_input_size = self.current_frames * self.current_channels * self.current_width * self.current_height
+        return nn.AdaptiveAvgPool3d([self.current_frames, self.current_height, self.current_width])
 
     def layer_combine_features(self, net, args, options):
         op = None
@@ -523,6 +567,7 @@ class ConfigurableComponent(GANComponent):
         return nn.InstanceNorm2d(self.current_channels, affine=affine)
 
     def layer_initializer(self, net, args, options):
+        print("init layer")
         layer = self.last_logit_layer.weight.data
         if args[0] == "uniform":
             a = float(args[1])
@@ -697,12 +742,10 @@ class ConfigurableComponent(GANComponent):
     def layer_deconv(self, net, args, options):
         channels = int(args[0])
         options = hc.Config(options)
-
-        options = hc.Config(options)
         filter = 4 #TODO
         stride = 2
         padding = 1
-        layers = [nn.ConvTranspose2d(self.current_channels, channels, 4, 2, 1)]
+        layers = [nn.ConvTranspose2d(options.input_channels or self.current_channels, channels, 4, 2, 1)]
         self.last_logit_layer = layers[0]
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
@@ -900,14 +943,11 @@ class ConfigurableComponent(GANComponent):
         s = self.ops.shape(net)
 
         return target
+
     def layer_pad(self, net, args, options):
         options = hc.Config(options)
-        s = self.ops.shape(net)
-        sizew = s[1]//2
-        sizeh = s[2]//2
-        net,_,_ = tf.pad(net, [[0,0],[ sizew,sizew],[ sizeh,sizeh],[ 0,0]])
 
-        return net 
+        return nn.ZeroPad2d((int(args[0]), int(args[1]), int(args[2]), int(args[3])))
 
     def layer_resize_conv(self, net, args, options):
         options = hc.Config(options)
@@ -1045,30 +1085,16 @@ class ConfigurableComponent(GANComponent):
     def layer_layer_norm(self, net, args, options):
         return self.ops.lookup("layer_norm")(self, net)
 
-    def layer_variational_noise(self, net, args, options):
-        net *= tf.random_normal(self.ops.shape(net), mean=1, stddev=0.02)
-        return net
-
-    def layer_variational(self, net, args, options):
-        ops = self.ops
-        options['name']=self.ops.description+"k1"
-        mu = self.layer_conv(net, args, options)
-        options['name']=self.ops.description+"k2"
-        sigma = self.layer_conv(net, args, options)
-        z = mu + sigma * tf.random_normal(tf.shape(mu), 0, 1, dtype=tf.float32)
-        self.variational=[mu,sigma]
-        if not self.ops._reuse:
-            if(hasattr(self.gan, "variational")):
-                self.gan.variational += [[mu,sigma]]
-            else:
-                self.gan.variational=[[mu,sigma]]
-        return z
+    def layer_vae(self, net, args, options):
+        self.vae = Variational(self.current_channels)
+        return self.vae
 
     def layer_concat(self, net, args, options):
         options = hc.Config(options)
-        if len(args) > 0 and args[0] == 'noise':
+        if args[0] == 'noise':
+            print("Concat noise!")
             self.current_channels *= 2
-            return ConcatNoise()
+            return NoOp()
         elif args[0] == 'layer':
             return NoOp()
         else:
@@ -1267,6 +1293,8 @@ class ConfigurableComponent(GANComponent):
             elif layer_name == "concat":
                 if args[0] == "layer":
                     input = torch.cat((input, context[args[1]]), dim=1)
+                elif args[0] == "noise":
+                    input = torch.cat((input, torch.randn_like(input)), dim=1)
             elif layer_name == "layer":
                 input = named_layers[args[0]]
             elif layer_name == "latent":

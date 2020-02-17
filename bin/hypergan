@@ -30,7 +30,6 @@ class CommandParser:
         parser.add_argument('--save_samples', action='store_true', help='Saves samples to the local `samples` directory.')
         parser.add_argument('--sampler', type=str, default=None, help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--save_file', type=str, default=None, help='The save file to load and save from.  Use gs://bucket/mymodel/model.ckpt for TPU saving')
-        parser.add_argument('--sequential', dest='sequential', action='store_true', help='Input will not be shuffled.  Can be used to simulate online learning for streaming data')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
@@ -122,7 +121,6 @@ try:
                   height=height,
                   random_crop=args.random_crop,
                   resize=args.resize,
-                  sequential=args.sequential,
                   width=width)
 
     gancli = cli.CLI(args=vars(args), gan_fn=gan_fn, inputs_fn=inputs_fn, gan_config=config)

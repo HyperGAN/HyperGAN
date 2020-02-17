@@ -47,7 +47,6 @@ class ConfigurableComponent(GANComponent):
             "conv": self.layer_conv,
             "conv3d": self.layer_conv3d,
             "deconv": self.layer_deconv,
-            "dropout": self.layer_dropout,
             "flatten": nn.Flatten(),
             "identity": self.layer_identity,
             "initializer": self.layer_initializer,
@@ -63,6 +62,7 @@ class ConfigurableComponent(GANComponent):
             "vae": self.layer_vae
             #"add": self.layer_add, #TODO
             # "crop": self.layer_crop,
+            # "dropout": self.layer_dropout,
             # "noise": self.layer_noise, #TODO
             #"attention": self.layer_attention, #TODO
             #"const": self.layer_const, #TODO
@@ -376,13 +376,6 @@ class ConfigurableComponent(GANComponent):
         if "gain" in options:
             layer.mul_(nn.init.calculate_gain(options["gain"]))
         return NoOp()
-
-    def layer_dropout(self, net, args, options):
-        options = hc.Config(options)
-        if self.gan.method != "train":
-            return net
-        net = tf.nn.dropout(net, (float)(args[0]))
-        return net
 
     def layer_batch_norm(self, net, args, options):
         return nn.BatchNorm2d(self.current_channels)

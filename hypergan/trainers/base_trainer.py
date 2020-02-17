@@ -12,12 +12,6 @@ class BaseTrainer(GANComponent):
     def _step(self, feed_dict):
         raise Exception('BaseTrainer _step called directly.  Please override.')
 
-    def variables(self):
-        result = self.ops.variables()
-        if hasattr(self, "optimizer"):
-            result += self.optimizer.variables()
-        return result
-
     def create(self):
         config = self.config
         g_lr = config.g_learn_rate
@@ -49,6 +43,8 @@ class BaseTrainer(GANComponent):
 
     def step(self, feed_dict={}):
         step = self._step(feed_dict)
+        self.gan.add_metric('d_loss', self.d_loss)
+        self.gan.add_metric('g_loss', self.g_loss)
         self.current_step += 1
         return step
 

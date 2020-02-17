@@ -18,8 +18,6 @@ import shutil
 import sys
 import tempfile
 
-from hypergan.losses.supervised_loss import SupervisedLoss
-from hypergan.multi_component import MultiComponent
 from time import sleep
 
 
@@ -176,15 +174,6 @@ class CLI:
         shutil.copyfile(source_configuration, template)
 
         return
-
-    def add_supervised_loss(self):
-        if self.args.classloss:
-            print("[discriminator] Class loss is on.  Semi-supervised learning mode activated.")
-            supervised_loss = SupervisedLoss(self.gan, self.gan.config.loss)
-            self.gan.loss = MultiComponent(components=[supervised_loss, self.gan.loss], combine='add')
-            #EWW
-        else:
-            print("[discriminator] Class loss is off.  Unsupervised learning mode activated.")
 
     def run(self):
         if self.method == 'train':

@@ -38,7 +38,7 @@ class GradientPenaltyTrainHook(BaseTrainHook):
 
     gamma= self.gan.configurable_param(self.config['lambda'] or 1)
 
-    d = self.gan.discriminator(inp)
+    d = self.gan.discriminator(inp, context=self.gan.gp_context)
     parameters = list(self.gan.d_parameters())#+ [interpolated]
 
     grad = torch_grad(outputs=d.mean(), inputs=parameters, create_graph=True, retain_graph=True)

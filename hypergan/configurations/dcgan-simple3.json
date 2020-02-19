@@ -5,21 +5,18 @@
   {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
     "defaults":{
-      "filter": [3,3],
-      "stride": [1,1],
-      "avg_pool": [2,2],
-      "activation": "lrelu",
-      "initializer": "he_normal",
-      "lrmul": 1.0,
-      "random_stddev": 0.02
     },
     "layers":[
       "conv 64 ", 
+      "prelu",
       "conv 128",
+      "prelu",
       "conv 256",
+      "prelu",
       "conv 512",
-      "conv 512",
-      "linear 1 activation=null bias=false"
+      "prelu",
+      "flatten",
+      "linear 1"
     ]
   },
  
@@ -33,22 +30,30 @@
     "max": 1,
     "z": 100
   },
-
-  "generator": {
-    "class": "function:hypergan.generators.resizable_generator.ResizableGenerator",
+  "generator": 
+  {
+    "class": "class:hypergan.generators.configurable_generator.ConfigurableGenerator",
     "defaults":{
-      "initializer": "he_normal",
-      "lrmul": 1.0,
-      "activation": "lrelu"
     },
-    "final_activation": "clamped_unit",
-    "final_depth": 64,
-    "depth_increase": 64,
-    "adaptive_instance_norm": "w",
-    "adaptive_instance_norm_layers": 2,
-    "adaptive_instance_norm_last_layer": true,
-    "block": "deconv"
+    "layers":[
+      "linear 4*4*512",
+      "instance_norm",
+      "prelu",
+      "resize_conv 256",
+      "instance_norm",
+      "prelu",
+      "resize_conv 128",
+      "instance_norm",
+      "prelu",
+      "resize_conv 64",
+      "instance_norm",
+      "prelu",
+      "deconv 3",
+      "instance_norm",
+      "tanh"
+    ]
   },
+  
 
   "loss":
   {
@@ -62,7 +67,13 @@
       "learn_rate": 1e-4,
       "beta1":0.0,
       "beta2":0.999
-    }
+    },
+      "hooks":[
+      {
+        "class": "function:hypergan.train_hooks.stabilizing_training_train_hook.StabilizingTrainingTrainHook",
+        "gamma": 1.0
+      }]
+
   },
   "runtime": {
     "channels": 3,

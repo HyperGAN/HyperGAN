@@ -51,7 +51,6 @@ class UniformDistribution(BaseDistribution):
         #        projections.append(self.lookup(projection)(config, gan, self.z))
         #else:
         #        projections.append(self.z)
-
         return self.z.sample(torch.Size([self.gan.batch_size(), self.config.z])).view(self.gan.batch_size(), self.config.z).cuda()
 
 def identity(config, gan, net):

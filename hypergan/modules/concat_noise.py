@@ -8,4 +8,5 @@ class ConcatNoise(nn.Module):
         self.z = uniform.Uniform(torch.Tensor([-1.0]),torch.Tensor([1.0]))
     def forward(self, x):
         noise = self.z.sample(x.shape).cuda()
-        return torch.cat([x, noise.view(*x.shape)], 1)
+        cat = torch.cat([x, noise.view(*x.shape)], 1)
+        return cat

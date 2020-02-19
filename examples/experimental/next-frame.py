@@ -348,7 +348,7 @@ class VideoFrameSampler(BaseSampler):
         self.z = self.EZ(self.g, context={"z":self.z})
         self.c = self.EC(self.z, context={"c":self.c})
         self.g = self.G(self.c, context={"z":self.z})
-        if self.i % 100 == 0:
+        if self.i % 25 == 0:
             self.seed()
         if self.gan.config.random:
             samples += [('rand', self.rg)]

@@ -19,9 +19,14 @@ class ConjectureTrainHook(BaseTrainHook):
       super().__init__(config=config, gan=gan, trainer=trainer)
       self.d_loss = None
       self.g_loss = None
+      self.i = -1
 
 
   def gradients(self, d_grads, g_grads):
+      self.i+=1
+      if self.config.run_every is not None:
+          if self.i % self.config.run_every != 0:
+              return d_grads, g_grads
       nsteps = self.config.nsteps
       g_loss = self.gan.trainer.g_loss
       d_loss = self.gan.trainer.d_loss
@@ -34,6 +39,8 @@ class ConjectureTrainHook(BaseTrainHook):
           d_grads = torch_grad(d_loss, d_params, create_graph=True, retain_graph=True)
           d_grads2 = self.hvp(g_loss, g_params, d_params, [lr * _g for _g in g_grads], g_grads)
           g_grads2 = self.hvp(d_loss, d_params, g_params, [lr * _d for _d in d_grads], d_grads)
+          #print('----', [[p, g] for p, g in zip(g_params, g_grads2) if g is None])
+          #print('----', [[p, g] for p, g in zip(g_params, d_grads2) if g is None])
           d_grads = [_p + _g * (self.config.fast_conjectures_gamma) for _p, _g in zip(d_grads, d_grads2)]
           g_grads = [_p + _g * (self.config.fast_conjectures_gamma) for _p, _g in zip(g_grads, g_grads2)]
 
@@ -115,4 +122,4 @@ class ConjectureTrainHook(BaseTrainHook):
         grads = torch_grad(outputs=ys, inputs=xs, create_graph=True, retain_graph=True)
      
       #grads = [_g.contiguous().view(-1) * (self.config.hvp_lambda or self.config.learn_rate or 1e-4) for _g in grads]
-      return torch_grad(outputs=grads, inputs=xs2, grad_outputs=vs, retain_graph=True)
+      return torch_grad(outputs=grads, inputs=xs2, grad_outputs=vs, retain_graph=True, allow_unused=True)

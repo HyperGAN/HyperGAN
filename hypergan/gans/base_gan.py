@@ -79,13 +79,20 @@ class BaseGAN():
         return self.inputs.sample.size()[0]
 
     def channels(self):
-        return self.inputs.sample.size()[1]
+        print('!!!', self.inputs.sample.size())
+        if len(self.inputs.sample.size()) > 1:
+            return self.inputs.sample.size()[1]
+        return 1
 
     def width(self):
-        return self.inputs.sample.size()[3]
+        if len(self.inputs.sample.size()) > 3:
+            return self.inputs.sample.size()[3]
+        return 1
 
     def height(self):
-        return self.inputs.sample.size()[2]
+        if len(self.inputs.sample.size()) > 2:
+            return self.inputs.sample.size()[2]
+        return 1
 
     def output_shape(self):
         return [self.width(), self.height(), self.channels()]
@@ -103,6 +110,7 @@ class BaseGAN():
         self.components[name+str(index)] = component
 
     def create_component(self, name, *args, **kw_args):
+        print("Creating component:", name)
         defn = self.config[name]
         if defn == None:
             print("No definition found for " + name)

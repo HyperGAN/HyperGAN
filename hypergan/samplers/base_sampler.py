@@ -23,8 +23,8 @@ class BaseSampler:
             data = data.cpu().permute(0,2,3,1).detach().numpy()
             slots = min(gan.batch_size(), self.samples_per_row)
             slots = min(slots, np.shape(data)[0])
-            stacks += [np.hstack(data[i*slots:i*slots+slots]) for i in range(np.shape(data)[0]//slots)]
-        sample_data = np.vstack(stacks)
+            stacks += [np.vstack(data[i*slots:i*slots+slots]) for i in range(np.shape(data)[0]//slots)]
+        sample_data = np.hstack(stacks)
         image = self.plot(sample_data, path, save_samples)
         sample_name = 'generator'
         samples = [[sample_data, sample_name]]

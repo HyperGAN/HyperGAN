@@ -1,5 +1,7 @@
 hyperchamber>=0.3
 numpy
 torch
+pillow
+torchvision
 pygame
 nashpy

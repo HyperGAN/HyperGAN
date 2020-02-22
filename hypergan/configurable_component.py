@@ -39,12 +39,14 @@ class ConfigurableComponent(GANComponent):
         self.parsed_opts = []
         self.layer_ops = {**self.activations(),
             "adaptive_avg_pool": self.layer_adaptive_avg_pool,
+            "adaptive_avg_pool1d": self.layer_adaptive_avg_pool1d,
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
             "avg_pool": self.layer_avg_pool,
             "avg_pool3d": self.layer_avg_pool3d,
             "batch_norm": self.layer_batch_norm,
             "concat": self.layer_concat,
             "conv": self.layer_conv,
+            "conv1d": self.layer_conv1d,
             "conv3d": self.layer_conv3d,
             "deconv": self.layer_deconv,
             "flatten": nn.Flatten(),
@@ -58,6 +60,7 @@ class ConfigurableComponent(GANComponent):
             "reshape": self.layer_reshape,
             "residual": self.layer_residual, #TODO options
             "resize_conv": self.layer_resize_conv,
+            "resize_conv1d": self.layer_resize_conv1d,
             "subpixel": self.layer_subpixel,
             "vae": self.layer_vae
             #"add": self.layer_add, #TODO
@@ -247,6 +250,30 @@ class ConfigurableComponent(GANComponent):
         self.current_input_size = self.current_channels * self.current_width * self.current_height
         return nn.Sequential(*layers)
 
+    def layer_conv1d(self, net, args, options):
+        if len(args) > 0:
+            channels = int(args[0])
+        else:
+            channels = self.current_channels
+        print("Options:", options)
+        options = hc.Config(options)
+        stride = options.stride or 1
+        fltr = options.filter or 3
+        dilation = 1
+
+        padding = options.padding or 1#self.get_same_padding(self.current_width, self.current_width, stride, dilation)
+
+        print("conv start", self.current_width, self.current_height, self.current_channels, stride)
+        layers = [nn.Conv1d(options.input_channels or self.current_channels, channels, fltr, stride, padding = padding)]
+        self.last_logit_layer = layers[0]
+        self.current_channels = channels
+        if stride > 1:
+            self.current_height = self.current_height // stride #TODO
+        print("conv", self.current_width, self.current_height, self.current_channels, stride)
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        return nn.Sequential(*layers)
+
+
     def layer_conv3d(self, net, args, options):
         if len(args) > 0:
             channels = int(args[0])
@@ -284,11 +311,18 @@ class ConfigurableComponent(GANComponent):
             nn.Linear(options.input_size or self.current_input_size, output_size, bias=bias)
         ]
         self.last_logit_layer = layers[0]
-        if len(shape) > 1:
+        if len(shape) == 3:
             self.current_channels = shape[2]
             self.current_width = shape[0]
             self.current_height = shape[1]
             layers.append(Reshape(self.current_channels, self.current_height, self.current_width))
+
+        if len(shape) == 2:
+            self.current_channels = shape[1]
+            self.current_width = 1
+            self.current_height = shape[0]
+            layers.append(Reshape(self.current_channels, self.current_height))
+
 
         self.current_input_size = output_size
 
@@ -302,6 +336,12 @@ class ConfigurableComponent(GANComponent):
             self.current_channels = dims[2]
             self.current_input_size = self.current_channels * self.current_width * self.current_height
             dims = [dims[2], dims[1], dims[0]]
+        if len(dims) == 2:
+            self.current_width = 1
+            self.current_height = dims[0]
+            self.current_channels = dims[1]
+            self.current_input_size = self.current_channels * self.current_width * self.current_height
+            dims = [dims[1], dims[0]]
         return Reshape(*dims)
 
     def layer_adaptive_avg_pool(self, net, args, options):
@@ -310,6 +350,12 @@ class ConfigurableComponent(GANComponent):
         self.current_width //= 2
         self.current_input_size = self.current_channels * self.current_width * self.current_height
         return nn.AdaptiveAvgPool2d([self.current_height, self.current_width])
+
+    def layer_adaptive_avg_pool1d (self, net, args, options):
+        self.current_height //= 2
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        print("avg>", self.current_input_size, self.current_width, self.current_height, self.current_channels)
+        return nn.AdaptiveAvgPool1d(self.current_height)
 
     def layer_avg_pool(self, net, args, options):
         self.current_height //= 2
@@ -428,6 +474,20 @@ class ConfigurableComponent(GANComponent):
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
         return nn.Sequential(*layers)
+
+    def layer_resize_conv1d(self, net, args, options):
+        options = hc.Config(options)
+        channels = int(args[0])
+
+        h = options.h or self.current_height * 2
+        layers = [nn.Upsample((h)),
+                nn.Conv1d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
+        self.last_logit_layer = layers[-1]
+        self.current_channels = channels
+        self.current_height = self.current_height * 2 #TODO
+        print("Resize", self.current_height, self.current_channels)
+        return nn.Sequential(*layers)
+
 
     def layer_subpixel(self, net, args, options):
         options = hc.Config(options)

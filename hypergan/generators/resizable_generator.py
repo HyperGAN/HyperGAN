@@ -41,7 +41,8 @@ class ResizableGenerator(ConfigurableGenerator):
         self.initial_depth = np.minimum(depths[0], config.max_depth or 512)
 
         self.current_input_size = self.gan.latent.config.z
-        self.linear = nn.Sequential(self.layer_linear(None, [primes[0]*primes[1]*self.initial_depth], {}), nn.LeakyReLU())
+        new_shape = str(primes[0])+"*"+str(primes[1])+"*"+str(self.initial_depth)
+        self.linear = nn.Sequential(nn.Flatten(), self.layer_linear(None, [new_shape], {}), nn.ReLU())
 
         depths = self.depths(initial_width = self.initial_dimensions[0])
 
@@ -66,7 +67,7 @@ class ResizableGenerator(ConfigurableGenerator):
             elif block == 'resize_conv':
                 net = self.layer_resize_conv(None, [dep], options)
             conv_layers.append(net)
-            conv_layers.append(nn.LeakyReLU())
+            conv_layers.append(nn.ReLU())
 
         dep = config.channels or gan.channels()
 
@@ -84,10 +85,5 @@ class ResizableGenerator(ConfigurableGenerator):
 
         conv_layers.append(net)
         conv_layers.append(nn.Tanh())
-        self.net = nn.Sequential(*conv_layers)
-
-    def forward(self, x):
-        lin = self.linear(x)
-        lin = lin.view(self.gan.batch_size(), self.initial_depth, self.initial_dimensions[0], self.initial_dimensions[1])
-        net = self.net(lin)
-        return net.view(self.gan.batch_size(), self.gan.channels(), self.gan.height(), self.gan.width())
+        self.net = nn.Sequential(*([self.linear] + conv_layers))
+        print(self.net)

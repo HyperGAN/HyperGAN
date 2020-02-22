@@ -41,6 +41,9 @@ class BaseTrainer(GANComponent):
         for hook in self.train_hooks:
             hook.after_create()
 
+    def calculate_gradients(self):
+        raise ValidationException("BaseTrainer#calculate_gradients called directly, please override")
+
     def step(self, feed_dict={}):
         step = self._step(feed_dict)
         self.gan.add_metric('d_loss', self.d_loss)

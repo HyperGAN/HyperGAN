@@ -29,10 +29,23 @@ class SimultaneousTrainer(BaseTrainer):
         loss = gan.loss
         metrics = gan.metrics()
 
-        self.optimizer.zero_grad()
-
         self.before_step(self.current_step, feed_dict)
+        d_grads, g_grads = self.calculate_gradients()
 
+        for hook in self.train_hooks:
+            d_grads, g_grads = hook.gradients(d_grads, g_grads)
+        for p, np in zip(self.gan.d_parameters(), d_grads):
+            p.grad = np
+        for p, np in zip(self.gan.g_parameters(), g_grads):
+            p.grad = np
+
+        self.optimizer.step()
+
+        if self.current_step % 10 == 0:
+            self.print_metrics(self.current_step)
+
+    def calculate_gradients(self):
+        self.optimizer.zero_grad()
 
         d_loss, g_loss = self.gan.forward_loss()
         self.d_loss = d_loss
@@ -61,19 +74,7 @@ class SimultaneousTrainer(BaseTrainer):
 
         d_grads = [p.grad for p in self.gan.d_parameters()]
         g_grads = [p.grad for p in self.gan.g_parameters()]
-
-        for hook in self.train_hooks:
-            d_grads, g_grads = hook.gradients(d_grads, g_grads)
-        for p, np in zip(self.gan.d_parameters(), d_grads):
-            p.grad = np
-        for p, np in zip(self.gan.g_parameters(), g_grads):
-            p.grad = np
-
-        self.optimizer.step()
-
-        if self.current_step % 10 == 0:
-            self.print_metrics(self.current_step)
-
+        return d_grads, g_grads
 
     def print_metrics(self, step):
         metrics = self.gan.metrics()

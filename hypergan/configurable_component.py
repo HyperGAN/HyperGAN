@@ -49,6 +49,7 @@ class ConfigurableComponent(GANComponent):
             "conv1d": self.layer_conv1d,
             "conv3d": self.layer_conv3d,
             "deconv": self.layer_deconv,
+            "dropout": self.layer_dropout,
             "flatten": nn.Flatten(),
             "identity": self.layer_identity,
             "initializer": self.layer_initializer,
@@ -218,6 +219,9 @@ class ConfigurableComponent(GANComponent):
 
     def layer_residual(self, net, args, options):
         return Residual(self.current_channels)
+
+    def layer_dropout(self, net, args, options):
+        return nn.Dropout2d(float(args[0]))
 
     def layer_identity(self, net, args, options):
         return NoOp()

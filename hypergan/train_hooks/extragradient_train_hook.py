@@ -18,10 +18,22 @@ class ExtragradientTrainHook(BaseTrainHook):
         d_grads_v2, g_grads_v2 = self.trainer.calculate_gradients()
         self.step([-g for g in d_grads_v1], [-g for g in g_grads_v1], step_size)
 
-        d_grads = [gamma*_v1+rho*_v2 for _v1, _v2 in zip(d_grads_v1, d_grads_v2)]
-        g_grads = [gamma*_v1+rho*_v2 for _v1, _v2 in zip(g_grads_v1, g_grads_v2)]
+
+        if self.config.formulation == 'v2-v1':
+            d_grads = [gamma*_v1-rho*(_v2-_v1)/step_size for _v1, _v2 in zip(d_grads_v1, d_grads_v2)]
+            g_grads = [gamma*_v1-rho*(_v2-_v1)/step_size for _v1, _v2 in zip(g_grads_v1, g_grads_v2)]
+        elif self.config.formulation == 'agree':
+            d_grads = [gamma*self.agree(_v1,_v2,gamma,rho) for _v1, _v2 in zip(d_grads_v1, d_grads_v2)]
+            g_grads = [gamma*self.agree(_v1,_v2,gamma,rho) for _v1, _v2 in zip(g_grads_v1, g_grads_v2)]
+        else:
+            d_grads = [gamma*_v1+rho*_v2 for _v1, _v2 in zip(d_grads_v1, d_grads_v2)]
+            g_grads = [gamma*_v1+rho*_v2 for _v1, _v2 in zip(g_grads_v1, g_grads_v2)]
 
         return [d_grads, g_grads]
+
+    def agree(self, v1, v2, gamma, rho):
+        result = (gamma*v1+rho*v2) * self.relu(torch.sign(v1*v2))
+        return result
 
     def forward(self):
         return [None, None]

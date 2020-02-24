@@ -5,11 +5,16 @@ from hypergan.train_hooks.base_train_hook import BaseTrainHook
 class ExtragradientTrainHook(BaseTrainHook):
     def __init__(self, gan=None, config=None, trainer=None):
         super().__init__(config=config, gan=gan, trainer=trainer)
+        self.relu = torch.nn.ReLU()
 
     def gradients(self, d_grads, g_grads):
         step_size = self.config.step_size or 1e-4
-        gamma = self.config.gamma or 1.0
-        rho = self.config.rho or 1.0
+        gamma = self.config.gamma
+        if gamma is None:
+            gamma = 1.0
+        rho = self.config.rho
+        if rho is None:
+            rho = 1.0
 
         d_grads_v1 = [g.clone() for g in d_grads]
         g_grads_v1 = [g.clone() for g in g_grads]

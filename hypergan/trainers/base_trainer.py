@@ -55,8 +55,7 @@ class BaseTrainer(GANComponent):
         return "".split()
 
     def output_string(self, metrics):
-        name = self.gan.name or ""
-        output = name + " %2d: " 
+        output = " %2d: " 
         for name in sorted(metrics.keys()):
             output += " " + name
             output += " %.2f"

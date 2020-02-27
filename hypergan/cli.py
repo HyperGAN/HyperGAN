@@ -22,11 +22,10 @@ from time import sleep
 
 
 class CLI:
-    def __init__(self, args={}, gan_fn=None, inputs_fn=None, gan_config=None):
+    def __init__(self, args={}, input_config=None, gan_config=None):
         self.samples = 0
-        self.gan_fn = gan_fn
         self.gan_config = gan_config
-        self.inputs_fn = inputs_fn
+        self.input_config = input_config
 
         args = hc.Config(args)
         self.args = args
@@ -100,6 +99,11 @@ class CLI:
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
+    def create_input(self, blank=False):
+        klass = self.input_config['class']
+        self.input_config["blank"]=blank
+        return klass(self.input_config)
+
     def build(self):
         return self.gan.build()
 
@@ -118,11 +122,9 @@ class CLI:
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-        self.inputs = self.inputs_fn()
-        self.gan = self.gan_fn(self.gan_config, self.inputs)
+        self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input())
         self.gan.cli = self #TODO remove this link
 
-        self.gan.initialize_variables()
         if self.gan.load(self.save_file):
             print("Model loaded")
         else:
@@ -179,8 +181,7 @@ class CLI:
         if self.method == 'train':
             self.train()
         elif self.method == 'build':
-            self.inputs = self.inputs_fn()
-            self.gan = self.gan_fn(self.gan_config, self.inputs)
+            self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input(blank=True))
             if not self.gan.load(self.save_file):
                 raise ValidationException("Could not load model: "+ self.save_file)
             else:
@@ -193,9 +194,7 @@ class CLI:
         elif self.method == 'new':
             self.new()
         elif self.method == 'sample':
-            self.inputs = self.inputs_fn()
-            self.gan = self.gan_fn(self.gan_config, self.inputs)
-            self.gan.initialize_variables()
+            self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input(blank=True))
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
             else:

@@ -32,14 +32,11 @@ import torch
 import torch.nn as nn
 
 class BaseGAN():
-    def __init__(self, config=None, inputs=None, debug=None, name="hypergan", method="train"):
+    def __init__(self, config=None, inputs=None):
         """ Initialized a new GAN."""
         self.steps = Variable(torch.zeros([1]))
         self.inputs = inputs
         self.components = {}
-        self.method = method
-        self.debug = debug
-        self.name = name
         self.skip_connections = SkipConnections()
         self.destroy = False
 
@@ -79,7 +76,6 @@ class BaseGAN():
         return self.inputs.sample.size()[0]
 
     def channels(self):
-        print('!!!', self.inputs.sample.size())
         if len(self.inputs.sample.size()) > 1:
             return self.inputs.sample.size()[1]
         return 1
@@ -182,9 +178,6 @@ class BaseGAN():
                 else:
                     print("Could not load " + path)
         return loaded
-
-    def initialize_variables(self):
-        pass
 
     def configurable_param(self, string):
         self.param_ops = {

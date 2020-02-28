@@ -31,7 +31,7 @@ class ImageLoader:
         transform_list.append(torchvision.transforms.ToTensor())
         transform = torchvision.transforms.Compose(transform_list)
 
-        directories = self.config.directories
+        directories = self.config.directories or [self.config.directory]
         if(not isinstance(directories, list)):
             directories = [directories]
 
@@ -41,7 +41,18 @@ class ImageLoader:
             image_folder = torchvision.datasets.ImageFolder(directory, transform=transform)
             self.dataloaders.append(data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=config.shuffle, num_workers=4, drop_last=True))
             self.datasets.append(iter(self.dataloaders[-1]))
-        self.next()
+
+    def batch_size(self):
+        return self.config.batch_size
+
+    def width(self):
+        return self.config.width
+
+    def height(self):
+        return self.config.height
+
+    def channels(self):
+        return self.config.channels
 
     def next(self, index=0):
         if self.config.blank:

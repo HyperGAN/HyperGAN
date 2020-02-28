@@ -1,26 +1,23 @@
 """
 The command line interface.  Trains a directory of data.
 """
-import gc
-import sys
-import os
-import hyperchamber as hc
-import numpy as np
-from hypergan.gan_component import ValidationException
+from .configuration import Configuration
 from .inputs import *
 from .viewer import GlobalViewer
-from .configuration import Configuration
+from hypergan.gan_component import ValidationException
+from hypergan.gan_component import ValidationException, GANComponent
+from time import sleep
+import gc
+import hyperchamber as hc
 import hypergan as hg
-import time
-
+import numpy as np
+import os
 import os
 import shutil
 import sys
+import sys
 import tempfile
-
-from time import sleep
-
-
+import time
 class CLI:
     def __init__(self, args={}, input_config=None, gan_config=None):
         self.samples = 0
@@ -93,14 +90,14 @@ class CLI:
     def step(self):
         self.gan.step()
 
-        if(self.gan.steps % self.sample_every == 0 and self.args.sampler):
+        if(self.gan.steps % self.sample_every == 0):
             sample_list = self.sample()
 
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
     def create_input(self, blank=False):
-        klass = self.input_config['class']
+        klass = GANComponent.lookup_function(None, self.input_config['class'])
         self.input_config["blank"]=blank
         return klass(self.input_config)
 
@@ -124,6 +121,7 @@ class CLI:
 
         self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input())
         self.gan.cli = self #TODO remove this link
+        self.gan.inputs.next()
 
         if self.gan.load(self.save_file):
             print("Model loaded")

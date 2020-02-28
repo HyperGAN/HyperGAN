@@ -36,6 +36,7 @@ class BaseGAN():
         """ Initialized a new GAN."""
         self.steps = Variable(torch.zeros([1]))
         self.inputs = inputs
+        self.inputs.gan = self
         self.components = {}
         self.skip_connections = SkipConnections()
         self.destroy = False
@@ -73,22 +74,16 @@ class BaseGAN():
         return self._metrics
 
     def batch_size(self):
-        return self.inputs.sample.size()[0]
+        return self.inputs.batch_size()
 
     def channels(self):
-        if len(self.inputs.sample.size()) > 1:
-            return self.inputs.sample.size()[1]
-        return 1
+        return self.inputs.channels()
 
     def width(self):
-        if len(self.inputs.sample.size()) > 3:
-            return self.inputs.sample.size()[3]
-        return 1
+        return self.inputs.width()
 
     def height(self):
-        if len(self.inputs.sample.size()) > 2:
-            return self.inputs.sample.size()[2]
-        return 1
+        return self.inputs.height()
 
     def output_shape(self):
         return [self.width(), self.height(), self.channels()]

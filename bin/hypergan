@@ -89,7 +89,7 @@ try:
         if args.align:
             directories+=args.align
         input_config = hc.Config({
-            "class": hg.inputs.image_loader.ImageLoader,
+            "class": "class:hypergan.inputs.image_loader.ImageLoader",
             "batch_size": args.batch_size,
             "directories": directories,
             "channels": channels,
@@ -101,7 +101,7 @@ try:
         })
     else:
         input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
-        input_config = hc.Selector().load(config_filename, load_toml=use_toml)
+        input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
     if 'inherit' in config:
         base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
         base_config = hc.Selector().load(base_filename, load_toml=use_toml)

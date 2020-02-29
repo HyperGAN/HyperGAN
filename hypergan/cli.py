@@ -108,8 +108,11 @@ class CLI:
         return gan_server(self.gan.session, config)
 
     def sample_forever(self):
-        while not self.gan.destroy:
+        self.gan.inputs.next()
+        steps = 0
+        while not self.gan.destroy and steps <= self.args.steps:
             self.sample()
+            steps += 1
 
     def train(self):
         i=0

@@ -17,7 +17,7 @@ class CommandParser:
 
     def common_flags(self, parser):
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
-        parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
+        parser.add_argument('--batch_size', '-b', type=int, default=0, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
         parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
         parser.add_argument('--input_config', '-i', action='store', default=None, type=str, help='The input configuration to use.')
         parser.add_argument('--toml', '-T', action='store_true', help='Use TOML as configration file format instead of JSON')
@@ -84,7 +84,7 @@ try:
     config_name = args.config or 'default'
     config_filename = hg.Configuration.find(config_name, config_format=config_format)
     config = hc.Selector().load(config_filename, load_toml=use_toml)
-    if args.input_config is None:
+    if config.input is None and args.input_config is None:
         directories = [args.directory]
         if args.align:
             directories+=args.align
@@ -100,8 +100,13 @@ try:
             "width": width
         })
     else:
-        input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
-        input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
+        if config.input:
+            if args.batch_size:
+                config.input["batch_size"] = args.batch_size
+            input_config = hc.Config(config.input)
+        else:
+            input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
+            input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
     if 'inherit' in config:
         base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
         base_config = hc.Selector().load(base_filename, load_toml=use_toml)

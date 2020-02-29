@@ -60,7 +60,7 @@ class StandardGAN(BaseGAN):
 
     def forward_discriminator(self):
         self.x = self.inputs.next()
-        g = self.generator(self.latent.sample())
+        g = self.generator(self.latent.next())
         D = self.discriminator
         d_real = D(self.x)
         d_fake = D(g)

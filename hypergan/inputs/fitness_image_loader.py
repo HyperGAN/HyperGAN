@@ -21,11 +21,11 @@ class FitnessImageLoader(ImageLoader):
             self.best_sample = super(FitnessImageLoader, self).next(index)
             self.best_sample = self.next(index)
         all_samples = torch.split(self.best_sample, 1, dim=0)
-        prior_best_scores = self.gan.discriminator(self.sample)
+        prior_best_scores = self.gan.discriminator(self.best_sample)
         all_scores = torch.split(prior_best_scores, 1, dim=0)
         all_scores = [d.mean() for d in all_scores]
         for i in range(self.config.steps or 1):
-            sample = super(FitnessImageLoader, self).next()
+            sample = super(FitnessImageLoader, self).next(index)
             d_scores = self.gan.discriminator(sample)
             d_scores = torch.split(d_scores, 1, dim=0)
             d_scores = [d.mean() for d in d_scores]
@@ -38,7 +38,7 @@ class FitnessImageLoader(ImageLoader):
             sorted_idx = sorted_idx[::-1]
         sorted_idx = sorted_idx[:self.gan.batch_size()]
         sorted_samples = [all_samples[idx] for idx in sorted_idx]
-        self.best_sample = torch.cat(sorted_samples, dim=0)
+        self.best_sample = torch.cat(sorted_samples, dim=0).cuda()
         self.sample = self.best_sample
         return self.best_sample
 

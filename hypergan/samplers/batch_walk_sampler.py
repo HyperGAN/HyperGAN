@@ -7,13 +7,13 @@ import torch.nn as nn
 import time
 
 class BatchWalkSampler(BaseSampler):
-    def __init__(self, gan, samples_per_row=8, session=None):
+    def __init__(self, gan, samples_per_row=4, session=None):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.step = 0
         self.step_count = 30
-        self.latent1 = self.gan.latent.sample()
-        self.latent2 = self.gan.latent.sample()
-        direction = self.gan.latent.sample()
+        self.latent1 = self.gan.latent.next()
+        self.latent2 = self.gan.latent.next()
+        direction = self.gan.latent.next()
         self.direction = direction / torch.norm(direction, p=2, dim=1, keepdim=True).expand_as(direction)
         self.velocity = 10.0
         self.hardtanh = nn.Hardtanh()
@@ -28,7 +28,7 @@ class BatchWalkSampler(BaseSampler):
         self.step+=1
         if self.step > self.step_count:
             self.latent1 = self.latent2
-            direction = self.gan.latent.sample()
+            direction = self.gan.latent.next()
             self.direction = direction / torch.norm(direction, p=2, dim=1, keepdim=True).expand_as(direction)
             self.velocity = 10.0
             self.step = 0

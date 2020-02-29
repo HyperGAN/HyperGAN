@@ -16,7 +16,6 @@ class ImageLoader:
         transform_list = []
         h, w = self.config.height, self.config.width
         if self.config.blank:
-            self.next()
             return
 
         if config.crop:
@@ -56,7 +55,7 @@ class ImageLoader:
 
     def next(self, index=0):
         if self.config.blank:
-            self.sample = torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width])
+            self.sample = torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
             return self.sample
         try:
             self.sample = self.datasets[index].next()[0].cuda() * 2.0 - 1.0

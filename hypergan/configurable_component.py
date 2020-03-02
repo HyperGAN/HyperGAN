@@ -408,13 +408,13 @@ class ConfigurableComponent(GANComponent):
             nn.init.xavier_uniform_(layer, gain=gain)
         elif args[0] == "xavier_normal":
             gain = nn.init.calculate_gain(options["gain"])
-            nn.init.xavier_uniform_(layer, gain=gain)
+            nn.init.xavier_normal_(layer, gain=gain)
         elif args[0] == "kaiming_uniform":
             a = 0 #TODO wrong
             nn.init.kaiming_uniform_(layer, mode="fan_in", nonlinearity=options["gain"])
         elif args[0] == "kaiming_normal":
             a = 0 #TODO wrong
-            nn.init.kaiming_normal_(layer, mode="fan_in", nonlinearity=options["gain"])
+            nn.init.kaiming_normal_(layer, mode=(options.mode or "fan_in"), nonlinearity=options["gain"])
         elif args[0] == "orthogonal":
             if "gain" in options:
                 gain = nn.init.calculate_gain(options["gain"])

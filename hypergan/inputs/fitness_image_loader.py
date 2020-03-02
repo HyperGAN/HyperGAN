@@ -20,10 +20,15 @@ class FitnessImageLoader(ImageLoader):
         if not hasattr(self, 'best_sample'):
             self.best_sample = super(FitnessImageLoader, self).next(index)
             self.best_sample = self.next(index)
-        all_samples = torch.split(self.best_sample, 1, dim=0)
-        prior_best_scores = self.gan.discriminator(self.best_sample)
-        all_scores = torch.split(prior_best_scores, 1, dim=0)
-        all_scores = [d.mean() for d in all_scores]
+        if self.config.discard_prior:
+            all_samples = []
+            all_scores = []
+        else:
+            all_samples = torch.split(self.best_sample, 1, dim=0)
+            prior_best_scores = self.gan.discriminator(self.best_sample)
+            all_scores = torch.split(prior_best_scores, 1, dim=0)
+            all_scores = [d.mean() for d in all_scores]
+
         for i in range(self.config.steps or 1):
             sample = super(FitnessImageLoader, self).next(index)
             d_scores = self.gan.discriminator(sample)

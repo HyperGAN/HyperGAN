@@ -12,19 +12,7 @@ TINY = 1e-12
 class SimultaneousTrainer(BaseTrainer):
     """ Steps G and D simultaneously """
     def _create(self):
-        #self.optimizer = torch.optim.Adam(self.gan.parameters(), lr=self.config.optimizer["learn_rate"], betas=(0.0,.999))
-        #self.optimizer = Adamirror(self.gan.parameters(), lr=self.config.optimizer["learn_rate"], betas=(0.0,.999))
-        #self.adamirror = Adamirror(self.gan.parameters(), lr=self.config.optimizer["learn_rate"], betas=(0.9074537537537538,.997))
-        #self.adamirror2 = Adamirror(self.gan.parameters(), lr=self.config.optimizer["learn_rate"]*3, betas=(0.9074537537537538,.997))
-        #self.optimizer = self.adamirror
-        #self.gan.add_component("optimizer", self.optimizer)
-        #self.gan.add_component("optimizer", self.adamirror2)
-        #self.gan.add_component("optimizer", self.adamirror)
-        defn = self.config.optimizer
-        klass = GANComponent.lookup_function(None, defn['class'])
-        del defn["class"]
-        self.optimizer = klass(self.gan.parameters(), **defn)
-        self.gan.add_component("optimizer", self.optimizer)
+        self.optimizer = self.create_optimizer()
 
     def required(self):
         return "".split()

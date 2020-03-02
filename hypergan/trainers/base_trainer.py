@@ -41,6 +41,14 @@ class BaseTrainer(GANComponent):
         for hook in self.train_hooks:
             hook.after_create()
 
+    def create_optimizer(self, name="optimizer"):
+        defn = getattr(self.config, name) or self.config.optimizer
+        klass = GANComponent.lookup_function(None, defn['class'])
+        del defn["class"]
+        optimizer = klass(self.gan.parameters(), **defn)
+        self.gan.add_component(name, self.optimizer)
+        return optimizer
+
     def calculate_gradients(self):
         raise ValidationException("BaseTrainer#calculate_gradients called directly, please override")
 

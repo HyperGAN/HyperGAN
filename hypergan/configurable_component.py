@@ -34,6 +34,7 @@ class ConfigurableComponent(GANComponent):
             self.current_height = input.current_height
             self.current_input_size = input.current_input_size
         self.layers = []
+        self.layer_sizes = {}
         self.nn_layers = []
         self.layer_options = {}
         self.parsed_opts = []
@@ -196,6 +197,7 @@ class ConfigurableComponent(GANComponent):
     def set_layer(self, name, net):
         self.gan.named_layers[name] = net
         self.named_layers[name]     = net
+        self.layer_sizes[name] = [self.current_width, self.current_height, self.current_channels]
         if name == "w":
             self.adaptive_instance_norm_size = self.current_input_size
 
@@ -471,7 +473,7 @@ class ConfigurableComponent(GANComponent):
 
         w = options.w or self.current_width * 2
         h = options.h or self.current_height * 2
-        layers = [nn.Upsample((w, h), mode="bilinear"),
+        layers = [nn.Upsample((h, w), mode="bilinear"),
                 nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
         self.last_logit_layer = layers[-1]
         self.current_channels = channels
@@ -510,6 +512,8 @@ class ConfigurableComponent(GANComponent):
         return NoOp()
 
     def layer_layer(self, net, args, options):
+        self.current_width, self.current_height, self.current_channels = self.layer_sizes[args[0]]
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
         return NoOp()
 
     def layer_vae(self, net, args, options):
@@ -532,22 +536,22 @@ class ConfigurableComponent(GANComponent):
         return AdaptiveInstanceNorm(self.adaptive_instance_norm_size, self.current_channels)
 
     def forward(self, input, context={}):
-        named_layers = {}
+        self.context = context
         for module, opts in zip(self.net, self.parsed_opts):
             layer_name, name, args = opts
             if layer_name == "adaptive_instance_norm":
-                input = module(input, named_layers['w'])
+                input = module(input, self.context['w'])
             elif layer_name == "concat":
                 if args[0] == "layer":
-                    input = torch.cat((input, context[args[1]]), dim=1)
+                    input = torch.cat((input, self.context[args[1]]), dim=1)
                 elif args[0] == "noise":
                     input = torch.cat((input, torch.randn_like(input)), dim=1)
             elif layer_name == "layer":
-                input = named_layers[args[0]]
+                input = self.context[args[0]]
             elif layer_name == "latent":
                 input = self.gan.latent.sample()
             else:
                 input = module(input)
             if name is not None:
-                named_layers[name] = input
+                self.context[name] = input
         return input

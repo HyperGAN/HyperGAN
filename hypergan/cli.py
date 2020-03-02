@@ -110,7 +110,7 @@ class CLI:
     def sample_forever(self):
         self.gan.inputs.next()
         steps = 0
-        while not self.gan.destroy and steps <= self.args.steps:
+        while not self.gan.destroy and (steps <= self.args.steps or self.args.steps == -1):
             self.sample()
             steps += 1
 
@@ -195,7 +195,7 @@ class CLI:
         elif self.method == 'new':
             self.new()
         elif self.method == 'sample':
-            self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input(blank=True))
+            self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input(blank=False))
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
             else:

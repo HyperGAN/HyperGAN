@@ -100,7 +100,7 @@ class ConfigurableComponent(GANComponent):
         GANComponent.__init__(self, gan, config)
 
     def required(self):
-        return "layers defaults".split()
+        return "layers".split()
 
     def layer(self, name):
         if name in self.gan.named_layers:

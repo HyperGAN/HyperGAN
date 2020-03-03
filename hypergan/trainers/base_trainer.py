@@ -46,7 +46,7 @@ class BaseTrainer(GANComponent):
         klass = GANComponent.lookup_function(None, defn['class'])
         del defn["class"]
         optimizer = klass(self.gan.parameters(), **defn)
-        self.gan.add_component(name, self.optimizer)
+        self.gan.add_component(name, optimizer)
         return optimizer
 
     def calculate_gradients(self):

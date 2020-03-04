@@ -9,7 +9,7 @@ class BaseLoss(GANComponent):
         pass
 
     def required(self):
-        return "reduce".split()
+        return "".split()
 
     def forward(self, d_real, d_fake):
         d_loss, g_loss = [c.mean() for c in self._forward(d_real, d_fake)]

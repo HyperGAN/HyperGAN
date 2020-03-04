@@ -1,21 +1,10 @@
 from hyperchamber import Config
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.samplers.aligned_sampler import AlignedSampler
-from hypergan.samplers.alphagan_random_walk_sampler import AlphaganRandomWalkSampler
-from hypergan.samplers.autoencode_sampler import AutoencodeSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
-from hypergan.samplers.began_sampler import BeganSampler
-from hypergan.samplers.debug_sampler import DebugSampler
-from hypergan.samplers.gang_sampler import GangSampler
-from hypergan.samplers.grid_sampler import GridSampler
 from hypergan.samplers.input_sampler import InputSampler
-from hypergan.samplers.progressive_sampler import ProgressiveSampler
-from hypergan.samplers.random_walk_sampler import RandomWalkSampler
-from hypergan.samplers.segment_sampler import SegmentSampler
-from hypergan.samplers.sorted_sampler import SortedSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
-from hypergan.samplers.style_walk_sampler import StyleWalkSampler
 from hypergan.samplers.y_sampler import YSampler
 from hypergan.skip_connections import SkipConnections
 from pathlib import Path
@@ -274,20 +263,20 @@ class BaseGAN():
         return {
                 'static_batch': StaticBatchSampler,
                 'input': InputSampler,
-                'progressive': ProgressiveSampler,
-                'random_walk': RandomWalkSampler,
-                'alphagan_random_walk': AlphaganRandomWalkSampler,
-                'style_walk': StyleWalkSampler,
+                #'progressive': ProgressiveSampler,
+                #'random_walk': RandomWalkSampler,
+                #'alphagan_random_walk': AlphaganRandomWalkSampler,
+                #'style_walk': StyleWalkSampler,
                 'batch_walk': BatchWalkSampler,
                 'batch': BatchSampler,
-                'grid': GridSampler,
-                'sorted': SortedSampler,
-                'gang': GangSampler,
-                'began': BeganSampler,
-                'autoencode': AutoencodeSampler,
-                'debug': DebugSampler,
+                #'grid': GridSampler,
+                #'sorted': SortedSampler,
+                #'gang': GangSampler,
+                #'began': BeganSampler,
+                #'autoencode': AutoencodeSampler,
+                #'debug': DebugSampler,
                 'y': YSampler,
-                'segment': SegmentSampler,
+                #'segment': SegmentSampler,
                 'aligned': AlignedSampler
             }
 

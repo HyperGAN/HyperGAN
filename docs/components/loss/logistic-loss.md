@@ -7,7 +7,7 @@ d_loss = self.softplus(-d_real) + self.softplus(d_fake)
 g_loss = self.softplus(-d_fake)
 ```
 
-[/losses/logistic_loss.py]](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/logistic_loss.py)
+[/losses/logistic_loss.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/logistic_loss.py)
 
 ## examples
 

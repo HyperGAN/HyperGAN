@@ -17,77 +17,85 @@ $$
   "flex": 1.0,                                                                          
   "components": ["discriminator"],                                                       
   "target": "discriminator"
-}  
+}
 ```
 
 ## options
 
+| attribute | description | type |
+| :--- | :--- | :--- |
+
+
 <table>
   <thead>
     <tr>
-      <th style="text-align:center">attribute</th>
-      <th style="text-align:center">description</th>
-      <th style="text-align:center">type</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td style="text-align:center">target</td>
-      <td style="text-align:center">
+      <th style="text-align:left">target</th>
+      <th style="text-align:left">
         <p>Used in gradients(target, components)</p>
         <p>defaults to <code>discriminator</code>
         </p>
-      </td>
-      <td style="text-align:center">string (optional)</td>
+      </th>
+      <th style="text-align:left">string (optional)</th>
     </tr>
+  </thead>
+  <tbody></tbody>
+</table><table>
+  <thead>
     <tr>
-      <td style="text-align:center">lambda</td>
-      <td style="text-align:center">
+      <th style="text-align:left">lambda</th>
+      <th style="text-align:left">
         <p>Loss multiple</p>
         <p>defaults to <code>1.0</code>
         </p>
-      </td>
-      <td style="text-align:center">float</td>
+      </th>
+      <th style="text-align:left">float</th>
     </tr>
+  </thead>
+  <tbody></tbody>
+</table><table>
+  <thead>
     <tr>
-      <td style="text-align:center">components</td>
-      <td style="text-align:center">
+      <th style="text-align:left">components</th>
+      <th style="text-align:left">
         <p>Used in gradients(target, components)</p>
         <p>defaults to all components</p>
-      </td>
-      <td style="text-align:center">array of strings</td>
+      </th>
+      <th style="text-align:left">array of strings</th>
     </tr>
+  </thead>
+  <tbody></tbody>
+</table>| flex | Max amount of gradient before penalty | float |
+| :--- | :--- | :--- |
+
+
+<table>
+  <thead>
     <tr>
-      <td style="text-align:center">flex</td>
-      <td style="text-align:center">
-        <p>Max amount of gradient before penalty</p>
-        <p></p>
-      </td>
-      <td style="text-align:center">float</td>
-    </tr>
-    <tr>
-      <td style="text-align:center">flex</td>
-      <td style="text-align:center">
+      <th style="text-align:left">flex</th>
+      <th style="text-align:left">
         <p>Can also be a list for separate X/G flex.</p>
         <p>example: <code>[0.0, 10.0]</code>
         </p>
-      </td>
-      <td style="text-align:center">array of float</td>
+      </th>
+      <th style="text-align:left">array of float</th>
     </tr>
+  </thead>
+  <tbody></tbody>
+</table><table>
+  <thead>
     <tr>
-      <td style="text-align:center">loss</td>
-      <td style="text-align:center">
+      <th style="text-align:left">loss</th>
+      <th style="text-align:left">
         <p>Side loss is added to: <code>g_loss</code> or <code>d_loss</code>
         </p>
         <p>defaults to <code>g_loss</code>
         </p>
-      </td>
-      <td style="text-align:center">string</td>
+      </th>
+      <th style="text-align:left">string</th>
     </tr>
-  </tbody>
+  </thead>
+  <tbody></tbody>
 </table>{% hint style="info" %}
 Floats are [configurable parameters](../../configuration/configurable-parameters.md)
 {% endhint %}
-
-
 

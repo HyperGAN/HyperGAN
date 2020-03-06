@@ -6,7 +6,7 @@ To build a new network you need a dataset. Your data should be structured like:
   [folder]/[directory]/*.png
 ```
 
-### Creating a Dataset
+## Creating a Dataset
 
 Datasets in HyperGAN are meant to be simple to create. Just use a folder of images.
 
@@ -16,7 +16,7 @@ Datasets in HyperGAN are meant to be simple to create. Just use a folder of imag
 
 For jpg\(pass `-f jpg`\)
 
-### Downloadable datasets
+## Downloadable datasets
 
 * Loose images of any kind can be used
 * CelebA aligned faces [http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html)
@@ -24,7 +24,7 @@ For jpg\(pass `-f jpg`\)
 * ImageNet [http://image-net.org/](http://image-net.org/)
 * youtube-dl \(see [examples/Readme.md](../examples-1/2d.md)\)
 
-### Cleaning up data
+## Cleaning up data
 
 To convert and resize your data for processing, you can use imagemagick
 

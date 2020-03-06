@@ -21,7 +21,7 @@ description: 'https://arxiv.org/abs/1806.09235'
 }
 ```
 
-{% embed url="https://github.com/weilinie/JARE/blob/master/src/ops.py\#L226" %}
+{% embed url="https://github.com/weilinie/JARE/blob/master/src/ops.py\#L226" caption="" %}
 
 ## options
 

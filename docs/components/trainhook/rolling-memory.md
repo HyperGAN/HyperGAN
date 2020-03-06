@@ -4,7 +4,7 @@ description: (no paper)
 
 # Rolling Memory
 
-Rolling memory is a type of experience replay.  Each training step, a memory is replaced with the top scoring batch item.
+Rolling memory is a type of experience replay. Each training step, a memory is replaced with the top scoring batch item.
 
 Each `types` pairing becomes a discriminator that is added to the loss.
 
@@ -14,10 +14,10 @@ Each `types` pairing becomes a discriminator that is added to the loss.
 {
     "class": "function:hypergan.train_hooks.experimental.rolling_memory_2_train_hook.RollingMemoryTrainHook",
     "types": ["mx-/g(mz-)"]
-}  
+}
 ```
 
-mx- is a memory of x that gets updated each training step.  g\(mz-\) is a memory of z that gets run through a generator and updated each trainng step.
+mx- is a memory of x that gets updated each training step. g\(mz-\) is a memory of z that gets run through a generator and updated each trainng step.
 
 A discriminator `d(mx-, g(mz-))` is created and added to the gan loss.
 
@@ -41,6 +41,4 @@ A discriminator `d(mx-, g(mz-))` is created and added to the gan loss.
 | g\(mz+\) | generator of memory of z sorted by d\_fake |
 | x | gan.inputs.x |
 | g | gan.generator.sample |
-
-
 

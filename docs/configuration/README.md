@@ -34,7 +34,7 @@ For example, a discriminator component can be defined as:
   }
 ```
 
-This means to create a network composed of 4 convolution layers that decrease along stride and increase filter size, ending in a linear without activation. End the discriminator in a logit(output of conv/linear/etc)
+This means to create a network composed of 4 convolution layers that decrease along stride and increase filter size, ending in a linear without activation. End the discriminator in a logit\(output of conv/linear/etc\)
 
 ### ConfigurableGenerator
 
@@ -82,7 +82,7 @@ This is a generator. A generator takes in a latent space and returns a data type
 
 `adaptive_instance_norm` looks up the layer named 'w' and uses it to perform the adaptive instance norm.
 
-HyperGAN defaults to the image space of (-1, 1), which is the same range as tanh.
+HyperGAN defaults to the image space of \(-1, 1\), which is the same range as tanh.
 
 ## Layers
 
@@ -104,7 +104,7 @@ A convolution. Stride is applied if it is set. For example: `conv [filters] filt
 
 `deconv [filters] (options)`
 
-Doubles the width and height of your tensor. Called conv2d_transpose in literature
+Doubles the width and height of your tensor. Called conv2d\_transpose in literature
 
 ### resize\_conv
 
@@ -180,8 +180,6 @@ A base class for each of the component types listed below.
 ### Generator
 
 A generator is responsible for projecting an encoding \(sometimes called _z space_\) to an output \(normally an image\). A single GAN object from HyperGAN has one generator.
-
-### 
 
 ### Discriminators
 

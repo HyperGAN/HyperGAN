@@ -10,5 +10,3 @@ Run trained models with HyperGAN on your android device!
 
 Source code: [https://github.com/HyperGAN/HyperGAN-android](https://github.com/HyperGAN/HyperGAN-android)
 
-
-

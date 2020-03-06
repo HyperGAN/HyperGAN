@@ -18,53 +18,48 @@ description: 'https://arxiv.org/abs/1912.00144'
 
 ## options
 
+| attribute | description | type |
+| :--- | :--- | :--- |
+
+
+| dropout | 0-1 dropout ratio. Defaults to `0.5` | float |
+| :--- | :--- | :--- |
+
+
+| ones | The gradient multiplier when not dropped out. Defaults to `0.1` | float |
+| :--- | :--- | :--- |
+
+
+| zeros | The gradient multiplier when dropped out. Defaults to `0.0` | float |
+| :--- | :--- | :--- |
+
+
 <table>
   <thead>
     <tr>
-      <th style="text-align:center">attribute</th>
-      <th style="text-align:center">description</th>
-      <th style="text-align:center">type</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td style="text-align:center">dropout</td>
-      <td style="text-align:center">0-1 dropout ratio. Defaults to <code>0.5</code>
-      </td>
-      <td style="text-align:center">float</td>
-    </tr>
-    <tr>
-      <td style="text-align:center">ones</td>
-      <td style="text-align:center">The gradient multiplier when not dropped out.
-        <br />Defaults to <code>0.1</code>
-      </td>
-      <td style="text-align:center">float</td>
-    </tr>
-    <tr>
-      <td style="text-align:center">zeros</td>
-      <td style="text-align:center">The gradient multiplier when dropped out. Defaults to <code>0.0</code>
-      </td>
-      <td style="text-align:center">float</td>
-    </tr>
-    <tr>
-      <td style="text-align:center">skip_d</td>
-      <td style="text-align:center">
+      <th style="text-align:left">skip_d</th>
+      <th style="text-align:left">
         <p>skip d gradients</p>
         <p>Defaults to <code>false</code>
         </p>
-      </td>
-      <td style="text-align:center">boolean</td>
+      </th>
+      <th style="text-align:left">boolean</th>
     </tr>
+  </thead>
+  <tbody></tbody>
+</table><table>
+  <thead>
     <tr>
-      <td style="text-align:center">skip_g</td>
-      <td style="text-align:center">
+      <th style="text-align:left">skip_g</th>
+      <th style="text-align:left">
         <p>skip g gradients</p>
         <p>Defaults to <code>false</code>
         </p>
-      </td>
-      <td style="text-align:center">boolean</td>
+      </th>
+      <th style="text-align:left">boolean</th>
     </tr>
-  </tbody>
+  </thead>
+  <tbody></tbody>
 </table>{% hint style="info" %}
 Floats are [configurable parameters](../../configuration/configurable-parameters.md)
 {% endhint %}

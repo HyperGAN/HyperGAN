@@ -20,6 +20,6 @@ g_loss = d_real - d_fake
 ```javascript
 {                                                                                       
   "class": "function:hypergan.losses.qp_loss.QPLoss"
-}  
+}
 ```
 

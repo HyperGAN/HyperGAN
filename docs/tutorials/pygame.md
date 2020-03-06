@@ -2,7 +2,7 @@
 
 ## Adding an AI character generator to pygame
 
-![](../.gitbook/assets/pygame-tutorial-1.png)
+![](https://github.com/HyperGAN/HyperGAN/tree/91d0ea7885e2ccb443dddfe012eeed29bfce9487/docs/.gitbook/assets/pygame-tutorial-1.png)
 
 For this tutorial we'll use a pre-trained [HyperGAN](https://www.github.com/HyperGAN/HyperGAN) model.
 
@@ -84,7 +84,7 @@ if event.type == pygame.KEYDOWN:
 
 This runs the generator for a new random sample with each press of the space key.
 
-![Pressing space will change the image](../.gitbook/assets/pygame-tutorial-2.png)
+![Pressing space will change the image](https://github.com/HyperGAN/HyperGAN/tree/91d0ea7885e2ccb443dddfe012eeed29bfce9487/docs/.gitbook/assets/pygame-tutorial-2.png)
 
 #### An issue: this uses the CPU not the GPU.
 
@@ -94,7 +94,7 @@ On desktop, it is not GPU accelerated. Unanswered question about this here: [htt
 
 #### Putting it all together
 
-See [pygame-tutorial.py](pygame-tutorial.py)
+See [pygame-tutorial.py](https://github.com/HyperGAN/HyperGAN/tree/91d0ea7885e2ccb443dddfe012eeed29bfce9487/docs/tutorials/pygame-tutorial.py)
 
 ### Create your own model
 

@@ -59,5 +59,5 @@
   * [Learning Rate Dropout](components/trainhook/learning-rate-dropout.md)
   * [Gradient Penalty](components/trainhook/gradient-penalty.md)
   * [Rolling Memory](components/trainhook/rolling-memory.md)
-* [Other GAN implementations](other-gan-implementations.md)
+* [Other GAN implementations](components/other-gan-implementations.md)
 

@@ -29,7 +29,7 @@ gradients(d_grads, g_grads)
 
 ### after\_step\(feed\_dict\)
 
-Executed before/after the step takes place.  `feed_dict` is what is being sent to the graph during the training step.
+Executed before/after the step takes place. `feed_dict` is what is being sent to the graph during the training step.
 
 ### after\_create\(\)
 
@@ -38,8 +38,4 @@ Ran after the trainer is created.
 ### gradients\(d\_grads, g\_grads\)
 
 Refines the gradients before they are applied to the optimizer.
-
-
-
-
 

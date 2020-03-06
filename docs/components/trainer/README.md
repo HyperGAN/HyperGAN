@@ -32,5 +32,3 @@ trainer.before_step(step, feed_dict)
 trainer.after_step(step, feed_dict)
 ```
 
-
-

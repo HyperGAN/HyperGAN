@@ -21,7 +21,7 @@ Decay from one value to another over
 ### Examples
 
 ```javascript
-"learn_rate": "decay(range=1e-4:1e-2 steps=100000 start=300000"
+"learn_rate": "decay(range=1e-4:1e-2 steps=100000 start=300000)"
 ```
 
 Increase the learn rate from 1e-4 to 1e-2, starting at step 100,000 ending at 300,000
@@ -54,5 +54,25 @@ $$
 | T or steps | Number of steps until decay ends | Int &gt;= 0 \(default 10000\) |
 | metric | Reported value in stdout | String |
 
+## oscillate
 
+### Examples
+
+```javascript
+"gamma": "oscillate(T=1000 offset=500 metric=o)"
+```
+
+### Options
+
+
+
+| attribute | description | type |
+| :--- | :--- | :--- |
+| T or steps | Number of steps until cycle | Int &gt; 0 |
+| offset | Number of steps to offset cycle | Int &gt;= 0 |
+| method | sin | String |
+| range | bottom and top values of cycle.  Defaults to 0:1 | Tuple |
+| metric | Reported value in stdout | String |
+
+## 
 

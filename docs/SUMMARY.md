@@ -29,6 +29,7 @@
 ## Components
 
 * [GAN](components/gan/README.md)
+  * [Multi Marginal GAN](components/gan/multi-marginal-gan.md)
   * [Standard GAN](components/gan/standard-gan.md)
   * [ALI GAN](components/gan/ali-gan.md)
   * [Distribution Filtering GAN](components/gan/distribution-filtering-gan.md)

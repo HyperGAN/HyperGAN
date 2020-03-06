@@ -1,25 +1,9 @@
 {
   "discriminator": {
-    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-    "defaults":{
-      "filter": [3,3],
-      "stride": [1,1],
-      "adaptive_avg_pool": [2,2],
-      "activation": "relu",
-      "initializer": "he_normal",
-      "lrmul": 1.0,
-      "random_stddev": 0.02
-    },
-    "layers":[
-      "conv 32 stride=1", "adaptive_avg_pool", "relu",
-      "conv 64 stride=1", "adaptive_avg_pool", "relu",
-      "conv 128 stride=1", "adaptive_avg_pool", "relu",
-      "conv 256 stride=1", "adaptive_avg_pool", "relu",
-      "conv 512 stride=1", "adaptive_avg_pool", "relu",
-      "flatten",
-      "linear 512", "initializer xavier_normal gain=relu", "relu",
-      "linear 100 bias=false"
-    ]
+    "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
+    "activation": "lrelu",
+    "initializer": "random_normal",
+    "random_stddev": 0.02
   },
   "latent": {
     "class": "class:hypergan.distributions.uniform_distribution.UniformDistribution",
@@ -28,7 +12,7 @@
     ],
     "min": -1,
     "max": 1,
-    "z": 256
+    "z": 100
   },
   "input": {
     "class": "class:hypergan.inputs.image_loader.ImageLoader",
@@ -49,11 +33,14 @@
       "deconv 128", "initializer xavier_uniform gain=relu", "relu",
       "deconv 64", "initializer xavier_uniform gain=relu", "relu",
       "deconv 3", "initializer xavier_uniform gain=tanh", "tanh"
-
     ]
+  },
+  "loss": {
+    "class": "function:hypergan.losses.softmax_loss.SoftmaxLoss",
   },
   "trainer": {
     "class": "class:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+
     "optimizer": {
       "class": "class:torch.optim.Adam",
       "lr": 1e-4,
@@ -71,10 +58,6 @@
         "loss": ["d"]
       }
     ]
-  },
-  "loss": {
-    "class": "class:hypergan.losses.realness_loss.RealnessLoss",
-    "skew": [-0.1, 0.1]
   },
   "hypergan_version": "0.20.0",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"

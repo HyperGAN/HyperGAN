@@ -1,8 +1,7 @@
----
-description: 'http://stylegan.xyz/paper'
----
-
 # Logistic Loss
+
+* Publication: [http://stylegan.xyz/paper](http://stylegan.xyz/paper)
+* HG Source: [/losses/logistic_loss.py]](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/logistic_loss.py)
 
 ```python
 d_loss = self.softplus(-d_real) + self.softplus(d_fake)

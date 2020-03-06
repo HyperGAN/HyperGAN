@@ -1,13 +1,12 @@
 # Logistic Loss
 
-[http://stylegan.xyz/paper](http://stylegan.xyz/paper)
+* Adapted from [http://stylegan.xyz/paper](http://stylegan.xyz/paper)
+* Source: [/losses/logistic_loss.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/logistic_loss.py)
 
 ```python
 d_loss = self.softplus(-d_real) + self.softplus(d_fake)
 g_loss = self.softplus(-d_fake)
 ```
-
-[/losses/logistic_loss.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/logistic_loss.py)
 
 ## examples
 

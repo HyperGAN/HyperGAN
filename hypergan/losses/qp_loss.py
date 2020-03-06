@@ -5,9 +5,8 @@ from functools import reduce
 from hypergan.losses.base_loss import BaseLoss
 
 class QPLoss(BaseLoss):
-
+    """https://arxiv.org/abs/1811.07296"""
     def _forward(self, d_real, d_fake):
-        config = self.config
         gan = self.gan
 
         pq = d_real
@@ -22,7 +21,4 @@ class QPLoss(BaseLoss):
 
         g_loss = d_real - d_fake
 
-
-
         return [d_loss, g_loss]
-

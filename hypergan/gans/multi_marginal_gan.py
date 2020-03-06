@@ -95,7 +95,7 @@ class MultiMarginalGAN(BaseGAN):
 
         return d_loss, g_loss
 
-    def regularize_gradient_norm(self, calculate_loss):
+    def regularize_gradient_norm(self):
         reg_d1 = []
         loss = 0.0
         for x_, d_fake in zip(self.xs[1:], self.d_fakes[1:]):
@@ -103,7 +103,7 @@ class MultiMarginalGAN(BaseGAN):
             d1_logits = self.discriminator(x)
             d2_logits = d_fake
 
-            loss += calculate_loss(d1_logits, d2_logits)
+            loss += self.loss.forward_gradient_norm(d1_logits, d2_logits)
 
             d1_grads = torch_grad(outputs=loss, inputs=x, retain_graph=True, create_graph=True)
             d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]

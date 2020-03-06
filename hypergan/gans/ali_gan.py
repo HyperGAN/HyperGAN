@@ -113,12 +113,12 @@ class AliGAN(BaseGAN):
         return d_loss, g_loss
 
 
-    def regularize_gradient_norm(self, calculate_loss):
+    def regularize_gradient_norm(self):
         x = Variable(self.x, requires_grad=True).cuda()
         d1_logits = self.discriminator(x, context={"z":self.z})
         d2_logits = self.d_fake
 
-        loss = calculate_loss(d1_logits, d2_logits)
+        loss = self.loss.forward_gradient_norm(d1_logits, d2_logits)
 
         if loss == 0:
             return [None, None]

@@ -6,9 +6,6 @@ class SoftmaxLoss(BaseLoss):
     """https://arxiv.org/abs/1704.06191"""
 
     def _forward(self, d_real, d_fake):
-        gan = self.gan
-        config = self.config
-
         ln_zb = (((-d_real).exp().sum()+(-d_fake).exp().sum())+1e-12).log()
 
         d_target = 1.0 / d_real.shape[0]

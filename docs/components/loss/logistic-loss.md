@@ -10,6 +10,8 @@ g_loss = self.softplus(-d_fake)
 
 ## examples
 
+* Configurations: [/losses/logistic_loss/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/losses/logistic_loss/)
+
 ```javascript
 {                                                                                       
   "class": "function:hypergan.losses.logistic_loss.LogisticLoss"

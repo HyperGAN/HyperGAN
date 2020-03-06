@@ -36,10 +36,7 @@
     ]
   },
   "loss": {
-    "class": "class:hypergan.losses.f_divergence_loss.FDivergenceLoss",
-    "type": "js",
-    "g_loss_type": "js",
-    "regularizer": "js"
+    "class": "class:hypergan.losses.ali_loss.AliLoss"
   },
   "trainer": {
     "class": "class:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",

@@ -4,6 +4,7 @@ import torch
 from hypergan.losses.base_loss import BaseLoss
 
 class AliLoss(BaseLoss):
+    """https://ishmaelbelghazi.github.io/ALI/"""
     def _forward(self, d_real, d_fake):
         criterion = torch.nn.BCEWithLogitsLoss()
         g_loss = criterion(d_fake, torch.ones_like(d_fake)) + criterion(d_real, torch.zeros_like(d_real))

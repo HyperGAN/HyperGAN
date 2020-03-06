@@ -42,6 +42,9 @@ class RealnessLoss(BaseLoss):
     def __init__(self, gan, config):
         super(RealnessLoss, self).__init__(gan, config)
 
+    def required(self):
+        return "skew".split()
+
     def _forward(self, d_real, d_fake):
         num_outcomes = d_real.shape[1]
         if not hasattr(self, 'anchor0'):

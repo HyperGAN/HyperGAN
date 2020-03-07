@@ -54,7 +54,8 @@ class UniformDistribution(BaseDistribution):
         return self.z.sample(torch.Size([self.gan.batch_size(), self.config.z])).view(self.gan.batch_size(), self.config.z).cuda()
 
     def next(self):
-        return self.sample()
+        self.instance = self.sample()
+        return self.instance
 
 def identity(config, gan, net):
     return net

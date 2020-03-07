@@ -11,12 +11,12 @@ import torch
 class OptimizeDistribution(BaseDistribution):
     def __init__(self, gan, config):
         BaseDistribution.__init__(self, gan, config)
-        klass = GANComponent.lookup_function(None, self.config['source'])
-        self.source = klass(gan, config)
-        self.current_channels = config["z"]
+        klass = GANComponent.lookup_function(None, self.config['source']['class'])
+        self.source = klass(gan, config['source'])
+        self.current_channels = config['source']["z"]
         self.current_width = 1
         self.current_height = 1
-        self.current_input_size = config["z"]
+        self.current_input_size = config['source']["z"]
         self.z = self.source.z
         self.hardtanh = torch.nn.Hardtanh()
         self.relu = torch.nn.ReLU()
@@ -29,35 +29,42 @@ class OptimizeDistribution(BaseDistribution):
         sample = self.source.next()
         if self.z_var is None:
             self.z_var = Variable(sample, requires_grad=True).cuda()
-            self.optimizer = torch.optim.SGD([self.z_var], lr=1.0)
+        defn = self.config.optimizer.copy()
+        klass = GANComponent.lookup_function(None, defn['class'])
+        del defn["class"]
+        self.optimizer = klass([self.z_var], **defn)
         z = self.z_var
-        optimizer = self.optimizer
-        z.data = sample
+        z.data.copy_(sample)
 
+        z.grad = torch.zeros_like(z)
         for i in range(self.config.steps or 1):
-            optimizer.zero_grad()
-            #z_move = torch_grad(outputs=loss, inputs=z, retain_graph=True, create_graph=True)
-            #z.data -= z_move[0]*100
-            #loss = -self.gan.discriminator(self.gan.generator(self.hardtanh(z))).mean()
+            self.optimizer.zero_grad()
             fake = self.gan.discriminator(self.gan.generator(self.hardtanh(z))).mean()
             real = self.gan.discriminator(self.gan.inputs.sample).mean()
-            if self.config.formulation == "relu(d(x)-d(g))":
-                loss = self.relu(real - fake)**2
-            elif self.config.formulation == 'flex':
-                loss = self.relu((real - fake).abs() - self.config.flex) ** 2 * (self.config.gamma or 1.0)
-            elif self.config.formulation == 'flexforce':
-                loss = ((real - fake).abs() - self.config.flex) ** 2 * (self.config.gamma or 1.0)
-            elif self.config.formulation == 'flexforce2':
-                loss = ((real - fake) - self.config.flex) ** 2 * (self.config.gamma or 1.0)
-            else:
-                uaeotnhu()
-                loss = (real - fake)**2*1e8
-            #if(loss.item() < 1e-4):
-            #    break
-            #print(loss)
-            #loss = -self.gan.discriminator(self.gan.generator(self.hardtanh(z))).mean()
-            loss.backward()
-            optimizer.step()
-        z.requires_grad=False
+            loss = self.gan.loss.forward_gradient_norm(real, fake)
+            if loss == 0.0:
+                if self.config.verbose:
+                    print("[optimize distribution] No loss")
+                break
+            z_move = torch_grad(outputs=loss, inputs=z, retain_graph=True, create_graph=True)
+            z_change = z_move[0].abs().mean()
+            if self.config.z_change_threshold or self.config.verbose:
+                if i == 0:
+                    first_z_change = z_change
+            z._grad.copy_(z_move[0])
+            self.optimizer.step()
+            if self.config.verbose:
+                print("[optimize distribution]", i, "loss", loss.item(), "mean movement", (z-sample).abs().mean().item(), (z_change/first_z_change).item())
+            if self.config.z_change_threshold and z_change/first_z_change < self.config.z_change_threshold:
+                if self.config.info:
+                    print("[optimize distribution] z_change_threshold steps", i, "loss", loss.item(), "mean movement", (z-sample).abs().mean().item(), (z_change/first_z_change).item())
+                break
+            if self.config.loss_threshold and loss < self.config.loss_threshold:
+                if self.config.info:
+                    print("[optimize distribution] loss_threshold steps", i, "loss", loss.item(), "mean movement", (z-sample).abs().mean().item(), (z_change/first_z_change).item())
+                break
 
+        if self.config.info and i == self.config.steps-1:
+            print("[optimize distribution] steps_threshold steps", i, "loss", loss.item(), "mean movement", (z-sample).abs().mean().item())
+        self.instance = z
         return z

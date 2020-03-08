@@ -54,8 +54,6 @@ class BaseTrainer(GANComponent):
 
     def step(self, feed_dict={}):
         step = self._step(feed_dict)
-        self.gan.add_metric('d_loss', self.d_loss)
-        self.gan.add_metric('g_loss', self.g_loss)
         self.current_step += 1
         return step
 

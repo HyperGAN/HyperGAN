@@ -56,6 +56,8 @@
 * [Trainer](components/trainer/README.md)
   * [Alternating Trainer](components/trainer/alternating-trainer.md)
   * [Simultaneous Trainer](components/trainer/simultaneous-trainer.md)
+  * [Balanced Trainer](components/trainer/balanced-trainer.md)
+  * [Accumulate Gradient Trainer](components/trainer/accumulate-gradient-trainer.md)
 * [Optimizer](components/optimizer.md)
 * [Train Hook](components/trainhook/README.md)
   * [Weight Constraint](components/trainhook/weight-constraint.md)

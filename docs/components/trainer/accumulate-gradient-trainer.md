@@ -10,6 +10,7 @@ if accumulated_count == config.accumulate:
 else:
     train_d(d_grads)
     average_g_grads += g_grads / config.accumulate
+    accumulated_count += 1
 ```
 
 ## examples

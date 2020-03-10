@@ -13,6 +13,7 @@ class AccumulateGradientTrainer(AlternatingTrainer):
         self.g_optimizer = self.create_optimizer("g_optimizer")
         self.accumulated_g_grads = None
         self.accumulation_steps = 0
+        self.relu = torch.nn.ReLU()
 
     def calculate_gradients(self):
         accumulate = (self.config.accumulate or 3)
@@ -28,7 +29,10 @@ class AccumulateGradientTrainer(AlternatingTrainer):
                 self.accumulated_g_grads = [g.clone()/accumulate for g in gs]
             else:
                 for i, g in enumerate(self.accumulated_g_grads):
-                    self.accumulated_g_grads[i] += gs[i].clone() / accumulate
+                    if self.config.type == 'agree':
+                        self.accumulated_g_grads[i] = (self.accumulated_g_grads[i] + gs[i].clone()/accumulate) * self.relu(torch.sign(self.accumulated_g_grads[i]*gs[i].clone()))
+                    else:
+                        self.accumulated_g_grads[i] += gs[i].clone() / accumulate
 
             #print("D_G", sum([g.abs().sum() for g in gs]), len(self.accumulated_g_grads))
 

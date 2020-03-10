@@ -17,15 +17,12 @@ class BalancedTrainer(AlternatingTrainer):
         self.gcount = 0
         self.last_d_fake = None
 
-    def required(self):
-        return "".split()
-
     def calculate_gradients(self):
         d_real, d_fake = self.gan.forward_discriminator()
         self.add_metric("R", d_real.mean())
         self.add_metric("F", d_fake.mean())
 
-        if (self.config.d_until or 0) > self.gan.steps:
+        if (self.config.pretrain_d or 0) > self.gan.steps:
             step_d = True
         elif self.config.d_fake_balance:
             if self.last_d_fake is None or d_fake.mean() > self.last_d_fake:
@@ -39,13 +36,13 @@ class BalancedTrainer(AlternatingTrainer):
             step_d = False
 
         if step_d:
-            d_grads = self.d_grads(d_real=d_real, d_fake=d_fake)
+            d_grads = self.d_grads()
             g_grads = []
 
             self.dcount+=1
         else:
             d_grads = []
-            g_grads = self.g_grads(d_real=d_real, d_fake=d_fake)
+            g_grads = self.g_grads()
             self.gcount+=1
         self.gan.add_metric("dcount", self.dcount)
         self.gan.add_metric("gcount", self.gcount)

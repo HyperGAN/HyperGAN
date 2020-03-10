@@ -33,6 +33,9 @@ class AlternatingTrainer(BaseTrainer):
         return self.grads_for(g_loss, self.gan.g_parameters())
 
     def d_grads(self, d_real=None, d_fake=None):
+        self.d_optimizer.zero_grad()
+        self.setup_gradient_flow(self.gan.d_parameters(), self.gan.g_parameters())
+
         if d_fake is None:
             d_loss, _ = self.gan.forward_loss()#TODO targets=['d']
         else:
@@ -53,6 +56,7 @@ class AlternatingTrainer(BaseTrainer):
         if loss == 0:
             return []
         loss.backward(retain_graph=True)
+        #return torch_grad(outputs=loss, inputs=train_params, retain_graph=True)
         return [p.grad for p in train_params]
 
     def train_hook_losses(self):
@@ -76,16 +80,12 @@ class AlternatingTrainer(BaseTrainer):
             if ( self.config.train_d_every is None or
                ( self.gan.steps % self.config.train_d_every == 0)):
                 d_grads = self.d_grads()
-            if ( self.config.freeze_d_every is not None and
-               ( self.gan.steps % self.config.freeze_d_every) > (self.config.freeze_d_every - self.config.freeze_d_duration)):
-                d_grads = []
 
             if (self.config.pretrain_d is not None and
                 self.config.pretrain_d > self.gan.steps):
                 d_grads = self.d_grads()
 
         return d_grads, g_grads
-
 
     def train_d(self, grads):
         if(len(grads) == 0):
@@ -96,8 +96,7 @@ class AlternatingTrainer(BaseTrainer):
         for p, np in zip(self.gan.d_parameters(), grads):
             p.grad = np
 
-        if(len(d_grads) > 0):
-                self.d_optimizer.step()
+        self.d_optimizer.step()
 
     def train_g(self, grads):
         if(len(grads) == 0):
@@ -109,7 +108,6 @@ class AlternatingTrainer(BaseTrainer):
             p.grad = np
 
         self.g_optimizer.step()
-
 
     def _step(self, feed_dict):
         metrics = self.gan.metrics()

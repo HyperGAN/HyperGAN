@@ -18,10 +18,7 @@ class SimultaneousTrainer(BaseTrainer):
         return "optimizer".split()
 
     def _step(self, feed_dict):
-        gan = self.gan
-        config = self.config
-        loss = gan.loss
-        metrics = gan.metrics()
+        metrics = self.gan.metrics()
 
         self.before_step(self.current_step, feed_dict)
         d_grads, g_grads = self.calculate_gradients()

@@ -15,7 +15,7 @@ class SimultaneousTrainer(BaseTrainer):
         self.optimizer = self.create_optimizer()
 
     def required(self):
-        return "".split()
+        return "optimizer".split()
 
     def _step(self, feed_dict):
         gan = self.gan

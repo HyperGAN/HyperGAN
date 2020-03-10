@@ -143,8 +143,8 @@ Recommended: GTX 1080+
 4. Installing HyperGAN 
    * Now it is time to install HyperGAN and it's dependencies.
    * If you haven't installed pip3, install it using `sudo apt-get install python3-pip`.
-   * Run the command \`pip3 install hypergan tensorflow-gpu hyperchamber pillow pygame natsort nashpy'
-   * The newest version of numpy spits out a ton of non-pretty warnings, so we'll install an older version using \`pip3 install numpy==1.16.4'.
+   * Run the command `pip3 install hypergan tensorflow-gpu hyperchamber pillow pygame natsort nashpy`
+   * The newest version of numpy spits out a ton of non-pretty warnings, so we'll install an older version using `pip3 install numpy==1.16.4`.
    * Reboot your computer, for the last time.
 5. Checking HyperGAN installation
    * Test that HyperGAN and TensorFlow are correctly installed on your computer by running the command `hypergan test`.

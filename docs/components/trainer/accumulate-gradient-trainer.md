@@ -48,4 +48,5 @@ else:
 | d_optimizer | Optimizer configuration for D | Config \(required\) |
 | hooks | Train Hooks | Array of configs \(optional\) |
 | accumulate | Amount of steps to accumulate G.  Defaults to 3 | Integer \(optional\) |
+| type | `agree` or `average`.  Defaults to `average` | String \(optional\) |
 

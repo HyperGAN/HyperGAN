@@ -189,6 +189,7 @@ class ThreadedTkViewerUI:
             root.title(self.title)
             root.wm_title(self.title)
             self.resizable_frame.winfo_toplevel().title(self.title)
+            self.clock = self.pg.time.Clock()
 
         padw = 0
         padh = 0
@@ -210,6 +211,7 @@ class ThreadedTkViewerUI:
         self.screen.fill((0, 0, 0))
         self.pg.surfarray.blit_array(self.surface, image[:,:,:3])
         self.screen.blit(self.pg.transform.scale(self.surface,self.size),(0,0))
+        self.clock.tick_busy_loop(60)
         self.pg.display.flip()
 
 

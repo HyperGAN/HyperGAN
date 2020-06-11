@@ -12,12 +12,14 @@ import torch.nn as nn
 from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
 
-from hypergan.modules.reshape import Reshape
-from hypergan.modules.concat_noise import ConcatNoise
-from hypergan.modules.residual import Residual
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
-from hypergan.modules.variational import Variational
+from hypergan.modules.concat_noise import ConcatNoise
+from hypergan.modules.learned_noise import LearnedNoise
+from hypergan.modules.reshape import Reshape
 from hypergan.modules.no_op import NoOp
+from hypergan.modules.residual import Residual
+from hypergan.modules.variational import Variational
+from hypergan.modules.pixel_norm import PixelNorm
 
 class ConfigurationException(Exception):
     pass
@@ -41,11 +43,14 @@ class ConfigurableComponent(GANComponent):
         self.layer_ops = {**self.activations(),
             "adaptive_avg_pool": self.layer_adaptive_avg_pool,
             "adaptive_avg_pool1d": self.layer_adaptive_avg_pool1d,
+            "adaptive_avg_pool3d": self.layer_adaptive_avg_pool3d,
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
+            "add": self.layer_add,
             "avg_pool": self.layer_avg_pool,
-            "avg_pool3d": self.layer_avg_pool3d,
             "batch_norm": self.layer_batch_norm,
+            "batch_norm1d": self.layer_batch_norm1d,
             "concat": self.layer_concat,
+            #"concat3d": self.layer_concat3d,
             "conv": self.layer_conv,
             "conv1d": self.layer_conv1d,
             "conv3d": self.layer_conv3d,
@@ -55,10 +60,17 @@ class ConfigurableComponent(GANComponent):
             "identity": self.layer_identity,
             "initializer": self.layer_initializer,
             "instance_norm": self.layer_instance_norm,
+            "instance_norm1d": self.layer_instance_norm1d,
+            "instance_norm3d": self.layer_instance_norm3d,
             "latent": self.layer_latent,
             "layer": self.layer_layer,
+            "layer_norm": self.layer_norm,
             "linear": self.layer_linear,
+            #"make2d": self.layer_make2d,
+            #"make3d": self.layer_make3d,
+            "modulated_conv2d": self.layer_modulated_conv2d,
             "pad": self.layer_pad,
+            "pixel_norm": self.layer_pixel_norm,
             "reshape": self.layer_reshape,
             "residual": self.layer_residual, #TODO options
             "resize_conv": self.layer_resize_conv,
@@ -334,6 +346,20 @@ class ConfigurableComponent(GANComponent):
 
         return nn.Sequential(*layers)
 
+    #def layer_make2d(self, net, args, options):
+    #    return NoOp()
+
+    #def layer_make3d(self, net, args, options):
+    #    return NoOp()
+
+    def layer_modulated_conv2d(self, net, args, options):
+        channels = int(args[0])
+
+        downsample = True
+        style_dim = 512
+
+        return ModulatedConv2d(channels, channels * 2, channels, 3, style_dim)
+
     def layer_reshape(self, net, args, options):
         dims = [int(x) for x in args[0].split("*")]
         if len(dims) == 3:
@@ -341,7 +367,7 @@ class ConfigurableComponent(GANComponent):
             self.current_height = dims[1]
             self.current_channels = dims[2]
             self.current_input_size = self.current_channels * self.current_width * self.current_height
-            dims = [dims[2], dims[1], dims[0]]
+            dims = [dims[2], dims[0], dims[1]]
         if len(dims) == 2:
             self.current_width = 1
             self.current_height = dims[0]
@@ -369,7 +395,7 @@ class ConfigurableComponent(GANComponent):
         self.current_input_size = self.current_channels * self.current_width * self.current_height
         return nn.AvgPool2d(2, 2)
 
-    def layer_avg_pool3d(self, net, args, options):
+    def layer_adaptive_avg_pool3d(self, net, args, options):
         self.current_height //= 2
         self.current_width //= 2
         self.current_frames = 4 #todo
@@ -382,6 +408,22 @@ class ConfigurableComponent(GANComponent):
         if options.affine == "false":
             affine = False
         return nn.InstanceNorm2d(self.current_channels, affine=affine)
+
+    def layer_instance_norm1d(self, net, args, options):
+        options = hc.Config(options)
+        affine = True
+        if options.affine == "false":
+            affine = False
+        return nn.InstanceNorm1d(self.current_channels, affine=affine)
+
+
+    def layer_instance_norm3d(self, net, args, options):
+        options = hc.Config(options)
+        affine = True
+        if options.affine == "false":
+            affine = False
+        return nn.InstanceNorm3d(self.current_channels, affine=affine)
+
 
     def layer_initializer(self, net, args, options):
         print("init layer")
@@ -432,6 +474,9 @@ class ConfigurableComponent(GANComponent):
     def layer_batch_norm(self, net, args, options):
         return nn.BatchNorm2d(self.current_channels)
 
+    def layer_batch_norm1d(self, net, args, options):
+        return nn.BatchNorm1d(self.current_input_size)
+
     def get_conv_options(self, config, options):
         stride = options.stride or self.ops.config_option("stride", [1,1])
         fltr = options.filter or self.ops.config_option("filter", [3,3])
@@ -467,6 +512,9 @@ class ConfigurableComponent(GANComponent):
 
         return nn.ZeroPad2d((int(args[0]), int(args[1]), int(args[2]), int(args[3])))
 
+    def layer_pixel_norm(self, net, args, options):
+        return PixelNorm()
+
     def layer_resize_conv(self, net, args, options):
         options = hc.Config(options)
         channels = int(args[0])
@@ -499,7 +547,7 @@ class ConfigurableComponent(GANComponent):
         options = hc.Config(options)
         channels = int(args[0])
 
-        layers = [nn.Conv2d(self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
+        layers = [nn.Conv2d(options.input_channels or self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
         self.last_logit_layer = layers[0]
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -512,13 +560,26 @@ class ConfigurableComponent(GANComponent):
         return NoOp()
 
     def layer_layer(self, net, args, options):
-        self.current_width, self.current_height, self.current_channels = self.layer_sizes[args[0]]
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        if args[0] in self.layer_sizes:
+            self.current_width, self.current_height, self.current_channels = self.layer_sizes[args[0]]
+            self.current_input_size = self.current_channels * self.current_width * self.current_height
         return NoOp()
 
     def layer_vae(self, net, args, options):
         self.vae = Variational(self.current_channels)
         return self.vae
+
+    def layer_add(self, net, args, options):
+        options = hc.Config(options)
+        if args[0] == 'noise':
+            return LearnedNoise()
+
+    def layer_norm(self, net, args, options):
+        affine = True
+        if options.affine == "false":
+            affine = False
+
+        return nn.LayerNorm([self.current_channels, self.current_height, self.current_width], elementwise_affine=affine)
 
     def layer_concat(self, net, args, options):
         options = hc.Config(options)
@@ -531,6 +592,17 @@ class ConfigurableComponent(GANComponent):
         else:
             print("Got: ", args[0])
             print("Warning: only 'concat noise' and 'concat layer' is supported for now.")
+
+    #def layer_concat3d(self, net, args, options):
+    #    options = hc.Config(options)
+    #    if args[0] == 'noise':
+    #        print("Concat noise!")
+    #        return NoOp()
+    #    elif args[0] == 'layer':
+    #        return NoOp()
+    #    else:
+    #        print("Got: ", args[0])
+    #        print("Warning: only 'concat noise' and 'concat layer' is supported for now.")
 
     def layer_adaptive_instance_norm(self, net, args, options):
         return AdaptiveInstanceNorm(self.adaptive_instance_norm_size, self.current_channels)
@@ -546,12 +618,25 @@ class ConfigurableComponent(GANComponent):
                     input = torch.cat((input, self.context[args[1]]), dim=1)
                 elif args[0] == "noise":
                     input = torch.cat((input, torch.randn_like(input)), dim=1)
+            # elif layer_name == "concat3d":
+            #    if args[0] == "layer":
+            #        input = torch.cat((input, self.context[args[1]]), dim=2)
+            #    elif args[0] == "noise":
+            #        input = torch.cat((input, torch.randn_like(input)*0.01), dim=2)
+            # elif layer_name == "make2d":
+            #     input = torch.squeeze(input, dim=2) #TODO only 3d -> 2d
+            # elif layer_name == "make3d":
+            #     input = input[:,:,None,:,:] #TODO only 2d -> 3d
+
             elif layer_name == "layer":
                 input = self.context[args[0]]
             elif layer_name == "latent":
                 input = self.gan.latent.sample()
+            elif layer_name == "modulated_conv2d":
+                input = module(input, self.context['w'])
             else:
                 input = module(input)
             if name is not None:
                 self.context[name] = input
+        self.sample = input
         return input

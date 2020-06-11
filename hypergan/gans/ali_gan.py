@@ -7,7 +7,6 @@ from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
 from hypergan.trainers import *
-from hypergan.trainers.experimental.consensus_trainer import ConsensusTrainer
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
 import copy
@@ -33,6 +32,8 @@ class AliGAN(BaseGAN):
         self.classes_count = len(self.inputs.datasets)
         self.latent = self.create_component("latent")
         self.encoder = self.create_component("encoder")
+        if self.config.uz:
+            self.uz = self.create_component("uz")
         if self.classes_count == 2:
             self.encoder2 = self.create_component("encoder")
         self.generator = self.create_component("generator", input=self.encoder)
@@ -45,6 +46,9 @@ class AliGAN(BaseGAN):
             yield param
         for param in self.encoder.parameters():
             yield param
+        if self.config.uz:
+            for param in self.uz.parameters():
+                yield param
         if self.classes_count == 2:
             for param in self.encoder2.parameters():
                 yield param
@@ -54,30 +58,51 @@ class AliGAN(BaseGAN):
 
     def forward_discriminator(self):
         E = self.encoder
-        D = self.discriminator
         G = self.generator
+        D = self.discriminator
 
         if self.classes_count == 1:
-            real = self.inputs.next()
-            enc_real = E(real)
-            g = G(enc_real)
-            d_real = D(real, context={"z": enc_real})
-            d_fake = D(g, context={"z": enc_real})
+            x0 = self.inputs.next()
+            ex0 = E(x0)
+            g = G(ex0)
+            d_real = D(x0, context={"z": ex0})
+            d_fake = D(x0, context={"z": ex0})
             self.g = g
-            self.z = enc_real
-            self.x = real
+            self.z = ex0
+            self.x = x0
         elif self.classes_count == 2:
             E2 = self.encoder2
-            real = self.inputs.next()
-            enc_real = E2(real)
-            g = G(enc_real)
-            real1 = self.inputs.next(1)
-            enc_real1 = E(real1)
-            d_real = D(real1, context={"z": enc_real1})
-            d_fake = D(g, context={"z": enc_real})
-            self.z = enc_real1
-            self.x = real1
-            self.g = G(enc_real1)
+            x0 = self.inputs.next()
+            x1 = self.inputs.next(1)
+            if self.config.uz:
+                UZ = self.uz
+                euz = UZ(self.latent.sample())
+                guz = G(euz)
+            else:
+                ex0 = E2(x0)
+                gx1 = G(ex0, context=E2.context)
+
+            ex1 = E(x1)
+            if self.config.form == 1:
+                d_real = D(x1, context={"z": ex1})
+                d_fake = D(gx1, context={"z": ex0})
+                self.z = ex1
+                self.x = x1
+            elif self.config.form == 3:
+                d_real = D(x1, context={"z": ex1})
+                d_fake = D(gx1, context={"z": E(gx1)})
+                self.z = ex1
+                self.x = x1
+            elif self.config.form == 2:
+                d_real = D(x1, context={"z": torch.abs(torch.randn_like(ex1))})
+                d_fake = D(gx1, context={"z": ex0})
+            else:
+                d_real = D(x1, context={"z": ex0})
+                d_fake = D(gx1, context={"z": ex1})
+                self.z = ex0
+                self.x = x1
+
+            #self.g = G(enc_real1)
         self.d_fake = d_fake
 
         return d_real, d_fake
@@ -105,17 +130,24 @@ class AliGAN(BaseGAN):
                 self.add_metric('vae1', vae1)
  
             g_loss += vae
-            if self.config.mse:
-                mse = mse_criterion(self.g, self.x)
-                self.add_metric('mse', mse)
-                g_loss += mse
+        if self.config.mse:
+            E = self.encoder
+            G = self.generator
+            mse = mse_criterion(G(E(self.x)), self.x)
+            self.add_metric('mse', mse)
+            g_loss += mse
 
         return d_loss, g_loss
 
 
     def regularize_gradient_norm(self):
         x = Variable(self.x, requires_grad=True).cuda()
-        d1_logits = self.discriminator(x, context={"z":self.z})
+        if self.config.norm_z:
+            z = Variable(self.z, requires_grad=True).cuda()
+            d1_logits = self.discriminator(x, context={"z":z})
+        else:
+            #z = Variable(self.z, requires_grad=True).cuda()
+            d1_logits = self.discriminator(x, context={"z":self.z})
         d2_logits = self.d_fake
 
         loss = self.loss.forward_gradient_norm(d1_logits, d2_logits)
@@ -123,9 +155,15 @@ class AliGAN(BaseGAN):
         if loss == 0:
             return [None, None]
 
-        d1_grads = torch_grad(outputs=loss, inputs=x, create_graph=True)
-        d1_norm = [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
-        reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
-        reg_d1 = sum(reg_d1)
+        if self.config.norm_z:
+            d1_grads = torch_grad(outputs=loss, inputs=(x, z), create_graph=True)
+            d1_norm = [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
+            reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
+            reg_d1 = sum(reg_d1)
+        else:
+            d1_grads = torch_grad(outputs=loss, inputs=x, create_graph=True)
+            d1_norm = [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
+            reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
+            reg_d1 = sum(reg_d1)
 
         return loss, reg_d1

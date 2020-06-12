@@ -15,6 +15,7 @@ from hypergan.gan_component import ValidationException
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.learned_noise import LearnedNoise
+from hypergan.modules.modulated_conv2d import ModulatedConv2d
 from hypergan.modules.reshape import Reshape
 from hypergan.modules.no_op import NoOp
 from hypergan.modules.residual import Residual
@@ -358,7 +359,10 @@ class ConfigurableComponent(GANComponent):
         downsample = True
         style_dim = 512
 
-        return ModulatedConv2d(channels, channels * 2, channels, 3, style_dim)
+        result = ModulatedConv2d(self.current_channels, channels, 8, 128)
+
+        self.current_channels = channels
+        return result
 
     def layer_reshape(self, net, args, options):
         dims = [int(x) for x in args[0].split("*")]

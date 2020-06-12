@@ -553,6 +553,7 @@ class ConfigurableComponent(GANComponent):
             self.current_channels = split_size
             if (select + 1) * split_size > self.current_channels:
                 self.current_channels = self.current_channels % split_size
+            self.current_input_size = self.current_channels * self.current_width * self.current_height
         return NoOp()
 
     def layer_subpixel(self, net, args, options):

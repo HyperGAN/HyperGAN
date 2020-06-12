@@ -75,6 +75,7 @@ class ConfigurableComponent(GANComponent):
             "residual": self.layer_residual, #TODO options
             "resize_conv": self.layer_resize_conv,
             "resize_conv1d": self.layer_resize_conv1d,
+            "split": self.layer_split,
             "subpixel": self.layer_subpixel,
             "vae": self.layer_vae
             #"add": self.layer_add, #TODO
@@ -96,7 +97,6 @@ class ConfigurableComponent(GANComponent):
             #"reduce_sum": self.layer_reduce_sum,#TODO might want to just do "reduce sum" instead
             #"relational": self.layer_relational,#TODO
             #"unpool": self.layer_unpool, #TODO https://arxiv.org/abs/1505.04366
-            #"split": self.layer_split, #TODO
             #"squash": self.layer_squash, #TODO
             #"tensorflowcv": self.layer_tensorflowcv, #TODO layer torchvision instead?
             #"turing_test": self.layer_turing_test, #TODO
@@ -179,7 +179,7 @@ class ConfigurableComponent(GANComponent):
             op = d[0]
             args, options = self.parse_args(d[1:])
             options = hc.Config(options)
-            self.parsed_opts.append([op, options.name, args])
+            self.parsed_opts.append([op, options.name, args, options])
             return self.build_layer(op, args, options)
 
     def build_layer(self, op, args, options):
@@ -542,6 +542,18 @@ class ConfigurableComponent(GANComponent):
         print("Resize", self.current_height, self.current_channels)
         return nn.Sequential(*layers)
 
+    def layer_split(self, net, args, options):
+        options = hc.Config(options)
+        split_size = int(args[0])
+        select = int(args[1])
+        dim = int(options.dim or -1)
+        #TODO better validation
+        #TODO increase dim options
+        if dim == -1:
+            self.current_channels = split_size
+            if (select + 1) * split_size > self.current_channels:
+                self.current_channels = self.current_channels % split_size
+        return NoOp()
 
     def layer_subpixel(self, net, args, options):
         options = hc.Config(options)
@@ -610,9 +622,11 @@ class ConfigurableComponent(GANComponent):
     def forward(self, input, context={}):
         self.context = context
         for module, opts in zip(self.net, self.parsed_opts):
-            layer_name, name, args = opts
+            layer_name, name, args, options = opts
             if layer_name == "adaptive_instance_norm":
                 input = module(input, self.context['w'])
+            elif layer_name == "split":
+                input = torch.split(input, int(args[0]), options.dim or -1)[int(args[1])]
             elif layer_name == "concat":
                 if args[0] == "layer":
                     input = torch.cat((input, self.context[args[1]]), dim=1)

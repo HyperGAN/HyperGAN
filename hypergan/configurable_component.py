@@ -357,9 +357,8 @@ class ConfigurableComponent(GANComponent):
         channels = int(args[0])
 
         downsample = True
-        style_dim = 512
 
-        result = ModulatedConv2d(self.current_channels, channels, 8, 128)
+        result = ModulatedConv2d(self.current_channels, channels, 3, self.adaptive_instance_norm_size)
 
         self.current_channels = channels
         return result

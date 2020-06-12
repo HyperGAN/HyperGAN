@@ -316,7 +316,7 @@ class ModulatedConv2d(nn.Module):
         )
 
         if self.upsample:
-            input = input.view(1, batch * in_channel, height, width)
+            input = input.reshape(1, batch * in_channel, height, width)
             weight = weight.view(
                 batch, self.out_channel, in_channel, self.kernel_size, self.kernel_size
             )

@@ -47,8 +47,8 @@ class AccumulateGradientTrainer(AlternatingTrainer):
                         self.accumulated_g_grads[i] = (self.accumulated_g_grads[i] + gs[i].clone()/accumulate) * self.relu(torch.sign(self.accumulated_g_grads[i]*gs[i].clone()))
                     else:
                         if self.config.type == 'variance':
-                            self.max_grads = torch.max(self.accumulated_g_grads[i], gs[i].clone())
-                            self.min_grads = torch.min(self.accumulated_g_grads[i], gs[i].clone())
+                            self.max_grads[i] = torch.max(self.max_grads[i], gs[i].clone())
+                            self.min_grads[i] = torch.min(self.min_grads[i], gs[i].clone())
                         self.accumulated_g_grads[i] += gs[i].clone() / accumulate
 
             #print("D_G", sum([g.abs().sum() for g in gs]), len(self.accumulated_g_grads))

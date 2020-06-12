@@ -37,8 +37,10 @@ class ImageLoader:
 
         self.dataloaders = []
         for directory in directories:
-            #TODO channels
-            image_folder = UnsupervisedImageFolder(directory, transform=transform)
+            mode = "RGB"
+            if self.channels() == 4:
+                mode = "RGBA"
+            image_folder = UnsupervisedImageFolder(directory, transform=transform, mode=mode)
             self.dataloaders.append(data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=config.shuffle, num_workers=4, drop_last=True))
             self.datasets.append(iter(self.dataloaders[-1]))
 

@@ -10,7 +10,6 @@ from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
 from hypergan.trainers import *
-from hypergan.trainers.experimental.consensus_trainer import ConsensusTrainer
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
 import copy
@@ -60,24 +59,24 @@ class MultiMarginalGAN(BaseGAN):
     def d_parameters(self):
         return self.discriminator.parameters()
 
-    def forward_discriminator(self, G, x):
-        E = self.encoder
+    def forward_discriminator(self, g, x_target):
         D = self.discriminator
-        d_real = D(x)
-        d_fake = D(G(E(x)))
+        d_real = D(x_target)
+        d_fake = D(g)
         return d_real, d_fake
 
     def forward_loss(self):
         x0 = self.inputs.next(0)
         x1 = self.inputs.next(1)
 
-        d_real0, d_fake0 = self.forward_discriminator(self.generator, x0)
+        g = self.generators[0](self.encoder(x0))
+        d_real0, d_fake0 = self.forward_discriminator(g, x0)
         d_loss0, g_loss0 = self.loss.forward(d_real0, d_fake0)
-        lambda0 = self.config.lambda0 or 0.1
+        lambda0 = self.config.lambda0 or 1
 
-        d_real1, d_fake1 = self.forward_discriminator(self.generator, x1)
+        d_real1, d_fake1 = self.forward_discriminator(g, x1)
         d_loss1, g_loss1 = self.loss.forward(d_real1, d_fake1)
-        lambdaN = 1.0 - lambda0
+        lambdaN = self.config.lambdaN or 10
 
         d_loss = d_loss0 * lambda0 + d_loss1 * lambdaN
         g_loss = g_loss0 * lambda0 + g_loss1 * lambdaN
@@ -85,20 +84,29 @@ class MultiMarginalGAN(BaseGAN):
         self.d_fakes = [d_fake0, d_fake1]
         self.xs = [x0, x1]
 
-        if self.config.l1_loss:
+        if self.config.vae:
+            logvar = self.encoder.vae.sigma
+            mu = self.encoder.vae.mu
+            vae = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+            #vae = (self.config.vae_lambda or 1) * vae
+            self.add_metric('vae0', vae)
+
+
+        if self.config.mse:
             E = self.encoder
             G = self.generators[0]
-            inp = self.inputs.next(index = 1)
+            inp = x1
             l1_loss = nn.MSELoss()(G(E(inp)),  inp)
             self.add_metric("l1", l1_loss)
             g_loss += l1_loss
-
+        
         return d_loss, g_loss
 
     def regularize_gradient_norm(self):
         reg_d1 = []
-        loss = 0.0
-        for x_, d_fake in zip(self.xs[1:], self.d_fakes[1:]):
+        muls = [self.config.lambda0, self.config.lambdaN]
+        for x_, d_fake, mul in zip(self.xs, self.d_fakes, muls):
+            loss = 0.0
             x = Variable(x_, requires_grad=True).cuda()
             d1_logits = self.discriminator(x)
             d2_logits = d_fake

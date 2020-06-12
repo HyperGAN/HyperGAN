@@ -1,15 +1,19 @@
+from PIL import Image
+import os
 import torch
 import torchvision
-import os
 
 class UnsupervisedImageFolder(torchvision.datasets.vision.VisionDataset):
     """
     Loads everything possible from a folder
     """
     def __init__(self, root, transform=None,
-                 target_transform=None, is_valid_file=None):
+                 target_transform=None, is_valid_file=None, mode=None):
         extensions = torchvision.datasets.folder.IMG_EXTENSIONS
-        loader = torchvision.datasets.folder.default_loader
+        if mode == "RGBA":
+            loader = self.rgba_loader
+        else:
+            loader = torchvision.datasets.folder.default_loader
         super(UnsupervisedImageFolder, self).__init__(root, transform=transform,
                                             target_transform=target_transform)
         samples = self._make_dataset(self.root, extensions, is_valid_file)
@@ -51,4 +55,9 @@ class UnsupervisedImageFolder(torchvision.datasets.vision.VisionDataset):
         return len(self.samples)
 
 
+    def rgba_loader(self, path):
+        # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
+        with open(path, 'rb') as f:
+            img = Image.open(f)
+            return img.convert('RGBA')
 

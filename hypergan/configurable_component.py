@@ -367,7 +367,15 @@ class ConfigurableComponent(GANComponent):
         if options.upsample == "false":
             upsample = False
 
-        result = ModulatedConv2d(self.current_channels, channels, 3, self.adaptive_instance_norm_size, upsample=upsample)
+        demodulate = True
+        if options.demodulate == "false":
+            demodulate = False
+
+        kernel_size = 3
+        if options.kernel_size:
+            kernel_size = int(options.kernel_size)
+
+        result = ModulatedConv2d(self.current_channels, channels, kernel_size, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate)
 
         self.current_channels = channels
         return result

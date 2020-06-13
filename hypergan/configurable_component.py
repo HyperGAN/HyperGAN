@@ -15,7 +15,7 @@ from hypergan.gan_component import ValidationException
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.learned_noise import LearnedNoise
-from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur
+from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur, EqualLinear
 from hypergan.modules.reshape import Reshape
 from hypergan.modules.no_op import NoOp
 from hypergan.modules.residual import Residual
@@ -58,6 +58,7 @@ class ConfigurableComponent(GANComponent):
             "conv3d": self.layer_conv3d,
             "deconv": self.layer_deconv,
             "dropout": self.layer_dropout,
+            "equal_linear": self.layer_equal_linear,
             "flatten": nn.Flatten(),
             "identity": self.layer_identity,
             "initializer": self.layer_initializer,
@@ -241,6 +242,11 @@ class ConfigurableComponent(GANComponent):
 
     def layer_identity(self, net, args, options):
         return NoOp()
+
+    def layer_equal_linear(self, net, args, options):
+        result = EqualLinear(self.current_input_size,int(args[0]))
+        self.current_input_size = int(args[0])
+        return result
 
     def get_same_padding(self, input_rows, filter_rows, stride, dilation):
         out_rows = (input_rows + stride - 1) // stride

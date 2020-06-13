@@ -15,7 +15,7 @@ from hypergan.gan_component import ValidationException
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.learned_noise import LearnedNoise
-from hypergan.modules.modulated_conv2d import ModulatedConv2d
+from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur
 from hypergan.modules.reshape import Reshape
 from hypergan.modules.no_op import NoOp
 from hypergan.modules.residual import Residual
@@ -50,6 +50,7 @@ class ConfigurableComponent(GANComponent):
             "avg_pool": self.layer_avg_pool,
             "batch_norm": self.layer_batch_norm,
             "batch_norm1d": self.layer_batch_norm1d,
+            "blur": self.layer_blur,
             "concat": self.layer_concat,
             #"concat3d": self.layer_concat3d,
             "conv": self.layer_conv,
@@ -356,12 +357,25 @@ class ConfigurableComponent(GANComponent):
     def layer_modulated_conv2d(self, net, args, options):
         channels = int(args[0])
 
-        downsample = True
+        upsample = True
+        if options.upsample == "false":
+            upsample = False
 
-        result = ModulatedConv2d(self.current_channels, channels, 3, self.adaptive_instance_norm_size)
+        result = ModulatedConv2d(self.current_channels, channels, 3, self.adaptive_instance_norm_size, upsample=upsample)
 
         self.current_channels = channels
         return result
+
+
+    def layer_blur(self, net, args, options):
+        blur_kernel=[1, 3, 3, 1]
+        kernel_size=3
+        factor = 2
+        p = (len(blur_kernel) - factor) - (kernel_size - 1)
+        pad0 = (p + 1) // 2 + factor - 1
+        pad1 = p // 2 + 1
+
+        return Blur(blur_kernel, pad=(pad0, pad1), upsample_factor=factor)
 
     def layer_reshape(self, net, args, options):
         dims = [int(x) for x in args[0].split("*")]

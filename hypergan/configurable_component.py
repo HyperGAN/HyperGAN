@@ -80,6 +80,7 @@ class ConfigurableComponent(GANComponent):
             "resize_conv1d": self.layer_resize_conv1d,
             "split": self.layer_split,
             "subpixel": self.layer_subpixel,
+            "upsample": self.layer_upsample,
             "vae": self.layer_vae
             #"add": self.layer_add, #TODO
             # "crop": self.layer_crop,
@@ -545,6 +546,14 @@ class ConfigurableComponent(GANComponent):
 
     def layer_pixel_norm(self, net, args, options):
         return PixelNorm()
+
+    def layer_upsample(self, net, args, options):
+        w = options.w or self.current_width * 2
+        h = options.h or self.current_height * 2
+        result = nn.Upsample((h, w), mode="bilinear")
+        self.current_width = self.current_width * 2 #TODO
+        self.current_height = self.current_height * 2 #TODO
+        return result
 
     def layer_resize_conv(self, net, args, options):
         options = hc.Config(options)

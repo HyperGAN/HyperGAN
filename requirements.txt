@@ -5,3 +5,4 @@ pillow
 torchvision
 pygame
 nashpy
+pyparsing

@@ -6,7 +6,6 @@ class Pattern:
         self.__dict__.update(tokens.asDict())
 
     def to_list(self):
-        print("-", [self.layer_name, list(self.args), self.options])
         return [self.layer_name, list(self.args), self.options]
 
 class Parser:
@@ -18,9 +17,9 @@ class Parser:
         NULL.setParseAction(replaceWith(None))
         TRUE.setParseAction(replaceWith(True))
         pattern = Forward()
-        label = Word(alphas, alphanums).setResultsName("layer_name")
+        label = Word(alphas, alphanums+"_").setResultsName("layer_name")
         configurable_param = nestedExpr(content = pattern)
-        arg = (NULL ^ FALSE ^ TRUE ^ pyparsing_common.number ^ (Word(alphas, alphanums) + ~ Word("=")) ^ configurable_param)
+        arg = (NULL ^ FALSE ^ TRUE ^ pyparsing_common.number ^ (Word(alphanums+"*_") + ~ Word("=")) ^ configurable_param)
         args = arg[...].setResultsName("args")
         args.setParseAction(self.convert_list)
         options = Dict(Group(Word(alphas, alphanums) + Suppress("=") + arg))[...].setResultsName("options")

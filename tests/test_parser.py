@@ -69,3 +69,7 @@ class TestParser:
         line = "conv2d options=(conv2d test)"
         assert self.parse(line)[2]["options"][0].to_list() == ["conv2d", ["test"], {}]
 
+    def test_parses_size(self):
+        line = "reshape 64*64*3"
+        assert self.parse(line) == ["reshape", ["64*64*3"], {}]
+

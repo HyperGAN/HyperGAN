@@ -4,14 +4,8 @@ import numpy as np
 import random
 import copy
 
-from hypergan.losses.boundary_equilibrium_loss import BoundaryEquilibriumLoss
 from hypergan.losses.wasserstein_loss import WassersteinLoss
 from hypergan.losses.least_squares_loss import LeastSquaresLoss
-from hypergan.losses.f_divergence_loss import FDivergenceLoss
-from hypergan.losses.softmax_loss import SoftmaxLoss
-from hypergan.losses.standard_loss import StandardLoss
-from hypergan.losses.lamb_gan_loss import LambGanLoss
-from hypergan.losses.vral_loss import VralLoss
 
 class RandomSearch:
     def __init__(self, overrides):

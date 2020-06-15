@@ -25,74 +25,18 @@ from .base_gan import BaseGAN
 
 class ConfigurableGAN(BaseGAN):
     def __init__(self, *args, **kwargs):
-        self.generators_cache = {}
-        self.discriminators_cache = {}
-        self.encoders_cache = {}
-        self.latents_cache = {}
-        self._d_vars = []
+        self.d_terms = []
+        self.Ds = []
         BaseGAN.__init__(self, *args, **kwargs)
 
-    def xN(self, xi):
-        return self.inputs.xs[int(xi)]
+    def create_encoder(self):
+        return self.create_component(self.config.encoder)
 
-    def eN(self, ei, xi):
-        reuse = False
-        name = "e%dx%d" % (int(ei), int(xi))
-        if name in self.encoders_cache:
-            reuse = True
-        encoder = self.create_component(self.config.encoder, name=name, input=self.xN(xi), reuse=reuse)
-        self.encoders_cache[name] = encoder
-        return encoder.sample
+    def create_latent(self, zi):
+        return self.create_component(self.config.latent)
 
-    def zN(self, zi):
-        reuse = False
-        name = "z%d" % (int(zi))
-
-        if name in self.latents_cache:
-            reuse = True
-        latent = self.create_component(self.config.latent, name=name, reuse=reuse)
-        self.latents_cache[name] = latent
-        return latent.sample
-
-
-    def geN(self, gi, ei, xi, encoder=None):
-        if encoder is None:
-            encoder = self.eN(ei, xi)
-        reuse = False
-        name = "g%de%dx%d" % (int(gi), int(ei), int(xi))
-        if name in self.generators_cache:
-            reuse = True
-        generator = self.create_component(self.config.generator, name=name, input=encoder, reuse=reuse)
-        self.generators_cache[name] = generator
-        return generator.sample
-
-    def gegeN(self, gi2, ei2, gi, ei, xi):
-        g1 = self.geN(gi, ei, xi)
-        name = "e%dg%de%dx%d" % (int(ei2), int(gi2), int(ei), int(xi))
-        reuse=False
-        if name in self.encoders_cache:
-            reuse = True
-        e2 = self.create_component(self.config.encoder, name=name, input=g1, reuse=reuse)
-        self.encoders_cache[name] = e2
-
-        reuse = False
-        name = "g%de%dg%de%dx%d" % (int(gi2), int(ei2), int(gi), int(ei), int(xi))
-        if name in self.generators_cache:
-            reuse = True
-        generator = self.create_component(self.config.generator, name=name, input=e2.sample, reuse=reuse)
-        self.generators_cache[name] = generator
-        return generator.sample
-
-    def gzN(self, gi, zi):
-        z = self.zN(zi)
-        reuse = False
-        name = "g%dz%d" % (int(gi), int(zi))
-        if name in self.generators_cache:
-            reuse = True
-        generator = self.create_component(self.config.generator, name=name, input=z, reuse=reuse)
-        self.generators_cache[name] = generator
-        self.generator = generator
-        return generator.sample
+    def create_generator(self):
+        return self.create_component(self.config.generator)
 
     def parse_opts(self, opts):
         options = {}
@@ -104,60 +48,28 @@ class ConfigurableGAN(BaseGAN):
             options[name]=value
         return hc.Config(options)
 
-    def adversarialxN(self, xi, opts):
-        options = self.parse_opts(opts)
-        x = self.xN(xi)
-        return self.adversarial("x"+str(xi), x, options)
-
-    def adversarialgzN(self, gi, zi, opts):
-        options = self.parse_opts(opts)
-        g = self.gzN(gi, zi)
-        return self.adversarial("g"+str(gi)+"z"+str(zi), g, options)
-
-    def adversarialgeN(self, gi, ei, xi, opts):
-        options = self.parse_opts(opts)
-        g = self.geN(gi, ei, xi)
-        return self.adversarial("g"+str(gi)+"e"+str(ei)+"x"+str(xi), g, options)
-
-    def adversarial(self, name, src, options):
-        trainable=tf.Variable(tf.zeros_like(self.inputs.x), name='adversarial'+name)
-        self._d_vars += [trainable]
-        clear=tf.assign(trainable, tf.zeros_like(src))
-        ops = self.ops
-        with tf.get_default_graph().control_dependencies([clear]):
-            din = tf.concat([(src+trainable), (src+trainable)], axis=0)
-            dN = 0
-            reuse = False
-            if dN in self.discriminators_cache:
-                reuse = True
-            tfname = "d"+str(dN)
-            adversarial_discriminator = self.create_component(self.config.discriminator, name=tfname, input=din, reuse=reuse)
-            self.discriminators_cache[dN] = adversarial_discriminator
-            loss = self.create_component(self.config.loss, discriminator=adversarial_discriminator)
-            v = tf.gradients(adversarial_discriminator.sample, trainable)[0]
-            v = tf.stop_gradient(v)
-            if self.config.adversarial_calculation == "":
-                adv = v/tf.norm(v, ord=2)
-            else:
-                adv = tf.sign(v)
-
-            return src + (options.gamma or self.config.adversarial_gamma or (1/255.0))*adv
-
-    def mixgzNxN(self, xi, gi):
-        pass
-
     def required(self):
         return "terms".split()
 
-    def resolve_term(self, term):
+    def create_term(self, term):
+        for match in 
+        matching = {
+                "gN(eN(xN))": self.create_generator,
+                "gN(zN)": self.create_generator
+                }
+        for regex, method in matching.items():
+            regex_subbed = regex.replace("(", '\(').replace(")", '\)').replace("N", "(\d+)?").replace(",options", "([-,=\w\d\.\(\)]+)?")
+            regex = re.compile(regex_subbed)
+            args = re.match(regex, term)
+            if args:
+                return method(*args.groups())
+
+        raise ValidationException("Could not match term: " + term)
+
+    def forward_term(self, term):
         matching = {
                 "gN(eN(xN))": self.geN,
-                "gN(eN(gN(eN(xN))))": self.gegeN,
                 "gN(zN)": self.gzN,
-                "adversarial(xN,options)": self.adversarialxN,
-                "adversarial(gN(zN),options)": self.adversarialgzN,
-                "adversarial(gN(eN(xN)),options)": self.adversarialgeN,
-                "mix(g(zN)xN,options)": self.mixgzNxN,
                 "xN": self.xN
                 }
         for regex, method in matching.items():
@@ -181,37 +93,15 @@ class ConfigurableGAN(BaseGAN):
             d_terms = args.split("/")
             terms = []
             for dt in d_terms:
-                terms += [self.resolve_term(dt)]
+                terms += (term,self.create_term(dt))
             reuse = False
 
-            if dN == "l2":
-                loss = hc.Config({"sample": tf.square(terms[0]-terms[1])})
-            if dN[0:3] == "l2d":
-                dN = dN.replace("l2d", "")
-                dN = re.findall("\d+", dN)[0]
-                dN = int(dN)
-                tfname = "d"+str(dN)
-                d0 = self.create_component(config.discriminator, name=tfname, input=tf.concat(terms[0:2],axis=0), reuse=True)
-                d1 = self.create_component(config.discriminator, name=tfname, input=tf.concat(terms[2:4],axis=0), reuse=True)
-                flex = self.config.l2d_flex or 0.0
-                loss = hc.Config({"sample": tf.nn.relu(tf.abs(d1.sample-d0.sample) - flex)})
-            else:
-                dN = re.findall("\d+", dN)[0]
-                dN = int(dN)
-                if dN in self.discriminators_cache:
-                    reuse = True
-                tfname = "d"+str(dN)
-                d = self.create_component(config.discriminator, name=tfname, input=tf.concat(terms,axis=0), reuse=reuse)
-                self.discriminators_cache[dN] = d
-                loss = self.create_component(config.loss, discriminator=d, split=len(d_terms))
-
-            if config.term_gammas:
-                loss.sample = [self.configurable_param(config.term_gammas[i]) * loss.sample[0], self.configurable_param(config.term_gammas[i]) * loss.sample[1]]
-            self.losses += [loss]
-
-        self.loss = hc.Config({
-            'sample': [sum([l.sample[0] for l in self.losses]), sum([l.sample[1] for l in self.losses])]
-            })
+            dN = re.findall("\d+", dN)[0]
+            dN = int(dN)
+            tfname = "d"+str(dN)
+            D = self.create_component(config.discriminator)
+            self.Ds.append(D)
+            self.d_terms += terms
  
         self.trainer = self.create_component(config.trainer)
 
@@ -220,19 +110,52 @@ class ConfigurableGAN(BaseGAN):
         slider = tf.constant(0.0, name='slider', dtype=tf.float32) * 1.00
         return direction, slider
 
-    def g_vars(self):
-        g_vars = []
-        for g in self.generators_cache.values():
-            g_vars += g.variables()
-        for e in self.encoders_cache.values():
-            g_vars += e.variables()
-        return g_vars
+    def forward_discriminator(self):
+        d_reals = []
+        d_fakes = []
+        for terms in d_terms:
 
-    def d_vars(self):
-        d_vars = []
-        for d in self.discriminators_cache.values():
-            d_vars += d.variables()
-        return d_vars
+        return d_reals, d_fakes
 
-    def variables(self):
-        return super().variables() + self._d_vars
+    def forward_loss(self):
+        losses = []
+        for d_real, d_fake in zip(d_reals, d_fakes):
+            loss = self.create_component(config.loss, discriminator=d, split=len(d_terms))
+            d_loss, g_loss = loss.forward(d_real, d_fake)
+            d_loss = [self.configurable_param(config.term_gammas[i]) * d_loss, self.configurable_param(config.term_gammas[i]) * g_loss]
+            losses += [[d_loss, g_loss]]
+
+        self.loss = hc.Config({
+            'sample': [sum([l.sample[0] for l in losses]), sum([l.sample[1] for l in losses])]
+            })
+
+    def regularize_gradient_norm(self):
+        x = Variable(self.x, requires_grad=True).cuda()
+        d1_logits = self.discriminator(x)
+        d2_logits = self.d_fake
+
+        loss = loss.forward_gradient_norm(d1_logits, d2_logits)
+
+        if loss == 0:
+            return [None, None]
+
+        d1_grads = torch_grad(outputs=loss, inputs=x, retain_graph=True, create_graph=True)
+        d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
+
+        reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
+        reg_d1 = sum(reg_d1)
+
+        return loss, reg_d1
+
+    def g_parameters(self):
+        params = []
+        for d_terms in self.d_terms:
+            for term in d_terms:
+                params += term[1].parameters()
+        return params
+
+    def d_parameters(self):
+        params = []
+        for m in self.Ds:
+            params += m.parameters()
+        return params

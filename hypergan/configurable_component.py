@@ -6,6 +6,7 @@ import os
 import operator
 from functools import reduce
 
+import hypergan
 import torch
 import torch.nn as nn
 
@@ -40,7 +41,8 @@ class ConfigurableComponent(GANComponent):
         self.layer_sizes = {}
         self.nn_layers = []
         self.layer_options = {}
-        self.parsed_opts = []
+        self.parsed_layers = []
+        self.parser = hypergan.parser.Parser()
         self.layer_ops = {**self.activations(),
             "adaptive_avg_pool": self.layer_adaptive_avg_pool,
             "adaptive_avg_pool1d": self.layer_adaptive_avg_pool1d,
@@ -148,17 +150,6 @@ class ConfigurableComponent(GANComponent):
 
         self.net = nn.Sequential(*self.nn_layers)
 
-    def parse_args(self, strs):
-        options = {}
-        args = []
-        for x in strs:
-            if '=' in x:
-                lhs, rhs = x.split('=', 1)
-                options[lhs]=self.gan.configurable_param(rhs)
-            else:
-                args.append(self.gan.configurable_param(x))
-        return args, options
-
     def parse_layer(self, layer):
         config = self.config
 
@@ -173,18 +164,11 @@ class ConfigurableComponent(GANComponent):
                 ns += [n]
 
         else:
-            parens = re.findall('\(.*?\)',layer)
-            for i, paren in enumerate(parens):
-                layer = layer.replace(paren, "PAREN"+str(i))
-            d = layer.split(' ')
-            for i, _d in enumerate(d):
-                for j, paren in enumerate(parens):
-                    d[i] = d[i].replace("PAREN"+str(j), paren)
-            op = d[0]
-            args, options = self.parse_args(d[1:])
-            options = hc.Config(options)
-            self.parsed_opts.append([op, options.name, args, options])
-            return self.build_layer(op, args, options)
+            parsed = self.parser.parse_string(layer)
+            parsed.parsed_options = hc.Config(parsed.options)
+            self.parsed_layers.append(parsed)
+            print("Parsed layer:", parsed.to_list())
+            return self.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options)
 
     def build_layer(self, op, args, options):
         if self.layer_ops[op]:
@@ -245,8 +229,8 @@ class ConfigurableComponent(GANComponent):
         return NoOp()
 
     def layer_equal_linear(self, net, args, options):
-        result = EqualLinear(self.current_input_size,int(args[0]))
-        self.current_input_size = int(args[0])
+        result = EqualLinear(self.current_input_size,args[0])
+        self.current_input_size = args[0]
         return result
 
     def get_same_padding(self, input_rows, filter_rows, stride, dilation):
@@ -255,7 +239,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_conv(self, net, args, options):
         if len(args) > 0:
-            channels = int(args[0])
+            channels = args[0]
         else:
             channels = self.current_channels
         print("Options:", options)
@@ -279,7 +263,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_conv1d(self, net, args, options):
         if len(args) > 0:
-            channels = int(args[0])
+            channels = args[0]
         else:
             channels = self.current_channels
         print("Options:", options)
@@ -303,7 +287,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_conv3d(self, net, args, options):
         if len(args) > 0:
-            channels = int(args[0])
+            channels = args[0]
         else:
             channels = self.current_channels
         options = hc.Config(options)
@@ -328,7 +312,7 @@ class ConfigurableComponent(GANComponent):
         options = hc.Config(options)
         shape = [int(x) for x in str(args[0]).split("*")]
         bias = True
-        if options.bias == "false":
+        if options.bias == False:
             bias = False
         output_size = 1
         for dim in shape:
@@ -362,23 +346,36 @@ class ConfigurableComponent(GANComponent):
     #    return NoOp()
 
     def layer_modulated_conv2d(self, net, args, options):
-        channels = int(args[0])
+        channels = args[0]
 
         upsample = True
-        if options.upsample == "false":
+        if options.upsample == False:
             upsample = False
 
         demodulate = True
-        if options.demodulate == "false":
+        if options.demodulate == False:
             demodulate = False
+
+        downsample = options.downsample or False
 
         kernel_size = 3
         if options.kernel_size:
-            kernel_size = int(options.kernel_size)
+            kernel_size = options.kernel_size
 
-        result = ModulatedConv2d(self.current_channels, channels, kernel_size, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate)
+        input_channels = self.current_channels
+        if options.input_channels:
+            input_channels = options.input_channels
 
+        result = ModulatedConv2d(input_channels, channels, kernel_size, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample)
+
+        if upsample:
+            self.current_width *= 2
+            self.current_height *= 2
+        elif downsample:
+            self.current_width //= 2
+            self.current_height //= 2
         self.current_channels = channels
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
         return result
 
 
@@ -437,14 +434,14 @@ class ConfigurableComponent(GANComponent):
     def layer_instance_norm(self, net, args, options):
         options = hc.Config(options)
         affine = True
-        if options.affine == "false":
+        if options.affine == False:
             affine = False
         return nn.InstanceNorm2d(self.current_channels, affine=affine)
 
     def layer_instance_norm1d(self, net, args, options):
         options = hc.Config(options)
         affine = True
-        if options.affine == "false":
+        if options.affine == False:
             affine = False
         return nn.InstanceNorm1d(self.current_channels, affine=affine)
 
@@ -452,7 +449,7 @@ class ConfigurableComponent(GANComponent):
     def layer_instance_norm3d(self, net, args, options):
         options = hc.Config(options)
         affine = True
-        if options.affine == "false":
+        if options.affine == False:
             affine = False
         return nn.InstanceNorm3d(self.current_channels, affine=affine)
 
@@ -515,18 +512,18 @@ class ConfigurableComponent(GANComponent):
         avg_pool = options.avg_pool or self.ops.config_option("avg_pool", [1,1])
 
         if type(stride) != type([]):
-            stride = [int(stride), int(stride)]
+            stride = [stride, stride]
 
         if type(avg_pool) != type([]):
-            avg_pool = [int(avg_pool), int(avg_pool)]
+            avg_pool = [avg_pool, avg_pool]
 
         if type(fltr) != type([]):
-            fltr = [int(fltr), int(fltr)]
+            fltr = [fltr, fltr]
         return stride, fltr, avg_pool
 
 
     def layer_deconv(self, net, args, options):
-        channels = int(args[0])
+        channels = args[0]
         options = hc.Config(options)
         filter = 4 #TODO
         stride = 2
@@ -542,7 +539,7 @@ class ConfigurableComponent(GANComponent):
     def layer_pad(self, net, args, options):
         options = hc.Config(options)
 
-        return nn.ZeroPad2d((int(args[0]), int(args[1]), int(args[2]), int(args[3])))
+        return nn.ZeroPad2d((args[0], args[1], args[2], args[3]))
 
     def layer_pixel_norm(self, net, args, options):
         return PixelNorm()
@@ -557,7 +554,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_resize_conv(self, net, args, options):
         options = hc.Config(options)
-        channels = int(args[0])
+        channels = args[0]
 
         w = options.w or self.current_width * 2
         h = options.h or self.current_height * 2
@@ -571,7 +568,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_resize_conv1d(self, net, args, options):
         options = hc.Config(options)
-        channels = int(args[0])
+        channels = args[0]
 
         h = options.h or self.current_height * 2
         layers = [nn.Upsample((h)),
@@ -584,9 +581,11 @@ class ConfigurableComponent(GANComponent):
 
     def layer_split(self, net, args, options):
         options = hc.Config(options)
-        split_size = int(args[0])
-        select = int(args[1])
-        dim = int(options.dim or -1)
+        split_size = args[0]
+        select = args[1]
+        dim = -1
+        if options.dim:
+            dim = options.dim
         #TODO better validation
         #TODO increase dim options
         if dim == -1:
@@ -598,7 +597,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_subpixel(self, net, args, options):
         options = hc.Config(options)
-        channels = int(args[0])
+        channels = args[0]
 
         layers = [nn.Conv2d(options.input_channels or self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
         self.last_logit_layer = layers[0]
@@ -629,7 +628,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_norm(self, net, args, options):
         affine = True
-        if options.affine == "false":
+        if options.affine == False:
             affine = False
 
         return nn.LayerNorm([self.current_channels, self.current_height, self.current_width], elementwise_affine=affine)
@@ -662,12 +661,15 @@ class ConfigurableComponent(GANComponent):
 
     def forward(self, input, context={}):
         self.context = context
-        for module, opts in zip(self.net, self.parsed_opts):
-            layer_name, name, args, options = opts
+        for module, parsed in zip(self.net, self.parsed_layers):
+            options = parsed.parsed_options
+            args = parsed.args
+            layer_name = parsed.layer_name
+            name = options.name
             if layer_name == "adaptive_instance_norm":
                 input = module(input, self.context['w'])
             elif layer_name == "split":
-                input = torch.split(input, int(args[0]), options.dim or -1)[int(args[1])]
+                input = torch.split(input, args[0], options.dim or -1)[args[1]]
             elif layer_name == "concat":
                 if args[0] == "layer":
                     input = torch.cat((input, self.context[args[1]]), dim=1)

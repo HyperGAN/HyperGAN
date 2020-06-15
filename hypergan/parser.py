@@ -4,6 +4,9 @@ from pyparsing import alphas, alphanums, delimitedList, replaceWith, nestedExpr,
 class Pattern:
     def __init__(self, tokens):
         self.__dict__.update(tokens.asDict())
+        args = list(tokens[1:-1])
+        if args != [[]]:
+            self.args = args
 
     def to_list(self):
         return [self.layer_name, list(self.args), self.options]
@@ -22,7 +25,7 @@ class Parser:
         arg = (NULL ^ FALSE ^ TRUE ^ pyparsing_common.number ^ (Word(alphanums+"*_") + ~ Word("=")) ^ configurable_param)
         args = arg[...].setResultsName("args")
         args.setParseAction(self.convert_list)
-        options = Dict(Group(Word(alphas, alphanums) + Suppress("=") + arg))[...].setResultsName("options")
+        options = Dict(Group(Word(alphanums+"_") + Suppress("=") + arg))[...].setResultsName("options")
         options.setParseAction(self.convert_dict)
         pattern <<= label + args + options
         pattern.setParseAction(Pattern)

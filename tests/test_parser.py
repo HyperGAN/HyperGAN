@@ -63,7 +63,8 @@ class TestParser:
 
     def test_parses_configurable_param(self):
         line = "conv2d (conv2d test)"
-        assert self.parse(line)[1][0].to_list() == ["conv2d", ["test"], {}]
+        obj = self.parse(line)[1][0][0] #TODO why is this nested, should be just [1]
+        assert obj.to_list() == ["conv2d", ["test"], {}]
 
     def test_parses_configurable_param_in_options(self):
         line = "conv2d options=(conv2d test)"
@@ -72,4 +73,14 @@ class TestParser:
     def test_parses_size(self):
         line = "reshape 64*64*3"
         assert self.parse(line) == ["reshape", ["64*64*3"], {}]
+
+    def test_parses_multiple_args(self):
+        line = "concat layer i"
+        assert self.parse(line) == ["concat", ["layer", "i"], {}]
+
+    def test_parses_underscore_in_options(self):
+        line = "identity a_b=3"
+        assert self.parse(line) == ["identity", [], {"a_b": 3}]
+
+    
 

@@ -10,19 +10,7 @@ class Pattern:
         return [self.layer_name, list(self.args), self.options]
 
 class Parser:
-    def convert_dict(self, s, l, toks):
-        retv = {}
-        for sublist in toks:
-            retv[sublist[0]] = sublist[1]
-        return retv
-
-    def convert_list(self, s, l, toks):
-        if len(toks) == 0:
-            return [[]]
-
-        return list(toks)
-
-    def parse_string(self, string):
+    def __init__(self):
         FALSE = Keyword("false")
         NULL = Keyword("null")
         TRUE = Keyword("true")
@@ -39,5 +27,21 @@ class Parser:
         options.setParseAction(self.convert_dict)
         pattern <<= label + args + options
         pattern.setParseAction(Pattern)
-        parsed = pattern.parseString(string, parseAll=True)
+        self.pattern = pattern
+
+    def convert_dict(self, s, l, toks):
+        retv = {}
+        for sublist in toks:
+            retv[sublist[0]] = sublist[1]
+        return retv
+
+    def convert_list(self, s, l, toks):
+        if len(toks) == 0:
+            return [[]]
+
+        return list(toks)
+
+    def parse_string(self, string):
+
+        parsed = self.pattern.parseString(string, parseAll=True)
         return parsed[0]

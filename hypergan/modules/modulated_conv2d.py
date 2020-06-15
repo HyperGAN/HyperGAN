@@ -337,7 +337,7 @@ class ModulatedConv2d(nn.Module):
             out = out.view(batch, self.out_channel, height, width)
 
         else:
-            input = input.view(1, batch * in_channel, height, width)
+            input = input.reshape(1, batch * in_channel, height, width)
             out = F.conv2d(input, weight, padding=self.padding, groups=batch)
             _, _, height, width = out.shape
             out = out.view(batch, self.out_channel, height, width)

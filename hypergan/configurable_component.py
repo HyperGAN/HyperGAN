@@ -164,10 +164,11 @@ class ConfigurableComponent(GANComponent):
                 ns += [n]
 
         else:
+            print("Parsing layer:", layer)
             parsed = self.parser.parse_string(layer)
             parsed.parsed_options = hc.Config(parsed.options)
-            self.parsed_layers.append(parsed)
             print("Parsed layer:", parsed.to_list())
+            self.parsed_layers.append(parsed)
             return self.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options)
 
     def build_layer(self, op, args, options):
@@ -347,26 +348,25 @@ class ConfigurableComponent(GANComponent):
 
     def layer_modulated_conv2d(self, net, args, options):
         channels = args[0]
-
-        upsample = True
-        if options.upsample == False:
-            upsample = False
+        method = "conv"
+        if len(args) > 1:
+            method = args[1]
+        upsample = method == "upsample"
+        downsample = method == "downsample"
 
         demodulate = True
         if options.demodulate == False:
             demodulate = False
 
-        downsample = options.downsample or False
-
-        kernel_size = 3
-        if options.kernel_size:
-            kernel_size = options.kernel_size
+        filter = 3
+        if options.filter:
+            filter = options.filter
 
         input_channels = self.current_channels
         if options.input_channels:
             input_channels = options.input_channels
 
-        result = ModulatedConv2d(input_channels, channels, kernel_size, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample)
+        result = ModulatedConv2d(input_channels, channels, filter, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample)
 
         if upsample:
             self.current_width *= 2

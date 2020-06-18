@@ -22,46 +22,43 @@ class OnlineEWCTrainHook(BaseTrainHook):
   def forward(self):
       if not hasattr(self, 'd_ewc_params'):
           self.d_ewc_params = []
-          self.d_ewc_g = []
+          self.d_ewc_fisher = []
 
           for p in self.gan.d_parameters():
               self.d_ewc_params += [Variable(p, requires_grad=False)]
-              self.d_ewc_g += [Variable(torch.zeros_like(p), requires_grad=False)]
+              self.d_ewc_fisher += [Variable(torch.rand(p.shape).cuda(), requires_grad=False)]
 
           self.g_ewc_params = []
-          self.g_ewc_g = []
+          self.g_ewc_fisher = []
 
           for p in self.gan.g_parameters():
               self.g_ewc_params += [Variable(p, requires_grad=False)]
-              self.g_ewc_g += [Variable(torch.zeros_like(p), requires_grad=False)]
+              self.g_ewc_fisher += [Variable(torch.rand(p.shape).cuda(), requires_grad=False)]
       
       d_loss = self.gan.trainer.d_loss.mean()
       d_params = list(self.gan.d_parameters())
       g_params = list(self.gan.g_parameters())
       d_grads = torch_grad(d_loss, d_params, create_graph=True, retain_graph=True)
+      mean_decay = self.config.d_mean_decay or self.config.mean_decay
       self.d_loss = 0
-      decay = (self.config.d_decay or self.config.decay or 0.1)
-      grad_decay = (self.config.d_grad_decay or self.config.grad_decay or 1.0)
       for i, (dp, dp_g) in enumerate(zip(d_params, d_grads)):
-          self.d_loss += (self.config.gamma or 1.0) * ((dp - self.d_ewc_params[i]) ** 2 * self.d_ewc_g[i]).sum()
+          self.d_loss += (self.config.beta or 1.0) * ((dp - self.d_ewc_params[i]) ** 2 * self.d_ewc_fisher[i]).sum()
           with torch.no_grad():
-              self.d_ewc_g[i] = (1.0-grad_decay) * (self.d_ewc_g[i]**2) + dp_g**2
-              self.d_ewc_params[i] = decay*dp + (1.0-decay)*self.d_ewc_params[i]
+              self.d_ewc_fisher[i] = self.config.gamma * self.d_ewc_fisher[i] + dp_g**2
+              self.d_ewc_params[i] = (1.0-mean_decay) * dp.clone() + mean_decay * self.d_ewc_params[i]
       self.gan.add_metric('ewc_d', self.d_loss)
-      self.d_loss = torch.min(torch.tensor([self.d_loss, 100.0]))
+
       if self.config.skip_g:
           return [self.d_loss, None]
       self.g_loss = 0
       g_loss = self.gan.trainer.g_loss.mean()
       g_grads = torch_grad(g_loss, g_params, create_graph=True, retain_graph=True)
-      decay = (self.config.g_decay or self.config.decay or 0.1)
-      grad_decay = (self.config.g_grad_decay or self.config.grad_decay or 1.0)
+      mean_decay = self.config.g_mean_decay or self.config.mean_decay
       for i, (gp, gp_g) in enumerate(zip(g_params, g_grads)):
-          self.g_loss += (self.config.gamma or 1.0) * ((gp - self.g_ewc_params[i]) ** 2 * self.g_ewc_g[i]).sum()
+          self.g_loss += (self.config.beta or 1.0) * ((gp - self.g_ewc_params[i]) ** 2 * self.g_ewc_fisher[i]).sum()
           with torch.no_grad():
-              self.g_ewc_g[i] = (1.0-grad_decay) * (self.g_ewc_g[i]**2) + gp_g**2
-              self.g_ewc_params[i] = decay*gp + (1.0-decay)*self.g_ewc_params[i]
-      self.g_loss = torch.min(torch.tensor([self.g_loss, 100.0]))
+              self.g_ewc_fisher[i] = self.config.gamma * self.g_ewc_fisher[i] + gp_g**2
+              self.g_ewc_params[i] = (1.0-mean_decay) * gp.clone() + mean_decay * self.g_ewc_params[i]
  
       self.gan.add_metric('ewc_g', self.g_loss)
 

@@ -27,6 +27,8 @@ class AlternatingTrainer(BaseTrainer):
         _, g_loss = self.gan.forward_loss()#TODO targets=['d']
 
         self.gan.add_metric('g_loss', g_loss.mean())
+        self.g_loss = g_loss
+        self.d_loss = None
         g_loss += sum([l[0] for l in self.train_hook_losses() if l[0] is not None])
         g_loss = g_loss.mean()
 
@@ -41,6 +43,8 @@ class AlternatingTrainer(BaseTrainer):
         else:
             d_loss, _ = self.gan.loss.forward(d_real, d_fake)#TODO targets=['d']
         self.gan.add_metric('d_loss', d_loss.mean())
+        self.d_loss = d_loss
+        self.g_loss = None
         d_loss += sum([l[0] for l in self.train_hook_losses() if l[0] is not None])
         d_loss = d_loss.mean()
 

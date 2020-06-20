@@ -21,10 +21,16 @@ class BaseSampler:
         stacks = []
         for key, data in sample:
             data = data.cpu().permute(0,2,3,1).detach().numpy()
+            #print(len(data))
             slots = min(gan.batch_size(), self.samples_per_row)
             slots = min(slots, np.shape(data)[0])
-            stacks += [np.vstack(data[i*slots:i*slots+slots]) for i in range(np.shape(data)[0]//slots)]
-        sample_data = np.hstack(stacks)
+            #print('slots', slots, range(np.shape(data)[0]))
+            #print([np.shape(data[i*slots:i*slots+slots]) for i in range(np.shape(data)[0]//slots)])
+            #stacks += [np.vstack(data[i*slots:i*slots+slots]) for i in range(np.shape(data)[0]//slots)]
+            stacks += [np.hstack(data[i*slots:i*slots+slots]) for i in range(np.shape(data)[0]//slots)]
+        #print([np.shape(stack) for stack in stacks])
+        #sample_data = np.hstack(stacks)
+        sample_data = np.vstack(stacks)
         image = self.plot(sample_data, path, save_samples)
         sample_name = 'generator'
         samples = [[sample_data, sample_name]]
@@ -51,5 +57,18 @@ class BaseSampler:
             except Exception as e:
                 print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
                 print(e)
+
+        GlobalViewer.update(self.gan, image)
+        return image
+
+    def plot_image(self, image, filename, save_sample, regularize=True):
+        """ Plot an image from an external source."""
+        if save_sample:
+            try:
+                image.save(filename)
+            except Exception as e:
+                print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
+                print(e)
+
         GlobalViewer.update(self.gan, image)
         return image

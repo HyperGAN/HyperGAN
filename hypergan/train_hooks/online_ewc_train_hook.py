@@ -57,7 +57,6 @@ class OnlineEWCTrainHook(BaseTrainHook):
           skip_g_after_steps = self.config.skip_g_after_steps < self.gan.steps
       skip_g = self.config.skip_g or skip_g_after_steps
       if skip_g:
-          print("skip g")
           return [self.d_loss, None]
 
       self.g_loss = 0

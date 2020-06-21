@@ -6,6 +6,7 @@ import os
 import operator
 from functools import reduce
 
+import pyparsing
 import hypergan
 import torch
 import torch.nn as nn
@@ -14,6 +15,7 @@ from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
+from hypergan.modules.add import Add
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.learned_noise import LearnedNoise
 from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur, EqualLinear
@@ -57,6 +59,7 @@ class ConfigurableComponent(GANComponent):
             #"concat3d": self.layer_concat3d,
             "conv": self.layer_conv,
             "conv1d": self.layer_conv1d,
+            "conv2d": self.layer_conv2d,
             "conv3d": self.layer_conv3d,
             "deconv": self.layer_deconv,
             "dropout": self.layer_dropout,
@@ -79,6 +82,7 @@ class ConfigurableComponent(GANComponent):
             "reshape": self.layer_reshape,
             "residual": self.layer_residual, #TODO options
             "resize_conv": self.layer_resize_conv,
+            "resize_conv2d": self.layer_resize_conv2d,
             "resize_conv1d": self.layer_resize_conv1d,
             "split": self.layer_split,
             "subpixel": self.layer_subpixel,
@@ -239,28 +243,33 @@ class ConfigurableComponent(GANComponent):
         return max(0, (out_rows - 1) * stride + (filter_rows - 1) * dilation + 1 - input_rows) // 2
 
     def layer_conv(self, net, args, options):
+        return self.layer_conv2d(net, args, options)
+
+    def layer_conv2d(self, net, args, options):
         if len(args) > 0:
             channels = args[0]
         else:
             channels = self.current_channels
-        print("Options:", options)
         options = hc.Config(options)
-        stride = options.stride or 1
-        fltr = options.filter or 3
-        dilation = 1
+        stride = 1
+        if options.stride is not None:
+            stride = options.stride
+        filter = 3
+        if options.filter is not None:
+            filter = options.filter
+        padding = 1
+        if options.padding is not None:
+            padding = options.padding
 
-        padding = options.padding or 1#self.get_same_padding(self.current_width, self.current_width, stride, dilation)
-
-        print("conv start", self.current_width, self.current_height, self.current_channels, stride)
-        layers = [nn.Conv2d(options.input_channels or self.current_channels, channels, fltr, stride, padding = (padding, padding))]
-        self.last_logit_layer = layers[0]
+        layer = nn.Conv2d(options.input_channels or self.current_channels, channels, filter, stride, padding = (padding, padding)).cuda()
+        self.last_logit_layer = layer
         self.current_channels = channels
         if stride > 1:
             self.current_width = self.current_width // stride #TODO
             self.current_height = self.current_height // stride #TODO
         print("conv", self.current_width, self.current_height, self.current_channels, stride)
         self.current_input_size = self.current_channels * self.current_width * self.current_height
-        return nn.Sequential(*layers)
+        return layer
 
     def layer_conv1d(self, net, args, options):
         if len(args) > 0:
@@ -297,14 +306,21 @@ class ConfigurableComponent(GANComponent):
         dilation = 1
 
         padding = options.padding or 1#self.get_same_padding(self.current_width, self.current_width, stride, dilation)
+        if options.padding0:
+            padding = [options.padding0, padding, padding]
+        if options.stride0:
+            stride = [options.stride0, stride, stride]
+        else:
+            stride = [stride, stride, stride]
+        print("PADDING", padding)
         print("PADDING", padding)
 
         layers = [nn.Conv3d(options.input_channels or self.current_channels, channels, fltr, stride, padding = padding)]
         self.last_logit_layer = layers[0]
         self.current_channels = channels
-        if stride > 1:
-            self.current_width = self.current_width // stride #TODO
-            self.current_height = self.current_height // stride #TODO
+        if stride[1] > 1 or stride[2] > 1: #TODO
+            self.current_width = self.current_width // stride[1] #TODO
+            self.current_height = self.current_height // stride[2] #TODO
             print("conv", self.current_width, self.current_height, self.current_channels)
         self.current_input_size = self.current_channels * self.current_width * self.current_height
         return nn.Sequential(*layers)
@@ -347,7 +363,9 @@ class ConfigurableComponent(GANComponent):
     #    return NoOp()
 
     def layer_modulated_conv2d(self, net, args, options):
-        channels = args[0]
+        channels = self.current_channels
+        if len(args) > 0:
+            channels = args[0]
         method = "conv"
         if len(args) > 1:
             method = args[1]
@@ -523,18 +541,27 @@ class ConfigurableComponent(GANComponent):
 
 
     def layer_deconv(self, net, args, options):
-        channels = args[0]
+        if len(args) > 0:
+            channels = args[0]
+        else:
+            channels = self.current_channels
         options = hc.Config(options)
         filter = 4 #TODO
+        if options.filter:
+            filter = options.filter
         stride = 2
+        if options.stride:
+            stride = options.stride
         padding = 1
-        layers = [nn.ConvTranspose2d(options.input_channels or self.current_channels, channels, 4, 2, 1)]
-        self.last_logit_layer = layers[0]
+        if options.padding:
+            padding = options.padding
+        layer = nn.ConvTranspose2d(options.input_channels or self.current_channels, channels, filter, stride, padding).cuda()
+        self.last_logit_layer = layer
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
         self.current_input_size = self.current_channels * self.current_width * self.current_height
-        return nn.Sequential(*layers)
+        return layer
 
     def layer_pad(self, net, args, options):
         options = hc.Config(options)
@@ -553,6 +580,9 @@ class ConfigurableComponent(GANComponent):
         return result
 
     def layer_resize_conv(self, net, args, options):
+        return self.layer_resize_conv2d(net, args, options)
+
+    def layer_resize_conv2d(self, net, args, options):
         options = hc.Config(options)
         channels = args[0]
 
@@ -617,14 +647,42 @@ class ConfigurableComponent(GANComponent):
             self.current_input_size = self.current_channels * self.current_width * self.current_height
         return NoOp()
 
+    def layer_linformer(self, net, args, options):
+        model = Linformer(
+                input_size = self.current_channels,
+                channels = self.current_height
+        )
+        return model
+
+
     def layer_vae(self, net, args, options):
         self.vae = Variational(self.current_channels)
         return self.vae
 
     def layer_add(self, net, args, options):
         options = hc.Config(options)
-        if args[0] == 'noise':
-            return LearnedNoise()
+        layers = []
+        layer_names = []
+        for arg in args:
+            if arg == 'noise':
+                layers.append(LearnedNoise())
+                layer_names.append(None)
+            elif arg in self.named_layers:
+                layers.append(self.named_layers[arg])
+                layer_names.append(None)
+            elif arg in self.gan.named_layers:
+                layers.append(self.gan.named_layers[arg])
+                layer_names.append(None)
+            elif type(arg) == pyparsing.ParseResults and type(arg[0]) == hypergan.parser.Pattern:
+                print( "Found pattern")
+                parsed = arg[0]
+                parsed.parsed_options = hc.Config(parsed.options)
+                layers.append(self.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options))
+                layer_names.append(parsed.layer_name)
+            else:
+                print("arg", type(arg))
+                raise "Could not parse add layer "
+        return Add(layers, layer_names)
 
     def layer_norm(self, net, args, options):
         affine = True
@@ -668,6 +726,8 @@ class ConfigurableComponent(GANComponent):
             name = options.name
             if layer_name == "adaptive_instance_norm":
                 input = module(input, self.context['w'])
+            elif layer_name == "add":
+                input = module(input, self.context)
             elif layer_name == "split":
                 input = torch.split(input, args[0], options.dim or -1)[args[1]]
             elif layer_name == "concat":

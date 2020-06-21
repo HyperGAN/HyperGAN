@@ -63,9 +63,13 @@ class BaseSampler:
 
     def plot_image(self, image, filename, save_sample, regularize=True):
         """ Plot an image from an external source."""
+        if np.shape(image)[2] == 4:
+            fmt = "RGBA"
+        else:
+            fmt = "RGB"
         if save_sample:
             try:
-                image.save(filename)
+                Image.fromarray(image, fmt).save(filename)
             except Exception as e:
                 print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
                 print(e)

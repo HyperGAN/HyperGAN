@@ -66,6 +66,20 @@ class TestParser:
         obj = self.parse(line)[1][0][0] #TODO why is this nested, should be just [1]
         assert obj.to_list() == ["conv2d", ["test"], {}]
 
+    def test_parses_configurable_param(self):
+        line = "conv2d (conv2d test)"
+        obj = self.parse(line)[1][0][0] #TODO why is this nested, should be just [1]
+        assert type(obj) == hg.parser.Pattern
+
+    def test_parses_configurable_param(self):
+        line = "conv2d (conv2d test)"
+        line = "add self (conv filter=1) (conv filter=3) (modulated_conv filter=1)"
+        obj = self.parse(line)[1][0]
+        assert obj == "self"
+        obj = self.parse(line)[1][1][0] #TODO why is this nested, should be just [1]
+        print("OBJ", obj)
+        assert obj.to_list() == ["conv2d", [], {"filter": 1}]
+
     def test_parses_configurable_param_in_options(self):
         line = "conv2d options=(conv2d test)"
         assert self.parse(line)[2]["options"][0].to_list() == ["conv2d", ["test"], {}]

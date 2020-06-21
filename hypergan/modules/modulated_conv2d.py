@@ -295,9 +295,9 @@ class ModulatedConv2d(nn.Module):
 
         self.weight = nn.Parameter(
             torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
-        )
+        ).cuda()
 
-        self.modulation = EqualLinear(style_dim, in_channel, bias_init=1)
+        self.modulation = EqualLinear(style_dim, in_channel, bias_init=1).cuda()
 
         self.demodulate = demodulate
 

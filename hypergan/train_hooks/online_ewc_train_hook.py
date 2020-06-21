@@ -20,6 +20,10 @@ class OnlineEWCTrainHook(BaseTrainHook):
 
 
   def forward(self):
+
+      if self.config.skip_after_steps and self.config.skip_after_steps < self.gan.steps:
+          return [None, None]
+
       if not hasattr(self, 'd_ewc_params'):
           self.d_ewc_params = []
           self.d_ewc_fisher = []
@@ -48,7 +52,12 @@ class OnlineEWCTrainHook(BaseTrainHook):
                   self.d_ewc_params[i] = (1.0-mean_decay) * dp.clone() + mean_decay * self.d_ewc_params[i]
           self.gan.add_metric('ewc_d', self.d_loss)
 
-      if self.config.skip_g:
+      skip_g_after_steps = False
+      if self.config.skip_g_after_steps:
+          skip_g_after_steps = self.config.skip_g_after_steps < self.gan.steps
+      skip_g = self.config.skip_g or skip_g_after_steps
+      if skip_g:
+          print("skip g")
           return [self.d_loss, None]
 
       self.g_loss = 0

@@ -50,8 +50,8 @@ class Custom2DInputDistribution:
             x = torch.rand([2]).cuda()*2-1.0
             x = self.modes(x)
         elif args.distribution == 'modal-gaussian':
-            x = torch.rand([args.batch_size, 2]).cuda()*2-1.0
-            y = torch.randn([args.batch_size, 2], stddev=0.04, mean=0.15).cuda()
+            x = torch.rand([1, 2]).cuda()*2-1.0
+            y = torch.randn([1, 2]).cuda()*0.04+0.15
             x = torch.round(x) + y
         elif args.distribution == 'sin':
             x = torch.rand((1, args.batch_size)).cuda()*21-10.5
@@ -88,32 +88,32 @@ class Custom2DSampler(BaseSampler):
 
         config = gan.config
 
-        contours = args.contour_size
+        #contours = args.contour_size
 
-        x,y = np.meshgrid(np.arange(-1.5, 1.5, 3/contours), np.arange(-1.5, 1.5, 3/contours))
-        d = []
-        for i in range(args.contour_size):
-            _x = np.reshape(x[:,i], [-1]) 
-            _y = np.reshape(y[:,i], [-1]) 
-            for j in range(args.contour_size // gan.batch_size()):
-                offset = j*gan.batch_size()
-                endoffset = (j+1)*gan.batch_size()
-                _x_sample = _x[offset:endoffset]
-                _y_sample = _y[offset:endoffset]
-                _d = gan.discriminator(torch.Tensor([[__x,__y] for __x, __y in zip(_x_sample, _y_sample)]).cuda()).detach().cpu().numpy()
-                d.append(_d)
-        contour = go.Contour(
-            z = np.reshape(d, [-1]),
-            x = np.reshape(x, [-1]),
-            y = np.reshape(y, [-1]),
-            opacity=0.5,
-            showlegend=False,
-            contours = dict(
-                start=0.4,
-                end=2.0,
-                size=0.03,
-            )
-        )
+        #x,y = np.meshgrid(np.arange(-1.5, 1.5, 3/contours), np.arange(-1.5, 1.5, 3/contours))
+        #d = []
+        #for i in range(args.contour_size):
+        #    _x = np.reshape(x[:,i], [-1]) 
+        #    _y = np.reshape(y[:,i], [-1]) 
+        #    for j in range(args.contour_size // gan.batch_size()):
+        #        offset = j*gan.batch_size()
+        #        endoffset = (j+1)*gan.batch_size()
+        #        _x_sample = _x[offset:endoffset]
+        #        _y_sample = _y[offset:endoffset]
+        #        _d = gan.discriminator(torch.Tensor([[__x,__y] for __x, __y in zip(_x_sample, _y_sample)]).cuda()).detach().cpu().numpy()
+        #        d.append(_d)
+        #contour = go.Contour(
+        #    z = np.reshape(d, [-1]),
+        #    x = np.reshape(x, [-1]),
+        #    y = np.reshape(y, [-1]),
+        #    opacity=0.5,
+        #    showlegend=False,
+        #    contours = dict(
+        #        start=0.4,
+        #        end=2.0,
+        #        size=0.03,
+        #    )
+        #)
         #z = sess.run(gan.discriminator.sample, 
 
         global x_v, z_v
@@ -182,44 +182,38 @@ def train(config, args):
         }))
     gan.name = args.config
 
-    #TODO accuracy_x_to_g=distribution_accuracy(gan.inputs.x, gan.generator.sample)
-    #TODO accuracy_g_to_x=distribution_accuracy(gan.generator.sample, gan.inputs.x)
+    accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(), gan.generator(gan.latent.sample()))
+    accuracy_g_to_x=lambda: distribution_accuracy(gan.generator(gan.latent.sample()), gan.inputs.next())
 
     sampler = Custom2DSampler(gan)
     gan.selected_sampler = sampler
 
     samples = 0
     steps = args.steps
-    sampler.sample("samples/000000.png", args.save_samples)
+    sample_file = "samples/"+args.config+"/000000.png"
+    os.makedirs(os.path.expanduser(os.path.dirname(sample_file)), exist_ok=True)
+    sampler.sample(sample_file, args.save_samples)
 
-    #metrics = [accuracy_x_to_g, accuracy_g_to_x]
-    metrics = [0, 0]
+    metrics = [accuracy_x_to_g, accuracy_g_to_x]
     sum_metrics = [0 for metric in metrics]
     for i in range(steps):
         gan.step()
 
         if args.viewer and i % args.sample_every == 0:
             samples += 1
-            print("Sampling "+str(samples), args.save_samples)
-            sample_file="samples/%06d.png" % (samples)
+            print("Sampling "+str(samples))
+            sample_file="samples/"+args.config+"/%06d.png" % (samples)
             sampler.sample(sample_file, args.save_samples)
 
-        #TODO
-        #if i > steps * 9.0/10:
-        #    for k, metric in enumerate(gan.session.run(metrics)):
-        #        sum_metrics[k] += metric 
-        #if i % 300 == 0:
-        #    for k, metric in enumerate(gan.metrics().keys()):
-        #        metric_value = gan.session.run(gan.metrics()[metric])
-        #        print("--", metric,  metric_value)
-        #        if math.isnan(metric_value) or math.isinf(metric_value):
-        #            print("Breaking due to invalid metric")
-        #            return None
+        if i > steps * 9.0/10:
+            for k, metric in enumerate(metrics):
+                sum_metrics[k] += metric()
 
     return sum_metrics
 
 if args.action == 'train':
     metrics = train(config, args)
+    GlobalViewer.close()
     print("Resulting metrics:", metrics)
 elif args.action == 'search':
     metric_sum = train(config, args)

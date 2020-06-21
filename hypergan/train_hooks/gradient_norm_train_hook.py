@@ -22,10 +22,12 @@ class GradientNormTrainHook(BaseTrainHook):
       if self.config.loss:
         if "g" in self.config.loss:
             self.g_loss = self.gamma * norm.mean()
+            self.gan.add_metric('gn_g', self.g_loss)
         if "d" in self.config.loss:
             self.d_loss = self.gamma * norm.mean()
+            self.gan.add_metric('gn_d', self.d_loss)
       else:
         self.d_loss = self.gamma * norm.mean()
-      #self.gan.add_metric('stable_js', self.ops.squash(self.d_loss))
+        self.gan.add_metric('gn_d', self.d_loss)
 
       return [self.d_loss, self.g_loss]

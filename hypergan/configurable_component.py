@@ -588,13 +588,13 @@ class ConfigurableComponent(GANComponent):
 
         w = options.w or self.current_width * 2
         h = options.h or self.current_height * 2
-        layers = [nn.Upsample((h, w), mode="bilinear"),
-                nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
+        layers = [nn.Upsample((h, w), mode="bilinear").cuda(),
+                nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1).cuda()]
         self.last_logit_layer = layers[-1]
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
-        return nn.Sequential(*layers)
+        return nn.Sequential(*layers).cuda()
 
     def layer_resize_conv1d(self, net, args, options):
         options = hc.Config(options)

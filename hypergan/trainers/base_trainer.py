@@ -24,7 +24,6 @@ class BaseTrainer(GANComponent):
             defn = {k: v for k, v in hook_config.items() if k in inspect.getargspec(hook_config['class']).args}
             defn['gan']=self.gan
             defn['config']=hook_config
-            defn['trainer']=self
             hook = hook_config["class"](**defn)
             self.gan.add_component("hook", hook)
             losses = hook.losses()
@@ -38,8 +37,9 @@ class BaseTrainer(GANComponent):
 
         result = self._create()
 
-        for hook in self.train_hooks:
+        for i, hook in enumerate(self.train_hooks):
             hook.after_create()
+            setattr(self, 'train_hook'+str(i), hook)
 
     def create_optimizer(self, name="optimizer"):
         defn = getattr(self.config, name) or self.config.optimizer

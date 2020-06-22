@@ -10,7 +10,6 @@ import inspect
 class BaseTrainHook(GANComponent):
   def __init__(self, gan=None, config=None, trainer=None):
     super().__init__(gan, config)
-    self.trainer = trainer
 
   def create(self):
     pass

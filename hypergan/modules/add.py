@@ -4,6 +4,8 @@ class Add(nn.Module):
     def __init__(self, layers, layer_names):
         super(Add, self).__init__()
         self.layers = layers
+        for i, layer in enumerate(self.layers):
+            setattr(self, 'layer'+str(i), layer)
         self.layer_names = layer_names
 
     def forward(self, net, context):

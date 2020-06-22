@@ -12,8 +12,8 @@ from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class OnlineEWCTrainHook(BaseTrainHook):
   """ https://faculty.washington.edu/ratliffl/research/2019conjectures.pdf """
-  def __init__(self, gan=None, config=None, trainer=None):
-      super().__init__(config=config, gan=gan, trainer=trainer)
+  def __init__(self, gan=None, config=None):
+      super().__init__(config=config, gan=gan)
       self.d_loss = None
       self.g_loss = None
       self.gan = gan
@@ -38,6 +38,15 @@ class OnlineEWCTrainHook(BaseTrainHook):
           for p in self.gan.g_parameters():
               self.g_ewc_params += [Variable(p, requires_grad=False)]
               self.g_ewc_fisher += [Variable(torch.rand(p.shape).cuda(), requires_grad=False)]
+
+          for i, (param, fisher) in enumerate(zip(self.d_ewc_params, self.d_ewc_fisher)):
+              setattr(self, 'd_ewc'+str(i), param)
+              setattr(self, 'd_fisher'+str(i), fisher)
+
+          for i, (param, fisher) in enumerate(zip(self.g_ewc_params, self.g_ewc_fisher)):
+              setattr(self, 'g_ewc'+str(i), param)
+              setattr(self, 'g_fisher'+str(i), fisher)
+
       d_loss = self.gan.trainer.d_loss
       self.d_loss = 0
       if d_loss is not None:

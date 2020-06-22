@@ -4,7 +4,7 @@ import hyperchamber as hc
 import numpy as np
 import inspect
 import torch
-from torch.autograd import Variable
+from torch.nn.parameter import Parameter
 from torch.autograd import grad as torch_grad
 import torch.nn as nn
 from operator import itemgetter
@@ -29,23 +29,23 @@ class OnlineEWCTrainHook(BaseTrainHook):
           self.d_ewc_fisher = []
 
           for p in self.gan.d_parameters():
-              self.d_ewc_params += [Variable(p, requires_grad=False)]
-              self.d_ewc_fisher += [Variable(torch.rand(p.shape).cuda(), requires_grad=False)]
+              self.d_ewc_params += [Parameter(p, requires_grad=False)]
+              self.d_ewc_fisher += [Parameter(torch.rand(p.shape).cuda(), requires_grad=False)]
 
           self.g_ewc_params = []
           self.g_ewc_fisher = []
 
           for p in self.gan.g_parameters():
-              self.g_ewc_params += [Variable(p, requires_grad=False)]
-              self.g_ewc_fisher += [Variable(torch.rand(p.shape).cuda(), requires_grad=False)]
+              self.g_ewc_params += [Parameter(p, requires_grad=False)]
+              self.g_ewc_fisher += [Parameter(torch.rand(p.shape).cuda(), requires_grad=False)]
 
           for i, (param, fisher) in enumerate(zip(self.d_ewc_params, self.d_ewc_fisher)):
-              setattr(self, 'd_ewc'+str(i), param)
-              setattr(self, 'd_fisher'+str(i), fisher)
+              self.register_parameter('d_ewc'+str(i), param)
+              self.register_parameter('d_fisher'+str(i), fisher)
 
           for i, (param, fisher) in enumerate(zip(self.g_ewc_params, self.g_ewc_fisher)):
-              setattr(self, 'g_ewc'+str(i), param)
-              setattr(self, 'g_fisher'+str(i), fisher)
+              self.register_parameter('g_ewc'+str(i), param)
+              self.register_parameter('g_fisher'+str(i), fisher)
 
       d_loss = self.gan.trainer.d_loss
       self.d_loss = 0

@@ -135,7 +135,6 @@ class CLI:
 
         while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
             i+=1
-            start_time = time.time()
             self.step()
 
             if (self.args.save_every != None and
@@ -150,7 +149,11 @@ class CLI:
                         the_file.write(str(self.samples)+"\n")
             if self.args.ipython:
                 self.check_stdin()
-            end_time = time.time()
+        print("Done training model.  Saving")
+        self.gan.save(self.save_file)
+        print("============================")
+        print("HyperGAN model trained")
+        print("============================")
 
     def check_stdin(self):
         try:

@@ -18,34 +18,34 @@ class OnlineEWCTrainHook(BaseTrainHook):
       self.g_loss = None
       self.gan = gan
 
+      self.d_ewc_params = []
+      self.d_ewc_fisher = []
+
+      for p in self.gan.d_parameters():
+          self.d_ewc_params += [Parameter(p, requires_grad=False)]
+          self.d_ewc_fisher += [Parameter(torch.rand(p.shape).cuda(), requires_grad=False)]
+
+      self.g_ewc_params = []
+      self.g_ewc_fisher = []
+
+      for p in self.gan.g_parameters():
+          self.g_ewc_params += [Parameter(p, requires_grad=False)]
+          self.g_ewc_fisher += [Parameter(torch.rand(p.shape).cuda(), requires_grad=False)]
+
+      for i, (param, fisher) in enumerate(zip(self.d_ewc_params, self.d_ewc_fisher)):
+          self.register_parameter('d_ewc'+str(i), param)
+          self.register_parameter('d_fisher'+str(i), fisher)
+
+      for i, (param, fisher) in enumerate(zip(self.g_ewc_params, self.g_ewc_fisher)):
+          self.register_parameter('g_ewc'+str(i), param)
+          self.register_parameter('g_fisher'+str(i), fisher)
+
+
 
   def forward(self):
 
       if self.config.skip_after_steps and self.config.skip_after_steps < self.gan.steps:
           return [None, None]
-
-      if not hasattr(self, 'd_ewc_params'):
-          self.d_ewc_params = []
-          self.d_ewc_fisher = []
-
-          for p in self.gan.d_parameters():
-              self.d_ewc_params += [Parameter(p, requires_grad=False)]
-              self.d_ewc_fisher += [Parameter(torch.rand(p.shape).cuda(), requires_grad=False)]
-
-          self.g_ewc_params = []
-          self.g_ewc_fisher = []
-
-          for p in self.gan.g_parameters():
-              self.g_ewc_params += [Parameter(p, requires_grad=False)]
-              self.g_ewc_fisher += [Parameter(torch.rand(p.shape).cuda(), requires_grad=False)]
-
-          for i, (param, fisher) in enumerate(zip(self.d_ewc_params, self.d_ewc_fisher)):
-              self.register_parameter('d_ewc'+str(i), param)
-              self.register_parameter('d_fisher'+str(i), fisher)
-
-          for i, (param, fisher) in enumerate(zip(self.g_ewc_params, self.g_ewc_fisher)):
-              self.register_parameter('g_ewc'+str(i), param)
-              self.register_parameter('g_fisher'+str(i), fisher)
 
       d_loss = self.gan.trainer.d_loss
       self.d_loss = 0

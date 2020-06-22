@@ -15,7 +15,7 @@ class AlignedSampler(BaseSampler):
         return False
 
     def _sample(self):
-        self.inputs = self.gan.inputs.next()
+        #self.inputs = self.gan.inputs.next()
         g = self.gan.generator.forward(self.gan.encoder.forward(self.inputs))
         return [
             ('input', self.inputs),

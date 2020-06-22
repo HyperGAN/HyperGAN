@@ -262,7 +262,7 @@ class ConfigurableComponent(GANComponent):
             padding = options.padding
 
         layer = nn.Conv2d(options.input_channels or self.current_channels, channels, filter, stride, padding = (padding, padding)).cuda()
-        self.last_logit_layer = layer
+        #self.last_logit_layer = layer
         self.current_channels = channels
         if stride > 1:
             self.current_width = self.current_width // stride #TODO
@@ -286,7 +286,7 @@ class ConfigurableComponent(GANComponent):
 
         print("conv start", self.current_width, self.current_height, self.current_channels, stride)
         layers = [nn.Conv1d(options.input_channels or self.current_channels, channels, fltr, stride, padding = padding)]
-        self.last_logit_layer = layers[0]
+        #self.last_logit_layer = layers[0]
         self.current_channels = channels
         if stride > 1:
             self.current_height = self.current_height // stride #TODO
@@ -316,7 +316,7 @@ class ConfigurableComponent(GANComponent):
         print("PADDING", padding)
 
         layers = [nn.Conv3d(options.input_channels or self.current_channels, channels, fltr, stride, padding = padding)]
-        self.last_logit_layer = layers[0]
+        #self.last_logit_layer = layers[0]
         self.current_channels = channels
         if stride[1] > 1 or stride[2] > 1: #TODO
             self.current_width = self.current_width // stride[1] #TODO
@@ -338,7 +338,7 @@ class ConfigurableComponent(GANComponent):
         layers = [
             nn.Linear(options.input_size or self.current_input_size, output_size, bias=bias)
         ]
-        self.last_logit_layer = layers[0]
+        #self.last_logit_layer = layers[0]
         if len(shape) == 3:
             self.current_channels = shape[2]
             self.current_width = shape[0]
@@ -384,7 +384,7 @@ class ConfigurableComponent(GANComponent):
         if options.input_channels:
             input_channels = options.input_channels
 
-        result = ModulatedConv2d(input_channels, channels, filter, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample)
+        result = ModulatedConv2d(input_channels, channels, filter, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample).cuda()
 
         if upsample:
             self.current_width *= 2
@@ -474,7 +474,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_initializer(self, net, args, options):
         print("init layer")
-        layer = self.last_logit_layer.weight.data
+        #layer = self.last_logit_layer.weight.data
         if args[0] == "uniform":
             a = float(args[1])
             b = float(args[2])
@@ -556,7 +556,7 @@ class ConfigurableComponent(GANComponent):
         if options.padding:
             padding = options.padding
         layer = nn.ConvTranspose2d(options.input_channels or self.current_channels, channels, filter, stride, padding).cuda()
-        self.last_logit_layer = layer
+        #self.last_logit_layer = layer
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -590,7 +590,7 @@ class ConfigurableComponent(GANComponent):
         h = options.h or self.current_height * 2
         layers = [nn.Upsample((h, w), mode="bilinear").cuda(),
                 nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1).cuda()]
-        self.last_logit_layer = layers[-1]
+        #self.last_logit_layer = layers[-1]
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -603,7 +603,7 @@ class ConfigurableComponent(GANComponent):
         h = options.h or self.current_height * 2
         layers = [nn.Upsample((h)),
                 nn.Conv1d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
-        self.last_logit_layer = layers[-1]
+        #self.last_logit_layer = layers[-1]
         self.current_channels = channels
         self.current_height = self.current_height * 2 #TODO
         print("Resize", self.current_height, self.current_channels)
@@ -630,7 +630,7 @@ class ConfigurableComponent(GANComponent):
         channels = args[0]
 
         layers = [nn.Conv2d(options.input_channels or self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
-        self.last_logit_layer = layers[0]
+        #self.last_logit_layer = layers[0]
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
         self.current_channels = channels

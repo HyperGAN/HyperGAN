@@ -254,17 +254,17 @@ class Blur(nn.Module):
 
 class ModulatedConv2d(nn.Module):
     def __init__(
-        self,
-        in_channel,
-        out_channel,
-        kernel_size,
-        style_dim,
-        demodulate=True,
-        upsample=True,
-        downsample=False,
-        blur_kernel=[1, 3, 3, 1],
-    ):
-        super().__init__()
+            self,
+            in_channel,
+            out_channel,
+            kernel_size,
+            style_dim,
+            demodulate=True,
+            upsample=True,
+            downsample=False,
+            blur_kernel=[1, 3, 3, 1],
+            ):
+        super(ModulatedConv2d, self).__init__()
 
         self.eps = 1e-8
         self.kernel_size = kernel_size
@@ -293,11 +293,11 @@ class ModulatedConv2d(nn.Module):
         self.scale = 1 / math.sqrt(fan_in)
         self.padding = kernel_size // 2
 
-        self.weight = nn.Parameter(
+        self.mod_weight = nn.Parameter(
             torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
-        ).cuda()
+        )
 
-        self.modulation = EqualLinear(style_dim, in_channel, bias_init=1).cuda()
+        self.modulation = EqualLinear(style_dim, in_channel, bias_init=1)
 
         self.demodulate = demodulate
 
@@ -305,7 +305,7 @@ class ModulatedConv2d(nn.Module):
         batch, in_channel, height, width = input.shape
 
         style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
-        weight = self.scale * self.weight * style
+        weight = self.scale * self.mod_weight * style
 
         if self.demodulate:
             demod = torch.rsqrt(weight.pow(2).sum([2, 3, 4]) + 1e-8)

@@ -262,6 +262,7 @@ class ModulatedConv2d(nn.Module):
             demodulate=True,
             upsample=True,
             downsample=False,
+            lr_mul=1.0,
             blur_kernel=[1, 3, 3, 1],
             ):
         super(ModulatedConv2d, self).__init__()
@@ -297,7 +298,7 @@ class ModulatedConv2d(nn.Module):
             torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
         )
 
-        self.modulation = EqualLinear(style_dim, in_channel, bias_init=1)
+        self.modulation = EqualLinear(style_dim, in_channel, bias_init=1, lr_mul=lr_mul)
 
         self.demodulate = demodulate
 

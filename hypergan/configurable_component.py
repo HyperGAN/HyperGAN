@@ -380,11 +380,14 @@ class ConfigurableComponent(GANComponent):
         if options.filter:
             filter = options.filter
 
+        lr_mul = 1.0
+        if options.lr_mul:
+            lr_mul = options.lr_mul
         input_channels = self.current_channels
         if options.input_channels:
             input_channels = options.input_channels
 
-        result = ModulatedConv2d(input_channels, channels, filter, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample)
+        result = ModulatedConv2d(input_channels, channels, filter, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample, lr_mul=lr_mul)
 
         if upsample:
             self.current_width *= 2

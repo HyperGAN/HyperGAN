@@ -10,7 +10,7 @@ class GradientNormTrainHook(BaseTrainHook):
       super().__init__(config=config, gan=gan, trainer=trainer)
       self.d_loss = None
       self.g_loss = None
-      self.gamma = self.gan.configurable_param(self.config.gamma or 1.0)
+      self.gamma = torch.Tensor([self.config.gamma]).float()[0].cuda()#self.gan.configurable_param(self.config.gamma or 1.0)
       self.relu = torch.nn.ReLU()
 
   def forward(self):

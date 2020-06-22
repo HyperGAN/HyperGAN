@@ -261,7 +261,7 @@ class ConfigurableComponent(GANComponent):
         if options.padding is not None:
             padding = options.padding
 
-        layer = nn.Conv2d(options.input_channels or self.current_channels, channels, filter, stride, padding = (padding, padding)).cuda()
+        layer = nn.Conv2d(options.input_channels or self.current_channels, channels, filter, stride, padding = (padding, padding))
         #self.last_logit_layer = layer
         self.current_channels = channels
         if stride > 1:
@@ -384,7 +384,7 @@ class ConfigurableComponent(GANComponent):
         if options.input_channels:
             input_channels = options.input_channels
 
-        result = ModulatedConv2d(input_channels, channels, filter, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample).cuda()
+        result = ModulatedConv2d(input_channels, channels, filter, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample)
 
         if upsample:
             self.current_width *= 2
@@ -555,7 +555,7 @@ class ConfigurableComponent(GANComponent):
         padding = 1
         if options.padding:
             padding = options.padding
-        layer = nn.ConvTranspose2d(options.input_channels or self.current_channels, channels, filter, stride, padding).cuda()
+        layer = nn.ConvTranspose2d(options.input_channels or self.current_channels, channels, filter, stride, padding)
         #self.last_logit_layer = layer
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
@@ -588,13 +588,13 @@ class ConfigurableComponent(GANComponent):
 
         w = options.w or self.current_width * 2
         h = options.h or self.current_height * 2
-        layers = [nn.Upsample((h, w), mode="bilinear").cuda(),
-                nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1).cuda()]
+        layers = [nn.Upsample((h, w), mode="bilinear"),
+                nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
         #self.last_logit_layer = layers[-1]
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
-        return nn.Sequential(*layers).cuda()
+        return nn.Sequential(*layers)
 
     def layer_resize_conv1d(self, net, args, options):
         options = hc.Config(options)

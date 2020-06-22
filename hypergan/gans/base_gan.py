@@ -99,9 +99,9 @@ class BaseGAN():
             raise ValidationException("Component definition is missing '" + name + "'")
         klass = GANComponent.lookup_function(None, defn['class'])
         gan_component = klass(self, defn, *args, **kw_args)
-        self.add_component(name, gan_component)
         if(isinstance(gan_component, nn.Module)):
-            gan_component.cuda()
+            gan_component = gan_component.cuda()
+        self.add_component(name, gan_component)
         return gan_component
 
     def create(self):

@@ -664,7 +664,10 @@ class ConfigurableComponent(GANComponent):
         layers = []
         layer_names = []
         for arg in args:
-            if arg == 'noise':
+            if arg == 'self':
+                layers.append(None)
+                layer_names.append("self")
+            elif arg == 'noise':
                 layers.append(LearnedNoise())
                 layer_names.append(None)
             elif arg in self.named_layers:

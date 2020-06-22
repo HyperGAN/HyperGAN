@@ -7,11 +7,16 @@ class Add(nn.Module):
         self.layer_names = layer_names
 
     def forward(self, net, context):
-        output = net
+        output = None
         for layer, layer_name in zip(self.layers, self.layer_names):
             if layer_name == "modulated_conv2d":
                 layer_output = layer(net, context['w'])
+            elif layer_name == "self":
+                layer_output = net
             else:
                 layer_output = layer(net)
-            output = output + layer_output
+            if output is None:
+                output = layer_output
+            else:
+                output = output + layer_output
         return output

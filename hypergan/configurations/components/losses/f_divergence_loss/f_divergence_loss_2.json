@@ -51,12 +51,12 @@
     },
     "hooks": [
       {
-        "class": "class:hypergan.train_hooks.gradient_norm_train_hook.GradientNormTrainHook",
+        "class": "class:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
         "gamma": 1e8,
         "loss": ["g"]
       },
       {
-        "class": "class:hypergan.train_hooks.gradient_norm_train_hook.GradientNormTrainHook",
+        "class": "class:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
         "gamma": 100,
         "loss": ["d"]
       }

@@ -129,12 +129,12 @@ class ConfigurableGAN(BaseGAN):
             'sample': [sum([l.sample[0] for l in losses]), sum([l.sample[1] for l in losses])]
             })
 
-    def regularize_gradient_norm(self):
+    def regularize_adversarial_norm(self):
         x = Variable(self.x, requires_grad=True).cuda()
         d1_logits = self.discriminator(x)
         d2_logits = self.d_fake
 
-        loss = loss.forward_gradient_norm(d1_logits, d2_logits)
+        loss = loss.forward_adversarial_norm(d1_logits, d2_logits)
 
         if loss == 0:
             return [None, None]

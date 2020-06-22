@@ -29,7 +29,7 @@ class MatchSupportTrainHook(BaseTrainHook):
             self.optimizer.zero_grad()
             fake = self.gan.discriminator(self.gan.generator(self.gan.latent.instance)).mean()
             real = self.gan.discriminator(self.gan.inputs.sample).mean()
-            loss = self.gan.loss.forward_gradient_norm(real, fake)
+            loss = self.gan.loss.forward_adversarial_norm(real, fake)
             if loss == 0.0:
                 if self.config.verbose:
                     print("[match support] No loss")

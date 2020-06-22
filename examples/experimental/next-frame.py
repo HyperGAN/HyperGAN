@@ -598,14 +598,14 @@ class NextFrameGAN(BaseGAN):
             for param in self.image_discriminator.parameters():
                 yield param
 
-    def regularize_gradient_norm(self):
+    def regularize_adversarial_norm(self):
         loss = torch.Tensor([0.0]).cuda()
         inputs = []
         if self.config.discriminator:
             x = Variable(self.x, requires_grad=True).cuda()
             d1_logits = self.discriminator(x, context={"c":self.c})
             d2_logits = self.od_fake
-            d_loss = self.loss.forward_gradient_norm(d1_logits, d2_logits)
+            d_loss = self.loss.forward_adversarial_norm(d1_logits, d2_logits)
             inputs.append(x)
             loss += d_loss
 
@@ -614,7 +614,7 @@ class NextFrameGAN(BaseGAN):
             cs = Variable(self.cs_cat, requires_grad=True).cuda()
             d1_logits = self.video_discriminator(cs)
             d2_logits = self.vd_fake
-            v_loss = self.loss.forward_gradient_norm(d1_logits, d2_logits)
+            v_loss = self.loss.forward_adversarial_norm(d1_logits, d2_logits)
             inputs.append(cs)
             loss += v_loss
 
@@ -622,7 +622,7 @@ class NextFrameGAN(BaseGAN):
             ix = Variable(self.ix, requires_grad=True).cuda()
             d1_logits = self.image_discriminator(ix, context={"c":self.cs[-2]})
             d2_logits = self.id_fake
-            i_loss = self.loss.forward_gradient_norm(d1_logits, d2_logits)
+            i_loss = self.loss.forward_adversarial_norm(d1_logits, d2_logits)
             inputs.append(ix)
             loss += i_loss
 
@@ -630,7 +630,7 @@ class NextFrameGAN(BaseGAN):
             c = Variable(self.c_real, requires_grad=True).cuda()
             cd1_logits = self.c_discriminator(c)
             cd2_logits = self.cd_fake
-            c_loss = self.loss.forward_gradient_norm(cd1_logits, cd2_logits)
+            c_loss = self.loss.forward_adversarial_norm(cd1_logits, cd2_logits)
             inputs.append(c)
             loss += c_loss
 

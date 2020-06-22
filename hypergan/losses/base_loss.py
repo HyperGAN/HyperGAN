@@ -18,5 +18,5 @@ class BaseLoss(GANComponent):
 
         return d_loss, g_loss
 
-    def forward_gradient_norm(self, d_real, d_fake):
+    def forward_adversarial_norm(self, d_real, d_fake):
         return self.relu(d_real.mean() - d_fake.mean()) ** 2

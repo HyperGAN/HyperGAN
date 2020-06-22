@@ -111,8 +111,8 @@ class ConjectureTrainHook(BaseTrainHook):
       #d_params = self.gan.d_vars()
       #g_params = self.gan.g_vars()
       if self.config.locally_stable:
-          d_gradient_norm_sq = tf.square(tf.global_norm(tf.gradients(g_loss, d_params)))
-          self.d_loss = self.config.locally_stable_gamma * d_gradient_norm_sq
+          d_adversarial_norm_sq = tf.square(tf.global_norm(tf.gradients(g_loss, d_params)))
+          self.d_loss = self.config.locally_stable_gamma * d_adversarial_norm_sq
           self.gan.add_metric('locally_stable', self.d_loss)
 
       return [self.d_loss, self.g_loss]

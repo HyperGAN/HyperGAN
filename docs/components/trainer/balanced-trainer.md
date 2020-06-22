@@ -31,7 +31,7 @@ else:
   },
   "hooks": [
     {
-      "class": "function:hypergan.train_hooks.gradient_norm_train_hook.GradientNormTrainHook",
+      "class": "function:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
       "gamma": 2e4,
       "loss": ["d"]
     },

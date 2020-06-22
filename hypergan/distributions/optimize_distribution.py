@@ -41,7 +41,7 @@ class OptimizeDistribution(BaseDistribution):
             self.optimizer.zero_grad()
             fake = self.gan.discriminator(self.gan.generator(self.hardtanh(z))).mean()
             real = self.gan.discriminator(self.gan.inputs.sample).mean()
-            loss = self.gan.loss.forward_gradient_norm(real, fake)
+            loss = self.gan.loss.forward_adversarial_norm(real, fake)
             if loss == 0.0:
                 if self.config.verbose:
                     print("[optimize distribution] No loss")

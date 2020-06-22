@@ -45,6 +45,8 @@ class StandardGAN(BaseGAN):
         self.trainer = None
         self.features = []
         BaseGAN.__init__(self, *args, **kwargs)
+        self.x = self.inputs.next()
+        self.x_norm = Variable(self.x, requires_grad=True).cuda()
 
     def required(self):
         return "generator".split()
@@ -84,8 +86,8 @@ class StandardGAN(BaseGAN):
         return self.discriminator.parameters()
 
     def regularize_gradient_norm(self):
-        x = Variable(self.x, requires_grad=True).cuda()
-        d1_logits = self.discriminator(x)
+        self.x_norm.data = self.x.data.clone()
+        d1_logits = self.discriminator(self.x_norm)
         d2_logits = self.d_fake
 
         loss = self.loss.forward_gradient_norm(d1_logits, d2_logits)
@@ -93,10 +95,10 @@ class StandardGAN(BaseGAN):
         if loss == 0:
             return [None, None]
 
-        d1_grads = torch_grad(outputs=loss, inputs=x, retain_graph=True, create_graph=True)
-        d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
-
-        reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
-        reg_d1 = sum(reg_d1)
+        d1_grads = torch_grad(outputs=loss, inputs=self.x_norm, retain_graph=True, create_graph=True)
+        d1_norm = [torch.norm(_d1_grads.view(-1),p=2,dim=0) for _d1_grads in d1_grads]
+        reg_d1 = d1_norm[0]
+        for d1 in d1_norm[1:]:
+            reg_d1 = reg_d1 + d1
 
         return loss, reg_d1

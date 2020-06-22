@@ -663,7 +663,16 @@ class ConfigurableComponent(GANComponent):
         options = hc.Config(options)
         layers = []
         layer_names = []
+        current_width = self.current_width
+        current_height = self.current_height
+        current_channels = self.current_channels
+        current_input_size = self.current_input_size
+
         for arg in args:
+            self.current_width = current_width
+            self.current_height = current_height
+            self.current_channels = current_channels
+            self.current_input_size = current_input_size
             if arg == 'self':
                 layers.append(None)
                 layer_names.append("self")

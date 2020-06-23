@@ -24,6 +24,8 @@ arg_parser.parser.add_argument('--contour_size', '-cs', type=int, default=128, h
 arg_parser.parser.add_argument('--sample_points', '-p', type=int, default=512, help='number of scatter points to plot.  must be a multiple of batch_size')
 args = arg_parser.parse_args()
 
+config_filename = args.config
+
 class Custom2DInputDistribution:
     def __init__(self, config):
         self.config = hc.Config(config)
@@ -169,18 +171,68 @@ class Custom2DSampler(BaseSampler):
 
 config = lookup_config(args)
 if args.action == 'search':
+    config_filename = "2d-measure-accuracy-"+str(uuid.uuid4())+'.json'
     config = hc.Config(json.loads(open(os.getcwd()+'/randomsearch.json', 'r').read()))
+    config.trainer["optimizer"] = random.choice([{
+        "class": "class:hypergan.optimizers.adamirror.Adamirror",
+        "lr": random.choice(list(np.linspace(0.0001, 0.002, num=1000))),
+        "betas":[random.choice([0.1, 0.9, 0.9074537537537538, 0.99, 0.999]),random.choice([0,0.9,0.997])]
+    },{
+        "class": "class:torch.optim.RMSprop",
+        "lr": random.choice([1e-3, 1e-4, 5e-4, 3e-3]),
+        "alpha": random.choice([0.9, 0.99, 0.999]),
+        "eps": random.choice([1e-8, 1e-13]),
+        "weight_decay": random.choice([0, 1e-2]),
+        "momentum": random.choice([0, 0.1, 0.9]),
+        "centered": random.choice([False, True])
+    },
+    {
+
+        "class": "class:torch.optim.Adam",
+        "lr": 1e-3,
+        "betas":[random.choice([0.1, 0.9, 0.9074537537537538, 0.99, 0.999]),random.choice([0,0.9,0.997])],
+        "eps": random.choice([1e-8, 1e-13]),
+        "weight_decay": random.choice([0, 1e-2]),
+        "amsgrad": random.choice([False, True])
+        }
+
+    ])
+
+    config.trainer["hooks"].append(
+      {
+        "class": "function:hypergan.train_hooks.gradient_norm_train_hook.GradientNormTrainHook",
+        "gamma": random.choice([1, 10, 1e-1, 100]),
+        "loss": ["d"]
+      })
+
+    config.trainer["hooks"].append(
+    {
+      "class": "function:hypergan.train_hooks.online_ewc_train_hook.OnlineEWCTrainHook",
+      "gamma": random.choice([0.5, 0.1, 0.9, 0.7]),
+      "mean_decay": random.choice([0.9, 0.5, 0.99, 0.999, 0.1]),
+      "skip_after_steps": random.choice([2000, 1000, 500]),
+      "beta": random.choice([1e3, 1e4, 1e5, 1e2])
+    })
+
+    if(random.choice([False, True])):
+        config.trainer["hooks"].append(
+          {
+
+            "class": "function:hypergan.train_hooks.extragradient_train_hook.ExtragradientTrainHook",
+            "formulation": "agree"
+          }
+        )
+
 
 def train(config, args):
-    title = "[hypergan] 2d-test " + args.config
-    GlobalViewer.title = title
-    GlobalViewer.enabled = args.viewer
+    title = "[hypergan] 2d-test " + config_filename
+    GlobalViewer.set_options(enabled = args.viewer, title = title, viewer_size=1)
     print("ARGS", args)
 
     gan = hg.GAN(config, inputs = Custom2DInputDistribution({
         "batch_size": args.batch_size
         }))
-    gan.name = args.config
+    gan.name = config_filename
 
     accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(), gan.generator(gan.latent.sample()))
     accuracy_g_to_x=lambda: distribution_accuracy(gan.generator(gan.latent.sample()), gan.inputs.next())
@@ -190,7 +242,7 @@ def train(config, args):
 
     samples = 0
     steps = args.steps
-    sample_file = "samples/"+args.config+"/000000.png"
+    sample_file = "samples/"+config_filename+"/000000.png"
     os.makedirs(os.path.expanduser(os.path.dirname(sample_file)), exist_ok=True)
     sampler.sample(sample_file, args.save_samples)
 
@@ -202,18 +254,17 @@ def train(config, args):
         if args.viewer and i % args.sample_every == 0:
             samples += 1
             print("Sampling "+str(samples))
-            sample_file="samples/"+args.config+"/%06d.png" % (samples)
+            sample_file="samples/"+config_filename+"/%06d.png" % (samples)
             sampler.sample(sample_file, args.save_samples)
 
         if i > steps * 9.0/10:
             for k, metric in enumerate(metrics):
-                sum_metrics[k] += metric()
+                sum_metrics[k] += metric().cpu().detach().numpy()
 
     return sum_metrics
 
 if args.action == 'train':
     metrics = train(config, args)
-    GlobalViewer.close()
     print("Resulting metrics:", metrics)
 elif args.action == 'search':
     metric_sum = train(config, args)
@@ -222,7 +273,6 @@ elif args.action == 'search':
     else:
         search_output = "2d-test-results.csv"
 
-    config_filename = "2d-measure-accuracy-"+str(uuid.uuid4())+'.json'
     hc.Selector().save(config_filename, config)
     with open(search_output, "a") as myfile:
         total = sum(metric_sum)
@@ -230,3 +280,4 @@ elif args.action == 'search':
 else:
     print("Unknown action: "+args.action)
 
+GlobalViewer.close()

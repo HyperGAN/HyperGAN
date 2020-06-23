@@ -43,6 +43,7 @@ class BaseTrainer(GANComponent):
 
     def create_optimizer(self, name="optimizer"):
         defn = getattr(self.config, name) or self.config.optimizer
+        defn = defn.copy()
         klass = GANComponent.lookup_function(None, defn['class'])
         del defn["class"]
         optimizer = klass(self.gan.parameters(), **defn)

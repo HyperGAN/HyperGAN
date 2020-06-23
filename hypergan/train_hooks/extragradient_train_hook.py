@@ -3,8 +3,8 @@ from torch.autograd import grad as torch_grad
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class ExtragradientTrainHook(BaseTrainHook):
-    def __init__(self, gan=None, config=None, trainer=None):
-        super().__init__(config=config, gan=gan, trainer=trainer)
+    def __init__(self, gan=None, config=None):
+        super().__init__(config=config, gan=gan)
         self.relu = torch.nn.ReLU()
 
     def gradients(self, d_grads, g_grads):
@@ -20,7 +20,7 @@ class ExtragradientTrainHook(BaseTrainHook):
         g_grads_v1 = [g.clone() for g in g_grads]
 
         self.step(d_grads_v1, g_grads_v1, step_size)
-        d_grads_v2, g_grads_v2 = self.trainer.calculate_gradients()
+        d_grads_v2, g_grads_v2 = self.gan.trainer.calculate_gradients()
         self.step([-g for g in d_grads_v1], [-g for g in g_grads_v1], step_size)
 
 

@@ -7,8 +7,6 @@ from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
 from hypergan.trainers import *
-from torch.autograd import Variable
-from torch.autograd import grad as torch_grad
 import copy
 import hyperchamber as hc
 import hypergan as hg
@@ -45,6 +43,7 @@ class StandardGAN(BaseGAN):
         self.trainer = None
         self.features = []
         BaseGAN.__init__(self, *args, **kwargs)
+        self.x = self.inputs.next()
 
     def required(self):
         return "generator".split()
@@ -58,13 +57,15 @@ class StandardGAN(BaseGAN):
         self.loss = self.create_component("loss")
         self.trainer = self.create_component("trainer")
 
-    def forward_discriminator(self):
+    def forward_discriminator(self, inputs):
+        return self.discriminator(inputs[0])
+
+    def forward_pass(self):
         self.x = self.inputs.next()
         g = self.generator(self.latent.next())
         self.g = g
-        D = self.discriminator
-        d_real = D(self.x)
-        d_fake = D(g)
+        d_real = self.forward_discriminator([self.x])
+        d_fake = self.forward_discriminator([g])
         self.d_fake = d_fake
         self.d_real = d_real
         return d_real, d_fake
@@ -85,17 +86,12 @@ class StandardGAN(BaseGAN):
     def d_parameters(self):
         return self.discriminator.parameters()
 
-    def regularize_adversarial_norm(self, d1_logits, d2_logits, target):
+    def discriminator_fake_inputs(self, discriminator_index=0):
+        return [self.g]
 
-        loss = self.loss.forward_adversarial_norm(d1_logits, d2_logits)
+    def discriminator_real_inputs(self, discriminator_index=0):
+        if hasattr(self, 'x'):
+            return [self.x]
+        else:
+            return [self.inputs.next()]
 
-        if loss == 0:
-            return [None, None]
-
-        d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
-        d1_norm = [torch.norm(_d1_grads.view(-1),p=2,dim=0) for _d1_grads in d1_grads]
-        reg_d1 = d1_norm[0]
-        for d1 in d1_norm[1:]:
-            reg_d1 = reg_d1 + d1
-
-        return loss, reg_d1

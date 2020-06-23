@@ -18,7 +18,7 @@ class BalancedTrainer(AlternatingTrainer):
         self.last_d_fake = None
 
     def calculate_gradients(self):
-        d_real, d_fake = self.gan.forward_discriminator()
+        d_real, d_fake = self.gan.forward_pass()
         self.add_metric("R", d_real.mean())
         self.add_metric("F", d_fake.mean())
 

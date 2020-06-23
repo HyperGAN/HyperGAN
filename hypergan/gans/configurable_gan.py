@@ -110,7 +110,7 @@ class ConfigurableGAN(BaseGAN):
         slider = tf.constant(0.0, name='slider', dtype=tf.float32) * 1.00
         return direction, slider
 
-    def forward_discriminator(self):
+    def forward_pass(self):
         d_reals = []
         d_fakes = []
         for terms in d_terms:

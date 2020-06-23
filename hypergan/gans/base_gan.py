@@ -107,22 +107,42 @@ class BaseGAN():
     def create(self):
         print("Warning: BaseGAN.create() called directly.  Please override")
 
-    def forward_discriminator(self):
+    def discriminator_fake_inputs(self, discriminator_index=0):
         """
-            Runs a forward pass through the GAN and returns (d_real, d_fake)
+            Fake inputs to the discriminator, should be cached
+        """
+        []
+
+    def discriminator_real_inputs(self, discriminator_index=0):
+        """
+            Real inputs to the discriminator, should be cached
+        """
+        []
+
+    def forward_discriminator(self, inputs, discriminator_index=0):
+        """
+            Runs a forward pass through the discriminator and returns the discriminator output
         """
         print("Warning: BaseGAN.forward_discriminator() called directly.  Please override")
-        return None, None
+        return None
 
     def forward_loss(self):
         """
             Runs a forward pass through the GAN and returns (d_loss, g_loss)
         """
-        d_real, d_fake = self.forward_discriminator()
+        d_real, d_fake = self.forward_pass()
         return self.loss.forward(d_real, d_fake)
+
+    def forward_pass(self):
+        """
+            Runs a forward pass through the GAN and returns (d_real, d_fake)
+        """
+        print("Warning: BaseGAN.forward_pass() called directly.  Please override")
+        return None, None
 
     def step(self, feed_dict={}):
         self.steps += 1
+        self._metrics = {}
         return self._step(feed_dict)
 
     def _step(self, feed_dict={}):

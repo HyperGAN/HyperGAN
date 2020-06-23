@@ -181,7 +181,7 @@ class NextFrameGAN(BaseGAN):
         self.loss = self.create_component("loss")
         self.trainer = self.create_component("trainer")
 
-    def forward_discriminator(self, frames, x, cs, gs, gcs, rgs, rcs):
+    def forward_pass(self, frames, x, cs, gs, gcs, rgs, rcs):
         d_fakes = []
 
         D = self.discriminator
@@ -331,7 +331,7 @@ class NextFrameGAN(BaseGAN):
                 self.x = torch.cat([x[:, :, None, :, :] for x in current_inputs], dim=2)
             else:
                 self.x = torch.cat(current_inputs, dim=1)
-            d_real, d_fake = self.forward_discriminator(current_inputs, self.x, cs, gs, gcs, rgs, rcs)
+            d_real, d_fake = self.forward_pass(current_inputs, self.x, cs, gs, gcs, rgs, rcs)
             self.od_fake = d_fake
             _d_loss, _g_loss = self.loss.forward(d_real, d_fake)
             d_loss += _d_loss

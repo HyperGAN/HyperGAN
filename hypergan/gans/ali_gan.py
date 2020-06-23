@@ -56,7 +56,7 @@ class AliGAN(BaseGAN):
     def d_parameters(self):
         return self.discriminator.parameters()
 
-    def forward_discriminator(self):
+    def forward_pass(self):
         E = self.encoder
         G = self.generator
         D = self.discriminator
@@ -111,7 +111,7 @@ class AliGAN(BaseGAN):
         """
             Runs a forward pass through the GAN and returns (d_loss, g_loss)
         """
-        d_real, d_fake = self.forward_discriminator()
+        d_real, d_fake = self.forward_pass()
         d_loss, g_loss = self.loss.forward(d_real, d_fake)
         mse_criterion = nn.MSELoss()
         if self.config.vae:

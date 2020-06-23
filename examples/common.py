@@ -1,8 +1,9 @@
 import argparse
-import hypergan as hg
 import hyperchamber as hc
+import hypergan as hg
 import numpy as np
 import random
+import torch
 
 from hypergan.cli import CLI
 from hypergan.gan_component import GANComponent
@@ -70,19 +71,15 @@ def distribution_accuracy(a, b):
     Each point of a is measured against the closest point on b.  Distance differences are added together.  
     
     This works best on a large batch of small inputs."""
-    tiled_a = a
-    tiled_a = tf.reshape(tiled_a, [int(tiled_a.get_shape()[0]), 1, int(tiled_a.get_shape()[1])])
 
-    tiled_a = tf.tile(tiled_a, [1, int(tiled_a.get_shape()[0]), 1])
+    shape = a.shape
+    tiled_a = a.view(shape[0], 1, shape[1]).repeat(1, shape[0], 1)
+    tiled_b = b.view(1, shape[0], shape[1]).repeat(shape[0], 1, 1)
 
-    tiled_b = b
-    tiled_b = tf.reshape(tiled_b, [1, int(tiled_b.get_shape()[0]), int(tiled_b.get_shape()[1])])
-    tiled_b = tf.tile(tiled_b, [int(tiled_b.get_shape()[0]), 1, 1])
-
-    difference = tf.abs(tiled_a-tiled_b)
-    difference = tf.reduce_min(difference, axis=1)
-    difference = tf.reduce_sum(difference, axis=1)
-    return tf.reduce_sum(difference, axis=0) 
+    difference = torch.abs(tiled_a-tiled_b)
+    difference = torch.min(difference, dim=1)[0]
+    difference = torch.sum(difference, dim=1)
+    return torch.sum(difference, dim=0)
 
 def batch_accuracy(a, b):
     "Difference from a to b.  Meant for reconstruction measurements."

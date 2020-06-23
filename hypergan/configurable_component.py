@@ -236,7 +236,10 @@ class ConfigurableComponent(GANComponent):
         return NoOp()
 
     def layer_equal_linear(self, net, args, options):
-        result = EqualLinear(self.current_input_size,args[0])
+        lr_mul = 1
+        if options.lr_mul is not None:
+            lr_mul = options.lr_mul
+        result = EqualLinear(self.current_input_size,args[0], lr_mul=lr_mul)
         self.current_input_size = args[0]
         return result
 
@@ -773,7 +776,7 @@ class ConfigurableComponent(GANComponent):
     #        print("Warning: only 'concat noise' and 'concat layer' is supported for now.")
 
     def layer_adaptive_instance_norm(self, net, args, options):
-        return AdaptiveInstanceNorm(self.adaptive_instance_norm_size, self.current_channels)
+        return AdaptiveInstanceNorm(self.adaptive_instance_norm_size, self.current_channels, equal_linear=options.equal_linear)
 
     def forward(self, input, context={}):
         self.context = context

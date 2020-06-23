@@ -1,10 +1,16 @@
 import torch.nn as nn
 
+from hypergan.modules.modulated_conv2d import EqualLinear
+
 class AdaptiveInstanceNorm(nn.Module):
-    def __init__(self, style_size, content_size):
+    def __init__(self, style_size, content_size, equal_linear=False):
         super(AdaptiveInstanceNorm, self).__init__()
-        self.gamma = nn.Linear(style_size, content_size)
-        self.beta = nn.Linear(style_size, content_size)
+        if equal_linear:
+            self.gamma = EqualLinear(style_size, content_size)
+            self.beta = EqualLinear(style_size, content_size)
+        else:
+            self.gamma = nn.Linear(style_size, content_size)
+            self.beta = nn.Linear(style_size, content_size)
 
     def calc_mean_std(self, feat, eps=1e-5):
         size = feat.size()

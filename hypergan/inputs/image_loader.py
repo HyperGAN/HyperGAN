@@ -13,6 +13,8 @@ class ImageLoader:
 
     def __init__(self, config):
         self.config = config
+        self.multiple = torch.Tensor([2.0]).float()[0].cuda()
+        self.offset = torch.Tensor([-1.0]).float()[0].cuda()
         self.datasets = []
         transform_list = []
         h, w = self.config.height, self.config.width
@@ -61,7 +63,7 @@ class ImageLoader:
             self.sample = torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
             return self.sample
         try:
-            self.sample = self.datasets[index].next()[0].cuda() * 2.0 - 1.0
+            self.sample = self.datasets[index].next()[0].cuda() * self.multiple + self.offset
             return self.sample
         except StopIteration:
             self.datasets[index] = iter(self.dataloaders[index])

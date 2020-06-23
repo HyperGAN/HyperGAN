@@ -22,6 +22,7 @@ from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur, EqualLinear
 from hypergan.modules.reshape import Reshape
 from hypergan.modules.no_op import NoOp
 from hypergan.modules.residual import Residual
+from hypergan.modules.scaled_conv2d import ScaledConv2d
 from hypergan.modules.variational import Variational
 from hypergan.modules.pixel_norm import PixelNorm
 
@@ -84,6 +85,7 @@ class ConfigurableComponent(GANComponent):
             "resize_conv": self.layer_resize_conv,
             "resize_conv2d": self.layer_resize_conv2d,
             "resize_conv1d": self.layer_resize_conv1d,
+            "scaled_conv2d": self.layer_scaled_conv2d,
             "split": self.layer_split,
             "subpixel": self.layer_subpixel,
             "upsample": self.layer_upsample,
@@ -611,6 +613,47 @@ class ConfigurableComponent(GANComponent):
         self.current_height = self.current_height * 2 #TODO
         print("Resize", self.current_height, self.current_channels)
         return nn.Sequential(*layers)
+
+    def layer_scaled_conv2d(self, net, args, options):
+        channels = self.current_channels
+        if len(args) > 0:
+            channels = args[0]
+        method = "conv"
+        if len(args) > 1:
+            method = args[1]
+        upsample = method == "upsample"
+        downsample = method == "downsample"
+
+        demodulate = True
+        if options.demodulate == False:
+            demodulate = False
+
+        filter = 3
+        if options.filter:
+            filter = options.filter
+
+        lr_mul = 1.0
+        if options.lr_mul:
+            lr_mul = options.lr_mul
+        input_channels = self.current_channels
+        if options.input_channels:
+            input_channels = options.input_channels
+
+        result = ScaledConv2d(input_channels, channels, filter, 0, upsample=upsample, demodulate=demodulate, downsample=downsample, lr_mul=lr_mul)
+
+        if upsample:
+            self.current_width *= 2
+            self.current_height *= 2
+        elif downsample:
+            self.current_width //= 2
+            self.current_height //= 2
+        self.current_channels = channels
+        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        return result
+
+
+
+
 
     def layer_split(self, net, args, options):
         options = hc.Config(options)

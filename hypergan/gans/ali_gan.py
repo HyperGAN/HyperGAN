@@ -139,31 +139,3 @@ class AliGAN(BaseGAN):
 
         return d_loss, g_loss
 
-
-    def regularize_adversarial_norm(self):
-        x = Variable(self.x, requires_grad=True).cuda()
-        if self.config.norm_z:
-            z = Variable(self.z, requires_grad=True).cuda()
-            d1_logits = self.discriminator(x, context={"z":z})
-        else:
-            #z = Variable(self.z, requires_grad=True).cuda()
-            d1_logits = self.discriminator(x, context={"z":self.z})
-        d2_logits = self.d_fake
-
-        loss = self.loss.forward_adversarial_norm(d1_logits, d2_logits)
-
-        if loss == 0:
-            return [None, None]
-
-        if self.config.norm_z:
-            d1_grads = torch_grad(outputs=loss, inputs=(x, z), create_graph=True)
-            d1_norm = [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
-            reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
-            reg_d1 = sum(reg_d1)
-        else:
-            d1_grads = torch_grad(outputs=loss, inputs=x, create_graph=True)
-            d1_norm = [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
-            reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
-            reg_d1 = sum(reg_d1)
-
-        return loss, reg_d1

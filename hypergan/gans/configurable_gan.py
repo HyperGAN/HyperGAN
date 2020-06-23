@@ -129,24 +129,6 @@ class ConfigurableGAN(BaseGAN):
             'sample': [sum([l.sample[0] for l in losses]), sum([l.sample[1] for l in losses])]
             })
 
-    def regularize_adversarial_norm(self):
-        x = Variable(self.x, requires_grad=True).cuda()
-        d1_logits = self.discriminator(x)
-        d2_logits = self.d_fake
-
-        loss = loss.forward_adversarial_norm(d1_logits, d2_logits)
-
-        if loss == 0:
-            return [None, None]
-
-        d1_grads = torch_grad(outputs=loss, inputs=x, retain_graph=True, create_graph=True)
-        d1_norm = [torch.norm(_d1_grads.view(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
-
-        reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
-        reg_d1 = sum(reg_d1)
-
-        return loss, reg_d1
-
     def g_parameters(self):
         params = []
         for d_terms in self.d_terms:

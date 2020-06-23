@@ -598,49 +598,6 @@ class NextFrameGAN(BaseGAN):
             for param in self.image_discriminator.parameters():
                 yield param
 
-    def regularize_adversarial_norm(self):
-        loss = torch.Tensor([0.0]).cuda()
-        inputs = []
-        if self.config.discriminator:
-            x = Variable(self.x, requires_grad=True).cuda()
-            d1_logits = self.discriminator(x, context={"c":self.c})
-            d2_logits = self.od_fake
-            d_loss = self.loss.forward_adversarial_norm(d1_logits, d2_logits)
-            inputs.append(x)
-            loss += d_loss
-
-        if self.config.video_discriminator:
-            #cs = self.cs_cat#Variable(self.cs_cat, requires_grad=True).cuda()
-            cs = Variable(self.cs_cat, requires_grad=True).cuda()
-            d1_logits = self.video_discriminator(cs)
-            d2_logits = self.vd_fake
-            v_loss = self.loss.forward_adversarial_norm(d1_logits, d2_logits)
-            inputs.append(cs)
-            loss += v_loss
-
-        if self.config.image_discriminator:
-            ix = Variable(self.ix, requires_grad=True).cuda()
-            d1_logits = self.image_discriminator(ix, context={"c":self.cs[-2]})
-            d2_logits = self.id_fake
-            i_loss = self.loss.forward_adversarial_norm(d1_logits, d2_logits)
-            inputs.append(ix)
-            loss += i_loss
-
-        if self.config.c_discriminator:
-            c = Variable(self.c_real, requires_grad=True).cuda()
-            cd1_logits = self.c_discriminator(c)
-            cd2_logits = self.cd_fake
-            c_loss = self.loss.forward_adversarial_norm(cd1_logits, cd2_logits)
-            inputs.append(c)
-            loss += c_loss
-
-        d1_grads = torch_grad(outputs=loss, inputs=inputs, create_graph=True)
-        d1_norm = [torch.norm(_d1_grads.reshape(-1).cuda(),p=2,dim=0) for _d1_grads in d1_grads]
-        reg_d1 = [((_d1_norm**2).cuda()) for _d1_norm in d1_norm]
-        reg_d1 = sum(reg_d1)
-
-        return loss, reg_d1
-
 class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         BaseSampler.__init__(self, gan, samples_per_row)

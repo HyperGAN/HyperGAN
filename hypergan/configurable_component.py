@@ -595,6 +595,7 @@ class ConfigurableComponent(GANComponent):
             input_channels = options.input_channels
 
         result = ScaledConv2d(input_channels, channels, filter, 0, upsample=upsample, demodulate=demodulate, downsample=downsample, lr_mul=lr_mul)
+        self.nn_init(result, options.initializer)
 
         if upsample:
             self.current_width *= 2

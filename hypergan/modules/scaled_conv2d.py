@@ -24,13 +24,13 @@ class ScaledConv2d(nn.Module):
         fan_in = in_channel * kernel_size ** 2
         self.scale = 1 / math.sqrt(fan_in)
         self.padding = kernel_size // 2
-        self.mod_weight = nn.Parameter(
+        self.weight = nn.Parameter(
             torch.randn(out_channel, in_channel, kernel_size, kernel_size)
         )
 
     def forward(self, input):
         batch, in_channel, height, width = input.shape
-        weight = self.scale * self.mod_weight
+        weight = self.scale * self.weight
         out = F.conv2d(input, weight, padding=self.padding)
 
         return out

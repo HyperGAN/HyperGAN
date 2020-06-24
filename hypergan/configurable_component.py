@@ -67,7 +67,6 @@ class ConfigurableComponent(GANComponent):
             "equal_linear": self.layer_equal_linear,
             "flatten": nn.Flatten(),
             "identity": self.layer_identity,
-            "initializer": self.layer_initializer,
             "instance_norm": self.layer_instance_norm,
             "instance_norm1d": self.layer_instance_norm1d,
             "instance_norm3d": self.layer_instance_norm3d,
@@ -267,7 +266,7 @@ class ConfigurableComponent(GANComponent):
             padding = options.padding
 
         layer = nn.Conv2d(options.input_channels or self.current_channels, channels, filter, stride, padding = (padding, padding))
-        #self.last_logit_layer = layer
+        self.nn_init(layer, options.initializer)
         self.current_channels = channels
         if stride > 1:
             self.current_width = self.current_width // stride #TODO
@@ -291,7 +290,7 @@ class ConfigurableComponent(GANComponent):
 
         print("conv start", self.current_width, self.current_height, self.current_channels, stride)
         layers = [nn.Conv1d(options.input_channels or self.current_channels, channels, fltr, stride, padding = padding)]
-        #self.last_logit_layer = layers[0]
+        self.nn_init(layer, options.initializer)
         self.current_channels = channels
         if stride > 1:
             self.current_height = self.current_height // stride #TODO
@@ -321,7 +320,7 @@ class ConfigurableComponent(GANComponent):
         print("PADDING", padding)
 
         layers = [nn.Conv3d(options.input_channels or self.current_channels, channels, fltr, stride, padding = padding)]
-        #self.last_logit_layer = layers[0]
+        self.nn_init(layer, options.initializer)
         self.current_channels = channels
         if stride[1] > 1 or stride[2] > 1: #TODO
             self.current_width = self.current_width // stride[1] #TODO
@@ -343,7 +342,7 @@ class ConfigurableComponent(GANComponent):
         layers = [
             nn.Linear(options.input_size or self.current_input_size, output_size, bias=bias)
         ]
-        self.last_logit_layer = layers[0]
+        self.nn_init(layers[0], options.initializer)
         if len(shape) == 3:
             self.current_channels = shape[2]
             self.current_width = shape[0]
@@ -479,53 +478,6 @@ class ConfigurableComponent(GANComponent):
             affine = False
         return nn.InstanceNorm3d(self.current_channels, affine=affine)
 
-
-    def layer_initializer(self, net, args, options):
-        print("init layer")
-        layer = self.last_logit_layer.weight.data
-        if args[0] == "uniform":
-            a = float(args[1])
-            b = float(args[2])
-            nn.init.uniform_(layer, a, b)
-        elif args[0] == "normal":
-            mean = float(args[1])
-            std = float(args[2])
-            nn.init.normal_(layer, mean, std)
-        elif args[0] == "constant":
-            val = float(args[1])
-            nn.init.constant_(layer, val)
-        elif args[0] == "ones":
-            nn.init.ones_(layer)
-        elif args[0] == "zeros":
-            nn.init.zeros_(layer)
-        elif args[0] == "eye":
-            nn.init.eye_(layer)
-        elif args[0] == "dirac":
-            nn.init.dirac_(layer)
-        elif args[0] == "xavier_uniform":
-            gain = nn.init.calculate_gain(options["gain"])
-            nn.init.xavier_uniform_(layer, gain=gain)
-        elif args[0] == "xavier_normal":
-            gain = nn.init.calculate_gain(options["gain"])
-            nn.init.xavier_normal_(layer, gain=gain)
-        elif args[0] == "kaiming_uniform":
-            a = 0 #TODO wrong
-            nn.init.kaiming_uniform_(layer, mode=(options.mode or "fan_in"), nonlinearity=options["gain"])
-        elif args[0] == "kaiming_normal":
-            a = 0 #TODO wrong
-            nn.init.kaiming_normal_(layer, mode=(options.mode or "fan_in"), nonlinearity=options["gain"])
-        elif args[0] == "orthogonal":
-            if "gain" in options:
-                gain = nn.init.calculate_gain(options["gain"])
-            else:
-                gain = 1
-            nn.init.orthogonal_(layer, gain=gain)
-        else:
-            print("Warning: No initializer found for " + args[0])
-        if "gain" in options:
-            layer.mul_(nn.init.calculate_gain(options["gain"]))
-        return NoOp()
-
     def layer_batch_norm(self, net, args, options):
         return nn.BatchNorm2d(self.current_channels)
 
@@ -564,7 +516,7 @@ class ConfigurableComponent(GANComponent):
         if options.padding:
             padding = options.padding
         layer = nn.ConvTranspose2d(options.input_channels or self.current_channels, channels, filter, stride, padding)
-        #self.last_logit_layer = layer
+        self.nn_init(layer, options.initializer)
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -598,7 +550,7 @@ class ConfigurableComponent(GANComponent):
         h = options.h or self.current_height * 2
         layers = [nn.Upsample((h, w), mode="bilinear"),
                 nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
-        #self.last_logit_layer = layers[-1]
+        self.nn_init(layers[-1], options.initializer)
         self.current_channels = channels
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
@@ -611,7 +563,7 @@ class ConfigurableComponent(GANComponent):
         h = options.h or self.current_height * 2
         layers = [nn.Upsample((h)),
                 nn.Conv1d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
-        #self.last_logit_layer = layers[-1]
+        self.nn_init(layers[-1], options.initializer)
         self.current_channels = channels
         self.current_height = self.current_height * 2 #TODO
         print("Resize", self.current_height, self.current_channels)
@@ -679,7 +631,7 @@ class ConfigurableComponent(GANComponent):
         channels = args[0]
 
         layers = [nn.Conv2d(options.input_channels or self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
-        #self.last_logit_layer = layers[0]
+        self.nn_init(layers[0], options.initializer)
         self.current_width = self.current_width * 2 #TODO
         self.current_height = self.current_height * 2 #TODO
         self.current_channels = channels
@@ -777,6 +729,65 @@ class ConfigurableComponent(GANComponent):
 
     def layer_adaptive_instance_norm(self, net, args, options):
         return AdaptiveInstanceNorm(self.adaptive_instance_norm_size, self.current_channels, equal_linear=options.equal_linear)
+
+    def layer_zeros_like(self, net, args, options):
+        return Zeros(self.gan.latent.sample().shape)
+
+    def nn_init(self, layer, initializer_option):
+        if initializer_option is None:
+            return
+        if type(initializer_option) == pyparsing.ParseResults and type(initializer_option[0]) == hypergan.parser.Pattern:
+            args = [initializer_option[0].layer_name] + initializer_option[0].args
+            options = hc.Config(initializer_option[0].options)
+        else:
+            args = [initializer_option]
+            options = hc.Config({})
+
+        layer_data = layer.weight.data
+
+        if args[0] == "uniform":
+            a = float(args[1])
+            b = float(args[2])
+            nn.init.uniform_(layer_data, a, b)
+        elif args[0] == "normal":
+            mean = float(args[1])
+            std = float(args[2])
+            nn.init.normal_(layer_data, mean, std)
+        elif args[0] == "constant":
+            val = float(args[1])
+            nn.init.constant_(layer_data, val)
+        elif args[0] == "ones":
+            nn.init.ones_(layer_data)
+        elif args[0] == "zeros":
+            nn.init.zeros_(layer_data)
+        elif args[0] == "eye":
+            nn.init.eye_(layer_data)
+        elif args[0] == "dirac":
+            nn.init.dirac_(layer_data)
+        elif args[0] == "xavier_uniform":
+            gain = nn.init.calculate_gain(options["gain"])
+            nn.init.xavier_uniform_(layer_data, gain=gain)
+        elif args[0] == "xavier_normal":
+            gain = nn.init.calculate_gain(options["gain"])
+            nn.init.xavier_normal_(layer_data, gain=gain)
+        elif args[0] == "kaiming_uniform":
+            a = 0 #TODO wrong
+            nn.init.kaiming_uniform_(layer_data, mode=(options.mode or "fan_in"), nonlinearity=options["gain"])
+        elif args[0] == "kaiming_normal":
+            a = 0 #TODO wrong
+            nn.init.kaiming_normal_(layer_data, mode=(options.mode or "fan_in"), nonlinearity=options["gain"])
+        elif args[0] == "orthogonal":
+            if "gain" in options:
+                gain = nn.init.calculate_gain(options["gain"])
+            else:
+                gain = 1
+            nn.init.orthogonal_(layer_data, gain=gain)
+        else:
+            print("Warning: No initializer found for " + args[0])
+        if "gain" in options:
+            layer_data.mul_(nn.init.calculate_gain(options["gain"]))
+        return NoOp()
+
 
     def forward(self, input, context={}):
         self.context = context

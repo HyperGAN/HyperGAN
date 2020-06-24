@@ -15,9 +15,14 @@ class UniformDistribution(BaseDistribution):
         self.current_width = 1
         self.current_height = 1
         self.current_input_size = config["z"]
+        batch_size = gan.batch_size()
+        self.z = torch.Tensor(batch_size, self.current_input_size).cuda()
         if self.config.projections is not None:
             self.current_input_size *= len(self.config.projections)
             self.current_channels *= len(self.config.projections)
+
+    def create(self):
+        pass
 
     def required(self):
         return "".split()
@@ -27,13 +32,6 @@ class UniformDistribution(BaseDistribution):
         #if(self.config.z is not None and int(self.config.z) % 2 != 0):
         #    errors.append("z must be a multiple of 2 (was %2d)" % self.config.z)
         return errors
-
-    def create(self):
-        gan = self.gan
-        config = self.config
-        projections = []
-        batch_size = self.gan.batch_size()
-        self.z = uniform.Uniform(torch.Tensor([-1.0]),torch.Tensor([1.0]))
 
     def lookup(self, projection):
         if callable(projection):
@@ -49,7 +47,8 @@ class UniformDistribution(BaseDistribution):
         return self.lookup_function(projection)
 
     def sample(self):
-        z = self.z.sample(torch.Size([self.gan.batch_size(), self.config.z])).view(self.gan.batch_size(), self.config.z).cuda()
+        self.z.uniform_(-1.0, 1.0)
+        z = self.z * 2.0 - 1.0
         if self.config.projections is None:
             return z
         projections = []

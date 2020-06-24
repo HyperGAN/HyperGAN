@@ -48,9 +48,8 @@ class UniformDistribution(BaseDistribution):
 
     def sample(self):
         self.z.uniform_(-1.0, 1.0)
-        z = self.z * 2.0 - 1.0
         if self.config.projections is None:
-            return z
+            return self.z
         projections = []
         for projection in self.config.projections:
             projections.append(self.lookup(projection)(self.config, self.gan, z))

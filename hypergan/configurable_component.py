@@ -343,7 +343,7 @@ class ConfigurableComponent(GANComponent):
         layers = [
             nn.Linear(options.input_size or self.current_input_size, output_size, bias=bias)
         ]
-        #self.last_logit_layer = layers[0]
+        self.last_logit_layer = layers[0]
         if len(shape) == 3:
             self.current_channels = shape[2]
             self.current_width = shape[0]
@@ -482,7 +482,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_initializer(self, net, args, options):
         print("init layer")
-        #layer = self.last_logit_layer.weight.data
+        layer = self.last_logit_layer.weight.data
         if args[0] == "uniform":
             a = float(args[1])
             b = float(args[2])
@@ -510,7 +510,7 @@ class ConfigurableComponent(GANComponent):
             nn.init.xavier_normal_(layer, gain=gain)
         elif args[0] == "kaiming_uniform":
             a = 0 #TODO wrong
-            nn.init.kaiming_uniform_(layer, mode="fan_in", nonlinearity=options["gain"])
+            nn.init.kaiming_uniform_(layer, mode=(options.mode or "fan_in"), nonlinearity=options["gain"])
         elif args[0] == "kaiming_normal":
             a = 0 #TODO wrong
             nn.init.kaiming_normal_(layer, mode=(options.mode or "fan_in"), nonlinearity=options["gain"])

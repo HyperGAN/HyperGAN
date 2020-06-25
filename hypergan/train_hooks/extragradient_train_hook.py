@@ -16,8 +16,8 @@ class ExtragradientTrainHook(BaseTrainHook):
         if rho is None:
             rho = 1.0
 
-        d_grads_v1 = [g.clone() for g in d_grads]
-        g_grads_v1 = [g.clone() for g in g_grads]
+        d_grads_v1 = [g.clone().detach() for g in d_grads]
+        g_grads_v1 = [g.clone().detach() for g in g_grads]
 
         self.step(d_grads_v1, g_grads_v1, step_size)
         d_grads_v2, g_grads_v2 = self.gan.trainer.calculate_gradients()

@@ -16,6 +16,7 @@ from hypergan.gan_component import ValidationException
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.add import Add
+from hypergan.modules.ez_norm import EzNorm
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.learned_noise import LearnedNoise
 from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur, EqualLinear
@@ -65,6 +66,7 @@ class ConfigurableComponent(GANComponent):
             "deconv": self.layer_deconv,
             "dropout": self.layer_dropout,
             "equal_linear": self.layer_equal_linear,
+            "ez_norm": self.layer_ez_norm,
             "flatten": nn.Flatten(),
             "identity": self.layer_identity,
             "instance_norm": self.layer_instance_norm,
@@ -731,6 +733,21 @@ class ConfigurableComponent(GANComponent):
     def layer_adaptive_instance_norm(self, net, args, options):
         return AdaptiveInstanceNorm(self.adaptive_instance_norm_size, self.current_channels, equal_linear=options.equal_linear)
 
+    def layer_ez_norm(self, net, args, options):
+        if options.dim is None or options.dim == 1:
+            output_dims = self.current_channels
+            dim = 1
+        elif options.dim == 0:
+            output_dims = 1
+            dim = 0
+        elif options.dim == 2:
+            output_dims = self.current_height
+            dim = 2
+        elif options.dim == 3:
+            output_dims = self.current_width
+            dim = 3
+        return EzNorm(self.adaptive_instance_norm_size, output_dims, equal_linear=options.equal_linear, dim=dim)
+
     def layer_zeros_like(self, net, args, options):
         return Zeros(self.gan.latent.sample().shape)
 
@@ -798,6 +815,8 @@ class ConfigurableComponent(GANComponent):
             layer_name = parsed.layer_name
             name = options.name
             if layer_name == "adaptive_instance_norm":
+                input = module(input, self.context['w'])
+            elif layer_name == "ez_norm":
                 input = module(input, self.context['w'])
             elif layer_name == "add":
                 input = module(input, self.context)

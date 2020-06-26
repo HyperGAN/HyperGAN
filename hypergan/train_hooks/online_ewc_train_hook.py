@@ -59,12 +59,10 @@ class OnlineEWCTrainHook(BaseTrainHook):
       self.g_loss_start = torch.zeros(1).float()[0].cuda()
 
 
-  def forward(self):
-
+  def forward(self, d_loss, g_loss):
       if self.config.skip_after_steps and self.config.skip_after_steps < self.gan.steps:
           return [None, None]
 
-      d_loss = self.gan.trainer.d_loss
       self.d_loss = self.d_loss_start.clone()
       if d_loss is not None:
           d_loss = d_loss.mean()
@@ -86,7 +84,6 @@ class OnlineEWCTrainHook(BaseTrainHook):
           return [self.d_loss, None]
 
       self.g_loss = self.g_loss_start.clone()
-      g_loss = self.gan.trainer.g_loss
       if g_loss is not None:
           g_loss = g_loss.mean()
           g_params = list(self.gan.g_parameters())

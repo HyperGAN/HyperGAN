@@ -40,9 +40,6 @@ class ExtragradientTrainHook(BaseTrainHook):
         result = (gamma*v1+rho*v2) * self.relu(torch.sign(v1*v2))
         return result
 
-    def forward(self):
-        return [None, None]
-
     def step(self, d_grads, g_grads, step_size):
         d_params = self.gan.d_parameters()
         g_params = self.gan.g_parameters()

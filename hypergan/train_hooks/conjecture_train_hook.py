@@ -105,7 +105,7 @@ class ConjectureTrainHook(BaseTrainHook):
 
       return [d_grads, g_grads]
 
-  def forward(self):
+  def forward(self, d_loss, g_loss):
       #d_loss = self.gan.loss.sample[0]
       #g_loss = self.gan.loss.sample[1]
       #d_params = self.gan.d_vars()

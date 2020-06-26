@@ -16,9 +16,6 @@ class InitializeAsAutoencoder(BaseTrainHook):
     def __init__(self, gan=None, config=None, trainer=None):
         super().__init__(config=config, gan=gan, trainer=trainer)
 
-    def forward(self, *args):
-        return [None, None]
-
     def before_step(self, step, feed_dict, depth=0):
         if self.gan.steps != 1:
             return

@@ -31,3 +31,6 @@ class BaseTrainHook(GANComponent):
 
   def gradients(self, d_grads, g_grads):
     return [d_grads, g_grads]
+
+  def forward(self, d_loss, g_loss):
+    return [None, None]

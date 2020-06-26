@@ -20,6 +20,3 @@ class NegativeMomentumTrainHook(BaseTrainHook):
       self.g_grads = new_g_grads
 
       return [d_grads, g_grads]
-
-  def forward(self):
-      return [None, None]

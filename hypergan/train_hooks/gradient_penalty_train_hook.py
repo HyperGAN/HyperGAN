@@ -22,8 +22,8 @@ class GradientPenaltyTrainHook(BaseTrainHook):
           flex = self.config.flex
       self.flex = self.gan.configurable_param(flex)
       self.relu = nn.ReLU()
- 
-  def forward(self):
+
+  def forward(self, d_loss, g_loss):
     x = self.gan.inputs.sample
     g = self.gan.generator_sample
 

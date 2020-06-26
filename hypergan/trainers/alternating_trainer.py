@@ -27,9 +27,7 @@ class AlternatingTrainer(BaseTrainer):
         _, g_loss = self.gan.forward_loss()#TODO targets=['d']
 
         self.gan.add_metric('g_loss', g_loss.mean())
-        self.g_loss = g_loss
-        self.d_loss = None
-        g_loss += sum([l[0] for l in self.train_hook_losses() if l[0] is not None])
+        g_loss += sum([l[0] for l in self.train_hook_losses(None, g_loss) if l[0] is not None])
         g_loss = g_loss.mean()
 
         return self.grads_for(g_loss, self.gan.g_parameters())
@@ -43,9 +41,7 @@ class AlternatingTrainer(BaseTrainer):
         else:
             d_loss, _ = self.gan.loss.forward(d_real, d_fake)#TODO targets=['d']
         self.gan.add_metric('d_loss', d_loss.mean())
-        self.d_loss = d_loss
-        self.g_loss = None
-        d_loss += sum([l[0] for l in self.train_hook_losses() if l[0] is not None])
+        d_loss += sum([l[0] for l in self.train_hook_losses(d_loss, None) if l[0] is not None])
         d_loss = d_loss.mean()
 
         return self.grads_for(d_loss, self.gan.d_parameters())
@@ -63,10 +59,10 @@ class AlternatingTrainer(BaseTrainer):
         #return torch_grad(outputs=loss, inputs=train_params, retain_graph=True)
         return [p.grad for p in train_params]
 
-    def train_hook_losses(self):
+    def train_hook_losses(self, d_loss, g_loss):
         losses = []
         for hook in self.train_hooks:
-            losses.append(hook.forward())#TODO targets=['d']
+            losses.append(hook.forward(d_loss, g_loss))#TODO targets=['d']
         return losses
 
     def calculate_gradients(self, targets=['d','g']):

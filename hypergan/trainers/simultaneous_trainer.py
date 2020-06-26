@@ -38,12 +38,10 @@ class SimultaneousTrainer(BaseTrainer):
     def calculate_gradients(self):
         self.optimizer.zero_grad()
         d_loss, g_loss = self.gan.forward_loss()
-        self.d_loss = d_loss
-        self.g_loss = g_loss
         self.gan.add_metric('d_loss', d_loss.mean())
         self.gan.add_metric('g_loss', g_loss.mean())
         for hook in self.train_hooks:
-            loss = hook.forward()
+            loss = hook.forward(d_loss, g_loss)
             if loss[0] is not None:
                 d_loss += loss[0]
             if loss[1] is not None:

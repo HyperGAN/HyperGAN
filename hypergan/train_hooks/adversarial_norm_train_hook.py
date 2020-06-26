@@ -17,8 +17,8 @@ class AdversarialNormTrainHook(BaseTrainHook):
         self.relu = torch.nn.ReLU()
         self.target = [Parameter(x, requires_grad=True) for x in self.gan.discriminator_real_inputs()]
 
-    def forward(self):
-        if self.config.mode == "real":
+    def forward(self, d_loss, g_loss):
+        if self.config.mode == "real" or self.config.mode is None:
             for target, data in zip(self.target, self.gan.discriminator_real_inputs()):
                 target.data = data.clone()
             d_fake = self.gan.d_fake

@@ -22,7 +22,7 @@ class StabilizingTrainingTrainHook(BaseTrainHook):
       self.sig = torch.nn.Sigmoid().cuda()
       self.gamma = self.gan.configurable_param(self.config.gamma or 1.0)
 
-  def forward(self):
+  def forward(self, d_loss, g_loss):
       x = self.gan.inputs.sample
       g = self.gan.generator_sample
       d1_params = Variable(x, requires_grad=True).cuda()#self.gan.d_parameters()

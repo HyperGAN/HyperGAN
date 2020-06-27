@@ -33,15 +33,9 @@ class ConfigurationException(Exception):
 
 class ConfigurableComponent(GANComponent):
     def __init__(self, gan, config, input=None, context={}):
-        self.current_channels = gan.channels()
-        self.current_width = gan.width()
-        self.current_height = gan.height()
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        self.current_size = LayerSize(gan.channels(), gan.height(), gan.width())
         if input:
-            self.current_channels = input.current_channels
-            self.current_width = input.current_width
-            self.current_height = input.current_height
-            self.current_input_size = input.current_input_size
+            self.current_size = LayerSize(input.current_channels, input.current_height, input.current_width)
         self.layers = []
         self.layer_output_sizes = {}
         self.nn_layers = []
@@ -186,7 +180,9 @@ class ConfigurableComponent(GANComponent):
                 net = self.layer_ops[op]
             else:
                 #before_count = self.count_number_trainable_params()
+                print("Size before: ", self.current_size.dims)
                 net = self.layer_ops[op](None, args, options)
+                print("Size after: ", self.current_size.dims)
             if 'name' in options:
                 self.set_layer(options['name'], net)
             return net
@@ -207,7 +203,7 @@ class ConfigurableComponent(GANComponent):
     def set_layer(self, name, net):
         self.gan.named_layers[name] = net
         self.named_layers[name]     = net
-        self.layer_output_sizes[name] = LayerSize(self.current_channels, self.current_height, self.current_width)
+        self.layer_output_sizes[name] = self.current_size
 
     def activations(self):
         return {
@@ -228,7 +224,7 @@ class ConfigurableComponent(GANComponent):
         }
 
     def layer_residual(self, net, args, options):
-        return Residual(self.current_channels)
+        return Residual(self.current_size.channels)
 
     def layer_dropout(self, net, args, options):
         return nn.Dropout2d(float(args[0]))
@@ -240,8 +236,8 @@ class ConfigurableComponent(GANComponent):
         lr_mul = 1
         if options.lr_mul is not None:
             lr_mul = options.lr_mul
-        result = EqualLinear(self.current_input_size,args[0], lr_mul=lr_mul)
-        self.current_input_size = args[0]
+        result = EqualLinear(self.current_size.size(), args[0], lr_mul=lr_mul)
+        self.current_size = LayerSize(args[0])
         return result
 
     def get_same_padding(self, input_rows, filter_rows, stride, dilation):
@@ -255,7 +251,7 @@ class ConfigurableComponent(GANComponent):
         if len(args) > 0:
             channels = args[0]
         else:
-            channels = self.current_channels
+            channels = self.current_size.channels
         options = hc.Config(options)
         stride = 1
         if options.stride is not None:
@@ -267,21 +263,16 @@ class ConfigurableComponent(GANComponent):
         if options.padding is not None:
             padding = options.padding
 
-        layer = nn.Conv2d(options.input_channels or self.current_channels, channels, filter, stride, padding = (padding, padding))
+        layer = nn.Conv2d(options.input_channels or self.current_size.channels, channels, filter, stride, padding = (padding, padding))
         self.nn_init(layer, options.initializer)
-        self.current_channels = channels
-        if stride > 1:
-            self.current_width = self.current_width // stride #TODO
-            self.current_height = self.current_height // stride #TODO
-        print("conv", self.current_width, self.current_height, self.current_channels, stride)
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        self.current_size = LayerSize(channels, self.current_size.height // stride, self.current_size.width // stride) #TODO better calculation of this
         return layer
 
     def layer_conv1d(self, net, args, options):
         if len(args) > 0:
             channels = args[0]
         else:
-            channels = self.current_channels
+            channels = self.current_size.channels
         print("Options:", options)
         options = hc.Config(options)
         stride = options.stride or 1
@@ -290,14 +281,9 @@ class ConfigurableComponent(GANComponent):
 
         padding = options.padding or 1#self.get_same_padding(self.current_width, self.current_width, stride, dilation)
 
-        print("conv start", self.current_width, self.current_height, self.current_channels, stride)
-        layers = [nn.Conv1d(options.input_channels or self.current_channels, channels, fltr, stride, padding = padding)]
+        layers = [nn.Conv1d(options.input_channels or self.size.channels, channels, fltr, stride, padding = padding)]
         self.nn_init(layer, options.initializer)
-        self.current_channels = channels
-        if stride > 1:
-            self.current_height = self.current_height // stride #TODO
-        print("conv", self.current_width, self.current_height, self.current_channels, stride)
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        self.current_size = LayerSize(channels, self.current_size.height // stride) #TODO better calculation of this
         return nn.Sequential(*layers)
 
 
@@ -305,7 +291,7 @@ class ConfigurableComponent(GANComponent):
         if len(args) > 0:
             channels = args[0]
         else:
-            channels = self.current_channels
+            channels = self.current_size.channels
         options = hc.Config(options)
         stride = options.stride or 1
         fltr = options.filter or 3
@@ -318,17 +304,10 @@ class ConfigurableComponent(GANComponent):
             stride = [options.stride0, stride, stride]
         else:
             stride = [stride, stride, stride]
-        print("PADDING", padding)
-        print("PADDING", padding)
 
-        layers = [nn.Conv3d(options.input_channels or self.current_channels, channels, fltr, stride, padding = padding)]
+        layers = [nn.Conv3d(options.input_channels or self.current_size.channels, channels, fltr, stride, padding = padding)]
         self.nn_init(layer, options.initializer)
-        self.current_channels = channels
-        if stride[1] > 1 or stride[2] > 1: #TODO
-            self.current_width = self.current_width // stride[1] #TODO
-            self.current_height = self.current_height // stride[2] #TODO
-            print("conv", self.current_width, self.current_height, self.current_channels)
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        self.current_size = LayerSize(frames, channels, self.current_size.height // stride[1], self.current_size.width // stride[2]) #TODO this doesn't work, what is frames? Also chw calculation like conv2d
         return nn.Sequential(*layers)
 
     def layer_linear(self, net, args, options):
@@ -340,25 +319,15 @@ class ConfigurableComponent(GANComponent):
         output_size = 1
         for dim in shape:
             output_size *= dim
-        print("+", options.input_size or self.current_input_size, self.current_width, self.current_height, self.current_channels)
-        layers = [
-            nn.Linear(options.input_size or self.current_input_size, output_size, bias=bias)
-        ]
+        layers = []
+        if len(self.current_size.dims) != 1:
+            layers += [nn.Flatten()]
+
+        layers += [nn.Linear(options.input_size or self.current_size.size(), output_size, bias=bias)]
         self.nn_init(layers[0], options.initializer)
-        if len(shape) == 3:
-            self.current_channels = shape[2]
-            self.current_width = shape[0]
-            self.current_height = shape[1]
-            layers.append(Reshape(self.current_channels, self.current_height, self.current_width))
-
-        if len(shape) == 2:
-            self.current_channels = shape[1]
-            self.current_width = 1
-            self.current_height = shape[0]
-            layers.append(Reshape(self.current_channels, self.current_height))
-
-
-        self.current_input_size = output_size
+        self.current_size = LayerSize(*reversed(shape))
+        if len(shape) != 1:
+            layers.append(Reshape(*self.current_size.dims))
 
         return nn.Sequential(*layers)
 
@@ -369,7 +338,7 @@ class ConfigurableComponent(GANComponent):
     #    return NoOp()
 
     def layer_modulated_conv2d(self, net, args, options):
-        channels = self.current_channels
+        channels = self.current_size.channels
         if len(args) > 0:
             channels = args[0]
         method = "conv"
@@ -389,20 +358,16 @@ class ConfigurableComponent(GANComponent):
         lr_mul = 1.0
         if options.lr_mul:
             lr_mul = options.lr_mul
-        input_channels = self.current_channels
+        input_channels = self.current_size.channels
         if options.input_channels:
             input_channels = options.input_channels
 
         result = ModulatedConv2d(input_channels, channels, filter, self.layer_output_sizes['w'].size(), upsample=upsample, demodulate=demodulate, downsample=downsample, lr_mul=lr_mul)
 
         if upsample:
-            self.current_width *= 2
-            self.current_height *= 2
+            self.current_size = LayerSize(channels, self.current_size.height * 2, self.current_size.width * 2)
         elif downsample:
-            self.current_width //= 2
-            self.current_height //= 2
-        self.current_channels = channels
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+            self.current_size = LayerSize(channels, self.current_size.height // 2, self.current_size.width // 2)
         return result
 
 
@@ -418,59 +383,39 @@ class ConfigurableComponent(GANComponent):
 
     def layer_reshape(self, net, args, options):
         dims = [int(x) for x in args[0].split("*")]
-        if len(dims) == 3:
-            self.current_width = dims[0]
-            self.current_height = dims[1]
-            self.current_channels = dims[2]
-            self.current_input_size = self.current_channels * self.current_width * self.current_height
-            dims = [dims[2], dims[0], dims[1]]
-        if len(dims) == 2:
-            self.current_width = 1
-            self.current_height = dims[0]
-            self.current_channels = dims[1]
-            self.current_input_size = self.current_channels * self.current_width * self.current_height
-            dims = [dims[1], dims[0]]
+        self.current_size = LayerSize(*dims)
         return Reshape(*dims)
 
     def layer_adaptive_avg_pool(self, net, args, options):
-        print("adaptive start", self.current_width, self.current_height, self.current_channels)
-        self.current_height //= 2
-        self.current_width //= 2
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
-        return nn.AdaptiveAvgPool2d([self.current_height, self.current_width])
+        self.current_size = LayerSize(self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
+        return nn.AdaptiveAvgPool2d([self.current_size.height, self.current_size.width])
 
     def layer_adaptive_avg_pool1d (self, net, args, options):
-        self.current_height //= 2
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
-        print("avg>", self.current_input_size, self.current_width, self.current_height, self.current_channels)
-        return nn.AdaptiveAvgPool1d(self.current_height)
+        self.current_size = LayerSize(self.current_size.channels, self.current_size.height // 2)
+        return nn.AdaptiveAvgPool1d(self.current_size.height)
 
     def layer_avg_pool(self, net, args, options):
-        self.current_height //= 2
-        self.current_width //= 2
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        self.current_size = LayerSize(self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
         return nn.AvgPool2d(2, 2)
 
     def layer_adaptive_avg_pool3d(self, net, args, options):
-        self.current_height //= 2
-        self.current_width //= 2
-        self.current_frames = 4 #todo
-        self.current_input_size = self.current_frames * self.current_channels * self.current_width * self.current_height
-        return nn.AdaptiveAvgPool3d([self.current_frames, self.current_height, self.current_width])
+        frames = 4 #TODO
+        self.current_size = LayerSize(frames, self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
+        return nn.AdaptiveAvgPool3d([self.current_size.frames, self.current_size.height, self.current_size.width]) #TODO looks wrong
 
     def layer_instance_norm(self, net, args, options):
         options = hc.Config(options)
         affine = True
         if options.affine == False:
             affine = False
-        return nn.InstanceNorm2d(self.current_channels, affine=affine)
+        return nn.InstanceNorm2d(self.current_size.channels, affine=affine)
 
     def layer_instance_norm1d(self, net, args, options):
         options = hc.Config(options)
         affine = True
         if options.affine == False:
             affine = False
-        return nn.InstanceNorm1d(self.current_channels, affine=affine)
+        return nn.InstanceNorm1d(self.current_size.channels, affine=affine)
 
 
     def layer_instance_norm3d(self, net, args, options):
@@ -478,13 +423,13 @@ class ConfigurableComponent(GANComponent):
         affine = True
         if options.affine == False:
             affine = False
-        return nn.InstanceNorm3d(self.current_channels, affine=affine)
+        return nn.InstanceNorm3d(self.current_size.channels, affine=affine)
 
     def layer_batch_norm(self, net, args, options):
-        return nn.BatchNorm2d(self.current_channels)
+        return nn.BatchNorm2d(self.current_size.channels)
 
     def layer_batch_norm1d(self, net, args, options):
-        return nn.BatchNorm1d(self.current_input_size)
+        return nn.BatchNorm1d(self.current_size.size())
 
     def get_conv_options(self, config, options):
         stride = options.stride or self.ops.config_option("stride", [1,1])
@@ -506,7 +451,7 @@ class ConfigurableComponent(GANComponent):
         if len(args) > 0:
             channels = args[0]
         else:
-            channels = self.current_channels
+            channels = self.current_size.channels
         options = hc.Config(options)
         filter = 4 #TODO
         if options.filter:
@@ -517,12 +462,9 @@ class ConfigurableComponent(GANComponent):
         padding = 1
         if options.padding:
             padding = options.padding
-        layer = nn.ConvTranspose2d(options.input_channels or self.current_channels, channels, filter, stride, padding)
+        layer = nn.ConvTranspose2d(options.input_channels or self.current_size.channels, channels, filter, stride, padding)
         self.nn_init(layer, options.initializer)
-        self.current_channels = channels
-        self.current_width = self.current_width * 2 #TODO
-        self.current_height = self.current_height * 2 #TODO
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        self.current_size = LayerSize(channels, self.current_size.height * 2, self.current_size.width * 2)
         return layer
 
     def layer_pad(self, net, args, options):
@@ -534,11 +476,10 @@ class ConfigurableComponent(GANComponent):
         return PixelNorm()
 
     def layer_upsample(self, net, args, options):
-        w = options.w or self.current_width * 2
-        h = options.h or self.current_height * 2
+        w = options.w or self.current_size.width * 2
+        h = options.h or self.current_size.height * 2
         result = nn.Upsample((h, w), mode="bilinear")
-        self.current_width = self.current_width * 2 #TODO
-        self.current_height = self.current_height * 2 #TODO
+        self.current_size = LayerSize(self.current_size.channels, h, w)
         return result
 
     def layer_resize_conv(self, net, args, options):
@@ -548,31 +489,26 @@ class ConfigurableComponent(GANComponent):
         options = hc.Config(options)
         channels = args[0]
 
-        w = options.w or self.current_width * 2
-        h = options.h or self.current_height * 2
+        w = options.w or self.current_size.width * 2
+        h = options.h or self.current_size.height * 2
         layers = [nn.Upsample((h, w), mode="bilinear"),
-                nn.Conv2d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
+                nn.Conv2d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, 1)]
         self.nn_init(layers[-1], options.initializer)
-        self.current_channels = channels
-        self.current_width = self.current_width * 2 #TODO
-        self.current_height = self.current_height * 2 #TODO
+        self.current_size = LayerSize(channels, h, w)
         return nn.Sequential(*layers)
 
     def layer_resize_conv1d(self, net, args, options):
         options = hc.Config(options)
         channels = args[0]
 
-        h = options.h or self.current_height * 2
         layers = [nn.Upsample((h)),
-                nn.Conv1d(options.input_channels or self.current_channels, channels, options.filter or 3, 1, 1)]
+                nn.Conv1d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, 1)]
         self.nn_init(layers[-1], options.initializer)
-        self.current_channels = channels
-        self.current_height = self.current_height * 2 #TODO
-        print("Resize", self.current_height, self.current_channels)
+        self.current_size = LayerSize(channels, h)
         return nn.Sequential(*layers)
 
     def layer_scaled_conv2d(self, net, args, options):
-        channels = self.current_channels
+        channels = self.current_size.channels
         if len(args) > 0:
             channels = args[0]
         method = "conv"
@@ -592,7 +528,7 @@ class ConfigurableComponent(GANComponent):
         lr_mul = 1.0
         if options.lr_mul:
             lr_mul = options.lr_mul
-        input_channels = self.current_channels
+        input_channels = self.current_size.channels
         if options.input_channels:
             input_channels = options.input_channels
 
@@ -600,18 +536,10 @@ class ConfigurableComponent(GANComponent):
         self.nn_init(result, options.initializer)
 
         if upsample:
-            self.current_width *= 2
-            self.current_height *= 2
+            self.current_size = LayerSize(channels, self.current_size.height * 2, self.current_size.width * 2)
         elif downsample:
-            self.current_width //= 2
-            self.current_height //= 2
-        self.current_channels = channels
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+            self.current_size = LayerSize(channels, self.current_size.height // 2, self.current_size.width // 2)
         return result
-
-
-
-
 
     def layer_split(self, net, args, options):
         options = hc.Config(options)
@@ -623,61 +551,50 @@ class ConfigurableComponent(GANComponent):
         #TODO better validation
         #TODO increase dim options
         if dim == -1:
-            self.current_channels = split_size
-            if (select + 1) * split_size > self.current_channels:
-                self.current_channels = self.current_channels % split_size
-            self.current_input_size = self.current_channels * self.current_width * self.current_height
+            dims = self.current_size.dims.copy()
+            dims[0] = split_size
+            if (select + 1) * split_size > self.current_size.channels:
+                dims[0] = self.current_size.channels % split_size
+            self.current_size = LayerSize(*dims)
         return NoOp()
 
     def layer_subpixel(self, net, args, options):
         options = hc.Config(options)
         channels = args[0]
 
-        layers = [nn.Conv2d(options.input_channels or self.current_channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
+        layers = [nn.Conv2d(options.input_channels or self.current_size.channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
         self.nn_init(layers[0], options.initializer)
-        self.current_width = self.current_width * 2 #TODO
-        self.current_height = self.current_height * 2 #TODO
-        self.current_channels = channels
-        self.current_input_size = self.current_channels * self.current_width * self.current_height
+        self.current_size = LayerSize(channels, self.current_size.height * 2, self.current_size.width * 2)
         return nn.Sequential(*layers)
 
     def layer_latent(self, net, args, options):
-        self.current_input_size = self.gan.latent.current_input_size
+        self.current_size = LayerSize(self.gan.latent.current_input_size) #TODO copy size
         return NoOp()
 
     def layer_layer(self, net, args, options):
         if args[0] in self.layer_output_sizes:
-            size = self.layer_output_sizes[args[0]]
-            self.current_width, self.current_height, self.current_channels = size.width, size.height, size.channels
-            self.current_input_size = self.current_channels * self.current_width * self.current_height
+            self.current_size = self.layer_output_sizes[args[0]]
         return NoOp()
 
     def layer_linformer(self, net, args, options):
         model = Linformer(
-                input_size = self.current_channels,
-                channels = self.current_height
+                input_size = self.current_size.size(),
+                channels = self.current_size.height # TODO wtf
         )
         return model
 
-
     def layer_vae(self, net, args, options):
-        self.vae = Variational(self.current_channels)
+        self.vae = Variational(self.current_size.channels)
         return self.vae
 
     def layer_add(self, net, args, options):
         options = hc.Config(options)
         layers = []
         layer_names = []
-        current_width = self.current_width
-        current_height = self.current_height
-        current_channels = self.current_channels
-        current_input_size = self.current_input_size
+        current_size = self.current_size
 
         for arg in args:
-            self.current_width = current_width
-            self.current_height = current_height
-            self.current_channels = current_channels
-            self.current_input_size = current_input_size
+            self.current_size = current_size
             if arg == 'self':
                 layers.append(None)
                 layer_names.append("self")
@@ -706,16 +623,17 @@ class ConfigurableComponent(GANComponent):
         if options.affine == False:
             affine = False
 
-        return nn.LayerNorm([self.current_channels, self.current_height, self.current_width], elementwise_affine=affine)
+        return nn.LayerNorm(self.current_size.dims, elementwise_affine=affine)
 
     def layer_learned_noise(self, net, args, options):
-        return LearnedNoise(1, self.current_height, self.current_width)
+        return LearnedNoise(*self.current_size.dims)
 
     def layer_concat(self, net, args, options):
         options = hc.Config(options)
         if args[0] == 'noise':
-            print("Concat noise!")
-            self.current_channels *= 2
+            dims = self.current_size.dims.copy()
+            dims[0] *= 2
+            self.current_size = LayerSize(*dims)
             return NoOp()
         elif args[0] == 'layer':
             return NoOp()
@@ -735,22 +653,11 @@ class ConfigurableComponent(GANComponent):
     #        print("Warning: only 'concat noise' and 'concat layer' is supported for now.")
 
     def layer_adaptive_instance_norm(self, net, args, options):
-        return AdaptiveInstanceNorm(self.layer_output_sizes['w'].size(), self.current_channels, equal_linear=options.equal_linear)
+        return AdaptiveInstanceNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, equal_linear=options.equal_linear)
 
     def layer_ez_norm(self, net, args, options):
-        if options.dim is None or options.dim == 1:
-            output_dims = self.current_channels
-            dim = 1
-        elif options.dim == 0:
-            output_dims = 1
-            dim = 0
-        elif options.dim == 2:
-            output_dims = self.current_height
-            dim = 2
-        elif options.dim == 3:
-            output_dims = self.current_width
-            dim = 3
-        return EzNorm(self.layer_output_sizes['w'].size(), output_dims, self.current_channels, equal_linear=options.equal_linear, dim=dim)
+        output_dims = self.current_size.channels
+        return EzNorm(self.layer_output_sizes['w'].size(), output_dims, self.current_size.channels, equal_linear=options.equal_linear)
 
     def layer_zeros_like(self, net, args, options):
         return Zeros(self.gan.latent.sample().shape)

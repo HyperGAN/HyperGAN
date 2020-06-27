@@ -75,6 +75,7 @@ class ConfigurableComponent(GANComponent):
             "latent": self.layer_latent,
             "layer": self.layer_layer,
             "layer_norm": self.layer_norm,
+            "learned_noise": self.layer_learned_noise,
             "linear": self.layer_linear,
             #"make2d": self.layer_make2d,
             #"make3d": self.layer_make3d,
@@ -707,6 +708,9 @@ class ConfigurableComponent(GANComponent):
 
         return nn.LayerNorm([self.current_channels, self.current_height, self.current_width], elementwise_affine=affine)
 
+    def layer_learned_noise(self, net, args, options):
+        return LearnedNoise(1, self.current_height, self.current_width)
+
     def layer_concat(self, net, args, options):
         options = hc.Config(options)
         if args[0] == 'noise':
@@ -746,7 +750,7 @@ class ConfigurableComponent(GANComponent):
         elif options.dim == 3:
             output_dims = self.current_width
             dim = 3
-        return EzNorm(self.adaptive_instance_norm_size, output_dims, equal_linear=options.equal_linear, dim=dim)
+        return EzNorm(self.adaptive_instance_norm_size, output_dims, self.current_channels, equal_linear=options.equal_linear, dim=dim)
 
     def layer_zeros_like(self, net, args, options):
         return Zeros(self.gan.latent.sample().shape)

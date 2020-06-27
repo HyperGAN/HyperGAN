@@ -23,14 +23,14 @@ class OnlineEWCTrainHook(BaseTrainHook):
 
       for p in self.gan.d_parameters():
           self.d_ewc_params += [Parameter(p, requires_grad=False)]
-          self.d_ewc_fisher += [Parameter(torch.rand(p.shape), requires_grad=False)]
+          self.d_ewc_fisher += [Parameter((self.config.initial_gamma or 1.0) * torch.rand(p.shape), requires_grad=False)]
 
       self.g_ewc_params = []
       self.g_ewc_fisher = []
 
       for p in self.gan.g_parameters():
           self.g_ewc_params += [Parameter(p, requires_grad=False)]
-          self.g_ewc_fisher += [Parameter(torch.rand(p.shape), requires_grad=False)]
+          self.g_ewc_fisher += [Parameter((self.config.initial_gamma or 1.0) * torch.rand(p.shape), requires_grad=False)]
 
       for i, (param, fisher) in enumerate(zip(self.d_ewc_params, self.d_ewc_fisher)):
           self.register_parameter('d_ewc'+str(i), param)
@@ -46,6 +46,9 @@ class OnlineEWCTrainHook(BaseTrainHook):
 
       self.d_gamma = torch.Tensor([self.config.d_gamma or self.config.gamma]).float()[0].cuda()
       self.g_gamma = torch.Tensor([self.config.g_gamma or self.config.gamma]).float()[0].cuda()
+
+      self.d_new_fisher_gamma = torch.Tensor([self.config.d_new_fisher_gamma or self.config.new_fisher_gamma or 1e4]).float()[0].cuda()
+      self.g_new_fisher_gamma = torch.Tensor([self.config.g_new_fisher_gamma or self.config.new_fisher_gamma or 1e4]).float()[0].cuda()
 
       self.g_mean_decay = torch.Tensor([self.config.g_mean_decay or self.config.mean_decay]).float()[0].cuda()
       self.d_mean_decay = torch.Tensor([self.config.d_mean_decay or self.config.mean_decay]).float()[0].cuda()
@@ -72,7 +75,7 @@ class OnlineEWCTrainHook(BaseTrainHook):
               res = self.d_beta * ((dp - self.d_ewc_params[i]) ** 2 * self.d_ewc_fisher[i]).sum()
               self.d_loss = self.d_loss + self.d_beta * ((dp - self.d_ewc_params[i]) ** 2 * self.d_ewc_fisher[i]).sum()
               with torch.no_grad():
-                  self.d_ewc_fisher[i] = self.d_gamma * self.d_ewc_fisher[i] + dp_g**2
+                  self.d_ewc_fisher[i] = self.d_gamma * self.d_ewc_fisher[i] + self.d_new_fisher_gamma * dp_g**2
                   self.d_ewc_params[i] = self.d_mean_decay_1m * dp.clone() + self.d_mean_decay * self.d_ewc_params[i]
           self.gan.add_metric('ewc_d', self.d_loss)
 
@@ -91,7 +94,7 @@ class OnlineEWCTrainHook(BaseTrainHook):
           for i, (gp, gp_g) in enumerate(zip(g_params, g_grads)):
               self.g_loss += self.g_beta * ((gp - self.g_ewc_params[i]) ** 2 * self.g_ewc_fisher[i]).sum()
               with torch.no_grad():
-                  self.g_ewc_fisher[i] = self.g_gamma * self.g_ewc_fisher[i] + gp_g**2
+                  self.g_ewc_fisher[i] = self.g_gamma * self.g_ewc_fisher[i] + self.g_new_fisher_gamma * gp_g**2
                   self.g_ewc_params[i] = self.g_mean_decay_1m * gp.clone() + self.g_mean_decay * self.g_ewc_params[i]
           self.gan.add_metric('ewc_g', self.g_loss)
 

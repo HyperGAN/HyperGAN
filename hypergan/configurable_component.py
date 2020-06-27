@@ -19,6 +19,7 @@ from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.add import Add
 from hypergan.modules.ez_norm import EzNorm
 from hypergan.modules.concat_noise import ConcatNoise
+from hypergan.modules.const import Const
 from hypergan.modules.learned_noise import LearnedNoise
 from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur, EqualLinear
 from hypergan.modules.reshape import Reshape
@@ -54,6 +55,7 @@ class ConfigurableComponent(GANComponent):
             "blur": self.layer_blur,
             "concat": self.layer_concat,
             #"concat3d": self.layer_concat3d,
+            "const": self.layer_const,
             "conv": self.layer_conv,
             "conv1d": self.layer_conv1d,
             "conv2d": self.layer_conv2d,
@@ -243,6 +245,9 @@ class ConfigurableComponent(GANComponent):
     def get_same_padding(self, input_rows, filter_rows, stride, dilation):
         out_rows = (input_rows + stride - 1) // stride
         return max(0, (out_rows - 1) * stride + (filter_rows - 1) * dilation + 1 - input_rows) // 2
+
+    def layer_const(self, net, args, options):
+        return Const(*self.current_size.dims)
 
     def layer_conv(self, net, args, options):
         return self.layer_conv2d(net, args, options)
@@ -626,7 +631,7 @@ class ConfigurableComponent(GANComponent):
         return nn.LayerNorm(self.current_size.dims, elementwise_affine=affine)
 
     def layer_learned_noise(self, net, args, options):
-        return LearnedNoise(*self.current_size.dims)
+        return LearnedNoise(*([self.gan.batch_size(), *self.current_size.dims]))
 
     def layer_concat(self, net, args, options):
         options = hc.Config(options)

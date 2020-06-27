@@ -13,6 +13,7 @@ import torch.nn as nn
 
 from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
+from hypergan.layer_size import LayerSize
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.add import Add
@@ -42,7 +43,7 @@ class ConfigurableComponent(GANComponent):
             self.current_height = input.current_height
             self.current_input_size = input.current_input_size
         self.layers = []
-        self.layer_sizes = {}
+        self.layer_output_sizes = {}
         self.nn_layers = []
         self.layer_options = {}
         self.parsed_layers = []
@@ -206,9 +207,7 @@ class ConfigurableComponent(GANComponent):
     def set_layer(self, name, net):
         self.gan.named_layers[name] = net
         self.named_layers[name]     = net
-        self.layer_sizes[name] = [self.current_width, self.current_height, self.current_channels]
-        if name == "w":
-            self.adaptive_instance_norm_size = self.current_input_size
+        self.layer_output_sizes[name] = LayerSize(self.current_channels, self.current_height, self.current_width)
 
     def activations(self):
         return {
@@ -394,7 +393,7 @@ class ConfigurableComponent(GANComponent):
         if options.input_channels:
             input_channels = options.input_channels
 
-        result = ModulatedConv2d(input_channels, channels, filter, self.adaptive_instance_norm_size, upsample=upsample, demodulate=demodulate, downsample=downsample, lr_mul=lr_mul)
+        result = ModulatedConv2d(input_channels, channels, filter, self.layer_output_sizes['w'].size(), upsample=upsample, demodulate=demodulate, downsample=downsample, lr_mul=lr_mul)
 
         if upsample:
             self.current_width *= 2
@@ -647,8 +646,9 @@ class ConfigurableComponent(GANComponent):
         return NoOp()
 
     def layer_layer(self, net, args, options):
-        if args[0] in self.layer_sizes:
-            self.current_width, self.current_height, self.current_channels = self.layer_sizes[args[0]]
+        if args[0] in self.layer_output_sizes:
+            size = self.layer_output_sizes[args[0]]
+            self.current_width, self.current_height, self.current_channels = size.width, size.height, size.channels
             self.current_input_size = self.current_channels * self.current_width * self.current_height
         return NoOp()
 
@@ -735,7 +735,7 @@ class ConfigurableComponent(GANComponent):
     #        print("Warning: only 'concat noise' and 'concat layer' is supported for now.")
 
     def layer_adaptive_instance_norm(self, net, args, options):
-        return AdaptiveInstanceNorm(self.adaptive_instance_norm_size, self.current_channels, equal_linear=options.equal_linear)
+        return AdaptiveInstanceNorm(self.layer_output_sizes['w'].size(), self.current_channels, equal_linear=options.equal_linear)
 
     def layer_ez_norm(self, net, args, options):
         if options.dim is None or options.dim == 1:
@@ -750,7 +750,7 @@ class ConfigurableComponent(GANComponent):
         elif options.dim == 3:
             output_dims = self.current_width
             dim = 3
-        return EzNorm(self.adaptive_instance_norm_size, output_dims, self.current_channels, equal_linear=options.equal_linear, dim=dim)
+        return EzNorm(self.layer_output_sizes['w'].size(), output_dims, self.current_channels, equal_linear=options.equal_linear, dim=dim)
 
     def layer_zeros_like(self, net, args, options):
         return Zeros(self.gan.latent.sample().shape)

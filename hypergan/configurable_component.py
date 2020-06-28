@@ -5,6 +5,7 @@ import re
 import os
 import operator
 from functools import reduce
+from math import floor
 
 import pyparsing
 import hypergan
@@ -36,8 +37,14 @@ class ConfigurableComponent(GANComponent):
     def __init__(self, gan, config, input=None, context={}):
         self.current_size = LayerSize(gan.channels(), gan.height(), gan.width())
         if input:
-            self.current_size = LayerSize(input.current_channels, input.current_height, input.current_width)
+            if hasattr(input, 'current_height'):
+                self.current_size = LayerSize(input.current_channels, input.current_height, input.current_width)
+            elif hasattr(input, 'current_channels'):
+                self.current_size = LayerSize(input.current_channels)
+            else:
+                self.current_size = input.current_size.dims
         self.layers = []
+        self.layer_sizes = []
         self.layer_output_sizes = {}
         self.nn_layers = []
         self.layer_options = {}
@@ -174,7 +181,9 @@ class ConfigurableComponent(GANComponent):
             parsed.parsed_options = hc.Config(parsed.options)
             print("Parsed layer:", parsed.to_list())
             self.parsed_layers.append(parsed)
-            return self.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options)
+            layer = self.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options)
+            self.layer_sizes.append(self.current_size)
+            return layer
 
     def build_layer(self, op, args, options):
         if self.layer_ops[op]:
@@ -249,6 +258,14 @@ class ConfigurableComponent(GANComponent):
     def layer_const(self, net, args, options):
         return Const(*self.current_size.dims)
 
+    #from https://discuss.pytorch.org/t/utility-function-for-calculating-the-shape-of-a-conv-output/11173/3
+    def conv_output_shape(self, h_w, kernel_size=1, stride=1, pad=0, dilation=1):
+        if type(kernel_size) is not tuple:
+            kernel_size = (kernel_size, kernel_size)
+        h = floor( ((h_w[0] + (2 * pad) - ( dilation * (kernel_size[0] - 1) ) - 1 )/ stride) + 1)
+        w = floor( ((h_w[1] + (2 * pad) - ( dilation * (kernel_size[1] - 1) ) - 1 )/ stride) + 1)
+        return h, w
+
     def layer_conv(self, net, args, options):
         return self.layer_conv2d(net, args, options)
 
@@ -268,9 +285,12 @@ class ConfigurableComponent(GANComponent):
         if options.padding is not None:
             padding = options.padding
 
+        dilation = 1
+
         layer = nn.Conv2d(options.input_channels or self.current_size.channels, channels, filter, stride, padding = (padding, padding))
         self.nn_init(layer, options.initializer)
-        self.current_size = LayerSize(channels, self.current_size.height // stride, self.current_size.width // stride) #TODO better calculation of this
+        h, w = self.conv_output_shape((self.current_size.height, self.current_size.width), filter, stride, padding, dilation)
+        self.current_size = LayerSize(channels, h, w)
         return layer
 
     def layer_conv1d(self, net, args, options):
@@ -329,7 +349,7 @@ class ConfigurableComponent(GANComponent):
             layers += [nn.Flatten()]
 
         layers += [nn.Linear(options.input_size or self.current_size.size(), output_size, bias=bias)]
-        self.nn_init(layers[0], options.initializer)
+        self.nn_init(layers[-1], options.initializer)
         self.current_size = LayerSize(*reversed(shape))
         if len(shape) != 1:
             layers.append(Reshape(*self.current_size.dims))
@@ -725,7 +745,7 @@ class ConfigurableComponent(GANComponent):
 
     def forward(self, input, context={}):
         self.context = context
-        for module, parsed in zip(self.net, self.parsed_layers):
+        for module, parsed, layer_size in zip(self.net, self.parsed_layers, self.layer_sizes):
             options = parsed.parsed_options
             args = parsed.args
             layer_name = parsed.layer_name
@@ -761,6 +781,15 @@ class ConfigurableComponent(GANComponent):
                 input = module(input, self.context['w'])
             else:
                 input = module(input)
+            if self.gan.steps == 0:
+                size = LayerSize(*list(input.shape[1:]))
+                if size.dims != layer_size.dims:
+                    print("Error: Size error on", layer_name)
+                    print("Error: Expected output size", layer_size.dims)
+                    print("Error: Actual output size", size.dims)
+                    raise "Layer size error, cannot continue"
+                else:
+                    print("Sizes as expected", input.shape[1:], layer_size.dims)
             if name is not None:
                 self.context[name] = input
         self.sample = input

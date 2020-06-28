@@ -12,8 +12,6 @@ class UniformDistribution(BaseDistribution):
     def __init__(self, gan, config):
         BaseDistribution.__init__(self, gan, config)
         self.current_channels = config["z"]
-        self.current_width = 1
-        self.current_height = 1
         self.current_input_size = config["z"]
         batch_size = gan.batch_size()
         self.z = torch.Tensor(batch_size, self.current_input_size).cuda()
@@ -52,10 +50,10 @@ class UniformDistribution(BaseDistribution):
             return self.z
         projections = []
         for projection in self.config.projections:
-            projections.append(self.lookup(projection)(self.config, self.gan, z))
+            projections.append(self.lookup(projection)(self.config, self.gan, self.z))
         ps = []
         for p in projections:
-            ps.append(z)
+            ps.append(self.z)
         return torch.cat(ps, -1)
 
     def next(self):

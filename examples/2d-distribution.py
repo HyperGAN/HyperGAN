@@ -31,14 +31,15 @@ class Custom2DInputDistribution:
         self.config = hc.Config(config)
         self.current_input_size = 2
         self.current_channels = 2
+        self.x = torch.Tensor(self.config.batch_size, 2).cuda()
 
     def batch_size(self):
         return self.config.batch_size
 
     def circle(self, x):
         spherenet = x**2
-        spherenet = torch.sum(spherenet)
-        lam = torch.sqrt(spherenet)
+        spherenet = torch.sum(spherenet, dim=1)
+        lam = torch.sqrt(spherenet).view([self.config.batch_size, 1])
         return x/lam#tf.reshape(lam,[int(lam.get_shape()[0]), 1])
 
     def modes(self, x):
@@ -46,7 +47,8 @@ class Custom2DInputDistribution:
 
     def sample(self):
         if args.distribution == 'circle':
-            x = torch.randn([2]).cuda()
+            self.x.normal_()
+            x = self.x
             x = self.circle(x)
         elif args.distribution == 'modes':
             x = torch.rand([2]).cuda()*2-1.0
@@ -76,9 +78,7 @@ class Custom2DInputDistribution:
         return 2
 
     def next(self, index=0):
-        samples = [self.sample().view(1, 2) for i in range(self.config.batch_size)]
-        sample = torch.cat(samples, dim=0).cuda()
-        return sample
+        return self.sample()
 
 x_v, z_v = None, None
 class Custom2DSampler(BaseSampler):

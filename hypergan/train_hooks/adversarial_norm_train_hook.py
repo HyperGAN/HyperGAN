@@ -16,6 +16,8 @@ class AdversarialNormTrainHook(BaseTrainHook):
         self.gamma = torch.Tensor([self.config.gamma]).float()[0].cuda()#self.gan.configurable_param(self.config.gamma or 1.0)
         self.relu = torch.nn.ReLU()
         self.target = [Parameter(x, requires_grad=True) for x in self.gan.discriminator_real_inputs()]
+        #self.x_mod_target = torch.zeros_like(self.target[0])
+        #self.g_mod_target = torch.zeros_like(self.target[0])
 
     def forward(self, d_loss, g_loss):
         if self.config.mode == "real" or self.config.mode is None:
@@ -23,13 +25,19 @@ class AdversarialNormTrainHook(BaseTrainHook):
                 target.data = data.clone()
             d_fake = self.gan.d_fake
             d_real = self.gan.forward_discriminator(self.target)
+            loss, norm, mod_target = self.regularize_adversarial_norm(d_real, d_fake, self.target)
+            #if mod_target is not None:
+            #    self.x_mod_target = mod_target[0]
         elif self.config.mode == "fake":
             for target, data in zip(self.target, self.gan.discriminator_fake_inputs()):
                 target.data = data.clone()
             d_fake = self.gan.forward_discriminator(self.target)
             d_real = self.gan.d_real
+            loss, norm, mod_target = self.regularize_adversarial_norm(d_real, d_fake, self.target)
+            if mod_target is not None:
+                norm = ((mod_target[0] - self.gan.g) ** 2)
+                #self.g_mod_target = mod_target[0]
 
-        loss, norm = self.regularize_adversarial_norm(d_real, d_fake, self.target)
 
         if loss is None:
             return [None, None]
@@ -51,12 +59,13 @@ class AdversarialNormTrainHook(BaseTrainHook):
         loss = self.gan.loss.forward_adversarial_norm(d1_logits, d2_logits)
 
         if loss == 0:
-            return [None, None]
+            return [None, None, None]
 
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
         d1_norm = [torch.norm(_d1_grads.view(-1),p=2,dim=0) for _d1_grads in d1_grads]
         reg_d1 = d1_norm[0]
         for d1 in d1_norm[1:]:
             reg_d1 = reg_d1 + d1
+        mod_target = [_d1 + _t for _d1, _t in zip(d1_grads, target)]
 
-        return loss, reg_d1
+        return loss, reg_d1, mod_target

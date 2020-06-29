@@ -35,8 +35,7 @@ class AdversarialNormTrainHook(BaseTrainHook):
             d_real = self.gan.d_real
             loss, norm, mod_target = self.regularize_adversarial_norm(d_real, d_fake, self.target)
             if mod_target is not None:
-                norm = ((mod_target[0] - self.gan.g) ** 2)
-                #self.g_mod_target = mod_target[0]
+                norm = self.relu(self.config.offset-((mod_target[0] - self.gan.g) ** 2))
 
 
         if loss is None:

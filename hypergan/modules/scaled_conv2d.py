@@ -11,6 +11,7 @@ class ScaledConv2d(nn.Module):
             out_channel,
             kernel_size,
             style_dim,
+            padding=0,
             demodulate=True,
             upsample=True,
             downsample=False,
@@ -23,7 +24,7 @@ class ScaledConv2d(nn.Module):
         self.kernel_size = kernel_size
         fan_in = in_channel * kernel_size ** 2
         self.scale = 1 / math.sqrt(fan_in)
-        self.padding = kernel_size // 2
+        self.padding = padding#kernel_size // 2
         self.weight = nn.Parameter(
             torch.randn(out_channel, in_channel, kernel_size, kernel_size)
         )

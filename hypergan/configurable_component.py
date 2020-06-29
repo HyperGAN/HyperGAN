@@ -350,7 +350,7 @@ class ConfigurableComponent(GANComponent):
 
         layers += [nn.Linear(options.input_size or self.current_size.size(), output_size, bias=bias)]
         self.nn_init(layers[-1], options.initializer)
-        self.current_size = LayerSize(*reversed(shape))
+        self.current_size = LayerSize(*list(reversed(shape)))
         if len(shape) != 1:
             layers.append(Reshape(*self.current_size.dims))
 
@@ -407,7 +407,9 @@ class ConfigurableComponent(GANComponent):
         return Blur(blur_kernel, pad=(pad0, pad1), upsample_factor=factor)
 
     def layer_reshape(self, net, args, options):
-        dims = [int(x) for x in args[0].split("*")]
+        dims_args = [int(x) for x in args[0].split("*")]
+        dims = list(reversed(dims_args))
+        print("DIMS", dims_args, dims)
         self.current_size = LayerSize(*dims)
         return Reshape(*dims)
 
@@ -562,8 +564,8 @@ class ConfigurableComponent(GANComponent):
 
         if upsample:
             self.current_size = LayerSize(channels, self.current_size.height * 2, self.current_size.width * 2)
-        elif downsample:
-            self.current_size = LayerSize(channels, self.current_size.height // 2, self.current_size.width // 2)
+        else:
+            self.current_size = LayerSize(channels, self.current_size.height - 2, self.current_size.width - 2)
         return result
 
     def layer_split(self, net, args, options):

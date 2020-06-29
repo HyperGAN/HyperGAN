@@ -13,7 +13,13 @@ class AdversarialNormTrainHook(BaseTrainHook):
         super().__init__(config=config, gan=gan, trainer=trainer)
         self.d_loss = None
         self.g_loss = None
-        self.gamma = torch.Tensor([self.config.gamma]).float()[0].cuda()#self.gan.configurable_param(self.config.gamma or 1.0)
+        if self.config.gamma is not None:
+            self.gamma = torch.Tensor([self.config.gamma]).float()[0].cuda()#self.gan.configurable_param(self.config.gamma or 1.0)
+        if self.config.gammas is not None:
+            self.gammas = [
+                        torch.Tensor([self.config.gammas[0]]).float()[0].cuda(),#self.gan.configurable_param(self.config.gamma or 1.0)
+                        torch.Tensor([self.config.gammas[1]]).float()[0].cuda()#self.gan.configurable_param(self.config.gamma or 1.0)
+                    ]
         self.relu = torch.nn.ReLU()
         self.target = [Parameter(x, requires_grad=True) for x in self.gan.discriminator_real_inputs()]
         #self.x_mod_target = torch.zeros_like(self.target[0])
@@ -44,13 +50,18 @@ class AdversarialNormTrainHook(BaseTrainHook):
         if self.config.loss:
           if "g" in self.config.loss:
               self.g_loss = self.gamma * norm.mean()
-              self.gan.add_metric('gn_g', self.g_loss)
+              self.gan.add_metric('an_g', self.g_loss)
           if "d" in self.config.loss:
               self.d_loss = self.gamma * norm.mean()
-              self.gan.add_metric('gn_d', self.d_loss)
+              self.gan.add_metric('an_d', self.d_loss)
+          if "dg" in self.config.loss:
+              self.d_loss = self.gammas[0] * norm.mean()
+              self.gan.add_metric('an_d', self.d_loss)
+              self.g_loss = self.gammas[1] * norm.mean()
+              self.gan.add_metric('an_g', self.d_loss)
         else:
             self.d_loss = self.gamma * norm.mean()
-            self.gan.add_metric('gn_d', self.d_loss)
+            self.gan.add_metric('an_d', self.d_loss)
 
         return [self.d_loss, self.g_loss]
 

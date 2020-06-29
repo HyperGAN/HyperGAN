@@ -7,6 +7,7 @@ from hypergan.viewer import GlobalViewer
 import argparse
 import hyperchamber as hc
 import hypergan as hg
+import numpy as np
 import io
 import json
 import math
@@ -248,7 +249,10 @@ def train(config, args):
 
     metrics = [accuracy_x_to_g, accuracy_g_to_x]
     sum_metrics = [0 for metric in metrics]
+    broken = False
     for i in range(steps):
+        if broken:
+            break
         gan.step()
 
         if args.viewer and i % args.sample_every == 0:
@@ -257,9 +261,14 @@ def train(config, args):
             sample_file="samples/"+config_filename+"/%06d.png" % (samples)
             sampler.sample(sample_file, args.save_samples)
 
-        if i > steps * 9.0/10:
+        if i % 100 == 0:
             for k, metric in enumerate(metrics):
-                sum_metrics[k] += metric().cpu().detach().numpy()
+                _metric =  metric().cpu().detach().numpy()
+                sum_metrics[k] += _metric
+                if not np.isfinite(_metric):
+                    broken = True
+                    break
+
 
     return sum_metrics
 

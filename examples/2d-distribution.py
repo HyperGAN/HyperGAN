@@ -33,6 +33,7 @@ class Custom2DInputDistribution:
         self.current_input_size = 2
         self.current_channels = 2
         self.x = torch.Tensor(self.config.batch_size, 2).cuda()
+        self.y = torch.Tensor(self.config.batch_size, 2).cuda()
 
     def batch_size(self):
         return self.config.batch_size
@@ -52,12 +53,12 @@ class Custom2DInputDistribution:
             x = self.x
             x = self.circle(x)
         elif args.distribution == 'modes':
-            x = torch.rand([2]).cuda()*2-1.0
-            x = self.modes(x)
+            self.x.uniform_()
+            x = self.modes(self.x*2-1.0)
         elif args.distribution == 'modal-gaussian':
-            x = torch.rand([1, 2]).cuda()*2-1.0
-            y = torch.randn([1, 2]).cuda()*0.04+0.15
-            x = torch.round(x) + y
+            self.x.uniform_()
+            self.y.normal_()
+            x = torch.round(self.x*2.0-1) + self.y*0.04+0.15
         elif args.distribution == 'sin':
             x = torch.rand((1, args.batch_size)).cuda()*21-10.5
             x = torch.transpose(x)

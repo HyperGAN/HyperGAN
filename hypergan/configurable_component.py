@@ -18,6 +18,7 @@ from hypergan.layer_size import LayerSize
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.add import Add
+from hypergan.modules.attention import Attention
 from hypergan.modules.ez_norm import EzNorm
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.const import Const
@@ -56,6 +57,7 @@ class ConfigurableComponent(GANComponent):
             "adaptive_avg_pool3d": self.layer_adaptive_avg_pool3d,
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
             "add": self.layer_add,
+            "attention": self.layer_attention,
             "avg_pool": self.layer_avg_pool,
             "batch_norm": self.layer_batch_norm,
             "batch_norm1d": self.layer_batch_norm1d,
@@ -644,6 +646,9 @@ class ConfigurableComponent(GANComponent):
                 print("arg", type(arg))
                 raise "Could not parse add layer "
         return Add(layers, layer_names)
+
+    def layer_attention(self, net, args, options):
+        return Attention(self.current_size.channels)
 
     def layer_norm(self, net, args, options):
         affine = True

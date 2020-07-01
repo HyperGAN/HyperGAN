@@ -31,10 +31,11 @@ class AdversarialNormTrainHook(BaseTrainHook):
                 target.data = data.clone()
             d_fake = self.gan.d_fake
             d_real = self.gan.forward_discriminator(self.target)
-            norm = self.regularize_adversarial_norm(d_real, d_fake, self.target)
-            if mod_target is not None:
-                self.x_mod_target = mod_target[0]
-            #todo broken
+            grads = self.regularize_adversarial_norm(d_real, d_fake, self.target)
+            xadv = [_d1 + _t for _d1, _t in zip(grads, [self.gan.x])]
+            self.x_mod_target = xadv
+
+            norm = self.gan.loss.forward_adversarial_norm(self.gan.forward_discriminator(xadv), self.gan.d_real)
         elif self.config.mode == "fake":
             for target, data in zip(self.target, self.gan.discriminator_fake_inputs()):
                 target.data = data.clone()

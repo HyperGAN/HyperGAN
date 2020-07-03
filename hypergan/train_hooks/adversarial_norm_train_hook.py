@@ -42,7 +42,7 @@ class AdversarialNormTrainHook(BaseTrainHook):
             d_fake = self.gan.forward_discriminator(self.target)
             d_real = self.gan.d_real
             grads = self.regularize_adversarial_norm(d_real, d_fake, self.target)
-            gadv = [_d1 + _t for _d1, _t in zip(grads, [self.gan.g])]
+            gadv = [_d1/(torch.norm(_d1.view(-1), dim=0)+1e-8) * 1e-3 + _t for _d1, _t in zip(grads, self.target)]
             self.g_mod_target = gadv[0]
 
             norm = self.gan.loss.forward_adversarial_norm(self.gan.forward_discriminator(gadv), self.gan.d_fake)

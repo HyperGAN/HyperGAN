@@ -36,31 +36,37 @@ class AdversarialNormTrainHook(BaseTrainHook):
             self.x_mod_target = xadv
 
             norm = self.gan.loss.forward_adversarial_norm(self.gan.forward_discriminator(xadv), self.gan.d_real)
+            g_norm, d_norm = norm, norm
         elif self.config.mode == "fake":
             for target, data in zip(self.target, self.gan.discriminator_fake_inputs()):
-                target.data = data.clone()
+                target.data = data.clone().detach()
             d_fake = self.gan.forward_discriminator(self.target)
             d_real = self.gan.d_real
             grads = self.regularize_adversarial_norm(d_real, d_fake, self.target)
-            gadv = [_d1/(torch.norm(_d1.view(-1), dim=0)+1e-8) * 1e-3 + _t for _d1, _t in zip(grads, self.target)]
+            #gadv = [_d1/(torch.norm(_d1.view(-1), dim=0)+1e-8) * 1e-4 + _t for _d1, _t in zip(grads, self.target)]
+            #gadv = [_d1 + _t for _d1, _t in zip(grads, self.target)]#[_d1/(torch.norm(_d1.view(-1), dim=0)+1e-8) * 1e-4 + _t for _d1, _t in zip(grads, self.target)]
+            gadv = [_d1 + _t for _d1, _t in zip(grads, self.target)]
             self.g_mod_target = gadv[0]
 
-            norm = self.gan.loss.forward_adversarial_norm(self.gan.forward_discriminator(gadv), self.gan.d_fake)
+            dadv = self.gan.forward_discriminator(gadv)
+            d_norm = self.gan.loss.forward_adversarial_norm(dadv, self.gan.d_fake)
+            g_norm = self.relu(1e-7 - d_norm)
 
         if self.config.loss:
           if "g" in self.config.loss:
-              self.g_loss = self.gamma * norm.mean()
+              self.g_loss = self.gammas[1] * g_norm.mean()
               self.gan.add_metric('an_g', self.g_loss)
           if "d" in self.config.loss:
-              self.d_loss = self.gamma * norm.mean()
+              self.d_loss = self.gammas[0] * d_norm.mean()
               self.gan.add_metric('an_d', self.d_loss)
           if "dg" in self.config.loss:
-              self.d_loss = self.gammas[0] * norm.mean()
+              self.d_loss = self.gammas[0] * d_norm.mean()
               self.gan.add_metric('an_d', self.d_loss)
-              self.g_loss = self.gammas[1] * norm.mean()
+              self.g_loss = self.gammas[1] * g_norm.mean()
               self.gan.add_metric('an_g', self.g_loss)
+              #self.g_loss = None
         else:
-            self.d_loss = self.gamma * norm.mean()
+            self.d_loss = self.gammas[0] * d_norm.mean()
             self.gan.add_metric('an_d', self.d_loss)
 
         return [self.d_loss, self.g_loss]

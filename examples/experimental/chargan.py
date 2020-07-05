@@ -68,7 +68,7 @@ class TextData(data.Dataset):
         return self.lookup
 
     def get_vocabulary(self):
-        vocab = list("~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.")
+        vocab = list(" ~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcbaABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.")
         return vocab
 
     def __getitem__(self, index):
@@ -112,6 +112,8 @@ class TextInput:
         self.textdata = TextData(filename, length)
         self.dataloader = data.DataLoader(self.textdata, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
         self.dataset = iter(self.dataloader)
+        self._batch_size = batch_size
+        self.length = length
 
     def text_plot(self, size, filename, data, x):
         bs = x.shape[0]
@@ -135,6 +137,20 @@ class TextInput:
         except StopIteration:
             self.dataset = iter(self.dataloader)
             return self.next(index)
+
+    def batch_size(self):
+        return self._batch_size
+
+    def channels(self):
+        return 1#self.length
+
+    def width(self):
+        return 1
+
+    def height(self):
+        return self.length
+
+
 
 inputs = TextInput(config, args.batch_size, args.filename, args.length, one_hot=args.one_hot)
 inputs.next()

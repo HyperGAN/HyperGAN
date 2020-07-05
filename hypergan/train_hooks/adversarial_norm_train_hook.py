@@ -31,6 +31,10 @@ class AdversarialNormTrainHook(BaseTrainHook):
                 target.data = data.clone()
             d_fake = self.gan.d_fake
             d_real = self.gan.forward_discriminator(self.target)
+            if(d_fake.mean() > d_real.mean()):
+                pass
+            else:
+                return [None, None]
             loss, _, mod_target = self.regularize_adversarial_norm(d_fake, d_real, self.target)
             norm = self.relu(self.config.offset-((mod_target[0] - self.gan.x) ** 2))
         elif self.config.mode == "fake":
@@ -38,6 +42,10 @@ class AdversarialNormTrainHook(BaseTrainHook):
                 target.data = data.clone()
             d_fake = self.gan.forward_discriminator(self.target)
             d_real = self.gan.d_real
+            if(d_fake.mean() < d_real.mean()):
+                pass
+            else:
+                return [None, None]
             loss, norm, mod_target = self.regularize_adversarial_norm(d_real, d_fake, self.target)
             norm = self.relu(self.config.offset-((mod_target[0] - self.gan.g) ** 2))
 

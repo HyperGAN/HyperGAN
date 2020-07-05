@@ -1,7 +1,6 @@
-import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
-from hypergan.generators.common import *
+import torch.nn as nn
 
 from .base_generator import BaseGenerator
 
@@ -10,33 +9,26 @@ class DCGANGenerator(BaseGenerator):
     def required(self):
         return []
 
-    def build(self, net):
-        gan = self.gan
-        ops = self.ops
-        config = self.config
-        activation = ops.lookup(config.activation or 'lrelu')
+    def create(self):
+        self.linear = nn.Sequential(
+                nn.Linear(100, 4*4*512),
+                nn.ReLU()
+        )
+        self.net = nn.Sequential(
+            nn.ConvTranspose2d(512, 256, 4, 2, 1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 128, 4, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 64, 4, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 3, 4, 2, 1),
+            nn.Tanh()
+        )
 
-        print("[dcgan] NET IS", net)
-
-        net = ops.linear(net, 4*4*1024)
-
-        shape = ops.shape(net)
-
-        net = ops.reshape(net, [shape[0],4,4,1024])
-
-        net = activation(net)
-        net = ops.deconv2d(net, 5, 5, 2, 2, 512)
-        net = self.layer_regularizer(net)
-        net = activation(net)
-        net = ops.deconv2d(net, 5, 5, 2, 2, 256)
-        net = self.layer_regularizer(net)
-        net = activation(net)
-        net = ops.deconv2d(net, 5, 5, 2, 2, 128)
-        net = self.layer_regularizer(net)
-        net = activation(net)
-        net = ops.deconv2d(net, 5, 5, 2, 2, gan.channels())
-        net = self.layer_regularizer(net)
-        net = ops.lookup('tanh')(net)
-
-        self.sample = net
-        return self.sample
+    def forward(self, x):
+        lin = self.linear(x).view(self.gan.batch_size(), 512, 4, 4)
+        net = self.net(lin)
+        return net.view(self.gan.batch_size(),3,64,64)

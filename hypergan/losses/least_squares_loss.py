@@ -1,4 +1,3 @@
-import tensorflow as tf
 import hyperchamber as hc
 
 from hypergan.losses.base_loss import BaseLoss
@@ -6,15 +5,13 @@ from hypergan.losses.base_loss import BaseLoss
 class LeastSquaresLoss(BaseLoss):
 
     def required(self):
-        return "labels".split()
+        return "".split()
 
-    def _create(self, d_real, d_fake):
-        ops = self.gan.ops
+    def _forward(self, d_real, d_fake):
         config = self.config
 
-        a,b,c = config.labels
-        square = ops.lookup('square')
-        d_loss = 0.5*square(d_real - b) + 0.5*square(d_fake - a)
-        g_loss = 0.5*square(d_fake - c)
+        a,b,c = (config.labels or [-1,1,1])
+        d_loss = 0.5*((d_real - b)**2) + 0.5*((d_fake - a)**2)
+        g_loss = 0.5*((d_fake - c)**2)
 
         return [d_loss, g_loss]

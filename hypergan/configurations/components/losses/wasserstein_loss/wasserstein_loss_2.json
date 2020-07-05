@@ -1,0 +1,65 @@
+{
+  "discriminator": {
+    "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
+    "activation": "lrelu",
+    "initializer": "random_normal",
+    "random_stddev": 0.02
+  },
+  "latent": {
+    "class": "class:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "projections": [
+      "function:hypergan.distributions.uniform_distribution.identity"
+    ],
+    "min": -1,
+    "max": 1,
+    "z": 100
+  },
+  "input": {
+    "class": "class:hypergan.inputs.image_loader.ImageLoader",
+    "sample_every": 100,
+    "directory": "/ml/datasets/ali/faces-128",
+    "sampler": "static_batch",
+    "resize": true,
+    "width": 64,
+    "height": 64,
+    "channels": 3,
+    "batch_size": 8
+  },
+  "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableGenerator",
+    "layers":[
+      "linear 4*4*512", "initializer xavier_uniform gain=relu", "relu",
+      "deconv 256", "initializer xavier_uniform gain=relu", "relu",
+      "deconv 128", "initializer xavier_uniform gain=relu", "relu",
+      "deconv 64", "initializer xavier_uniform gain=relu", "relu",
+      "deconv 3", "initializer xavier_uniform gain=tanh", "tanh"
+    ]
+  },
+  "loss": {
+    "class": "function:hypergan.losses.wasserstein_loss.WassersteinLoss",
+    "kl": true
+  },
+  "trainer": {
+    "class": "class:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+
+    "optimizer": {
+      "class": "class:torch.optim.Adam",
+      "lr": 1e-4,
+      "betas":[0.0,0.999]
+    },
+    "hooks": [
+      {
+        "class": "class:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
+        "gamma": 1e8,
+        "loss": ["g"]
+      },
+      {
+        "class": "class:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
+        "gamma": 100,
+        "loss": ["d"]
+      }
+    ]
+  },
+  "hypergan_version": "0.20.0",
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
+}

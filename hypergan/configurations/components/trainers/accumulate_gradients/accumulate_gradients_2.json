@@ -1,0 +1,78 @@
+{
+  "discriminator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "layers":[
+      "conv 32 stride=1", "adaptive_avg_pool", "relu",
+      "conv 64 stride=1", "adaptive_avg_pool", "relu",
+      "conv 128 stride=1", "adaptive_avg_pool", "relu",
+      "conv 256 stride=1", "adaptive_avg_pool", "relu",
+      "conv 512 stride=1", "adaptive_avg_pool", "relu",
+      "conv 512 stride=1", "adaptive_avg_pool", "relu",
+      "flatten",
+      "linear 1 bias=false"
+    ]
+  },
+  "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "layers":[
+      "identity name=enc",
+      "linear 512", "initializer xavier_normal gain=relu", "relu", "linear 512", "initializer xavier_normal gain=relu", "relu name=w",
+      "layer enc",
+      "reshape 2*2*64",
+      "deconv 512", "adaptive_instance_norm", "relu",
+      "deconv 256", "adaptive_instance_norm", "relu",
+      "deconv 128", "adaptive_instance_norm", "relu",
+      "deconv 64", "adaptive_instance_norm", "relu",
+      "deconv 3", "adaptive_instance_norm", "hardtanh"
+
+    ]
+  },
+  "trainer": {
+    "class": "class:hypergan.trainers.accumulate_gradient_trainer.AccumulateGradientTrainer",
+      "type": "agree",
+    "accumulate": 10,
+    "d_optimizer": {
+      "class": "class:torch.optim.Adam",
+      "lr": 1e-4,
+      "betas":[0.0,0.999]
+    },
+    "g_optimizer": {
+      "class": "class:torch.optim.Adam",
+      "lr": 1e-4,
+      "betas":[0.0,0.999]
+    },
+    "hooks": [
+      {
+        "class": "function:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
+        "gamma": 1e3,
+        "loss": ["d"]
+      }
+    ]
+  },
+  "loss": {
+    "class": "class:hypergan.losses.qp_loss.QPLoss"
+  },
+  "latent":
+  {
+      "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+      "projections": [
+        "function:hypergan.distributions.uniform_distribution.identity"
+      ],
+      "min": -1,
+      "max": 1,
+      "z": 256
+  },
+  "input": {
+    "class": "class:hypergan.inputs.image_loader.ImageLoader",
+    "sample_every": 1,
+    "directory": "/ml/datasets/ali/faces-128",
+    "sampler": "static_batch",
+    "resize": true,
+    "width": 64,
+    "height": 64,
+    "channels": 3,
+    "batch_size": 8
+  },
+  "hypergan_version": "0.20.0",
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
+}

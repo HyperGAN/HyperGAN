@@ -3,12 +3,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import state_ops
-from tensorflow.python.framework import ops
-from tensorflow.python.training import optimizer
-import tensorflow as tf
+import torch
+from torch.autograd import Variable
+from torch.autograd import grad as torch_grad
+import torch.nn as nn
+
 import hyperchamber as hc
 import numpy as np
 import inspect
@@ -16,63 +15,45 @@ from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class GradientPenaltyTrainHook(BaseTrainHook):
-  def __init__(self, gan=None, config=None, trainer=None, name="GradientPenaltyTrainHook"):
-    super().__init__(config=config, gan=gan, trainer=trainer, name=name)
-    if hasattr(self.gan, 'x0'):
-        gan_inputs = self.gan.x0
-    else:
-        gan_inputs = self.gan.inputs.x
+  def __init__(self, gan=None, config=None, trainer=None):
+      super().__init__(config=config, gan=gan, trainer=trainer)
+      flex = 1
+      if self.config.flex is not None:
+          flex = self.config.flex
+      self.flex = self.gan.configurable_param(flex)
+      self.relu = nn.ReLU()
 
-    self._lambda = self.gan.configurable_param(config['lambda'] or 1)
+  def forward(self, d_loss, g_loss):
+    x = self.gan.inputs.sample
+    g = self.gan.generator_sample
 
-    if self.config.target:
-        v = getattr(gan, self.config.target)
+    if self.config.input == 'x':
+        inp = x
+    elif self.config.input == 'g':
+        inp = g
     else:
-        v = gan.discriminator
-    target = v.sample
-    if "components" in self.config:
-        target_vars = []
-        for component in self.config.components:
-            c = getattr(gan, component)
-            target_vars += c.variables()
-    else:
-        target_vars = self.gan.variables()
+        alpha = torch.rand(self.gan.batch_size(), 1, 1, 1).cuda()
+        inp = alpha * x + (1 - alpha) * g
+    #inp = inp(interpolated, requires_grad=True).cuda()
 
-    gd = tf.gradients(target, target_vars)
-    gds = [tf.square(_gd) for _gd in gd if _gd is not None]
-    if self.config.flex:
-        if isinstance(self.config.flex,list):
-            gds = []
-            for i,flex in enumerate(self.config.flex):
-                split_target = tf.split(target, len(self.config.flex))
-                gd = tf.gradients(split_target, target_vars)
-                fc = self.gan.configurable_param(flex)
-                gds += [tf.square(tf.nn.relu(tf.norm(_gd) - fc)) for _gd in gd if _gd is not None]
-        else:
-            gds = [tf.square(tf.nn.relu(tf.norm(_gd) - flex)) for _gd in gd if _gd is not None]
-    self.loss = tf.add_n([self._lambda * tf.reduce_mean(_r) for _r in gds])
-    self.gds = gds
-    self.gd = gd
-    self.target_vars = target_vars
-    self.target = target
-    self.gan.add_metric('gp', self.loss)
+    gamma= self.gan.configurable_param(self.config['lambda'] or 1)
 
-  def losses(self):
-    if self.config.loss == "g_loss":
-        return [None, self.loss]
+    d = self.gan.discriminator(inp, context=self.gan.gp_context)
+    parameters = list(self.gan.d_parameters())#+ [interpolated]
+
+    grad = torch_grad(outputs=d.mean(), inputs=parameters, create_graph=True, retain_graph=True)
+
+    grad = [_g.view(-1) for _g in grad]
+    if self.config.type == "relu":
+        grad_loss = [(self.relu(torch.sqrt(torch.sum(_g**2, dim=0) +1e-12) - self.flex) ** 2).mean() for _g in grad]
     else:
-        return [self.loss, None]
+        grad_loss = [((torch.sqrt(torch.sum(_g**2, dim=0) +1e-12) - self.flex) ** 2).mean() for _g in grad]
+    grad_loss = sum(grad_loss)
+
+    loss = gamma*grad_loss
+    return [loss, loss]
 
   def after_step(self, step, feed_dict):
-
-    if self.config.debug:
-        for _v, _g in zip(self.target_vars, self.gd):
-            if(_g is not None and np.mean(self.gan.session.run(_g)) > 0.1):
-                print(' -> ' + _v.name,  _v, _g)
-                print(" in target?", _v in self.target_vars)
-                print(" in dvars? ",_v in self.gan.d_vars())
-                print(" in t_dvars? ",_v in self.gan.trainable_d_vars())
-                print(" in gvars? ",_v in self.gan.g_vars())
     pass
 
   def before_step(self, step, feed_dict):

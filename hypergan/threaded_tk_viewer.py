@@ -136,8 +136,7 @@ class ThreadedTkViewerUI:
                 label = tk.Label(statusbar, text="Starting", font=12)
                 label.grid(row=0, column=2) 
                 def __update_step():
-                    if hasattr(gan, 'step_count'):
-                        label['text']=("Step " + str(gan.step_count))
+                    label['text']=("Step " + str(int(gan.steps[0])))
                     root.after(1000, __update_step)
 
 
@@ -190,6 +189,7 @@ class ThreadedTkViewerUI:
             root.title(self.title)
             root.wm_title(self.title)
             self.resizable_frame.winfo_toplevel().title(self.title)
+            self.clock = self.pg.time.Clock()
 
         padw = 0
         padh = 0
@@ -211,6 +211,7 @@ class ThreadedTkViewerUI:
         self.screen.fill((0, 0, 0))
         self.pg.surfarray.blit_array(self.surface, image[:,:,:3])
         self.screen.blit(self.pg.transform.scale(self.surface,self.size),(0,0))
+        self.clock.tick_busy_loop(60)
         self.pg.display.flip()
 
 

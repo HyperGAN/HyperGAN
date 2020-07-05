@@ -1,8 +1,8 @@
-import tensorflow as tf
 import numpy as np
 import hyperchamber as hc
-from hypergan.generators.common import *
 from hypergan.generators.configurable_generator import ConfigurableGenerator
+
+import torch.nn as nn
 
 from .base_generator import BaseGenerator
 
@@ -13,7 +13,6 @@ class ResizableGenerator(ConfigurableGenerator):
 
     def depths(self, initial_width=4):
         gan = self.gan
-        ops = self.ops
         config = self.config
         final_depth = config.final_depth
         depths = []
@@ -21,7 +20,6 @@ class ResizableGenerator(ConfigurableGenerator):
         target_w = gan.width()
 
         w = initial_width
-        #ontehuas
         i = 0
 
         depths.append(final_depth)
@@ -33,128 +31,59 @@ class ResizableGenerator(ConfigurableGenerator):
         depths.reverse()
         return depths
 
-    def build(self, net):
+    def create(self):
         gan = self.gan
-        ops = self.ops
         config = self.config
 
-        nets = []
-
-        block = config.block or standard_block
-        padding = config.padding or "SAME"
-        latent = net
-
-        before_count = self.count_number_trainable_params()
-        net = ops.reshape(net, [ops.shape(net)[0], -1])
         primes = config.initial_dimensions or [4, 4]
+        self.initial_dimensions = primes
         depths = self.depths(primes[0])
-        initial_depth = np.minimum(depths[0], config.max_depth or 512)
-        str_depth = str(primes[0])+"*"+str(primes[1])+"*"+str(initial_depth)
-        new_shape = [ops.shape(net)[0], primes[0], primes[1], initial_depth]
+        self.initial_depth = np.minimum(depths[0], config.max_depth or 512)
 
-        if config.adaptive_instance_norm:
-            w = latent
-            for i in range(config.adaptive_instance_norm_layers or 2):
-                w = self.do_layer(self.layer_linear, w, [512], {})
-            w = self.layer_identity(w, ["w"], {})
+        self.current_input_size = self.gan.latent.config.z
+        new_shape = str(primes[0])+"*"+str(primes[1])+"*"+str(self.initial_depth)
+        self.linear = nn.Sequential(nn.Flatten(), self.layer_linear(None, [new_shape], {}), nn.ReLU())
 
-            print("adaptive instance w weights", self.count_number_trainable_params() - before_count)
-
-        before_count = self.count_number_trainable_params()
-        net = self.do_layer(self.layer_linear, net, [str_depth], {})
-        net = ops.reshape(net, new_shape)
-        print("Generator Architecture:")
-        print("linear "+str_depth)
-        print("  weights", self.count_number_trainable_params() - before_count)
-        before_count = self.count_number_trainable_params()
-
-        shape = ops.shape(net)
-
-        depths = self.depths(initial_width = shape[1])
+        depths = self.depths(initial_width = self.initial_dimensions[0])
 
         depth_reduction = np.float32(config.depth_reduction)
-        shape = ops.shape(net)
 
         filter_size = config.filter or 3
+        block = config.block
+
+        self.current_height = self.initial_dimensions[1]
+        self.current_width = self.initial_dimensions[0]
+        self.current_channels = self.initial_depth
+        conv_layers = []
 
         for i, depth in enumerate(depths[1:]):
-            s = ops.shape(net)
-            resize = [min(s[1]*2, gan.height()), min(s[2]*2, gan.width())]
-            net = self.layer_regularizer(net)
-            self.add_progressive_enhancement(net)
             dep = np.minimum(depth, config.max_depth or 512)
-            print(block + " " + str(dep))
-            options = {"initializer": "he_normal", "avg_pool": 1, "stride": 1, "filter": 3}
+            options = {}
             if block == 'deconv':
                 options['stride'] = 2
-                net = self.do_layer(self.layer_deconv, net, [dep], options)
+                net = self.layer_deconv(None, [dep], options)
             elif block == 'subpixel':
-                net = self.do_layer(self.layer_subpixel, net, [dep], options)
+                net = self.layer_subpixel(None, [dep], options)
             elif block == 'resize_conv':
-                net = self.do_layer(self.layer_resize_conv, net, [dep], options)
-            elif block == 'bicubic_conv':
-                net = self.do_layer(self.layer_bicubic_conv, net, [dep], options)
-            elif block == 'conv_depth_to_space':
-                net = self.do_layer(self.layer_conv_dts, net, [dep], options)
-            elif block == 'conv_double':
-                net = self.do_layer(self.layer_conv_double, net, [dep], options)
-            elif block == 'conv_reshape':
-                net = self.do_layer(self.layer_conv_reshape, net, [dep], options)
-            else:
-                raise ValidationException("Unknown block type")
-
-            size = resize[0]*resize[1]*depth
-            print("  weights", self.count_number_trainable_params() - before_count)
-            before_count = self.count_number_trainable_params()
-
-        net = self.layer_regularizer(net)
-
-        resize = [gan.height(), gan.width()]
+                net = self.layer_resize_conv(None, [dep], options)
+            conv_layers.append(net)
+            conv_layers.append(nn.ReLU())
 
         dep = config.channels or gan.channels()
-        print(block + " " + str(dep))
 
-        options = {"avg_pool": 1, "stride": 1, "filter": 3, "activation": "null"}
-        needs_resize = True
+        options = {}
 
         if block == 'deconv':
             options["stride"] = 2
-            net = self.do_layer(self.layer_deconv, net, [dep], options)
+            net = self.layer_deconv(None, [dep], options)
 
         elif block == "subpixel":
-            net = self.do_layer(self.layer_subpixel, net, [dep], options)
+            net = self.layer_subpixel(None, [dep], options)
 
         elif block == "resize_conv":
-            options["w"] = resize[0]
-            options["h"] = resize[1]
-            net = self.do_layer(self.layer_resize_conv, net, [dep], options)
-            needs_resize = False
+            net = self.layer_resize_conv(None, [dep], options)
 
-        elif block == "bicubic_conv":
-            net = self.do_layer(self.layer_bicubic_conv, net, [dep], options)
-
-        elif block == "conv_depth_to_space":
-            net = self.do_layer(self.layer_conv_dts, net, [dep], options)
-
-        elif block == "conv_double":
-            net = self.do_layer(self.layer_conv_double, net, [dep], options)
-
-        elif block == "conv_reshape":
-            net = self.do_layer(self.layer_conv_reshape, net, [dep], options)
-
-        if needs_resize and resize != ops.shape(net)[1:3]:
-            net = ops.slice(net, [0,0,0,0], [ops.shape(net)[0], resize[0], resize[1], ops.shape(net)[3]])
-
-        final_activation = self.ops.lookup(config.final_activation or "tanh")
-        net = final_activation(net)
-        print("  final weights", self.count_number_trainable_params() - before_count)
-
-        return net
-
-    def do_layer(self, layer_fn, net, args, overrides):
-        options = self.config.copy()
-        options.update(overrides)
-        if layer_fn == self.layer_linear:
-            if "initializer" not in options:
-                options["initializer"] = "stylegan"
-        return layer_fn(net, args, options)
+        conv_layers.append(net)
+        conv_layers.append(nn.Tanh())
+        self.net = nn.Sequential(*([self.linear] + conv_layers))
+        print(self.net)

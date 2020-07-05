@@ -17,11 +17,11 @@ class CommandParser:
 
     def common_flags(self, parser):
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
-        parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
+        parser.add_argument('--batch_size', '-b', type=int, default=0, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
         parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
+        parser.add_argument('--input_config', '-i', action='store', default=None, type=str, help='The input configuration to use.')
         parser.add_argument('--toml', '-T', action='store_true', help='Use TOML as configration file format instead of JSON')
         parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
-        parser.add_argument('--format', '-f', type=str, default='png', help='jpg or png')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--random_crop', dest='random_crop', action='store_true', help='Randomly crop images.')
         parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
@@ -31,14 +31,12 @@ class CommandParser:
         parser.add_argument('--save_samples', action='store_true', help='Saves samples to the local `samples` directory.')
         parser.add_argument('--sampler', type=str, default=None, help='Select a sampler.  Some choices: static_batch, batch, grid, progressive')
         parser.add_argument('--save_file', type=str, default=None, help='The save file to load and save from.  Use gs://bucket/mymodel/model.ckpt for TPU saving')
-        parser.add_argument('--sequential', dest='sequential', action='store_true', help='Input will not be shuffled.  Can be used to simulate online learning for streaming data')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
         parser.add_argument('--viewer_size', '-z', type=float, dest='viewer_size', default=1, help='Size of the viewer window as a multiplier. WARNING: values above 60 may cause crashes')
-        parser.add_argument('--classloss', dest='classloss', action='store_true', help='Enable class loss.  You must have multiple subfolders, one for each class')
         parser.add_argument('--list-templates', '-l', dest='list_templates', action='store_true', help='List available templates.')
-        parser.add_argument('--debug', dest='debug', action='store_true', help='Start the tensorflow debugger.')
+        parser.add_argument('--debug', dest='debug', action='store_true', help='Start debugger.')
         parser.add_argument('--version', action='version', version='%(prog)s 0.10.0 alpha')
         parser.add_argument('--nomenu', dest='menu', action='store_false', help='Disables the file menu.')
         parser.add_argument('--width', '-w', type=int, default=8, help='Number of samples per row')
@@ -86,11 +84,34 @@ try:
     config_name = args.config or 'default'
     config_filename = hg.Configuration.find(config_name, config_format=config_format)
     config = hc.Selector().load(config_filename, load_toml=use_toml)
+    if config.input is None and args.input_config is None:
+        directories = [args.directory]
+        if args.align:
+            directories+=args.align
+        input_config = hc.Config({
+            "class": "class:hypergan.inputs.image_loader.ImageLoader",
+            "batch_size": args.batch_size,
+            "directories": directories,
+            "channels": channels,
+            "crop": args.crop,
+            "height": height,
+            "random_crop": args.random_crop,
+            "resize": args.resize,
+            "shuffle": True,
+            "width": width
+        })
+    else:
+        if config.input:
+            if args.batch_size:
+                config.input["batch_size"] = args.batch_size
+            input_config = hc.Config(config.input)
+        else:
+            input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
+            input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
     if 'inherit' in config:
         base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
         base_config = hc.Selector().load(base_filename, load_toml=use_toml)
         config = {**base_config, **config}
-
 
     if args.list_templates:
         configs = hg.Configuration.list(config_format=config_format)
@@ -103,41 +124,17 @@ try:
             if template.runtime and "train" in template.runtime:
                 print("  > %s" %  (template.runtime["train"]))
         exit(0)
+
     if args.method == 'new' or args.method == 'test':
         gan_fn = None
         inputs_fn = None
         pass
 
-    else:
-        def gan_fn(config, inputs, distribution_strategy=None, session=None, reuse=False, graph=None):
-            gan = hg.GAN(config=config, inputs=inputs, debug=args.debug, device=args.device, distribution_strategy=distribution_strategy, session=session, reuse=reuse, graph=graph, method=args.method)
-            gan.args = args
-            gan.x_width = width
-            gan.x_height = height
-            gan.x_channels = channels
-            gan.name = config_name
-            return gan
 
-        def inputs_fn():
-            inputs = hg.inputs.image_loader.ImageLoader(args.batch_size)
-            directories = [args.directory]
-            if args.align:
-                directories+=args.align
-
-            inputs.create(directories,
-                  channels=channels, 
-                  format=args.format,
-                  crop=args.crop,
-                  sequential=args.sequential,
-                  width=width,
-                  height=height,
-                  resize=args.resize)
-            return inputs
-
-
-    gancli = cli.CLI(args=vars(args), gan_fn=gan_fn, inputs_fn=inputs_fn, gan_config=config)
+    gancli = cli.CLI(args=vars(args), input_config=input_config, gan_config=config)
     gancli.run()
 except:
     traceback.print_exc()
-    print("Error detected, HyperGAN exitting")
+    print("Error detected, HyperGAN exiting")
+finally:
     GlobalViewer.close()

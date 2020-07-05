@@ -1,2 +1,0 @@
-# Wasserstein Loss
-

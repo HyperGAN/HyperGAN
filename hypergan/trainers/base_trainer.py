@@ -1,25 +1,16 @@
 from hypergan.gan_component import GANComponent
 import hyperchamber as hc
-import tensorflow as tf
 import inspect
 
 class BaseTrainer(GANComponent):
-    def __init__(self, gan, config, d_vars=None, g_vars=None, name="BaseTrainer", reuse=False):
+    def __init__(self, gan, config):
         self.current_step = 0
-        self.g_vars = g_vars
-        self.d_vars = d_vars
         self.train_hooks = []
         
-        GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
+        GANComponent.__init__(self, gan, config)
 
     def _step(self, feed_dict):
         raise Exception('BaseTrainer _step called directly.  Please override.')
-
-    def variables(self):
-        result = self.ops.variables()
-        if hasattr(self, "optimizer"):
-            result += self.optimizer.variables()
-        return result
 
     def create(self):
         config = self.config
@@ -33,9 +24,8 @@ class BaseTrainer(GANComponent):
             defn = {k: v for k, v in hook_config.items() if k in inspect.getargspec(hook_config['class']).args}
             defn['gan']=self.gan
             defn['config']=hook_config
-            defn['trainer']=self
             hook = hook_config["class"](**defn)
-            self.gan.components += [hook]
+            self.gan.add_component("hook", hook)
             losses = hook.losses()
             if losses[0] is not None:
                 self.gan.loss.sample[0] += losses[0]
@@ -47,12 +37,24 @@ class BaseTrainer(GANComponent):
 
         result = self._create()
 
-        for hook in self.train_hooks:
+        for i, hook in enumerate(self.train_hooks):
             hook.after_create()
+            setattr(self, 'train_hook'+str(i), hook)
+
+    def create_optimizer(self, name="optimizer"):
+        defn = getattr(self.config, name) or self.config.optimizer
+        defn = defn.copy()
+        klass = GANComponent.lookup_function(None, defn['class'])
+        del defn["class"]
+        optimizer = klass(self.gan.parameters(), **defn)
+        self.gan.add_component(name, optimizer)
+        return optimizer
+
+    def calculate_gradients(self):
+        raise ValidationException("BaseTrainer#calculate_gradients called directly, please override")
 
     def step(self, feed_dict={}):
-        with self.gan.graph.as_default():
-            step = self._step(feed_dict)
+        step = self._step(feed_dict)
         self.current_step += 1
         return step
 
@@ -60,8 +62,7 @@ class BaseTrainer(GANComponent):
         return "".split()
 
     def output_string(self, metrics):
-        name = self.gan.name or ""
-        output = name + " %2d: " 
+        output = " %2d: " 
         for name in sorted(metrics.keys()):
             output += " " + name
             output += " %.2f"
@@ -69,7 +70,6 @@ class BaseTrainer(GANComponent):
 
     def output_variables(self, metrics):
         gan = self.gan
-        sess = gan.session
         return [metrics[k] for k in sorted(metrics.keys())]
 
 

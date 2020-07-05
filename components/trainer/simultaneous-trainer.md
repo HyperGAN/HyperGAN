@@ -1,2 +1,0 @@
-# Simultaneous Trainer
-

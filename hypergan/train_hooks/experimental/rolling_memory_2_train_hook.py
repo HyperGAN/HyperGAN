@@ -4,12 +4,6 @@ from __future__ import division
 from __future__ import print_function
 
 from hypergan.gan_component import ValidationException
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import state_ops
-from tensorflow.python.framework import ops
-from tensorflow.python.training import optimizer
-import tensorflow as tf
 import hyperchamber as hc
 import numpy as np
 import inspect

@@ -4,20 +4,12 @@ from __future__ import division
 from __future__ import print_function
 
 from hypergan.gan_component import GANComponent
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import state_ops
-from tensorflow.python.framework import ops
-from tensorflow.python.training import optimizer
-import tensorflow as tf
 import hyperchamber as hc
 import inspect
 
 class BaseTrainHook(GANComponent):
-  def __init__(self, gan=None, config=None, trainer=None, name="BaseTrainHook"):
-    super().__init__(gan, config, name=name)
-    self.trainer = trainer
-    self.name=name
+  def __init__(self, gan=None, config=None, trainer=None):
+    super().__init__(gan, config)
 
   def create(self):
     pass
@@ -39,3 +31,6 @@ class BaseTrainHook(GANComponent):
 
   def gradients(self, d_grads, g_grads):
     return [d_grads, g_grads]
+
+  def forward(self, d_loss, g_loss):
+    return [None, None]

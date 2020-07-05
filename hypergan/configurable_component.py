@@ -790,7 +790,7 @@ class ConfigurableComponent(GANComponent):
                 input = module(input)
             if self.gan.steps == 0:
                 size = LayerSize(*list(input.shape[1:]))
-                if size.dims != layer_size.dims:
+                if size.squeeze_dims() != layer_size.squeeze_dims():
                     print("Error: Size error on", layer_name)
                     print("Error: Expected output size", layer_size.dims)
                     print("Error: Actual output size", size.dims)

@@ -16,6 +16,9 @@ class LayerSize:
             self.height = dims[2]
             self.width = dims[3]
 
+    def squeeze_dims(self):
+        filter(lambda x: x == 1, self.dims)
+
     def size(self):
         if len(self.dims) == 1:
             return self.channels

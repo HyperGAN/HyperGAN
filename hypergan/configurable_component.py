@@ -43,7 +43,7 @@ class ConfigurableComponent(GANComponent):
             elif hasattr(input, 'current_channels'):
                 self.current_size = LayerSize(input.current_channels)
             else:
-                self.current_size = input.current_size.dims
+                self.current_size = input.current_size
         self.layers = []
         self.layer_sizes = []
         self.layer_output_sizes = {}
@@ -308,8 +308,8 @@ class ConfigurableComponent(GANComponent):
 
         padding = options.padding or 1#self.get_same_padding(self.current_width, self.current_width, stride, dilation)
 
-        layers = [nn.Conv1d(options.input_channels or self.size.channels, channels, fltr, stride, padding = padding)]
-        self.nn_init(layer, options.initializer)
+        layers = [nn.Conv1d(options.input_channels or self.current_size.channels, channels, fltr, stride, padding = padding)]
+        self.nn_init(layers[-1], options.initializer)
         self.current_size = LayerSize(channels, self.current_size.height // stride) #TODO better calculation of this
         return nn.Sequential(*layers)
 
@@ -529,6 +529,7 @@ class ConfigurableComponent(GANComponent):
     def layer_resize_conv1d(self, net, args, options):
         options = hc.Config(options)
         channels = args[0]
+        h = options.h or self.current_size.height * 2
 
         layers = [nn.Upsample((h)),
                 nn.Conv1d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, 1)]
@@ -688,8 +689,7 @@ class ConfigurableComponent(GANComponent):
         return AdaptiveInstanceNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, equal_linear=options.equal_linear)
 
     def layer_ez_norm(self, net, args, options):
-        output_dims = self.current_size.channels
-        return EzNorm(self.layer_output_sizes['w'].size(), output_dims, self.current_size.channels, equal_linear=options.equal_linear)
+        return EzNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, len(self.current_size.dims), equal_linear=options.equal_linear)
 
     def layer_zeros_like(self, net, args, options):
         return Zeros(self.gan.latent.sample().shape)

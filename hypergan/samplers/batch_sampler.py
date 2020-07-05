@@ -11,7 +11,7 @@ class BatchSampler(BaseSampler):
         return False
 
     def _sample(self):
-        return {
-            'generator': self.gan.generator.forward(self.gan.latent.sample())
-        }
+        return [
+            ('generator', self.gan.generator.forward(self.gan.latent.sample()))
+            ]
 

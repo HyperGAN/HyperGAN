@@ -97,6 +97,7 @@ try:
             "height": height,
             "random_crop": args.random_crop,
             "resize": args.resize,
+            "shuffle": True,
             "width": width
         })
     else:

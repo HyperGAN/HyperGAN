@@ -35,32 +35,38 @@ class AdversarialNormTrainHook(BaseTrainHook):
             norm = self.relu(self.config.offset-((mod_target[0] - self.gan.x) ** 2))
         elif self.config.mode == "fake":
             for target, data in zip(self.target, self.gan.discriminator_fake_inputs()):
-                target.data = data.clone().detach()
+                target.data = data.clone()
             d_fake = self.gan.forward_discriminator(self.target)
             d_real = self.gan.d_real
             loss, norm, mod_target = self.regularize_adversarial_norm(d_real, d_fake, self.target)
             norm = self.relu(self.config.offset-((mod_target[0] - self.gan.g) ** 2))
 
+        if loss is None:
+            return [None, None]
+
         if self.config.loss:
           if "g" in self.config.loss:
-              self.g_loss = self.gammas[1] * g_norm.mean()
+              self.g_loss = self.gamma * norm.mean()
               self.gan.add_metric('an_g', self.g_loss)
           if "d" in self.config.loss:
-              self.d_loss = self.gammas[0] * d_norm.mean()
+              self.d_loss = self.gamma * norm.mean()
               self.gan.add_metric('an_d', self.d_loss)
           if "dg" in self.config.loss:
-              self.d_loss = self.gammas[0] * d_norm.mean()
+              self.d_loss = self.gammas[0] * norm.mean()
               self.gan.add_metric('an_d', self.d_loss)
               self.g_loss = self.gammas[1] * norm.mean()
               self.gan.add_metric('an_g', self.g_loss)
         else:
-            self.d_loss = self.gammas[0] * d_norm.mean()
+            self.d_loss = self.gamma * norm.mean()
             self.gan.add_metric('an_d', self.d_loss)
 
         return [self.d_loss, self.g_loss]
 
     def regularize_adversarial_norm(self, d1_logits, d2_logits, target):
         loss = self.gan.loss.forward_adversarial_norm(d1_logits, d2_logits)
+
+        if loss == 0:
+            return [None, None, None]
 
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
         d1_norm = [torch.norm(_d1_grads.view(-1),p=2,dim=0) for _d1_grads in d1_grads]
@@ -69,4 +75,4 @@ class AdversarialNormTrainHook(BaseTrainHook):
             reg_d1 = reg_d1 + d1
         mod_target = [_d1 + _t for _d1, _t in zip(d1_grads, target)]
 
-        return torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
+        return loss, reg_d1, mod_target

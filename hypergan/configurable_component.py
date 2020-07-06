@@ -86,6 +86,7 @@ class ConfigurableComponent(GANComponent):
             #"make2d": self.layer_make2d,
             #"make3d": self.layer_make3d,
             "modulated_conv2d": self.layer_modulated_conv2d,
+            "module": self.layer_module,
             "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
             "reshape": self.layer_reshape,
@@ -107,7 +108,6 @@ class ConfigurableComponent(GANComponent):
             #"gram_matrix": self.layer_gram_matrix, #TODO
             #"image_statistics": self.layer_image_statistics, #TODO
             #"knowledge_base": self.layer_knowledge_base, #TODO
-            #"layer_filter": self.layer_filter, #TODO
             #"layer_norm": self.layer_layer_norm,#TODO
             #"mask": self.layer_mask,#TODO
             #"match_support": self.layer_match_support,#TODO
@@ -397,6 +397,11 @@ class ConfigurableComponent(GANComponent):
             self.current_size = LayerSize(channels, self.current_size.height // 2, self.current_size.width // 2)
         return result
 
+    def layer_module(self, net, args, options):
+        klass = GANComponent.lookup_function(None,"function:__main__."+args[0])
+        instance = klass(self.gan, net, args, options, self.current_size)
+        self.current_size = instance.layer_size(self.current_size)
+        return instance
 
     def layer_blur(self, net, args, options):
         blur_kernel=[1, 3, 3, 1]

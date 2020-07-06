@@ -69,10 +69,6 @@ class AdversarialNormTrainHook(BaseTrainHook):
             return [None, None, None]
 
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
-        d1_norm = [torch.norm(_d1_grads.view(-1),p=2,dim=0) for _d1_grads in d1_grads]
-        reg_d1 = d1_norm[0]
-        for d1 in d1_norm[1:]:
-            reg_d1 = reg_d1 + d1
         mod_target = [_d1 + _t for _d1, _t in zip(d1_grads, target)]
 
-        return loss, reg_d1, mod_target
+        return loss, None, mod_target

@@ -416,7 +416,6 @@ class ConfigurableComponent(GANComponent):
     def layer_reshape(self, net, args, options):
         dims_args = [int(x) for x in args[0].split("*")]
         dims = list(reversed(dims_args))
-        print("DIMS", dims_args, dims)
         self.current_size = LayerSize(*dims)
         return Reshape(*dims)
 

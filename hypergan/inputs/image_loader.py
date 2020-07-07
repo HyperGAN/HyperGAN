@@ -43,7 +43,10 @@ class ImageLoader:
             if self.channels() == 4:
                 mode = "RGBA"
             image_folder = UnsupervisedImageFolder(directory, transform=transform, mode=mode)
-            self.dataloaders.append(data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=config.shuffle, num_workers=4, drop_last=True))
+            shuffle = True
+            if config.shuffle is not None:
+                shuffle = config.shuffle
+            self.dataloaders.append(data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=4, drop_last=True))
             self.datasets.append(iter(self.dataloaders[-1]))
 
     def batch_size(self):

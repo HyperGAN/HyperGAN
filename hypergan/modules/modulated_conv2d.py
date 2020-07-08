@@ -11,13 +11,18 @@ import torch.nn.functional as F
 
 
 module_path = os.path.dirname(__file__)
-upfirdn2d_op = load(
-    'upfirdn2d',
-    sources=[
-        os.path.join(module_path, 'upfirdn2d.cpp'),
-        os.path.join(module_path, 'upfirdn2d_kernel.cu'),
-    ],
-)
+_upfirdn2d_op = None
+
+def upfirdn2d_op():
+    global _upfirdn2d_op
+    if _upfirdn2d_op is None:
+        _upfirdn2d_op = load(
+            'upfirdn2d',
+            sources=[
+                os.path.join(module_path, 'upfirdn2d.cpp'),
+                os.path.join(module_path, 'upfirdn2d_kernel.cu'),
+            ])
+    return _upfirdn2d_op
 
 def make_kernel(k):
     k = torch.tensor(k, dtype=torch.float32)
@@ -41,7 +46,7 @@ class UpFirDn2dBackward(Function):
 
         grad_output = grad_output.reshape(-1, out_size[0], out_size[1], 1)
 
-        grad_input = upfirdn2d_op.upfirdn2d(
+        grad_input = upfirdn2d_op().upfirdn2d(
             grad_output,
             grad_kernel,
             down_x,
@@ -78,7 +83,7 @@ class UpFirDn2dBackward(Function):
 
         gradgrad_input = gradgrad_input.reshape(-1, ctx.in_size[2], ctx.in_size[3], 1)
 
-        gradgrad_out = upfirdn2d_op.upfirdn2d(
+        gradgrad_out = upfirdn2d_op().upfirdn2d(
             gradgrad_input,
             kernel,
             ctx.up_x,
@@ -128,7 +133,7 @@ class UpFirDn2d(Function):
 
         ctx.g_pad = (g_pad_x0, g_pad_x1, g_pad_y0, g_pad_y1)
 
-        out = upfirdn2d_op.upfirdn2d(
+        out = upfirdn2d_op().upfirdn2d(
             input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
         )
         # out = out.view(major, out_h, out_w, minor)

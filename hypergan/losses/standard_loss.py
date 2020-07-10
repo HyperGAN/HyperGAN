@@ -18,8 +18,3 @@ class StandardLoss(BaseLoss):
 
         return [d_loss, g_loss]
 
-    def div(self, p, q):
-        return F.sigmoid(p)*torch.log(F.sigmoid(p)/(F.sigmoid(q)+self.eps))
-        #return F.sigmoid(p)*torch.log(self.two*F.sigmoid(p)/(F.sigmoid(p)+F.sigmoid(q)+self.eps))
-    def forward_adversarial_norm(self, d_real, d_fake):
-        return self.div(d_real, d_fake).mean()

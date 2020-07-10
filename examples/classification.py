@@ -6,7 +6,15 @@ import hypergan as hg
 import hyperchamber as hc
 from hypergan.inputs import *
 from hypergan.search.random_search import RandomSearch
+from hypergan.discriminators.base_discriminator import BaseDiscriminator
+from hypergan.generators.base_generator import BaseGenerator
+from hypergan.gans.base_gan import BaseGAN
 from common import *
+
+from torch import optim
+from torch.autograd import Variable
+
+from torchvision import datasets, transforms
 
 arg_parser = ArgumentParser(description='Train an MNIST classifier G(x) = label')
 args = arg_parser.parse_args()
@@ -14,6 +22,7 @@ args = arg_parser.parse_args()
 class MNISTInputLoader:
     def __init__(self, batch_size):
         kwargs = {'num_workers': 1, 'pin_memory': True}
+        dataset_folder = 'mnist'
 
         train_loader = torch.utils.data.DataLoader(
             datasets.MNIST(dataset_folder, train=True, download=True,
@@ -32,6 +41,7 @@ class MNISTInputLoader:
         self.test_loader = test_loader
         self.train_dataset = iter(self.train_loader)
         self.test_dataset = iter(self.test_loader)
+        self.eye = torch.eye(10).cuda()
 
     def batch_size(self):
         return args.batch_size
@@ -45,64 +55,95 @@ class MNISTInputLoader:
     def channels(self):
         return 1
 
-
     def next(self, index=0):
         try:
-            self.sample = self.train_dataset.next()[0].cuda()
+            self.sample = self.train_dataset.next()
+            self.sample = [self.sample[0].cuda(), self.eye[self.sample[1].cuda()]]
             return self.sample
         except StopIteration:
             self.train_dataset = iter(self.train_loader)
             return self.next(index)
 
-    def next_testdata(self, index=0):
-        try:
-            self.sample = self.test_dataset.next()[0].cuda()
-            return self.sample
-        except StopIteration:
-            self.test_dataset = iter(self.test_loader)
-            return self.next(index)
+    def testdata(self, index=0):
+        self.test_dataset = iter(self.test_loader)
+        while True:
+            try:
+                self.sample = self.test_dataset.next()
+                self.sample = [self.sample[0].cuda(), self.eye[self.sample[1].cuda()]]
+                yield self.sample
+            except StopIteration:
+                return
+
+class MNISTGAN(BaseGAN):
+    def __init__(self, *args, **kwargs):
+        self.discriminator = None
+        self.generator = None
+        self.loss = None
+        self.trainer = None
+        BaseGAN.__init__(self, *args, **kwargs)
+        self.x, self.y = self.inputs.next()
+
+    def create(self):
+        self.generator = self.create_component("generator", input=self.inputs.next()[0])
+        self.discriminator = self.create_component("discriminator")
+        self.loss = self.create_component("loss")
+        self.trainer = self.create_component("trainer")
+
+    def forward_discriminator(self, inputs):
+        return self.discriminator(inputs[0], {"digit": inputs[1]})
+
+    def forward_pass(self):
+        self.x, self.y = self.inputs.next()
+        g = self.generator(self.x)
+        self.g = g
+        d_real = self.forward_discriminator([self.x, self.y])
+        d_fake = self.forward_discriminator([self.x, g])
+        self.d_fake = d_fake
+        self.d_real = d_real
+        return d_real, d_fake
+
+    def g_parameters(self):
+        return self.generator.parameters()
+
+    def d_parameters(self):
+        return self.discriminator.parameters()
+
+    def discriminator_fake_inputs(self, discriminator_index=0):
+        return [self.x, self.g]
+
+    def discriminator_real_inputs(self, discriminator_index=0):
+        if hasattr(self, 'x'):
+            return [self.x, self.y]
+        else:
+            return self.inputs.next()
 
 class MNISTGenerator(BaseGenerator):
     def create(self):
-        gan = self.gan
-        config = self.config
-        ops = self.ops
-        end_features = config.end_features or 10
-
-        ops.describe('custom_generator')
-
-        net = gan.inputs.x
-        net = ops.reshape(net, [gan.batch_size(), -1])
-        net = ops.linear(net, end_features)
-        net = ops.lookup('tanh')(net)
-        self.fy = net
-        self.sample = net
+        self.linear = torch.nn.Linear(28*28*1, 1024)
+        self.relu = torch.nn.ReLU()
+        self.linear2 = torch.nn.Linear(1024, 10)
+        self.sigmoid = torch.nn.Sigmoid()
+    def forward(self, input, context={}):
+        net = input
+        net = self.linear(net.reshape(self.gan.batch_size(), -1))
+        net = self.relu(net)
+        net = self.linear2(net)
+        net = self.sigmoid(net)
         return net
-    def layer(self, name):
-        return getattr(self, name)
 
 class MNISTDiscriminator(BaseDiscriminator):
-    def build(self, net):
-        gan = self.gan
-        config = self.config
-        ops = self.ops
+    def create(self):
+        self.linear = torch.nn.Linear(28*28*1+10, 1024)
+        self.linear2 = torch.nn.Linear(1024, 1)
+        self.tanh = torch.nn.Hardtanh()
+        self.relu = torch.nn.ReLU()
 
-        end_features = 1
-
-        x = gan.inputs.x
-        y = gan.inputs.y
-        x = ops.reshape(x, [gan.batch_size(), -1])
-        g = gan.generator.sample
-
-        print("G", x, g)
-        gnet = tf.concat(axis=1, values=[x,g])
-        ynet = tf.concat(axis=1, values=[x,y])
-
-        net = tf.concat(axis=0, values=[ynet, gnet])
-        net = ops.linear(net, 128)
-        net = tf.nn.tanh(net)
-        self.sample = net
-
+    def forward(self, input, context={}):
+        net = torch.cat([input.reshape(self.gan.batch_size(), -1),context['digit']], 1)
+        net = self.linear(net)
+        net = self.relu(net)
+        net = self.linear2(net)
+        net = self.tanh(net)
         return net
 
 
@@ -116,47 +157,28 @@ if args.action == 'search':
 
     config = search.random_config()
 
-mnist_loader = MNISTInputLoader(args.batch_size)
-inputs = MNISTInputLoader()
+inputs = MNISTInputLoader(args.batch_size)
 
 def setup_gan(config, inputs, args):
-    gan = hg.GAN(config, inputs=inputs, batch_size=args.batch_size)
+    gan = MNISTGAN(config, inputs=inputs)
     return gan
 
 def train(config, args):
-    gan = setup_gan(config, mnist_loader, args)
-    correct_prediction = tf.equal(tf.argmax(gan.generator.layer('fy'),1), tf.argmax(gan.inputs.y,1))
-    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32)) * 100
-    metrics = [accuracy]
-    sum_metrics = [0 for metric in metrics]
-    mnist = gan.inputs.mnist
-
+    gan = setup_gan(config, inputs, args)
     test_batches = []
-    test_batch_image = []
-    test_batch_label = []
-    for _i, _y in zip(mnist.test._images, mnist.test._labels):
-        test_batch_image += [_i]
-        test_batch_label += [_y]
-        if gan.batch_size() == len(test_batch_label):
-            test_batches.append([test_batch_image, test_batch_label])
-            test_batch_image = []
-            test_batch_label = []
-    print(str(len(test_batch_label)) + " tests excluded because of batch size")
 
     for i in range(args.steps):
-        batch = mnist.train.next_batch(args.batch_size)
-        input_x = np.reshape(batch[0], [gan.batch_size(), 28, 28, 1])
-
-        gan.step({gan.inputs.x: input_x, gan.inputs.feed_y: batch[1]})
+        gan.step()
 
         if i % args.sample_every == 0 and i > 0:
-            accuracy_v = 0
-            test_batch = mnist.test.next_batch(args.batch_size)
-            for test_batch in test_batches:
-                input_x = np.reshape(test_batch[0], [gan.batch_size(), 28, 28, 1])
-                accuracy_v += gan.session.run(accuracy,{gan.inputs.x: input_x, gan.inputs.y: test_batch[1]})
-            accuracy_v /= len(test_batches) 
-            print("accuracy: ", accuracy_v)
+            correct_prediction = 0
+            total = 0
+            for (x,y) in gan.inputs.testdata():
+                prediction = gan.generator(x)
+                correct_prediction += (torch.argmax(prediction,1) == torch.argmax(y,1)).sum()
+                total += y.shape[0]
+            accuracy = (float(correct_prediction) / total)*100
+            print("accuracy: ", accuracy)
 
     return sum_metrics
 

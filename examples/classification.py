@@ -2,7 +2,6 @@ import argparse
 import uuid
 import os
 import sys
-import tensorflow as tf
 import hypergan as hg
 import hyperchamber as hc
 from hypergan.inputs import *
@@ -14,15 +13,54 @@ args = arg_parser.parse_args()
 
 class MNISTInputLoader:
     def __init__(self, batch_size):
-        from tensorflow.examples.tutorials.mnist import input_data
-        self.mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
+        kwargs = {'num_workers': 1, 'pin_memory': True}
 
-        self.x = tf.placeholder(tf.float32, shape=[batch_size, 28, 28, 1])
-        self.feed_y = tf.placeholder(tf.float32, shape=[batch_size, 10])
-        self.y = ((2*self.feed_y)-1)
+        train_loader = torch.utils.data.DataLoader(
+            datasets.MNIST(dataset_folder, train=True, download=True,
+                           transform=transforms.Compose([
+                               transforms.ToTensor()
+                           ])),
+            batch_size=args.batch_size, shuffle=True, **kwargs)
 
-    def layer(self, name):
-        return getattr(self, name)
+        test_loader = torch.utils.data.DataLoader(
+            datasets.MNIST(dataset_folder, train=False, transform=transforms.Compose([
+                transforms.ToTensor()
+            ])),
+            batch_size=args.batch_size, shuffle=False, **kwargs)
+
+        self.train_loader = train_loader
+        self.test_loader = test_loader
+        self.train_dataset = iter(self.train_loader)
+        self.test_dataset = iter(self.test_loader)
+
+    def batch_size(self):
+        return args.batch_size
+
+    def width(self):
+        return 28
+
+    def height(self):
+        return 28
+
+    def channels(self):
+        return 1
+
+
+    def next(self, index=0):
+        try:
+            self.sample = self.train_dataset.next()[0].cuda()
+            return self.sample
+        except StopIteration:
+            self.train_dataset = iter(self.train_loader)
+            return self.next(index)
+
+    def next_testdata(self, index=0):
+        try:
+            self.sample = self.test_dataset.next()[0].cuda()
+            return self.sample
+        except StopIteration:
+            self.test_dataset = iter(self.test_loader)
+            return self.next(index)
 
 class MNISTGenerator(BaseGenerator):
     def create(self):
@@ -42,7 +80,8 @@ class MNISTGenerator(BaseGenerator):
         return net
     def layer(self, name):
         return getattr(self, name)
-class MNISTDiscriminator(BaseGenerator):
+
+class MNISTDiscriminator(BaseDiscriminator):
     def build(self, net):
         gan = self.gan
         config = self.config
@@ -67,7 +106,6 @@ class MNISTDiscriminator(BaseGenerator):
         return net
 
 
-
 config = lookup_config(args)
 
 if args.action == 'search':
@@ -79,6 +117,7 @@ if args.action == 'search':
     config = search.random_config()
 
 mnist_loader = MNISTInputLoader(args.batch_size)
+inputs = MNISTInputLoader()
 
 def setup_gan(config, inputs, args):
     gan = hg.GAN(config, inputs=inputs, batch_size=args.batch_size)

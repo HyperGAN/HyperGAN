@@ -13,9 +13,7 @@ class BatchWalkSampler(BaseSampler):
         self.step_count = 30
         self.latent1 = self.gan.latent.next()
         self.latent2 = self.gan.latent.next()
-        direction = self.gan.latent.next()
-        self.direction = direction / torch.norm(direction, p=2, dim=1, keepdim=True).expand_as(direction)
-        self.velocity = 10.0
+        self.direction = (self.latent2-self.latent1) / self.step_count
         self.hardtanh = nn.Hardtanh()
 
     def compatible_with(gan):
@@ -28,12 +26,11 @@ class BatchWalkSampler(BaseSampler):
         self.step+=1
         if self.step > self.step_count:
             self.latent1 = self.latent2
-            direction = self.gan.latent.next()
-            self.direction = direction / torch.norm(direction, p=2, dim=1, keepdim=True).expand_as(direction)
-            self.velocity = 10.0
+            self.latent2 = self.gan.latent.next()
+            self.direction = (self.latent2-self.latent1) / self.step_count
             self.step = 0
 
-        latent = self.direction * self.step / self.step_count * self.velocity + self.latent1
+        latent = self.direction * self.step + self.latent1
         latent = self.hardtanh(latent)
         self.latent2 = latent
 

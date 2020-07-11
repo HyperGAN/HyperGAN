@@ -45,6 +45,9 @@ class StandardGAN(BaseGAN):
         BaseGAN.__init__(self, *args, **kwargs)
         self.x = self.inputs.next()
 
+    def build(self):
+        torch.onnx.export(self.generator, torch.randn(*self.latent.z.shape, device='cuda'), "generator.onnx", verbose=True, input_names=["latent"], output_names=["generator"])
+
     def required(self):
         return "generator".split()
 

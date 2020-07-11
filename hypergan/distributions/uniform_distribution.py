@@ -14,10 +14,13 @@ class UniformDistribution(BaseDistribution):
         self.current_channels = config["z"]
         self.current_input_size = config["z"]
         batch_size = gan.batch_size()
-        self.z = torch.Tensor(batch_size, self.current_input_size).cuda()
+        self.shape = [batch_size, self.current_input_size]
+        self.const_two = torch.Tensor([2]).cuda()
+        self.const_one = torch.Tensor([1]).cuda()
         if self.config.projections is not None:
             self.current_input_size *= len(self.config.projections)
             self.current_channels *= len(self.config.projections)
+        self.next()
 
     def create(self):
         pass
@@ -45,7 +48,7 @@ class UniformDistribution(BaseDistribution):
         return self.lookup_function(projection)
 
     def sample(self):
-        self.z.uniform_(-1.0, 1.0)
+        self.z = torch.rand(self.shape, device="cuda:0") * self.const_two - self.const_one
         if self.config.projections is None:
             return self.z
         projections = []

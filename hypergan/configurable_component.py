@@ -602,7 +602,7 @@ class ConfigurableComponent(GANComponent):
         return nn.Sequential(*layers)
 
     def layer_latent(self, net, args, options):
-        self.current_size = LayerSize(self.gan.latent.current_input_size) #TODO copy size
+        self.current_size = LayerSize(self.gan.latent.current_input_size)
         return NoOp()
 
     def layer_layer(self, net, args, options):

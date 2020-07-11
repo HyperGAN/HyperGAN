@@ -27,6 +27,7 @@ class AlignedGAN(BaseGAN):
         BaseGAN.__init__(self, *args, **kwargs)
 
     def create(self):
+        self.latent = self.create_component("latent")
         self.generator = self.create_component("generator", input=self.inputs.next()[0])
         self.discriminator = self.create_component("discriminator")
         self.loss = self.create_component("loss")

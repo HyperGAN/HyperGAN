@@ -47,11 +47,11 @@ class AlignedGAN(BaseGAN):
         self.d_real = d_real
         return d_real, d_fake
 
-    def g_parameters(self):
-        return self.generator.parameters()
+    def discriminator_components(self):
+        return [self.discriminator]
 
-    def d_parameters(self):
-        return self.discriminator.parameters()
+    def generator_components(self):
+        return [self.generator]
 
     def discriminator_fake_inputs(self, discriminator_index=0):
         return [self.g]

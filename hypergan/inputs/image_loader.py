@@ -68,6 +68,8 @@ class ImageLoader:
         try:
             self.sample = self.datasets[index].next()[0].cuda() * self.multiple + self.offset
             return self.sample
+        except ValueError:
+            return self.next(index)
         except StopIteration:
             self.datasets[index] = iter(self.dataloaders[index])
             return self.next(index)

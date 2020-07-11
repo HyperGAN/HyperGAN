@@ -31,9 +31,7 @@ class AdversarialNormTrainHook(BaseTrainHook):
                 target.data = data.clone()
             d_fake = self.gan.d_fake
             d_real = self.gan.forward_discriminator(self.target)
-            loss, _, mod_target = self.regularize_adversarial_norm(d_real, d_fake, self.target)
-            if loss == None:
-                return [None, None]
+            loss, _, mod_target = self.regularize_adversarial_norm(d_fake, d_real, self.target)
             norm = (-((mod_target[0] - self.gan.discriminator_real_inputs()[0])**2)).mean()
             for mt, t in zip(mod_target[1:], self.gan.discriminator_real_inputs()[1:]):
                 norm += (-((mt - t) ** 2)).mean()
@@ -46,17 +44,12 @@ class AdversarialNormTrainHook(BaseTrainHook):
             d_fake = self.gan.forward_discriminator(self.target)
             d_real = self.gan.d_real
             loss, norm, mod_target = self.regularize_adversarial_norm(d_real, d_fake, self.target)
-            if loss == None:
-                return [None, None]
             norm = (-((mod_target[0] - self.gan.discriminator_fake_inputs()[0])**2)).mean()
             for mt, t in zip(mod_target[1:], self.gan.discriminator_fake_inputs()[1:]):
                 norm += (-((mt - t) ** 2)).mean()
             if self.config.forward_discriminator:
                 dadv = self.gan.forward_discriminator(mod_target)
                 norm += (-((dadv - self.gan.d_fake) ** 2)).mean()
-
-        if loss is None:
-            return [None, None]
 
         if self.config.loss:
           if "g" in self.config.loss:
@@ -78,11 +71,6 @@ class AdversarialNormTrainHook(BaseTrainHook):
 
     def regularize_adversarial_norm(self, d1_logits, d2_logits, target):
         loss = self.gan.loss.forward_adversarial_norm(d1_logits, d2_logits)
-
-        #if torch.isnan(loss).any():
-        #    return [None, None, None]
-        #if loss == 0:
-        #    return [None, None, None]
 
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
         mod_target = [_d1 + _t for _d1, _t in zip(d1_grads, target)]

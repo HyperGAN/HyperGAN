@@ -300,6 +300,22 @@ class BaseGAN():
                 'aligned': AlignedSampler
             }
 
+    def g_parameters(self):
+        for component in self.generator_components():
+            for param in component.parameters():
+                yield param
+
+    def d_parameters(self):
+        for component in self.discriminator_components():
+            for param in component.parameters():
+                yield param
+
+    def discriminator_components(self):
+        print("Warning: BaseGAN.discriminator_components() called directly.  Please override")
+
+    def generator_components(self):
+        print("Warning: BaseGAN.generator_components() called directly.  Please override")
+
     def train_hooks(self):
         result = []
         for component in self.gan.components:

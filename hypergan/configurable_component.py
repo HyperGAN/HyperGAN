@@ -37,7 +37,7 @@ class ConfigurationException(Exception):
 class ConfigurableComponent(GANComponent):
     def __init__(self, gan, config, input=None, context={}):
         self.current_size = LayerSize(gan.channels(), gan.height(), gan.width())
-        if input:
+        if isinstance(input, GANComponent):
             if hasattr(input, 'current_height'):
                 self.current_size = LayerSize(input.current_channels, input.current_height, input.current_width)
             elif hasattr(input, 'current_channels'):

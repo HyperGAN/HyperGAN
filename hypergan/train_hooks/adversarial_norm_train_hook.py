@@ -35,7 +35,7 @@ class AdversarialNormTrainHook(BaseTrainHook):
             if loss == None:
                 return [None, None]
             norm = (-((mod_target[0] - self.gan.discriminator_real_inputs()[0])**2)).mean()
-            for mt, t in zip(mod_target[1:], self.discriminator_real_inputs()[1:]):
+            for mt, t in zip(mod_target[1:], self.gan.discriminator_real_inputs()[1:]):
                 norm += (-((mt - t) ** 2)).mean()
             if self.config.forward_discriminator:
                 dadv = self.gan.forward_discriminator(mod_target)
@@ -49,7 +49,7 @@ class AdversarialNormTrainHook(BaseTrainHook):
             if loss == None:
                 return [None, None]
             norm = (-((mod_target[0] - self.gan.discriminator_fake_inputs()[0])**2)).mean()
-            for mt, t in zip(mod_target[1:], self.discriminator_fake_inputs()[1:]):
+            for mt, t in zip(mod_target[1:], self.gan.discriminator_fake_inputs()[1:]):
                 norm += (-((mt - t) ** 2)).mean()
             if self.config.forward_discriminator:
                 dadv = self.gan.forward_discriminator(mod_target)

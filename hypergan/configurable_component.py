@@ -46,6 +46,7 @@ class ConfigurableComponent(GANComponent):
                 self.current_size = input.current_size
         self.layers = []
         self.layer_sizes = []
+        self.untrainable_parameters = set()
         self.layer_output_sizes = {}
         self.nn_layers = []
         self.layer_options = {}
@@ -198,6 +199,8 @@ class ConfigurableComponent(GANComponent):
                 print("Size after: ", self.current_size.dims)
             if 'name' in options:
                 self.set_layer(options['name'], net)
+            if options.trainable == False:
+                self.untrainable_parameters = self.untrainable_parameters.union(set(net.parameters()))
             return net
 
             #after = self.variables()
@@ -805,3 +808,7 @@ class ConfigurableComponent(GANComponent):
                 self.context[name] = input
         self.sample = input
         return input
+
+    def set_trainable(self, flag):
+        for p in (set(list(self.parameters())) - self.untrainable_parameters):
+            p.requires_grad = flag

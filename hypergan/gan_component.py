@@ -93,3 +93,7 @@ class GANComponent(nn.Module):
 
     def lookup_class(self, name):
         return self.lookup_function(name)
+
+    def set_trainable(self, flag):
+        for p in self.parameters():
+            p.requires_grad = flag

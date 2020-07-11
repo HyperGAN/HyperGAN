@@ -47,20 +47,16 @@ class SimultaneousTrainer(BaseTrainer):
             if loss[1] is not None:
                 g_loss += loss[1]
 
-        for p in self.gan.g_parameters():
-            p.requires_grad = True
-        for p in self.gan.d_parameters():
-            p.requires_grad = False
-        g_loss = g_loss.mean()
-        g_loss.backward(retain_graph=True)
-        for p in self.gan.d_parameters():
-            p.requires_grad = True
-        for p in self.gan.g_parameters():
-            p.requires_grad = False
-        d_loss = d_loss.mean()
-        d_loss.backward(retain_graph=True)
-        for p in self.gan.g_parameters():
-            p.requires_grad = True
+        self.gan.set_generator_trainable(True)
+        self.gan.set_discriminator_trainable(False)
+
+        g_loss.mean().backward(retain_graph=True)
+
+        self.gan.set_generator_trainable(False)
+        self.gan.set_discriminator_trainable(True)
+
+        d_loss.mean().backward(retain_graph=True)
+        self.gan.set_generator_trainable(True)
 
         d_grads = [p.grad for p in self.gan.d_parameters()]
         g_grads = [p.grad for p in self.gan.g_parameters()]

@@ -335,4 +335,10 @@ class BaseGAN():
     def regularize_adversarial_norm(self):
         raise ValidationException("Not implemented")
 
+    def set_generator_trainable(self, flag):
+        for c in self.generator_components():
+            c.set_trainable(flag)
 
+    def set_discriminator_trainable(self, flag):
+        for c in self.discriminator_components():
+            c.set_trainable(flag)

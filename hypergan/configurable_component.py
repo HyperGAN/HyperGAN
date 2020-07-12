@@ -31,6 +31,8 @@ from hypergan.modules.scaled_conv2d import ScaledConv2d
 from hypergan.modules.variational import Variational
 from hypergan.modules.pixel_norm import PixelNorm
 
+import torchvision
+
 class ConfigurationException(Exception):
     pass
 
@@ -90,6 +92,7 @@ class ConfigurableComponent(GANComponent):
             "module": self.layer_module,
             "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
+            "pretrained": self.layer_pretrained,
             "reshape": self.layer_reshape,
             "residual": self.layer_residual, #TODO options
             "resize_conv": self.layer_resize_conv,
@@ -131,6 +134,8 @@ class ConfigurableComponent(GANComponent):
             gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
         GANComponent.__init__(self, gan, config)
+        self.const_two = torch.Tensor([2.0]).float()[0].cuda()
+        self.const_one = torch.Tensor([1.0]).float()[0].cuda()
 
     def required(self):
         return "layers".split()
@@ -511,6 +516,19 @@ class ConfigurableComponent(GANComponent):
     def layer_pixel_norm(self, net, args, options):
         return PixelNorm()
 
+    def layer_pretrained(self, net, args, options):
+        model = getattr(torchvision.models, args[0])(pretrained=True)
+        model.train(True)
+        if options.layer:
+            layers = list(model.children())[:options.layer]
+            if options.sublayer:
+                layers[-1] = nn.Sequential(*layers[-1][:options.sublayer])
+        else:
+            layers = [model]
+            print("List of pretrained layers:", layers)
+            raise ValidationException("layer=-1 required for pretrained, sublayer=-1 optional.  Layers outputted above.")
+        return nn.Sequential(*layers)
+
     def layer_upsample(self, net, args, options):
         w = options.w or self.current_size.width * 2
         h = options.h or self.current_size.height * 2
@@ -793,6 +811,12 @@ class ConfigurableComponent(GANComponent):
                 input = self.gan.latent.sample()
             elif layer_name == "modulated_conv2d":
                 input = module(input, self.context['w'])
+            elif layer_name == "pretrained":
+                in_zero_one = (input + self.const_one) / self.const_two
+                mean = torch.as_tensor([0.485, 0.456, 0.406], device='cuda:0').view(1, 3, 1, 1)
+                std = torch.as_tensor([0.229, 0.224, 0.225], device='cuda:0').view(1, 3, 1, 1)
+
+                input = module(input.clone().sub_(mean).div_(std))
             else:
                 input = module(input)
             if self.gan.steps == 0:

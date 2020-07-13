@@ -21,6 +21,7 @@ import time
 class CLI:
     def __init__(self, args={}, input_config=None, gan_config=None):
         self.samples = 0
+        self.should_sample=False
         self.gan_config = gan_config
         self.input_config = input_config
 
@@ -136,6 +137,9 @@ class CLI:
         while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
             i+=1
             self.step()
+            if self.should_sample:
+                self.should_sample = False
+                self.sample(False)
 
             if (self.args.save_every != None and
                 self.args.save_every != -1 and

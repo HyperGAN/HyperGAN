@@ -29,7 +29,7 @@ class ThreadedTkViewerUI:
         self.size = [int(image.shape[0] * self.viewer_size), int(image.shape[1] * self.viewer_size)]
 
         def _refresh_sample(*args):
-          gan.cli.sample(False)
+          gan.cli.should_sample=True
 
         if not self.screen:
 

@@ -17,7 +17,7 @@ from hypergan.gan_component import ValidationException
 from hypergan.layer_size import LayerSize
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
-from hypergan.modules.add import Add
+from hypergan.modules.operation import Operation
 from hypergan.modules.attention import Attention
 from hypergan.modules.ez_norm import EzNorm
 from hypergan.modules.concat_noise import ConcatNoise
@@ -90,6 +90,8 @@ class ConfigurableComponent(GANComponent):
             #"make3d": self.layer_make3d,
             "modulated_conv2d": self.layer_modulated_conv2d,
             "module": self.layer_module,
+            "mul": self.layer_mul,
+            "output": self.layer_output,
             "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
             "pretrained": self.layer_pretrained,
@@ -643,6 +645,12 @@ class ConfigurableComponent(GANComponent):
         return self.vae
 
     def layer_add(self, net, args, options):
+        return self.operation_layer(net, args, options, "+")
+
+    def layer_mul(self, net, args, options):
+        return self.operation_layer(net, args, options, "*")
+
+    def operation_layer(self, net, args, options, operation):
         options = hc.Config(options)
         layers = []
         layer_names = []
@@ -671,7 +679,7 @@ class ConfigurableComponent(GANComponent):
             else:
                 print("arg", type(arg))
                 raise "Could not parse add layer "
-        return Add(layers, layer_names)
+        return Operation(layers, layer_names, operation)
 
     def layer_attention(self, net, args, options):
         return Attention(self.current_size.channels)
@@ -787,6 +795,8 @@ class ConfigurableComponent(GANComponent):
             elif layer_name == "ez_norm":
                 input = module(input, self.context['w'])
             elif layer_name == "add":
+                input = module(input, self.context)
+            elif layer_name == "mul":
                 input = module(input, self.context)
             elif layer_name == "split":
                 input = torch.split(input, args[0], options.dim or -1)[args[1]]

@@ -665,8 +665,8 @@ class ConfigurableComponent(GANComponent):
                 layers.append(LearnedNoise())
                 layer_names.append(None)
             elif arg in self.named_layers:
-                layers.append(self.named_layers[arg])
-                layer_names.append(None)
+                layers.append(NoOp())
+                layer_names.append("layer "+arg)
             elif arg in self.gan.named_layers:
                 layers.append(self.gan.named_layers[arg])
                 layer_names.append(None)

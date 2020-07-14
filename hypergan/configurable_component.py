@@ -91,7 +91,6 @@ class ConfigurableComponent(GANComponent):
             "modulated_conv2d": self.layer_modulated_conv2d,
             "module": self.layer_module,
             "mul": self.layer_mul,
-            "output": self.layer_output,
             "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
             "pretrained": self.layer_pretrained,

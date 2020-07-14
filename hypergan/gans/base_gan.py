@@ -155,33 +155,36 @@ class BaseGAN():
         full_path = os.path.expanduser(os.path.dirname(save_file))
         os.makedirs(full_path, exist_ok=True)
         for name, component in self.components.items():
-            if isinstance(component, nn.Module):
-                path = full_path + "/"+name+".save"
-                print("Saving " + path)
-                print(component.state_dict().keys())
-                torch.save(component.state_dict(), path)
+            self._save(full_path, name, component)
+        self._save(full_path, 'optimizer', self.trainer.optimizer)
+
+    def _save(self, full_path, name, component):
+        path = full_path + "/"+name+".save"
+        print("Saving " + path)
+        print(component.state_dict().keys())
+        torch.save(component.state_dict(), path)
 
     def load(self, save_file):
         print("Loading..." + str(len(self.components)))
         full_path = os.path.expanduser(os.path.dirname(save_file))
-        index = 0
-        loaded = False
         for name, component in self.components.items():
-            if isinstance(component, nn.Module):
-                path = full_path + "/"+name+".save"
-                if Path(path).is_file():
-                    print("Loading " + path)
-                    try:
-                        component.load_state_dict(torch.load(path))
-                        component.eval()
-                    except:
-                        print("Warning: Could not load component " + name)
+            self._load(full_path, name, component)
+        self._load(full_path, name, self.trainer.optimizer)
 
-                    index += 1 #TODO probably should label these
-                    loaded = True
-                else:
-                    print("Could not load " + path)
-        return loaded
+    def _load(self, full_path, name, component):
+        path = full_path + "/"+name+".save"
+        if Path(path).is_file():
+            print("Loading " + path)
+            try:
+                state_dict = torch.load(path)
+                print('state_dict', state_dict.keys())
+                component.load_state_dict(state_dict)
+                component.eval()
+            except:
+                print("Warning: Could not load component " + name)
+        else:
+            print("Could not load " + path)
+
 
     def configurable_param(self, string):
         self.param_ops = {

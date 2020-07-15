@@ -7,9 +7,10 @@ class Attention(nn.Module):
         super(Attention,self).__init__()
         self.chanel_in = in_dim
         
-        self.query_conv = nn.Conv2d(in_channels = in_dim , out_channels = in_dim//8 , kernel_size= 1)
-        self.key_conv = nn.Conv2d(in_channels = in_dim , out_channels = in_dim//8 , kernel_size= 1)
-        self.value_conv = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
+        self.f = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
+        self.g = nn.Conv2d(in_channels = in_dim , out_channels = in_dim, kernel_size= 1)
+        self.h = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
+        self.o = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
         #self.gamma = nn.Parameter(torch.zeros(1))
 
         self.softmax  = nn.Softmax(dim=-1) #
@@ -22,14 +23,14 @@ class Attention(nn.Module):
                 attention: B X N X N (N is Width*Height)
         """
         m_batchsize,C,width ,height = x.size()
-        proj_query  = self.query_conv(x).view(m_batchsize,-1,width*height).permute(0,2,1) # B X CX(N)
-        proj_key =  self.key_conv(x).view(m_batchsize,-1,width*height) # B X C x (*W*H)
-        energy =  torch.bmm(proj_query,proj_key) # transpose check
-        attention = self.softmax(energy) # BX (N) X (N) 
-        proj_value = self.value_conv(x).view(m_batchsize,-1,width*height) # B X C X N
+        f  = self.f(x).view(m_batchsize,width*height, -1)
+        g =  self.g(x).view(m_batchsize,width*height, -1).permute(0,2,1)
+        s =  torch.bmm(g,f)
+        beta = self.softmax(s)
+        h = self.h(x).view(m_batchsize,width*height,-1)
 
-        out = torch.bmm(proj_value,attention.permute(0,2,1) )
+        out = torch.bmm(beta, h.permute(0,2,1) )
+        out = self.o(out.view(x.shape))
         out = out.view(m_batchsize,C,width,height)
         
-        out = out + x
         return out

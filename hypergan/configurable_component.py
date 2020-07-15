@@ -681,7 +681,12 @@ class ConfigurableComponent(GANComponent):
         return Operation(layers, layer_names, operation)
 
     def layer_attention(self, net, args, options):
-        return Attention(self.current_size.channels)
+        layer = Attention(self.current_size.channels)
+        self.nn_init(layer.o, options.initializer)
+        self.nn_init(layer.h, options.initializer)
+        self.nn_init(layer.g, options.initializer)
+        self.nn_init(layer.f, options.initializer)
+        return layer
 
     def layer_norm(self, net, args, options):
         affine = True

@@ -682,7 +682,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_attention(self, net, args, options):
         layer = Attention(self.current_size.channels)
-        self.nn_init(layer.o, options.initializer)
+        self.nn_init(layer.v, options.initializer)
         self.nn_init(layer.h, options.initializer)
         self.nn_init(layer.g, options.initializer)
         self.nn_init(layer.f, options.initializer)

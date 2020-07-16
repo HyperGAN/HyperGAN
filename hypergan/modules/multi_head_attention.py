@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, input_size, heads):
+    def __init__(self, input_size, output_size, heads):
         super(MultiHeadAttention,self).__init__()
         self.heads = heads
         self.features = input_size // heads
@@ -12,7 +12,7 @@ class MultiHeadAttention(nn.Module):
         self.f = nn.Linear(input_size, input_size)
         self.g = nn.Linear(input_size, input_size)
         self.h = nn.Linear(input_size, input_size)
-        self.o = nn.Linear(input_size, input_size)
+        self.o = nn.Linear(input_size, output_size)
 
         self.softmax  = nn.Softmax(dim=-1)
     def forward(self,x):

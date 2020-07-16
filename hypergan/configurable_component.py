@@ -77,7 +77,7 @@ class ConfigurableComponent(GANComponent):
             "dropout": self.layer_dropout,
             "equal_linear": self.layer_equal_linear,
             "ez_norm": self.layer_ez_norm,
-            "flatten": nn.Flatten(),
+            "flatten": self.layer_flatten,
             "identity": self.layer_identity,
             "instance_norm": self.layer_instance_norm,
             "instance_norm1d": self.layer_instance_norm1d,
@@ -652,7 +652,12 @@ class ConfigurableComponent(GANComponent):
         return self.operation_layer(net, args, options, "*")
 
     def layer_multi_head_attention(self, net, args, options):
-        return MultiHeadAttention(self.current_size.size(), heads=options.heads or 4)
+        output_size = self.current_size.size()
+        if len(args) > 0:
+            output_size = args[0]
+        attention = MultiHeadAttention(self.current_size.size(), output_size, heads=options.heads or 4)
+        self.current_size = LayerSize(output_size)
+        return attention
 
     def operation_layer(self, net, args, options, operation):
         options = hc.Config(options)
@@ -732,6 +737,10 @@ class ConfigurableComponent(GANComponent):
 
     def layer_ez_norm(self, net, args, options):
         return EzNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, len(self.current_size.dims), equal_linear=options.equal_linear)
+
+    def layer_flatten(self, net, args, options):
+        self.current_size = LayerSize(self.current_size.size())
+        return nn.Flatten()
 
     def layer_zeros_like(self, net, args, options):
         return Zeros(self.gan.latent.sample().shape)

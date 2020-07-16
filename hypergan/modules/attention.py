@@ -22,4 +22,4 @@ class Attention(nn.Module):
         h = self.h(x).view(m_batchsize,C,width*height)
 
         fgh = torch.bmm(h, attention_map )
-        return torch.abs(self.gamma) *self.v(fgh.view(x.shape))
+        return self.v(fgh.view(x.shape))

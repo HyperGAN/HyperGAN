@@ -24,6 +24,7 @@ from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.const import Const
 from hypergan.modules.learned_noise import LearnedNoise
 from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur, EqualLinear
+from hypergan.modules.multi_head_attention import MultiHeadAttention
 from hypergan.modules.reshape import Reshape
 from hypergan.modules.no_op import NoOp
 from hypergan.modules.residual import Residual
@@ -91,6 +92,7 @@ class ConfigurableComponent(GANComponent):
             "modulated_conv2d": self.layer_modulated_conv2d,
             "module": self.layer_module,
             "mul": self.layer_mul,
+            "multi_head_attention": self.layer_multi_head_attention,
             "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
             "pretrained": self.layer_pretrained,
@@ -648,6 +650,9 @@ class ConfigurableComponent(GANComponent):
 
     def layer_mul(self, net, args, options):
         return self.operation_layer(net, args, options, "*")
+
+    def layer_multi_head_attention(self, net, args, options):
+        return MultiHeadAttention(self.current_size.size(), heads=options.heads or 4)
 
     def operation_layer(self, net, args, options, operation):
         options = hc.Config(options)

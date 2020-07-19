@@ -3,10 +3,10 @@
 # Training GANs with Optimism using Tensorflow (https://github.com/vsyrgkanis/optimistic_GAN_training/) 
 import math
 import torch
-from torch.optim import Optimizer
+from torch.optim import Optimizer, Adam
 
 
-class Adamirror(Optimizer):
+class Adamirror(Adam):
     r"""Implements Adam algorithm.
 
     It has been proposed in `Adam: A Method for Stochastic Optimization`_.
@@ -40,11 +40,9 @@ class Adamirror(Optimizer):
             raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
         if not 0.0 <= betas[1] < 1.0:
             raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
-        defaults = dict(lr=lr, betas=betas, eps=eps,
-                        weight_decay=weight_decay, amsgrad=amsgrad)
 
-        self.prev_step_size = 0.0
-        super(Adamirror, self).__init__(params, defaults)
+        super(Adamirror, self).__init__(params, lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay, amsgrad=amsgrad)
 
     def __setstate__(self, state):
         super(Adam, self).__setstate__(state)

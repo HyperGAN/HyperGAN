@@ -609,7 +609,7 @@ class ConfigurableComponent(GANComponent):
         #TODO better validation
         #TODO increase dim options
         if dim == -1:
-            dims = self.current_size.dims.copy()
+            dims = list(self.current_size.dims).copy()
             dims[0] = split_size
             if (select + 1) * split_size > self.current_size.channels:
                 dims[0] = self.current_size.channels % split_size

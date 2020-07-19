@@ -670,9 +670,13 @@ class ConfigurableComponent(GANComponent):
         output_size = self.current_size.size()
         if len(args) > 0:
             output_size = args[0]
-        attention = MultiHeadAttention(self.current_size.size(), output_size, heads=options.heads or 4)
+        layer = MultiHeadAttention(self.current_size.size(), output_size, heads=options.heads or 4)
         self.current_size = LayerSize(output_size)
-        return attention
+        self.nn_init(layer.o, options.initializer)
+        self.nn_init(layer.h, options.initializer)
+        self.nn_init(layer.g, options.initializer)
+        self.nn_init(layer.f, options.initializer)
+        return layer
 
     def operation_layer(self, net, args, options, operation):
         options = hc.Config(options)

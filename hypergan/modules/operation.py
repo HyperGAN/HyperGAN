@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch
 
 class Operation(nn.Module):
     def __init__(self, layers, layer_names, operation):
@@ -27,6 +28,8 @@ class Operation(nn.Module):
                     output = output + layer_output
                 elif self.operation == "*":
                     output = output * layer_output
+                elif self.operation == "cat":
+                    output = torch.cat([output, layer_output], 1)
                 else:
                     raise ValidationException("Unknown operation: "+ self.operation)
         return output

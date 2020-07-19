@@ -66,8 +66,7 @@ class ConfigurableComponent(GANComponent):
             "batch_norm": self.layer_batch_norm,
             "batch_norm1d": self.layer_batch_norm1d,
             "blur": self.layer_blur,
-            "concat": self.layer_concat,
-            #"concat3d": self.layer_concat3d,
+            "cat": self.layer_cat,
             "const": self.layer_const,
             "conv": self.layer_conv,
             "conv1d": self.layer_conv1d,
@@ -648,6 +647,22 @@ class ConfigurableComponent(GANComponent):
     def layer_add(self, net, args, options):
         return self.operation_layer(net, args, options, "+")
 
+    def layer_cat(self, net, args, options):
+        result = self.operation_layer(net, args, options, "cat")
+        dims = None
+        for arg in args:
+            if arg == "self":
+                new_size = self.current_size
+            else:
+                new_size = self.layer_output_sizes[args[1]]
+            if dims is None:
+                dims = new_size.dims
+            else:
+                dims = [dims[0]+new_size.dims[0]] + list(dims[1:])
+
+        self.current_size = LayerSize(*dims)
+        return result
+
     def layer_mul(self, net, args, options):
         return self.operation_layer(net, args, options, "*")
 
@@ -816,13 +831,10 @@ class ConfigurableComponent(GANComponent):
                 input = module(input, self.context)
             elif layer_name == "mul":
                 input = module(input, self.context)
+            elif layer_name == "cat":
+                input = module(input, self.context)
             elif layer_name == "split":
                 input = torch.split(input, args[0], options.dim or -1)[args[1]]
-            elif layer_name == "concat":
-                if args[0] == "layer":
-                    input = torch.cat((input, self.context[args[1]]), dim=1)
-                elif args[0] == "noise":
-                    input = torch.cat((input, torch.randn_like(input)), dim=1)
             # elif layer_name == "concat3d":
             #    if args[0] == "layer":
             #        input = torch.cat((input, self.context[args[1]]), dim=2)

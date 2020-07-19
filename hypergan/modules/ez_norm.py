@@ -22,4 +22,4 @@ class EzNorm(nn.Module):
         view[0] = N
         view[self.dim] = D
 
-        return content + self.beta(style).view(*view) * self.conv(content)
+        return self.beta(style).view(*view) * self.conv(content)

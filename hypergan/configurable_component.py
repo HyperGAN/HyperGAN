@@ -755,7 +755,10 @@ class ConfigurableComponent(GANComponent):
         return AdaptiveInstanceNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, equal_linear=options.equal_linear)
 
     def layer_ez_norm(self, net, args, options):
-        return EzNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, len(self.current_size.dims), equal_linear=options.equal_linear)
+        layer = EzNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, len(self.current_size.dims), equal_linear=options.equal_linear)
+        self.nn_init(layer.beta, options.initializer)
+        self.nn_init(layer.conv, options.initializer)
+        return layer
 
     def layer_flatten(self, net, args, options):
         self.current_size = LayerSize(self.current_size.size())
@@ -796,17 +799,17 @@ class ConfigurableComponent(GANComponent):
         elif args[0] == "dirac":
             nn.init.dirac_(layer_data)
         elif args[0] == "xavier_uniform":
-            gain = nn.init.calculate_gain(options["gain"])
+            gain = nn.init.calculate_gain(options.gain or "relu")
             nn.init.xavier_uniform_(layer_data, gain=gain)
         elif args[0] == "xavier_normal":
-            gain = nn.init.calculate_gain(options["gain"])
+            gain = nn.init.calculate_gain(options.gain or "relu")
             nn.init.xavier_normal_(layer_data, gain=gain)
         elif args[0] == "kaiming_uniform":
             a = 0 #TODO wrong
-            nn.init.kaiming_uniform_(layer_data, mode=(options.mode or "fan_in"), nonlinearity=options["gain"])
+            nn.init.kaiming_uniform_(layer_data, mode=(options.mode or "fan_in"), nonlinearity=options.gain or "relu")
         elif args[0] == "kaiming_normal":
             a = 0 #TODO wrong
-            nn.init.kaiming_normal_(layer_data, mode=(options.mode or "fan_in"), nonlinearity=options["gain"])
+            nn.init.kaiming_normal_(layer_data, mode=(options.mode or "fan_in"), nonlinearity=options.gain or "relu")
         elif args[0] == "orthogonal":
             if "gain" in options:
                 gain = nn.init.calculate_gain(options["gain"])

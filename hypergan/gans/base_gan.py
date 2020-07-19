@@ -156,7 +156,6 @@ class BaseGAN():
         os.makedirs(full_path, exist_ok=True)
         for name, component in self.components.items():
             self._save(full_path, name, component)
-        self._save(full_path, 'optimizer', self.trainer.optimizer)
 
     def _save(self, full_path, name, component):
         path = full_path + "/"+name+".save"
@@ -166,10 +165,13 @@ class BaseGAN():
 
     def load(self, save_file):
         print("Loading..." + str(len(self.components)))
+        success = True
         full_path = os.path.expanduser(os.path.dirname(save_file))
         for name, component in self.components.items():
-            self._load(full_path, name, component)
-        self._load(full_path, name, self.trainer.optimizer)
+            if not self._load(full_path, name, component):
+                print("Error loading", name)
+                success = False
+        return success
 
     def _load(self, full_path, name, component):
         path = full_path + "/"+name+".save"
@@ -179,11 +181,13 @@ class BaseGAN():
                 state_dict = torch.load(path)
                 print('state_dict', state_dict.keys())
                 component.load_state_dict(state_dict)
-                component.eval()
+                return True
             except:
                 print("Warning: Could not load component " + name)
+                return False
         else:
             print("Could not load " + path)
+            return False
 
 
     def configurable_param(self, string):

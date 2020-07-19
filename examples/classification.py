@@ -102,12 +102,6 @@ class MNISTGAN(BaseGAN):
         self.d_real = d_real
         return d_real, d_fake
 
-    def g_parameters(self):
-        return self.generator.parameters()
-
-    def d_parameters(self):
-        return self.discriminator.parameters()
-
     def discriminator_fake_inputs(self, discriminator_index=0):
         return [self.x, self.g]
 
@@ -116,6 +110,11 @@ class MNISTGAN(BaseGAN):
             return [self.x, self.y]
         else:
             return self.inputs.next()
+
+    def generator_components(self):
+        return [self.generator]
+    def discriminator_components(self):
+        return [self.discriminator]
 
 class MNISTGenerator(BaseGenerator):
     def create(self):

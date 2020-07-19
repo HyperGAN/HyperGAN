@@ -19,6 +19,8 @@ class Operation(nn.Module):
                 layer_output = net
             elif layer_name.split(" ")[0] == 'layer':
                 layer_output = context[layer_name.split(" ")[1]]
+            elif layer_name == "ez_norm":
+                layer_output = layer(net, context['w'])
             else:
                 layer_output = layer(net)
             if output is None:

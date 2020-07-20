@@ -373,12 +373,6 @@ class ConfigurableComponent(GANComponent):
 
         return nn.Sequential(*layers)
 
-    #def layer_make2d(self, net, args, options):
-    #    return NoOp()
-
-    #def layer_make3d(self, net, args, options):
-    #    return NoOp()
-
     def layer_modulated_conv2d(self, net, args, options):
         channels = self.current_size.channels
         if len(args) > 0:

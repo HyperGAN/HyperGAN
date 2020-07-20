@@ -18,7 +18,6 @@ from hypergan.layer_size import LayerSize
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.attention import Attention
-from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.const import Const
 from hypergan.modules.learned_noise import LearnedNoise
 from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur, EqualLinear
@@ -104,7 +103,6 @@ class ConfigurableComponent(GANComponent):
             "subpixel": self.layer_subpixel,
             "upsample": self.layer_upsample,
             "vae": self.layer_vae
-            #"add": self.layer_add, #TODO
             # "crop": self.layer_crop,
             # "dropout": self.layer_dropout,
             # "noise": self.layer_noise, #TODO
@@ -681,30 +679,6 @@ class ConfigurableComponent(GANComponent):
     def layer_learned_noise(self, net, args, options):
         return LearnedNoise(*([self.gan.batch_size(), *self.current_size.dims]))
 
-    def layer_concat(self, net, args, options):
-        options = hc.Config(options)
-        if args[0] == 'noise':
-            dims = self.current_size.dims.copy()
-            dims[0] *= 2
-            self.current_size = LayerSize(*dims)
-            return NoOp()
-        elif args[0] == 'layer':
-            return NoOp()
-        else:
-            print("Got: ", args[0])
-            print("Warning: only 'concat noise' and 'concat layer' is supported for now.")
-
-    #def layer_concat3d(self, net, args, options):
-    #    options = hc.Config(options)
-    #    if args[0] == 'noise':
-    #        print("Concat noise!")
-    #        return NoOp()
-    #    elif args[0] == 'layer':
-    #        return NoOp()
-    #    else:
-    #        print("Got: ", args[0])
-    #        print("Warning: only 'concat noise' and 'concat layer' is supported for now.")
-
     def layer_adaptive_instance_norm(self, net, args, options):
         return AdaptiveInstanceNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, equal_linear=options.equal_linear)
 
@@ -782,19 +756,8 @@ class ConfigurableComponent(GANComponent):
                 input = module(input, self.context)
             elif layer_name == "adaptive_instance_norm":
                 input = module(input, self.context['w'])
-            elif layer_name == "add":
-                input = module(input, self.context)
-            elif layer_name == "mul":
-                input = module(input, self.context)
-            elif layer_name == "cat":
-                input = module(input, self.context)
             elif layer_name == "split":
                 input = torch.split(input, args[0], options.dim or -1)[args[1]]
-            # elif layer_name == "concat3d":
-            #    if args[0] == "layer":
-            #        input = torch.cat((input, self.context[args[1]]), dim=2)
-            #    elif args[0] == "noise":
-            #        input = torch.cat((input, torch.randn_like(input)*0.01), dim=2)
             # elif layer_name == "make2d":
             #     input = torch.squeeze(input, dim=2) #TODO only 3d -> 2d
             # elif layer_name == "make3d":

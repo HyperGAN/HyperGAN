@@ -15,3 +15,4 @@ from .add import Add
 from .cat import Cat
 from .mul import Mul
 from .ez_norm import EzNorm
+from .residual import Residual

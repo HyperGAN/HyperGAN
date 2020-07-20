@@ -24,7 +24,6 @@ from hypergan.modules.modulated_conv2d import ModulatedConv2d, Blur, EqualLinear
 from hypergan.modules.multi_head_attention import MultiHeadAttention
 from hypergan.modules.reshape import Reshape
 from hypergan.modules.no_op import NoOp
-from hypergan.modules.residual import Residual
 from hypergan.modules.scaled_conv2d import ScaledConv2d
 from hypergan.modules.variational import Variational
 from hypergan.modules.pixel_norm import PixelNorm
@@ -64,7 +63,7 @@ class ConfigurableComponent(GANComponent):
             "batch_norm": self.layer_batch_norm,
             "batch_norm1d": self.layer_batch_norm1d,
             "blur": self.layer_blur,
-            "cat": hg.layers.cat,
+            "cat": hg.layers.Cat,
             "const": self.layer_const,
             "conv": self.layer_conv,
             "conv1d": self.layer_conv1d,
@@ -88,13 +87,13 @@ class ConfigurableComponent(GANComponent):
             #"make3d": self.layer_make3d,
             "modulated_conv2d": self.layer_modulated_conv2d,
             "module": self.layer_module,
-            "mul": hg.layers.mul,
+            "mul": hg.layers.Mul,
             "multi_head_attention": self.layer_multi_head_attention,
             "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
             "pretrained": self.layer_pretrained,
             "reshape": self.layer_reshape,
-            "residual": self.layer_residual, #TODO options
+            "residual": hg.layers.Residual,
             "resize_conv": self.layer_resize_conv,
             "resize_conv2d": self.layer_resize_conv2d,
             "resize_conv1d": self.layer_resize_conv1d,
@@ -250,9 +249,6 @@ class ConfigurableComponent(GANComponent):
             "tanh": nn.Tanh(),
             "tanhshrink": nn.Tanhshrink()
         }
-
-    def layer_residual(self, net, args, options):
-        return Residual(self.current_size.channels)
 
     def layer_dropout(self, net, args, options):
         return nn.Dropout2d(float(args[0]))

@@ -17,9 +17,7 @@ from hypergan.gan_component import ValidationException
 from hypergan.layer_size import LayerSize
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
-from hypergan.modules.operation import Operation
 from hypergan.modules.attention import Attention
-from hypergan.modules.ez_norm import EzNorm
 from hypergan.modules.concat_noise import ConcatNoise
 from hypergan.modules.const import Const
 from hypergan.modules.learned_noise import LearnedNoise
@@ -33,6 +31,7 @@ from hypergan.modules.variational import Variational
 from hypergan.modules.pixel_norm import PixelNorm
 
 import torchvision
+import hypergan as hg
 
 class ConfigurationException(Exception):
     pass
@@ -60,13 +59,13 @@ class ConfigurableComponent(GANComponent):
             "adaptive_avg_pool1d": self.layer_adaptive_avg_pool1d,
             "adaptive_avg_pool3d": self.layer_adaptive_avg_pool3d,
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
-            "add": self.layer_add,
+            "add": hg.layers.Add,
             "attention": self.layer_attention,
             "avg_pool": self.layer_avg_pool,
             "batch_norm": self.layer_batch_norm,
             "batch_norm1d": self.layer_batch_norm1d,
             "blur": self.layer_blur,
-            "cat": self.layer_cat,
+            "cat": hg.layers.cat,
             "const": self.layer_const,
             "conv": self.layer_conv,
             "conv1d": self.layer_conv1d,
@@ -75,7 +74,7 @@ class ConfigurableComponent(GANComponent):
             "deconv": self.layer_deconv,
             "dropout": self.layer_dropout,
             "equal_linear": self.layer_equal_linear,
-            "ez_norm": self.layer_ez_norm,
+            "ez_norm": hg.layers.EzNorm,
             "flatten": self.layer_flatten,
             "identity": self.layer_identity,
             "instance_norm": self.layer_instance_norm,
@@ -90,7 +89,7 @@ class ConfigurableComponent(GANComponent):
             #"make3d": self.layer_make3d,
             "modulated_conv2d": self.layer_modulated_conv2d,
             "module": self.layer_module,
-            "mul": self.layer_mul,
+            "mul": hg.layers.mul,
             "multi_head_attention": self.layer_multi_head_attention,
             "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
@@ -197,7 +196,15 @@ class ConfigurableComponent(GANComponent):
 
     def build_layer(self, op, args, options):
         if self.layer_ops[op]:
-            if isinstance(self.layer_ops[op], nn.Module):
+            try:
+                is_hg_module = issubclass(self.layer_ops[op], hg.Layer)
+            except TypeError:
+                is_hg_module = False
+
+            if is_hg_module:
+                net = self.layer_ops[op](self, args, options)
+                self.current_size = net.output_size()
+            elif isinstance(self.layer_ops[op], nn.Module):
                 net = self.layer_ops[op]
             else:
                 #before_count = self.count_number_trainable_params()
@@ -644,28 +651,6 @@ class ConfigurableComponent(GANComponent):
         self.vae = Variational(self.current_size.channels)
         return self.vae
 
-    def layer_add(self, net, args, options):
-        return self.operation_layer(net, args, options, "+")
-
-    def layer_cat(self, net, args, options):
-        result = self.operation_layer(net, args, options, "cat")
-        dims = None
-        for arg in args:
-            if arg == "self":
-                new_size = self.current_size
-            else:
-                new_size = self.layer_output_sizes[args[1]]
-            if dims is None:
-                dims = new_size.dims
-            else:
-                dims = [dims[0]+new_size.dims[0]] + list(dims[1:])
-
-        self.current_size = LayerSize(*dims)
-        return result
-
-    def layer_mul(self, net, args, options):
-        return self.operation_layer(net, args, options, "*")
-
     def layer_multi_head_attention(self, net, args, options):
         output_size = self.current_size.size()
         if len(args) > 0:
@@ -677,37 +662,6 @@ class ConfigurableComponent(GANComponent):
         self.nn_init(layer.g, options.initializer)
         self.nn_init(layer.f, options.initializer)
         return layer
-
-    def operation_layer(self, net, args, options, operation):
-        options = hc.Config(options)
-        layers = []
-        layer_names = []
-        current_size = self.current_size
-
-        for arg in args:
-            self.current_size = current_size
-            if arg == 'self':
-                layers.append(None)
-                layer_names.append("self")
-            elif arg == 'noise':
-                layers.append(LearnedNoise())
-                layer_names.append(None)
-            elif arg in self.named_layers:
-                layers.append(NoOp())
-                layer_names.append("layer "+arg)
-            elif arg in self.gan.named_layers:
-                layers.append(self.gan.named_layers[arg])
-                layer_names.append(None)
-            elif type(arg) == pyparsing.ParseResults and type(arg[0]) == hypergan.parser.Pattern:
-                print( "Found pattern")
-                parsed = arg[0]
-                parsed.parsed_options = hc.Config(parsed.options)
-                layers.append(self.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options))
-                layer_names.append(parsed.layer_name)
-            else:
-                print("arg", type(arg))
-                raise "Could not parse add layer "
-        return Operation(layers, layer_names, operation)
 
     def layer_attention(self, net, args, options):
         layer = Attention(self.current_size.channels)
@@ -753,12 +707,6 @@ class ConfigurableComponent(GANComponent):
 
     def layer_adaptive_instance_norm(self, net, args, options):
         return AdaptiveInstanceNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, equal_linear=options.equal_linear)
-
-    def layer_ez_norm(self, net, args, options):
-        layer = EzNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, len(self.current_size.dims), equal_linear=options.equal_linear)
-        self.nn_init(layer.beta, options.initializer)
-        self.nn_init(layer.conv, options.initializer)
-        return layer
 
     def layer_flatten(self, net, args, options):
         self.current_size = LayerSize(self.current_size.size())
@@ -830,9 +778,9 @@ class ConfigurableComponent(GANComponent):
             args = parsed.args
             layer_name = parsed.layer_name
             name = options.name
-            if layer_name == "adaptive_instance_norm":
-                input = module(input, self.context['w'])
-            elif layer_name == "ez_norm":
+            if isinstance(module, hg.Layer):
+                input = module(input, self.context)
+            elif layer_name == "adaptive_instance_norm":
                 input = module(input, self.context['w'])
             elif layer_name == "add":
                 input = module(input, self.context)

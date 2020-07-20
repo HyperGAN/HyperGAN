@@ -13,11 +13,10 @@ Please see [https://github.com/255BITS/HyperGAN](https://github.com/255BITS/Hype
 
 MIT - https://opensource.org/licenses/MIT
 """
-import hypergan
+from .layer import Layer
+import hypergan.layers
 from .gan import GAN
 from .cli import CLI
 from .configuration import Configuration
 from .parser import Parser
 import hypergan.cli
-import hypergan as hg
-

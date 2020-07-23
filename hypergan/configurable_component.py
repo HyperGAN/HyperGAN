@@ -99,6 +99,7 @@ class ConfigurableComponent(GANComponent):
             "resize_conv2d": self.layer_resize_conv2d,
             "resize_conv1d": self.layer_resize_conv1d,
             "scaled_conv2d": self.layer_scaled_conv2d,
+            "segment_softmax": hg.layers.SegmentSoftmax,
             "split": self.layer_split,
             "subpixel": self.layer_subpixel,
             "upsample": self.layer_upsample,

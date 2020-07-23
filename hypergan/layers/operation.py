@@ -20,6 +20,7 @@ class Operation(hg.Layer):
         layer_names = []
 
         for arg in args:
+            component.current_size = self.size
             if arg == 'self':
                 layers.append(None)
                 layer_names.append("self")

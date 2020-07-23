@@ -64,6 +64,7 @@ class ConfigurableComponent(GANComponent):
             "batch_norm1d": self.layer_batch_norm1d,
             "blur": self.layer_blur,
             "cat": hg.layers.Cat,
+            "channel_attention": hg.layers.ChannelAttention,
             "const": self.layer_const,
             "conv": self.layer_conv,
             "conv1d": self.layer_conv1d,

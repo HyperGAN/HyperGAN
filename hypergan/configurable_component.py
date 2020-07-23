@@ -92,6 +92,7 @@ class ConfigurableComponent(GANComponent):
             "multi_head_attention": self.layer_multi_head_attention,
             "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
+            "pixel_shuffle": hg.layers.PixelShuffle,
             "pretrained": self.layer_pretrained,
             "reshape": self.layer_reshape,
             "residual": hg.layers.Residual,

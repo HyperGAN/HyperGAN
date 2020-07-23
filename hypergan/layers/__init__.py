@@ -17,4 +17,5 @@ from .mul import Mul
 from .ez_norm import EzNorm
 from .residual import Residual
 from .channel_attention import ChannelAttention
+from .pixel_shuffle import PixelShuffle
 from .segment_softmax import SegmentSoftmax

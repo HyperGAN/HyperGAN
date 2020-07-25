@@ -30,39 +30,35 @@ class AlignedGAN(BaseGAN):
         self.latent = self.create_component("latent")
         self.x = self.inputs.next()[0]
         self.generator = self.create_component("generator", input=self.x)
-        self.generator2 = self.create_component("generator", input=self.x)
         self.discriminator = self.create_component("discriminator")
-        self.discriminator2 = self.create_component("discriminator")
         self.loss = self.create_component("loss")
         self.trainer = self.create_component("trainer")
 
     def forward_discriminator(self, inputs):
-        return self.discriminator(inputs[0]) + self.discriminator2(inputs[1])
+        return self.discriminator(inputs[0])
 
     def forward_pass(self):
         self.x = self.inputs.next()
         self.y = self.inputs.next(1)
         g = self.generator(self.x)
-        g2 = self.generator2(g)
         self.g = g
-        self.g2 = g2
-        d_real = self.forward_discriminator([self.y, self.x])
-        d_fake = self.forward_discriminator([self.g, self.g2])
+        d_real = self.forward_discriminator([self.y])
+        d_fake = self.forward_discriminator([self.g])
         self.d_fake = d_fake
         self.d_real = d_real
         return d_real, d_fake
 
     def discriminator_components(self):
-        return [self.discriminator, self.discriminator2]
+        return [self.discriminator]
 
     def generator_components(self):
-        return [self.generator, self.generator2]
+        return [self.generator]
 
     def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.g, self.g2]
+        return [self.g]
 
     def discriminator_real_inputs(self, discriminator_index=0):
         if hasattr(self, 'y'):
-            return [self.y, self.x]
+            return [self.x]
         else:
-            return [self.inputs.next(1), self.inputs.next()]
+            return [self.inputs.next()]

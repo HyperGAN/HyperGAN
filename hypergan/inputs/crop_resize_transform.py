@@ -1,5 +1,11 @@
 import PIL
 import torch.nn.functional as F
+import torch
+from collections.abc import Sequence, Iterable
+import warnings
+
+from torchvision.transforms import functional as F
+
 
 class CropResizeTransform(object):
     """Crop the image to min(h,w) then resize it
@@ -15,7 +21,6 @@ class CropResizeTransform(object):
     """
 
     def __init__(self, size, interpolation=PIL.Image.BILINEAR):
-        assert isinstance(size, int) or (isinstance(size, Iterable) and len(size) == 2)
         self.size = size
         self.interpolation = interpolation
 

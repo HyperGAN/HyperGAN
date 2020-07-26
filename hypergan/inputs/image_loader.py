@@ -1,10 +1,12 @@
 from hypergan.gan_component import ValidationException, GANComponent
+from .crop_resize_transform import CropResizeTransform
 from .unsupervised_image_folder import UnsupervisedImageFolder
 import glob
 import os
 import torch
 import torch.utils.data as data
 import torchvision
+import PIL
 
 class ImageLoader:
     """
@@ -22,7 +24,7 @@ class ImageLoader:
             return
 
         if config.crop:
-            transform_list.append(torchvision.transforms.CenterCrop((h, w)))
+            transform_list.append(CropResizeTransform((h, w)))
 
         if config.resize:
             transform_list.append(torchvision.transforms.Resize((h, w)))
@@ -63,12 +65,12 @@ class ImageLoader:
 
     def next(self, index=0):
         if self.config.blank:
-            self.sample = torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
-            return self.sample
+            return torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
         try:
-            self.sample = self.datasets[index].next()[0].cuda() * self.multiple + self.offset
-            return self.sample
+            return self.datasets[index].next()[0].cuda() * self.multiple + self.offset
         except ValueError:
+            return self.next(index)
+        except PIL.UnidentifiedImageError:
             return self.next(index)
         except StopIteration:
             self.datasets[index] = iter(self.dataloaders[index])

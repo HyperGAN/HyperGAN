@@ -733,48 +733,62 @@ class ConfigurableComponent(GANComponent):
 
 
     def forward(self, input, context={}):
-        self.context = context
         for module, parsed, layer_size in zip(self.net, self.parsed_layers, self.layer_sizes):
-            options = parsed.parsed_options
-            args = parsed.args
-            layer_name = parsed.layer_name
-            name = options.name
-            if isinstance(module, hg.Layer):
-                input = module(input, self.context)
-            elif layer_name == "adaptive_instance_norm":
-                input = module(input, self.context['w'])
-            elif layer_name == "split":
-                input = torch.split(input, args[0], options.dim or -1)[args[1]]
-            # elif layer_name == "make2d":
-            #     input = torch.squeeze(input, dim=2) #TODO only 3d -> 2d
-            # elif layer_name == "make3d":
-            #     input = input[:,:,None,:,:] #TODO only 2d -> 3d
+            try:
+                options = parsed.parsed_options
+                args = parsed.args
+                layer_name = parsed.layer_name
+                name = options.name
+                if isinstance(module, hg.Layer):
+                    input = module(input, context)
+                elif layer_name == "adaptive_instance_norm":
+                    input = module(input, context['w'])
+                elif layer_name == "ez_norm":
+                    input = module(input, context['w'])
+                elif layer_name == "split":
+                    input = torch.split(input, args[0], options.dim or -1)[args[1]]
+                elif layer_name == "concat":
+                    if args[0] == "layer":
+                        input = torch.cat((input, context[args[1]]), dim=1)
+                    elif args[0] == "noise":
+                        input = torch.cat((input, torch.randn_like(input)), dim=1)
+                # elif layer_name == "concat3d":
+                #    if args[0] == "layer":
+                #        input = torch.cat((input, context[args[1]]), dim=2)
+                #    elif args[0] == "noise":
+                #        input = torch.cat((input, torch.randn_like(input)*0.01), dim=2)
+                # elif layer_name == "make2d":
+                #     input = torch.squeeze(input, dim=2) #TODO only 3d -> 2d
+                # elif layer_name == "make3d":
+                #     input = input[:,:,None,:,:] #TODO only 2d -> 3d
 
-            elif layer_name == "layer":
-                input = self.context[args[0]]
-            elif layer_name == "latent":
-                input = self.gan.latent.sample()
-            elif layer_name == "modulated_conv2d":
-                input = module(input, self.context['w'])
-            elif layer_name == "pretrained":
-                in_zero_one = (input + self.const_one) / self.const_two
-                mean = torch.as_tensor([0.485, 0.456, 0.406], device='cuda:0').view(1, 3, 1, 1)
-                std = torch.as_tensor([0.229, 0.224, 0.225], device='cuda:0').view(1, 3, 1, 1)
+                elif layer_name == "layer":
+                    input = context[args[0]]
+                elif layer_name == "latent":
+                    input = self.gan.latent.z#sample()
+                elif layer_name == "modulated_conv2d":
+                    input = module(input, context['w'])
+                elif layer_name == "pretrained":
+                    in_zero_one = (input + self.const_one) / self.const_two
+                    mean = torch.as_tensor([0.485, 0.456, 0.406], device='cuda:0').view(1, 3, 1, 1)
+                    std = torch.as_tensor([0.229, 0.224, 0.225], device='cuda:0').view(1, 3, 1, 1)
 
-                input = module(input.clone().sub_(mean).div_(std))
-            else:
-                input = module(input)
-            if self.gan.steps == 0:
-                size = LayerSize(*list(input.shape[1:]))
-                if size.squeeze_dims() != layer_size.squeeze_dims():
-                    print("Error: Size error on", layer_name)
-                    print("Error: Expected output size", layer_size.dims)
-                    print("Error: Actual output size", size.dims)
-                    raise "Layer size error, cannot continue"
+                    input = module(input.clone().sub_(mean).div_(std))
                 else:
-                    print("Sizes as expected", input.shape[1:], layer_size.dims)
-            if name is not None:
-                self.context[name] = input
+                    input = module(input)
+                if self.gan.steps == 0:
+                    size = LayerSize(*list(input.shape[1:]))
+                    if size.squeeze_dims() != layer_size.squeeze_dims():
+                        print("Error: Size error on", layer_name)
+                        print("Error: Expected output size", layer_size.dims)
+                        print("Error: Actual output size", size.dims)
+                        raise "Layer size error, cannot continue"
+                    else:
+                        print("Sizes as expected", input.shape[1:], layer_size.dims)
+                if name is not None:
+                    context[name] = input
+            except:
+                raise ValidationException("Error on " + parsed.layer_name + str(parsed.args) + str(parsed.options))
         self.sample = input
         return input
 

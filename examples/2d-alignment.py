@@ -145,7 +145,10 @@ class Custom2DSampler(BaseSampler):
             z_v_sample = z_v[j]
             x_v_sample = x_v[j]
             y_v_sample = y_v[j]
-            sample = gan.generator(z_v_sample)
+            if gan.config.use_latent:
+                sample = gan.generator(z_v_sample)
+            else:
+                sample = gan.generator(x_v_sample)
             samples.append(sample)
         sample = torch.cat(samples, dim=0).detach().cpu().numpy()
         points = go.Scatter(x=sample[:,0], y=sample[:,1],
@@ -259,9 +262,12 @@ def train(config, args):
         "batch_size": args.batch_size
         }))
     gan.name = config_filename
-
-    accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(1), gan.generator(gan.latent.next()))
-    accuracy_g_to_x=lambda: distribution_accuracy(gan.generator(gan.latent.next()), gan.inputs.next(1))
+    if gan.config.use_latent:
+        accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(1), gan.generator(gan.latent.next()))
+        accuracy_g_to_x=lambda: distribution_accuracy(gan.generator(gan.latent.next()), gan.inputs.next(1))
+    else:
+        accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(1), gan.generator(gan.inputs.next()))
+        accuracy_g_to_x=lambda: distribution_accuracy(gan.generator(gan.inputs.next()), gan.inputs.next(1))
 
     sampler = Custom2DSampler(gan)
     gan.selected_sampler = sampler

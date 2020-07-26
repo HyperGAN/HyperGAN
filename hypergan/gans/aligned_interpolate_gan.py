@@ -29,31 +29,42 @@ class AlignedInterpolateGAN(BaseGAN):
     def create(self):
         self.latent = self.create_component("latent")
         self.x = self.inputs.next()[0]
-        self.generator_train = self.create_component("generator", input=self.x, context_shapes={"gamma": [1]})
-        self.discriminator = self.create_component("discriminator", context_shapes={"index": [1]})
+        if self.config.use_latent:
+            self.generator = self.create_component("generator", input_shape=[self.latent.next().shape[1]])
+        else:
+            self.generator = self.create_component("generator", input=self.x)
+        if self.config.shared_discriminator:
+            self.discriminator = self.create_component("discriminator", context_shapes={"class": [1]})
+        else:
+            self.discriminator = self.create_component("discriminator")
+            self.discriminator2 = self.create_component("discriminator")
         self.loss = self.create_component("loss")
         self.trainer = self.create_component("trainer")
         self.sigmoid = torch.nn.Sigmoid()
         self.gammas = [torch.Tensor([self.config.interpolate]).float()[0].cuda(), torch.Tensor([1.-self.config.interpolate]).float()[0].cuda()]
 
-    def forward_discriminator(self, inputs, gamma=None):
-        d0_index = torch.zeros([inputs[0].shape[0], 1], device="cuda:0")
-        d1_index = torch.ones([inputs[1].shape[0], 1], device="cuda:0")
-        d0 = self.discriminator(inputs[0], context={"index": d0_index})
-        d1 = self.discriminator(inputs[1], context={"index": d1_index})
-        if gamma is not None:
-            self.gammas[0] = gamma
-            self.gammas[1] = torch.ones([1], device="cuda:0")-gamma
-        return d0 * self.gammas[0] * torch.sigmoid(d1) + d1 * self.gammas[1] * torch.sigmoid(d0)
+    def forward_discriminator(self, inputs):
+        if self.config.shared_discriminator:
+            d0_class = torch.zeros([inputs[0].shape[0], 1], device="cuda:0")
+            d1_class = torch.ones([inputs[1].shape[0], 1], device="cuda:0")
+            d0 = self.discriminator(inputs[0], context={"class": d0_class})
+            d1 = self.discriminator(inputs[1], context={"class": d1_class})
+            return d0 * self.gammas[0] * torch.sigmoid(d1) + d1 * self.gammas[1] * torch.sigmoid(d0)
+        else:
+            d0 = self.discriminator(inputs[0])
+            d1 = self.discriminator2(inputs[1])
+            return self.sigmoid(d1)*d0*self.gammas[0]  + self.sigmoid(d0)*d1*self.gammas[1]
 
     def forward_pass(self):
         self.x = self.inputs.next()
         self.y = self.inputs.next(1)
-        gamma = torch.tensor(0.5, device='cuda:0')
-        g = self.generator(self.x, gamma=gamma)
+        if self.config.use_latent:
+            g = self.generator(self.latent.next())
+        else:
+            g = self.generator(self.inputs.next())
         self.g = g
-        d_real = self.forward_discriminator([self.x, self.y], gamma=gamma)
-        d_fake = self.forward_discriminator([self.g, self.g], gamma=gamma)
+        d_real = self.forward_discriminator([self.x, self.y])
+        d_fake = self.forward_discriminator([self.g, self.g])
         self.d_fake = d_fake
         self.d_real = d_real
         return d_real, d_fake
@@ -63,16 +74,14 @@ class AlignedInterpolateGAN(BaseGAN):
         d_loss, g_loss = self.loss.forward(d_real, d_fake)
         return d_loss, g_loss
 
-
-    def generator(self, x, gamma=torch.tensor(0.5, device="cuda:0")):
-        gamma = gamma.unsqueeze(0).repeat(x.shape[0], 1)
-        return self.generator_train(x, context={"gamma": gamma})
-
     def discriminator_components(self):
-        return [self.discriminator, self.discriminator2]
+        if self.config.shared_discriminator:
+            return [self.discriminator]
+        else:
+            return [self.discriminator, self.discriminator2]
 
     def generator_components(self):
-        return [self.generator_train]
+        return [self.generator]
 
     def discriminator_fake_inputs(self, discriminator_index=0):
         return [self.g, self.g]

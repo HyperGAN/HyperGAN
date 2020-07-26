@@ -35,7 +35,7 @@ class ConfigurationException(Exception):
     pass
 
 class ConfigurableComponent(GANComponent):
-    def __init__(self, gan, config, input=None, context={}):
+    def __init__(self, gan, config, input=None, context_shapes = {}):
         self.current_size = LayerSize(gan.channels(), gan.height(), gan.width())
         if isinstance(input, GANComponent):
             if hasattr(input, 'current_height'):
@@ -52,6 +52,7 @@ class ConfigurableComponent(GANComponent):
         self.layer_options = {}
         self.parsed_layers = []
         self.parser = hypergan.parser.Parser()
+        self.context_shapes = context_shapes
         self.layer_ops = {**self.activations(),
             "adaptive_avg_pool": self.layer_adaptive_avg_pool,
             "adaptive_avg_pool1d": self.layer_adaptive_avg_pool1d,
@@ -130,7 +131,6 @@ class ConfigurableComponent(GANComponent):
             #"zeros_like": self.layer_zeros_like #TODO
             }
         self.named_layers = {}
-        self.context = context
         if not hasattr(gan, "named_layers"):
             gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
@@ -148,15 +148,9 @@ class ConfigurableComponent(GANComponent):
             return self.named_layers[name]
         return None
 
-    def build(self, net, replace_controls={}, context={}):
+    def build(self, net, replace_controls={}):
         self.replace_controls=replace_controls
         config = self.config
-
-        for name, layer in self.context.items():
-            self.set_layer(name, layer)
-
-        for name, layer in context.items():
-            self.set_layer(name, layer)
 
         for layer in config.layers:
             net = self.parse_layer(net, layer)

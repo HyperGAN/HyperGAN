@@ -8,6 +8,13 @@ import pyparsing
 from hypergan.gan_component import ValidationException
 
 class Operation(hg.Layer):
+    """
+        ---
+        description: Base class for operations
+        ---
+
+        This is a base class for many operations and not used directly.
+    """
     def __init__(self, operation, component, args, options):
         super(Operation, self).__init__(component, args, options)
         self.operation = operation

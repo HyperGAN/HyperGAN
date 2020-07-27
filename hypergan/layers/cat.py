@@ -3,6 +3,36 @@ from hypergan.layer_size import LayerSize
 from . import Operation
 
 class Cat(Operation):
+    """
+        ---
+        description: 'layer cat for configurable component'
+        ---
+
+        # cat layer
+
+        Concatenate two or more layers together. Accepts nested layer definitions.
+
+        ## input size
+
+        Any number of matching tensors
+
+        ## output size
+
+        Same as input size
+
+        ## syntax
+
+        ```json
+          "cat [layer]*"
+        ```
+
+        ## examples
+
+        ```json
+          "cat self (attention)"
+        ```
+    """
+
     def __init__(self, component, args, options):
         super(Cat, self).__init__("cat", component, args, options)
 

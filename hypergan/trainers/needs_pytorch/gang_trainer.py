@@ -490,9 +490,9 @@ class GangTrainer(BaseTrainer):
             sg = gan.session.run(g_vars)
             sd = gan.session.run(d_vars)
             if config.nash_memory:
-                print("ENAMBLING NASH MEM", len(self.sgs))
+                print("ENABLING NASH MEM", len(self.sgs))
                 ug, ud = self.nash_memory(sg, sd, self.ug, self.ud)
-                print("/ENAMBLING NASH MEM", len(self.sgs))
+                print("/ENABLING NASH MEM", len(self.sgs))
             else:
                 decay = config.decay or 0.5
                 ug = [ (o*decay + n*(1-decay)) for o, n in zip(sg, self.ug) ]

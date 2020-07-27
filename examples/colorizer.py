@@ -16,7 +16,7 @@ class Sampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.latent = self.gan.latent.next().data.clone()
-        self.x = torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size(),1,1,1)
+        self.x = torch.cat([torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size()//2,1,1,1), torch.unsqueeze(self.gan.x[1],0).repeat(gan.batch_size()//2,1,1,1)], 0)
         self.bw = BW(gan,None,None,hc.Config({}),LayerSize(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
         self.gan = gan
 
@@ -88,6 +88,7 @@ class BW(nn.Module):
             self.shape = [1, s[1], s[2]]
         else:
             self.shape = [1, x.shape[2], x.shape[3]]
+            self.upsample = None
         if self.downsize:
             self.downsize = [int(x) for x in self.downsize.split("*")]
             self.downsample = nn.Upsample(self.downsize, mode="bilinear")
@@ -96,21 +97,15 @@ class BW(nn.Module):
         x = self.gan.x
         if self.downsize:
             x = self.downsample(x)
-        x = self.upsample(x)
-        x = self.forward_grayscale(x)
-        if self.replace:
-            return x
-        else:
-            return torch.cat([input, x], axis=1)
+        if self.upsample is not None:
+            x = self.upsample(x)
+        return self.forward_grayscale(x)
 
     def forward_grayscale(self, x):
         return x.mean(axis=1, keepdims=True)
 
     def layer_size(self, current_size):
-        if self.replace:
-            shape = self.shape
-        else:
-            shape = [current_size.channels + self.shape[0], self.shape[1], self.shape[2]]
+        shape = self.shape
         return LayerSize(*shape)
 
 arg_parser = ArgumentParser("Colorize an image")

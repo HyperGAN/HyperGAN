@@ -50,6 +50,15 @@ class AlignedInterpolateGAN(BaseGAN):
             d0 = self.discriminator(inputs[0], context={"class": d0_class})
             d1 = self.discriminator(inputs[1], context={"class": d1_class})
             return d0 * self.gammas[0] * torch.sigmoid(d1) + d1 * self.gammas[1] * torch.sigmoid(d0)
+
+        if self.config.union:
+            d0 = self.discriminator(inputs[0])
+            d1 = self.discriminator2(inputs[1])
+            d3 = self.discriminator(inputs[1])
+            d4 = self.discriminator2(inputs[0])
+            return d0 * self.gammas[0] * torch.sigmoid(d1) + d1 * self.gammas[1] * torch.sigmoid(d0) + \
+                    d3 * self.gammas[0] * torch.sigmoid(d4) + d4 * self.gammas[1] * torch.sigmoid(d3)
+
         else:
             d0 = self.discriminator(inputs[0])
             d1 = self.discriminator2(inputs[1])
@@ -61,7 +70,7 @@ class AlignedInterpolateGAN(BaseGAN):
         if self.config.use_latent:
             g = self.generator(self.latent.next())
         else:
-            g = self.generator(self.inputs.next())
+            g = self.generator(self.x)
         self.g = g
         d_real = self.forward_discriminator([self.x, self.y])
         d_fake = self.forward_discriminator([self.g, self.g])

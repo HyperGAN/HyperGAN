@@ -17,7 +17,6 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
 ## Table of contents
 
 * [About](./#about)
-* [Showcase](./#showcase)
 * [Documentation](./#documentation)
 * [Changelog](./#changelog)
 * [Quick start](./#quick-start)
@@ -36,10 +35,10 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
   * [Creating a Dataset](./#creating-a-dataset)
   * [Downloadable Datasets](./#downloadable-datasets)
   * [Cleaning up data](./#cleaning-up-data)
+* [Showcase](./#showcase)
+* [Sponsors](./#sponsors)
 * [Contributing](./#contributing)
 * [Versioning](./#Versioning)
-* [Sources](./#sources)
-* [Papers](./#papers)
 * [Citation](./#citation)
 
 ## About
@@ -62,16 +61,6 @@ HyperGAN is a community project. GANs are a very new and active field of researc
 * GUI\(pygame and tk\)
 * API
 * CLI
-
-## Showcase
-
-![Hypergan Mobile released!](https://miro.medium.com/max/1404/1*uJmzGUvoP0WdaQPkkT8s-Q.jpeg)
-
-Run trained models with HyperGAN on your android device!
-
-Submit your showcase with a pull request!
-
-For more, see the \#showcase room in [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
 
 ## Documentation
 
@@ -200,6 +189,20 @@ Datasets in HyperGAN are meant to be simple to create. Just use a folder of imag
 HyperGAN is built to be resilient to all types of unclean data. If your images are too large you have the choice of `--crop`, `--random_crop`, or `--resize`
 
 `--crop` first resizes to include as much as the image as possible(center cropped).
+
+## Showcase
+
+![Hypergan Mobile](https://miro.medium.com/max/1404/1*uJmzGUvoP0WdaQPkkT8s-Q.jpeg =140x120)
+
+Submit your showcase with a pull request!
+
+For more, see the \#showcase room in [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
+
+## Sponsors
+
+We are now accepting financial sponsors. Sponsor to (optionally) be listed here.
+
+https://github.com/sponsors/hypergan
 
 ## Contributing
 

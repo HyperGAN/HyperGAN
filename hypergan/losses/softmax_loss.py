@@ -1,23 +1,18 @@
-import tensorflow as tf
 import hyperchamber as hc
 
 from hypergan.losses.base_loss import BaseLoss
 
 class SoftmaxLoss(BaseLoss):
+    """https://arxiv.org/abs/1704.06191"""
 
-    def _create(self, d_real, d_fake):
-        gan = self.gan
-        config = self.config
-        ops = self.gan.ops
+    def _forward(self, d_real, d_fake):
+        ln_zb = (((-d_real).exp().sum()+(-d_fake).exp().sum())+1e-12).log()
 
-        ln_zb = tf.reduce_sum(tf.exp(-d_real), axis=1)+tf.reduce_sum(tf.exp(-d_fake), axis=1)
-        ln_zb = tf.log(ln_zb)
+        d_target = 1.0 / d_real.shape[0]
+        g_target = d_target / 2.0
 
-        d_loss = tf.reduce_mean(d_real, axis=1) + ln_zb
-        g_loss = tf.reduce_mean(d_fake, axis=1) + tf.reduce_mean(d_real, axis=1) + ln_zb
-
-        d_loss = ops.reshape(d_loss, [])
-        g_loss = ops.reshape(g_loss, [])
+        g_loss = g_target * (d_fake.sum() + d_real.sum()) + ln_zb
+        d_loss = d_target * d_real.sum() + ln_zb
 
         return [d_loss, g_loss]
 

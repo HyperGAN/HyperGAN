@@ -1,77 +1,77 @@
-# Loads an image with the tensorflow input pipeline
+from hypergan.gan_component import ValidationException, GANComponent
+from .crop_resize_transform import CropResizeTransform
+from .unsupervised_image_folder import UnsupervisedImageFolder
 import glob
 import os
-import tensorflow as tf
-import hypergan.inputs.resize_image_patch
-from tensorflow.python.ops import array_ops
-from natsort import natsorted, ns
-from hypergan.gan_component import ValidationException, GANComponent
+import torch
+import torch.utils.data as data
+import torchvision
+import PIL
 
 class ImageLoader:
     """
-    ImageLoader loads a set of images into a tensorflow input pipeline.
+    ImageLoader loads a set of images
     """
 
-    def __init__(self, batch_size):
-        self.batch_size = batch_size
+    def __init__(self, config):
+        self.config = config
+        self.multiple = torch.Tensor([2.0]).float()[0].cuda()
+        self.offset = torch.Tensor([-1.0]).float()[0].cuda()
+        self.datasets = []
+        transform_list = []
+        h, w = self.config.height, self.config.width
+        if self.config.blank:
+            return
 
-    def create(self, directory, channels=3, format='jpg', width=64, height=64, crop=False, resize=False, sequential=False):
-        directories = glob.glob(directory+"/*")
-        directories = [d for d in directories if os.path.isdir(d)]
+        if config.crop:
+            transform_list.append(CropResizeTransform((h, w)))
 
-        if(len(directories) == 0):
-            directories = [directory] 
+        if config.resize:
+            transform_list.append(torchvision.transforms.Resize((h, w)))
 
-        # Create a queue that produces the filenames to read.
-        if(len(directories) == 1):
-            # No subdirectories, use all the images in the passed in path
-            filenames = glob.glob(directory+"/*."+format)
-        else:
-            filenames = glob.glob(directory+"/**/*."+format)
+        if config.random_crop:
+            transform_list.append(torchvision.transforms.RandomCrop((h, w), pad_if_needed=True, padding_mode='edge'))
 
-        filenames = natsorted(filenames)
+        transform_list.append(torchvision.transforms.ToTensor())
+        transform = torchvision.transforms.Compose(transform_list)
 
-        print("[loader] ImageLoader found", len(filenames))
-        self.file_count = len(filenames)
-        if self.file_count == 0:
-            raise ValidationException("No images found in '" + directory + "'")
-        filenames = tf.convert_to_tensor(filenames, dtype=tf.string)
+        directories = self.config.directories or [self.config.directory]
+        if(not isinstance(directories, list)):
+            directories = [directories]
 
-        def parse_function(filename):
-            image_string = tf.read_file(filename)
-            if format == 'jpg':
-                image = tf.image.decode_jpeg(image_string, channels=channels)
-            elif format == 'png':
-                image = tf.image.decode_png(image_string, channels=channels)
-            else:
-                print("[loader] Failed to load format", format)
-            image = tf.cast(image, tf.float32)
-            # Image processing for evaluation.
-            # Crop the central [height, width] of the image.
-            if crop:
-                image = hypergan.inputs.resize_image_patch.resize_image_with_crop_or_pad(image, height, width, dynamic_shape=True)
-            elif resize:
-                image = tf.image.resize_images(image, [height, width], 1)
+        self.dataloaders = []
+        for directory in directories:
+            mode = "RGB"
+            if self.channels() == 4:
+                mode = "RGBA"
+            image_folder = UnsupervisedImageFolder(directory, transform=transform, mode=mode)
+            shuffle = True
+            if config.shuffle is not None:
+                shuffle = config.shuffle
+            self.dataloaders.append(data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=4, drop_last=True))
+            self.datasets.append(iter(self.dataloaders[-1]))
 
-            image = image / 127.5 - 1.
-            tf.Tensor.set_shape(image, [height,width,channels])
+    def batch_size(self):
+        return self.config.batch_size
 
-            return image
+    def width(self):
+        return self.config.width
 
-        # Generate a batch of images and labels by building up a queue of examples.
-        dataset = tf.data.Dataset.from_tensor_slices(filenames)
-        if not sequential:
-            print("Shuffling data")
-            dataset = dataset.shuffle(self.file_count)
-        dataset = dataset.map(parse_function, num_parallel_calls=4)
-        dataset = dataset.batch(self.batch_size, drop_remainder=True)
-        dataset = dataset.repeat()
-        dataset = dataset.prefetch(1)
+    def height(self):
+        return self.config.height
 
-        self.dataset = dataset
+    def channels(self):
+        return self.config.channels
 
-        self.iterator = self.dataset.make_one_shot_iterator()
-        self.x = tf.reshape( self.iterator.get_next(), [self.batch_size, height, width, channels])
-
-    def inputs(self):
-        return [self.x,self.x]
+    def next(self, index=0):
+        if self.config.blank:
+            return torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
+        try:
+            return self.datasets[index].next()[0].cuda() * self.multiple + self.offset
+        except ValueError:
+            return self.next(index)
+        except PIL.UnidentifiedImageError:
+            return self.next(index)
+        except StopIteration:
+            self.datasets[index] = iter(self.dataloaders[index])
+            return self.next(index)

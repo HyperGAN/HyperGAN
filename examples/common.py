@@ -1,9 +1,9 @@
 import argparse
-import tensorflow as tf
-import hypergan as hg
 import hyperchamber as hc
+import hypergan as hg
 import numpy as np
 import random
+import torch
 
 from hypergan.cli import CLI
 from hypergan.gan_component import GANComponent
@@ -71,19 +71,15 @@ def distribution_accuracy(a, b):
     Each point of a is measured against the closest point on b.  Distance differences are added together.  
     
     This works best on a large batch of small inputs."""
-    tiled_a = a
-    tiled_a = tf.reshape(tiled_a, [int(tiled_a.get_shape()[0]), 1, int(tiled_a.get_shape()[1])])
 
-    tiled_a = tf.tile(tiled_a, [1, int(tiled_a.get_shape()[0]), 1])
+    shape = a.shape
+    tiled_a = a.view(shape[0], 1, shape[1]).repeat(1, shape[0], 1)
+    tiled_b = b.view(1, shape[0], shape[1]).repeat(shape[0], 1, 1)
 
-    tiled_b = b
-    tiled_b = tf.reshape(tiled_b, [1, int(tiled_b.get_shape()[0]), int(tiled_b.get_shape()[1])])
-    tiled_b = tf.tile(tiled_b, [int(tiled_b.get_shape()[0]), 1, 1])
-
-    difference = tf.abs(tiled_a-tiled_b)
-    difference = tf.reduce_min(difference, axis=1)
-    difference = tf.reduce_sum(difference, axis=1)
-    return tf.reduce_sum(difference, axis=0) 
+    difference = torch.abs(tiled_a-tiled_b)
+    difference = torch.min(difference, dim=1)[0]
+    difference = torch.sum(difference, dim=1)
+    return torch.sum(difference, dim=0)
 
 def batch_accuracy(a, b):
     "Difference from a to b.  Meant for reconstruction measurements."
@@ -91,112 +87,6 @@ def batch_accuracy(a, b):
     difference = tf.reduce_min(difference, axis=1)
     difference = tf.reduce_sum(difference, axis=1)
     return tf.reduce_sum( tf.reduce_sum(difference, axis=0) , axis=0) 
-
-class TextInput:
-    def __init__(self, config, batch_size, one_hot=False):
-        self.lookup = None
-        reader = tf.TextLineReader()
-        filename_queue = tf.train.string_input_producer(["chargan.txt"])
-        key, x = reader.read(filename_queue)
-        vocabulary = self.get_vocabulary()
-
-        table = tf.contrib.lookup.string_to_index_table_from_tensor(
-            mapping = vocabulary, default_value = 0)
-
-        x = tf.string_join([x, tf.constant(" " * 64)]) 
-        x = tf.substr(x, [0], [64])
-        x = tf.string_split(x,delimiter='')
-        x = tf.sparse_tensor_to_dense(x, default_value=' ')
-        x = tf.reshape(x, [64])
-        x = table.lookup(x)
-        self.one_hot = one_hot
-        if one_hot:
-            x = tf.one_hot(x, len(vocabulary))
-            x = tf.cast(x, dtype=tf.float32)
-            x = tf.reshape(x, [1, int(x.get_shape()[0]), int(x.get_shape()[1]), 1])
-        else:
-            x = tf.cast(x, dtype=tf.float32)
-            x -= len(vocabulary)/2.0
-            x /= len(vocabulary)/2.0
-            x = tf.reshape(x, [1,1, 64, 1])
-
-        num_preprocess_threads = 8
-
-        x = tf.train.shuffle_batch(
-          [x],
-          batch_size=batch_size,
-          num_threads=num_preprocess_threads,
-          capacity= 5000,
-          min_after_dequeue=500,
-          enqueue_many=True)
-
-        self.x = x
-        self.table = table
-
-    def inputs(self):
-        return [self.x]
-    def get_vocabulary(self):
-        vocab = list("~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcba ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.")
-        return vocab
-
-    def np_one_hot(index, length):
-        return np.eye(length)[index]
-
-    def get_character(self, data):
-        return self.get_lookup_table()[data]
-
-    def get_lookup_table(self):
-        if self.lookup is None:
-            vocabulary = self.get_vocabulary()
-            values = np.arange(len(vocabulary))
-            lookup = {}
-
-            if self.one_hot:
-                for i, key in enumerate(vocabulary):
-                    lookup[key]=self.np_one_hot(values[i], len(values))
-            else:
-                for i, key in enumerate(vocabulary):
-                    lookup[key]=values[i]
-
-            #reverse the hash
-            lookup = {i[1]:i[0] for i in lookup.items()}
-            self.lookup = lookup
-        return self.lookup
-
-    def text_plot(self, size, filename, data, x):
-        bs = x.shape[0]
-        data = np.reshape(data, [bs, -1])
-        x = np.reshape(x, [bs, -1])
-        plt.clf()
-        plt.figure(figsize=(2,2))
-        data = np.squeeze(data)
-        plt.plot(x)
-        plt.plot(data)
-        plt.xlim([0, size])
-        plt.ylim([-2, 2.])
-        plt.ylabel("Amplitude")
-        plt.xlabel("Time")
-        plt.savefig(filename)
-
-    def sample_output(self, val):
-        vocabulary = self.get_vocabulary()
-        if self.one_hot:
-            vals = [ np.argmax(r) for r in val ]
-            ox_val = [vocabulary[obj] for obj in list(vals)]
-            string = "".join(ox_val)
-            return string
-        else:
-            val = np.reshape(val, [-1])
-            val *= len(vocabulary)/2.0
-            val += len(vocabulary)/2.0
-            val = np.round(val)
-
-            val = np.maximum(0, val)
-            val = np.minimum(len(vocabulary)-1, val)
-
-            ox_val = [self.get_character(obj) for obj in list(val)]
-            string = "".join(ox_val)
-            return string
 
 
 def parse_size(size):
@@ -206,8 +96,7 @@ def parse_size(size):
     return [width, height, channels]
 
 def lookup_config(args):
-    if args.action != 'search':
-        return hg.configuration.Configuration.load(args.config+".json")
+    return hg.configuration.Configuration.load(args.config+".json")
     
 def random_config_from_list(config_list_file):
     """ Chooses a random configuration from a list of configs (separated by newline) """

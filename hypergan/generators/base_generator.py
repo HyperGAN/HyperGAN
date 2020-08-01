@@ -2,22 +2,13 @@ from hypergan.gan_component import GANComponent
 
 class BaseGenerator(GANComponent):
 
-    def __init__(self, gan, config, name="BaseGenerator", input=None, reuse=False):
+    def __init__(self, gan, config, input=None):
+        GANComponent.__init__(self, gan, config)
         self.input = input
-        self.name = name
-
-        GANComponent.__init__(self, gan, config, name=name, reuse=reuse)
 
     """
         Superclass for all Generators.  Provides some common functionality.
     """
-    def create(self):
-        """
-        Create graph
-        """
-        self.sample = self.build(self.input)
-        return self.sample
-
     def add_progressive_enhancement(self, net):
         ops = self.ops
         gan = self.gan

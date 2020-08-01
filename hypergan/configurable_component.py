@@ -53,61 +53,65 @@ class ConfigurableComponent(GANComponent):
         self.parser = hypergan.parser.Parser()
         self.context_shapes = context_shapes
         self.layer_ops = {**self.activations(),
+            "add": hg.layers.Add,
+            "cat": hg.layers.Cat,
+            "channel_attention": hg.layers.ChannelAttention,
+            "ez_norm": hg.layers.EzNorm,
+            "mul": hg.layers.Mul,
+            "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
+            "pixel_shuffle": hg.layers.PixelShuffle,
+            "residual": hg.layers.Residual,
+            "resizable_stack": hg.layers.ResizableStack,
+            "segment_softmax": hg.layers.SegmentSoftmax,
+            "upsample": hg.layers.Upsample,
+
+            #easy to convert
+            "dropout": self.layer_dropout,
+            "identity": self.layer_identity,
+            "flatten": self.layer_flatten,
+            "layer": self.layer_layer,
+            "pretrained": self.layer_pretrained,
+            "avg_pool": self.layer_avg_pool,#TODO handle dims
+            "pad": self.layer_pad,
+            "reshape": self.layer_reshape,
+            "split": self.layer_split,
+
+            #hard to convert
             "adaptive_avg_pool": self.layer_adaptive_avg_pool,
             "adaptive_avg_pool1d": self.layer_adaptive_avg_pool1d,
             "adaptive_avg_pool3d": self.layer_adaptive_avg_pool3d,
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
-            "add": hg.layers.Add,
             "attention": self.layer_attention,
-            "avg_pool": self.layer_avg_pool,
             "batch_norm": self.layer_batch_norm,
             "batch_norm1d": self.layer_batch_norm1d,
             "blur": self.layer_blur,
-            "cat": hg.layers.Cat,
-            "channel_attention": hg.layers.ChannelAttention,
             "const": self.layer_const,
             "conv": self.layer_conv,
             "conv1d": self.layer_conv1d,
             "conv2d": self.layer_conv2d,
             "conv3d": self.layer_conv3d,
             "deconv": self.layer_deconv,
-            "dropout": self.layer_dropout,
             "equal_linear": self.layer_equal_linear,
-            "ez_norm": hg.layers.EzNorm,
-            "flatten": self.layer_flatten,
-            "identity": self.layer_identity,
             "instance_norm": self.layer_instance_norm,
             "instance_norm1d": self.layer_instance_norm1d,
             "instance_norm3d": self.layer_instance_norm3d,
             "latent": self.layer_latent,
-            "layer": self.layer_layer,
             "layer_norm": self.layer_norm,
             "learned_noise": self.layer_learned_noise,
             "linear": self.layer_linear,
-            #"linear_attention": hg.layers.LinearAttention,
-            #"make2d": self.layer_make2d,
-            #"make3d": self.layer_make3d,
             "modulated_conv2d": self.layer_modulated_conv2d,
             "module": self.layer_module,
-            "mul": hg.layers.Mul,
             "multi_head_attention": self.layer_multi_head_attention,
-            "multi_head_attention2": hg.layers.MultiHeadAttention,
-            "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
-            "pixel_shuffle": hg.layers.PixelShuffle,
-            "pretrained": self.layer_pretrained,
-            "reshape": self.layer_reshape,
-            "residual": hg.layers.Residual,
             "resize_conv": self.layer_resize_conv,
             "resize_conv2d": self.layer_resize_conv2d,
             "resize_conv1d": self.layer_resize_conv1d,
-            "resizable_stack": hg.layers.ResizableStack,
             "scaled_conv2d": self.layer_scaled_conv2d,
-            "segment_softmax": hg.layers.SegmentSoftmax,
-            "split": self.layer_split,
             "subpixel": self.layer_subpixel,
-            "upsample": hg.layers.Upsample,
             "vae": self.layer_vae
+            #"linear_attention": hg.layers.LinearAttention,
+            #"make2d": self.layer_make2d,
+            #"make3d": self.layer_make3d,
             # "crop": self.layer_crop,
             # "dropout": self.layer_dropout,
             # "noise": self.layer_noise, #TODO
@@ -733,21 +737,6 @@ class ConfigurableComponent(GANComponent):
                     input = module(input, context['w'])
                 elif layer_name == "split":
                     input = torch.split(input, args[0], options.dim or -1)[args[1]]
-                elif layer_name == "concat":
-                    if args[0] == "layer":
-                        input = torch.cat((input, context[args[1]]), dim=1)
-                    elif args[0] == "noise":
-                        input = torch.cat((input, torch.randn_like(input)), dim=1)
-                # elif layer_name == "concat3d":
-                #    if args[0] == "layer":
-                #        input = torch.cat((input, context[args[1]]), dim=2)
-                #    elif args[0] == "noise":
-                #        input = torch.cat((input, torch.randn_like(input)*0.01), dim=2)
-                # elif layer_name == "make2d":
-                #     input = torch.squeeze(input, dim=2) #TODO only 3d -> 2d
-                # elif layer_name == "make3d":
-                #     input = input[:,:,None,:,:] #TODO only 2d -> 3d
-
                 elif layer_name == "layer":
                     input = context[args[0]]
                 elif layer_name == "latent":

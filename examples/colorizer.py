@@ -32,44 +32,42 @@ class WalkSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.latent = self.gan.latent.next().data.clone()
-        self.x = torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size(),1,1,1)
+        #self.x = torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size(),1,1,1)
+        self.x = self.gan.x
         self.bw = BW(gan,None,None,hc.Config({}),LayerSize(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
         self.gan = gan
 
-        self.step = 0
-        self.step_count = 30
-        self.xstep = 0
-        self.xstep_count = 300
         self.latent1 = self.gan.latent.next()
         self.latent2 = self.gan.latent.next()
+        self.velocity = 15/24.0
         direction = self.gan.latent.next()
+        self.origin = direction
+        self.pos = self.latent1
         self.direction = direction / torch.norm(direction, p=2, dim=1, keepdim=True).expand_as(direction)
-        self.velocity = 10.0
         self.hardtanh = nn.Hardtanh()
-
+        self.ones = torch.ones_like(self.direction, device="cuda:0")
+        self.xstep = 0
+        self.xstep_count = 120
 
     def _sample(self):
         gan = self.gan
         gan.x = self.bw
-        self.step+=1
         self.xstep+=1
-        if self.step > self.step_count:
-            self.latent1 = self.latent2
-            direction = self.gan.latent.next()
-            self.direction = direction / torch.norm(direction, p=2, dim=1, keepdim=True).expand_as(direction)
-            self.step = 0
         if self.xstep > self.xstep_count:
-            gan.x = gan.inputs.next()
-            self.x = torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size(),1,1,1)
+            self.x = gan.inputs.next()
+            #self.x = torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size(),1,1,1)
             self.bw = BW(gan,None,None,hc.Config({}),LayerSize(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
             self.xstep = 0
 
-        latent = self.direction * self.step / self.step_count * self.velocity + self.latent1
-        latent = self.hardtanh(latent)
-        self.latent2 = latent
+        self.pos = self.direction * self.velocity + self.pos
+        self.gan.latent.z = self.pos
+        mask = torch.gt(self.pos, self.ones)
+        mask += torch.lt(self.pos, -self.ones)
+        self.direction = self.direction + 2 * self.direction * (-self.ones * mask)
 
-        g = gan.generator.forward(latent)
- 
+
+        g = gan.generator.forward(self.pos)
+
         return [
                  ('generator', g)
                ]

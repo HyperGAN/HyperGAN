@@ -25,7 +25,7 @@ class ResizableStack(hg.Layer):
         ## arguments
             * layer type. Defaults to "segment_softmax"
         ## optional arguments
-            * softmax_channels - The number of channels before segment_softmax. Defaults to output_channels * 2 * 5
+            * segment_channels - The number of channels before segment_softmax. Defaults to 5
             * max_channels - The most channels for any conv. Default 256
             * style - the style vector to use. Default "w"
         ## input size
@@ -56,12 +56,12 @@ class ResizableStack(hg.Layer):
         super(ResizableStack, self).__init__(component, args, options)
         self.size = LayerSize(component.gan.channels(), component.gan.height(), component.gan.width())
         self.max_channels = options.max_channels or 256
-        self.segment_channels = options.segment_channels or 2 * self.size.channels * 5
+        self.segment_channels = options.segment_channels or 5
         self.style = options.style or "w"
 
         layers = []
 
-        sizes = self.sizes(component.current_size.height, component.current_size.width, component.gan.height(), component.gan.width(), self.segment_channels)
+        sizes = self.sizes(component.current_size.height, component.current_size.width, component.gan.height(), component.gan.width(), self.segment_channels * 2 * component.gan.channels())
         print("SIZES", sizes)
         for i, size in enumerate(sizes[1:]):
             c = min(size.channels, self.max_channels)

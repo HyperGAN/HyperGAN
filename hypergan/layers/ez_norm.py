@@ -2,8 +2,6 @@ import torch.nn as nn
 import hypergan as hg
 from hypergan.layer_size import LayerSize
 
-from hypergan.modules.modulated_conv2d import EqualLinear
-
 class EzNorm(hg.Layer):
     """
         ---
@@ -12,7 +10,7 @@ class EzNorm(hg.Layer):
 
         # ez_norm layer
 
-        `ez_norm` is a custom normalization technique that a conv of the input by a linear projection of a style vector.
+        `ez_norm` is a custom normalization technique that uses a conv of the input by a linear projection of a style vector.
 
         ## Optional arguments
 
@@ -48,12 +46,9 @@ class EzNorm(hg.Layer):
         style_size = component.layer_output_sizes[options.style or 'w'].size()
         channels = component.current_size.channels
         dims = len(component.current_size.dims)
-        equal_linear = options.equal_linear
 
-        if equal_linear:
-            self.beta = EqualLinear(style_size, channels, lr_mul=0.01)
-        else:
-            self.beta = nn.Linear(style_size, channels)
+        self.beta = nn.Linear(style_size, channels)
+
         if dims == 2:
             self.conv = nn.Conv1d(channels, 1, 1, 1, padding = 0)
         else:

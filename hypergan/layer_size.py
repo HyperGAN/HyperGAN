@@ -27,3 +27,9 @@ class LayerSize:
         if len(self.dims) == 3:
             return self.channels * self.height * self.width
         return self.channels * self.height * self.width * self.frames
+
+    def __repr__(self):
+        return "LayerSize(" + ", ".join([str(x) for x in self.dims]) + ")"
+
+    def __str__(self):
+        return self.__repr__()

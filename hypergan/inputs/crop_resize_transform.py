@@ -33,8 +33,10 @@ class CropResizeTransform(object):
             PIL Image: Rescaled image.
         """
         width, height = img.size
-        min_wh = min(width, height)
-        min_size = [min_wh, min_wh]
+
+        min_w = min(width * self.size[0]/self.size[1], width)
+        min_h = min(height * self.size[1]/self.size[0], height)
+        min_size = [min_w, min_h]
         img = F.center_crop(img, min_size)
 
         return F.resize(img, self.size, self.interpolation)

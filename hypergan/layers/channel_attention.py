@@ -1,5 +1,5 @@
 import torch.nn as nn
-from hypergan.layer_size import LayerSize
+from hypergan.layer_shape import LayerShape
 import hypergan as hg
 import torch
 
@@ -26,7 +26,7 @@ class ChannelAttention(hg.Layer):
         self.softmax  = nn.Softmax(dim=1) #
 
     def output_size(self):
-        return LayerSize(self.channels, self.dims[1], self.dims[2])
+        return LayerShape(self.channels, self.dims[1], self.dims[2])
 
     def forward(self, input, context):
         x = input

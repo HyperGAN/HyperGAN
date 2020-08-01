@@ -4,6 +4,7 @@ from common import *
 from hypergan.generators import *
 from hypergan.search.random_search import RandomSearch
 from hypergan.viewer import GlobalViewer
+from hypergan.samplers.base_sampler import BaseSampler
 import argparse
 import hyperchamber as hc
 import hypergan as hg

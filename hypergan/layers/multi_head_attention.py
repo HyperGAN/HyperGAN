@@ -1,6 +1,6 @@
 import torch.nn as nn
 import hypergan as hg
-from hypergan.layer_size import LayerSize
+from hypergan.layer_shape import LayerShape
 from hypergan.modules.multi_head_attention import MultiHeadAttention as module_MultiHeadAttention
 
 class MultiHeadAttention(hg.Layer):
@@ -53,7 +53,7 @@ class MultiHeadAttention(hg.Layer):
         component.nn_init(self.layer.f, options.initializer)
 
     def output_size(self):
-        return LayerSize(self.size)
+        return LayerShape(self.size)
 
     def forward(self, input, context):
         return self.layer.forward(input)

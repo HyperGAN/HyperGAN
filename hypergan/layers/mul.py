@@ -1,5 +1,5 @@
 import hypergan as hg
-from hypergan.layer_size import LayerSize
+from hypergan.layer_shape import LayerShape
 from . import Operation
 
 class Mul(Operation):

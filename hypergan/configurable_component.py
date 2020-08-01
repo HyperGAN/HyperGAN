@@ -14,7 +14,7 @@ import torch.nn as nn
 
 from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
-from hypergan.layer_size import LayerSize
+from hypergan.layer_shape import LayerShape
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.attention import Attention
@@ -33,18 +33,18 @@ import hypergan as hg
 
 class ConfigurableComponent(GANComponent):
     def __init__(self, gan, config, input=None, input_shape=None, context_shapes = {}):
-        self.current_size = LayerSize(gan.channels(), gan.height(), gan.width())
+        self.current_size = LayerShape(gan.channels(), gan.height(), gan.width())
         if isinstance(input, GANComponent):
             if hasattr(input, 'current_height'):
-                self.current_size = LayerSize(input.current_channels, input.current_height, input.current_width)
+                self.current_size = LayerShape(input.current_channels, input.current_height, input.current_width)
             elif hasattr(input, 'current_channels'):
-                self.current_size = LayerSize(input.current_channels)
+                self.current_size = LayerShape(input.current_channels)
             else:
                 self.current_size = input.current_size
         if input_shape is not None:
-            self.current_size = LayerSize(*input_shape)
+            self.current_size = LayerShape(*input_shape)
         self.layers = []
-        self.layer_sizes = []
+        self.layer_shapes = []
         self.untrainable_parameters = set()
         self.layer_output_sizes = {}
         self.nn_layers = []
@@ -165,7 +165,7 @@ class ConfigurableComponent(GANComponent):
         config = self.config
         parsed, layer = self.parse_layer(layer_defn)
         self.parsed_layers.append(parsed)
-        self.layer_sizes.append(self.current_size)
+        self.layer_shapes.append(self.current_size)
         return layer
 
     def parse_layer(self, layer_defn):
@@ -247,7 +247,7 @@ class ConfigurableComponent(GANComponent):
         if options.lr_mul is not None:
             lr_mul = options.lr_mul
         result = EqualLinear(self.current_size.size(), args[0], lr_mul=lr_mul)
-        self.current_size = LayerSize(args[0])
+        self.current_size = LayerShape(args[0])
         return result
 
     def get_same_padding(self, input_rows, filter_rows, stride, dilation):
@@ -289,7 +289,7 @@ class ConfigurableComponent(GANComponent):
         layer = nn.Conv2d(options.input_channels or self.current_size.channels, channels, filter, stride, padding = (padding, padding))
         self.nn_init(layer, options.initializer)
         h, w = self.conv_output_shape((self.current_size.height, self.current_size.width), filter, stride, padding, dilation)
-        self.current_size = LayerSize(channels, h, w)
+        self.current_size = LayerShape(channels, h, w)
         return layer
 
     def layer_conv1d(self, net, args, options):
@@ -310,7 +310,7 @@ class ConfigurableComponent(GANComponent):
         layers = [nn.Conv1d(options.input_channels or self.current_size.channels, channels, fltr, stride, padding = padding)]
         self.nn_init(layers[-1], options.initializer)
         h, _ = self.conv_output_shape((self.current_size.height, self.current_size.height), options.filter or 3, stride, padding, 1)
-        self.current_size = LayerSize(channels, h)
+        self.current_size = LayerShape(channels, h)
         return nn.Sequential(*layers)
 
 
@@ -334,7 +334,7 @@ class ConfigurableComponent(GANComponent):
 
         layers = [nn.Conv3d(options.input_channels or self.current_size.channels, channels, fltr, stride, padding = padding)]
         self.nn_init(layer, options.initializer)
-        self.current_size = LayerSize(frames, channels, self.current_size.height // stride[1], self.current_size.width // stride[2]) #TODO this doesn't work, what is frames? Also chw calculation like conv2d
+        self.current_size = LayerShape(frames, channels, self.current_size.height // stride[1], self.current_size.width // stride[2]) #TODO this doesn't work, what is frames? Also chw calculation like conv2d
         return nn.Sequential(*layers)
 
     def layer_linear(self, net, args, options):
@@ -352,7 +352,7 @@ class ConfigurableComponent(GANComponent):
 
         layers += [nn.Linear(options.input_size or self.current_size.size(), output_size, bias=bias)]
         self.nn_init(layers[-1], options.initializer)
-        self.current_size = LayerSize(*list(reversed(shape)))
+        self.current_size = LayerShape(*list(reversed(shape)))
         if len(shape) != 1:
             layers.append(Reshape(*self.current_size.dims))
 
@@ -386,15 +386,15 @@ class ConfigurableComponent(GANComponent):
         result = ModulatedConv2d(input_channels, channels, filter, self.layer_output_sizes['w'].size(), upsample=upsample, demodulate=demodulate, downsample=downsample, lr_mul=lr_mul)
 
         if upsample:
-            self.current_size = LayerSize(channels, self.current_size.height * 2, self.current_size.width * 2)
+            self.current_size = LayerShape(channels, self.current_size.height * 2, self.current_size.width * 2)
         elif downsample:
-            self.current_size = LayerSize(channels, self.current_size.height // 2, self.current_size.width // 2)
+            self.current_size = LayerShape(channels, self.current_size.height // 2, self.current_size.width // 2)
         return result
 
     def layer_module(self, net, args, options):
         klass = GANComponent.lookup_function(None,"function:__main__."+args[0])
         instance = klass(self.gan, net, args, options, self.current_size)
-        self.current_size = instance.layer_size(self.current_size)
+        self.current_size = instance.layer_shape(self.current_size)
         return instance
 
     def layer_blur(self, net, args, options):
@@ -410,24 +410,24 @@ class ConfigurableComponent(GANComponent):
     def layer_reshape(self, net, args, options):
         dims_args = [int(x) for x in args[0].split("*")]
         dims = list(reversed(dims_args))
-        self.current_size = LayerSize(*dims)
+        self.current_size = LayerShape(*dims)
         return Reshape(*dims)
 
     def layer_adaptive_avg_pool(self, net, args, options):
-        self.current_size = LayerSize(self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
+        self.current_size = LayerShape(self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
         return nn.AdaptiveAvgPool2d([self.current_size.height, self.current_size.width])
 
     def layer_adaptive_avg_pool1d (self, net, args, options):
-        self.current_size = LayerSize(self.current_size.channels, self.current_size.height // 2)
+        self.current_size = LayerShape(self.current_size.channels, self.current_size.height // 2)
         return nn.AdaptiveAvgPool1d(self.current_size.height)
 
     def layer_avg_pool(self, net, args, options):
-        self.current_size = LayerSize(self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
+        self.current_size = LayerShape(self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
         return nn.AvgPool2d(2, 2)
 
     def layer_adaptive_avg_pool3d(self, net, args, options):
         frames = 4 #TODO
-        self.current_size = LayerSize(frames, self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
+        self.current_size = LayerShape(frames, self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
         return nn.AdaptiveAvgPool3d([self.current_size.frames, self.current_size.height, self.current_size.width]) #TODO looks wrong
 
     def layer_instance_norm(self, net, args, options):
@@ -491,7 +491,7 @@ class ConfigurableComponent(GANComponent):
             padding = options.padding
         layer = nn.ConvTranspose2d(options.input_channels or self.current_size.channels, channels, filter, stride, padding)
         self.nn_init(layer, options.initializer)
-        self.current_size = LayerSize(channels, self.current_size.height * 2, self.current_size.width * 2)
+        self.current_size = LayerShape(channels, self.current_size.height * 2, self.current_size.width * 2)
         return layer
 
     def layer_pad(self, net, args, options):
@@ -527,7 +527,7 @@ class ConfigurableComponent(GANComponent):
         layers = [nn.Upsample((h, w), mode="bilinear"),
                 nn.Conv2d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, 1)]
         self.nn_init(layers[-1], options.initializer)
-        self.current_size = LayerSize(channels, h, w)
+        self.current_size = LayerShape(channels, h, w)
         return nn.Sequential(*layers)
 
     def layer_resize_conv1d(self, net, args, options):
@@ -543,7 +543,7 @@ class ConfigurableComponent(GANComponent):
                 nn.Conv1d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, padding=padding)]
         self.nn_init(layers[-1], options.initializer)
         h, _ = self.conv_output_shape((self.current_size.height, self.current_size.height), options.filter or 3, 1, padding, 1)
-        self.current_size = LayerSize(channels, h)
+        self.current_size = LayerShape(channels, h)
         return nn.Sequential(*layers)
 
     def layer_scaled_conv2d(self, net, args, options):
@@ -575,9 +575,9 @@ class ConfigurableComponent(GANComponent):
         self.nn_init(result, options.initializer)
 
         if upsample:
-            self.current_size = LayerSize(channels, self.current_size.height * 2, self.current_size.width * 2)
+            self.current_size = LayerShape(channels, self.current_size.height * 2, self.current_size.width * 2)
         else:
-            self.current_size = LayerSize(channels, self.current_size.height - 2, self.current_size.width - 2)
+            self.current_size = LayerShape(channels, self.current_size.height - 2, self.current_size.width - 2)
         return result
 
     def layer_split(self, net, args, options):
@@ -594,7 +594,7 @@ class ConfigurableComponent(GANComponent):
             dims[0] = split_size
             if (select + 1) * split_size > self.current_size.channels:
                 dims[0] = self.current_size.channels % split_size
-            self.current_size = LayerSize(*dims)
+            self.current_size = LayerShape(*dims)
         return NoOp()
 
     def layer_subpixel(self, net, args, options):
@@ -603,11 +603,11 @@ class ConfigurableComponent(GANComponent):
 
         layers = [nn.Conv2d(options.input_channels or self.current_size.channels, channels*4, options.filter or 3, 1, 1), nn.PixelShuffle(2)]
         self.nn_init(layers[0], options.initializer)
-        self.current_size = LayerSize(channels, self.current_size.height * 2, self.current_size.width * 2)
+        self.current_size = LayerShape(channels, self.current_size.height * 2, self.current_size.width * 2)
         return nn.Sequential(*layers)
 
     def layer_latent(self, net, args, options):
-        self.current_size = LayerSize(self.gan.latent.current_input_size)
+        self.current_size = LayerShape(self.gan.latent.current_input_size)
         return NoOp()
 
     def layer_layer(self, net, args, options):
@@ -631,7 +631,7 @@ class ConfigurableComponent(GANComponent):
         if len(args) > 0:
             output_size = args[0]
         layer = MultiHeadAttention(self.current_size.size(), output_size, heads=options.heads or 4)
-        self.current_size = LayerSize(output_size)
+        self.current_size = LayerShape(output_size)
         self.nn_init(layer.o, options.initializer)
         self.nn_init(layer.h, options.initializer)
         self.nn_init(layer.g, options.initializer)
@@ -660,7 +660,7 @@ class ConfigurableComponent(GANComponent):
         return AdaptiveInstanceNorm(self.layer_output_sizes['w'].size(), self.current_size.channels, equal_linear=options.equal_linear)
 
     def layer_flatten(self, net, args, options):
-        self.current_size = LayerSize(self.current_size.size())
+        self.current_size = LayerShape(self.current_size.size())
         return nn.Flatten()
 
     def layer_zeros_like(self, net, args, options):
@@ -723,7 +723,7 @@ class ConfigurableComponent(GANComponent):
 
 
     def forward(self, input, context={}):
-        for module, parsed, layer_size in zip(self.net, self.parsed_layers, self.layer_sizes):
+        for module, parsed, layer_shape in zip(self.net, self.parsed_layers, self.layer_shapes):
             try:
                 options = parsed.parsed_options
                 args = parsed.args
@@ -752,14 +752,14 @@ class ConfigurableComponent(GANComponent):
                 else:
                     input = module(input)
                 if self.gan.steps == 0:
-                    size = LayerSize(*list(input.shape[1:]))
-                    if size.squeeze_dims() != layer_size.squeeze_dims():
+                    size = LayerShape(*list(input.shape[1:]))
+                    if size.squeeze_dims() != layer_shape.squeeze_dims():
                         print("Error: Size error on", layer_name)
-                        print("Error: Expected output size", layer_size.dims)
+                        print("Error: Expected output size", layer_shape.dims)
                         print("Error: Actual output size", size.dims)
                         raise "Layer size error, cannot continue"
                     else:
-                        print("Sizes as expected", input.shape[1:], layer_size.dims)
+                        print("Sizes as expected", input.shape[1:], layer_shape.dims)
                 if name is not None:
                     context[name] = input
             except:

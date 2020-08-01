@@ -7,7 +7,7 @@ import numpy as np
 from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 from hypergan.gans.standard_gan import StandardGAN
-from hypergan.layer_size import LayerSize
+from hypergan.layer_shape import LayerShape
 from common import *
 import torch.nn as nn
 import torch
@@ -17,7 +17,7 @@ class Sampler(BaseSampler):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.latent = self.gan.latent.next().data.clone()
         self.x = torch.cat([torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size()//2,1,1,1), torch.unsqueeze(self.gan.x[1],0).repeat(gan.batch_size()//2,1,1,1)], 0)
-        self.bw = BW(gan,None,None,hc.Config({}),LayerSize(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
+        self.bw = BW(gan,None,None,hc.Config({}),LayerShape(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
         self.gan = gan
 
     def _sample(self):
@@ -34,7 +34,7 @@ class WalkSampler(BaseSampler):
         self.latent = self.gan.latent.next().data.clone()
         #self.x = torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size(),1,1,1)
         self.x = self.gan.x
-        self.bw = BW(gan,None,None,hc.Config({}),LayerSize(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
+        self.bw = BW(gan,None,None,hc.Config({}),LayerShape(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
         self.gan = gan
 
         self.latent1 = self.gan.latent.next()
@@ -56,7 +56,7 @@ class WalkSampler(BaseSampler):
         if self.xstep > self.xstep_count:
             self.x = gan.inputs.next()
             #self.x = torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size(),1,1,1)
-            self.bw = BW(gan,None,None,hc.Config({}),LayerSize(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
+            self.bw = BW(gan,None,None,hc.Config({}),LayerShape(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
             self.xstep = 0
 
         self.pos = self.direction * self.velocity + self.pos
@@ -102,9 +102,9 @@ class BW(nn.Module):
     def forward_grayscale(self, x):
         return x.mean(axis=1, keepdims=True)
 
-    def layer_size(self, current_size):
+    def layer_shape(self, current_size):
         shape = self.shape
-        return LayerSize(*shape)
+        return LayerShape(*shape)
 
 arg_parser = ArgumentParser("Colorize an image")
 arg_parser.add_image_arguments()

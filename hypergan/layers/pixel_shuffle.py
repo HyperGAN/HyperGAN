@@ -1,5 +1,5 @@
 import torch.nn as nn
-from hypergan.layer_size import LayerSize
+from hypergan.layer_shape import LayerShape
 import hypergan as hg
 
 class PixelShuffle(hg.Layer):
@@ -33,7 +33,7 @@ class PixelShuffle(hg.Layer):
         self.dims = list(component.current_size.dims).copy()
 
     def output_size(self):
-        return LayerSize(self.dims[0]//4, self.dims[1]*2, self.dims[2]*2)
+        return LayerShape(self.dims[0]//4, self.dims[1]*2, self.dims[2]*2)
 
     def forward(self, input, context):
         return self.shuffle(input)

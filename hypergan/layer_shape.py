@@ -1,4 +1,4 @@
-class LayerSize:
+class LayerShape:
     def __init__(self, *dims):
         self.dims = dims
         if len(dims) == 1:
@@ -29,7 +29,7 @@ class LayerSize:
         return self.channels * self.height * self.width * self.frames
 
     def __repr__(self):
-        return "LayerSize(" + ", ".join([str(x) for x in self.dims]) + ")"
+        return "LayerShape(" + ", ".join([str(x) for x in self.dims]) + ")"
 
     def __str__(self):
         return self.__repr__()

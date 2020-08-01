@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch
-from hypergan.layer_size import LayerSize
+from hypergan.layer_shape import LayerShape
 import hypergan as hg
 
 class SegmentSoftmax(hg.Layer):
@@ -52,7 +52,7 @@ class SegmentSoftmax(hg.Layer):
         self.softmax = nn.Softmax(dim=2)
 
     def output_size(self):
-        return LayerSize(*([self.channels]+self.dims[1:]))
+        return LayerShape(*([self.channels]+self.dims[1:]))
 
     def forward(self, input, context):
         content, segment = torch.split(input, input.shape[1]//2, 1)

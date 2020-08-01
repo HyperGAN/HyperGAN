@@ -1,6 +1,6 @@
 import torch.nn as nn
 import hypergan as hg
-from hypergan.layer_size import LayerSize
+from hypergan.layer_shape import LayerShape
 
 class EzNorm(hg.Layer):
     """
@@ -41,7 +41,7 @@ class EzNorm(hg.Layer):
     def __init__(self, component, args, options):
         super(EzNorm, self).__init__(component, args, options)
         self.dim = options.dim or 1
-        self.size = LayerSize(*component.current_size.dims)
+        self.size = LayerShape(*component.current_size.dims)
 
         style_size = component.layer_output_sizes[options.style or 'w'].size()
         channels = component.current_size.channels

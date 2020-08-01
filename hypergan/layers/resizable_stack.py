@@ -1,7 +1,7 @@
 import torch.nn as nn
 import hyperchamber as hc
 import hypergan as hg
-from hypergan.layer_size import LayerSize
+from hypergan.layer_shape import LayerShape
 
 class ResizableStack(hg.Layer):
     """
@@ -54,7 +54,7 @@ class ResizableStack(hg.Layer):
     """
     def __init__(self, component, args, options):
         super(ResizableStack, self).__init__(component, args, options)
-        self.size = LayerSize(component.gan.channels(), component.gan.height(), component.gan.width())
+        self.size = LayerShape(component.gan.channels(), component.gan.height(), component.gan.width())
         self.max_channels = options.max_channels or 256
         self.segment_channels = options.segment_channels or 5
         self.style = options.style or "w"
@@ -103,7 +103,7 @@ class ResizableStack(hg.Layer):
 
         channels.reverse()
         for c,h,w in zip(channels, hs, ws):
-            sizes.append(LayerSize(c, h, w))
+            sizes.append(LayerShape(c, h, w))
         return sizes
 
     def forward(self, input, context):

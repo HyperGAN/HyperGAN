@@ -1,11 +1,11 @@
+import copy
 import hyperchamber as hc
 import inspect
-import copy
-import re
-import os
+import math
 import operator
+import os
+import re
 from functools import reduce
-from math import floor
 
 import pyparsing
 import hypergan
@@ -30,9 +30,6 @@ from hypergan.modules.pixel_norm import PixelNorm
 
 import torchvision
 import hypergan as hg
-
-class ConfigurationException(Exception):
-    pass
 
 class ConfigurableComponent(GANComponent):
     def __init__(self, gan, config, input=None, input_shape=None, context_shapes = {}):
@@ -87,12 +84,14 @@ class ConfigurableComponent(GANComponent):
             "layer_norm": self.layer_norm,
             "learned_noise": self.layer_learned_noise,
             "linear": self.layer_linear,
+            #"linear_attention": hg.layers.LinearAttention,
             #"make2d": self.layer_make2d,
             #"make3d": self.layer_make3d,
             "modulated_conv2d": self.layer_modulated_conv2d,
             "module": self.layer_module,
             "mul": hg.layers.Mul,
             "multi_head_attention": self.layer_multi_head_attention,
+            "multi_head_attention2": hg.layers.MultiHeadAttention,
             "pad": self.layer_pad,
             "pixel_norm": self.layer_pixel_norm,
             "pixel_shuffle": hg.layers.PixelShuffle,
@@ -258,8 +257,8 @@ class ConfigurableComponent(GANComponent):
     def conv_output_shape(self, h_w, kernel_size=1, stride=1, pad=0, dilation=1):
         if type(kernel_size) is not tuple:
             kernel_size = (kernel_size, kernel_size)
-        h = floor( ((h_w[0] + (2 * pad) - ( dilation * (kernel_size[0] - 1) ) - 1 )/ stride) + 1)
-        w = floor( ((h_w[1] + (2 * pad) - ( dilation * (kernel_size[1] - 1) ) - 1 )/ stride) + 1)
+        h = math.floor( ((h_w[0] + (2 * pad) - ( dilation * (kernel_size[0] - 1) ) - 1 )/ stride) + 1)
+        w = math.floor( ((h_w[1] + (2 * pad) - ( dilation * (kernel_size[1] - 1) ) - 1 )/ stride) + 1)
         return h, w
 
     def layer_conv(self, net, args, options):
@@ -300,11 +299,14 @@ class ConfigurableComponent(GANComponent):
         fltr = options.filter or 3
         dilation = 1
 
-        padding = options.padding or 1#self.get_same_padding(self.current_width, self.current_width, stride, dilation)
+        padding = 1
+        if options.padding is not None:
+            padding = options.padding
 
         layers = [nn.Conv1d(options.input_channels or self.current_size.channels, channels, fltr, stride, padding = padding)]
         self.nn_init(layers[-1], options.initializer)
-        self.current_size = LayerSize(channels, self.current_size.height // stride) #TODO better calculation of this
+        h, _ = self.conv_output_shape((self.current_size.height, self.current_size.height), options.filter or 3, stride, padding, 1)
+        self.current_size = LayerSize(channels, h)
         return nn.Sequential(*layers)
 
 
@@ -529,9 +531,14 @@ class ConfigurableComponent(GANComponent):
         channels = args[0]
         h = options.h or self.current_size.height * 2
 
+        padding = 1
+        if options.padding is not None:
+            padding = options.padding
+
         layers = [nn.Upsample((h)),
-                nn.Conv1d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, 1)]
+                nn.Conv1d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, padding=padding)]
         self.nn_init(layers[-1], options.initializer)
+        h, _ = self.conv_output_shape((self.current_size.height, self.current_size.height), options.filter or 3, 1, padding, 1)
         self.current_size = LayerSize(channels, h)
         return nn.Sequential(*layers)
 
@@ -767,7 +774,7 @@ class ConfigurableComponent(GANComponent):
                 if name is not None:
                     context[name] = input
             except:
-                raise ValidationException("Error on " + parsed.layer_name + str(parsed.args) + str(parsed.options))
+                raise ValidationException("Error on " + parsed.layer_defn + " - input size " + ",".join([str(x) for x in input.shape]))
         self.sample = input
         return input
 

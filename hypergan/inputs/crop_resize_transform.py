@@ -34,8 +34,9 @@ class CropResizeTransform(object):
         """
         width, height = img.size
 
-        min_w = min(width * self.size[0]/self.size[1], width)
-        min_h = min(height * self.size[1]/self.size[0], height)
+        min_wh = min(width, height)
+        min_w = width * self.size[0]/self.size[1]
+        min_h = height * self.size[1]/self.size[0]
         min_size = [min_w, min_h]
         img = F.center_crop(img, min_size)
 

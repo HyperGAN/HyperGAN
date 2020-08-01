@@ -35,12 +35,10 @@
       "multi_head_attention 256 initializer=(xavier_normal)","relu",
       "identity name=w",
       "module BW replace=true",
-      "conv 64 stride=2 padding=0","add self (ez_norm initializer=(xavier_normal))",  "relu",
-      "conv 128 stride=2 padding=0","add self (ez_norm initializer=(xavier_normal))",  "relu",
-      "resizable_stack", "hardtanh"
-
-
-
+      "conv 64 stride=2 padding=0","relu",
+      "conv 128 stride=2 padding=0", "relu",
+      "conv 256 stride=2 padding=0", "relu",
+      "resizable_stack"
     ]
   },
   "latent":
@@ -88,13 +86,10 @@
       "eps": 1e-08,
       "lr": 0.0001,
       "weight_decay": 0
-    }   
-    
+    }
   },
   "runtime": {
-    "channels": 3,
-    "width": 256,
-    "height": 256,
+    "anysize": true,
     "train": "python3 [hypergan]/examples/colorizer.py train [dataset] --size 256x256x3 -b 4"
   },
   "hypergan_version": "0.10.0",

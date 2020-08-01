@@ -1,19 +1,9 @@
 
 {
-  "description": "A default configuration that scales to multiple resolutionse Note that the other resolution specific configs may perform better.",
-
-  "discriminator": 
+  "description": "A default configuration that scales to multiple resolutions.",
+  "discriminator":
   {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-    "defaults":{
-      "filter": [3,3],
-      "stride": [1,1],
-      "adaptive_avg_pool": [2,2],
-      "activation": "relu",
-      "initializer": "he_normal",
-      "lrmul": 1.0,
-      "random_stddev": 0.02
-    },
     "layers":[
       "conv 64 stride=2", "relu",
       "conv 128 stride=2", "relu",
@@ -30,18 +20,8 @@
     "max": 1,
     "z": 256
   },
-
-   "generator": {
+  "generator": {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-    "defaults":{
-      "filter": [3,3],
-      "stride": [1,1],
-      "adaptive_avg_pool": [1,1],
-      "activation": "relu",
-      "initializer": "he_normal",
-      "lrmul": 1.0,
-      "random_stddev": 0.02
-    },
     "layers":[
       "identity name=z",
       "latent",
@@ -55,19 +35,13 @@
       "multi_head_attention 25600 initializer=(xavier_normal)","relu",
       "reshape 10*10*256","relu",
       "resizable_stack", "hardtanh"
-
-
-
-
     ]
   },
-
   "loss":
   {
     "class": "function:hypergan.losses.standard_loss.StandardLoss",
     "reduce": "reduce_mean"
   },
-
   "trainer": {
     "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
 
@@ -101,8 +75,7 @@
       "eps": 1e-08,
       "lr": 0.0001,
       "weight_decay": 0
-    }   
-    
+    }
   },
   "runtime": {
     "anysize": true,

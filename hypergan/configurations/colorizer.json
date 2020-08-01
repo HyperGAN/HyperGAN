@@ -35,9 +35,7 @@
       "multi_head_attention 256 initializer=(xavier_normal)","relu",
       "identity name=w",
       "module BW replace=true",
-      "conv 64 stride=2 padding=0","relu",
-      "conv 128 stride=2 padding=0", "relu",
-      "conv 256 stride=2 padding=0", "relu",
+      "conv 64 stride=2 padding=0", "relu",
       "resizable_stack"
     ]
   },

@@ -102,11 +102,12 @@ class ConfigurableComponent(GANComponent):
             "resize_conv": self.layer_resize_conv,
             "resize_conv2d": self.layer_resize_conv2d,
             "resize_conv1d": self.layer_resize_conv1d,
+            "resizable_stack": hg.layers.ResizableStack,
             "scaled_conv2d": self.layer_scaled_conv2d,
             "segment_softmax": hg.layers.SegmentSoftmax,
             "split": self.layer_split,
             "subpixel": self.layer_subpixel,
-            "upsample": self.layer_upsample,
+            "upsample": hg.layers.Upsample,
             "vae": self.layer_vae
             # "crop": self.layer_crop,
             # "dropout": self.layer_dropout,
@@ -150,45 +151,28 @@ class ConfigurableComponent(GANComponent):
             return self.named_layers[name]
         return None
 
-    def build(self, net, replace_controls={}):
-        self.replace_controls=replace_controls
-        config = self.config
-
-        for layer in config.layers:
-            net = self.parse_layer(net, layer)
-            self.layers += [net]
-
-        return net
-
     def create(self):
         for layer in self.config.layers:
-            net = self.parse_layer(layer)
+            net = self.create_parsed_layer(layer)
             self.nn_layers.append(net)
 
-        self.net = nn.Sequential(*self.nn_layers)
+        self.net = nn.ModuleList(self.nn_layers)
 
-    def parse_layer(self, layer):
+    def create_parsed_layer(self, layer_defn):
         config = self.config
+        parsed, layer = self.parse_layer(layer_defn)
+        self.parsed_layers.append(parsed)
+        self.layer_sizes.append(self.current_size)
+        return layer
 
-        if isinstance(layer, list):
-            ns = []
-            axis = -1
-            for l in layer:
-                if isinstance(l, int):
-                    axis = l
-                    continue
-                n = self.parse_layer(l)
-                ns += [n]
-
-        else:
-            print("Parsing layer:", layer)
-            parsed = self.parser.parse_string(layer)
-            parsed.parsed_options = hc.Config(parsed.options)
-            print("Parsed layer:", parsed.to_list())
-            self.parsed_layers.append(parsed)
-            layer = self.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options)
-            self.layer_sizes.append(self.current_size)
-            return layer
+    def parse_layer(self, layer_defn):
+        print("Parsing layer:", layer_defn)
+        parsed = self.parser.parse_string(layer_defn)
+        parsed.parsed_options = hc.Config(parsed.options)
+        parsed.layer_defn = layer_defn
+        print("Parsed layer:", parsed.to_list())
+        layer = self.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options)
+        return parsed, layer
 
     def build_layer(self, op, args, options):
         if self.layer_ops[op]:
@@ -524,13 +508,6 @@ class ConfigurableComponent(GANComponent):
             print("List of pretrained layers:", layers)
             raise ValidationException("layer=-1 required for pretrained, sublayer=-1 optional.  Layers outputted above.")
         return nn.Sequential(*layers)
-
-    def layer_upsample(self, net, args, options):
-        w = options.w or self.current_size.width * 2
-        h = options.h or self.current_size.height * 2
-        result = nn.Upsample((h, w), mode="bilinear")
-        self.current_size = LayerSize(self.current_size.channels, h, w)
-        return result
 
     def layer_resize_conv(self, net, args, options):
         return self.layer_resize_conv2d(net, args, options)

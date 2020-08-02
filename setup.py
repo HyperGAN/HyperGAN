@@ -11,7 +11,7 @@ setup(
   name = 'hypergan',
   packages = ['hypergan']+subpackages,
   include_package_data=True,
-  version = '0.10.2',
+  version = '1.0.0',
   description = 'A customizable generative adversarial network with reproducible configurations.  Build your own content generator.',
   author = 'HyperGAN',
   author_email = 'hypergan@protonmail.com',
@@ -19,7 +19,7 @@ setup(
   maintainer_email = 'hypergan@protonmail.com',
   license = "MIT",
   url = 'https://github.com/255BITS/hypergan', 
-  keywords = ['hypergan', 'neural network', 'procedural content generation', 'generative adversarial network', 'tensorflow'], # arbitrary keywords
+  keywords = ['hypergan', 'neural network', 'procedural content generation', 'generative adversarial network', 'pytorch'], # arbitrary keywords
   classifiers = [
       'Development Status :: 4 - Beta',
       'Topic :: Scientific/Engineering :: Artificial Intelligence', 

@@ -99,7 +99,7 @@
     
   },
 
-  "hypergan_version": "0.10.0",
+  "hypergan_version": "1.0.0",
 
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

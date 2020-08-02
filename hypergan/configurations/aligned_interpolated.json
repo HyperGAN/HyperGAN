@@ -82,7 +82,7 @@
     }
   },
 
-  "hypergan_version": "~1.0",
+  "hypergan_version": "~1",
   "class": "class:hypergan.gans.aligned_interpolate_gan.AlignedInterpolateGAN",
   "interpolate": 0.5,
   "use_latent": true

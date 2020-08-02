@@ -74,6 +74,6 @@
       "weight_decay": 0
     }
   },
-  "hypergan_version": "~1.0",
+  "hypergan_version": "~1",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

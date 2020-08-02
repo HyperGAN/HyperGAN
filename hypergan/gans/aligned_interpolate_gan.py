@@ -67,6 +67,7 @@ class AlignedInterpolateGAN(BaseGAN):
     def forward_pass(self):
         self.x = self.inputs.next()
         self.y = self.inputs.next(1)
+        self.latent.next()
         if self.config.use_latent:
             g = self.generator(self.latent.next())
         else:

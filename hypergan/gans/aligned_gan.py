@@ -40,6 +40,7 @@ class AlignedGAN(BaseGAN):
     def forward_pass(self):
         self.x = self.inputs.next()
         self.y = self.inputs.next(1)
+        self.latent.next()
         g = self.generator(self.x)
         self.g = g
         d_real = self.forward_discriminator([self.y])

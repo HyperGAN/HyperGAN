@@ -12,6 +12,7 @@ class StaticBatchSampler(BaseSampler):
         return False
 
     def _sample(self):
+        self.gan.latent.z = self.latent
         return [
             ('generator', self.gan.generator.forward(self.latent))
         ]

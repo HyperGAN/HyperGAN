@@ -23,8 +23,8 @@ class SimultaneousTrainer(BaseTrainer):
         self.before_step(self.current_step, feed_dict)
         d_grads, g_grads = self.calculate_gradients()
 
-        for hook in self.train_hooks:
-            d_grads, g_grads = hook.gradients(d_grads, g_grads)
+        #for hook in self.train_hooks:
+        #    d_grads, g_grads = hook.gradients(d_grads, g_grads)
         for p, np in zip(self.gan.d_parameters(), d_grads):
             p.grad = np
         for p, np in zip(self.gan.g_parameters(), g_grads):
@@ -50,7 +50,7 @@ class SimultaneousTrainer(BaseTrainer):
         self.gan.set_generator_trainable(True)
         self.gan.set_discriminator_trainable(False)
 
-        g_loss.mean().backward(retain_graph=True)
+        g_loss.mean().to("cuda:0").backward(retain_graph=True)
 
         self.gan.set_generator_trainable(False)
         self.gan.set_discriminator_trainable(True)

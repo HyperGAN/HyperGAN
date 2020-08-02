@@ -77,7 +77,6 @@ class GANComponent(nn.Module):
         """returns a metric : tensor hash"""
         return self.gan.metrics()
 
-
     def layer_regularizer(self, net):
         symbol = self.config.layer_regularizer
         op = self.lookup_function(symbol)
@@ -93,6 +92,9 @@ class GANComponent(nn.Module):
 
     def lookup_class(self, name):
         return self.lookup_function(name)
+
+    def set_device(self):
+        return self.cuda(self.config.device)
 
     def set_trainable(self, flag):
         for p in self.parameters():

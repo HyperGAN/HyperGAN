@@ -199,17 +199,6 @@ class ConfigurableComponent(GANComponent):
             if options.trainable == False:
                 self.untrainable_parameters = self.untrainable_parameters.union(set(net.parameters()))
             return net
-
-            #after = self.variables()
-            #new = set(after) - set(before)
-            #for j in new:
-            #    self.layer_options[j]=options
-            #after_count = self.count_number_trainable_params()
-            #if not self.ops._reuse:
-            #    if net == None:
-            #        print("[Error] Layer resulted in null return value: ", op, args, options)
-            #        raise ValidationException("Configurable layer is null")
-            #    print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
         else:
             print("ConfigurableComponent: Op not defined", op)
 
@@ -249,6 +238,9 @@ class ConfigurableComponent(GANComponent):
         result = EqualLinear(self.current_size.size(), args[0], lr_mul=lr_mul)
         self.current_size = LayerShape(args[0])
         return result
+
+    def get_device(self):
+        return torch.device(self.config.device or "cuda:0")
 
     def get_same_padding(self, input_rows, filter_rows, stride, dilation):
         out_rows = (input_rows + stride - 1) // stride
@@ -723,6 +715,8 @@ class ConfigurableComponent(GANComponent):
 
 
     def forward(self, input, context={}):
+        if self.get_device().index != input.device.index:
+            input = input.to(self.get_device())
         for module, parsed, layer_shape in zip(self.net, self.parsed_layers, self.layer_shapes):
             try:
                 options = parsed.parsed_options

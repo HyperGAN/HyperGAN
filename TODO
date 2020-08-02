@@ -1,0 +1,54 @@
+remaining for 1.0 final:
+* preset:celeba
+* ui walkthrough
+* convert configurable component layers
+---
+* documentation
+ * remaining layers
+ * review
+* update website
+ * remove android
+ * focus on 1.0
+ * update samples
+* youtube
+ * release announcement video
+---
+* medium post
+ * or read.cash
+* discord announcement
+ * @everyone
+* twitter announcement
+
+not needed for release, but desired:
+* precision 16
+  * research as_type on data creation
+* gan.backend
+  * gpu - deviceparallel
+  * gpu - modelparrallel
+* tpu
+* next frame
+ * seq gan
+ * 2d sequence gan(circle)
+ * character sequence gan
+ * next frame
+* remove tf or rewrite `needs_pytorch`
+* crypto sponsors(BCH, ETH, AGI, XMR, NANO) in readme
+* create non profit bank account for github
+* inpainting
+* FID/metrics
+* javascript example
+* clean up configurable_component forward in favor of layers
+* optimizations
+* fix tests
+* input refactoring
+* sampler refactoring
+* issue cleanup
+* pytorch vision dataset loader
+* super res
+* vid2vid
+* transfer learning
+* better ui
+* gpu device management in app
+* extended menus
+* resnet blocks
+* optimizing default config

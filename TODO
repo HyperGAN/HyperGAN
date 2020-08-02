@@ -31,6 +31,9 @@ not needed for release, but desired:
  * 2d sequence gan(circle)
  * character sequence gan
  * next frame
+* windows installer
+ * for sponsors
+ * automate with CI
 * remove tf or rewrite `needs_pytorch`
 * crypto sponsors(BCH, ETH, AGI, XMR, NANO) in readme
 * create non profit bank account for github

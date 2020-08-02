@@ -81,6 +81,6 @@
     "anysize": true,
     "train": "hypergan train [dataset] --sampler static_batch -b 8 --size 64x64x3"
   },
-  "hypergan_version": "0.10.0",
+  "hypergan_version": "~1",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

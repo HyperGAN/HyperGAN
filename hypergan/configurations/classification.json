@@ -4,15 +4,6 @@
   "discriminator": 
   {
       "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-      "defaults":{
-        "class": "class:hypergan.discriminators.dcgan_discriminator.DCGANDiscriminator",
-        "activation": "lrelu",
-        "initializer": "random_normal",
-        "random_stddev": 0.02,
-        "filter": [3,3],
-        "stride": [1,1],
-        "avg_pool": [2,2]
-      },
       "layers":[
         "identity name=in",
         "layer digit",
@@ -29,23 +20,12 @@
   "latent":
   {
     "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
-    "projections": [
-      "function:hypergan.distributions.uniform_distribution.identity"
-    ],
     "min": -1,
     "max": 1,
     "z": 100
   },
   "generator": {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-    "defaults": {
-      "initializer": "random_normal",
-      "random_stddev": 0.02,
-      "activation": "relu",
-      "filter": [3,3],
-      "stride": [1,1],
-      "avg_pool": [2,2]
-    },
     "layers": [
       "conv 64 stride=2","relu",
       "conv 128 stride=2","relu",
@@ -54,12 +34,10 @@
       "linear 1024", "relu",
       "multi_head_attention 10"
     ]
-
   },
   "loss":
   {
-    "class": "function:hypergan.losses.standard_loss.StandardLoss",
-    "reduce": "reduce_mean"
+    "class": "function:hypergan.losses.standard_loss.StandardLoss"
   },
   "trainer": {
     "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
@@ -95,11 +73,7 @@
       "lr": 0.0001,
       "weight_decay": 0
     }
-
-    
   },
-
-  "hypergan_version": "1.0.0",
-
+  "hypergan_version": "~1.0",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

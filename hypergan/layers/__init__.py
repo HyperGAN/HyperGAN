@@ -20,5 +20,6 @@ from .channel_attention import ChannelAttention
 from .pixel_shuffle import PixelShuffle
 from .upsample import Upsample
 from .resizable_stack import ResizableStack
+from .modulated_conv2d import ModulatedConv2d
 from .multi_head_attention import MultiHeadAttention
 from .segment_softmax import SegmentSoftmax

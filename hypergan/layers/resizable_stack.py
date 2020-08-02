@@ -23,7 +23,7 @@ class ResizableStack(hg.Layer):
           segment_softmax output_channels
 
         ## arguments
-            * layer type. Defaults to "segment_softmax"
+            * layer type - 'segment_softmax' or 'stylegan'. Defaults to "segment_softmax"
         ## optional arguments
             * segment_channels - The number of channels before segment_softmax. Defaults to 5
             * max_channels - The most channels for any conv. Default 256
@@ -58,25 +58,41 @@ class ResizableStack(hg.Layer):
         self.max_channels = options.max_channels or 256
         self.segment_channels = options.segment_channels or 5
         self.style = options.style or "w"
+        layer_type = "segment_softmax"
+
+        if len(args) > 0:
+            layer_type = args[0]
 
         layers = []
 
-        sizes = self.sizes(component.current_size.height, component.current_size.width, component.gan.height(), component.gan.width(), self.segment_channels * 2 * component.gan.channels())
-        print("SIZES", sizes)
-        for i, size in enumerate(sizes[1:]):
-            c = min(size.channels, self.max_channels)
-            upsample = hg.layers.Upsample(component, [], hc.Config({"w": size.width, "h": size.height}))
-            component.current_size = upsample.output_size() #TODO abstract input_size
-            _, add = component.parse_layer("add self (ez_norm initializer=(xavier_normal) style=" + self.style + ")")
-            _, conv = component.parse_layer("conv2d " + str(size.channels) + " padding=0 initializer=(xavier_normal)")
-            layers += [upsample, add, conv]
-            if i < len(sizes) - 2:
-                layers += [nn.ReLU()]
+        
+        if layer_type == "segment_softmax":
+            sizes = self.sizes(component.current_size.height, component.current_size.width, component.gan.height(), component.gan.width(), self.segment_channels * 2 * component.gan.channels())
+            for i, size in enumerate(sizes[1:]):
+                c = min(size.channels, self.max_channels)
+                upsample = hg.layers.Upsample(component, [], hc.Config({"w": size.width, "h": size.height}))
+                component.current_size = upsample.output_size() #TODO abstract input_size
+                _, add = component.parse_layer("add self (ez_norm initializer=(xavier_normal) style=" + self.style + ")")
+                _, conv = component.parse_layer("conv2d " + str(size.channels) + " padding=0 initializer=(xavier_normal)")
+                layers += [upsample, add, conv]
+                if i < len(sizes) - 2:
+                    layers += [nn.ReLU()]
+        elif layer_type == "stylegan":
+            sizes = self.sizes(component.current_size.height, component.current_size.width, component.gan.height(), component.gan.width(), self.segment_channels * 2 * component.gan.channels(), padding=0)
+            for i, size in enumerate(sizes):
+                c = min(size.channels, self.max_channels)
+                _, const = component.parse_layer("add self (const) (learned_noise)")
+                _, conv = component.parse_layer("modulated_conv2d " + str(size.channels) + " upsample initializer=(xavier_normal)")
+                _, lrelu = component.parse_layer("lrelu")
+                layers += [const, conv]
+                if i < len(sizes) - 1:
+                    layers += [nn.LeakyReLU(0.2)]
+
 
         layers += [hg.layers.SegmentSoftmax(component, [component.gan.channels()], {})]
         self.layers = nn.ModuleList(layers)
 
-    def sizes(self, initial_height, initial_width, target_height, target_width, final_channels):
+    def sizes(self, initial_height, initial_width, target_height, target_width, final_channels, padding=0):
         channels = []
         hs = []
         ws = []
@@ -89,8 +105,8 @@ class ResizableStack(hg.Layer):
         channels.append(final_channels)
         while w < target_width or h < target_height:
             if i > 0:
-                h-=2 #padding
-                w-=2 #padding
+                h-=padding
+                w-=padding
             h*=2 #upscale
             w*=2 #upscale
             channels.append(final_channels * 2**i)

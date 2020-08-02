@@ -6,3 +6,4 @@ pygame
 pyparsing
 torch
 torchvision
+semantic_version

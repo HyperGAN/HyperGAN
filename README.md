@@ -152,12 +152,12 @@ By default hypergan will not save samples to disk. To change this, use `--save_s
 
 One way a network learns:
 
-[![Demo CountPages alpha](https://j.gifs.com/58KmzA.gif)](https://www.youtube.com/watch?v=tj3ZLNfcJFo&list=PLWW3WtkBA3MuSnAVS__D0FkENZzuTbHFg&index=1)
+![https://hypergan.s3-us-west-1.amazonaws.com/1.0/output.gif](https://hypergan.s3-us-west-1.amazonaws.com/1.0/output.gif)
 
 To create videos:
 
 ```bash
-  ffmpeg -i samples/%06d.png -vcodec libx264 -crf 22 -threads 0 gan.mp4
+  ffmpeg -i samples/%06d.png video.mp4
 ```
 
 ### Arguments

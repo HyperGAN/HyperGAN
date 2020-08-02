@@ -6,7 +6,6 @@ from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
 from hypergan.samplers.input_sampler import InputSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.y_sampler import YSampler
-from hypergan.skip_connections import SkipConnections
 from pathlib import Path
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
@@ -27,7 +26,6 @@ class BaseGAN():
         self.inputs = inputs
         self.inputs.gan = self
         self.components = {}
-        self.skip_connections = SkipConnections()
         self.destroy = False
 
         if config == None:

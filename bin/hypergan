@@ -87,9 +87,9 @@ try:
     config_name = args.config or 'default'
     config_filename = hg.Configuration.find(config_name, config_format=config_format)
     config = hc.Selector().load(config_filename, load_toml=use_toml)
-    if config.hypergan_version:
-        config_version = semantic_version.SimpleSpec(config.hypergan_version)
-        assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
+    assert config.hypergan_version, "hypergan_version must be specified as a base configuration string.  Example \"hypergan_version\": \"~1\""
+    config_version = semantic_version.SimpleSpec(config.hypergan_version)
+    assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
 
 
     if config.input is None and args.input_config is None:

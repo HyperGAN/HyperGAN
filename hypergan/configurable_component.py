@@ -57,6 +57,7 @@ class ConfigurableComponent(GANComponent):
             "cat": hg.layers.Cat,
             "channel_attention": hg.layers.ChannelAttention,
             "ez_norm": hg.layers.EzNorm,
+            "modulated_conv2d": hg.layers.ModulatedConv2d,
             "mul": hg.layers.Mul,
             "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
             "pixel_shuffle": hg.layers.PixelShuffle,
@@ -99,7 +100,6 @@ class ConfigurableComponent(GANComponent):
             "layer_norm": self.layer_norm,
             "learned_noise": self.layer_learned_noise,
             "linear": self.layer_linear,
-            "modulated_conv2d": self.layer_modulated_conv2d,
             "module": self.layer_module,
             "multi_head_attention": self.layer_multi_head_attention,
             "pixel_norm": self.layer_pixel_norm,
@@ -357,39 +357,6 @@ class ConfigurableComponent(GANComponent):
             layers.append(Reshape(*self.current_size.dims))
 
         return nn.Sequential(*layers)
-
-    def layer_modulated_conv2d(self, net, args, options):
-        channels = self.current_size.channels
-        if len(args) > 0:
-            channels = args[0]
-        method = "conv"
-        if len(args) > 1:
-            method = args[1]
-        upsample = method == "upsample"
-        downsample = method == "downsample"
-
-        demodulate = True
-        if options.demodulate == False:
-            demodulate = False
-
-        filter = 3
-        if options.filter:
-            filter = options.filter
-
-        lr_mul = 1.0
-        if options.lr_mul:
-            lr_mul = options.lr_mul
-        input_channels = self.current_size.channels
-        if options.input_channels:
-            input_channels = options.input_channels
-
-        result = ModulatedConv2d(input_channels, channels, filter, self.layer_output_sizes['w'].size(), upsample=upsample, demodulate=demodulate, downsample=downsample, lr_mul=lr_mul)
-
-        if upsample:
-            self.current_size = LayerShape(channels, self.current_size.height * 2, self.current_size.width * 2)
-        elif downsample:
-            self.current_size = LayerShape(channels, self.current_size.height // 2, self.current_size.width // 2)
-        return result
 
     def layer_module(self, net, args, options):
         klass = GANComponent.lookup_function(None,"function:__main__."+args[0])
@@ -741,8 +708,6 @@ class ConfigurableComponent(GANComponent):
                     input = context[args[0]]
                 elif layer_name == "latent":
                     input = self.gan.latent.z#sample()
-                elif layer_name == "modulated_conv2d":
-                    input = module(input, context['w'])
                 elif layer_name == "pretrained":
                     in_zero_one = (input + self.const_one) / self.const_two
                     mean = torch.as_tensor([0.485, 0.456, 0.406], device='cuda:0').view(1, 3, 1, 1)

@@ -9,6 +9,7 @@ from hypergan.search.random_search import RandomSearch
 from hypergan.discriminators.base_discriminator import BaseDiscriminator
 from hypergan.generators.base_generator import BaseGenerator
 from hypergan.gans.base_gan import BaseGAN
+from hypergan.layer_shape import LayerShape
 from common import *
 
 from torch import optim
@@ -85,7 +86,7 @@ class MNISTGAN(BaseGAN):
 
     def create(self):
         self.generator = self.create_component("generator", input=self.inputs.next()[0])
-        self.discriminator = self.create_component("discriminator")
+        self.discriminator = self.create_component("discriminator", context_shapes={"digit": LayerShape(10)})
         self.loss = self.create_component("loss")
         self.trainer = self.create_component("trainer")
 

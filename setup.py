@@ -13,6 +13,7 @@ setup(
   include_package_data=True,
   version = '1.0.0',
   description = 'A customizable generative adversarial network with reproducible configurations.  Build your own content generator.',
+  long_description = 'HyperGAN is an AI framework for building Generative Adversarial Networks. There are examples for building classifiers, content generators, sequence generation, and aligning two datasets. Check out the github for more information.',
   author = 'HyperGAN',
   author_email = 'hypergan@protonmail.com',
   maintainer = "hypergan developers",

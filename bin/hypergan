@@ -8,6 +8,9 @@ import hyperchamber as hc
 import hypergan as hg
 import hypergan.cli as cli
 from hypergan.viewer import GlobalViewer
+import pkg_resources
+import semantic_version
+hg_version=semantic_version.Version(pkg_resources.require("hypergan")[0].version)
 
 class CommandParser:
     def common(self, parser, directory=True):
@@ -84,6 +87,11 @@ try:
     config_name = args.config or 'default'
     config_filename = hg.Configuration.find(config_name, config_format=config_format)
     config = hc.Selector().load(config_filename, load_toml=use_toml)
+    if config.hypergan_version:
+        config_version = semantic_version.SimpleSpec(config.hypergan_version)
+        assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
+
+
     if config.input is None and args.input_config is None:
         directories = [args.directory]
         if args.align:

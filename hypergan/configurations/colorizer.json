@@ -2,15 +2,6 @@
   "discriminator": 
   {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-    "defaults":{
-      "filter": [3,3],
-      "stride": [1,1],
-      "adaptive_avg_pool": [2,2],
-      "activation": "relu",
-      "initializer": "he_normal",
-      "lrmul": 1.0,
-      "random_stddev": 0.02
-    },
     "layers":[
       "conv 64 stride=2", "relu",
       "conv 128 stride=2", "relu",
@@ -23,13 +14,6 @@
   "generator": {
     "layer_filter": "function:__main__.add_bw",
     "class": "class:hypergan.generators.configurable_generator.ConfigurableGenerator",
-    "defaults": {
-      "activation": "relu",
-      "initializer": "he_normal",
-      "filter": [3,3],
-      "stride": [1,1],
-      "avg_pool": [1,1]
-    },
     "layers": [
       "latent",
       "multi_head_attention 256 initializer=(xavier_normal)","relu",
@@ -84,16 +68,14 @@
       "eps": 1e-08,
       "lr": 0.0001,
       "weight_decay": 0
-    }
+    }   
+    
   },
   "runtime": {
     "anysize": true,
     "train": "python3 [hypergan]/examples/colorizer.py train [dataset] --size 256x256x3 -b 4"
   },
-  "hypergan_version": "0.10.0",
-  "fixed_input": true,
-
-
+  "hypergan_version": "~1",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 
 

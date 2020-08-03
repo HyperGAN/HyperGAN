@@ -1,10 +1,14 @@
 remaining for 1.0 final:
-* preset:celeba
+* preset:celeba data loader
+ * download flow/location
 * ui walkthrough
+ * samplers don't work
 * convert configurable component layers
 ---
 * documentation
+ * review gitbook
  * remaining layers
+ * fix layer HER doc
  * review
 * update website
  * remove android
@@ -20,12 +24,17 @@ remaining for 1.0 final:
 * twitter announcement
 
 not needed for release, but desired:
+* lambda lab dev server
 * precision 16
   * research as_type on data creation
 * gan.backend
   * gpu - deviceparallel
-  * gpu - modelparrallel
+   * where to put ddp
 * tpu
+* alignment
+ * night/day alignment
+ * person encoded to other data type
+ * novel distribution example
 * next frame
  * seq gan
  * 2d sequence gan(circle)
@@ -34,9 +43,21 @@ not needed for release, but desired:
 * windows installer
  * for sponsors
  * automate with CI
+* better ui
+  * fix sampler selection
+  * extended menus
+    * pause/start
+    * show samples/second metric
+    * reload step counter on load
+    * 'About' menu
+  * needed for windows installer
+    * stop/start
+    * file -> open
+    * file -> select dataset
+* sampler refactoring
+* more samplers/remove old samplers
 * remove tf or rewrite `needs_pytorch`
 * crypto sponsors(BCH, ETH, AGI, XMR, NANO) in readme
-* create non profit bank account for github
 * inpainting
 * FID/metrics
 * javascript example
@@ -44,14 +65,10 @@ not needed for release, but desired:
 * optimizations
 * fix tests
 * input refactoring
-* sampler refactoring
-* issue cleanup
 * pytorch vision dataset loader
 * super res
 * vid2vid
 * transfer learning
-* better ui
 * gpu device management in app
-* extended menus
 * resnet blocks
 * optimizing default config

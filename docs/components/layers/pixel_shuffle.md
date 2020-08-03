@@ -1,25 +1,23 @@
-# pixel\_shuffle
 
-```text
-    description: 'layer pixel_shuffle for configurable component'
-    ---
+        ---
+        description: 'layer pixel_shuffle for configurable component'
+        ---
 
-    # pixel_shuffle layer
+        # pixel_shuffle layer
 
-    Implements PixelShuffle https://pytorch.org/docs/master/generated/torch.nn.PixelShuffle.html
+        Implements PixelShuffle https://pytorch.org/docs/master/generated/torch.nn.PixelShuffle.html
 
-    ## input size
+        ## input size
 
-    Any 4-d tensor of the form `[B, C, H, W]`
+        Any 4-d tensor of the form `[B, C, H, W]`
 
-    ## output size
+        ## output size
 
-    A 4d-tensor of the form `[B, C//4, H*2, W*2]`
+        A 4d-tensor of the form `[B, C//4, H*2, W*2]`
 
-    ## syntax
+        ## syntax
 
-    ```json
-      "pixel_shuffle"
-    ```
-```
-
+        ```json
+          "pixel_shuffle"
+        ```
+    

@@ -1,38 +1,36 @@
-# upsample
 
-```text
-    description: 'layer upsample for configurable component'
-    ---
+        ---
+        description: 'layer upsample for configurable component'
+        ---
 
-    # upsample layer
+        # upsample layer
 
-    `upsample` resizes the input tensor to the specified size.
+        `upsample` resizes the input tensor to the specified size.
 
-    ## Optional arguments
+        ## Optional arguments
 
-        * `h` - requested height. defaults to input height * 2
-        * `w` - requested width. defaults to input width * 2
+            * `h` - requested height. defaults to input height * 2
+            * `w` - requested width. defaults to input width * 2
 
-    ## input size
+        ## input size
 
-    Any 4-d tensor
+        Any 4-d tensor
 
-    ## output size
+        ## output size
 
-    [B, input channels, h, w]
+        [B, input channels, h, w]
 
-    ## syntax
+        ## syntax
 
-    ```json
-      "upsample"
-    ```
+        ```json
+          "upsample"
+        ```
 
-    ## examples
+        ## examples
 
-    ```json
-      "upsample w=96 h=96",
-      "conv 4",
-      "hardtanh"
-    ```
-```
-
+        ```json
+          "upsample w=96 h=96",
+          "conv 4",
+          "hardtanh"
+        ```
+    

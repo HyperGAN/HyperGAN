@@ -15,9 +15,6 @@ For example, a discriminator component can be defined as:
   "discriminator": 
   {
       "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-      "defaults":{
-        "filter": [3,3]
-      },
       "layers":[
         "conv 32",
         "relu",
@@ -41,13 +38,11 @@ This means to create a network composed of 4 convolution layers that decrease al
 ```javascript
   "generator": {
     "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
-    "defaults": {
-      "filter": [3,3],
-    },
     "layers": [
       "linear 128 name=w",
-      "const 1*1*128",
+      "relu",
       "resize_conv 256",
+      "const 1*1*128",
       "adaptive_instance_norm",
       "relu",
       "resize_conv 256",
@@ -80,7 +75,7 @@ This means to create a network composed of 4 convolution layers that decrease al
 
 This is a generator. A generator takes in a latent space and returns a data type that matches the input.
 
-`adaptive_instance_norm` looks up the layer named 'w' and uses it to perform the adaptive instance norm.
+`adaptive_instance_norm` looks up the `style` layer (default named 'w') and uses it to perform the adaptive instance norm.
 
 HyperGAN defaults to the image space of \(-1, 1\), which is the same range as tanh.
 
@@ -129,29 +124,8 @@ Same as `reshape -1`
 
 size is `*` delimited dimensions
 
-### attention
 
-`attention (options)`
 
-Allows the model to correlate feature vectors. Expects a 4 dimensional tensor as input.
-
-Usage:
-
-`attention`
-
-### crop
-
-`crop [w h d]`
-
-Crops the network to the output size.
-
-Defaults to the input resolution if no arguments are specified.
-
-Output: A tensor with the form \[batch\_size, w, h, d\]
-
-### upsample
-
-TODO
 
 ## Configuration
 

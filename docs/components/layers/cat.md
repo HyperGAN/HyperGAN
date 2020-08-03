@@ -1,31 +1,29 @@
-# cat
 
-```text
-    description: 'layer cat for configurable component'
-    ---
+        ---
+        description: 'layer cat for configurable component'
+        ---
 
-    # cat layer
+        # cat layer
 
-    Concatenate two or more layers together. Accepts nested layer definitions.
+        Concatenate two or more layers together. Accepts nested layer definitions.
 
-    ## input size
+        ## input size
 
-    Any number of matching tensors
+        Any number of matching tensors
 
-    ## output size
+        ## output size
 
-    Same as input size
+        Same as input size
 
-    ## syntax
+        ## syntax
 
-    ```json
-      "cat [layer]*"
-    ```
+        ```json
+          "cat [layer]*"
+        ```
 
-    ## examples
+        ## examples
 
-    ```json
-      "cat self (attention)"
-    ```
-```
-
+        ```json
+          "cat self (attention)"
+        ```
+    

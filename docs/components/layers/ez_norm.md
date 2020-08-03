@@ -1,37 +1,35 @@
-# ez\_norm
 
-```text
-    description: 'layer ez_norm for configurable component'
-    ---
+        ---
+        description: 'layer ez_norm for configurable component'
+        ---
 
-    # ez_norm layer
+        # ez_norm layer
 
-    `ez_norm` is a custom normalization technique that a conv of the input by a linear projection of a style vector.
+        `ez_norm` is a custom normalization technique that uses a conv of the input by a linear projection of a style vector.
 
-    ## Optional arguments
+        ## Optional arguments
 
-        `style` - The name of the style vector to use. Defaults to "w"
+            `style` - The name of the style vector to use. Defaults to "w"
 
-    ## input size
+        ## input size
 
-    Any 4-d tensor
+        Any 4-d tensor
 
-    ## output size
+        ## output size
 
-    Same as input size
+        Same as input size
 
-    ## syntax
+        ## syntax
 
-    ```json
-      "ez_norm style=[style vector name]"
-    ```
+        ```json
+          "ez_norm style=[style vector name]"
+        ```
 
-    ## examples
+        ## examples
 
-    ```json
-      "latent name=w",
-      ...
-      "cat self (ez_norm style=w)"
-    ```
-```
-
+        ```json
+          "latent name=w",
+          ...
+          "cat self (ez_norm style=w)"
+        ```
+    

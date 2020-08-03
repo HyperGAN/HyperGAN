@@ -1,31 +1,29 @@
-# add
 
-```text
-    description: 'layer add for configurable component'
-    ---
+        ---
+        description: 'layer add for configurable component'
+        ---
 
-    # add layer
+        # add layer
 
-    Adds two or more layers together. Accepts nested layer definitions.
+        Adds two or more layers together. Accepts nested layer definitions.
 
-    ## input size
+        ## input size
 
-    Any number of matching tensors
+        Any number of matching tensors
 
-    ## output size
+        ## output size
 
-    Same as input size
+        Same as input size
 
-    ## syntax
+        ## syntax
 
-    ```json
-      "add [layer]*"
-    ```
+        ```json
+          "add [layer]*"
+        ```
 
-    ## examples
+        ## examples
 
-    ```json
-      "add self (attention)"
-    ```
-```
-
+        ```json
+          "add self (attention)"
+        ```
+    

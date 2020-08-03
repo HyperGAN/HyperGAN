@@ -1,33 +1,35 @@
+# residual
 
-        ---
-        description: 'layer residual for configurable component'
-        ---
+```text
+    description: 'layer residual for configurable component'
+    ---
 
-        # residual layer
+    # residual layer
 
-        `residual` adds one or more residual blocks https://paperswithcode.com/method/residual-block
+    `residual` adds one or more residual blocks https://paperswithcode.com/method/residual-block
 
-        ## optional arguments
+    ## optional arguments
 
-        The number of residual blocks to add
+    The number of residual blocks to add
 
-        ## input size
+    ## input size
 
-        Any 4-d tensor
+    Any 4-d tensor
 
-        ## output size
+    ## output size
 
-        Same as input size
+    Same as input size
 
-        ## syntax
+    ## syntax
 
-        ```json
-          "residual COUNT"
-        ```
+    ```json
+      "residual COUNT"
+    ```
 
-        ## examples
+    ## examples
 
-        ```json
-          "residual 3"
-        ```
-    
+    ```json
+      "residual 3"
+    ```
+```
+

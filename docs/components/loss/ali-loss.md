@@ -1,8 +1,8 @@
 ---
-description: 'layer add for configurable component'
+description: layer add for configurable component
 ---
 
-# add layer
+# ALI Loss
 
 Adds two or more layers together. Accepts nested layer definitions.
 
@@ -16,13 +16,13 @@ Same as input size
 
 ## syntax
 
-```json
+```javascript
   "add [layer]*"
 ```
 
 ## examples
 
-```json
+```javascript
   "add self (attention)"
 ```
 

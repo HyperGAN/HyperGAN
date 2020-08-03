@@ -1,29 +1,31 @@
+# mul
 
-        ---
-        description: 'layer mul for configurable component'
-        ---
+```text
+    description: 'layer mul for configurable component'
+    ---
 
-        # mul layer
+    # mul layer
 
-        Multiplies two or more layers together. Accepts nested layer definitions.
+    Multiplies two or more layers together. Accepts nested layer definitions.
 
-        ## input size
+    ## input size
 
-        Any number of matching tensors
+    Any number of matching tensors
 
-        ## output size
+    ## output size
 
-        Same as input size
+    Same as input size
 
-        ## syntax
+    ## syntax
 
-        ```json
-          "mul [layer]*"
-        ```
+    ```json
+      "mul [layer]*"
+    ```
 
-        ## examples
+    ## examples
 
-        ```json
-          "mul self (noise)"
-        ```
-    
+    ```json
+      "mul self (noise)"
+    ```
+```
+

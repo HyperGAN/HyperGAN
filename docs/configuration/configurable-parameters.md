@@ -56,5 +56,3 @@ $$
 | T or steps | Number of steps until decay ends | Int &gt;= 0 \(default 10000\) |
 | metric | Reported value in stdout | String |
 
-## 
-

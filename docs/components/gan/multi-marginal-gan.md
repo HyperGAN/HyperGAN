@@ -7,7 +7,6 @@ description: 'https://arxiv.org/abs/1911.00888'
 ### examples
 
 ```javascript
-
 {
   "discriminator": 
   {
@@ -34,8 +33,6 @@ description: 'https://arxiv.org/abs/1911.00888'
   "class": "class:hypergan.gans.multi_marginal_gan.MultiMarginalGAN"
 }
 ```
-
-
 
 ## options
 

@@ -45,6 +45,7 @@
   *  [cat](components/layers/cat.md)
   *  [channel_attention](components/layers/channel_attention.md)
   *  [ez_norm](components/layers/ez_norm.md)
+  *  [layer](components/layers/layer.md)
   *  [mul](components/layers/mul.md)
   *  [multi_head_attention](components/layers/multi_head_attention.md)
   *  [operation](components/layers/operation.md)

@@ -192,7 +192,7 @@ HyperGAN is built to be resilient to all types of unclean data. If your images a
 
 ## Showcase
 
-![Hypergan Mobile](https://miro.medium.com/max/1404/1*uJmzGUvoP0WdaQPkkT8s-Q.jpeg =140x120)
+### 1.0 models are still training
 
 Submit your showcase with a pull request!
 

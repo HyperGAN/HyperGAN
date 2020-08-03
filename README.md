@@ -64,11 +64,7 @@ HyperGAN is a community project. GANs are a very new and active field of researc
 
 ## Documentation
 
-* [Model author JSON reference](json.md)
-* [Model author tutorial 1](tutorial1.md)
-* [0.10.x](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/index.html)
-* [0.9.x](https://s3.amazonaws.com/hypergan-apidocs/0.9.0/index.html)
-* [Test coverage](https://s3.amazonaws.com/hypergan-apidocs/0.10.0/coverage/index.html)
+* [Gitbook documentation](https://hypergan.gitbook.io/)
 
 ## Changelog
 
@@ -192,7 +188,7 @@ HyperGAN is built to be resilient to all types of unclean data. If your images a
 
 ## Showcase
 
-![Hypergan Mobile](https://miro.medium.com/max/1404/1*uJmzGUvoP0WdaQPkkT8s-Q.jpeg =140x120)
+### 1.0 models are still training
 
 Submit your showcase with a pull request!
 

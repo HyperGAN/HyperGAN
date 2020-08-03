@@ -5,7 +5,7 @@
 
         # ez_norm layer
 
-        `ez_norm` is a custom normalization technique that a conv of the input by a linear projection of a style vector.
+        `ez_norm` is a custom normalization technique that uses a conv of the input by a linear projection of a style vector.
 
         ## Optional arguments
 

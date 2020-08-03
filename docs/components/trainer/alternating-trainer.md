@@ -11,7 +11,7 @@ self.train_g(g_grads)
 
 ## examples
 
-* Configurations: [/trainers/alternating_trainer/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/trainers/alternating_trainer/)
+* Configurations: [/trainers/alternating\_trainer/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/trainers/alternating_trainer/)
 
 ```javascript
 "trainer": {
@@ -35,15 +35,15 @@ self.train_g(g_grads)
   ]
 }
 ```
+
 ## options
 
 | attribute | description | type |
 | :--- | :--- | :--- |
-| g_optimizer | Optimizer configuration for G | Config \(required\) |
-| d_optimizer | Optimizer configuration for D | Config \(required\) |
+| g\_optimizer | Optimizer configuration for G | Config \(required\) |
+| d\_optimizer | Optimizer configuration for D | Config \(required\) |
 | hooks | Train Hooks | Array of configs \(optional\) |
-| train_d_every | train D every N steps | Integer \(optional\) |
-| train_g_every | train G every N steps | Integer \(optional\) |
-| pretrain_d | First N steps only trains D | Integer \(optional\) |
-
+| train\_d\_every | train D every N steps | Integer \(optional\) |
+| train\_g\_every | train G every N steps | Integer \(optional\) |
+| pretrain\_d | First N steps only trains D | Integer \(optional\) |
 

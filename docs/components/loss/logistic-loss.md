@@ -1,7 +1,7 @@
 # Logistic Loss
 
 * Adapted from [http://stylegan.xyz/paper](http://stylegan.xyz/paper)
-* Source: [/losses/logistic_loss.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/logistic_loss.py)
+* Source: [/losses/logistic\_loss.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/logistic_loss.py)
 
 ```python
 d_loss = self.softplus(-d_real) + self.softplus(d_fake)
@@ -10,7 +10,7 @@ g_loss = self.softplus(-d_fake)
 
 ## examples
 
-* Configurations: [/losses/logistic_loss/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/losses/logistic_loss/)
+* Configurations: [/losses/logistic\_loss/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/losses/logistic_loss/)
 
 ```javascript
 {                                                                                       
@@ -22,6 +22,6 @@ g_loss = self.softplus(-d_fake)
 
 | attribute | description | type |
 | :--- | :--- | :--- |
-| beta | https://pytorch.org/docs/stable/\_modules/torch/nn/modules/activation.html\#Softplus | float \(optional\) |
-| threshold | https://pytorch.org/docs/stable/\_modules/torch/nn/modules/activation.html\#Softplus | float \(optional\) |
+| beta | [https://pytorch.org/docs/stable/\_modules/torch/nn/modules/activation.html\#Softplus](https://pytorch.org/docs/stable/_modules/torch/nn/modules/activation.html#Softplus) | float \(optional\) |
+| threshold | [https://pytorch.org/docs/stable/\_modules/torch/nn/modules/activation.html\#Softplus](https://pytorch.org/docs/stable/_modules/torch/nn/modules/activation.html#Softplus) | float \(optional\) |
 

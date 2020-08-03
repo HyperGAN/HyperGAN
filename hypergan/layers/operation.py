@@ -20,7 +20,8 @@ class Operation(hg.Layer):
         self.operation = operation
         self.size = component.current_size
         self.layers, self.layer_names, self.layer_sizes = self.build_layers(component, args, options)
-        self.modules = nn.ModuleList(self.layers)
+        for i, (layer, layer_name) in enumerate(zip(self.layers, self.layer_names)):
+            self.add_module('layer_'+str(i)+"_"+layer_name, layer)
 
     def build_layers(self, component, args, options):
         options = hc.Config(options)

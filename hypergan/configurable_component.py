@@ -57,6 +57,7 @@ class ConfigurableComponent(GANComponent):
             "cat": hg.layers.Cat,
             "channel_attention": hg.layers.ChannelAttention,
             "ez_norm": hg.layers.EzNorm,
+            "layer": hg.layers.Layer,
             "mul": hg.layers.Mul,
             "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
             "pixel_shuffle": hg.layers.PixelShuffle,
@@ -69,7 +70,6 @@ class ConfigurableComponent(GANComponent):
             "dropout": self.layer_dropout,
             "identity": self.layer_identity,
             "flatten": self.layer_flatten,
-            "layer": self.layer_layer,
             "pretrained": self.layer_pretrained,
             "avg_pool": self.layer_avg_pool,#TODO handle dims
             "pad": self.layer_pad,
@@ -180,22 +180,20 @@ class ConfigurableComponent(GANComponent):
     def build_layer(self, op, args, options):
         if self.layer_ops[op]:
             try:
-                is_hg_module = issubclass(self.layer_ops[op], hg.Layer)
+                is_hg_layer = issubclass(self.layer_ops[op], hg.Layer)
             except TypeError:
-                is_hg_module = False
+                is_hg_layer = False
 
-            if is_hg_module:
+            if is_hg_layer:
                 net = self.layer_ops[op](self, args, options)
                 self.current_size = net.output_size()
             elif isinstance(self.layer_ops[op], nn.Module):
                 net = self.layer_ops[op]
             else:
-                #before_count = self.count_number_trainable_params()
-                print("Size before: ", self.current_size.dims)
                 net = self.layer_ops[op](None, args, options)
-                print("Size after: ", self.current_size.dims)
             if 'name' in options:
                 self.set_layer(options['name'], net)
+
             if options.trainable == False:
                 self.untrainable_parameters = self.untrainable_parameters.union(set(net.parameters()))
             return net
@@ -602,11 +600,6 @@ class ConfigurableComponent(GANComponent):
         self.current_size = LayerShape(self.gan.latent.current_input_size)
         return NoOp()
 
-    def layer_layer(self, net, args, options):
-        if args[0] in self.layer_output_sizes:
-            self.current_size = self.layer_output_sizes[args[0]]
-        return NoOp()
-
     def layer_linformer(self, net, args, options):
         model = Linformer(
                 input_size = self.current_size.size(),
@@ -731,8 +724,6 @@ class ConfigurableComponent(GANComponent):
                     input = module(input, context['w'])
                 elif layer_name == "split":
                     input = torch.split(input, args[0], options.dim or -1)[args[1]]
-                elif layer_name == "layer":
-                    input = context[args[0]]
                 elif layer_name == "latent":
                     input = self.gan.latent.z#sample()
                 elif layer_name == "modulated_conv2d":

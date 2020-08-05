@@ -19,7 +19,7 @@
         ## arguments
             * layer type. Defaults to "segment_softmax"
         ## optional arguments
-            * softmax_channels - The number of channels before segment_softmax. Defaults to output_channels * 2 * 5
+            * segment_channels - The number of channels before segment_softmax. Defaults to 5
             * max_channels - The most channels for any conv. Default 256
             * style - the style vector to use. Default "w"
         ## input size

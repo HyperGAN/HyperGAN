@@ -1,16 +1,14 @@
 # Changelog
 
-<<<<<<< HEAD:docs/changelog.md
-## 0.11 ~ Usability improvements+
+## 1.0 - Pytorch!
 
-* Documentation update \(gitbook\)
-* New train hooks
-* Mobile AI explorer released
-* Multithreaded UI - no more slowdowns
+* Switched to pytorch
+* Almost a complete rewrite
+* Faster, cleaner, more stable
+* Model definition language formalized
+* New custom train hooks not available in other projects
 * More...
 
-=======
->>>>>>> master:changelog.md
 ## 0.10 ~ Community Project release
 
 * HyperGAN 0.10 released as a community project

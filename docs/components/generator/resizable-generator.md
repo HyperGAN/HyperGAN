@@ -17,47 +17,5 @@
   }
 ```
 
-![netron visualization](../../.gitbook/assets/smallgenerator.png)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+![netron visualization](../../.gitbook/assets/smallgenerator%20%281%29.png)
 

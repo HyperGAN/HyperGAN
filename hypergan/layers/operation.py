@@ -19,7 +19,7 @@ class Operation(hg.Layer):
         super(Operation, self).__init__(component, args, options)
         self.operation = operation
         self.size = component.current_size
-        self.layers, self.layer_names = self.build_layers(component, args, options)
+        self.layers, self.layer_names, self.layer_sizes = self.build_layers(component, args, options)
         for i, (layer, layer_name) in enumerate(zip(self.layers, self.layer_names)):
             self.add_module('layer_'+str(i)+"_"+layer_name, layer)
 
@@ -27,32 +27,40 @@ class Operation(hg.Layer):
         options = hc.Config(options)
         layers = []
         layer_names = []
+        layer_shapes = []
 
         for arg in args:
             component.current_size = self.size
             if arg == 'self':
                 layers.append(None)
                 layer_names.append("self")
+                layer_shapes.append(self.size)
             elif arg == 'noise':
                 layers.append(LearnedNoise())
                 layer_names.append(None)
+                layer_shapes.append(self.size)
             elif arg in component.named_layers:
                 layers.append(None)
                 layer_names.append("layer "+arg)
+                layer_shapes.append(component.layer_output_sizes[arg])
             elif arg in component.gan.named_layers:
                 layers.append(component.gan.named_layers[arg])
                 layer_names.append(None)
+                layer_shapes.append(component.layer_output_sizes[arg])
             elif arg in component.context_shapes:
                 layers.append(None)
                 layer_names.append(arg)
+                layer_shapes.append(component.context_shapes[arg])
             elif type(arg) == pyparsing.ParseResults and type(arg[0]) == hg.parser.Pattern:
                 parsed = arg[0]
                 parsed.parsed_options = hc.Config(parsed.options)
-                layers.append(component.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options))
+                layer = component.build_layer(parsed.layer_name, parsed.args, parsed.parsed_options)
+                layers.append(layer)
                 layer_names.append(parsed.layer_name)
+                layer_shapes.append(component.current_size)
             else:
                 raise ValidationException("Could not parse operation layer '" + arg + "'")
-        return layers, layer_names
+        return layers, layer_names, layer_shapes
 
     def output_size(self):
         return self.size

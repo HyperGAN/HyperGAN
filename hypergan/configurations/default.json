@@ -8,7 +8,9 @@
       "conv 64 stride=2", "relu",
       "conv 128 stride=2", "relu",
       "conv 256 stride=2", "relu",
-      "conv 256 stride=2", "relu",
+      "conv 512 stride=2", "relu",
+      "conv 512 stride=2", "relu",
+      "linear 1024", "relu",
       "linear 128", "relu",
       "multi_head_attention 1"
     ]

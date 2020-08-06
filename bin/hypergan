@@ -85,62 +85,57 @@ try:
         use_toml = False
         config_format = '.json'
     config_name = args.config or 'default'
-    config_filename = hg.Configuration.find(config_name, config_format=config_format)
-    config = hc.Selector().load(config_filename, load_toml=use_toml)
-    assert config.hypergan_version, "hypergan_version must be specified as a base configuration string.  Example \"hypergan_version\": \"~1\""
-    config_version = semantic_version.SimpleSpec(config.hypergan_version)
-    assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
+
+    if args.method != 'new':
+        config_filename = hg.Configuration.find(config_name, config_format=config_format)
+        config = hc.Selector().load(config_filename, load_toml=use_toml)
+        assert config.hypergan_version, "hypergan_version must be specified as a base configuration string.  Example \"hypergan_version\": \"~1\""
+        config_version = semantic_version.SimpleSpec(config.hypergan_version)
+        assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
 
 
-    if config.input is None and args.input_config is None:
-        directories = [args.directory]
-        if args.align:
-            directories+=args.align
-        input_config = hc.Config({
-            "class": "class:hypergan.inputs.image_loader.ImageLoader",
-            "batch_size": args.batch_size,
-            "directories": directories,
-            "channels": channels,
-            "crop": args.crop,
-            "height": height,
-            "random_crop": args.random_crop,
-            "resize": args.resize,
-            "shuffle": True,
-            "width": width
-        })
-    else:
-        if config.input:
-            if args.batch_size:
-                config.input["batch_size"] = args.batch_size
-            input_config = hc.Config(config.input)
+        if config.input is None and args.input_config is None:
+            directories = [args.directory]
+            if args.align:
+                directories+=args.align
+            input_config = hc.Config({
+                "class": "class:hypergan.inputs.image_loader.ImageLoader",
+                "batch_size": args.batch_size,
+                "directories": directories,
+                "channels": channels,
+                "crop": args.crop,
+                "height": height,
+                "random_crop": args.random_crop,
+                "resize": args.resize,
+                "shuffle": True,
+                "width": width
+            })
         else:
-            input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
-            input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
-    if 'inherit' in config:
-        base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
-        base_config = hc.Selector().load(base_filename, load_toml=use_toml)
-        config = {**base_config, **config}
+            if config.input:
+                if args.batch_size:
+                    config.input["batch_size"] = args.batch_size
+                input_config = hc.Config(config.input)
+            else:
+                input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
+                input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
+        if 'inherit' in config:
+            base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
+            base_config = hc.Selector().load(base_filename, load_toml=use_toml)
+            config = {**base_config, **config}
 
     if args.list_templates:
-        configs = hg.Configuration.list(config_format=config_format)
+        configs = hg.Configuration.list(config_format=config_format, prepackaged=True)
         for config in configs:
             try:
-                template = hg.Configuration.load(config+config_format, verbose=False, use_toml=use_toml)
+                template = hg.Configuration.load(config+config_format, verbose=False, use_toml=use_toml, prepackaged=True)
             except Exception as e:
                 template = hc.Config({"description": str(e), "publication": "error"})
             print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
             if template.runtime and "train" in template.runtime:
-                print("  > %s" %  (template.runtime["train"]))
-        exit(0)
-
-    if args.method == 'new' or args.method == 'test':
-        gan_fn = None
-        inputs_fn = None
-        pass
-
-
-    gancli = cli.CLI(args=vars(args), input_config=input_config, gan_config=config)
-    gancli.run()
+                print("%30s   Usage: %s" %  ("", template.runtime["train"]))
+    else:
+        gancli = cli.CLI(args=vars(args), input_config=input_config, gan_config=config)
+        gancli.run()
 except:
     traceback.print_exc()
     print("Error detected, HyperGAN exiting")

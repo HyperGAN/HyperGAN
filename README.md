@@ -31,7 +31,7 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
   * [Sampling](#sampling)
 * [API](https://github.com/HyperGAN/HyperGAN/tree/2170598c5c299e7b8d600a6e9a7db0f1d0bf36b6/API/README.md)
   * [Examples](./examples)
-* [Datasets](./#datasets)
+* [Datasets](#datasets)
   * [Creating a Dataset](#creating-a-dataset)
   * [Downloadable Datasets](#downloadable-datasets)
   * [Cleaning up data](#cleaning-up-data)

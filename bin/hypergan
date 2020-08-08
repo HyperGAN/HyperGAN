@@ -122,6 +122,9 @@ try:
             base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
             base_config = hc.Selector().load(base_filename, load_toml=use_toml)
             config = {**base_config, **config}
+    else:
+        input_config = None
+        config = None
 
     if args.list_templates:
         configs = hg.Configuration.list(config_format=config_format, prepackaged=True)

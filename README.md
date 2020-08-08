@@ -16,11 +16,11 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
 
 ## Table of contents
 
-* [About](./#about)
-* [Documentation](./#documentation)
-* [Changelog](./#changelog)
-* [Quick start](./#quick-start)
-  * [Requirements](./#requirements)
+* [About](https://github.com/HyperGAN/HyperGAN#about)
+* [Documentation](https://hypergan.gitbook.io/hypergan/)
+* [Changelog](https://github.com/HyperGAN/HyperGAN/blob/master/changelog.md)
+* [Quick start](https://github.com/HyperGAN/HyperGAN#quick-start)
+  * [Requirements](#requirements)
   * [Install](./#install)
   * [Testing install](./#testing-install)
   * [Train](./#train)

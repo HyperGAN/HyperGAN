@@ -740,7 +740,7 @@ class ConfigurableComponent(GANComponent):
                         print("Error: Actual output size", size.dims)
                         raise "Layer size error, cannot continue"
                     else:
-                        print("Sizes as expected", input.shape[1:], layer_shape.dims)
+                        pass
                 if name is not None:
                     context[name] = input
             except:

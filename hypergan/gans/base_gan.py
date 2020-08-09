@@ -4,6 +4,7 @@ from hypergan.train_hook_collection import TrainHookCollection
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
+from hypergan.samplers.factorization_batch_walk_sampler import FactorizationBatchWalkSampler
 from hypergan.samplers.input_sampler import InputSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.y_sampler import YSampler
@@ -210,6 +211,7 @@ class BaseGAN():
     def get_registered_samplers(self=None):
         return {
                 'static_batch': StaticBatchSampler,
+                'factorization_batch_walk': FactorizationBatchWalkSampler,
                 'input': InputSampler,
                 #'progressive': ProgressiveSampler,
                 #'random_walk': RandomWalkSampler,

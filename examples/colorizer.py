@@ -47,7 +47,7 @@ class WalkSampler(BaseSampler):
         self.hardtanh = nn.Hardtanh()
         self.ones = torch.ones_like(self.direction, device="cuda:0")
         self.xstep = 0
-        self.xstep_count = 120
+        self.xstep_count = 1200
 
     def _sample(self):
         gan = self.gan

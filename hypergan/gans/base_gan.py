@@ -181,7 +181,7 @@ class BaseGAN():
             try:
                 state_dict = torch.load(path)
                 print('state_dict', state_dict.keys())
-                component.load_state_dict(state_dict)
+                component.load_state_dict(state_dict, strict=False)
                 return True
             except:
                 print("Warning: Could not load component " + name)

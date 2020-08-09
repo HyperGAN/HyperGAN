@@ -180,7 +180,7 @@ class CLI:
         print("[hypergan] Creating new configuration file '"+template+"' based off of '"+self.config_name+config_format)
         if os.path.isfile(template):
             raise ValidationException("File exists: " + template)
-        source_configuration = Configuration.find(self.config_name+config_format, config_format=config_format)
+        source_configuration = Configuration.find(self.config_name+config_format, config_format=config_format, prepackaged=True)
         shutil.copyfile(source_configuration, template)
 
         return

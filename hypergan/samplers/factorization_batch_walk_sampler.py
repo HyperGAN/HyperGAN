@@ -12,7 +12,7 @@ class FactorizationBatchWalkSampler(BaseSampler):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.latent1 = self.gan.latent.next()
         self.latent2 = self.gan.latent.next()
-        self.velocity = 4/30.0
+        self.velocity = 2/30.0
         direction = self.gan.latent.next()
         self.origin = direction
         self.pos = self.latent1
@@ -26,6 +26,7 @@ class FactorizationBatchWalkSampler(BaseSampler):
         #self.eigvec = torch.svd(list(self.gan.g_parameters())[0]).V
         self.index = 0
         self.direction = self.eigvec[:, self.index].unsqueeze(0)
+        self.direction = self.direction / torch.norm(self.direction)
         self.ones = torch.ones_like(self.direction, device="cuda:0")
         self.mask = torch.cat([torch.zeros([1, direction.shape[1]//2]), torch.ones([1, direction.shape[1]//2])], dim=1).cuda()
         self.mask = torch.ones_like(self.mask).cuda()
@@ -44,10 +45,11 @@ class FactorizationBatchWalkSampler(BaseSampler):
         self.steps += 1
         if self.steps % 60 == 0:
             self.direction = -self.direction
-        if (self.steps - 30) % 60 == 0:
+        if (self.steps - 30) % 180 == 0:
             self.index+=1
             print("Index=",self.index)
             self.direction = self.eigvec[:, self.index].unsqueeze(0)
+            self.direction = self.direction / torch.norm(self.direction)
 
         g = gan.generator.forward(self.pos)
         return [

@@ -18,6 +18,7 @@ import sys
 import time
 import torch
 import uuid
+from hypergan.inputs.DiffAugment_pytorch import DiffAugment
 
 class StandardGAN(BaseGAN):
     """ 
@@ -67,8 +68,16 @@ class StandardGAN(BaseGAN):
         self.x = self.inputs.next()
         g = self.generator(self.latent.next())
         self.g = g
-        d_real = self.forward_discriminator([self.x])
-        d_fake = self.forward_discriminator([g])
+        if self.config.diff_augment:
+            self.in_x = DiffAugment(self.x)
+            self.in_g = DiffAugment(self.g)
+            d_real = self.forward_discriminator([self.in_x])
+            d_fake = self.forward_discriminator([self.in_g])
+        else:
+            self.in_x = self.x
+            self.in_g = self.g
+            d_real = self.forward_discriminator([self.x])
+            d_fake = self.forward_discriminator([self.g])
         self.d_fake = d_fake
         self.d_real = d_real
         return d_real, d_fake
@@ -90,11 +99,11 @@ class StandardGAN(BaseGAN):
         return [self.generator]
 
     def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.g]
+        return [self.in_g]
 
     def discriminator_real_inputs(self, discriminator_index=0):
         if hasattr(self, 'x'):
-            return [self.x]
+            return [self.in_x]
         else:
             return [self.inputs.next()]
 

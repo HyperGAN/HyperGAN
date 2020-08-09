@@ -111,6 +111,8 @@ class CLI:
     def sample_forever(self):
         self.gan.inputs.next()
         steps = 0
+        self.gan.cli = self #TODO remove this link
+        self.lazy_create()
         while not self.gan.destroy and (steps <= self.args.steps or self.args.steps == -1):
             self.sample()
             steps += 1

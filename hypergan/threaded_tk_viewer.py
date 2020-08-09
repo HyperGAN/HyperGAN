@@ -37,7 +37,7 @@ class ThreadedTkViewerUI:
                 import pygame
 
             import tkinter as tk
-            import tkinter.ttk
+            import tkinter.ttk as ttk
             class ResizableFrame(tk.Frame):
                 def __init__(self,parent,tkviewer=None,**kwargs):
                     surface = kwargs.pop('surface')
@@ -88,12 +88,40 @@ class ThreadedTkViewerUI:
             self.tk = tk
             self.surface = self.pg.Surface([image.shape[0],image.shape[1]])
             root = tk.Tk(className=self.title)
-            self.resizable_frame = ResizableFrame(root, width=self.size[0], height=self.size[1], tkviewer=self, surface=self.surface)
-            root.rowconfigure(0,weight=1)
-            root.rowconfigure(1,weight=1)
-            root.columnconfigure(0,weight=1)
-            root.columnconfigure(1,weight=1)
-            self.resizable_frame.pack(expand=tk.YES, fill=tk.BOTH)
+            height = max(self.size[1]+45, 600)
+            embed = tk.Frame(root, width=self.size[0], height=height)
+            controls = ttk.Frame(root)
+            canvas = tk.Canvas(controls)
+            scrollbar = ttk.Scrollbar(controls, orient="vertical", command=canvas.yview)
+            scrollable_frame = ttk.Frame(canvas)
+            #TODO hack
+            gan.cli.sampler.setup_ui(scrollable_frame)
+            scrollable_frame.bind(
+                "<Configure>",
+                lambda e: canvas.configure(
+                    scrollregion=canvas.bbox("all")
+                )
+            )
+            canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+            canvas.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side="right", fill="y")
+            def _on_mousewheel(event):
+                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            def _on_mousewheel_linux_up(event):
+                canvas.yview_scroll(-1, "units")
+            def _on_mousewheel_linux_down(event):
+                canvas.yview_scroll(1, "units")
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            canvas.bind_all("<Button-4>", _on_mousewheel_linux_up)
+            canvas.bind_all("<Button-5>", _on_mousewheel_linux_down)
+
+            controls.pack(side="left", fill="y")
+            embed.pack(side="right")
+            canvas.pack(side=tk.LEFT, fill="y")
+            root.resizable(0,0)
+            root.geometry(""+str(self.size[0]+400)+"x"+str(height))
+            self.resizable_frame = ResizableFrame(embed, width=self.size[0], height=self.size[1], tkviewer=self, surface=self.surface)
+            self.resizable_frame.pack()
 
             def _save_model(*args):
                 gan.save(gan.cli.save_file)
@@ -132,7 +160,7 @@ class ThreadedTkViewerUI:
 
                 label_training = tk.Label(statusbar, text="Training", font=12)
                 label_training.grid(row=0,column=0) 
-                sep = tkinter.ttk.Separator(statusbar, orient=tk.VERTICAL).grid(column=1, row=0, sticky='ns')
+                sep = ttk.Separator(statusbar, orient=tk.VERTICAL).grid(column=1, row=0, sticky='ns')
                 label = tk.Label(statusbar, text="Starting", font=12)
                 label.grid(row=0, column=2) 
                 def __update_step():

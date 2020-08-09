@@ -272,3 +272,10 @@ class BaseGAN():
     def set_discriminator_trainable(self, flag):
         for c in self.discriminator_components():
             c.set_trainable(flag)
+
+    def latent_parameters(self):
+        params = []
+        for c in self.generator_components():
+            params += c.latent_parameters()
+        return params
+

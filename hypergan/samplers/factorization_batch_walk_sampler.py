@@ -12,24 +12,20 @@ class FactorizationBatchWalkSampler(BaseSampler):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.latent1 = self.gan.latent.next()
         self.latent2 = self.gan.latent.next()
-        self.velocity = 5.5/24.0
+        self.velocity = 4/30.0
         direction = self.gan.latent.next()
         self.origin = direction
         self.pos = self.latent1
         self.hardtanh = nn.Hardtanh()
-        #self.mask = 1 - self.mask
-        g_params = list(self.gan.g_parameters())
-        params = [g_params[8]]
-        params += [g_params[0]]
-        print([p.shape for p in params])
-        cat_params = torch.cat(params,1)
-        print('cat', cat_params.shape)
-        self.eigvec = torch.svd(cat_params).V
-        print("Eigvec")
-        print(self.eigvec.shape)
+        g_params = self.gan.latent_parameters()
+        if self.latent1.shape[1] // 2 == g_params[0].shape[1]:
+            #recombine a split
+            g_params = [torch.cat([p1, p2], 1) for p1, p2 in zip(g_params[:len(g_params)//2], g_params[len(g_params)//2:])]
+            
+        self.eigvec = torch.svd(torch.cat(g_params, 0)).V
+        #self.eigvec = torch.svd(list(self.gan.g_parameters())[0]).V
         self.index = 0
         self.direction = self.eigvec[:, self.index].unsqueeze(0)
-        print(self.direction.shape)
         self.ones = torch.ones_like(self.direction, device="cuda:0")
         self.mask = torch.cat([torch.zeros([1, direction.shape[1]//2]), torch.ones([1, direction.shape[1]//2])], dim=1).cuda()
         self.mask = torch.ones_like(self.mask).cuda()

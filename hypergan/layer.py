@@ -11,3 +11,6 @@ class Layer(nn.Module):
 
     def output_size(self):
         pass
+
+    def latent_parameters(self):
+        return []

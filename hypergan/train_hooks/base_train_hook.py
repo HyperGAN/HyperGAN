@@ -8,29 +8,39 @@ import hyperchamber as hc
 import inspect
 
 class BaseTrainHook(GANComponent):
-  def __init__(self, gan=None, config=None, trainer=None):
-    super().__init__(gan, config)
+    def __init__(self, gan=None, config=None, trainer=None):
+        super().__init__(gan, config)
 
-  def create(self):
-    pass
 
-  def losses(self):
-    return [None, None]
+    def augment_latent(self, latent):
+        return latent
 
-  def before_step(self, step, feed_dict):
-    pass
+    def augment_x(self, x):
+        return x
 
-  def after_step(self, step, feed_dict):
-    pass
+    def augment_g(self, g):
+        return g
 
-  def after_create(self):
-    pass
+    def create(self):
+        pass
 
-  def update_op(self):
-    return None
+    def losses(self):
+        return [None, None]
 
-  def gradients(self, d_grads, g_grads):
-    return [d_grads, g_grads]
+    def before_step(self, step, feed_dict):
+        pass
 
-  def forward(self, d_loss, g_loss):
-    return [None, None]
+    def after_step(self, step, feed_dict):
+        pass
+
+    def after_create(self):
+        pass
+
+    def update_op(self):
+        return None
+
+    def gradients(self, d_grads, g_grads):
+        return [d_grads, g_grads]
+
+    def forward(self, d_loss, g_loss):
+        return [None, None]

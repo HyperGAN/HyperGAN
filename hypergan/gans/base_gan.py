@@ -1,5 +1,6 @@
 from hyperchamber import Config
 from hypergan.gan_component import ValidationException, GANComponent
+from hypergan.train_hook_collection import TrainHookCollection
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
@@ -31,6 +32,7 @@ class BaseGAN():
         if config == None:
             config = hg.Configuration.default()
 
+        self.train_hooks = TrainHookCollection(self)
         self.config = config
         self._metrics = {}
         self.create()

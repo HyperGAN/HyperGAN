@@ -67,14 +67,18 @@ class AlignedInterpolateGAN(BaseGAN):
     def forward_pass(self):
         self.x = self.inputs.next()
         self.y = self.inputs.next(1)
-        self.latent.next()
+
+        self.augmented_x = self.train_hooks.augment_x(self.x)
+        self.augmented_y = self.train_hooks.augment_x(self.y)
+        self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
         if self.config.use_latent:
-            g = self.generator(self.latent.next())
+            g = self.generator(self.augment_latent)
         else:
             g = self.generator(self.x)
         self.g = g
-        d_real = self.forward_discriminator([self.x, self.y])
-        d_fake = self.forward_discriminator([self.g, self.g])
+        self.augmented_g = self.train_hooks.augment_g(self.g)
+        d_real = self.forward_discriminator([self.augmented_x, self.augmented_y])
+        d_fake = self.forward_discriminator([self.augmented_g, self.augmented_g])
         self.d_fake = d_fake
         self.d_real = d_real
         return d_real, d_fake
@@ -94,10 +98,10 @@ class AlignedInterpolateGAN(BaseGAN):
         return [self.generator]
 
     def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.g, self.g]
+        return [self.augmented_g, self.augmented_g]
 
     def discriminator_real_inputs(self, discriminator_index=0):
         if hasattr(self, 'y'):
-            return [self.x, self.y]
+            return [self.augmented_x, self.augmented_y]
         else:
             return [self.inputs.next(), self.inputs.next(1)]

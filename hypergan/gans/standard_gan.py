@@ -65,10 +65,13 @@ class StandardGAN(BaseGAN):
 
     def forward_pass(self):
         self.x = self.inputs.next()
-        g = self.generator(self.latent.next())
+        self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
+        g = self.generator(self.augmented_latent)
         self.g = g
-        d_real = self.forward_discriminator([self.x])
-        d_fake = self.forward_discriminator([g])
+        self.augmented_x = self.train_hooks.augment_x(self.x)
+        self.augmented_g = self.train_hooks.augment_g(self.g)
+        d_real = self.forward_discriminator([self.augmented_x])
+        d_fake = self.forward_discriminator([self.augmented_g])
         self.d_fake = d_fake
         self.d_real = d_real
         return d_real, d_fake
@@ -90,11 +93,11 @@ class StandardGAN(BaseGAN):
         return [self.generator]
 
     def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.g]
+        return [self.augmented_g]
 
     def discriminator_real_inputs(self, discriminator_index=0):
         if hasattr(self, 'x'):
-            return [self.x]
+            return [self.augmented_x]
         else:
             return [self.inputs.next()]
 

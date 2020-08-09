@@ -15,6 +15,7 @@ import torch.nn as nn
 from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
 from hypergan.layer_shape import LayerShape
+from hypergan.distributions.base_distribution import BaseDistribution
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.attention import Attention
@@ -32,7 +33,7 @@ import torchvision
 import hypergan as hg
 
 class ConfigurableComponent(GANComponent):
-    def __init__(self, gan, config, input=None, input_shape=None, context_shapes = {}):
+    def __init__(self, gan, config, input=None, input_shape=None, context_shapes = {}, input_is_latent=False):
         self.current_size = LayerShape(gan.channels(), gan.height(), gan.width())
         if isinstance(input, GANComponent):
             if hasattr(input, 'current_height'):
@@ -52,6 +53,11 @@ class ConfigurableComponent(GANComponent):
         self.parsed_layers = []
         self.parser = hypergan.parser.Parser()
         self.context_shapes = context_shapes
+        if isinstance(input, BaseDistribution):
+            self.is_latent = True
+        else:
+            self.is_latent = False
+        self._latent_parameters = []
         self.layer_ops = {**self.activations(),
             "add": hg.layers.Add,
             "cat": hg.layers.Cat,
@@ -187,6 +193,9 @@ class ConfigurableComponent(GANComponent):
             if is_hg_layer:
                 net = self.layer_ops[op](self, args, options)
                 self.current_size = net.output_size()
+                if self.is_latent:
+                    self._latent_parameters += net.latent_parameters()
+                    self.is_latent = False
             elif isinstance(self.layer_ops[op], nn.Module):
                 net = self.layer_ops[op]
             else:
@@ -343,6 +352,10 @@ class ConfigurableComponent(GANComponent):
         self.current_size = LayerShape(*list(reversed(shape)))
         if len(shape) != 1:
             layers.append(Reshape(*self.current_size.dims))
+
+        if self.is_latent:
+            self._latent_parameters += [layers[0].weight]
+            self.is_latent = False
 
         return nn.Sequential(*layers)
 
@@ -596,6 +609,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_latent(self, net, args, options):
         self.current_size = LayerShape(self.gan.latent.current_input_size)
+        self.is_latent = True
         return NoOp()
 
     def layer_linformer(self, net, args, options):
@@ -619,6 +633,10 @@ class ConfigurableComponent(GANComponent):
         self.nn_init(layer.h, options.initializer)
         self.nn_init(layer.g, options.initializer)
         self.nn_init(layer.f, options.initializer)
+
+        if self.is_latent:
+            self._latent_parameters += [layer.h.weight, layer.g.weight, layer.f.weight]
+            self.is_latent = False
         return layer
 
     def layer_attention(self, net, args, options):
@@ -740,13 +758,16 @@ class ConfigurableComponent(GANComponent):
                         print("Error: Actual output size", size.dims)
                         raise "Layer size error, cannot continue"
                     else:
-                        print("Sizes as expected", input.shape[1:], layer_shape.dims)
+                        pass
                 if name is not None:
                     context[name] = input
             except:
                 raise ValidationException("Error on " + parsed.layer_defn + " - input size " + ",".join([str(x) for x in input.shape]))
         self.sample = input
         return input
+
+    def latent_parameters(self):
+        return self._latent_parameters
 
     def set_trainable(self, flag):
         for p in (set(list(self.parameters())) - self.untrainable_parameters):

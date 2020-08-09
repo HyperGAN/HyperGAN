@@ -97,3 +97,6 @@ class GANComponent(nn.Module):
     def set_trainable(self, flag):
         for p in self.parameters():
             p.requires_grad = flag
+
+    def latent_parameters(self):
+        return []

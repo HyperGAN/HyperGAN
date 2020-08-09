@@ -69,7 +69,7 @@ class StandardGAN(BaseGAN):
         g = self.generator(self.augmented_latent)
         self.g = g
         self.augmented_x = self.train_hooks.augment_x(self.x)
-        self.augmented_g = self.train_hooks.augment_g(self.x)
+        self.augmented_g = self.train_hooks.augment_g(self.g)
         d_real = self.forward_discriminator([self.augmented_x])
         d_fake = self.forward_discriminator([self.augmented_g])
         self.d_fake = d_fake

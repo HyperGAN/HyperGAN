@@ -33,7 +33,8 @@
       "layer z",
       "conv 64 stride=2", "relu",
       "conv 128 stride=2", "relu",
-      "residual count=3",
+      "conv 256 stride=2", "relu",
+      "upsample","add self (ez_norm initializer=(xavier_normal))", "conv2d 128 initializer=(xavier_normal)", "relu",
       "upsample","add self (ez_norm initializer=(xavier_normal))", "conv2d 64 initializer=(xavier_normal)", "relu",
       "upsample","add self (ez_norm initializer=(xavier_normal))", "conv2d 30 initializer=(xavier_normal)","add self (ez_norm initializer=(xavier_normal))",
       "segment_softmax 3", "hardtanh"

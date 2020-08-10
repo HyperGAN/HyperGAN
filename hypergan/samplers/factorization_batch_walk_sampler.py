@@ -46,12 +46,13 @@ class FactorizationBatchWalkSampler(BaseSampler):
 
     def update_scales(self, value):
         self.direction = self.eigvec[:, self.index].unsqueeze(0)
-        self.pos = self.latent1.clone().detach()
+        pos = self.latent1.clone().detach()
         for i, scale in enumerate(self.scales):
             value = self.scales[i].get()
             if value == 0:
                 continue
-            self.pos += self.eigvec[:, i].unsqueeze(0) * value/100.0
+            pos += self.eigvec[:, i].unsqueeze(0) * value/100.0
+        self.pos = pos
 
     def reset_pos(self):
         self.latent1 = self.gan.latent.next()

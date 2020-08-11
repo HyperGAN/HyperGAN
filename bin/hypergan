@@ -8,6 +8,7 @@ import hyperchamber as hc
 import hypergan as hg
 import hypergan.cli as cli
 from hypergan.viewer import GlobalViewer
+from hypergan.server.websocket_server import WebsocketServer
 import pkg_resources
 import semantic_version
 hg_version=semantic_version.Version(pkg_resources.require("hypergan")[0].version)
@@ -137,8 +138,12 @@ try:
             if template.runtime and "train" in template.runtime:
                 print("%30s   Usage: %s" %  ("", template.runtime["train"]))
     else:
+        print("Starting websocket server")
+        WebsocketServer()
+        print("Started")
         gancli = cli.CLI(args=vars(args), input_config=input_config, gan_config=config)
         gancli.run()
+
 except:
     traceback.print_exc()
     print("Error detected, HyperGAN exiting")

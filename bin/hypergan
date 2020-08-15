@@ -7,7 +7,6 @@ import traceback
 import hyperchamber as hc
 import hypergan as hg
 import hypergan.cli as cli
-from hypergan.server.websocket_server import WebsocketServer
 import pkg_resources
 import semantic_version
 hg_version=semantic_version.Version(pkg_resources.require("hypergan")[0].version)
@@ -22,6 +21,7 @@ class CommandParser:
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
         parser.add_argument('--batch_size', '-b', type=int, default=0, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
         parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
+        parser.add_argument('--dev', '-D', action='store_true', default=False, help='Start hypergan in development mode. In this mode the electron app connects to a local app server.')
         parser.add_argument('--devices', '-d', action='store', default=-1, type=str, help='Available devices for hypergan training. Defaults to -1(use all available devices)')
         parser.add_argument('--input_config', '-i', action='store', default=None, type=str, help='The input configuration to use.')
         parser.add_argument('--toml', '-T', action='store_true', help='Use TOML as configration file format instead of JSON')
@@ -95,7 +95,6 @@ if __name__ == '__main__':
             assert config.hypergan_version, "hypergan_version must be specified as a base configuration string.  Example \"hypergan_version\": \"~1\""
             config_version = semantic_version.SimpleSpec(config.hypergan_version)
             assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
-
 
             if config.input is None and args.input_config is None:
                 directories = [args.directory]

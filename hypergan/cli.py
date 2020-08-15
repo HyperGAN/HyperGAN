@@ -59,9 +59,7 @@ class CLI:
 
         if self.args.method == 'train' or self.args.method == 'sample':
             if self.args.noviewer is None:
-                self.process_manager.spawn_ui()
-            if self.args.noserver is None:
-                self.process_manager.spawn_websocket_server()
+                self.process_manager.spawn_ui(self.args.dev)
         #GlobalViewer.set_options(
         #    enable_menu = self.args.menu,
         #    title = title,

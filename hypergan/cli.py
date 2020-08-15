@@ -5,12 +5,12 @@ from .configuration import Configuration
 from .inputs import *
 from hypergan.gan_component import ValidationException
 from hypergan.gan_component import ValidationException, GANComponent
+from hypergan.process_manager import ProcessManager
 from time import sleep
 import gc
 import hyperchamber as hc
 import hypergan as hg
 import numpy as np
-import os
 import os
 import shutil
 import sys
@@ -55,6 +55,13 @@ class CLI:
             self.create_path(self.save_file)
 
         title = "[hypergan] " + self.config_name
+        self.process_manager = ProcessManager()
+
+        if self.args.method == 'train' or self.args.method == 'sample':
+            if self.args.noviewer is None:
+                self.process_manager.spawn_ui()
+            if self.args.noserver is None:
+                self.process_manager.spawn_websocket_server()
         #GlobalViewer.set_options(
         #    enable_menu = self.args.menu,
         #    title = title,

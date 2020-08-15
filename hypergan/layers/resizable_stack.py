@@ -3,6 +3,7 @@ import hyperchamber as hc
 import hypergan as hg
 from hypergan.layer_shape import LayerShape
 from ..layer import Layer
+import hypergan.layers as hg_layers
 
 class ResizableStack(Layer):
     """
@@ -66,7 +67,7 @@ class ResizableStack(Layer):
         print("SIZES", sizes)
         for i, size in enumerate(sizes[1:]):
             c = min(size.channels, self.max_channels)
-            upsample = hg.layers.Upsample(component, [], hc.Config({"w": size.width, "h": size.height}))
+            upsample = hg_layers.Upsample(component, [], hc.Config({"w": size.width, "h": size.height}))
             component.current_size = upsample.output_size() #TODO abstract input_size
             _, add = component.parse_layer("add self (ez_norm initializer=(xavier_normal) style=" + self.style + ")")
             _, conv = component.parse_layer("conv2d " + str(size.channels) + " padding=0 initializer=(xavier_normal)")
@@ -74,7 +75,7 @@ class ResizableStack(Layer):
             if i < len(sizes) - 2:
                 layers += [nn.ReLU()]
 
-        layers += [hg.layers.SegmentSoftmax(component, [component.gan.channels()], {})]
+        layers += [hg_layers.SegmentSoftmax(component, [component.gan.channels()], {})]
         self.layers = nn.ModuleList(layers)
 
     def sizes(self, initial_height, initial_width, target_height, target_width, final_channels):
@@ -109,7 +110,7 @@ class ResizableStack(Layer):
 
     def forward(self, input, context):
         for module in self.layers:
-            if isinstance(module, hg.Layer):
+            if isinstance(module, Layer):
                 input = module(input, context)
             else:
                 input = module(input)

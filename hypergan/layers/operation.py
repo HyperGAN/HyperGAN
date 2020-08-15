@@ -71,7 +71,7 @@ class Operation(Layer):
         for layer, layer_name in zip(self.layers, self.layer_names):
             if layer_name == "self":
                 layer_output = input
-            elif isinstance(layer, hg.Layer):
+            elif isinstance(layer, Layer):
                 layer_output = layer(input, context)
             elif layer_name.split(" ")[0] == 'layer':
                 layer_output = context[layer_name.split(" ")[1]]

@@ -101,7 +101,9 @@ class BaseGAN():
         klass = GANComponent.lookup_function(None, defn['class'])
         gan_component = klass(self, defn, *args, **kw_args)
         if(isinstance(gan_component, nn.Module)):
-            gan_component = gan_component.cuda()
+            gan_component = gan_component.set_device()
+        else:
+            print("Warning", name, "is not a nn.Module")
         self.add_component(name, gan_component)
         return gan_component
 

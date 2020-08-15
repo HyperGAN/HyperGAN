@@ -6,7 +6,7 @@ class BaseTrainer(GANComponent):
     def __init__(self, gan, config):
         self.current_step = 0
         self.train_hooks = []
-        
+
         GANComponent.__init__(self, gan, config)
 
     def _step(self, feed_dict):

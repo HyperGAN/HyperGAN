@@ -1,9 +1,9 @@
 import torch.nn as nn
 import hypergan as hg
 from hypergan.layer_shape import LayerShape
-from ..layer import Layer
+from ..layer import Layer as HgLayer
 
-class Layer(Layer):
+class Layer(HgLayer):
     """
         ---
         description: 'layer layer for configurable component'

@@ -129,6 +129,8 @@ class CLI:
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input())
+        if self.args.noserver is None:
+            self.process_manager.spawn_websocket_server(self.gan)
         self.gan.inputs.next()
 
         if self.gan.load(self.save_file):

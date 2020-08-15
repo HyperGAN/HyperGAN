@@ -16,6 +16,7 @@ class AlignedSampler(BaseSampler):
         return False
 
     def _sample(self):
+        self.inputs = self.gan.inputs.next(0).clone().detach()
         self.gan.latent.z = self.z
         g = self.gan.generator.forward(self.inputs)
         return [

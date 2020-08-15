@@ -48,7 +48,8 @@ class ImageLoader:
             shuffle = True
             if config.shuffle is not None:
                 shuffle = config.shuffle
-            self.dataloaders.append(data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=4, drop_last=True))
+            dataloader = data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=4, drop_last=True, pin_memory=True)
+            self.dataloaders.append(dataloader)
             self.datasets.append(iter(self.dataloaders[-1]))
 
     def batch_size(self):
@@ -67,7 +68,10 @@ class ImageLoader:
         if self.config.blank:
             return torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
         try:
-            return self.datasets[index].next()[0].cuda() * self.multiple + self.offset
+            if self.config.rank is None:
+                return self.datasets[index].next()[0].cuda() * self.multiple + self.offset
+            else:
+                return self.datasets[index].next()[0].cuda() * self.multiple + self.offset
         except ValueError:
             return self.next(index)
         except PIL.UnidentifiedImageError:

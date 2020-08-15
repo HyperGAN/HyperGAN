@@ -6,6 +6,8 @@ from .inputs import *
 from hypergan.gan_component import ValidationException
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.process_manager import ProcessManager
+from hypergan.backends.hogwild_backend import HogwildBackend
+from hypergan.backends.single_gpu_backend import SingleGPUBackend
 from time import sleep
 import gc
 import hyperchamber as hc
@@ -28,6 +30,7 @@ class CLI:
         args = hc.Config(args)
         self.args = args
 
+        self.devices = args.devices
         crop =  self.args.crop
 
         self.config_name = self.args.config or 'default'
@@ -62,6 +65,14 @@ class CLI:
                 self.process_manager.spawn_ui()
             if self.args.noserver is None:
                 self.process_manager.spawn_websocket_server()
+
+        self.available_backends = {
+            'auto': HogwildBackend,
+            'single-gpu': SingleGPUBackend,
+            'hogwild': HogwildBackend
+        }
+
+        self.chosen_backend = self.available_backends[args.backend]
         #GlobalViewer.set_options(
         #    enable_menu = self.args.menu,
         #    title = title,
@@ -96,7 +107,7 @@ class CLI:
                 raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
     def step(self):
-        self.gan.step()
+        self.backend.step()
 
         if(self.gan.steps % self.sample_every == 0):
             sample_list = self.sample()
@@ -104,9 +115,10 @@ class CLI:
     def create_path(self, filename):
         return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
 
-    def create_input(self, blank=False):
+    def create_input(self, blank=False, rank=None):
         klass = GANComponent.lookup_function(None, self.input_config['class'])
         self.input_config["blank"]=blank
+        self.input_config["rank"]=rank
         return klass(self.input_config)
 
     def build(self):
@@ -137,6 +149,8 @@ class CLI:
             print("Model loaded")
         else:
             print("Initializing new model")
+
+        self.backend = self.chosen_backend(self.gan, self, devices=self.devices)
 
         self.sample()
 

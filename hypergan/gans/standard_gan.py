@@ -96,7 +96,7 @@ class StandardGAN(BaseGAN):
         return [self.augmented_g]
 
     def discriminator_real_inputs(self, discriminator_index=0):
-        if hasattr(self, 'x'):
+        if hasattr(self, 'augmented_x'):
             return [self.augmented_x]
         else:
             return [self.inputs.next()]

@@ -26,7 +26,6 @@ class BaseGAN():
         """ Initialized a new GAN."""
         self.steps = Variable(torch.zeros([1]))
         self.inputs = inputs
-        self.inputs.gan = self
         self.components = {}
         self.destroy = False
 

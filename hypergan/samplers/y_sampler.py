@@ -1,6 +1,5 @@
 import numpy as np
 from PIL import Image
-from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 import time
 

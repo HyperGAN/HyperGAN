@@ -1,0 +1,98 @@
+{
+  "description": "Uses colorizer example to fill in partial information for super resolution.",
+  "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "layers":[
+      "conv 32 stride=2 padding=0","relu",
+      "conv 64 stride=2 padding=0", "relu",
+      "conv 128 stride=2 padding=0", "relu",
+      "conv 256 stride=2 padding=0", "relu",
+      "conv 512 stride=2 padding=0", "relu",
+      "linear 1"
+    ]
+  },
+  "latent":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "min": -1,
+    "max": 1,
+    "z": 256
+  },
+
+
+   "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "layers":[
+
+      "identity name=z",
+      "latent",
+      "multi_head_attention 256 initializer=(xavier_normal)","relu",
+      "identity name=w",
+      "layer z",
+
+      "linear 20*20*128", "relu",
+      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "conv2d 256 padding=0 ","relu",
+
+      "upsample h=20 w=20",
+      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "conv2d 128 padding=0 ","relu",
+
+      "upsample h=36 w=36",
+      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "conv2d 64 padding=0 ", "relu",
+
+      "upsample h=68 w=68",
+      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "conv2d 32 padding=0 ", "relu",
+
+      "upsample h=130 w=130",
+      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "conv2d 30 padding=0",
+      "segment_softmax 3",
+      "hardtanh"
+    ]
+  },
+  
+
+  "loss":
+  {
+    "class": "function:hypergan.losses.standard_loss.StandardLoss"
+  },
+
+
+  "trainer": {
+    "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+
+    "hooks": [
+      {
+        "class": "function:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
+        "gammas": [-1e9, 1e9],
+        "offset": 1.0,
+        "loss": [
+          "dg"
+        ],
+        "mode": "fake"
+      },
+      {
+        "class": "function:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
+        "gamma": -1e9,
+        "offset": 1.0,
+        "loss": [
+          "d"
+        ],
+        "mode": "real"
+      }
+    ],
+
+     "optimizer": {
+      "class": "function:hypergan.optimizers.adamirror.Adamirror",
+      "lr": 1e-4,
+      "betas":[0.09254624624624619,0.997]
+    }
+  },
+  "hypergan_version": "~1",
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
+
+}

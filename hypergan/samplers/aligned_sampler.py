@@ -8,6 +8,7 @@ class AlignedSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.inputs = self.gan.inputs.next()
+        self.z = self.gan.latent.next()
 
     def compatible_with(gan):
         if hasattr(gan, 'encoder'):
@@ -16,8 +17,8 @@ class AlignedSampler(BaseSampler):
 
     def _sample(self):
         self.inputs = self.gan.inputs.next(0).clone().detach()
+        self.gan.latent.z = self.z
         g = self.gan.generator.forward(self.inputs)
-        self.gan.latent.next()
         return [
             ('input', self.inputs),
             ('generator', g)

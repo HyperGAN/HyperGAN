@@ -7,7 +7,7 @@ import traceback
 import hyperchamber as hc
 import hypergan as hg
 import hypergan.cli as cli
-from hypergan.viewer import GlobalViewer
+from hypergan.server.websocket_server import WebsocketServer
 import pkg_resources
 import semantic_version
 hg_version=semantic_version.Version(pkg_resources.require("hypergan")[0].version)
@@ -36,6 +36,7 @@ class CommandParser:
         parser.add_argument('--save_file', type=str, default=None, help='The save file to load and save from.  Use gs://bucket/mymodel/model.ckpt for TPU saving')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
+        parser.add_argument('--noserver', dest='viewer', action='store_false', help='Disables the api server. Needed for the ui.')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
         parser.add_argument('--viewer_size', '-z', type=float, dest='viewer_size', default=1, help='Size of the viewer window as a multiplier. WARNING: values above 60 may cause crashes')
         parser.add_argument('--list-templates', '-l', dest='list_templates', action='store_true', help='List available templates.')
@@ -64,83 +65,86 @@ class CommandParser:
 
         return parser
 
-try:
-    args = CommandParser().get_parser().parse_args()
 
-    if args.method == 'train' and args.save_every == -1 and not args.viewer:
-        print("Error, there is no way to save the model.  Refusing to run.  Please add --save_every N")
-        exit(1)
+if __name__ == '__main__':
+    try:
+        args = CommandParser().get_parser().parse_args()
 
-    if args.size:
-        size = [int(x) for x in args.size.split("x")] + [None, None, None]
-    else:
-        size = [None, None, None]
-    width = size[0] or 64
-    height = size[1] or 64
-    channels = size[2] or 3
-    if args.toml:
-        use_toml = True
-        config_format = '.toml'
-    else:
-        use_toml = False
-        config_format = '.json'
-    config_name = args.config or 'default'
+        if args.method == 'train' and args.save_every == -1 and not args.viewer:
+            print("Error, there is no way to save the model.  Refusing to run.  Please add --save_every N")
+            exit(1)
 
-    if args.method != 'new':
-        config_filename = hg.Configuration.find(config_name, config_format=config_format)
-        config = hc.Selector().load(config_filename, load_toml=use_toml)
-        assert config.hypergan_version, "hypergan_version must be specified as a base configuration string.  Example \"hypergan_version\": \"~1\""
-        config_version = semantic_version.SimpleSpec(config.hypergan_version)
-        assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
-
-
-        if config.input is None and args.input_config is None:
-            directories = [args.directory]
-            if args.align:
-                directories+=args.align
-            input_config = hc.Config({
-                "class": "class:hypergan.inputs.image_loader.ImageLoader",
-                "batch_size": args.batch_size,
-                "directories": directories,
-                "channels": channels,
-                "crop": args.crop,
-                "height": height,
-                "random_crop": args.random_crop,
-                "resize": args.resize,
-                "shuffle": True,
-                "width": width
-            })
+        if args.size:
+            size = [int(x) for x in args.size.split("x")] + [None, None, None]
         else:
-            if config.input:
-                if args.batch_size:
-                    config.input["batch_size"] = args.batch_size
-                input_config = hc.Config(config.input)
-            else:
-                input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
-                input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
-        if 'inherit' in config:
-            base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
-            base_config = hc.Selector().load(base_filename, load_toml=use_toml)
-            config = {**base_config, **config}
-    else:
-        input_config = None
-        config = None
+            size = [None, None, None]
+        width = size[0] or 64
+        height = size[1] or 64
+        channels = size[2] or 3
+        if args.toml:
+            use_toml = True
+            config_format = '.toml'
+        else:
+            use_toml = False
+            config_format = '.json'
+        config_name = args.config or 'default'
 
-    if args.list_templates:
-        configs = hg.Configuration.list(config_format=config_format, prepackaged=True)
-        for config in configs:
-            try:
-                template = hg.Configuration.load(config+config_format, verbose=False, use_toml=use_toml, prepackaged=True)
-            except Exception as e:
-                template = hc.Config({"description": str(e), "publication": "error"})
-            print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
-            if template.runtime and "train" in template.runtime:
-                print("%30s   Usage: %s" %  ("", template.runtime["train"]))
-    else:
-        gancli = cli.CLI(args=vars(args), input_config=input_config, gan_config=config)
-        gancli.run()
-except:
-    traceback.print_exc()
-    print("Error detected, HyperGAN exiting")
-finally:
-    GlobalViewer.close()
+        if args.method != 'new':
+            config_filename = hg.Configuration.find(config_name, config_format=config_format)
+            config = hc.Selector().load(config_filename, load_toml=use_toml)
+            assert config.hypergan_version, "hypergan_version must be specified as a base configuration string.  Example \"hypergan_version\": \"~1\""
+            config_version = semantic_version.SimpleSpec(config.hypergan_version)
+            assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
+
+
+            if config.input is None and args.input_config is None:
+                directories = [args.directory]
+                if args.align:
+                    directories+=args.align
+                input_config = hc.Config({
+                    "class": "class:hypergan.inputs.image_loader.ImageLoader",
+                    "batch_size": args.batch_size,
+                    "directories": directories,
+                    "channels": channels,
+                    "crop": args.crop,
+                    "height": height,
+                    "random_crop": args.random_crop,
+                    "resize": args.resize,
+                    "shuffle": True,
+                    "width": width
+                })
+            else:
+                if config.input:
+                    if args.batch_size:
+                        config.input["batch_size"] = args.batch_size
+                    input_config = hc.Config(config.input)
+                else:
+                    input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
+                    input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
+            if 'inherit' in config:
+                base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
+                base_config = hc.Selector().load(base_filename, load_toml=use_toml)
+                config = {**base_config, **config}
+        else:
+            input_config = None
+            config = None
+
+        if args.list_templates:
+            configs = hg.Configuration.list(config_format=config_format, prepackaged=True)
+            for config in configs:
+                try:
+                    template = hg.Configuration.load(config+config_format, verbose=False, use_toml=use_toml, prepackaged=True)
+                except Exception as e:
+                    template = hc.Config({"description": str(e), "publication": "error"})
+                print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
+                if template.runtime and "train" in template.runtime:
+                    print("%30s   Usage: %s" %  ("", template.runtime["train"]))
+        else:
+            gancli = cli.CLI(args=vars(args), input_config=input_config, gan_config=config)
+            gancli.run()
+
+    except:
+        traceback.print_exc()
+        print("Error detected, HyperGAN exiting")
+    #finally:
+    #    GlobalViewer.close()

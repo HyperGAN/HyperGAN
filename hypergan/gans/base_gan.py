@@ -1,8 +1,10 @@
 from hyperchamber import Config
 from hypergan.gan_component import ValidationException, GANComponent
+from hypergan.train_hook_collection import TrainHookCollection
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
+from hypergan.samplers.factorization_batch_walk_sampler import FactorizationBatchWalkSampler
 from hypergan.samplers.input_sampler import InputSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.y_sampler import YSampler
@@ -31,6 +33,7 @@ class BaseGAN():
         if config == None:
             config = hg.Configuration.default()
 
+        self.train_hooks = TrainHookCollection(self)
         self.config = config
         self._metrics = {}
         self.create()
@@ -210,6 +213,7 @@ class BaseGAN():
     def get_registered_samplers(self=None):
         return {
                 'static_batch': StaticBatchSampler,
+                'factorization_batch_walk': FactorizationBatchWalkSampler,
                 'input': InputSampler,
                 #'progressive': ProgressiveSampler,
                 #'random_walk': RandomWalkSampler,
@@ -270,3 +274,10 @@ class BaseGAN():
     def set_discriminator_trainable(self, flag):
         for c in self.discriminator_components():
             c.set_trainable(flag)
+
+    def latent_parameters(self):
+        params = []
+        for c in self.generator_components():
+            params += c.latent_parameters()
+        return params
+

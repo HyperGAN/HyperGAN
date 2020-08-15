@@ -2,8 +2,9 @@ import torch.nn as nn
 import hypergan as hg
 from hypergan.layer_shape import LayerShape
 from hypergan.modules.multi_head_attention import MultiHeadAttention as module_MultiHeadAttention
+from ..layer import Layer
 
-class MultiHeadAttention(hg.Layer):
+class MultiHeadAttention(Layer):
     """
         ---
         description: 'layer multi_head_attention for configurable component'

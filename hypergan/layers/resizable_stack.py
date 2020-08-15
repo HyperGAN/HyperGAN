@@ -2,8 +2,9 @@ import torch.nn as nn
 import hyperchamber as hc
 import hypergan as hg
 from hypergan.layer_shape import LayerShape
+from ..layer import Layer
 
-class ResizableStack(hg.Layer):
+class ResizableStack(Layer):
     """
         ---
         description: 'layer resizable_stack for configurable component'

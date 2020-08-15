@@ -2,8 +2,9 @@ import torch.nn as nn
 from hypergan.layer_shape import LayerShape
 import hypergan as hg
 import torch
+from ..layer import Layer
 
-class ChannelAttention(hg.Layer):
+class ChannelAttention(Layer):
     """ Self attention Layer on channels from https://github.com/heykeetae/Self-Attention-GAN/blob/master/sagan_models.py """
     def __init__(self, component, args, options):
         super(ChannelAttention, self).__init__(component, args, options)

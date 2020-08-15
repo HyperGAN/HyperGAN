@@ -13,8 +13,6 @@ Please see [https://github.com/255BITS/HyperGAN](https://github.com/255BITS/Hype
 
 MIT - https://opensource.org/licenses/MIT
 """
-from .layer import Layer
-import hypergan.layers
 from .gan import GAN
 from .cli import CLI
 from .configuration import Configuration

@@ -32,6 +32,8 @@ from hypergan.modules.pixel_norm import PixelNorm
 import torchvision
 import hypergan as hg
 
+import hypergan.layers
+
 class ConfigurableComponent(GANComponent):
     def __init__(self, gan, config, input=None, input_shape=None, context_shapes = {}, input_is_latent=False):
         self.current_size = LayerShape(gan.channels(), gan.height(), gan.width())

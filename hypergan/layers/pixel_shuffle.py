@@ -1,8 +1,9 @@
 import torch.nn as nn
 from hypergan.layer_shape import LayerShape
 import hypergan as hg
+from ..layer import Layer
 
-class PixelShuffle(hg.Layer):
+class PixelShuffle(Layer):
     """
         ---
         description: 'layer pixel_shuffle for configurable component'

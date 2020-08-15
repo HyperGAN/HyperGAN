@@ -2,8 +2,9 @@ import torch.nn as nn
 import torch
 from hypergan.layer_shape import LayerShape
 import hypergan as hg
+from ..layer import Layer
 
-class SegmentSoftmax(hg.Layer):
+class SegmentSoftmax(Layer):
     """
         ---
         description: 'layer segment_softmax for configurable component'

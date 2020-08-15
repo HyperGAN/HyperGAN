@@ -6,8 +6,9 @@ import hyperchamber as hc
 import pyparsing
 
 from hypergan.gan_component import ValidationException
+from ..layer import Layer
 
-class Operation(hg.Layer):
+class Operation(Layer):
     """
         ---
         description: Base class for operations

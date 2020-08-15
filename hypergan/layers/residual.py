@@ -1,7 +1,8 @@
 import torch.nn as nn
 import hypergan as hg
+from ..layer import Layer
 
-class Residual(hg.Layer):
+class Residual(Layer):
     """
         ---
         description: 'layer residual for configurable component'

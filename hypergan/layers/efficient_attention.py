@@ -3,10 +3,39 @@ from torch import nn
 from torch.nn import functional as f
 from hypergan.layer_shape import LayerShape
 import hypergan as hg
+from ..layer import Layer
 
+class EfficientAttention(Layer):
+    """
+        ---
+        description: 'layer efficient_attention for configurable component'
+        ---
 
-class EfficientAttention(hg.Layer):
-    """https://github.com/cmsflash/efficient-attention"""
+        # efficient_attention layer
+
+        From https://github.com/cmsflash/efficient-attention
+
+        ## input size
+
+        Any 4-d tensor
+
+        ## output size
+
+        Same
+
+        ## syntax
+
+        ```json
+          "efficient_attention"
+        ```
+
+        ## examples
+
+        ```json
+          "add self (efficient_attention)"
+        ```
+    """
+
     def __init__(self, component, args, options):
         super(EfficientAttention, self).__init__(component, args, options)
         self.dims = list(component.current_size.dims).copy()

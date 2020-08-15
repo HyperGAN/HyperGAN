@@ -3,21 +3,21 @@ The command line interface.  Trains a directory of data.
 """
 from .configuration import Configuration
 from .inputs import *
-from .viewer import GlobalViewer
 from hypergan.gan_component import ValidationException
 from hypergan.gan_component import ValidationException, GANComponent
+from hypergan.process_manager import ProcessManager
 from time import sleep
 import gc
 import hyperchamber as hc
 import hypergan as hg
 import numpy as np
 import os
-import os
 import shutil
 import sys
 import sys
 import tempfile
 import time
+
 class CLI:
     def __init__(self, args={}, input_config=None, gan_config=None):
         self.samples = 0
@@ -55,12 +55,19 @@ class CLI:
             self.create_path(self.save_file)
 
         title = "[hypergan] " + self.config_name
-        GlobalViewer.set_options(
-            enable_menu = self.args.menu,
-            title = title,
-            viewer_size = self.args.viewer_size,
-            enabled = self.args.viewer,
-            zoom = self.args.zoom)
+        self.process_manager = ProcessManager()
+
+        if self.args.method == 'train' or self.args.method == 'sample':
+            if self.args.noviewer is None:
+                self.process_manager.spawn_ui()
+            if self.args.noserver is None:
+                self.process_manager.spawn_websocket_server()
+        #GlobalViewer.set_options(
+        #    enable_menu = self.args.menu,
+        #    title = title,
+        #    viewer_size = self.args.viewer_size,
+        #    enabled = self.args.viewer,
+        #    zoom = self.args.zoom)
 
     def sample(self, allow_save=True):
         """ Samples to a file.  Useful for visualizing the learning process.
@@ -124,7 +131,6 @@ class CLI:
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input())
-        self.gan.cli = self #TODO remove this link
         self.gan.inputs.next()
 
         if self.gan.load(self.save_file):

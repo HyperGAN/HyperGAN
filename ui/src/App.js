@@ -6,31 +6,31 @@ var socket;
 
 function App() {
   const [messages, setMessages] = React.useState([]);
-  function addMessage() {
-    setMessages([...messages.slice(-3), "reconnecting"])
+  const addMessage = (msg) => {
+    console.log(messages);
+    setMessages([...messages, msg])
   }
-  function connect() {
-    socket = new WebSocket("ws://localhost:9999")
-    socket.onclose = () => {
-      addMessage("reconnecting");
-      setTimeout(() => {
-        connect();
-      }, 10000);
-    };
-    socket.onopen = () => {
-      addMessage("connected");
-    };
-    socket.onmessage = (message) => {
-      addMessage(message.data);
-    };
-  }
-  connect();
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Listening for HyperGAN
+    <header className="App-header">
+    <img src={logo} className="App-logo" alt="logo" />
+    <p>
+    Listening for HyperGAN
+      <button onClick={_=>{
+        socket = new WebSocket("ws://localhost:9999")
+
+        socket.onclose = () => {
+          addMessage("reconnecting");
+        };
+        socket.onmessage = (message) => {
+          addMessage(message.data);
+        };
+        socket.onopen = () => {
+          addMessage("connected");
+        };
+        }}>
+            Connect
+          </button>
           <button onClick={_=>{
             socket.send("ping")
           }}>

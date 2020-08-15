@@ -62,6 +62,7 @@ class ConfigurableComponent(GANComponent):
             "add": hg.layers.Add,
             "cat": hg.layers.Cat,
             "channel_attention": hg.layers.ChannelAttention,
+            "efficient_attention": hg.layers.EfficientAttention,
             "ez_norm": hg.layers.EzNorm,
             "layer": hg.layers.Layer,
             "mul": hg.layers.Mul,

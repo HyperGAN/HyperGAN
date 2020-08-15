@@ -18,6 +18,7 @@ from .ez_norm import EzNorm
 from .layer import Layer
 from .residual import Residual
 from .channel_attention import ChannelAttention
+from .efficient_attention import EfficientAttention
 from .pixel_shuffle import PixelShuffle
 from .upsample import Upsample
 from .resizable_stack import ResizableStack

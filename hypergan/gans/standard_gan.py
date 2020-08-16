@@ -55,7 +55,7 @@ class StandardGAN(BaseGAN):
         config = self.config
 
         self.latent = self.create_component("latent")
-        self.generator = self.create_component("generator", input_shape=self.latent.shape)
+        self.generator = self.create_component("generator", input=self.latent)
         self.discriminator = self.create_component("discriminator")
         self.loss = self.create_component("loss")
         self.trainer = self.create_component("trainer")

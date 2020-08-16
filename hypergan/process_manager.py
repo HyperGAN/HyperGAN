@@ -30,7 +30,7 @@ class ProcessManager:
         return path
 
     def start_websocket_server(self, gan):
-        WebsocketServer()
+        WebsocketServer(gan)
 
     def spawn_ui(self, is_dev):
         electron_path = which("electron")
@@ -54,6 +54,7 @@ class ProcessManager:
 
     def spawn_websocket_server(self, gan):
         print("Starting websocket server")
+        #torch.multiprocessing.set_start_method('spawn', force=True)
         self.wss_process = torch.multiprocessing.Process(target=self.start_websocket_server, args=[gan])
         self.wss_process.start()
         print("Websocket server started")

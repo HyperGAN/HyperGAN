@@ -7,28 +7,36 @@ import './App.css';
 function App() {
   const [messages, setMessages] = React.useState([]);
   const [clients, setClients] = React.useState([]);
+  const [samples, setSamples] = React.useState([]);
   const serverDiscovery = new ServerDiscovery();
-  const addMessage = (msg) => {
-    console.log(messages);
-    setMessages([...messages, msg])
+  const refresh = () => {
+    serverDiscovery.discover();
   }
-  serverDiscovery.onConnect = (client) => {
-    console.log("New client: ", client);
-    addMessage(`Connected to client ${client.socket.url}`);
-    setClients([...clients, client]);
-    client.sample();
+  serverDiscovery.onClientsDiscovered = (clients) => {
+    console.log("New client: ", clients);
+    setClients(clients);
+    clients.map( (client) => {
+      client.sample();
+      client.onSamples = (samples) => {
+        console.log("Got a bunch of fresh samples", samples[0]);
+        setSamples(samples);
+      }
+    });
   }
   return (
     <div className="App">
     <header className="App-header">
     <img src={logo} className="App-logo" alt="logo" />
+    {
+      samples.map((sample,index) => <img src={URL.createObjectURL(sample)}/>)
+    }
     <p>
+
       <button onClick={_=>{
-          serverDiscovery.discover();
+        refresh();
       }}>
-          Discover
+          Refresh
           </button>
-          {messages.map((msg,index) => <li>{msg}</li>)}
         </p>
         Clients connected:
           {clients.length}

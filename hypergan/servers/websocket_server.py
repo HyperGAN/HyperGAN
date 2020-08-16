@@ -1,9 +1,11 @@
 import asyncio
+import pathlib
 import json
 import websockets
 
 class WebsocketServer:
-    def __init__(self):
+    def __init__(self, gan):
+        self.gan = gan
         port = 9999
         for i in range(100):
             try:
@@ -33,9 +35,18 @@ class WebsocketServer:
         }
 
     async def get_samples(self, websocket, request):
-        sample = gan.sample()
+        #sample = self.gan.sample()
+        #sample_images = sample.to_images(format='png')
+        sample_images = []
+        path = pathlib.Path(__file__).parent.parent.parent.joinpath("samples/default/000001.png").absolute()
+        with open(path, 'rb') as f:
+            sample_images.append(f.read())
+
         await websocket.send(json.dumps({"action": "samples_start"}))
-        [await websocket.sendall(image) for image in sample.to_images(format='png')]
+        for image in sample_images:
+            await websocket.send(json.dumps({"action": "sample_start"}))
+            await websocket.send(image)
+            await websocket.send(json.dumps({"action": "sample_end"}))
         await websocket.send(json.dumps({"action": "samples_end"}))
 
     def serve(self, port):

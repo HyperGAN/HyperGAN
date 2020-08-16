@@ -15,8 +15,6 @@ class ImageLoader:
 
     def __init__(self, config):
         self.config = config
-        self.multiple = torch.Tensor([2.0]).float()[0].cuda()
-        self.offset = torch.Tensor([-1.0]).float()[0].cuda()
         self.datasets = []
         transform_list = []
         h, w = self.config.height, self.config.width
@@ -40,6 +38,7 @@ class ImageLoader:
             directories = [directories]
 
         self.dataloaders = []
+        self.device=0
         for directory in directories:
             mode = "RGB"
             if self.channels() == 4:
@@ -68,10 +67,9 @@ class ImageLoader:
         if self.config.blank:
             return torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
         try:
-            if self.config.rank is None:
-                return self.datasets[index].next()[0].cuda() * self.multiple + self.offset
-            else:
-                return self.datasets[index].next()[0].cuda() * self.multiple + self.offset
+            self.multiple = torch.tensor(2.0, device="cuda:"+str(self.device))
+            self.offset = torch.tensor(-1.0, device="cuda:"+str(self.device))
+            return self.datasets[index].next()[0].cuda(device=self.device) * self.multiple + self.offset
         except ValueError:
             return self.next(index)
         except PIL.UnidentifiedImageError:

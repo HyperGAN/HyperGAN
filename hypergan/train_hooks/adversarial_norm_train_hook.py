@@ -14,11 +14,11 @@ class AdversarialNormTrainHook(BaseTrainHook):
         self.d_loss = None
         self.g_loss = None
         if self.config.gamma is not None:
-            self.gamma = torch.Tensor([self.config.gamma]).float()[0].cuda()#self.gan.configurable_param(self.config.gamma or 1.0)
+            self.gamma = self.config.gamma#torch.Tensor([self.config.gamma]).float()[0].cuda()#self.gan.configurable_param(self.config.gamma or 1.0)
         if self.config.gammas is not None:
             self.gammas = [
-                        torch.Tensor([self.config.gammas[0]]).float()[0].cuda(),#self.gan.configurable_param(self.config.gamma or 1.0)
-                        torch.Tensor([self.config.gammas[1]]).float()[0].cuda()#self.gan.configurable_param(self.config.gamma or 1.0)
+                        self.config.gammas[0],#torch.Tensor([self.config.gammas[0]]).float()[0].cuda(),#self.gan.configurable_param(self.config.gamma or 1.0)
+                        self.config.gammas[1]#torch.Tensor([self.config.gammas[1]]).float()[0].cuda()#self.gan.configurable_param(self.config.gamma or 1.0)
                     ]
         self.relu = torch.nn.ReLU()
         self.target = [Parameter(x, requires_grad=True) for x in self.gan.discriminator_real_inputs()]

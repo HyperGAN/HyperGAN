@@ -1,43 +1,37 @@
 import React from 'react';
 import logo from './logo.svg';
+import ServerDiscovery from './ServerDiscovery';
 import './App.css';
-var socket;
 //import HgApiClient from './HgApiClient.js';
 
 function App() {
   const [messages, setMessages] = React.useState([]);
+  const [clients, setClients] = React.useState([]);
+  const serverDiscovery = new ServerDiscovery();
   const addMessage = (msg) => {
     console.log(messages);
     setMessages([...messages, msg])
+  }
+  serverDiscovery.onConnect = (client) => {
+    console.log("New client: ", client);
+    addMessage(`Connected to client ${client.socket.url}`);
+    setClients([...clients, client]);
+    client.sample();
   }
   return (
     <div className="App">
     <header className="App-header">
     <img src={logo} className="App-logo" alt="logo" />
     <p>
-    Listening for HyperGAN
       <button onClick={_=>{
-        socket = new WebSocket("ws://localhost:9999")
-
-        socket.onclose = () => {
-          addMessage("reconnecting");
-        };
-        socket.onmessage = (message) => {
-          addMessage(message.data);
-        };
-        socket.onopen = () => {
-          addMessage("connected");
-        };
-        }}>
-            Connect
-          </button>
-          <button onClick={_=>{
-            socket.send("ping")
-          }}>
-          Ping
+          serverDiscovery.discover();
+      }}>
+          Discover
           </button>
           {messages.map((msg,index) => <li>{msg}</li>)}
         </p>
+        Clients connected:
+          {clients.length}
       </header>
     </div>
   );

@@ -1,16 +1,10 @@
 from hyperchamber import Config
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.train_hook_collection import TrainHookCollection
-from hypergan.samplers.aligned_sampler import AlignedSampler
-from hypergan.samplers.batch_sampler import BatchSampler
-from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
-from hypergan.samplers.factorization_batch_walk_sampler import FactorizationBatchWalkSampler
-from hypergan.samplers.input_sampler import InputSampler
-from hypergan.samplers.static_batch_sampler import StaticBatchSampler
-from hypergan.samplers.y_sampler import YSampler
 from pathlib import Path
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
+from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 import hyperchamber as hc
 import hypergan as hg
 import inspect
@@ -255,14 +249,9 @@ class BaseGAN():
                 result += component.train_hooks
         return result
 
-    def sampler_for(self, name, default=StaticBatchSampler):
-        samplers = self.get_registered_samplers()
-        self.selected_sampler = name
-        if name in samplers:
-            return samplers[name]
-        else:
-            print("[hypergan] No sampler found for ", name, ".  Defaulting to", default)
-            return default
+    def sample(self, *args, **kw_args):
+        sampler = StaticBatchSampler(self) #TODO
+        return sampler.sample()
 
     def regularize_adversarial_norm(self):
         raise ValidationException("Not implemented")

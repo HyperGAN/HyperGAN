@@ -80,18 +80,11 @@ class CLI:
         """
         sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
         self.create_path(sample_file)
-        self.lazy_create()
-        sample_list = self.sampler.sample(sample_file, allow_save and self.args.save_samples)
+        sample_list = self.gan.sample(sample_file, allow_save and self.args.save_samples)
         if allow_save:
             self.samples += 1
 
         return sample_list
-
-    def lazy_create(self):
-        if(self.sampler == None):
-            self.sampler = self.gan.sampler_for(self.sampler_name)(self.gan, samples_per_row=self.args.width)
-            if(self.sampler == None):
-                raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
     def step(self):
         self.gan.step()

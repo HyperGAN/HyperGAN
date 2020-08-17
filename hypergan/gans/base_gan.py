@@ -204,28 +204,6 @@ class BaseGAN():
     def build(self, input_nodes=None, output_nodes=None):
         pass
 
-    def get_registered_samplers(self=None):
-        return {
-                'static_batch': StaticBatchSampler,
-                'factorization_batch_walk': FactorizationBatchWalkSampler,
-                'input': InputSampler,
-                #'progressive': ProgressiveSampler,
-                #'random_walk': RandomWalkSampler,
-                #'alphagan_random_walk': AlphaganRandomWalkSampler,
-                #'style_walk': StyleWalkSampler,
-                'batch_walk': BatchWalkSampler,
-                'batch': BatchSampler,
-                #'grid': GridSampler,
-                #'sorted': SortedSampler,
-                #'gang': GangSampler,
-                #'began': BeganSampler,
-                #'autoencode': AutoencodeSampler,
-                #'debug': DebugSampler,
-                'y': YSampler,
-                #'segment': SegmentSampler,
-                'aligned': AlignedSampler
-            }
-
     def g_parameters(self):
         for component in self.generator_components():
             for param in component.parameters():

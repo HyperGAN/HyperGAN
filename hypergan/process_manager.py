@@ -55,6 +55,7 @@ class ProcessManager:
     def spawn_websocket_server(self, gan):
         print("Starting websocket server")
         #torch.multiprocessing.set_start_method('spawn', force=True)
-        self.wss_process = torch.multiprocessing.Process(target=self.start_websocket_server, args=[gan])
+        remote_gan = RemoteGAN(gan)
+        self.wss_process = torch.multiprocessing.Process(target=self.start_websocket_server, args=[remote_gan])
         self.wss_process.start()
         print("Websocket server started")

@@ -4,8 +4,8 @@ import json
 import websockets
 
 class WebsocketServer:
-    def __init__(self, gan):
-        self.gan = gan
+    def __init__(self, remote_gan):
+        self.remote_gan = remote_gan
         port = 9999
         for i in range(100):
             try:
@@ -14,7 +14,7 @@ class WebsocketServer:
             except OSError:
                 port += 1
                 continue
-            print(f"Starting on port {port}")
+        print(f"Starting on port {port}")
         asyncio.get_event_loop().run_forever()
 
     async def listen(self, websocket, path):
@@ -31,16 +31,16 @@ class WebsocketServer:
     def routes(self):
         return {
             "connect" : self.connect,
+            #"get_state": self.get_state,
+            #"pause_training": self.pause_training,
+            #"save": self.save,
+            #"stop_training": self.stop_training,
             "get_samples" : self.get_samples
         }
 
     async def get_samples(self, websocket, request):
-        #sample = self.gan.sample()
-        #sample_images = sample.to_images(format='png')
-        sample_images = []
-        path = pathlib.Path(__file__).parent.parent.parent.joinpath("samples/default/000001.png").absolute()
-        with open(path, 'rb') as f:
-            sample_images.append(f.read())
+        sample = await self.remote_gan.sample()
+        sample_images = sample.to_images(format='png')
 
         await websocket.send(json.dumps({"action": "samples_start"}))
         for image in sample_images:

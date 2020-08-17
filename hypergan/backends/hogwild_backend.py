@@ -16,13 +16,6 @@ def create_input(input_config):
 def train(device, gan, inputs, done_event):
     gan.inputs = inputs
     #torch.manual_seed(device)
-    gan.generator = gan.generator.to(device)
-    gan.generator.device="cuda:"+str(device)
-    gan.discriminator = gan.discriminator.to(device)
-    gan.discriminator.device="cuda:"+str(device)
-    gan.inputs.device=device
-    gan.latent.device=device
-    gan.forward_pass()
     done_event.set()
     gan.trainer = gan.create_component("trainer")
     while(True):

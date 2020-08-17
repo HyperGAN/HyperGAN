@@ -7,6 +7,7 @@ from hypergan.gan_component import ValidationException
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.process_manager import ProcessManager
 from hypergan.backends.hogwild_backend import HogwildBackend
+from hypergan.backends.roundrobin_backend import RoundrobinBackend
 from hypergan.backends.single_gpu_backend import SingleGPUBackend
 from time import sleep
 import gc
@@ -68,6 +69,7 @@ class CLI:
 
         self.available_backends = {
             'auto': HogwildBackend,
+            'roundrobin': RoundrobinBackend,
             'single-gpu': SingleGPUBackend,
             'hogwild': HogwildBackend
         }

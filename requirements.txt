@@ -1,8 +1,8 @@
-hyperchamber==0.3
+hyperchamber==0.3.1
 inflection
 numpy
 pillow
-pygame
+psutil
 pyparsing
 torch
 torchvision

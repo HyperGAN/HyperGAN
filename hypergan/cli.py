@@ -144,7 +144,7 @@ class CLI:
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-        self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input())
+        self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input(), device=self.args.parameter_server_device)
         self.gan.inputs.next()
 
         if self.gan.load(self.save_file):

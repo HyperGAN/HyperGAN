@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 
 class BaseGAN():
-    def __init__(self, config=None, inputs=None):
+    def __init__(self, config=None, inputs=None, device="cuda"):
         """ Initialized a new GAN."""
         self.steps = Variable(torch.zeros([1]))
         self.inputs = inputs
@@ -35,6 +35,7 @@ class BaseGAN():
         self.train_hooks = TrainHookCollection(self)
         self.config = config
         self._metrics = {}
+        self.device = device
         self.create()
 
     def add_metric(self, name, value):
@@ -100,7 +101,7 @@ class BaseGAN():
         klass = GANComponent.lookup_function(None, defn['class'])
         gan_component = klass(self, defn, *args, **kw_args)
         if(isinstance(gan_component, nn.Module)):
-            gan_component = gan_component.set_device()
+            gan_component = gan_component.to(self.device)
         else:
             print("Warning", name, "is not a nn.Module")
         self.add_component(name, gan_component)

@@ -15,13 +15,12 @@ def create_input(input_config):
 
 def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event):
     gan.inputs = inputs
+    gan.device = device
     #torch.manual_seed(device)
     gan.generator = gan.generator.to(device)
     gan.generator.device="cuda:"+str(device)
     gan.discriminator = gan.discriminator.to(device)
     gan.discriminator.device="cuda:"+str(device)
-    gan.inputs.device=device
-    gan.latent.device=device
     optimizer_state_dict = gan.trainer.optimizer.state_dict()
     gan.trainer = gan.create_component("trainer")
     gan.trainer.optimizer.load_state_dict(optimizer_state_dict)
@@ -33,7 +32,6 @@ def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, 
                 report_weights_queue.put(list([p.clone().detach() for p in gan.parameters()]))
             else:
                 report_weights_queue.put(list(gan.parameters()))
-
             params = set_weights_queue.get()
             for p1, p2 in zip(gan.parameters(), params):
                 with torch.no_grad():

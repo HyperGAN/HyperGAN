@@ -788,3 +788,4 @@ class ConfigurableComponent(GANComponent):
     def __setstate__(self, d):
         self.__dict__ = d
         self.parser = hypergan.parser.Parser()
+

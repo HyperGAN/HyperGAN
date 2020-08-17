@@ -38,7 +38,7 @@ class ImageLoader:
             directories = [directories]
 
         self.dataloaders = []
-        self.device=0
+        self.device=None
         if self.config.rank is not None:
             self.device = self.config.rank
         for directory in directories:
@@ -71,9 +71,9 @@ class ImageLoader:
         if self.config.blank:
             return torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
         try:
-            self.multiple = torch.tensor(2.0, device="cuda:"+str(self.device))
-            self.offset = torch.tensor(-1.0, device="cuda:"+str(self.device))
-            return self.datasets[index].next()[0].cuda(device=self.device) * self.multiple + self.offset
+            self.multiple = torch.tensor(2.0, device=self.device)
+            self.offset = torch.tensor(-1.0, device=self.device)
+            return self.datasets[index].next()[0].to(self.device) * self.multiple + self.offset
         except ValueError:
             return self.next(index)
         except PIL.UnidentifiedImageError:

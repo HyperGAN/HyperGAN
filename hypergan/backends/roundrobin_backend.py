@@ -95,3 +95,6 @@ class RoundrobinBackend(Backend):
             self.set_weights_queue[selected].put(list(self.gan.parameters()))
         self.sync += 1
         self.cli.sample()
+        if self.sync % 600 == 0:
+            print("Saving from roundrobin")
+            self.gan.save(self.cli.save_file)

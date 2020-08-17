@@ -41,7 +41,6 @@ class StandardGAN(BaseGAN):
         self.generator = None
         self.loss = None
         self.trainer = None
-        self.features = []
         BaseGAN.__init__(self, *args, **kwargs)
         self.x = self.inputs.next()
 

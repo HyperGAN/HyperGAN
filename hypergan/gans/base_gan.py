@@ -280,3 +280,13 @@ class BaseGAN():
             params += c.latent_parameters()
         return params
 
+    def __getstate__(self):
+        pickled = dict(self.__dict__)
+
+        del pickled['inputs']
+        del pickled['x']
+        return pickled
+    def __setstate__(self, d):
+        print("I'm being unpickled with these values:", d)
+        self.__dict__ = d
+

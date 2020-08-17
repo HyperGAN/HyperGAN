@@ -39,6 +39,8 @@ class ImageLoader:
 
         self.dataloaders = []
         self.device=0
+        if self.config.rank is not None:
+            self.device = self.config.rank
         for directory in directories:
             mode = "RGB"
             if self.channels() == 4:
@@ -49,7 +51,7 @@ class ImageLoader:
                 shuffle = config.shuffle
             dataloader = data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=4, drop_last=True, pin_memory=True)
             self.dataloaders.append(dataloader)
-            self.datasets.append(iter(self.dataloaders[-1]))
+            #self.datasets.append(iter(self.dataloaders[-1]))
 
     def batch_size(self):
         return self.config.batch_size
@@ -64,6 +66,8 @@ class ImageLoader:
         return self.config.channels
 
     def next(self, index=0):
+        if len(self.datasets) == 0:
+            self.datasets = [iter(dl) for dl in self.dataloaders]
         if self.config.blank:
             return torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
         try:

@@ -778,3 +778,13 @@ class ConfigurableComponent(GANComponent):
     def set_trainable(self, flag):
         for p in (set(list(self.parameters())) - self.untrainable_parameters):
             p.requires_grad = flag
+
+    def __getstate__(self):
+        obj = dict(self.__dict__)
+        del obj["parser"]
+
+        return obj
+
+    def __setstate__(self, d):
+        self.__dict__ = d
+        self.parser = hypergan.parser.Parser()

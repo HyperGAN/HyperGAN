@@ -22,7 +22,9 @@ def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, 
     gan.discriminator.device="cuda:"+str(device)
     gan.inputs.device=device
     gan.latent.device=device
+    optimizer_state_dict = gan.trainer.optimizer.state_dict()
     gan.trainer = gan.create_component("trainer")
+    gan.trainer.optimizer.load_state_dict(optimizer_state_dict)
     loaded_event.set()
     while(True):
         gan.step()

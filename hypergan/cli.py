@@ -80,11 +80,11 @@ class CLI:
         """
         sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
         self.create_path(sample_file)
-        sample_list = self.gan.sample(sample_file, allow_save and self.args.save_samples)
+        #sample_list = self.gan.sample(sample_file, allow_save and self.args.save_samples)
         if allow_save:
             self.samples += 1
 
-        return sample_list
+        return []#sample_list
 
     def step(self):
         self.gan.step()

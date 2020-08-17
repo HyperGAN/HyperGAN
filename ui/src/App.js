@@ -10,16 +10,15 @@ function App() {
   const [samples, setSamples] = React.useState([]);
   const serverDiscovery = new ServerDiscovery();
   const refresh = () => {
+    setSamples([]);
     serverDiscovery.discover();
   }
   serverDiscovery.onClientsDiscovered = (clients) => {
-    console.log("New client: ", clients);
     setClients(clients);
     clients.map( (client) => {
       client.sample();
-      client.onSamples = (samples) => {
-        console.log("Got a bunch of fresh samples", samples[0]);
-        setSamples(samples);
+      client.onSamples = (new_samples) => {
+        setSamples([...samples, ...new_samples]);
       }
     });
   }
@@ -28,7 +27,7 @@ function App() {
     <header className="App-header">
     <img src={logo} className="App-logo" alt="logo" />
     {
-      samples.map((sample,index) => <img src={URL.createObjectURL(sample)}/>)
+      samples.map((sample,index) => <li>{index}:<img src={URL.createObjectURL(sample)}/></li>)
     }
     <p>
 

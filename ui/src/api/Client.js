@@ -7,7 +7,7 @@ export default class Client {
     this.socket.onmessage = (message) => {
       console.log(message);
       if(message.data instanceof Blob) {
-        this.sample = message.data;//this.sample_parts += [message.data];
+        this.sample_data = message.data;
         return
       }
       let json = JSON.parse(message.data);
@@ -17,13 +17,16 @@ export default class Client {
       if(json["action"] == "sample_start") {
       }
       if(json["action"] == "sample_end") {
-        this.samples.push(this.sample.slice(0, this.sample.size, "image/png"));
+        this.samples.push(this.sample_data.slice(0, this.sample_data.size, "image/png")); //slice sets the mime type
       }
       if(json["action"] == "samples_start") {
         this.samples = [];
       }
       if(json["action"] == "samples_end") {
-        this.onSamples(this.samples);
+        if(this.samples.length > 0) {
+          console.log("Sending samples", this.samples)
+          this.onSamples(this.samples);
+        }
       }
     }
   }

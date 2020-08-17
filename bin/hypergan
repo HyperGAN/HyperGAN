@@ -37,7 +37,7 @@ class CommandParser:
         parser.add_argument('--save_file', type=str, default=None, help='The save file to load and save from.  Use gs://bucket/mymodel/model.ckpt for TPU saving')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
-        parser.add_argument('--noserver', dest='viewer', action='store_false', help='Disables the api server. Needed for the ui.')
+        parser.add_argument('--noserver', dest='server', action='store_false', help='Disables the api server. Needed for the ui.')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
         parser.add_argument('--viewer_size', '-z', type=float, dest='viewer_size', default=1, help='Size of the viewer window as a multiplier. WARNING: values above 60 may cause crashes')
         parser.add_argument('--list-templates', '-l', dest='list_templates', action='store_true', help='List available templates.')

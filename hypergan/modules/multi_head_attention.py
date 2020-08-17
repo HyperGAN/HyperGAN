@@ -7,7 +7,7 @@ class MultiHeadAttention(nn.Module):
         super(MultiHeadAttention,self).__init__()
         self.heads = heads
         self.features = input_size // heads
-        self.features_sqrt = torch.tensor(math.sqrt(self.features)).cuda()
+        self.features_sqrt = math.sqrt(self.features)
 
         self.f = nn.Linear(input_size, input_size)
         self.g = nn.Linear(input_size, input_size)

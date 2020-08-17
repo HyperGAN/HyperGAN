@@ -2,7 +2,7 @@ hyperchamber==0.3
 inflection
 numpy
 pillow
-pygame
+psutil
 pyparsing
 torch
 torchvision

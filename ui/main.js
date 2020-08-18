@@ -1,6 +1,7 @@
 const electron = require('electron');
 const {app, BrowserWindow, Menu} = require('electron');
 const isDev = require('electron-is-dev');
+const log = require('electron-log');
 
 let mainWindow;
 
@@ -13,6 +14,10 @@ app.on('ready', function() {
   mainWindow = new BrowserWindow({width: 800, height: 600, webPreferences: {nodeIntegration: true}});
 
   const startURL = isDev ? 'http://localhost:3000' : ('file://' + __dirname + '/build/index.html');
+  log.info("startURL:");
+  log.info(startURL);
+  log.info("isDev:");
+  log.info(isDev);
   mainWindow.loadURL(startURL);
 
   var application_menu = [

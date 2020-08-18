@@ -1,30 +1,44 @@
 import React from 'react';
 import logo from './logo.svg';
+import ServerDiscovery from './ServerDiscovery';
 import './App.css';
-const socket = new WebSocket("ws://localhost:9999")
 //import HgApiClient from './HgApiClient.js';
 
 function App() {
   const [messages, setMessages] = React.useState([]);
-  socket.onopen = () => {
-    setMessages([...messages, "connected"])
-  };
-  socket.onmessage = (message) => {
-    setMessages([...messages, message.data])
-  };
+  const [clients, setClients] = React.useState([]);
+  const [samples, setSamples] = React.useState([]);
+  const serverDiscovery = new ServerDiscovery();
+  const refresh = () => {
+    setSamples([]);
+    serverDiscovery.discover();
+  }
+  serverDiscovery.onClientsDiscovered = (clients) => {
+    setClients(clients);
+    clients.map( (client) => {
+      client.sample();
+      client.onSamples = (new_samples) => {
+        setSamples([...samples, ...new_samples]);
+      }
+    });
+  }
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Listening for HyperGAN
-          <button onClick={_=>{
-            socket.send("ping")
-          }}>
-          Ping
+    <header className="App-header">
+    <img src={logo} className="App-logo" alt="logo" />
+    {
+      samples.map((sample,index) => <li>{index}:<img src={URL.createObjectURL(sample)}/></li>)
+    }
+    <p>
+
+      <button onClick={_=>{
+        refresh();
+      }}>
+          Refresh
           </button>
-          {messages.map((msg,index) => <li>{msg}</li>)}
         </p>
+        Clients connected:
+          {clients.length}
       </header>
     </div>
   );

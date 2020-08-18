@@ -1,10 +1,10 @@
 import torch.nn as nn
 import hypergan as hg
 from hypergan.layer_shape import LayerShape
-
 from hypergan.modules.modulated_conv2d import EqualLinear
+from ..layer import Layer
 
-class Upsample(hg.Layer):
+class Upsample(Layer):
 
     """
         ---

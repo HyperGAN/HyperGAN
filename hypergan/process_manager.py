@@ -3,7 +3,9 @@ import psutil
 import subprocess
 import tempfile
 import torch
+import os
 from shutil import which
+from hypergan.servers.websocket_server import WebsocketServer
 
 class ProcessManager:
     def __init__(self):
@@ -27,10 +29,10 @@ class ProcessManager:
         path = pathlib.Path(tempfile.gettempdir()).joinpath("hypergan.pid").absolute()
         return path
 
-    def start_websocket_server(self):
-        WebsocketServer()
+    def start_websocket_server(self, gan):
+        WebsocketServer(gan)
 
-    def spawn_ui(self):
+    def spawn_ui(self, is_dev):
         electron_path = which("electron")
         if electron_path is None:
             print("Could not find electron. Please make sure that it is available with `npm i -g electron`")
@@ -41,13 +43,19 @@ class ProcessManager:
 
         ui_path = pathlib.Path(__file__).parent.parent.joinpath("ui").absolute()
         print("Starting electron app")
-        popen = subprocess.Popen([electron_path, ui_path], shell=False)
+        env = os.environ.copy()
+        if is_dev:
+            env["ELECTRON_IS_DEV"] = "1"
+        popen = subprocess.Popen([electron_path, ui_path], shell=False, env=env)
         with open(self.get_ui_tmp_file(), 'w') as temp:
             temp.write(str(popen.pid))
         self.ui_process = popen
         print("Electron app started")
 
-    def spawn_websocket_server(self):
+    def spawn_websocket_server(self, gan):
         print("Starting websocket server")
-        #self.wss_process = torch.multiprocessing.spawn(self.start_websocket_server, join=False)
+        #torch.multiprocessing.set_start_method('spawn', force=True)
+        remote_gan = RemoteGAN(gan)
+        self.wss_process = torch.multiprocessing.Process(target=self.start_websocket_server, args=[remote_gan])
+        self.wss_process.start()
         print("Websocket server started")

@@ -29,8 +29,12 @@ from hypergan.modules.scaled_conv2d import ScaledConv2d
 from hypergan.modules.variational import Variational
 from hypergan.modules.pixel_norm import PixelNorm
 
+from hypergan.layer import Layer
+
 import torchvision
 import hypergan as hg
+
+import hypergan.layers as layers
 
 class ConfigurableComponent(GANComponent):
     def __init__(self, gan, config, input=None, input_shape=None, context_shapes = {}, input_is_latent=False):
@@ -59,19 +63,19 @@ class ConfigurableComponent(GANComponent):
             self.is_latent = False
         self._latent_parameters = []
         self.layer_ops = {**self.activations(),
-            "add": hg.layers.Add,
-            "cat": hg.layers.Cat,
-            "channel_attention": hg.layers.ChannelAttention,
-            "efficient_attention": hg.layers.EfficientAttention,
-            "ez_norm": hg.layers.EzNorm,
-            "layer": hg.layers.Layer,
-            "mul": hg.layers.Mul,
-            "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
-            "pixel_shuffle": hg.layers.PixelShuffle,
-            "residual": hg.layers.Residual,
-            "resizable_stack": hg.layers.ResizableStack,
-            "segment_softmax": hg.layers.SegmentSoftmax,
-            "upsample": hg.layers.Upsample,
+            "add": layers.Add,
+            "cat": layers.Cat,
+            "channel_attention": layers.ChannelAttention,
+            "efficient_attention": layers.EfficientAttention,
+            "ez_norm": layers.EzNorm,
+            "layer": layers.Layer,
+            "mul": layers.Mul,
+            "multi_head_attention2": layers.MultiHeadAttention, #TODO rename
+            "pixel_shuffle": layers.PixelShuffle,
+            "residual": layers.Residual,
+            "resizable_stack": layers.ResizableStack,
+            "segment_softmax": layers.SegmentSoftmax,
+            "upsample": layers.Upsample,
 
             #easy to convert
             "dropout": self.layer_dropout,
@@ -187,7 +191,7 @@ class ConfigurableComponent(GANComponent):
     def build_layer(self, op, args, options):
         if self.layer_ops[op]:
             try:
-                is_hg_layer = issubclass(self.layer_ops[op], hg.Layer)
+                is_hg_layer = issubclass(self.layer_ops[op], Layer)
             except TypeError:
                 is_hg_layer = False
 
@@ -735,7 +739,7 @@ class ConfigurableComponent(GANComponent):
                 args = parsed.args
                 layer_name = parsed.layer_name
                 name = options.name
-                if isinstance(module, hg.Layer):
+                if isinstance(module, Layer):
                     input = module(input, context)
                 elif layer_name == "adaptive_instance_norm":
                     input = module(input, context['w'])

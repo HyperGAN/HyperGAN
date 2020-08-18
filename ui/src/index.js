@@ -1,3 +1,4 @@
+//require('app-module-path').addPath(__dirname);
 import React from 'react';
 import ReactDOM from 'react-dom';
 import './index.css';

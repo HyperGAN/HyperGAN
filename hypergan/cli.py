@@ -59,9 +59,7 @@ class CLI:
 
         if self.args.method == 'train' or self.args.method == 'sample':
             if self.args.noviewer is None:
-                self.process_manager.spawn_ui()
-            if self.args.noserver is None:
-                self.process_manager.spawn_websocket_server()
+                self.process_manager.spawn_ui(self.args.dev)
         #GlobalViewer.set_options(
         #    enable_menu = self.args.menu,
         #    title = title,
@@ -82,18 +80,11 @@ class CLI:
         """
         sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
         self.create_path(sample_file)
-        self.lazy_create()
-        sample_list = self.sampler.sample(sample_file, allow_save and self.args.save_samples)
+        #sample_list = self.gan.sample(sample_file, allow_save and self.args.save_samples)
         if allow_save:
             self.samples += 1
 
-        return sample_list
-
-    def lazy_create(self):
-        if(self.sampler == None):
-            self.sampler = self.gan.sampler_for(self.sampler_name)(self.gan, samples_per_row=self.args.width)
-            if(self.sampler == None):
-                raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
+        return []#sample_list
 
     def step(self):
         self.gan.step()
@@ -131,6 +122,8 @@ class CLI:
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input())
+        if self.args.noserver is None:
+            self.process_manager.spawn_websocket_server(self.gan)
         self.gan.inputs.next()
 
         if self.gan.load(self.save_file):

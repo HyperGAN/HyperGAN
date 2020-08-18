@@ -16,16 +16,12 @@ def create_input(input_config):
 def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event, save_file):
     gan.inputs = inputs
     gan.device = device
-    #torch.manual_seed(device)
     gan = gan.to(device)
-    #optimizer_state_dict = gan.trainer.optimizer.state_dict()
     gan.trainer = gan.create_component("trainer")
-    #gan.trainer.optimizer.load_state_dict(optimizer_state_dict)
     if gan.load(save_file):
         print("Model loaded")
     else:
         print("Initializing new model")
-
 
     loaded_event.set()
     while(True):
@@ -43,7 +39,6 @@ def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, 
                     p1.set_(p2)
             del params
             report_weights_event.clear()
-
 
 class RoundrobinBackend(Backend):
     """Trains separately then syncs each card, round robin style"""

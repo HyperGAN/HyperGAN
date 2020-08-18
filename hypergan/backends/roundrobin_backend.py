@@ -81,7 +81,7 @@ class RoundrobinBackend(Backend):
             loaded_event.wait()
 
     def step(self):
-        time.sleep(10.0)
+        time.sleep(2.0)
         selected = self.sync % len(self.processes)
         print("Syncing", selected)
         self.report_weights_event[selected].set()

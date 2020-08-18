@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 
 class BaseGAN():
-    def __init__(self, config=None, inputs=None, device="cuda"):
+    def __init__(self, config=None, inputs=None, device="cuda", create_trainer=True):
         """ Initialized a new GAN."""
         self.steps = Variable(torch.zeros([1]))
         self.inputs = inputs
@@ -36,6 +36,7 @@ class BaseGAN():
         self.config = config
         self._metrics = {}
         self.device = device
+        self.create_trainer = create_trainer
         self.create()
 
     def add_metric(self, name, value):
@@ -290,4 +291,11 @@ class BaseGAN():
     def __setstate__(self, d):
         print("I'm being unpickled with these values:", d)
         self.__dict__ = d
+
+    def to(self, device):
+        self.generator = self.generator.to(device)
+        self.generator.device="cuda:"+str(device)
+        self.discriminator = self.discriminator.to(device)
+        self.discriminator.device="cuda:"+str(device)
+        return self
 

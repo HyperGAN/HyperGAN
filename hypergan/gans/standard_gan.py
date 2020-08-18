@@ -57,7 +57,8 @@ class StandardGAN(BaseGAN):
         self.generator = self.create_component("generator", input=self.latent)
         self.discriminator = self.create_component("discriminator")
         self.loss = self.create_component("loss")
-        self.trainer = self.create_component("trainer")
+        if self.create_trainer:
+            self.trainer = self.create_component("trainer")
 
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0])

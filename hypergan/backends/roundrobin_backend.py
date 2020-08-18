@@ -13,17 +13,20 @@ def create_input(input_config):
     return klass(input_config)
 
 
-def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event):
+def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event, save_file):
     gan.inputs = inputs
     gan.device = device
     #torch.manual_seed(device)
-    gan.generator = gan.generator.to(device)
-    gan.generator.device="cuda:"+str(device)
-    gan.discriminator = gan.discriminator.to(device)
-    gan.discriminator.device="cuda:"+str(device)
-    optimizer_state_dict = gan.trainer.optimizer.state_dict()
+    gan = gan.to(device)
+    #optimizer_state_dict = gan.trainer.optimizer.state_dict()
     gan.trainer = gan.create_component("trainer")
-    gan.trainer.optimizer.load_state_dict(optimizer_state_dict)
+    #gan.trainer.optimizer.load_state_dict(optimizer_state_dict)
+    if gan.load(save_file):
+        print("Model loaded")
+    else:
+        print("Initializing new model")
+
+
     loaded_event.set()
     while(True):
         gan.step()
@@ -69,7 +72,7 @@ class RoundrobinBackend(Backend):
             set_weights_queue = mp.Queue()
             report_weights_queue = mp.Queue()
             inputs = cli.create_input(rank=device)
-            p = mp.Process(target=train, args=(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event))
+            p = mp.Process(target=train, args=(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event, self.cli.save_file))
             p.start()
             self.processes.append(p)
             self.report_weights_event.append(report_weights_event)
@@ -78,7 +81,7 @@ class RoundrobinBackend(Backend):
             loaded_event.wait()
 
     def step(self):
-        time.sleep(1.0)
+        time.sleep(10.0)
         selected = self.sync % len(self.processes)
         print("Syncing", selected)
         self.report_weights_event[selected].set()

@@ -20,20 +20,16 @@ import torch
 import uuid
 
 class StandardGAN(BaseGAN):
-    """ 
+    """
     Standard GANs consist of:
-    
-    *required to sample*
-    
+
+    * single input source
     * latent
     * generator
-    * sampler
-
-    *required to train*
-
     * discriminator
-    * loss
-    * trainer
+
+    The generator creates a sample based on the latent.
+
     """
     def __init__(self, *args, **kwargs):
         self.discriminator = None
@@ -56,9 +52,6 @@ class StandardGAN(BaseGAN):
         self.latent = self.create_component("latent")
         self.generator = self.create_component("generator", input=self.latent)
         self.discriminator = self.create_component("discriminator")
-        self.loss = self.create_component("loss")
-        if self.create_trainer:
-            self.trainer = self.create_component("trainer")
 
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0])

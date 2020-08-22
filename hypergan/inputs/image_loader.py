@@ -13,7 +13,7 @@ class ImageLoader:
     ImageLoader loads a set of images
     """
 
-    def __init__(self, config):
+    def __init__(self, config, device=None):
         self.config = config
         self.datasets = []
         transform_list = []
@@ -38,9 +38,7 @@ class ImageLoader:
             directories = [directories]
 
         self.dataloaders = []
-        self.device=None
-        if self.config.rank is not None:
-            self.device = self.config.rank
+        self.device=device
         for directory in directories:
             mode = "RGB"
             if self.channels() == 4:
@@ -52,6 +50,9 @@ class ImageLoader:
             dataloader = data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=4, drop_last=True, pin_memory=True)
             self.dataloaders.append(dataloader)
             #self.datasets.append(iter(self.dataloaders[-1]))
+
+    def to(self, device):
+        return ImageLoader(self.config, device=device)
 
     def batch_size(self):
         return self.config.batch_size

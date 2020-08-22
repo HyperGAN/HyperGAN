@@ -83,11 +83,6 @@ class AlignedInterpolateGAN(BaseGAN):
         self.d_real = d_real
         return d_real, d_fake
 
-    def forward_loss(self):
-        d_real, d_fake= self.forward_pass()
-        d_loss, g_loss = self.loss.forward(d_real, d_fake)
-        return d_loss, g_loss
-
     def discriminator_components(self):
         if self.config.shared_discriminator:
             return [self.discriminator]

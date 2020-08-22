@@ -3,9 +3,10 @@ import hyperchamber as hc
 import inspect
 
 class BaseTrainer(GANComponent):
-    def __init__(self, gan, config):
+    def __init__(self, gan, config, trainable_gan):
         self.current_step = 0
-        self.train_hooks = []
+        self.train_hooks = gan.hooks
+        self.trainable_gan = trainable_gan
 
         GANComponent.__init__(self, gan, config)
 
@@ -19,21 +20,12 @@ class BaseTrainer(GANComponent):
         self.create_called = True
         self.d_lr = d_lr
         self.g_lr = g_lr
-        for hook_config in (config.hooks or []):
-            hook_config = hc.lookup_functions(hook_config.copy())
-            defn = {k: v for k, v in hook_config.items() if k in inspect.getargspec(hook_config['class']).args}
-            defn['gan']=self.gan
-            defn['config']=hook_config
-            hook = hook_config["class"](**defn)
-            self.gan.add_component("hook", hook)
+        for hook in self.gan.hooks:
             losses = hook.losses()
             if losses[0] is not None:
-                self.gan.loss.sample[0] += losses[0]
+                self.trainable_gan.loss.sample[0] += losses[0]
             if losses[1] is not None:
-                self.gan.loss.sample[1] += losses[1]
-            if "only" in hook_config and hook_config["only"]:
-                self.gan.loss = hc.Config({"sample": losses})
-            self.train_hooks.append(hook)
+                self.trainable_gan.loss.sample[1] += losses[1]
 
         result = self._create()
 
@@ -46,8 +38,9 @@ class BaseTrainer(GANComponent):
         defn = defn.copy()
         klass = GANComponent.lookup_function(None, defn['class'])
         del defn["class"]
-        optimizer = klass(self.gan.parameters(), **defn)
-        self.gan.add_component(name, optimizer)
+
+        print("S", self.trainable_gan)
+        optimizer = self.trainable_gan.create_optimizer(klass, defn)
         return optimizer
 
     def calculate_gradients(self):

@@ -9,8 +9,8 @@ from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
 
 class AdversarialNormTrainHook(BaseTrainHook):
-    def __init__(self, gan=None, config=None, trainer=None):
-        super().__init__(config=config, gan=gan, trainer=trainer)
+    def __init__(self, gan=None, config=None):
+        super().__init__(config=config, gan=gan)
         self.d_loss = None
         self.g_loss = None
         if self.config.gamma is not None:
@@ -70,9 +70,13 @@ class AdversarialNormTrainHook(BaseTrainHook):
         return [self.d_loss, self.g_loss]
 
     def regularize_adversarial_norm(self, d1_logits, d2_logits, target):
-        loss = self.gan.loss.forward_adversarial_norm(d1_logits, d2_logits)
+        loss = self.forward_adversarial_norm(d1_logits, d2_logits)
 
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
         mod_target = [_d1 + _t for _d1, _t in zip(d1_grads, target)]
 
         return loss, None, mod_target
+
+    def forward_adversarial_norm(self, d_real, d_fake):
+        return (torch.sign(d_real-d_fake)*((d_real - d_fake)**2)).mean()
+        #return 0.5 * (self.dist(d_real,d_fake) + self.dist(d_fake, d_real)).sum()

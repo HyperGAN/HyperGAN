@@ -37,6 +37,3 @@ class RaganLoss(BaseLoss):
             g_loss = -tf.log(tf.nn.sigmoid(d_fake-cr)+TINY)
 
         return [d_loss, g_loss]
-
-    def forward_adversarial_norm(self, d_real, d_fake):
-        return self.relu((d_real - d_fake.mean()).mean() - (d_fake-d_real.mean()).mean()) ** 2

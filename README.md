@@ -22,6 +22,7 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
 * [Quick start](#quick-start)
   * [Requirements](#requirements)
   * [Install](#install)
+  * [Troubleshooting](#troubleshooting)
   * [Testing install](#testing-install)
   * [Train](#train)
   * [Development Mode](#development-mode)
@@ -72,7 +73,11 @@ See the full changelog here: [Changelog.md](changelog.md)
 
 ### Requirements
 
-Recommended: GTX 1080+
+Nvidia GPU
+
+OS: Linux, windows support is planned but not currently working
+
+GPU: NVIDIA, GTX 1080+ recommended
 
 ### Install
 
@@ -95,6 +100,12 @@ If you use virtualenv:
   virtualenv --system-site-packages -p python3 hypergan
   source hypergan/bin/activate
 ```
+
+### Troubleshooting
+
+Make sure that your cuda, nvidia drivers, pillow, pytorch, and pytorch vision are the latest version.
+
+Check the discord for help.
 
 ### Create a new model
 

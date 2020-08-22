@@ -142,8 +142,9 @@ class BaseGAN():
                 print('state_dict', state_dict.keys())
                 component.load_state_dict(state_dict)
                 return True
-            except:
+            except Exception as e:
                 print("Warning: Could not load component " + name)
+                print(e)
                 return False
         else:
             print("Could not load " + path)
@@ -159,7 +160,6 @@ class BaseGAN():
         print("Saving " + path)
         print(component.state_dict().keys())
         torch.save(component.state_dict(), path)
-
 
     def parse_args(self, strs):
         options = hc.Config({})

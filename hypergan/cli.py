@@ -138,9 +138,9 @@ class CLI:
             if (self.args.save_every != None and
                 self.args.save_every != -1 and
                 self.args.save_every > 0 and
-                i % self.args.save_every == 0):
+                self.steps % self.args.save_every == 0):
                 print(" |= Saving network")
-                self.gan.save(self.save_file)   
+                self.trainable_gan.save()
                 self.create_path(self.advSavePath+'advSave.txt')
                 if os.path.isfile(self.advSavePath+'advSave.txt'):
                     with open(self.advSavePath+'advSave.txt', 'w') as the_file:
@@ -148,7 +148,7 @@ class CLI:
             if self.args.ipython:
                 self.check_stdin()
         print("Done training model.  Saving")
-        self.gan.save(self.save_file)
+        self.trainable_gan.save()
         print("============================")
         print("HyperGAN model trained")
         print("============================")

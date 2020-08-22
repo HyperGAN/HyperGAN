@@ -8,7 +8,7 @@ import copy
 import torch
 import time
 
-def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event, save_event, save_complete, save_file):
+def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event, save_event, save_complete_event, save_file):
     gan.inputs = inputs
     gan = gan.to(device)
     from hypergan.trainable_gan import TrainableGAN
@@ -38,7 +38,7 @@ def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, 
             print("Saving from roundrobin")
             trainable_gan.save_locally()
             save_event.clear()
-            save_complete.set()
+            save_complete_event.set()
 
 class RoundrobinBackend(Backend):
     """Trains separately then syncs each card, round robin style"""
@@ -60,10 +60,10 @@ class RoundrobinBackend(Backend):
             devices = [int(d) for d in devices.split(",")]
         self.devices = devices
         print("Devices:", devices)
-        save_complete = mp.Event()
+        save_complete_event = mp.Event()
         save_event = mp.Event()
         self.save_event = save_event
-        self.save_complete = save_complete
+        self.save_complete_event = save_complete_event
 
         for device in devices:
             loaded_event = mp.Event()
@@ -71,7 +71,7 @@ class RoundrobinBackend(Backend):
             set_weights_queue = mp.Queue()
             report_weights_queue = mp.Queue()
             inputs = self.trainable_gan.gan.inputs.to(device)
-            p = mp.Process(target=train, args=(device, head_device, trainable_gan.gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event, save_event, save_complete, self.trainable_gan.save_file))
+            p = mp.Process(target=train, args=(device, head_device, trainable_gan.gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event, save_event, save_complete_event, self.trainable_gan.save_file))
             p.start()
             self.processes.append(p)
             self.report_weights_event.append(report_weights_event)
@@ -81,11 +81,8 @@ class RoundrobinBackend(Backend):
             save_event = None
 
     def save(self):
-        if self.sync % 600 == 0:
-            print("sending save event")
-            self.save_event.set()
-            print("waiting for save complete")
-            self.save_complete.wait()
+        self.save_event.set()
+        self.save_complete_event.wait()
 
     def step(self):
         time.sleep(2.0)
@@ -103,4 +100,5 @@ class RoundrobinBackend(Backend):
             self.set_weights_queue[selected].put(list([p.clone().detach() for p in self.trainable_gan.parameters()]))
         else:
             self.set_weights_queue[selected].put(list(self.trainable_gan.parameters()))
+
         self.sync += 1

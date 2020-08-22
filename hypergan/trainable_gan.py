@@ -52,10 +52,11 @@ class TrainableGAN:
         self._metrics = {}
 
     def load(self):
-        self.gan.load(self.save_file)
+        success = self.gan.load(self.save_file)
         full_path = os.path.expanduser(os.path.dirname(self.save_file))
         for i, optimizer in enumerate(self.optimizers):
             self.gan._load(full_path, "optimizer"+str(i), optimizer)
+        return success
 
     def save(self):
         self.backend.save()

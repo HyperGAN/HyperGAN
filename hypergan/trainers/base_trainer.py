@@ -39,7 +39,6 @@ class BaseTrainer(GANComponent):
         klass = GANComponent.lookup_function(None, defn['class'])
         del defn["class"]
 
-        print("S", self.trainable_gan)
         optimizer = self.trainable_gan.create_optimizer(klass, defn)
         return optimizer
 

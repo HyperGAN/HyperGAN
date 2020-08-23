@@ -5,7 +5,7 @@ from hypergan.backends.single_gpu_backend import SingleGPUBackend
 from hypergan.train_hook_collection import TrainHookCollection
 
 class TrainableGAN:
-    def __init__(self, gan, save_file = "default.save", devices = [], backend_name = "auto"):
+    def __init__(self, gan, save_file = "default.save", devices = [], backend_name = "roundrobin"):
         self.gan = gan
         self.optimizers = []
         self.samples = 0
@@ -18,7 +18,6 @@ class TrainableGAN:
         self.train_hooks = TrainHookCollection(self)
         self.backend_name = backend_name
         self.available_backends = {
-            'auto': HogwildBackend,
             'roundrobin': RoundrobinBackend,
             'single-gpu': SingleGPUBackend,
             'hogwild': HogwildBackend

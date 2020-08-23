@@ -19,7 +19,7 @@ class CommandParser:
         self.common_flags(parser)
 
     def common_flags(self, parser):
-        parser.add_argument('--backend', "-B", type=str, default="auto", help='Backend to train on.  singlegpu,multigpu,hogwild,roundrobin,tpu.  Default uses all specified devices as roundrobin')
+        parser.add_argument('--backend', "-B", type=str, default="roundrobin", help='Backend to train on.  singlegpu,multigpu,hogwild,roundrobin,tpu.  Default uses all specified devices as roundrobin')
         parser.add_argument('--devices', '-d', action='store', default="-1", type=str, help='Available devices for hypergan training. Defaults to -1(use all available devices)')
         parser.add_argument('--parameter_server_device', '-p', action='store', default="cuda:0", type=str, help='Set the parameter server if the backend uses one(only roundrobin)')
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')

@@ -4,10 +4,11 @@ import random
 import hypergan as hg
 import hyperchamber as hc
 import numpy as np
-from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 from hypergan.gans.standard_gan import StandardGAN
+from hypergan.trainable_gan import TrainableGAN
 from hypergan.layer_shape import LayerShape
+from hypergan.configurable_component import ConfigurableComponent
 from common import *
 import torch.nn as nn
 import torch
@@ -17,7 +18,7 @@ class Sampler(BaseSampler):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.latent = self.gan.latent.next().data.clone()
         self.x = torch.cat([torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size()//2,1,1,1), torch.unsqueeze(self.gan.x[1],0).repeat(gan.batch_size()//2,1,1,1)], 0)
-        self.bw = BW(gan,None,None,hc.Config({}),LayerShape(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
+        self.bw = self.x.mean(axis=1, keepdims=True).repeat(1,3,1,1)
         self.gan = gan
 
     def _sample(self):
@@ -34,7 +35,7 @@ class WalkSampler(BaseSampler):
         self.latent = self.gan.latent.next().data.clone()
         #self.x = torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size(),1,1,1)
         self.x = self.gan.x
-        self.bw = BW(gan,None,None,hc.Config({}),LayerShape(*self.x.shape[1:])).forward_grayscale(self.x).repeat(1,3,1,1)
+        self.bw = self.x.mean(axis=1, keepdims=True).repeat(1,3,1,1)
         self.gan = gan
 
         self.latent1 = self.gan.latent.next()
@@ -72,16 +73,16 @@ class WalkSampler(BaseSampler):
                  ('generator', g)
                ]
 
-
-class BW(nn.Module):
-    def __init__(self, gan, net, args, options, current_size):
-        super().__init__()
-        self.gan = gan
+class BW(hg.Layer):
+    def __init__(self, component, args, options):
+        super().__init__(component, args, options)
+        print(component, args, options)
+        self.gan = component.gan
         self.replace = options.replace or False
         self.downsize = options.downsize or False
         x = self.gan.discriminator_real_inputs()[0]
         if self.replace is False:
-            s = current_size.dims
+            s = component.current_size.dims
             self.upsample = nn.Upsample((s[1], s[2]), mode="bilinear")
             self.shape = [1, s[1], s[2]]
         else:
@@ -91,7 +92,7 @@ class BW(nn.Module):
             self.downsize = [int(x) for x in self.downsize.split("*")]
             self.downsample = nn.Upsample(self.downsize, mode="bilinear")
 
-    def forward(self, input):
+    def forward(self, input, context):
         x = self.gan.x
         if self.downsize:
             x = self.downsample(x)
@@ -106,33 +107,36 @@ class BW(nn.Module):
         shape = self.shape
         return LayerShape(*shape)
 
-arg_parser = ArgumentParser("Colorize an image")
-arg_parser.add_image_arguments()
-args = arg_parser.parse_args()
-GlobalViewer.set_options(enabled = True, title = "[hypergan] colorizer " + args.config, viewer_size = 1)
 
-width, height, channels = parse_size(args.size)
+if __name__ == "__main__":
+    ConfigurableComponent.custom_layers["BW"] = BW
 
-config = lookup_config(args)
+    arg_parser = ArgumentParser("Colorize an image")
+    arg_parser.add_image_arguments()
+    args = arg_parser.parse_args()
 
-input_config = hc.Config({
-    "class": "class:hypergan.inputs.image_loader.ImageLoader",
-    "batch_size": args.batch_size,
-    "directories": args.directory,
-    "channels": channels,
-    "crop": args.crop,
-    "height": height,
-    "random_crop": False,
-    "resize": True,
-    "shuffle": True,
-    "width": width
-})
-klass = GANComponent.lookup_function(None, input_config['class'])
-inputs = klass(input_config)
+    width, height, channels = parse_size(args.size)
 
-config_name = args.config
-save_file = "saves/"+config_name+"/model.ckpt"
-os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
+    config = lookup_config(args)
+
+    input_config = hc.Config({
+        "class": "class:hypergan.inputs.image_loader.ImageLoader",
+        "batch_size": args.batch_size,
+        "directories": args.directory,
+        "channels": channels,
+        "crop": args.crop,
+        "height": height,
+        "random_crop": False,
+        "resize": True,
+        "shuffle": True,
+        "width": width
+    })
+    klass = GANComponent.lookup_function(None, input_config['class'])
+    inputs = klass(input_config)
+
+    config_name = args.config
+    save_file = "saves/"+config_name+"/model.ckpt"
+    os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
 def setup_gan(config, inputs, args):
     gan = hg.GAN(config, inputs=inputs)
@@ -144,16 +148,17 @@ def setup_gan(config, inputs, args):
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     gan.name = config_name
+    trainable_gan = TrainableGAN(gan, save_file=save_file, devices=args.devices)
     gan.selected_sampler = ""
     sampler = Sampler(gan)
     samples = 0
 
     for i in range(args.steps):
-        gan.step()
+        trainable_gan.step()
 
         if args.action == 'train' and i % args.save_every == 0 and i > 0:
             print("saving " + save_file)
-            gan.save(save_file)
+            trainable_gan.save()
 
         if i % args.sample_every == 0:
             sample_file="samples/"+config_name+"/%06d.png" % (samples)
@@ -171,10 +176,11 @@ def sample(config, inputs, args):
         samples += 1
         sampler.sample(sample_file, args.save_samples)
 
-if args.action == 'train':
-    metrics = train(config, inputs, args)
-    print("Resulting metrics:", metrics)
-elif args.action == 'sample':
-    sample(config, inputs, args)
-else:
-    print("Unknown action: "+args.action)
+if __name__ == "__main__":
+    if args.action == 'train':
+        metrics = train(config, inputs, args)
+        print("Resulting metrics:", metrics)
+    elif args.action == 'sample':
+        sample(config, inputs, args)
+    else:
+        print("Unknown action: "+args.action)

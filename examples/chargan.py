@@ -11,17 +11,22 @@ from examples.common import *
 import numpy as np
 
 class TextData(data.Dataset):
-    def __init__(self, path, max_length, device):
-        with open(path, errors='replace') as f:
-            self.lines_raw = f.readlines()
+    def __init__(self, path, max_length, device, mode="LINE"):
+        if mode == "LINE":
+            with open(path, errors='replace') as f:
+                self.lines_raw = f.readlines()
 
+            self.lines = [self.pad_or_truncate(line) for line in self.lines_raw]
+            self.lines = [line for line in self.lines if line is not None]
+        else:
+            self.size = os.path.getsize(path)
+            self.file = None
+            self.path = path
+
+        self.mode = mode
         self.device = device
         self.lookup = None
-        self.one_hot = False #TODO
         self.max_length = max_length
-        self.lines = [self.pad_or_truncate(line) for line in self.lines_raw]
-        self.lines = [line for line in self.lines if line is not None]
-        #self.lines = [self.encode_line(line) for line in self.lines]
         self.vocab = self.get_vocabulary()
 
     def encode_line(self, line):
@@ -45,12 +50,8 @@ class TextData(data.Dataset):
             values = np.arange(len(vocabulary))
             lookup = {}
 
-            if self.one_hot:
-                for i, key in enumerate(vocabulary):
-                    lookup[key]=self.np_one_hot(values[i], len(values))
-            else:
-                for i, key in enumerate(vocabulary):
-                    lookup[key]=values[i]
+            for i, key in enumerate(vocabulary):
+                lookup[key]=values[i]
 
             #reverse the hash
             rlookup = {i[1]:i[0] for i in lookup.items()}
@@ -60,14 +61,25 @@ class TextData(data.Dataset):
         return self.lookup
 
     def get_vocabulary(self):
-        vocab = list(" ~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcbaABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.")
+        vocab = list(" ~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcbaABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.\n")
         return vocab
 
     def __getitem__(self, index):
-        return [self.encode_line(self.lines[index]).view(1, -1)]
+        if self.mode == "LINE":
+            return [self.encode_line(self.lines[index]).view(1, -1)]
+        else:
+            if self.file is None:
+                self.file = open(self.path, 'r', errors='replace')
+            self.file.seek(index)
+            data = self.file.read(self.max_length)
+            encoded = self.encode_line(data).view(1, -1)
+            return [encoded]
 
     def __len__(self):
-        return len(self.lines)
+        if self.mode == "LINE":
+            return len(self.lines)
+        else:
+            return self.size - self.max_length - 1
 
     def pad_or_truncate(self, line):
         line = line.rstrip()
@@ -77,29 +89,22 @@ class TextData(data.Dataset):
 
     def sample_output(self, val):
         vocabulary = self.get_vocabulary()
-        if self.one_hot:
-            vals = [ np.argmax(r) for r in val ]
-            ox_val = [vocabulary[obj] for obj in list(vals)]
-            string = "".join(ox_val)
-            return string
-        else:
-            val = (np.reshape(val, [-1]) + 1) / 2.0
-            x = val[0]
-            val *= len(vocabulary)
-            val = np.round(val)
+        val = (np.reshape(val, [-1]) + 1) / 2.0
+        x = val[0]
+        val *= len(vocabulary)
+        val = np.round(val)
+        val = np.minimum(val, len(vocabulary)-1)
 
-            ox_val = [self.get_character(obj) for obj in list(val)]
-            string = "".join(ox_val)
-            return string
-
-    def np_one_hot(index, length):
-        return np.eye(length)[index]
+        ox_val = [self.get_character(obj) for obj in list(val)]
+        string = "".join(ox_val)
+        return string
 
 
 class TextInput:
-    def __init__(self, config, batch_size, filename, length, one_hot=False, device=0):
-        self.textdata = TextData(filename, length, device=device)
-        self.dataloader = data.DataLoader(self.textdata, batch_size=batch_size, shuffle=True, num_workers=6, drop_last=True)
+    def __init__(self, config, batch_size, filename, length, one_hot=False, device=0, mode="LINE"):
+        self.textdata = TextData(filename, length, device=device, mode=mode)
+        self.dataloader = data.DataLoader(self.textdata, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
+        self.mode = mode
         self.dataset = None
         self._batch_size = batch_size
         self.length = length
@@ -124,7 +129,7 @@ class TextInput:
         plt.savefig(filename)
 
     def to(self, device):
-        return TextInput(self.config, self._batch_size, self.filename, self.length, self.one_hot, device=device)
+        return TextInput(self.config, self._batch_size, self.filename, self.length, self.one_hot, device=device, mode=self.mode)
 
     def next(self, index=0):
         if self.dataset is None:
@@ -163,7 +168,7 @@ if __name__ == '__main__':
     save_file = "saves/"+config_name+"/model.ckpt"
 
 
-    inputs = TextInput(config, args.batch_size, args.filename, args.length, one_hot=args.one_hot)
+    inputs = TextInput(config, args.batch_size, args.filename, args.length, one_hot=args.one_hot, mode="CHAR")
 
     def parse_size(size):
         width = int(size.split("x")[0])
@@ -232,11 +237,7 @@ if __name__ == '__main__':
                 print("X:")
                 print(inputs.textdata.sample_output(x_val[0]))
                 print("G:")
-                for j, g0 in enumerate(g):
-                    if j > 4:
-                        break
-
-                    print(inputs.textdata.sample_output(g0))
+                print(inputs.textdata.sample_output(g[0]))
 
         if args.config is None:
             with open("sequence-results-10k.csv", "a") as myfile:

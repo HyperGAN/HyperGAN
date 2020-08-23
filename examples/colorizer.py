@@ -148,7 +148,7 @@ def setup_gan(config, inputs, args):
 def train(config, inputs, args):
     gan = setup_gan(config, inputs, args)
     gan.name = config_name
-    trainable_gan = TrainableGAN(gan, save_file=save_file, devices=args.devices)
+    trainable_gan = hg.TrainableGAN(gan, save_file = save_file, devices = args.devices, backend_name = args.backend)
     gan.selected_sampler = ""
     sampler = Sampler(gan)
     samples = 0

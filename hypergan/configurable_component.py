@@ -54,6 +54,8 @@ class ConfigurableComponent(GANComponent):
         self.parsed_layers = []
         self.parser = hypergan.parser.Parser()
         self.context_shapes = context_shapes
+        for key, shape in self.context_shapes.items():
+            self.layer_output_sizes[key] = shape
         if isinstance(input, BaseDistribution):
             self.is_latent = True
         else:

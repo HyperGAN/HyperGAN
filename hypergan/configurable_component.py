@@ -148,6 +148,7 @@ class ConfigurableComponent(GANComponent):
             gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
         GANComponent.__init__(self, gan, config)
+        self.device = self.config.device or "cuda:0"
         self.const_two = torch.Tensor([2.0]).float()[0].cuda()
         self.const_one = torch.Tensor([1.0]).float()[0].cuda()
 
@@ -248,7 +249,7 @@ class ConfigurableComponent(GANComponent):
         return result
 
     def get_device(self):
-        return torch.device(self.config.device or "cuda:0")
+        return torch.device(self.device or "cuda:0")
 
     def get_same_padding(self, input_rows, filter_rows, stride, dilation):
         out_rows = (input_rows + stride - 1) // stride
@@ -777,3 +778,14 @@ class ConfigurableComponent(GANComponent):
     def set_trainable(self, flag):
         for p in (set(list(self.parameters())) - self.untrainable_parameters):
             p.requires_grad = flag
+
+    def __getstate__(self):
+        obj = dict(self.__dict__)
+        del obj["parser"]
+
+        return obj
+
+    def __setstate__(self, d):
+        self.__dict__ = d
+        self.parser = hypergan.parser.Parser()
+

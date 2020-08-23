@@ -13,10 +13,8 @@ class ImageLoader:
     ImageLoader loads a set of images
     """
 
-    def __init__(self, config):
+    def __init__(self, config, device=None):
         self.config = config
-        self.multiple = torch.Tensor([2.0]).float()[0].cuda()
-        self.offset = torch.Tensor([-1.0]).float()[0].cuda()
         self.datasets = []
         transform_list = []
         h, w = self.config.height, self.config.width
@@ -40,6 +38,7 @@ class ImageLoader:
             directories = [directories]
 
         self.dataloaders = []
+        self.device=device
         for directory in directories:
             mode = "RGB"
             if self.channels() == 4:
@@ -48,8 +47,12 @@ class ImageLoader:
             shuffle = True
             if config.shuffle is not None:
                 shuffle = config.shuffle
-            self.dataloaders.append(data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=4, drop_last=True))
-            self.datasets.append(iter(self.dataloaders[-1]))
+            dataloader = data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=4, drop_last=True, pin_memory=True)
+            self.dataloaders.append(dataloader)
+            #self.datasets.append(iter(self.dataloaders[-1]))
+
+    def to(self, device):
+        return ImageLoader(self.config, device=device)
 
     def batch_size(self):
         return self.config.batch_size
@@ -64,10 +67,14 @@ class ImageLoader:
         return self.config.channels
 
     def next(self, index=0):
+        if len(self.datasets) == 0:
+            self.datasets = [iter(dl) for dl in self.dataloaders]
         if self.config.blank:
             return torch.zeros([self.config.batch_size, self.config.channels, self.config.height, self.config.width]).cuda()
         try:
-            return self.datasets[index].next()[0].cuda() * self.multiple + self.offset
+            self.multiple = torch.tensor(2.0, device=self.device)
+            self.offset = torch.tensor(-1.0, device=self.device)
+            return self.datasets[index].next()[0].to(self.device) * self.multiple + self.offset
         except ValueError:
             return self.next(index)
         except PIL.UnidentifiedImageError:

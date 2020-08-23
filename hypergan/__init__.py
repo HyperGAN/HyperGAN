@@ -20,3 +20,5 @@ from .cli import CLI
 from .configuration import Configuration
 from .parser import Parser
 import hypergan.cli
+
+from .trainable_gan import TrainableGAN

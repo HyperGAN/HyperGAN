@@ -19,10 +19,12 @@ class CommandParser:
         self.common_flags(parser)
 
     def common_flags(self, parser):
+        parser.add_argument('--backend', "-B", type=str, default="roundrobin", help='Backend to train on.  singlegpu,multigpu,hogwild,roundrobin,tpu.  Default uses all specified devices as roundrobin')
+        parser.add_argument('--devices', '-d', action='store', default="-1", type=str, help='Available devices for hypergan training. Defaults to -1(use all available devices)')
+        parser.add_argument('--parameter_server_device', '-p', action='store', default="cuda:0", type=str, help='Set the parameter server if the backend uses one(only roundrobin)')
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
         parser.add_argument('--batch_size', '-b', type=int, default=0, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
         parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
-        parser.add_argument('--devices', '-d', action='store', default=-1, type=str, help='Available devices for hypergan training. Defaults to -1(use all available devices)')
         parser.add_argument('--input_config', '-i', action='store', default=None, type=str, help='The input configuration to use.')
         parser.add_argument('--toml', '-T', action='store_true', help='Use TOML as configration file format instead of JSON')
         parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
@@ -36,7 +38,7 @@ class CommandParser:
         parser.add_argument('--save_file', type=str, default=None, help='The save file to load and save from.  Use gs://bucket/mymodel/model.ckpt for TPU saving')
         parser.add_argument('--ipython', type=bool, default=False, help='Enables iPython embedded mode.')
         parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.  -1 is unlimited (default)')
-        parser.add_argument('--noserver', dest='viewer', action='store_false', help='Disables the api server. Needed for the ui.')
+        parser.add_argument('--noserver', dest='server', action='store_false', help='Disables the api server. Needed for the ui.')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
         parser.add_argument('--viewer_size', '-z', type=float, dest='viewer_size', default=1, help='Size of the viewer window as a multiplier. WARNING: values above 60 may cause crashes')
         parser.add_argument('--list-templates', '-l', dest='list_templates', action='store_true', help='List available templates.')

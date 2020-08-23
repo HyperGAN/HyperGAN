@@ -8,7 +8,7 @@ import hyperchamber as hc
 import inspect
 
 class BaseTrainHook(GANComponent):
-    def __init__(self, gan=None, config=None, trainer=None):
+    def __init__(self, gan=None, config=None):
         super().__init__(gan, config)
 
 

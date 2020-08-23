@@ -547,7 +547,7 @@ class ConfigurableComponent(GANComponent):
         layers = [nn.Upsample((h)),
                 nn.Conv1d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, padding=padding)]
         self.nn_init(layers[-1], options.initializer)
-        h, _ = self.conv_output_shape((self.current_size.height, self.current_size.height), options.filter or 3, 1, padding, 1)
+        h, _ = self.conv_output_shape((h, h), options.filter or 3, 1, padding, 1)
         self.current_size = LayerShape(channels, h)
         return nn.Sequential(*layers)
 

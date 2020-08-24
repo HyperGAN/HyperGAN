@@ -22,18 +22,20 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
 * [Quick start](#quick-start)
   * [Requirements](#requirements)
   * [Install](#install)
-  * [Troubleshooting](#troubleshooting)
   * [Train](#train)
-  * [Development Mode](#development-mode)
 * [The pip package hypergan](#the-pip-package-hypergan)
   * [Training](#training)
   * [Sampling](#sampling)
+  * [Additional Arguments](#additional-arguments)
   * [Running on CPU](#running-on-cpu)
+  * [Troubleshooting](#troubleshooting)
+  * [Development Mode](#development-mode)
 * [API](#api)
   * [Using a trained hypergan model](#using-a-trained-hypergan-model)
   * [Training a gan](#training-a-gan)
   * [Examples](#examples)
   * [Tutorials](#tutorials)
+
 * [Datasets](#datasets)
   * [Creating a Dataset](#creating-a-dataset)
   * [Downloadable Datasets](#downloadable-datasets)
@@ -84,12 +86,6 @@ GPU: Nvidia, GTX 1080+ recommended
 3. Join the community
   * Once you've made something cool, be sure to share it on the Discord \([https://discord.gg/t4WWBPF](https://discord.gg/t4WWBPF)\).
 
-### Troubleshooting
-
-Make sure that your cuda, nvidia drivers, pillow, pytorch, and pytorch vision are the latest version.
-
-Check the discord for help.
-
 ### Create a new model
 
 ```bash
@@ -134,13 +130,19 @@ See all configuration templates with `--list-templates` or `-l`.
 
 By default hypergan will not save training samples to disk. To change this, use `--save_samples`.
 
-### Arguments
+### Additional Arguments
 
 To see a detailed list, run
 
 ```bash
   hypergan -h
 ```
+
+### Troubleshooting
+
+Make sure that your cuda, nvidia drivers, pillow, pytorch, and pytorch vision are the latest version.
+
+Check the discord for help.
 
 ### Running on CPU
 
@@ -151,7 +153,6 @@ You can switch the backend with:
 ```
 
 Don't train on CPU! It's too slow.
-
 
 ## API
 

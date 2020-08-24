@@ -18,7 +18,7 @@ class Sampler(BaseSampler):
         BaseSampler.__init__(self, gan, samples_per_row)
         self.latent = self.gan.latent.next().data.clone()
         self.x = torch.cat([torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size()//2,1,1,1), torch.unsqueeze(self.gan.x[1],0).repeat(gan.batch_size()//2,1,1,1)], 0)
-        self.bw = self.x.mean(axis=1, keepdims=True).repeat(1,3,1,1)
+        self.bw = self.x.mean(axis=1, keepdims=True).repeat(1,3,1,1).to(gan.device)
         self.gan = gan
 
     def _sample(self):
@@ -35,7 +35,7 @@ class WalkSampler(BaseSampler):
         self.latent = self.gan.latent.next().data.clone()
         #self.x = torch.unsqueeze(self.gan.x[0],0).repeat(gan.batch_size(),1,1,1)
         self.x = self.gan.x
-        self.bw = self.x.mean(axis=1, keepdims=True).repeat(1,3,1,1)
+        self.bw = self.x.mean(axis=1, keepdims=True).repeat(1,3,1,1).to(gan.device)
         self.gan = gan
 
         self.latent1 = self.gan.latent.next()

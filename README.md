@@ -111,7 +111,7 @@ See all configuration templates with `--list-templates` or `-l`.
 
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of folders of pngs, resizing images as necessary
-  hypergan train folder/ -s 32x32x3 -f png -c mymodel --resize
+  hypergan train folder/ -s 32x32x3 -c mymodel --resize
 ```
 
 ### Running on CPU
@@ -128,13 +128,13 @@ Don't train on CPU! It's too slow.
 
 ```bash
   # Train a 32x32 gan with batch size 32 on a folder of pngs
-  hypergan train [folder] -s 32x32x3 -f png -b 32 --config [name]
+  hypergan train [folder] -s 32x32x3 -b 32 --config [name]
 ```
 
 ### Sampling
 
 ```bash
-  hypergan sample [folder] -s 32x32x3 -f png -b 32 --config [name] --sampler batch_walk --sample_every 5 --save_samples
+  hypergan sample [folder] -s 32x32x3 -b 32 --config [name] --sampler batch_walk --sample_every 5 --save_samples
 ```
 
 By default hypergan will not save samples to disk. To change this, use `--save_samples`.

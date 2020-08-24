@@ -138,6 +138,16 @@ To see a detailed list, run
   hypergan -h
 ```
 
+### Running on CPU
+
+You can switch the backend with:
+
+```bash
+  hypergan [...] -B cpu
+```
+
+Don't train on CPU! It's too slow.
+
 ### Troubleshooting
 
 Make sure that your cuda, nvidia drivers, pillow, pytorch, and pytorch vision are the latest version.
@@ -153,16 +163,6 @@ git clone https://github.com/hypergan/hypergan
 cd hypergan
 python3 setup.py develop
 ```
-
-### Running on CPU
-
-You can switch the backend with:
-
-```bash
-  hypergan [...] -B cpu
-```
-
-Don't train on CPU! It's too slow.
 
 ## API
 

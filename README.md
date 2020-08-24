@@ -157,7 +157,7 @@ pip install hypergan
 ### Sampling
 
 ```bash
-  hypergan sample [folder] -s 32x32x3 -b 32 --config [name] --sampler batch_walk --sample_every 5 --save_samples
+  hypergan sample [folder] -s 32x32x3 -b 32 --config [name] --sampler batch_walk --save_samples
 ```
 
 By default hypergan will not save training samples to disk. To change this, use `--save_samples`.

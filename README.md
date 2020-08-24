@@ -137,17 +137,7 @@ Don't train on CPU! It's too slow.
   hypergan sample [folder] -s 32x32x3 -b 32 --config [name] --sampler batch_walk --sample_every 5 --save_samples
 ```
 
-By default hypergan will not save samples to disk. To change this, use `--save_samples`.
-
-One way a network learns:
-
-![https://hypergan.s3-us-west-1.amazonaws.com/1.0/output.gif](https://hypergan.s3-us-west-1.amazonaws.com/1.0/output.gif)
-
-To create videos:
-
-```bash
-  ffmpeg -i samples/%06d.png video.mp4
-```
+By default hypergan will not save training samples to disk. To change this, use `--save_samples`.
 
 ### Arguments
 
@@ -170,17 +160,17 @@ See the [gitbook documentation](https://hypergan.gitbook.io/) for more details.
 ### Using a trained hypergan model
 
 ```python
-    my_gan = hg.GAN('model.hypergan')
-    batch_sample = my_gan.sample()
+my_gan = hg.GAN('model.hypergan')
+batch_sample = my_gan.sample()
 ```
 
 ### Training a gan
 
 ```python
-    gan = hg.GAN("default.json", inputs=hg.inputs.ImageLoader(...))
-    trainable_gan = hg.TrainableGAN(gan)
-    for step in trainable_gan.train():
-        print("I'm on step ", step)
+gan = hg.GAN("default.json", inputs=hg.inputs.ImageLoader(...))
+trainable_gan = hg.TrainableGAN(gan)
+for step in trainable_gan.train():
+    print("I'm on step ", step)
 ```
 
 ### Examples

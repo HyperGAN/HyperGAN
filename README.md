@@ -112,7 +112,7 @@ See all configuration templates with `--list-templates` or `-l`.
 ## The pip package hypergan
 
 ```bash
- hypergan -h
+pip install hypergan
 ```
 
 ### Training
@@ -143,6 +143,16 @@ To see a detailed list, run
 Make sure that your cuda, nvidia drivers, pillow, pytorch, and pytorch vision are the latest version.
 
 Check the discord for help.
+
+### Development mode
+
+If you wish to modify hypergan
+
+```bash
+git clone https://github.com/hypergan/hypergan
+cd hypergan
+python3 setup.py develop
+```
 
 ### Running on CPU
 

@@ -85,15 +85,6 @@ GPU: NVIDIA, GTX 1080+ recommended
 3. Join the community
   * Once you've made something cool, be sure to share it on the Discord \([https://discord.gg/t4WWBPF](https://discord.gg/t4WWBPF)\).
 
-#### Optional `virtualenv`:
-
-If you use virtualenv:
-
-```bash
-  virtualenv --system-site-packages -p python3 hypergan
-  source hypergan/bin/activate
-```
-
 ### Troubleshooting
 
 Make sure that your cuda, nvidia drivers, pillow, pytorch, and pytorch vision are the latest version.

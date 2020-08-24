@@ -123,7 +123,7 @@ class TextData(data.Dataset):
 class TextInput:
     def __init__(self, config, batch_size, filename, length, one_hot=False, device=0, mode="LINE"):
         self.textdata = TextData(filename, length, device=device, mode=mode)
-        self.dataloader = data.DataLoader(self.textdata, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
+        self.dataloader = data.DataLoader(self.textdata, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=True)
         self.mode = mode
         self.dataset = None
         self._batch_size = batch_size
@@ -244,7 +244,7 @@ if __name__ == '__main__':
     config_name = args.config
     save_file = "saves/"+config_name+"/model.ckpt"
 
-    inputs = TextInput(config, args.batch_size, args.filename, args.length, one_hot=config.length, mode="CHAR")
+    inputs = TextInput(config, args.batch_size, args.filename, config.length, one_hot=config.length, mode="CHAR")
 
     def parse_size(size):
         width = int(size.split("x")[0])

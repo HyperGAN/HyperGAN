@@ -188,14 +188,14 @@ Note this API is currently under work in 1.0. If you are reading this before 1.0
 
 See the [gitbook documentation](https://hypergan.gitbook.io/) for more details.
 
-### [Using a trained hypergan model](#using-a-trained-hypergan-model)
+### Using a trained hypergan model
 
 ```python
     my_gan = hg.GAN('model.hypergan')
     batch_sample = my_gan.sample()
 ```
 
-### [Training a gan](#training-a-gan)
+### Training a gan
 
 ```python
     gan = hg.GAN("default.json", inputs=hg.inputs.ImageLoader(...))

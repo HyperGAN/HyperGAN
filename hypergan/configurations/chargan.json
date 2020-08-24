@@ -1,0 +1,96 @@
+
+{
+  "description": "Wasserstein competitive trainer",
+    "discriminator": 
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "layers":[
+      "conv1d 128 stride=2", "relu",
+      "conv1d 256 stride=2", "relu",
+      "conv1d 512 stride=2", "relu",
+      "conv1d 512 stride=2", "relu",
+      "conv1d 512 stride=2", "relu",
+      "flatten",
+      "linear 1024", "relu",
+      "linear 1 bias=false"
+    ]
+  },
+  "latent":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "min": -1,
+    "max": 1,
+    "z": 256
+  },
+   "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "layers":[
+      "identity name=z",
+      "layer q",
+      "linear 512", "relu",
+      "identity name=lq",
+      "layer z",
+      "linear 512", "relu",
+      "cat self lq",
+      "linear 16*512", "relu",
+      "resize_conv1d 512", "relu",
+      "resize_conv1d 512", "relu",
+      "resize_conv1d 256", "relu",
+      "resize_conv1d 128", "relu",
+      "resize_conv1d 10",
+      "segment_softmax 1",
+      "hardtanh"
+    ]
+  },
+
+  "loss":
+  {
+    "class": "function:hypergan.losses.standard_loss.StandardLoss",
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+
+    "hooks": [
+      {
+        "class": "function:hypergan.train_hooks.differential_augmentation_train_hook.DifferentialAugmentationTrainHook"
+      },
+      {
+        "class": "function:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
+        "gammas": [-1e10, 1e10],
+        "offset": 1.0,
+        "loss": [
+          "dg"
+        ],
+        "mode": "fake"
+      },
+      {
+        "class": "function:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
+        "gamma": -1e10,
+        "offset": 1.0,
+        "loss": [
+          "d"
+        ],
+        "mode": "real"
+      }
+    ],
+     "optimizer": {
+      "amsgrad": true,
+      "betas": [
+        0.1,
+        0.997
+      ],
+      "class": "class:torch.optim.Adam",
+      "eps": 1e-08,
+      "lr": 0.0001,
+      "weight_decay": 0
+    }
+  },
+  "runtime": {
+    "anysize": true,
+    "train": "python3 examples/chargan.py train  -b 8 -c chargan --sample_every 10 --save_every 100 --filename ~/dev/hypergan/examples/stories.txt"
+  },
+  "hypergan_version": "~1",
+  "encode": true,
+  "length": 1024
+}

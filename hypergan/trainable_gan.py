@@ -2,6 +2,7 @@ import os
 from hypergan.backends.hogwild_backend import HogwildBackend
 from hypergan.backends.roundrobin_backend import RoundrobinBackend
 from hypergan.backends.single_gpu_backend import SingleGPUBackend
+from hypergan.backends.cpu_backend import CPUBackend
 from hypergan.train_hook_collection import TrainHookCollection
 
 class TrainableGAN:
@@ -20,6 +21,7 @@ class TrainableGAN:
         self.available_backends = {
             'roundrobin': RoundrobinBackend,
             'single-gpu': SingleGPUBackend,
+            'cpu': CPUBackend,
             'hogwild': HogwildBackend
         }
 
@@ -74,6 +76,9 @@ class TrainableGAN:
     def set_discriminator_trainable(self, flag):
         for c in self.gan.discriminator_components():
             c.set_trainable(flag)
+
+    def to(self, device):
+        self.gan.to(device)
 
     def train_hooks(self):
         result = []

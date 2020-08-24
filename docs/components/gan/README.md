@@ -15,11 +15,8 @@ gan = hg.GAN(configuration)
 ## Actions
 
 ```python
-gan.step(feed_dict)
 gan.save(file)
 gan.load(file)
-gan.initialize_variables()
-gan.configurable_param(string)
 ```
 
 ## Properties
@@ -35,8 +32,7 @@ gan.components
 gan.inputs
 gan.steps
 
-gan.trainable_variables()
-gan.parameter_count()
+gan.parameters()
 ```
 
 ## Create components
@@ -46,4 +42,3 @@ gan.create_component({...}, *args, **kwargs)
 ```
 
 This will create and attach a GANComponent to `gan.components`
-

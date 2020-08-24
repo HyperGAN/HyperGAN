@@ -4,9 +4,9 @@
 
 [![docs](https://img.shields.io/badge/gitbook-docs-yellowgreen)](https://hypergan.gitbook.io/hypergan/) [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF) [![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
 
-A composable GAN API and CLI. Built for developers, researchers, and artists.
+A composable GAN built for developers, researchers, and artists.
 
-HyperGAN is in open beta.
+HyperGAN is in pre-release and open beta.
 
 ![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
 
@@ -39,6 +39,7 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
   * [Creating a Dataset](#creating-a-dataset)
   * [Downloadable Datasets](#downloadable-datasets)
   * [Cleaning up data](#cleaning-up-data)
+* [Features](#features)
 * [Showcase](#showcase)
 * [Sponsors](#sponsors)
 * [Contributing](./#contributing.md)
@@ -47,24 +48,11 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
 
 ## About
 
-Generative Adversarial Networks consist of 2 learning systems that learn together. HyperGAN implements these learning systems in Tensorflow with deep learning.
+HyperGAN builds generative adversarial networks in pytorch and makes them easy to train and share.
 
-For an introduction to GANs, see [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
+For a general introduction to GANs see [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
 
-HyperGAN is a community project. GANs are a very new and active field of research. Join the community [discord](https://discord.gg/t4WWBPF).
-
-### Features
-
-* Community project
-* Unsupervised learning
-* Transfer learning
-* Online learning
-* Dataset agnostic
-* Reproducible architectures using json configurations
-* Domain Specific Language to define custom architectures
-* GUI\(pygame and tk\)
-* API
-* CLI
+Join the community [discord](https://discord.gg/t4WWBPF).
 
 ## Documentation
 
@@ -80,7 +68,7 @@ See the full changelog here: [Changelog.md](changelog.md)
 
 Nvidia GPU
 
-OS: Linux, windows support is planned but not currently working
+OS: Windows, OSX, Linux
 
 GPU: NVIDIA, GTX 1080+ recommended
 
@@ -229,6 +217,24 @@ Datasets in HyperGAN are meant to be simple to create. Just use a folder of imag
 HyperGAN is built to be resilient to all types of unclean data. If your images are too large you have the choice of `--crop`, `--random_crop`, or `--resize`
 
 `--crop` first resizes to include as much as the image as possible(center cropped).
+
+## Features
+
+A list of features in the 1.0 release:
+
+* API
+* CLI
+* Viewer - an electron app to explore and create models
+* Cross platform - Windows, OSX, Linux
+* Inference - Add AI content generation to your project
+* Training - Train custom models using accelerated parallel training backends
+* Sharing - Share built models with each other. Use them in python projects as hypergan models, or in any project as onxx models
+* Customizable - Define custom architectures in the json, or replace any component with your own pytorch creation
+* Data - Built to work on unclean data and multiple data types
+* Unsupervised learning
+* Unsupervised alignment - Align one distribution to another or discover new novel distributions.
+* Transfer learning
+* Online learning
 
 ## Showcase
 

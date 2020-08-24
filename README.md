@@ -30,6 +30,11 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
 * [The pip package hypergan](#the-pip-package-hypergan)
   * [Training](#training)
   * [Sampling](#sampling)
+* [API](#api)
+  * [Using a trained hypergan model](#using-a-trained-hypergan-model)
+  * [Training a gan](#training-a-gan)
+  * [Examples](#examples)
+  * [Tutorials](#tutorials)
 * [Datasets](#datasets)
   * [Creating a Dataset](#creating-a-dataset)
   * [Downloadable Datasets](#downloadable-datasets)
@@ -173,9 +178,39 @@ To see a detailed list, run
   hypergan -h
 ```
 
+## API
+
+```python
+import hypergan as hg
+```
+
+Note this API is currently under work in 1.0. If you are reading this before 1.0 is released check the examples.
+
+See the [gitbook documentation](https://hypergan.gitbook.io/) for more details.
+
+### [Using a trained hypergan model](#using-a-trained-hypergan-model)
+
+```python
+    my_gan = hg.GAN('model.hypergan')
+    batch_sample = my_gan.sample()
+```
+
+### [Training a gan](#training-a-gan)
+
+```python
+    gan = hg.GAN("default.json", inputs=hg.inputs.ImageLoader(...))
+    trainable_gan = hg.TrainableGAN(gan)
+    for step in trainable_gan.train():
+        print("I'm on step ", step)
+```
+
 ### Examples
 
-See the example documentation [https://github.com/hypergan/HyperGAN/tree/master/examples](https://github.com/hypergan/HyperGAN/tree/master/examples)
+See the examples [https://github.com/hypergan/HyperGAN/tree/master/examples](https://github.com/hypergan/HyperGAN/tree/master/examples)
+
+### Tutorials
+
+See the tutorials [https://hypergan.gitbook.io/hypergan/tutorials](https://hypergan.gitbook.io/hypergan/tutorials)
 
 ## Datasets
 

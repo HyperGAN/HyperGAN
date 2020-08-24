@@ -183,15 +183,11 @@ See the tutorials [https://hypergan.gitbook.io/hypergan/tutorials](https://hyper
 
 ## Datasets
 
-To build a new network you need a dataset. Your data should be structured like:
-
-```text
-  [folder]/[directory]/*.png
-```
+To build a new network you need a dataset.
 
 ### Creating a Dataset
 
-Datasets in HyperGAN are meant to be simple to create. Just use a folder of images.
+Datasets in HyperGAN are meant to be simple to create. Just use a folder of images. Nested folders work too.
 
 ### Cleaning up data
 

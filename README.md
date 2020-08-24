@@ -23,13 +23,12 @@ See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8
   * [Requirements](#requirements)
   * [Install](#install)
   * [Troubleshooting](#troubleshooting)
-  * [Testing install](#testing-install)
   * [Train](#train)
   * [Development Mode](#development-mode)
-  * [Running on CPU](#running-on-cpu)
 * [The pip package hypergan](#the-pip-package-hypergan)
   * [Training](#training)
   * [Sampling](#sampling)
+  * [Running on CPU](#running-on-cpu)
 * [API](#api)
   * [Using a trained hypergan model](#using-a-trained-hypergan-model)
   * [Training a gan](#training-a-gan)
@@ -66,11 +65,11 @@ See the full changelog here: [Changelog.md](changelog.md)
 
 ### Requirements
 
-Nvidia GPU
-
 OS: Windows, OSX, Linux
 
-GPU: NVIDIA, GTX 1080+ recommended
+For training:
+
+GPU: Nvidia, GTX 1080+ recommended
 
 ### Install
 
@@ -114,10 +113,6 @@ See all configuration templates with `--list-templates` or `-l`.
   hypergan train folder/ -s 32x32x3 -c mymodel --resize
 ```
 
-### Running on CPU
-
-Don't train on CPU! It's too slow.
-
 ## The pip package hypergan
 
 ```bash
@@ -146,6 +141,17 @@ To see a detailed list, run
 ```bash
   hypergan -h
 ```
+
+### Running on CPU
+
+You can switch the backend with:
+
+```bash
+  hypergan [...] -B cpu
+```
+
+Don't train on CPU! It's too slow.
+
 
 ## API
 

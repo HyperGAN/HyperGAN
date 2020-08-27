@@ -196,6 +196,8 @@ cd hypergan
 python3 setup.py develop
 ```
 
+Make sure to `pip3 uninstall hypergan` to avoid version conflicts.
+
 ## Datasets
 
 To build a new network you need a dataset.

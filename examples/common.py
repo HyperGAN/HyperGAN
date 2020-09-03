@@ -25,9 +25,10 @@ class ArgumentParser:
         if self.require_directory:
             parser.add_argument('directory', action='store', type=str, help='The location of your data.  Subdirectories are treated as different classes.  You must have at least 1 subdirectory.')
         parser.add_argument('--config', '-c', type=str, default='default', help='config name')
-        parser.add_argument('--device', '-d', type=str, default='/gpu:0', help='In the form "/gpu:0", "/cpu:0", etc.  Always use a GPU (or TPU) to train')
+        parser.add_argument('--devices', '-d', action='store', default="-1", type=str, help='Available devices for hypergan training. Defaults to -1(use all available devices)')
+        parser.add_argument('--backend', "-B", type=str, default="roundrobin", help='Backend to train on.  singlegpu,multigpu,hogwild,roundrobin,tpu.  Default uses all specified devices as roundrobin')
         parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
-        parser.add_argument('--steps', type=int, default=1000000, help='Number of steps to train for.')
+        parser.add_argument('--steps', type=int, default=-1, help='Number of steps to train for.')
         parser.add_argument('--noviewer', dest='viewer', action='store_false', help='Disables the display of samples in a window.')
         parser.add_argument('--save_samples', dest='save_samples', action='store_true', help='Saves samples to disk.')
 

@@ -7,6 +7,7 @@ import hypergan as hg
 import copy
 import torch
 import time
+mp.set_start_method('spawn', force=True)
 
 def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event, save_event, save_complete_event, save_file):
     gan.inputs = inputs
@@ -52,7 +53,6 @@ class RoundrobinBackend(Backend):
         loaded_events = []
         head_device = torch.device(list(self.trainable_gan.parameters())[0].device).index
         self.head_device=head_device
-        mp.set_start_method('spawn', force=True)
         if devices == "-1":
             print("Running on all available devices: ", torch.cuda.device_count())
             devices = list(range(torch.cuda.device_count()))

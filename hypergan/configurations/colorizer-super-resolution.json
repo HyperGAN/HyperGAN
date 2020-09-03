@@ -32,23 +32,23 @@
       "layer z",
 
       "linear 20*20*128", "relu",
-      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "add self (BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
       "conv2d 256 padding=0 ","relu",
 
       "upsample h=20 w=20",
-      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "add self (BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
       "conv2d 128 padding=0 ","relu",
 
       "upsample h=36 w=36",
-      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "add self (BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
       "conv2d 64 padding=0 ", "relu",
 
       "upsample h=68 w=68",
-      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "add self (BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
       "conv2d 32 padding=0 ", "relu",
 
       "upsample h=130 w=130",
-      "add self (module BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
+      "add self (BW downsize=20*20)", "add self (ez_norm initializer=(xavier_normal))",
       "conv2d 30 padding=0",
       "segment_softmax 3",
       "hardtanh"

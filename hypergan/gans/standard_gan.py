@@ -32,11 +32,6 @@ class StandardGAN(BaseGAN):
 
     """
     def __init__(self, *args, **kwargs):
-        self.discriminator = None
-        self.latent = None
-        self.generator = None
-        self.loss = None
-        self.trainer = None
         BaseGAN.__init__(self, *args, **kwargs)
         self.x = self.inputs.next()
 
@@ -47,8 +42,6 @@ class StandardGAN(BaseGAN):
         return "generator".split()
 
     def create(self):
-        config = self.config
-
         self.latent = self.create_component("latent")
         self.generator = self.create_component("generator", input=self.latent)
         self.discriminator = self.create_component("discriminator")

@@ -33,6 +33,7 @@ import torchvision
 import hypergan as hg
 
 class ConfigurableComponent(GANComponent):
+    custom_layers = {}
     def __init__(self, gan, config, input=None, input_shape=None, context_shapes = {}, input_is_latent=False):
         self.current_size = LayerShape(gan.channels(), gan.height(), gan.width())
         if isinstance(input, GANComponent):
@@ -53,12 +54,15 @@ class ConfigurableComponent(GANComponent):
         self.parsed_layers = []
         self.parser = hypergan.parser.Parser()
         self.context_shapes = context_shapes
+        for key, shape in self.context_shapes.items():
+            self.layer_output_sizes[key] = shape
         if isinstance(input, BaseDistribution):
             self.is_latent = True
         else:
             self.is_latent = False
         self._latent_parameters = []
         self.layer_ops = {**self.activations(),
+            **ConfigurableComponent.custom_layers,
             "add": hg.layers.Add,
             "cat": hg.layers.Cat,
             "channel_attention": hg.layers.ChannelAttention,
@@ -107,7 +111,6 @@ class ConfigurableComponent(GANComponent):
             "learned_noise": self.layer_learned_noise,
             "linear": self.layer_linear,
             "modulated_conv2d": self.layer_modulated_conv2d,
-            "module": self.layer_module,
             "multi_head_attention": self.layer_multi_head_attention,
             "pixel_norm": self.layer_pixel_norm,
             "resize_conv": self.layer_resize_conv,
@@ -396,12 +399,6 @@ class ConfigurableComponent(GANComponent):
             self.current_size = LayerShape(channels, self.current_size.height // 2, self.current_size.width // 2)
         return result
 
-    def layer_module(self, net, args, options):
-        klass = GANComponent.lookup_function(None,"function:__main__."+args[0])
-        instance = klass(self.gan, net, args, options, self.current_size)
-        self.current_size = instance.layer_shape(self.current_size)
-        return instance
-
     def layer_blur(self, net, args, options):
         blur_kernel=[1, 3, 3, 1]
         kernel_size=3
@@ -547,7 +544,7 @@ class ConfigurableComponent(GANComponent):
         layers = [nn.Upsample((h)),
                 nn.Conv1d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, padding=padding)]
         self.nn_init(layers[-1], options.initializer)
-        h, _ = self.conv_output_shape((self.current_size.height, self.current_size.height), options.filter or 3, 1, padding, 1)
+        h, _ = self.conv_output_shape((h, h), options.filter or 3, 1, padding, 1)
         self.current_size = LayerShape(channels, h)
         return nn.Sequential(*layers)
 

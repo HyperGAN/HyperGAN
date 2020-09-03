@@ -235,9 +235,9 @@ class BaseGAN():
 
     def to(self, device):
         self.generator = self.generator.to(device)
-        self.generator.device="cuda:"+str(device)
+        self.generator.device=device
         self.discriminator = self.discriminator.to(device)
-        self.discriminator.device="cuda:"+str(device)
+        self.discriminator.device=device
         self.device = device
         return self #TODO should create new instance
 

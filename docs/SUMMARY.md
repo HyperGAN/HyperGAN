@@ -2,7 +2,7 @@
 
 * [About](README.md)
 * [Getting started](gettingstarted.md)
-* [Changelog](changelog.md)
+* [CLI guide](cli.md)
 * [Configurations](configuration/README.md)
   * [Configurable Parameters](configuration/configurable-parameters.md)
 
@@ -29,10 +29,9 @@
 ## Components
 
 * [GAN](components/gan/README.md)
-  * [Multi Marginal GAN](components/gan/multi-marginal-gan.md)
+  * [Aligned GAN](components/gan/aligned-gan.md)
+  * [Aligned Interpolated GAN](components/gan/aligned-interpolated-gan.md)
   * [Standard GAN](components/gan/standard-gan.md)
-  * [ALI GAN](components/gan/ali-gan.md)
-  * [Distribution Filtering GAN](components/gan/distribution-filtering-gan.md)
 * [Generator](components/generator/README.md)
   * [Configurable Generator](components/generator/configurable-generator.md)
   * [DCGAN Generator](components/generator/dcgan-generator.md)
@@ -74,6 +73,7 @@
   * [Accumulate Gradient Trainer](components/trainer/accumulate-gradient-trainer.md)
 * [Optimizer](components/optimizer.md)
 * [Train Hook](components/trainhook/README.md)
+  * [Adversarial Norm](components/trainhook/adversarial-norm.md)
   * [Weight Constraint](components/trainhook/weight-constraint.md)
   * [Stabilizing Training](components/trainhook/stabilizing-training.md)
   * [JARE](components/trainhook/jare.md)

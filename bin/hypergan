@@ -23,7 +23,7 @@ class CommandParser:
         parser.add_argument('--devices', '-d', action='store', default="-1", type=str, help='Available devices for hypergan training. Defaults to -1(use all available devices)')
         parser.add_argument('--parameter_server_device', '-p', action='store', default="cuda:0", type=str, help='Set the parameter server if the backend uses one(only roundrobin)')
         parser.add_argument('--size', '-s', type=str, default='64x64x3', help='Size of your data.  For images it is widthxheightxchannels.')
-        parser.add_argument('--batch_size', '-b', type=int, default=0, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
+        parser.add_argument('--batch_size', '-b', type=int, default=8, help='Number of samples to include in each batch.  If using batch norm, this needs to be preserved when in server mode')
         parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
         parser.add_argument('--input_config', '-i', action='store', default=None, type=str, help='The input configuration to use.')
         parser.add_argument('--toml', '-T', action='store_true', help='Use TOML as configration file format instead of JSON')

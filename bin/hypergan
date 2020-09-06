@@ -27,7 +27,7 @@ class CommandParser:
         parser.add_argument('--config', '-c', action='store', default=None, type=str, help='The configuration file to load.')
         parser.add_argument('--input_config', '-i', action='store', default=None, type=str, help='The input configuration to use.')
         parser.add_argument('--toml', '-T', action='store_true', help='Use TOML as configration file format instead of JSON')
-        parser.add_argument('--crop', dest='crop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
+        parser.add_argument('--nocrop', dest='nocrop', action='store_true', help='If your images are perfectly sized you can skip cropping.')
         parser.add_argument('--random_crop', dest='random_crop', action='store_true', help='Randomly crop images.')
         parser.add_argument('--resize', dest='resize', action='store_true', help='If your images are perfectly sized you can skip resize.')
         parser.add_argument('--align', '-a', nargs='?', action='append', dest='align', help='Adds an additional input folder.')
@@ -103,12 +103,13 @@ if __name__ == '__main__':
                 directories = [args.directory]
                 if args.align:
                     directories+=args.align
+                crop = not args.nocrop
                 input_config = hc.Config({
                     "class": "class:hypergan.inputs.image_loader.ImageLoader",
                     "batch_size": args.batch_size,
                     "directories": directories,
                     "channels": channels,
-                    "crop": args.crop,
+                    "crop": crop,
                     "height": height,
                     "random_crop": args.random_crop,
                     "resize": args.resize,

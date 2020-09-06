@@ -208,9 +208,9 @@ Datasets in HyperGAN are meant to be simple to create. Just use a folder of imag
 
 ### Cleaning up data
 
-HyperGAN is built to be resilient to all types of unclean data. If your images are too large you have the choice of `--crop`, `--random_crop`, or `--resize`
+HyperGAN is built to be resilient to all types of unclean data. By default images are resized then cropped if necessary.
 
-`--crop` first resizes to include as much as the image as possible(center cropped).
+See `--nocrop`, `--random_crop` and `--resize` for additional image scaling options.
 
 ## Features
 

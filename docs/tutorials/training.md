@@ -21,7 +21,7 @@ You can view video card usage with `nvidia-smi`
 You can run:
 
 ```text
-  hypergan train /path/to/data -c myconfig  -s 256x256x3 -format png --sampler static_batch --sample_every 10 --crop
+  hypergan train /path/to/data -c myconfig  -s 256x256x3 -format png --sampler static_batch --sample_every 10
 ```
 
 Once hypergan is working, you can sample your

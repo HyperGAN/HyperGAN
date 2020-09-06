@@ -68,11 +68,13 @@ class ResizableStack(hg.Layer):
             c = min(size.channels, self.max_channels)
             upsample = hg.layers.Upsample(component, [], hc.Config({"w": size.width, "h": size.height}))
             component.current_size = upsample.output_size() #TODO abstract input_size
+            if options.normalize != False:
+                _, add = component.parse_layer("add self (ez_norm initializer=(xavier_normal) style=" + self.style + ")")
             _, conv = component.parse_layer("conv2d " + str(size.channels) + " padding=0 initializer=(xavier_normal)")
+
             if options.normalize == False:
                 layers += [upsample, conv]
             else:
-                _, add = component.parse_layer("add self (ez_norm initializer=(xavier_normal) style=" + self.style + ")")
                 layers += [upsample, add, conv]
             if i < len(sizes) - 2:
                 layers += [nn.ReLU()]

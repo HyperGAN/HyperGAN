@@ -28,7 +28,6 @@ class ResizableStack(hg.Layer):
             * segment_channels - The number of channels before segment_softmax. Defaults to 5
             * max_channels - The most channels for any conv. Default 256
             * style - the style vector to use. Default "w"
-            * normalize - type of layer normalization to use. Defaults to 'ez_norm'
         ## input size
 
         Any 4-d tensor
@@ -68,12 +67,9 @@ class ResizableStack(hg.Layer):
             c = min(size.channels, self.max_channels)
             upsample = hg.layers.Upsample(component, [], hc.Config({"w": size.width, "h": size.height}))
             component.current_size = upsample.output_size() #TODO abstract input_size
+            _, add = component.parse_layer("add self (ez_norm initializer=(xavier_normal) style=" + self.style + ")")
             _, conv = component.parse_layer("conv2d " + str(size.channels) + " padding=0 initializer=(xavier_normal)")
-            if options.normalize == False:
-                layers += [upsample, conv]
-            else:
-                _, add = component.parse_layer("add self (ez_norm initializer=(xavier_normal) style=" + self.style + ")")
-                layers += [upsample, add, conv]
+            layers += [upsample, add, conv]
             if i < len(sizes) - 2:
                 layers += [nn.ReLU()]
 

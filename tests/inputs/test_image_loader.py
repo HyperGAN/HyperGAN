@@ -7,7 +7,7 @@ import os
 def fixture_path(subpath=""):
     return os.path.dirname(os.path.realpath(__file__)) + '/fixtures/' + subpath
 
-class ImageLoaderTest(tf.test.TestCase):
+class TestImageLoader:
     def test_constructor(self):
         with self.test_session():
             loader = ImageLoader(32)

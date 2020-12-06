@@ -6,6 +6,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
+from hypergan.layer_shape import LayerShape
 from hypergan.trainers import *
 import copy
 import hyperchamber as hc
@@ -34,6 +35,7 @@ class StandardGAN(BaseGAN):
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
         self.x = self.inputs.next()
+        self.classification = 0
 
     def build(self):
         torch.onnx.export(self.generator, torch.randn(*self.latent.z.shape, device='cuda'), "generator.onnx", verbose=True, input_names=["latent"], output_names=["generator"])
@@ -43,16 +45,21 @@ class StandardGAN(BaseGAN):
 
     def create(self):
         self.latent = self.create_component("latent")
-        self.generator = self.create_component("generator", input=self.latent)
+        self.generator = self.create_component("generator", input=self.latent, context_shapes={"y": LayerShape(1)})
         self.discriminator = self.create_component("discriminator")
 
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0])
 
     def forward_pass(self):
-        self.x = self.inputs.next()
+        if len(self.inputs.datasets) > 1:
+            self.classification = self.classification % len(self.inputs.datasets)
+        self.x = self.inputs.next(self.classification)
         self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
-        g = self.generator(self.augmented_latent)
+        b = self.x.shape[0]
+        y_ = torch.randint(0, len(self.inputs.datasets), (b, )).to(self.x.device)
+        g = self.generator(self.augmented_latent, context={"y": y_.float().view(b, 1)})
+        self.latent_y = y_
         self.g = g
         self.augmented_x = self.train_hooks.augment_x(self.x)
         self.augmented_g = self.train_hooks.augment_g(self.g)
@@ -60,6 +67,7 @@ class StandardGAN(BaseGAN):
         d_fake = self.forward_discriminator([self.augmented_g])
         self.d_fake = d_fake
         self.d_real = d_real
+        self.classification += 1
         return d_real, d_fake
 
     def input_nodes(self):

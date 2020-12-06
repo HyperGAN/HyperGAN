@@ -79,6 +79,7 @@ class TrainableGAN:
 
     def to(self, device):
         self.gan.to(device)
+        self.loss.to(device)
 
     def train_hooks(self):
         result = []

@@ -11,9 +11,9 @@ mp.set_start_method('spawn', force=True)
 
 def train(device, head_device, gan, inputs, loaded_event, report_weights_queue, set_weights_queue, report_weights_event, save_event, save_complete_event, save_file):
     gan.inputs = inputs
-    gan = gan.to(device)
     from hypergan.trainable_gan import TrainableGAN
     trainable_gan = TrainableGAN(gan, backend_name = "single-gpu", save_file = save_file)
+    trainable_gan.to(device)
     if trainable_gan.load():
         print("Model loaded")
     else:

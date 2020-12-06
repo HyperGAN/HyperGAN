@@ -2,6 +2,7 @@ import hyperchamber as hc
 import torch
 
 from hypergan.losses.base_loss import BaseLoss
+import torch.nn.functional as F
 
 TINY=1e-12
 class RaganLoss(BaseLoss):
@@ -33,7 +34,8 @@ class RaganLoss(BaseLoss):
             d_loss = -(d_real-cf) + (d_fake-cr)
             g_loss = -(d_fake-cr)
         elif loss_type == "standard":
-            d_loss = -tf.log(tf.nn.sigmoid(d_real-cf)+TINY)
-            g_loss = -tf.log(tf.nn.sigmoid(d_fake-cr)+TINY)
+            criterion = torch.nn.BCEWithLogitsLoss()
+            g_loss = criterion(d_fake-cr, torch.ones_like(d_fake))
+            d_loss = criterion(d_real-cf, torch.ones_like(d_real)) + criterion(d_fake-cr, torch.zeros_like(d_fake))
 
         return [d_loss, g_loss]

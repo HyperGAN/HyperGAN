@@ -19,10 +19,13 @@ from torchvision import datasets, transforms
 
 arg_parser = ArgumentParser(description='Train an MNIST classifier G(x) = label')
 args = arg_parser.parse_args()
+config_name = args.config
+save_file = "saves/"+config_name+"/model.ckpt"
+os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
 class MNISTInputLoader:
     def __init__(self, batch_size):
-        kwargs = {'num_workers': 1, 'pin_memory': True}
+        kwargs = {'num_workers': 0, 'pin_memory': True}
         dataset_folder = 'mnist'
 
         train_loader = torch.utils.data.DataLoader(
@@ -80,7 +83,6 @@ class MNISTGAN(BaseGAN):
         self.discriminator = None
         self.generator = None
         self.loss = None
-        self.trainer = None
         BaseGAN.__init__(self, *args, **kwargs)
         self.x, self.y = self.inputs.next()
 
@@ -88,7 +90,6 @@ class MNISTGAN(BaseGAN):
         self.generator = self.create_component("generator", input=self.inputs.next()[0])
         self.discriminator = self.create_component("discriminator", context_shapes={"digit": LayerShape(10)})
         self.loss = self.create_component("loss")
-        self.trainer = self.create_component("trainer")
 
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0], {"digit": inputs[1]})
@@ -165,10 +166,12 @@ def setup_gan(config, inputs, args):
 
 def train(config, args):
     gan = setup_gan(config, inputs, args)
+    trainable_gan = hg.TrainableGAN(gan, save_file = save_file, devices = args.devices, backend_name = args.backend)
     test_batches = []
+    accuracy = 0
 
     for i in range(args.steps):
-        gan.step()
+        trainable_gan.step()
 
         if i % args.sample_every == 0 and i > 0:
             correct_prediction = 0
@@ -180,7 +183,7 @@ def train(config, args):
             accuracy = (float(correct_prediction) / total)*100
             print("accuracy: ", accuracy)
 
-    return sum_metrics
+    return accuracy
 
 def search(config, args):
     metrics = train(config, args)
@@ -193,7 +196,7 @@ def search(config, args):
 
 if args.action == 'train':
     metrics = train(config, args)
-    print("Resulting metrics:", metrics)
+    print(config_name + ": resulting metrics:", metrics)
 elif args.action == 'search':
     search(config, args)
 else:

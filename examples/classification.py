@@ -88,6 +88,8 @@ class MNISTGAN(BaseGAN):
 
     def create(self):
         self.generator = self.create_component("generator", input=self.inputs.next()[0])
+        if self.config.generator2:
+            self.generator2 = self.create_component("generator2", input=self.inputs.next()[1])
         self.discriminator = self.create_component("discriminator", context_shapes={"digit": LayerShape(10)})
         self.loss = self.create_component("loss")
 
@@ -97,23 +99,39 @@ class MNISTGAN(BaseGAN):
     def forward_pass(self):
         self.x, self.y = self.inputs.next()
         g = self.generator(self.x)
+        if self.config.generator2:
+            g2 = self.generator2(self.y)
+            self.g2 = g2
         self.g = g
         d_real = self.forward_discriminator([self.x, self.y])
         d_fake = self.forward_discriminator([self.x, g])
+        if self.config.generator2:
+            d_fake += self.forward_discriminator([g2, self.y])
+            d_fake /= 2
         self.d_fake = d_fake
         self.d_real = d_real
+        self.adversarial_norm_fake_targets = [
+            [self.x, self.g]
+        ]
+        if self.config.generator2:
+           self.adversarial_norm_fake_targets += [
+             [g2, self.y]
+           ]
         return d_real, d_fake
 
-    def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.x, self.g]
+    def discriminator_fake_inputs(self):
+        return [[self.x, self.g],
+                [self.g2, self.y]]
 
-    def discriminator_real_inputs(self, discriminator_index=0):
+    def discriminator_real_inputs(self):
         if hasattr(self, 'x'):
             return [self.x, self.y]
         else:
             return self.inputs.next()
 
     def generator_components(self):
+        if self.config.generator2:
+            return [self.generator2, self.generator]
         return [self.generator]
     def discriminator_components(self):
         return [self.discriminator]

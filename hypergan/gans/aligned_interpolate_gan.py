@@ -93,7 +93,7 @@ class AlignedInterpolateGAN(BaseGAN):
         return [self.generator]
 
     def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.augmented_g, self.augmented_g]
+        return [[self.augmented_g, self.augmented_g]]
 
     def discriminator_real_inputs(self, discriminator_index=0):
         if hasattr(self, 'y'):

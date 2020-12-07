@@ -78,10 +78,10 @@ class StandardGAN(BaseGAN):
     def generator_components(self):
         return [self.generator]
 
-    def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.augmented_g]
+    def discriminator_fake_inputs(self):
+        return [[self.augmented_g]]
 
-    def discriminator_real_inputs(self, discriminator_index=0):
+    def discriminator_real_inputs(self):
         if hasattr(self, 'augmented_x'):
             return [self.augmented_x]
         else:

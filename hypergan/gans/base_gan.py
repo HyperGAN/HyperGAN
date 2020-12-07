@@ -97,19 +97,19 @@ class BaseGAN():
     def create(self):
         print("Warning: BaseGAN.create() called directly.  Please override")
 
-    def discriminator_fake_inputs(self, discriminator_index=0):
+    def discriminator_fake_inputs(self):
         """
             Fake inputs to the discriminator, should be cached
         """
         []
 
-    def discriminator_real_inputs(self, discriminator_index=0):
+    def discriminator_real_inputs(self):
         """
             Real inputs to the discriminator, should be cached
         """
         []
 
-    def forward_discriminator(self, inputs, discriminator_index=0):
+    def forward_discriminator(self, inputs):
         """
             Runs a forward pass through the discriminator and returns the discriminator output
         """

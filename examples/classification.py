@@ -120,8 +120,7 @@ class MNISTGAN(BaseGAN):
         return d_real, d_fake
 
     def discriminator_fake_inputs(self):
-        return [[self.x, self.g],
-                [self.g2, self.y]]
+        return self.adversarial_norm_fake_targets
 
     def discriminator_real_inputs(self):
         if hasattr(self, 'x'):

@@ -17,26 +17,30 @@ from torch.autograd import Variable
 
 from torchvision import datasets, transforms
 
-arg_parser = ArgumentParser(description='Train an MNIST classifier G(x) = label')
+arg_parser = ArgumentParser(description='Train an classifier G(x) = label')
+arg_parser.parser.add_argument('--dataset', '-D', type=str, default='mnist', help='dataset to use - options are mnist / cifar10')
 args = arg_parser.parse_args()
 config_name = args.config
 save_file = "saves/"+config_name+"/model.ckpt"
 os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
-class MNISTInputLoader:
+class InputLoader:
     def __init__(self, batch_size):
         kwargs = {'num_workers': 0, 'pin_memory': True}
-        dataset_folder = 'mnist'
+        dataset_folder = args.dataset
+        dataset = datasets.MNIST
+        if args.dataset == 'cifar10':
+            dataset = datasets.CIFAR10
 
         train_loader = torch.utils.data.DataLoader(
-            datasets.MNIST(dataset_folder, train=True, download=True,
+            dataset(dataset_folder, train=True, download=True,
                            transform=transforms.Compose([
                                transforms.ToTensor()
                            ])),
             batch_size=args.batch_size, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST(dataset_folder, train=False, transform=transforms.Compose([
+            dataset(dataset_folder, train=False, transform=transforms.Compose([
                 transforms.ToTensor()
             ])),
             batch_size=args.batch_size, shuffle=False, **kwargs)
@@ -78,7 +82,7 @@ class MNISTInputLoader:
             except StopIteration:
                 return
 
-class MNISTGAN(BaseGAN):
+class GAN(BaseGAN):
     def __init__(self, *args, **kwargs):
         self.discriminator = None
         self.generator = None
@@ -101,13 +105,15 @@ class MNISTGAN(BaseGAN):
         g = self.generator(self.x)
         if self.config.generator2:
             g2 = self.generator2(self.y)
+            gy = self.generator(g2)
+            self.gy = gy
             self.g2 = g2
         self.g = g
         d_real = self.forward_discriminator([self.x, self.y])
         d_fake = self.forward_discriminator([self.x, g])
+        correct = torch.floor((torch.round(g) == self.y).long().sum(axis=1)/10.0).view(-1,1)
         if self.config.generator2:
-            d_fake += self.forward_discriminator([g2, self.y])
-            d_fake /= 2
+            d_fake += correct * self.forward_discriminator([g2, gy])
         self.d_fake = d_fake
         self.d_real = d_real
         self.adversarial_norm_fake_targets = [
@@ -115,7 +121,7 @@ class MNISTGAN(BaseGAN):
         ]
         if self.config.generator2:
            self.adversarial_norm_fake_targets += [
-             [g2, self.y]
+             [g2, self.gy]
            ]
         return d_real, d_fake
 
@@ -135,7 +141,7 @@ class MNISTGAN(BaseGAN):
     def discriminator_components(self):
         return [self.discriminator]
 
-class MNISTGenerator(BaseGenerator):
+class Generator(BaseGenerator):
     def create(self):
         self.linear = torch.nn.Linear(28*28*1, 1024)
         self.relu = torch.nn.ReLU()
@@ -149,7 +155,7 @@ class MNISTGenerator(BaseGenerator):
         net = self.sigmoid(net)
         return net
 
-class MNISTDiscriminator(BaseDiscriminator):
+class Discriminator(BaseDiscriminator):
     def create(self):
         self.linear = torch.nn.Linear(28*28*1+10, 1024)
         self.linear2 = torch.nn.Linear(1024, 1)
@@ -169,16 +175,16 @@ config = lookup_config(args)
 
 if args.action == 'search':
     search = RandomSearch({
-        'generator': {'class': MNISTGenerator, 'end_features': 10},
-        'discriminator': {'class': MNISTDiscriminator}
+        'generator': {'class': Generator, 'end_features': 10},
+        'discriminator': {'class': Discriminator}
         })
 
     config = search.random_config()
 
-inputs = MNISTInputLoader(args.batch_size)
+inputs = InputLoader(args.batch_size)
 
 def setup_gan(config, inputs, args):
-    gan = MNISTGAN(config, inputs=inputs)
+    gan = GAN(config, inputs=inputs)
     return gan
 
 def train(config, args):
@@ -190,7 +196,7 @@ def train(config, args):
     for i in range(args.steps):
         trainable_gan.step()
 
-        if i % args.sample_every == 0 and i > 0:
+        if i == args.steps-1 or i % args.sample_every == 0 and i > 0:
             correct_prediction = 0
             total = 0
             for (x,y) in gan.inputs.testdata():

@@ -19,6 +19,7 @@ from torchvision import datasets, transforms
 
 arg_parser = ArgumentParser(description='Train an classifier G(x) = label')
 arg_parser.parser.add_argument('--dataset', '-D', type=str, default='mnist', help='dataset to use - options are mnist / cifar10')
+arg_parser.parser.add_argument('--augment', '-A', type=bool, default=True, help='flip crop and normalize input')
 args = arg_parser.parse_args()
 config_name = args.config
 save_file = "saves/"+config_name+"/model.ckpt"
@@ -31,18 +32,36 @@ class InputLoader:
         dataset = datasets.MNIST
         if args.dataset == 'cifar10':
             dataset = datasets.CIFAR10
+        transform_train = transforms.Compose([
+            #transforms.RandomCrop(32, padding=4),
+            #transforms.RandomHorizontalFlip(),
+            transforms.ToTensor()#,
+            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ])
 
+        transform_test = transforms.Compose([
+            transforms.ToTensor()#,
+            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ])
+        if args.augment:
+            transform_train = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
         train_loader = torch.utils.data.DataLoader(
             dataset(dataset_folder, train=True, download=True,
-                           transform=transforms.Compose([
-                               transforms.ToTensor()
-                           ])),
+                           transform=transform_train),
             batch_size=args.batch_size, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
-            dataset(dataset_folder, train=False, transform=transforms.Compose([
-                transforms.ToTensor()
-            ])),
+            dataset(dataset_folder, train=False, transform=transform_test),
             batch_size=args.batch_size, shuffle=False, **kwargs)
 
         self.train_loader = train_loader

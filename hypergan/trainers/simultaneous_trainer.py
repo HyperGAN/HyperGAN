@@ -13,6 +13,7 @@ class SimultaneousTrainer(BaseTrainer):
     """ Steps G and D simultaneously """
     def _create(self):
         self.optimizer = self.create_optimizer()
+        self.ttur = self.config.ttur or 1.0
 
     def required(self):
         return "optimizer".split()
@@ -26,7 +27,7 @@ class SimultaneousTrainer(BaseTrainer):
         for hook in self.train_hooks:
             d_grads, g_grads = hook.gradients(d_grads, g_grads)
         for p, np in zip(self.trainable_gan.d_parameters(), d_grads):
-            p.grad = np
+            p.grad = np * self.ttur
         for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
             p.grad = np
 
@@ -58,7 +59,7 @@ class SimultaneousTrainer(BaseTrainer):
         d_loss.mean().backward(retain_graph=True)
         self.trainable_gan.set_generator_trainable(True)
 
-        d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
+        d_grads = [p.grad * self.ttur for p in self.trainable_gan.d_parameters()]
         g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
         return d_grads, g_grads
 

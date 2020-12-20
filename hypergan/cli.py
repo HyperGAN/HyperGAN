@@ -101,6 +101,14 @@ class CLI:
 
     def sample_forever(self):
         self.gan.inputs.next()
+        self.lazy_create()
+        self.trainable_gan = hg.TrainableGAN(self.gan, save_file = self.save_file, devices = self.devices, backend_name = self.args.backend)
+
+        if self.trainable_gan.load():
+            print("Model loaded")
+        else:
+            print("Could not load save")
+            return
         steps = 0
         while not self.gan.destroy and (steps <= self.args.steps or self.args.steps == -1):
             self.trainable_gan.sample(self.sampler, self.sample_path)

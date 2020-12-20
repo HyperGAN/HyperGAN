@@ -110,6 +110,7 @@ class GAN(BaseGAN):
         self.x, self.y = self.inputs.next()
 
     def create(self):
+        self.latent = self.create_component("latent")
         self.generator = self.create_component("generator", input=self.inputs.next()[0])
         if self.config.generator2:
             self.generator2 = self.create_component("generator2", input=self.inputs.next()[1])
@@ -120,6 +121,7 @@ class GAN(BaseGAN):
         return self.discriminator(inputs[0], {"digit": inputs[1]})
 
     def forward_pass(self):
+        self.latent.next()
         self.x, self.y = self.inputs.next()
         g = self.generator(self.x)
         if self.config.generator2:
@@ -223,6 +225,7 @@ def train(config, args):
                 correct_prediction += (torch.argmax(prediction,1) == torch.argmax(y,1)).sum()
                 total += y.shape[0]
             accuracy = (float(correct_prediction) / total)*100
+            print(config_name)
             print("accuracy: ", accuracy)
 
     return accuracy

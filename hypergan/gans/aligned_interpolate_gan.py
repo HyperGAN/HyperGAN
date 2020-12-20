@@ -39,14 +39,13 @@ class AlignedInterpolateGAN(BaseGAN):
             self.discriminator = self.create_component("discriminator")
             self.discriminator2 = self.create_component("discriminator")
         self.loss = self.create_component("loss")
-        self.trainer = self.create_component("trainer")
         self.sigmoid = torch.nn.Sigmoid()
-        self.gammas = [torch.Tensor([self.config.interpolate]).float()[0].cuda(), torch.Tensor([1.-self.config.interpolate]).float()[0].cuda()]
+        self.gammas = [torch.Tensor([self.config.interpolate]).float()[0], torch.Tensor([1.-self.config.interpolate]).float()[0]]
 
     def forward_discriminator(self, inputs):
         if self.config.shared_discriminator:
-            d0_class = torch.zeros([inputs[0].shape[0], 1], device="cuda:0")
-            d1_class = torch.ones([inputs[1].shape[0], 1], device="cuda:0")
+            d0_class = torch.zeros([inputs[0].shape[0], 1], device=inputs[0].device)
+            d1_class = torch.ones([inputs[1].shape[0], 1], device=inputs[0].device)
             d0 = self.discriminator(inputs[0], context={"class": d0_class})
             d1 = self.discriminator(inputs[1], context={"class": d1_class})
             return d0 * self.gammas[0] * torch.sigmoid(d1) + d1 * self.gammas[1] * torch.sigmoid(d0)
@@ -56,13 +55,13 @@ class AlignedInterpolateGAN(BaseGAN):
             d1 = self.discriminator2(inputs[1])
             d3 = self.discriminator(inputs[1])
             d4 = self.discriminator2(inputs[0])
-            return d0 * self.gammas[0] * torch.sigmoid(d1) + d1 * self.gammas[1] * torch.sigmoid(d0) + \
-                    d3 * self.gammas[0] * torch.sigmoid(d4) + d4 * self.gammas[1] * torch.sigmoid(d3)
+            return d0 * self.gammas[0].to(d0.device) * torch.sigmoid(d1) + d1 * self.gammas[1].to(d1.device) * torch.sigmoid(d0) + \
+                    d3 * self.gammas[0].to(d0.device) * torch.sigmoid(d4) + d4 * self.gammas[1].to(d4.device) * torch.sigmoid(d3)
 
         else:
             d0 = self.discriminator(inputs[0])
-            d1 = self.discriminator2(inputs[1])
-            return self.sigmoid(d1)*d0*self.gammas[0]  + self.sigmoid(d0)*d1*self.gammas[1]
+            d1 = self.discriminator2(inputs[1].to(inputs[0].device))
+            return self.sigmoid(d1)*d0*self.gammas[0].to(d0.device)  + self.sigmoid(d0)*d1*self.gammas[1].to(d0.device)
 
     def forward_pass(self):
         self.x = self.inputs.next()

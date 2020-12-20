@@ -248,7 +248,7 @@ class ConfigurableComponent(GANComponent):
         lr_mul = 1
         if options.lr_mul is not None:
             lr_mul = options.lr_mul
-        result = EqualLinear(self.current_size.size(), args[0], lr_mul=lr_mul)
+        result = EqualLinear(options.input_size or self.current_size.size(), args[0], lr_mul=lr_mul)
         self.current_size = LayerShape(args[0])
         return result
 

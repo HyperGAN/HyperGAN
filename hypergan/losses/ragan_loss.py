@@ -7,6 +7,9 @@ import torch.nn.functional as F
 TINY=1e-12
 class RaganLoss(BaseLoss):
     """https://arxiv.org/abs/1807.00734"""
+    def __init__(self, gan, config):
+        super(RaganLoss, self).__init__(gan, config)
+        self.sigmoid = torch.nn.Sigmoid()
 
     def required(self):
         return "".split()

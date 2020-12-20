@@ -44,10 +44,14 @@ class Upsample(hg.Layer):
     """
     def __init__(self, component, args, options):
         super(Upsample, self).__init__(component, args, options)
-        w = options.w or component.current_size.width * 2
         h = options.h or component.current_size.height * 2
-        self.layer = nn.Upsample((h, w), mode="bilinear")
-        self.size = LayerShape(component.current_size.channels, h, w)
+        if len(component.current_size.dims) == 3:
+            w = options.w or component.current_size.width * 2
+            self.layer = nn.Upsample((h, w), mode="bilinear")
+            self.size = LayerShape(component.current_size.channels, h, w)
+        elif len(component.current_size.dims) == 2:
+            self.layer = nn.Upsample((h), mode="linear")
+            self.size = LayerShape(component.current_size.channels, h)
 
     def forward(self, input, context):
         return self.layer(input)

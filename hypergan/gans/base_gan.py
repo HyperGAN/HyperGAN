@@ -123,6 +123,11 @@ class BaseGAN():
         print("Warning: BaseGAN.forward_pass() called directly.  Please override")
         return None, None
 
+    def forward_loss(self, loss):
+        d_real, d_fake = self.forward_pass()
+        d_loss, g_loss = loss.forward(d_real, d_fake)
+        return [d_loss, g_loss]
+
     def load(self, save_file):
         print("Loading..." + str(len(self.components)))
         success = True

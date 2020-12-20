@@ -44,8 +44,7 @@ class TrainableGAN:
         """
             Runs a forward pass through the GAN and returns (d_loss, g_loss)
         """
-        d_real, d_fake = self.gan.forward_pass()
-        return self.loss.forward(d_real, d_fake)
+        return self.gan.forward_loss(self.loss)
 
     def step(self):
         self.backend.step()

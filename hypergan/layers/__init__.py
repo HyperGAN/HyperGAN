@@ -16,6 +16,7 @@ from .cat import Cat
 from .mul import Mul
 from .ez_norm import EzNorm
 from .layer import Layer
+from .minibatch import Minibatch
 from .residual import Residual
 from .channel_attention import ChannelAttention
 from .efficient_attention import EfficientAttention

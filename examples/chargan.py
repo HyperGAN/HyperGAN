@@ -1,9 +1,9 @@
-from hypergan.gans.base_gan import BaseGAN
 from examples.common import *
 from hyperchamber import Config
 from hypergan.discriminators import *
 from hypergan.distributions import *
 from hypergan.gan_component import ValidationException, GANComponent
+from hypergan.gans.base_gan import BaseGAN
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.layer_shape import LayerShape
@@ -12,119 +12,62 @@ from hypergan.trainers import *
 import argparse
 import copy
 import hyperchamber as hc
-import hyperchamber as hc
-import hypergan as hg
 import hypergan as hg
 import importlib
 import json
 import numpy as np
-import numpy as np
 import os
-import os
+import re
 import string
 import sys
 import time
 import torch
-import torch
 import torch.utils.data as data
-import uuid
 import uuid
 
 class TextData(data.Dataset):
-    def __init__(self, path, length, device, mode="LINE"):
-        if mode == "LINE":
-            with open(path, errors='replace') as f:
-                self.lines_raw = f.readlines()
+    def __init__(self, path, length, device):
+        self.size = os.path.getsize(path)
+        self.file = None
+        self.path = path
 
-            self.lines = [self.pad_or_truncate(line) for line in self.lines_raw]
-            self.lines = [line for line in self.lines if line is not None]
-        else:
-            self.size = os.path.getsize(path)
-            self.file = None
-            self.path = path
-
-        self.mode = mode
         self.device = device
-        self.lookup = None
         self.length = length
-        self.vocab = self.get_vocabulary()
 
     def encode_line(self, line):
-        return torch.cat([self.get_encoded_value(c) for i, c in enumerate(line)])
-
-    def get_character(self, data):
-        enc = self.get_lookup_table()[1]
-        if data not in enc:
-            return "�"
-        return enc[data]
-
-    def get_encoded_value(self, data):
-        enc = self.get_lookup_table()[0]
-        if data not in enc:
-            return enc[" "]
-        return enc[data]
-
-    def get_lookup_table(self):
-        if self.lookup is None:
-            vocabulary = self.get_vocabulary()
-            values = np.arange(len(vocabulary))
-            lookup = {}
-
-            for i, key in enumerate(vocabulary):
-                lookup[key]=values[i]
-
-            #reverse the hash
-            rlookup = {i[1]:i[0] for i in lookup.items()}
-            for key, value in lookup.items():
-                lookup[key] = torch.tensor([ lookup[key] / float(len(vocabulary)) * 2 - 1], dtype=torch.float32)
-            self.lookup = [lookup, rlookup]
-        return self.lookup
-
-    def get_vocabulary(self):
-        vocab = list(" ~()\"'&+#@/789zyxwvutsrqponmlkjihgfedcbaABCDEFGHIJKLMNOPQRSTUVWXYZ0123456:-,;!?.\n")
-        return vocab
+        return torch.tensor([(c/256.0 * 2 - 1) for c in line])
 
     def __getitem__(self, index):
-        if self.mode == "LINE":
-            return [self.encode_line(self.lines[index]).view(1, -1)]
-        else:
-            if self.file is None:
-                self.file = open(self.path, 'r', errors='replace')
-            self.file.seek(index)
-            data = self.file.read(self.length)
-            encoded = self.encode_line(data).view(1, -1)
-            return [encoded]
+        if self.file is None:
+            self.file = open(self.path, 'rb')
+        self.file.seek(index)
+        data = self.file.read(self.length)
+        encoded = self.encode_line(data).view(1, -1)
+        return [encoded]
 
     def __len__(self):
-        if self.mode == "LINE":
-            return len(self.lines)
-        else:
-            return self.size - self.length - 1
+        return self.size - self.length
 
     def pad_or_truncate(self, line):
-        line = line.rstrip()
-        if len(line) == 0:
-            return None
-        return line.ljust(self.length, " ")[:self.length]
+        while(len(line) < self.length):
+            line += [self.get_encoded_value(" ")]
+        return line
 
     def sample_output(self, val):
-        vocabulary = self.get_vocabulary()
-        val = (np.reshape(val, [-1]) + 1) / 2.0
+        val = (np.reshape(val, [-1]) + 1.0) * 128.0
         x = val[0]
-        val *= len(vocabulary)
         val = np.round(val)
-        val = np.minimum(val, len(vocabulary)-1)
+        val = np.minimum(val, 255)
 
-        ox_val = [self.get_character(obj) for obj in list(val)]
+        ox_val = [chr(int(obj)) for obj in list(val)]
         string = "".join(ox_val)
         return string
 
 
 class TextInput:
-    def __init__(self, config, batch_size, filename, length, one_hot=False, device=0, mode="LINE"):
-        self.textdata = TextData(filename, length, device=device, mode=mode)
+    def __init__(self, config, batch_size, filename, length, one_hot=False, device=0):
+        self.textdata = TextData(filename, length, device=device)
         self.dataloader = data.DataLoader(self.textdata, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=True)
-        self.mode = mode
         self.dataset = None
         self._batch_size = batch_size
         self.length = length
@@ -149,7 +92,7 @@ class TextInput:
         plt.savefig(filename)
 
     def to(self, device):
-        return TextInput(self.config, self._batch_size, self.filename, self.length, self.one_hot, device=device, mode=self.mode)
+        return TextInput(self.config, self._batch_size, self.filename, self.length, self.one_hot, device=device)
 
     def next(self, index=0):
         if self.dataset is None:
@@ -186,7 +129,7 @@ class CharGAN(BaseGAN):
 
     def create(self):
         self.latent = self.create_component("latent")
-        self.generator = self.create_component("generator", input=self.latent, context_shapes={"q": LayerShape(1,self.config.length//2)})
+        self.generator = self.create_component("generator", input=self.latent, context_shapes={"q": LayerShape(self.config.length//2)})
         self.discriminator = self.create_component("discriminator")
 
     def forward_discriminator(self, inputs):
@@ -196,7 +139,7 @@ class CharGAN(BaseGAN):
         self.x = self.inputs.next()
         self.q, self.a = torch.split(self.x, self.config.length//2, dim=-1)
         self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
-        a_g = self.generator(self.augmented_latent, context={"q": self.q})
+        a_g = self.generator(self.augmented_latent, context={"q": self.q}).view(self.q.shape)
         self.g = torch.cat([self.q, a_g], dim=-1)
         self.augmented_x = self.train_hooks.augment_x(self.x)
         self.augmented_g = self.train_hooks.augment_g(self.g)
@@ -244,7 +187,7 @@ if __name__ == '__main__':
     config_name = args.config
     save_file = "saves/"+config_name+"/model.ckpt"
 
-    inputs = TextInput(config, args.batch_size, args.filename, config.length, one_hot=config.length, mode="CHAR")
+    inputs = TextInput(config, args.batch_size, args.filename, config.length, one_hot=config.length)
 
     def parse_size(size):
         width = int(size.split("x")[0])
@@ -314,7 +257,9 @@ if __name__ == '__main__':
                 print("X answer:")
                 print(inputs.textdata.sample_output(a[0].cpu().detach().numpy()))
                 print("G answer:")
-                print(inputs.textdata.sample_output(g[0].cpu().detach().numpy()))
+                g_output = inputs.textdata.sample_output(g[0].cpu().detach().numpy())
+                g_output = re.sub(r'[\x00-\x1f\x7f-\x9f]', '�', g_output)
+                print(g_output)
 
         if args.config is None:
             with open("sequence-results-10k.csv", "a") as myfile:

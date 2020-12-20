@@ -69,6 +69,7 @@ class ConfigurableComponent(GANComponent):
             "efficient_attention": hg.layers.EfficientAttention,
             "ez_norm": hg.layers.EzNorm,
             "layer": hg.layers.Layer,
+            "minibatch": hg.layers.Minibatch,
             "mul": hg.layers.Mul,
             "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
             "pixel_shuffle": hg.layers.PixelShuffle,
@@ -133,7 +134,6 @@ class ConfigurableComponent(GANComponent):
             #"layer_norm": self.layer_layer_norm,#TODO
             #"mask": self.layer_mask,#TODO
             #"match_support": self.layer_match_support,#TODO
-            #"minibatch": self.layer_minibatch,#TODO
             #"pixel_norm": self.layer_pixel_norm,#TODO
             #"progressive_replace": self.layer_progressive_replace,#TODO
             #"reduce_sum": self.layer_reduce_sum,#TODO might want to just do "reduce sum" instead

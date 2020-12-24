@@ -37,6 +37,11 @@ class Custom2DInputDistribution:
         self.x = torch.Tensor(self.config.batch_size, 2).cuda()
         self.y = torch.Tensor(self.config.batch_size, 2).cuda()
 
+    def to(self, device):
+        self.x = self.x.to(device)
+        self.y = self.y.to(device)
+        return self
+
     def batch_size(self):
         return self.config.batch_size
 
@@ -262,6 +267,7 @@ def train(config, args):
     gan = hg.GAN(config, inputs = Custom2DInputDistribution({
         "batch_size": args.batch_size
         }))
+    trainable_gan = hg.TrainableGAN(gan, devices = args.devices, backend_name = args.backend)
     gan.name = config_filename
     if gan.config.use_latent:
         accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(1), gan.generator(gan.latent.next()))
@@ -285,7 +291,7 @@ def train(config, args):
     for i in range(steps):
         if broken:
             break
-        gan.step()
+        trainable_gan.step()
 
         if args.viewer and i % args.sample_every == 0:
             samples += 1

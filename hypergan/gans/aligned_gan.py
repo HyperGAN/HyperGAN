@@ -66,7 +66,7 @@ class AlignedGAN(BaseGAN):
             y_args = [self.augmented_y, encoding_y]
 
         else:
-            self.g = self.generator(self.x, context={"y": y_.float().view(b, 1)})
+            self.g = self.generator(self.x)
             self.augmented_g = self.train_hooks.augment_g(self.g)
             x_args = [self.augmented_x]
             g_args = [self.augmented_g]

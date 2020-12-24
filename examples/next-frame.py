@@ -208,7 +208,7 @@ class NextFrameGAN(BaseGAN):
         self.c = c
         self.d_fake_inputs = []
         rems = [None]+gs[:self.frames-1]
-        for g, c in zip(gs[self.frames-1:], gcs[self.frames:]):
+        for g, c in zip(gs[self.frames-1:], gcs):
             rems = rems[1:] + [g]
             d_fake_input = torch.cat(rems, dim=1)
             self.d_fake_inputs.append(d_fake_input)

@@ -211,8 +211,8 @@ class NextFrameGAN(BaseGAN):
         self.d_real = d_real
         self.c = c
         self.d_fake_inputs = []
-        rems = frames[1:]
-        for g, c in zip(gs, gcs):
+        rems = frames[:self.frames-1]#gs[:self.frames-1]#frames[:self.frames-1]#gs[:self.frames]
+        for g, c in zip(gs[self.frames:], gcs):
             rems += [g]
             d_fake_input = torch.cat(rems, dim=1)
             rems = rems[1:]

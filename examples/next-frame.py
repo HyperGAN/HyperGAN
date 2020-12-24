@@ -207,8 +207,8 @@ class NextFrameGAN(BaseGAN):
         d_real = D(x, context={"c": c})
         self.c = c
         self.d_fake_inputs = []
-        rems = gs[:self.frames]
-        for g, c in zip(gs[self.frames:], gcs[self.frames:]):
+        rems = [None]+gs[:self.frames-1]
+        for g, c in zip(gs[self.frames-1:], gcs[self.frames:]):
             rems = rems[1:] + [g]
             d_fake_input = torch.cat(rems, dim=1)
             self.d_fake_inputs.append(d_fake_input)
@@ -550,24 +550,8 @@ class VideoFrameSampler(BaseSampler):
 
         for i in range(self.gan.frames):
             self.g = self.input_cache[i]
-            if self.gan.config.form == 1:
-                self.c = self.EC(self.z, context={"c":self.c})
-                self.z = self.EZ(self.g, context={"z":self.z})
-            elif self.gan.config.form == 2:
-                self.z = self.EZ(self.g, context={"z":self.z})
-                self.c_prev = self.c
-                self.c = self.EC(self.z, context={"c":self.c})
-                if self.gan.config.encode_g:
-                    self.g = self.G(self.c, context={"z":self.z})
-            elif self.gan.config.form == 5:
-                self.z = self.EZ(self.g, context={"z":self.z})
-                self.c = self.EC(self.z, context={"c":self.c})
-                self.g = self.G(self.c, context={"z":self.z})
-            else:
-                self.z = self.EZ(self.input_cache[i], context={"z":self.z})
-                self.c = self.EC(self.z, context={"c":self.c})
-            if self.gan.config.form == 3:
-                self.g = self.gan.generator_next(self.c, context={"z":self.z})
+            self.z = self.EZ(self.input_cache[i], context={"z":self.z})
+            self.c = self.EC(self.z, context={"c":self.c})
             self.i = 0
 
     def refresh_input_cache(self):
@@ -586,32 +570,9 @@ class VideoFrameSampler(BaseSampler):
     def _sample(self):
         self.inp = self.next_input()
         samples = []
-        #samples += [('input', self.inp)]
-        if self.gan.config.form == 2:
-            #self.fc = self.gan.forward_c(self.c, context={"c":self.c_prev})
-            self.fc = self.gan.nc(self.z, context={"c":self.c})
-            self.c_prev = self.c
-            self.g = self.G(self.fc, context={"z":self.z})
-            self.z = self.EZ(self.g, context={"z":self.z})
-            self.c = self.EC(self.z, context={"c":self.c})
-        if self.gan.config.form == 5:
-            self.c = self.gan.nc(self.z, context={"c":self.c})
-            self.g = self.G(self.c, context={"z":self.z})
-            self.z = self.EZ(self.g, context={"z":self.z})
-            self.c = self.EC(self.z, context={"c":self.c})
-
-        elif self.gan.config.form == 1:
-            self.c = self.EC(self.z, context={"c":self.c})
-            self.g = self.G(self.c, context={"z":self.z})
-            self.z = self.EZ(self.g, context={"z":self.z})
-        elif self.gan.config.form == 3:
-            self.g = self.gan.generator_next(self.c, context={"z":self.z})
-            self.z = self.EZ(self.g, context={"z":self.z})
-            self.c = self.EC(self.z, context={"c":self.c})
-        else:
-            self.g = self.G(self.c, context={"z":self.z})
-            self.z = self.EZ(self.g, context={"z":self.z})
-            self.c = self.EC(self.z, context={"c":self.c})
+        self.g = self.G(self.c, context={"z":self.z})
+        self.z = self.EZ(self.g, context={"z":self.z})
+        self.c = self.EC(self.z, context={"c":self.c})
         print(self.c.mean())
         if self.i % (4*24) == 0:
             print("RESET")

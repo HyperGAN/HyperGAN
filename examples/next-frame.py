@@ -12,6 +12,7 @@ import hypergan as hg
 import numpy as np
 import os
 import random
+from natsort import natsorted
 import re
 import time
 import torch
@@ -74,8 +75,8 @@ class GreedyVideoFolder(torchvision.datasets.vision.VisionDataset):
             def is_valid_file(x):
                 return torchvision.datasets.folder.has_file_allowed_extension(x, extensions)
         d = dir
-        for root, _, fnames in sorted(os.walk(d, followlinks=True)):
-            for fname in sorted(fnames):
+        for root, _, fnames in natsorted(os.walk(d, followlinks=True)):
+            for fname in natsorted(fnames):
                 path = os.path.join(root, fname)
                 if is_valid_file(path):
                     images.append(path)
@@ -192,8 +193,10 @@ class NextFrameGAN(BaseGAN):
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0])
 
-    def forward_pass(self, frames, x, cs, gs, gcs, rgs, rcs):
+    def forward_pass(self, frames, x, cs, gs, gcs, rgs, rcs, loss):
         d_fakes = []
+        d_losses = []
+        g_losses = []
 
         D = self.discriminator
         if self.config.discriminator3d:
@@ -205,14 +208,19 @@ class NextFrameGAN(BaseGAN):
             c = cs[-1]
 
         d_real = D(x, context={"c": c})
+        self.d_real = d_real
         self.c = c
         self.d_fake_inputs = []
-        rems = [None]+gs[:self.frames-1]
-        for g, c in zip(gs[self.frames-1:], gcs):
+        rems = frames#gs[:self.frames]
+        for g, c in zip(gs, gcs):
             rems = rems[1:] + [g]
             d_fake_input = torch.cat(rems, dim=1)
             self.d_fake_inputs.append(d_fake_input)
-            d_fakes.append(D(d_fake_input, context={"c": c}))
+            d_fake = D(d_fake_input, context={"c": c})
+            d_fakes.append(d_fake)
+            _d_loss, _g_loss = loss.forward(d_real, d_fake)
+            d_losses.append(_d_loss)
+            g_losses.append(_g_loss)
 
         if len(rgs) > 0:
             grems = rgs[:len(rems)]
@@ -224,16 +232,12 @@ class NextFrameGAN(BaseGAN):
             else:
                 d_fakes.append(D(torch.cat(grems, dim=1), context={"c":rc}))
             for rg, rc in zip(rgs[len(rems):], rcs[len(rems):]):
-                if config.discriminator3d:
-                    grems = grems[1:] + [rg[:,:,None,:,:]]
-                    rc = rc[:,:,None,:,:]
-                    d_fakes.append(D(torch.cat(grems, dim=2), context={"c":rc}))
-                else:
-                    grems = grems[1:] + [rg]
-                    d_fakes.append(D(torch.cat(grems, dim=1), context={"c":rc}))
+                grems = grems[1:] + [rg]
+                d_fakes.append(D(torch.cat(grems, dim=1), context={"c":rc}))
 
-        d_fake = sum(d_fakes)/len(d_fakes)
-        return d_real, d_fake
+        d_loss = sum(d_losses)/len(d_losses)
+        g_loss = sum(g_losses)/len(g_losses)
+        return d_loss, g_loss
 
     def forward_video_discriminator(self, cs, gcs, rcs):
         d_fakes = []
@@ -323,12 +327,7 @@ class NextFrameGAN(BaseGAN):
                 self.x = torch.cat([x[:, :, None, :, :] for x in current_inputs], dim=2)
             else:
                 self.x = torch.cat(current_inputs, dim=1)
-            d_real, d_fake = self.forward_pass(current_inputs, self.x, cs, gs, gcs, rgs, rcs)
-            self.d_real = d_real
-            self.od_fake = d_fake
-            _d_loss, _g_loss = loss.forward(d_real, d_fake)
-            d_loss = _d_loss
-            g_loss = _g_loss
+            d_loss, g_loss = self.forward_pass(current_inputs, self.x, cs, gs, gcs, rgs, rcs, loss)
 
         if self.config.image_discriminator:
             self.ix = self.last_x
@@ -454,8 +453,6 @@ class NextFrameGAN(BaseGAN):
             g = G(c, context={"z":z})
             zs.append(z)
             cs.append(c)
-            if i < len(xs) - 1:
-                gs.append(g)
 
         input_c = c
         input_z = z
@@ -478,6 +475,13 @@ class NextFrameGAN(BaseGAN):
             gzs.append(z)
             gs.append(g)
         self.last_g = g
+
+
+#    x0 | x1
+#z-  z0 | z1 | z2
+#c-  c0 | c1 | c2
+#    g1 | g2 | g3
+#
 
         return cs, zs, gs, gcs, gzs, rgs, rcs, vae_loss
 

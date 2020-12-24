@@ -455,6 +455,7 @@ class NextFrameGAN(BaseGAN):
             g = G(c, context={"z":z})
             zs.append(z)
             cs.append(c)
+            gs.append(g)
 
         input_c = c
         input_z = z

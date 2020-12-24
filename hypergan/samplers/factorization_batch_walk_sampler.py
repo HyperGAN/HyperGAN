@@ -1,5 +1,6 @@
 from PIL import Image
 from hypergan.samplers.base_sampler import BaseSampler
+from hypergan.viewer import GlobalViewer
 import numpy as np
 import random
 import torch

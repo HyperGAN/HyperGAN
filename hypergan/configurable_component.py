@@ -777,6 +777,9 @@ class ConfigurableComponent(GANComponent):
         for p in (set(list(self.parameters())) - self.untrainable_parameters):
             p.requires_grad = flag
 
+    def layer_shape(self):
+        return self.current_size
+
     def __getstate__(self):
         obj = dict(self.__dict__)
         del obj["parser"]

@@ -211,10 +211,11 @@ class NextFrameGAN(BaseGAN):
         self.d_real = d_real
         self.c = c
         self.d_fake_inputs = []
-        rems = frames#gs[:self.frames]
-        for g, c in zip(gs, gcs):
-            rems = rems[1:] + [g]
+        rems = frames[:self.frames-1]#gs[:self.frames]
+        for g, c in zip(gs[self.frames-1:], gcs):
+            rems += [g]
             d_fake_input = torch.cat(rems, dim=1)
+            rems = rems[1:]
             self.d_fake_inputs.append(d_fake_input)
             d_fake = D(d_fake_input, context={"c": c})
             d_fakes.append(d_fake)
@@ -237,6 +238,7 @@ class NextFrameGAN(BaseGAN):
 
         d_loss = sum(d_losses)/len(d_losses)
         g_loss = sum(g_losses)/len(g_losses)
+        self.d_fake = sum(d_fake)/len(d_fake)
         return d_loss, g_loss
 
     def forward_video_discriminator(self, cs, gcs, rcs):
@@ -453,6 +455,7 @@ class NextFrameGAN(BaseGAN):
             g = G(c, context={"z":z})
             zs.append(z)
             cs.append(c)
+            gs.append(g)
 
         input_c = c
         input_z = z

@@ -26,6 +26,7 @@ from common import *
 arg_parser = ArgumentParser("render next frame")
 parser = arg_parser.add_image_arguments()
 parser.add_argument('--frames', type=int, default=4, help='Number of frames to embed.')
+parser.add_argument('--per_sample_frames', type=int, default=3, help='Number of frames to use at once.  Ex: 3 becomes x1, x2, g3')
 args = arg_parser.parse_args()
 
 if __name__ == "__main__":
@@ -59,6 +60,7 @@ class GreedyVideoFolder(torchvision.datasets.vision.VisionDataset):
             raise (RuntimeError("Found 0 files in subfolders of: " + self.root + "\n"
                                 "Supported extensions are: " + ",".join(extensions)))
 
+            
         self.frames = frames
         self.loader = loader
         self.extensions = extensions
@@ -151,7 +153,9 @@ class NextFrameGAN(BaseGAN):
     """ 
     """
     def __init__(self, *args, **kwargs):
+        self.per_sample_frames=3
         self.frames = kwargs.pop('frames')
+        self.per_sample_frames = kwargs.pop('per_sample_frames')
         BaseGAN.__init__(self, *args, **kwargs)
 
     def create(self):
@@ -174,7 +178,7 @@ class NextFrameGAN(BaseGAN):
         if self.config.random_z:
             self.random_z = self.create_component("random_z", input=self.latent)
         if self.config.discriminator:
-            self.discriminator = self.create_component("discriminator")
+            self.discriminator = self.create_component("discriminator", context_shapes={"c": c_shape})
         if self.config.video_discriminator:
             self.video_discriminator = self.create_component("video_discriminator", input=self.ec)
         if self.config.image_discriminator:
@@ -193,8 +197,9 @@ class NextFrameGAN(BaseGAN):
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0])
 
-    def forward_pass(self, frames, x, cs, gs, gcs, rgs, rcs, loss):
+    def forward_pass(self, frames, xs, cs, gs, gcs, rgs, rcs, loss):
         d_fakes = []
+        d_reals = []
         d_losses = []
         g_losses = []
 
@@ -206,22 +211,47 @@ class NextFrameGAN(BaseGAN):
                 c = cs[-1][:,:,None,:,:]
         else:
             c = cs[-1]
+        cx = self.gen_c()
+        zx = self.gen_z()
+        cg = self.gen_c()
+        zg = self.gen_z()
+        EZ = self.ez
+        EC = self.ec
 
-        d_real = D(x, context={"c": c})
-        self.d_real = d_real
-        self.c = c
+        #rems = frames[:self.frames-1]#gs[:self.frames-1]#frames[:self.frames-1]#gs[:self.frames]
+        #if self.config.use_gs_only:
+        #    rems = gs[:self.frames-1]
+        #for g, c in zip(gs[self.frames-1:-1], gcs):
+        #    rems += [g]
+        #    d_fake_input = torch.cat(rems, dim=1)
+        #    rems = rems[1:]
+        #    self.d_fake_inputs.append(d_fake_input.clone().detach())
+        #    d_fake = D(d_fake_input, context={"c": c})
+        #    d_fakes.append(d_fake)
+        #    _d_loss, _g_loss = loss.forward(d_real, d_fake)
+        #    d_losses.append(_d_loss)
+        #    g_losses.append(_g_loss)
         self.d_fake_inputs = []
-        rems = frames[:self.frames-1]#gs[:self.frames-1]#frames[:self.frames-1]#gs[:self.frames]
-        for g, c in zip(gs[self.frames:], gcs):
-            rems += [g]
+        for i in range(self.frames-2):
+            #rems = frames[i:i+self.per_sample_frames-1]
+            #g = gs[i+self.per_sample_frames-1]
+            #rems += [g]
+            zx = EZ(frames[i], context={"z":zx})
+            cx = EC(zx, context={"c":cx})
+            zg = EZ(gs[i], context={"z":zg})
+            cg = EC(zg, context={"c":cg})
+            d_real = D(xs[i], context={"c": cx})
+            d_reals.append(d_real)
+            rems = gs[i:i+self.per_sample_frames]
             d_fake_input = torch.cat(rems, dim=1)
-            rems = rems[1:]
             self.d_fake_inputs.append(d_fake_input.clone().detach())
-            d_fake = D(d_fake_input, context={"c": c})
+            d_fake = D(d_fake_input, context={"c": cg})
             d_fakes.append(d_fake)
-            _d_loss, _g_loss = loss.forward(d_real, d_fake)
-            d_losses.append(_d_loss)
-            g_losses.append(_g_loss)
+        self.d_real = sum(d_reals) / len(d_reals)
+        self.d_fake = sum(d_fakes) / len(d_fakes)
+        _d_loss, _g_loss = loss.forward(self.d_real, self.d_fake)
+        d_losses.append(_d_loss)
+        g_losses.append(_g_loss)
 
         if len(rgs) > 0:
             grems = rgs[:len(rems)]
@@ -328,8 +358,11 @@ class NextFrameGAN(BaseGAN):
             if self.config.discriminator3d:
                 self.x = torch.cat([x[:, :, None, :, :] for x in current_inputs], dim=2)
             else:
-                self.x = torch.cat(current_inputs, dim=1)
-            d_loss, g_loss = self.forward_pass(current_inputs, self.x, cs, gs, gcs, rgs, rcs, loss)
+                self.x = torch.cat(current_inputs[:self.per_sample_frames], dim=1)
+                self.xs = []
+                for i in range(self.frames-2):
+                    self.xs += [torch.cat(current_inputs[i:i+self.per_sample_frames], dim=1)]
+            d_loss, g_loss = self.forward_pass(current_inputs, self.xs, cs, gs, gcs, rgs, rcs, loss)
 
         if self.config.image_discriminator:
             self.ix = self.last_x
@@ -449,8 +482,9 @@ class NextFrameGAN(BaseGAN):
         zs = []
         gs = []
         c_prev = c
+        g = xs[0]
         for i, frame in enumerate(xs):
-            z = EZ(frame, context={"z":z})
+            z = EZ(g, context={"z":z})
             c = EC(z, context={"c":c})
             g = G(c, context={"z":z})
             zs.append(z)
@@ -462,7 +496,7 @@ class NextFrameGAN(BaseGAN):
 
         gcs = []
         gzs = []
-        gen_frames = self.config.forward_frames or self.frames + 1
+        gen_frames = 1#self.frames-self.per_sample_frames#self.frames#self.config.forward_frames or self.frames + 1
 
 
         if self.config.extra_long:
@@ -470,10 +504,11 @@ class NextFrameGAN(BaseGAN):
                 if self.steps % every == 0:
                     print("Running extra long step " + str(multiple) + " frames")
                     gen_frames = multiple
+        g = gs[-1]
         for gen in range(gen_frames):
-            g = G(c, context={"z":z})
             z = EZ(g, context={"z":z})
             c = EC(z, context={"c":c})
+            g = G(c, context={"z":z})
             gcs.append(c)
             gzs.append(z)
             gs.append(g)
@@ -491,7 +526,7 @@ class NextFrameGAN(BaseGAN):
     def channels(self):
         if self.config.discriminator3d:
             return super(NextFrameGAN, self).channels()
-        return super(NextFrameGAN, self).channels() * self.frames
+        return super(NextFrameGAN, self).channels() * self.per_sample_frames
 
     def gen_c(self):
         shape = [self.batch_size(), self.ec.current_size.channels, self.ec.current_size.height, self.ec.current_size.width]
@@ -525,14 +560,14 @@ class NextFrameGAN(BaseGAN):
             return list([[d_in] for d_in in self.d_fake_inputs]).copy()
         else:
             print("next gs")
-            return [list(torch.chunk(self.inputs.next(), self.frames, dim=1))[-1]]
+            return [list(torch.chunk(self.inputs.next(), self.per_sample_frames, dim=1))[-1]]
 
     def discriminator_real_inputs(self):
-        if hasattr(self, 'x'):
-            return [self.x]
+        if hasattr(self, 'xs'):
+            return self.xs
         else:
-            print("next xs")
-            return [list(torch.chunk(self.inputs.next(), self.frames, dim=1))[-1]]
+            print("next xs", self.per_sample_frames)
+            return [list(torch.chunk(self.inputs.next(), self.per_sample_frames, dim=1))[-1]]
 
 class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
@@ -554,11 +589,11 @@ class VideoFrameSampler(BaseSampler):
             #self.rc = self.c
             #self.rc = self.gan.gen_c()
             self.rg = self.G(self.rc, context={"z":self.rz})
-
+        g = self.input_cache[0]
         for i in range(self.gan.frames):
-            self.g = self.input_cache[i]
-            self.z = self.EZ(self.input_cache[i], context={"z":self.z})
+            self.z = self.EZ(g, context={"z":self.z})
             self.c = self.EC(self.z, context={"c":self.c})
+            self.g = self.G(self.c, context={"z":self.z})
             self.i = 0
 
     def refresh_input_cache(self):
@@ -605,7 +640,7 @@ class TrainingVideoFrameSampler(BaseSampler):
 
 
 def setup_gan(config, inputs, args):
-    gan = NextFrameGAN(config, inputs=inputs, frames=args.frames)
+    gan = NextFrameGAN(config, inputs=inputs, frames=args.frames, per_sample_frames=args.per_sample_frames)
     gan.load(save_file)
 
     config_name = args.config

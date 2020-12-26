@@ -241,17 +241,26 @@ class NextFrameGAN(BaseGAN):
             zg = EZ(gs[i], context={"z":zg})
             cg = EC(zg, context={"c":cg})
             d_real = D(xs[i], context={"c": cx})
+            self.d_real = d_real
             d_reals.append(d_real)
             rems = gs[i:i+self.per_sample_frames]
             d_fake_input = torch.cat(rems, dim=1)
             self.d_fake_inputs.append(d_fake_input.clone().detach())
             d_fake = D(d_fake_input, context={"c": cg})
-            d_fakes.append(d_fake)
-        self.d_real = sum(d_reals) / len(d_reals)
-        self.d_fake = sum(d_fakes) / len(d_fakes)
-        _d_loss, _g_loss = loss.forward(self.d_real, self.d_fake)
-        d_losses.append(_d_loss)
-        g_losses.append(_g_loss)
+            _d_loss, _g_loss = loss.forward(d_real, d_fake)
+            d_losses.append(_d_loss)
+            g_losses.append(_g_loss)
+
+        for i in range(len(xs), len(gs)-self.per_sample_frames+1):
+            zg = EZ(gs[i], context={"z":zg})
+            cg = EC(zg, context={"c":cg})
+            rems = gs[i:i+self.per_sample_frames]
+            d_fake_input = torch.cat(rems, dim=1)
+            self.d_fake_inputs.append(d_fake_input.clone().detach())
+            d_fake = D(d_fake_input, context={"c": cg})
+            _d_loss, _g_loss = loss.forward(d_real, d_fake)
+            d_losses.append(_d_loss)
+            g_losses.append(_g_loss)
 
         if len(rgs) > 0:
             grems = rgs[:len(rems)]
@@ -496,7 +505,7 @@ class NextFrameGAN(BaseGAN):
 
         gcs = []
         gzs = []
-        gen_frames = 1#self.frames-self.per_sample_frames#self.frames#self.config.forward_frames or self.frames + 1
+        gen_frames = self.config.forward_frames or self.frames + 1
 
 
         if self.config.extra_long:

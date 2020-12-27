@@ -170,7 +170,8 @@ class NextFrameGAN(BaseGAN):
         c_shape = LayerShape(c_channels, c_h, c_w)
         self.ez = self.create_component("ez", context_shapes={"z": z_shape})
         self.ec = self.create_component("ec", input=self.ez, context_shapes={"c": c_shape})
-        self.generator = self.create_component("generator", input=self.ec, context_shapes={"z": z_shape})
+        self.gz = self.create_component("gz", input=self.ec, context_shapes={"z": z_shape})
+        self.generator = self.create_component("generator", input=self.ez)
         if self.config.generator_next:
             self.generator_next = self.create_component("generator_next", input=self.ec)
         if self.config.random_c:
@@ -185,10 +186,6 @@ class NextFrameGAN(BaseGAN):
             self.image_discriminator = self.create_component("image_discriminator", input=self.generator)
         if self.config.c_discriminator:
             self.c_discriminator = self.create_component("c_discriminator", input=self.ec)
-        if self.config.predict_c:
-            self.predict_c = self.create_component("predict_c", input=self.ec)
-        if self.config.forward_c:
-            self.forward_c = self.create_component("forward_c", input=self.ec)
         if self.config.nc:
             self.nc = self.create_component("nc", input=self.ez)
         if self.config.nz:
@@ -217,47 +214,18 @@ class NextFrameGAN(BaseGAN):
         zg = self.gen_z()
         EZ = self.ez
         EC = self.ec
+        GZ = self.gz
 
-        #rems = frames[:self.frames-1]#gs[:self.frames-1]#frames[:self.frames-1]#gs[:self.frames]
-        #if self.config.use_gs_only:
-        #    rems = gs[:self.frames-1]
-        #for g, c in zip(gs[self.frames-1:-1], gcs):
-        #    rems += [g]
-        #    d_fake_input = torch.cat(rems, dim=1)
-        #    rems = rems[1:]
-        #    self.d_fake_inputs.append(d_fake_input.clone().detach())
-        #    d_fake = D(d_fake_input, context={"c": c})
-        #    d_fakes.append(d_fake)
-        #    _d_loss, _g_loss = loss.forward(d_real, d_fake)
-        #    d_losses.append(_d_loss)
-        #    g_losses.append(_g_loss)
         self.d_fake_inputs = []
-        for i in range(self.frames-2):
-            #rems = frames[i:i+self.per_sample_frames-1]
-            #g = gs[i+self.per_sample_frames-1]
-            #rems += [g]
-            zx = EZ(frames[i], context={"z":zx})
-            cx = EC(zx, context={"c":cx})
-            zg = EZ(gs[i], context={"z":zg})
-            cg = EC(zg, context={"c":cg})
-            d_real = D(xs[i], context={"c": cx})
-            self.d_real = d_real
-            d_reals.append(d_real)
-            rems = gs[i:i+self.per_sample_frames]
-            d_fake_input = torch.cat(rems, dim=1)
-            self.d_fake_inputs.append(d_fake_input.clone().detach())
-            d_fake = D(d_fake_input, context={"c": cg})
-            _d_loss, _g_loss = loss.forward(d_real, d_fake)
-            d_losses.append(_d_loss)
-            g_losses.append(_g_loss)
+        d_real = D(xs[0])
+        self.d_real = d_real
 
-        for i in range(len(xs), len(gs)-self.per_sample_frames+1):
-            zg = EZ(gs[i], context={"z":zg})
-            cg = EC(zg, context={"c":cg})
-            rems = gs[i:i+self.per_sample_frames]
+        rems = [None] + gs[1:self.per_sample_frames]
+        for g in gs[self.per_sample_frames:]:
+            rems = rems[1:] + [g]
             d_fake_input = torch.cat(rems, dim=1)
             self.d_fake_inputs.append(d_fake_input.clone().detach())
-            d_fake = D(d_fake_input, context={"c": cg})
+            d_fake = D(d_fake_input)
             _d_loss, _g_loss = loss.forward(d_real, d_fake)
             d_losses.append(_d_loss)
             g_losses.append(_g_loss)
@@ -369,7 +337,7 @@ class NextFrameGAN(BaseGAN):
             else:
                 self.x = torch.cat(current_inputs[:self.per_sample_frames], dim=1)
                 self.xs = []
-                for i in range(self.frames-2):
+                for i in range(self.frames-self.per_sample_frames+1):
                     self.xs += [torch.cat(current_inputs[i:i+self.per_sample_frames], dim=1)]
             d_loss, g_loss = self.forward_pass(current_inputs, self.xs, cs, gs, gcs, rgs, rcs, loss)
 
@@ -427,17 +395,13 @@ class NextFrameGAN(BaseGAN):
         return components
 
     def generator_components(self):
-        components = [self.generator, self.ec, self.ez]
+        components = [self.generator, self.ec, self.ez, self.gz]
         if self.config.generator_next:
             components.append(self.generator_next)
         if self.config.random_c:
             components.append(self.random_c)
         if self.config.random_z:
             components.append(self.random_z)
-        if self.config.predict_c:
-            components.append(self.predict_c)
-        if self.config.forward_c:
-            components.append(self.forward_c)
         if self.config.nc:
             components.append(self.nc)
         if self.config.nz:
@@ -448,6 +412,7 @@ class NextFrameGAN(BaseGAN):
         EZ = self.ez
         EC = self.ec
         G = self.generator
+        GZ = self.gz
         rgs = []
         rcs = []
         vae_loss = []
@@ -490,12 +455,10 @@ class NextFrameGAN(BaseGAN):
         cs = []
         zs = []
         gs = []
-        c_prev = c
-        g = xs[0]
         for i, frame in enumerate(xs):
-            z = EZ(g, context={"z":z})
+            z = EZ(frame, context={"z":z})
             c = EC(z, context={"c":c})
-            g = G(c, context={"z":z})
+            g = G(z)
             zs.append(z)
             cs.append(c)
             gs.append(g)
@@ -505,7 +468,10 @@ class NextFrameGAN(BaseGAN):
 
         gcs = []
         gzs = []
-        gen_frames = self.config.forward_frames or self.frames + 1
+        if self.config.forward_frames is None:
+            gen_frames = self.frames + 1
+        else:
+            gen_frames = self.config.forward_frames
 
 
         if self.config.extra_long:
@@ -513,22 +479,17 @@ class NextFrameGAN(BaseGAN):
                 if self.steps % every == 0:
                     print("Running extra long step " + str(multiple) + " frames")
                     gen_frames = multiple
-        g = gs[-1]
+        g = xs[-1]
         for gen in range(gen_frames):
-            z = EZ(g, context={"z":z})
+            z2 = GZ(c, context={"z":z})
+            g = G(z2)
+            z = EZ(g, context={"z":z2})
             c = EC(z, context={"c":c})
-            g = G(c, context={"z":z})
             gcs.append(c)
-            gzs.append(z)
+            gzs.append(z2)
             gs.append(g)
         self.last_g = g
 
-
-#    x0 | x1
-#z-  z0 | z1 | z2
-#c-  c0 | c1 | c2
-#    g1 | g2 | g3
-#
 
         return cs, zs, gs, gcs, gzs, rgs, rcs, vae_loss
 
@@ -584,6 +545,7 @@ class VideoFrameSampler(BaseSampler):
         self.EZ = self.gan.ez
         self.EC = self.gan.ec
         self.G = self.gan.generator
+        self.GZ = self.gan.gz
         self.refresh_input_cache()
         self.seed()
 
@@ -598,11 +560,13 @@ class VideoFrameSampler(BaseSampler):
             #self.rc = self.c
             #self.rc = self.gan.gen_c()
             self.rg = self.G(self.rc, context={"z":self.rz})
-        g = self.input_cache[0]
+        self.g = self.input_cache[self.gan.frames-1]
+        self.i=0
         for i in range(self.gan.frames):
+            g = self.input_cache[i]
             self.z = self.EZ(g, context={"z":self.z})
             self.c = self.EC(self.z, context={"c":self.c})
-            self.g = self.G(self.c, context={"z":self.z})
+            self.g = self.G(self.z)
             self.i = 0
 
     def refresh_input_cache(self):
@@ -621,11 +585,12 @@ class VideoFrameSampler(BaseSampler):
     def _sample(self):
         self.inp = self.next_input()
         samples = []
-        self.g = self.G(self.c, context={"z":self.z})
         self.z = self.EZ(self.g, context={"z":self.z})
         self.c = self.EC(self.z, context={"c":self.c})
+        self.z = self.GZ(self.c, context={"z":self.z})
+        self.g = self.G(self.z)
         print(self.c.mean())
-        if self.i % (4*24) == 0:
+        if self.i % (8*24) == 0:
             print("RESET")
             self.seed()
         if self.gan.config.random:

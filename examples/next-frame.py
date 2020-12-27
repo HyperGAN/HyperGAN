@@ -220,7 +220,7 @@ class NextFrameGAN(BaseGAN):
         d_real = D(xs[0])
         self.d_real = d_real
 
-        rems = [None] + gs[1:self.per_sample_frames]
+        rems = [None] + frames[1:self.per_sample_frames]
         for g in gs[self.per_sample_frames:]:
             rems = rems[1:] + [g]
             d_fake_input = torch.cat(rems, dim=1)
@@ -311,8 +311,8 @@ class NextFrameGAN(BaseGAN):
         self.xs, self.cs, self.gs, self.gcs, self.rgs, self.rcs = current_inputs, cs, gs, gcs, rgs, rcs
         self.zs, self.gzs = zs, gzs
 
-        #d_loss = torch.tensor([0.0]).cuda()
-        #g_loss = torch.tensor([0.0]).cuda()
+        d_loss = torch.tensor([0.0]).cuda()
+        g_loss = torch.tensor([0.0]).cuda()
 
         if self.config.vae:
             g_loss += vae_loss
@@ -339,7 +339,9 @@ class NextFrameGAN(BaseGAN):
                 self.xs = []
                 for i in range(self.frames-self.per_sample_frames+1):
                     self.xs += [torch.cat(current_inputs[i:i+self.per_sample_frames], dim=1)]
-            d_loss, g_loss = self.forward_pass(current_inputs, self.xs, cs, gs, gcs, rgs, rcs, loss)
+            _d_loss, _g_loss = self.forward_pass(current_inputs, self.xs, cs, gs, gcs, rgs, rcs, loss)
+            g_loss += _g_loss
+            d_loss += _d_loss
 
         if self.config.image_discriminator:
             self.ix = self.last_x
@@ -488,9 +490,11 @@ class NextFrameGAN(BaseGAN):
             gcs.append(c)
             gzs.append(z2)
             gs.append(g)
+        if self.config.vae:
+            vae_loss.append(self.vae_loss(gcs[0]))
         self.last_g = g
 
-
+        vae_loss = sum(vae_loss)
         return cs, zs, gs, gcs, gzs, rgs, rcs, vae_loss
 
     def channels(self):
@@ -499,7 +503,7 @@ class NextFrameGAN(BaseGAN):
         return super(NextFrameGAN, self).channels() * self.per_sample_frames
 
     def gen_c(self):
-        shape = [self.batch_size(), self.ec.current_size.channels, self.ec.current_size.height, self.ec.current_size.width]
+        shape = [self.batch_size(), *self.ec.current_size.dims]
         if self.config.cdist == "random":
             return self.random_c(self.latent.sample)
         if self.config.cdist == "uniform":

@@ -161,12 +161,12 @@ class NextFrameGAN(BaseGAN):
     def create(self):
         self.latent = self.create_component("latent")
         self.encoder = self.create_component("encoder")
-        self.decoder = self.create_component("decoder")
+        self.decoder = self.create_component("decoder", input=self.encoder)
         c_w = 8
         c_h = 8
         c_channels = 512
         c_shape = LayerShape(c_channels, c_h, c_w)
-        self.state= self.create_component("state", context_shapes={"past": c_shape} )
+        self.state= self.create_component("state", input=self.encoder, context_shapes={"past": c_shape} )
         self.discriminator = self.create_component("discriminator")
 
     def forward_discriminator(self, inputs):

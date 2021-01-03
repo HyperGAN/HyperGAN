@@ -193,22 +193,6 @@ class NextFrameGAN(BaseGAN):
             xframes = torch.cat(frames[i:i+self.per_sample_frames], dim=1)
             d_real = D(xframes)
 
-            gstate = state
-            grems = rems
-            for j in range(self.config.forward_frames or 0):
-                grems = grems[1:]
-                enc = self.encoder(torch.cat(grems, dim=1))
-                gstate = self.state(enc, context={"past": state})
-                g = self.decoder(gstate)
-                grems += [g]
-                d_fake_input = torch.cat(grems, dim=1)
-                self.d_fake_inputs.append(d_fake_input.clone().detach())
-                d_fake = D(d_fake_input)
-                _d_loss, _g_loss = loss.forward(d_real, d_fake)
-                d_losses.append(_d_loss)
-                g_losses.append(_g_loss)
-
-
             self.d_real = d_real
             d_reals.append(d_real)
             d_fake_input = torch.cat(rems, dim=1)
@@ -217,6 +201,40 @@ class NextFrameGAN(BaseGAN):
             _d_loss, _g_loss = loss.forward(d_real, d_fake)
             d_losses.append(_d_loss)
             g_losses.append(_g_loss)
+            last_d_fake = d_fake
+            original_d_fake = d_fake
+            last_g_loss =  _g_loss
+            grems=rems
+
+            for j in range(self.config.forward_frames or 0):
+                grems = grems[1:]
+                #grems[-1] = grems[-1].clone().detach()
+                #state = state.clone().detach()
+                enc = self.encoder(torch.cat(grems, dim=1))
+                state = self.state(enc, context={"past": state})
+                g = self.decoder(state)
+                grems += [g]
+                d_fake_input = torch.cat(grems, dim=1)
+                d_fake = D(d_fake_input)
+                #if original_d_fake.mean().abs() < d_fake.mean().abs():
+                #    break
+                if last_d_fake.mean().abs() <= d_fake.mean().abs():
+                    break
+                last_d_fake = d_fake
+
+                self.d_fake_inputs.append(d_fake_input.clone().detach())
+                _d_loss, _g_loss = loss.forward(d_real, d_fake)
+                d_losses.append(_d_loss)
+                g_losses.append(_g_loss)
+            if(j != 0):
+                #d_losses = [_d_loss]
+                #g_losses = [_g_loss]
+                print("j ", j, "d_real", d_real.mean(), "d_fake", d_fake.mean())
+                #d_losses.append(_d_loss)
+                #g_losses.append(_g_loss)
+
+
+
  
         d_loss = sum(d_losses)/len(d_losses)
         g_loss = sum(g_losses)/len(g_losses)

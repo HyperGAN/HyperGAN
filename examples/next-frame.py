@@ -195,11 +195,11 @@ class NextFrameGAN(BaseGAN):
 
             gstate = state
             grems = rems
-            for i in range(self.config.forward_frames or 0):
+            for j in range(self.config.forward_frames or 0):
                 grems = grems[1:]
+                enc = self.encoder(torch.cat(grems, dim=1))
                 gstate = self.state(enc, context={"past": state})
                 g = self.decoder(gstate)
-                enc = self.encoder(torch.cat(grems, dim=1))
                 grems += [g]
                 d_fake_input = torch.cat(grems, dim=1)
                 self.d_fake_inputs.append(d_fake_input.clone().detach())

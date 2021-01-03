@@ -189,8 +189,26 @@ class NextFrameGAN(BaseGAN):
             g = self.decoder(state)
             self.gs.append(g)
             rems += [g]
+
             xframes = torch.cat(frames[i:i+self.per_sample_frames], dim=1)
             d_real = D(xframes)
+
+            gstate = state
+            grems = rems
+            for i in range(self.config.forward_frames or 0):
+                grems = grems[1:]
+                gstate = self.state(enc, context={"past": state})
+                g = self.decoder(gstate)
+                enc = self.encoder(torch.cat(grems, dim=1))
+                grems += [g]
+                d_fake_input = torch.cat(grems, dim=1)
+                self.d_fake_inputs.append(d_fake_input.clone().detach())
+                d_fake = D(d_fake_input)
+                _d_loss, _g_loss = loss.forward(d_real, d_fake)
+                d_losses.append(_d_loss)
+                g_losses.append(_g_loss)
+
+
             self.d_real = d_real
             d_reals.append(d_real)
             d_fake_input = torch.cat(rems, dim=1)

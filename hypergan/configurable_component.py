@@ -72,6 +72,7 @@ class ConfigurableComponent(GANComponent):
             "minibatch": hg.layers.Minibatch,
             "mul": hg.layers.Mul,
             "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
+            "noise": hg.layers.Noise,
             "pixel_shuffle": hg.layers.PixelShuffle,
             "residual": hg.layers.Residual,
             "resizable_stack": hg.layers.ResizableStack,

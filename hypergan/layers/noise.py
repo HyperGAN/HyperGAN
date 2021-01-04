@@ -21,6 +21,10 @@ class Noise(hg.Layer):
     """
     def __init__(self, component, args, options):
         super(Noise, self).__init__(component, args, options)
+        self.dims = list(component.current_size.dims).copy()
+
+    def output_size(self):
+        return LayerShape(*self.dims)
 
     def forward(self, input, context):
         return torch.randn_like(input, device=input.device)

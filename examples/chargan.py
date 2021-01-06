@@ -54,10 +54,9 @@ class TextData(data.Dataset):
         return line
 
     def sample_output(self, val):
-        val = (np.reshape(val, [-1]) + 1.0) * 128.0
+        val = (np.reshape(val, [-1]) + 1.0) * 127.5
         x = val[0]
         val = np.round(val)
-        val = np.minimum(val, 255)
 
         ox_val = [chr(int(obj)) for obj in list(val)]
         string = "".join(ox_val)

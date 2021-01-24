@@ -59,28 +59,42 @@ class ResizableStack(hg.Layer):
         self.max_channels = options.max_channels or 256
         self.segment_channels = options.segment_channels or 5
         self.style = options.style or "w"
+        self.output_channels = options.output_channels or component.gan.channels()
 
         layers = []
 
-        sizes = self.sizes(component.current_size.height, component.current_size.width, component.gan.height(), component.gan.width(), self.segment_channels * 2 * component.gan.channels())
+        sizes = self.sizes(component.current_size.height, component.current_size.width, component.gan.height(), component.gan.width(), self.segment_channels * 2 * self.output_channels)
         print("SIZES", sizes)
+        layer_names = []
         for i, size in enumerate(sizes[1:]):
             c = min(size.channels, self.max_channels)
             upsample = hg.layers.Upsample(component, [], hc.Config({"w": size.width, "h": size.height}))
             component.current_size = upsample.output_size() #TODO abstract input_size
             if options.normalize != False:
                 _, add = component.parse_layer("add self (ez_norm initializer=(xavier_normal) style=" + self.style + ")")
-            _, conv = component.parse_layer("conv2d " + str(size.channels) + " padding=0 initializer=(xavier_normal)")
+                name = "_g_conv"+str(i)
+            _, conv = component.parse_layer("conv2d " + str(size.channels) + " padding=0 initializer=(xavier_normal) name="+name)
+
 
             if options.normalize == False:
                 layers += [upsample, conv]
+                layer_names += [None, name]
             else:
                 layers += [upsample, add, conv]
+                layer_names += [None, None, name]
             if i < len(sizes) - 2:
                 layers += [nn.ReLU()]
+                layer_names += [None]
 
-        layers += [hg.layers.SegmentSoftmax(component, [component.gan.channels()], {})]
+            if(i > 1):
+                _, shortcut = component.parse_layer("skip_connection _g_conv"+str(i-2))
+                layers += [shortcut]
+                layer_names += [None]
+
+        layers += [hg.layers.SegmentSoftmax(component, [self.output_channels], {})]
+        layer_names += [None]
         self.layers = nn.ModuleList(layers)
+        self.layer_names = layer_names
 
     def sizes(self, initial_height, initial_width, target_height, target_width, final_channels):
         channels = []
@@ -113,11 +127,13 @@ class ResizableStack(hg.Layer):
         return sizes
 
     def forward(self, input, context):
-        for module in self.layers:
+        for name, module in zip(self.layer_names, self.layers):
             if isinstance(module, hg.Layer):
                 input = module(input, context)
             else:
                 input = module(input)
+            if name:
+                context[name] = input
         return input
 
     def output_size(self):

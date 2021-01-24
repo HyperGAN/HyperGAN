@@ -71,10 +71,16 @@ class TrainableGAN:
     def set_generator_trainable(self, flag):
         for c in self.gan.generator_components():
             c.set_trainable(flag)
+        for train_hook in self.gan.hooks:
+            for c in train_hook.generator_components():
+                c.set_trainable(flag)
 
     def set_discriminator_trainable(self, flag):
         for c in self.gan.discriminator_components():
             c.set_trainable(flag)
+        for train_hook in self.gan.hooks:
+            for c in train_hook.discriminator_components():
+                c.set_trainable(flag)
 
     def to(self, device):
         self.gan.to(device)
@@ -92,11 +98,23 @@ class TrainableGAN:
             for param in component.parameters():
                 yield param
 
+        for train_hook in self.gan.hooks:
+            for component in train_hook.generator_components():
+                for param in component.parameters():
+                    yield param
+
+
     def d_parameters(self):
         #TODO add optimizer params
         for component in self.gan.discriminator_components():
             for param in component.parameters():
                 yield param
+
+        for train_hook in self.gan.hooks:
+            for component in train_hook.discriminator_components():
+                for param in component.parameters():
+                    yield param
+
 
     def parameters(self):
         for param in self.g_parameters():

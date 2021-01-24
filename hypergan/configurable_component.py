@@ -77,6 +77,7 @@ class ConfigurableComponent(GANComponent):
             "residual": hg.layers.Residual,
             "resizable_stack": hg.layers.ResizableStack,
             "segment_softmax": hg.layers.SegmentSoftmax,
+            "skip_connection": hg.layers.SkipConnection,
             "upsample": hg.layers.Upsample,
 
             #easy to convert
@@ -528,7 +529,7 @@ class ConfigurableComponent(GANComponent):
 
         w = options.w or self.current_size.width * 2
         h = options.h or self.current_size.height * 2
-        layers = [nn.Upsample((h, w), mode="bilinear"),
+        layers = [nn.Upsample((h, w), mode=(options.mode or "bilinear")),
                 nn.Conv2d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, 1)]
         self.nn_init(layers[-1], options.initializer)
         self.current_size = LayerShape(channels, h, w)
@@ -769,6 +770,7 @@ class ConfigurableComponent(GANComponent):
             except:
                 raise ValidationException("Error on " + parsed.layer_defn + " - input size " + ",".join([str(x) for x in input.shape]))
         self.sample = input
+        self.context = context
         return input
 
     def latent_parameters(self):

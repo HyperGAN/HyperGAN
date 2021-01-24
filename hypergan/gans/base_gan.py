@@ -80,7 +80,11 @@ class BaseGAN():
 
     def initialize_component(self, name, *args, **kw_args):
         print("Creating component:", name)
-        defn = self.config[name]
+        if "defn" in kw_args:
+            defn = kw_args["defn"]
+            del(kw_args["defn"])
+        else:
+            defn = self.config[name]
         if defn == None:
             print("No definition found for " + name)
             return None

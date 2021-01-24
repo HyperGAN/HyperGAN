@@ -44,3 +44,9 @@ class BaseTrainHook(GANComponent):
 
     def forward(self, d_loss, g_loss):
         return [None, None]
+
+    def discriminator_components(self):
+        return []
+
+    def generator_components(self):
+        return []

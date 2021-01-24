@@ -26,7 +26,7 @@ class PeerTrainHook(BaseTrainHook):
         alpha = 0.5
         lce1=self.lce(di(xj), dj(xj))
         lce2=alpha * self.lce(di(xp), dj(xp))
-        d_loss = beta*fraction*(lce1-lce2)
+        d_loss = -beta*fraction*(lce1-lce2)
         d_loss2, g_loss = self.loss.forward(self.discriminator(self.gan.augmented_x), self.discriminator(self.gan.augmented_g))
 
         self.gan.add_metric('peer_g', g_loss.mean())
@@ -38,4 +38,4 @@ class PeerTrainHook(BaseTrainHook):
 
     def lce(self, di, dj):
         mask = torch.greater(dj, 0.5).float()
-        return mask * torch.log(self.sigmoid(di) + 1e-8) + (1 - mask) * (1 - torch.log(self.sigmoid(di) + 1e-8))
+        return mask * torch.log(self.sigmoid(di) + 1e-8) + (1 - mask) * (torch.log(1 - self.sigmoid(di) + 1e-8))

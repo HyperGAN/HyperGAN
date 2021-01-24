@@ -3,6 +3,7 @@ The command line interface.  Trains a directory of data.
 """
 from .configuration import Configuration
 from .inputs import *
+from .viewer import GlobalViewer
 from hypergan.gan_component import ValidationException
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.process_manager import ProcessManager
@@ -58,18 +59,12 @@ class CLI:
             self.create_path(self.save_file)
 
         title = "[hypergan] " + self.config_name
-        self.process_manager = ProcessManager()
-
-        if self.args.method == 'train' or self.args.method == 'sample':
-            if self.args.server:
-                self.process_manager.spawn_websocket_server()
-
-        #GlobalViewer.set_options(
-        #    enable_menu = self.args.menu,
-        #    title = title,
-        #    viewer_size = self.args.viewer_size,
-        #    enabled = self.args.viewer,
-        #    zoom = self.args.zoom)
+        GlobalViewer.set_options(
+            enable_menu = self.args.menu,
+            title = title,
+            viewer_size = self.args.viewer_size,
+            enabled = self.args.viewer,
+            zoom = self.args.zoom)
 
     def lazy_create(self):
         if(self.sampler == None):
@@ -99,8 +94,46 @@ class CLI:
     def serve(self, gan):
         return gan_server(self.gan.session, config)
 
+
+    def sample(self, allow_save=True):
+        """ Samples to a file.  Useful for visualizing the learning process.
+
+        If allow_save is False then saves will not be created.
+
+        Use with:
+
+             ffmpeg -i samples/grid-%06d.png -vcodec libx264 -crf 22 -threads 0 grid1-7.mp4
+
+        to create a video of the learning process.
+        """
+        sample_file="samples/%s/%06d.png" % (self.config_name, self.samples)
+        self.create_path(sample_file)
+        self.lazy_create()
+        sample_list = self.sampler.sample(sample_file, allow_save and self.args.save_samples)
+        print("Devices D:")
+        for component in self.gan.discriminator_components():
+            print(component.device)
+        print("Devices G:")
+        for component in self.gan.generator_components():
+            print(component.device)
+
+        if allow_save:
+            self.samples += 1
+
+        return sample_list
+
+
+
     def sample_forever(self):
         self.gan.inputs.next()
+        self.lazy_create()
+        self.trainable_gan = hg.TrainableGAN(self.gan, save_file = self.save_file, devices = self.devices, backend_name = self.args.backend)
+
+        if self.trainable_gan.load():
+            print("Model loaded")
+        else:
+            print("Could not load save")
+            return
         steps = 0
         while not self.gan.destroy and (steps <= self.args.steps or self.args.steps == -1):
             self.trainable_gan.sample(self.sampler, self.sample_path)
@@ -115,6 +148,7 @@ class CLI:
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
         self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input(), device=self.args.parameter_server_device)
+        self.gan.cli = self #TODO remove this link
         self.gan.inputs.next()
         self.lazy_create()
 
@@ -193,3 +227,4 @@ class CLI:
                 print("Initializing new model")
 
             self.sample_forever()
+

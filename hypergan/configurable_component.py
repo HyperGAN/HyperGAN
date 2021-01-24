@@ -69,8 +69,10 @@ class ConfigurableComponent(GANComponent):
             "efficient_attention": hg.layers.EfficientAttention,
             "ez_norm": hg.layers.EzNorm,
             "layer": hg.layers.Layer,
+            "minibatch": hg.layers.Minibatch,
             "mul": hg.layers.Mul,
             "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
+            "noise": hg.layers.Noise,
             "pixel_shuffle": hg.layers.PixelShuffle,
             "residual": hg.layers.Residual,
             "resizable_stack": hg.layers.ResizableStack,
@@ -133,7 +135,6 @@ class ConfigurableComponent(GANComponent):
             #"layer_norm": self.layer_layer_norm,#TODO
             #"mask": self.layer_mask,#TODO
             #"match_support": self.layer_match_support,#TODO
-            #"minibatch": self.layer_minibatch,#TODO
             #"pixel_norm": self.layer_pixel_norm,#TODO
             #"progressive_replace": self.layer_progressive_replace,#TODO
             #"reduce_sum": self.layer_reduce_sum,#TODO might want to just do "reduce sum" instead
@@ -232,6 +233,7 @@ class ConfigurableComponent(GANComponent):
             "softplus": nn.Softplus(),
             "softshrink": nn.Softshrink(),
             "softsign": nn.Softsign(),
+            "hardsigmoid": nn.Hardsigmoid(),
             "hardtanh": nn.Hardtanh(),
             "tanh": nn.Tanh(),
             "tanhshrink": nn.Tanhshrink()
@@ -247,7 +249,7 @@ class ConfigurableComponent(GANComponent):
         lr_mul = 1
         if options.lr_mul is not None:
             lr_mul = options.lr_mul
-        result = EqualLinear(self.current_size.size(), args[0], lr_mul=lr_mul)
+        result = EqualLinear(options.input_size or self.current_size.size(), args[0], lr_mul=lr_mul)
         self.current_size = LayerShape(args[0])
         return result
 
@@ -775,6 +777,9 @@ class ConfigurableComponent(GANComponent):
     def set_trainable(self, flag):
         for p in (set(list(self.parameters())) - self.untrainable_parameters):
             p.requires_grad = flag
+
+    def layer_shape(self):
+        return self.current_size
 
     def __getstate__(self):
         obj = dict(self.__dict__)

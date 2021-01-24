@@ -21,8 +21,8 @@ import uuid
 
 
 arg_parser = ArgumentParser("Test your gan vs a known distribution", require_directory=False)
-arg_parser.parser.add_argument('--distribution', '-t1', type=str, default='circle', help='what distribution to test, options are horizontal, vertical, circle')
-arg_parser.parser.add_argument('--distribution2', '-t2', type=str, default='circle', help='what distribution to test, options are horizontal, vertical, circle')
+arg_parser.parser.add_argument('--distribution', '-t1', type=str, default='circle', help='source distribution, options are horizontal, vertical, circle')
+arg_parser.parser.add_argument('--distribution2', '-t2', type=str, default='circle', help='target distribution, options are horizontal, vertical, circle')
 arg_parser.parser.add_argument('--contour_size', '-cs', type=int, default=128, help='number of points to plot the discriminator contour with.  must be a multiple of batch_size')
 arg_parser.parser.add_argument('--sample_points', '-p', type=int, default=512, help='number of scatter points to plot.  must be a multiple of batch_size')
 args = arg_parser.parse_args()
@@ -36,6 +36,11 @@ class Custom2DInputDistribution:
         self.current_channels = 2
         self.x = torch.Tensor(self.config.batch_size, 2).cuda()
         self.y = torch.Tensor(self.config.batch_size, 2).cuda()
+
+    def to(self, device):
+        self.x = self.x.to(device)
+        self.y = self.y.to(device)
+        return self
 
     def batch_size(self):
         return self.config.batch_size
@@ -149,7 +154,10 @@ class Custom2DSampler(BaseSampler):
             if gan.config.use_latent:
                 sample = gan.generator(z_v_sample)
             else:
-                sample = gan.generator(x_v_sample)
+                if gan.config.ali:
+                    sample = gan.generator(gan.encoder(x_v_sample))
+                else:
+                    sample = gan.generator(x_v_sample)
             samples.append(sample)
         sample = torch.cat(samples, dim=0).detach().cpu().numpy()
         points = go.Scatter(x=sample[:,0], y=sample[:,1],
@@ -262,13 +270,18 @@ def train(config, args):
     gan = hg.GAN(config, inputs = Custom2DInputDistribution({
         "batch_size": args.batch_size
         }))
+    trainable_gan = hg.TrainableGAN(gan, devices = args.devices, backend_name = args.backend)
     gan.name = config_filename
     if gan.config.use_latent:
         accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(1), gan.generator(gan.latent.next()))
         accuracy_g_to_x=lambda: distribution_accuracy(gan.generator(gan.latent.next()), gan.inputs.next(1))
     else:
-        accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(1), gan.generator(gan.inputs.next()))
-        accuracy_g_to_x=lambda: distribution_accuracy(gan.generator(gan.inputs.next()), gan.inputs.next(1))
+        if gan.config.ali:
+            accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(1), gan.generator(gan.encoder(gan.inputs.next())))
+            accuracy_g_to_x=lambda: distribution_accuracy(gan.generator(gan.encoder(gan.inputs.next())), gan.inputs.next(1))
+        else:
+            accuracy_x_to_g=lambda: distribution_accuracy(gan.inputs.next(1), gan.generator(gan.inputs.next()))
+            accuracy_g_to_x=lambda: distribution_accuracy(gan.generator(gan.inputs.next()), gan.inputs.next(1))
 
     sampler = Custom2DSampler(gan)
     gan.selected_sampler = sampler
@@ -285,7 +298,7 @@ def train(config, args):
     for i in range(steps):
         if broken:
             break
-        gan.step()
+        trainable_gan.step()
 
         if args.viewer and i % args.sample_every == 0:
             samples += 1

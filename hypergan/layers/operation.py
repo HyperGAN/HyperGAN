@@ -89,4 +89,7 @@ class Operation(hg.Layer):
                     output = torch.cat([output, layer_output], 1)
                 else:
                     raise ValidationException("Unknown operation: "+ self.operation)
+        if self.options.mean:
+            output /= len(self.layers)
+
         return output

@@ -47,7 +47,7 @@ class ImageLoader:
             shuffle = True
             if config.shuffle is not None:
                 shuffle = config.shuffle
-            dataloader = data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=4, drop_last=True, pin_memory=True)
+            dataloader = data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=0, drop_last=True, pin_memory=True)
             self.dataloaders.append(dataloader)
             #self.datasets.append(iter(self.dataloaders[-1]))
 

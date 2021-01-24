@@ -10,7 +10,7 @@ HyperGAN is in pre-release and open beta.
 
 ![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
 
-_Logos generated with_ [_examples/colorizer_](./#examples/colorizer.py)
+_Logos generated with_ [_examples/colorizer_](./examples/colorizer.py)
 
 See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8002_NB7JSvA)
 

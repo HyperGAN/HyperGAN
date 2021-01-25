@@ -26,7 +26,7 @@ class PeerTrainHook(BaseTrainHook):
         alpha = 0.5
         lce1=self.lce(di(xj), dj(xj))
         lce2=alpha * self.lce(di(xp), dj(xp))
-        d_loss = -beta*fraction*(lce1-lce2)
+        d_loss = beta*fraction*(lce1-lce2)
         d_loss2, g_loss = self.loss.forward(self.discriminator(self.gan.augmented_x), self.discriminator(self.gan.augmented_g))
 
         self.gan.add_metric('peer_g', g_loss.mean())

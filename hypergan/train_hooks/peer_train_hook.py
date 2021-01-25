@@ -17,16 +17,16 @@ class PeerTrainHook(BaseTrainHook):
         self.loss = self.gan.initialize_component("loss")
 
     def forward(self, d_loss, g_loss):
-        beta = 1.0
+        beta = 0.5
         fraction = 2
         xj = self.gan.inputs.next()
         xp = self.gan.inputs.next()
         di = self.gan.discriminator
         dj = self.discriminator
-        alpha = 0.5
+        alpha = 0.3
         lce1=self.lce(di(xj), dj(xj))
         lce2=alpha * self.lce(di(xp), dj(xp))
-        d_loss = beta*fraction*(lce1-lce2)
+        d_loss = -beta*fraction*(lce1-lce2)
         d_loss2, g_loss = self.loss.forward(self.discriminator(self.gan.augmented_x), self.discriminator(self.gan.augmented_g))
 
         self.gan.add_metric('peer_g', g_loss.mean())

@@ -13,6 +13,10 @@ class StaticBatchSampler(BaseSampler):
 
     def _sample(self):
         self.gan.latent.z = self.latent
-        return [
-            ('generator', self.gan.generator.forward(self.latent))
+        samples = [
+            ('generator', self.gan.generator.forward(self.latent)),
         ]
+        if hasattr(self.gan, 'decoded'):
+            samples.append(('decoded', self.gan.decoded))
+
+        return samples

@@ -56,6 +56,7 @@ class EzNorm(hg.Layer):
 
         component.nn_init(self.beta, options.initializer)
         component.nn_init(self.conv, options.initializer)
+        self.relu = nn.ReLU()
 
     def forward(self, input, context):
         style = context[self.options.style or 'w']
@@ -65,7 +66,7 @@ class EzNorm(hg.Layer):
         view[0] = N
         view[self.dim] = D
 
-        return self.beta(style).view(*view) * self.conv(input)
+        return self.relu(self.beta(style).view(*view)) * input + self.relu(self.conv(input)) * input
 
     def output_size(self):
         return self.size

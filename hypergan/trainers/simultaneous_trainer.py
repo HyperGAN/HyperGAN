@@ -6,6 +6,7 @@ import inspect
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.trainers.base_trainer import BaseTrainer
 from hypergan.optimizers.adamirror import Adamirror
+from hypergan.optimizers.sam import SAM
 
 TINY = 1e-12
 
@@ -31,7 +32,20 @@ class SimultaneousTrainer(BaseTrainer):
         for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
             p.grad = np
 
-        self.optimizer.step()
+        if(isinstance(self.optimizer, SAM)):
+            self.optimizer.first_step(zero_grad=True)
+            d_grads, g_grads = self.calculate_gradients()
+
+            for hook in self.train_hooks:
+                d_grads, g_grads = hook.gradients(d_grads, g_grads)
+            for p, np in zip(self.trainable_gan.d_parameters(), d_grads):
+                p.grad = np * self.ttur
+            for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
+                p.grad = np
+
+            self.optimizer.second_step(zero_grad=True)
+        else:
+            self.optimizer.step()
 
         if self.current_step % 10 == 0:
             self.print_metrics(self.current_step)

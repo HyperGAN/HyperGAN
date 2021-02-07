@@ -86,6 +86,7 @@ class ConfigurableComponent(GANComponent):
             "flatten": self.layer_flatten,
             "pretrained": self.layer_pretrained,
             "avg_pool": self.layer_avg_pool,#TODO handle dims
+            "max_pool": self.layer_max_pool,#TODO handle dims
             "pad": self.layer_pad,
             "reshape": self.layer_reshape,
             "split": self.layer_split,
@@ -427,8 +428,18 @@ class ConfigurableComponent(GANComponent):
         return nn.AdaptiveAvgPool1d(self.current_size.height)
 
     def layer_avg_pool(self, net, args, options):
+        filter_size = options.filter
+        if filter_size is None:
+            filter_size = 2
         self.current_size = LayerShape(self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
-        return nn.AvgPool2d(2, 2)
+        return nn.AvgPool2d(filter_size, filter_size)
+
+    def layer_max_pool(self, net, args, options):
+        filter_size = options.filter
+        if filter_size is None:
+            filter_size = 2
+        self.current_size = LayerShape(self.current_size.channels, self.current_size.height // filter_size, self.current_size.width // filter_size)
+        return nn.MaxPool2d(filter_size, filter_size)
 
     def layer_adaptive_avg_pool3d(self, net, args, options):
         frames = 4 #TODO

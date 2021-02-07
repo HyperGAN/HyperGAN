@@ -23,6 +23,7 @@ class SimultaneousTrainer(BaseTrainer):
         metrics = self.gan.metrics()
 
         self.before_step(self.current_step, feed_dict)
+        self.gan.next_inputs()
         d_grads, g_grads = self.calculate_gradients()
 
         for hook in self.train_hooks:

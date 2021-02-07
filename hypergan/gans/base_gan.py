@@ -132,6 +132,9 @@ class BaseGAN():
         d_loss, g_loss = loss.forward(d_real, d_fake)
         return [d_loss, g_loss]
 
+    def next_inputs(self):
+        return None
+
     def load(self, save_file):
         print("Loading..." + str(len(self.components)))
         success = True

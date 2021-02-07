@@ -31,6 +31,8 @@ class SimultaneousTrainer(BaseTrainer):
             p.grad = np * self.ttur
         for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
             p.grad = np
+        if self.config.gradient_max_norm:
+            torch.nn.utils.clip_grad_norm_(self.trainable_gan.parameters(), self.config.gradient_max_norm)
 
         if(isinstance(self.optimizer, SAM)):
             self.optimizer.first_step(zero_grad=True)
@@ -42,6 +44,9 @@ class SimultaneousTrainer(BaseTrainer):
                 p.grad = np * self.ttur
             for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
                 p.grad = np
+
+            if self.config.gradient_max_norm:
+                torch.nn.utils.clip_grad_norm_(self.trainable_gan.parameters(), self.config.gradient_max_norm)
 
             self.optimizer.second_step(zero_grad=True)
         else:

@@ -41,13 +41,17 @@ class SimultaneousTrainer(BaseTrainer):
         self.gan.next_inputs()
 
         if self.config.ode_solver == 'rk4':
+            self.rk4_ode_step()
+            self.optimizer.step()
             if self.current_step % 10 == 0:
                 self.print_metrics(self.current_step)
-            return self.rk4_ode_step()
+            return 
         if self.config.ode_solver == 'heun':
+            self.heun_ode_step()
+            self.optimizer.step()
             if self.current_step % 10 == 0:
                 self.print_metrics(self.current_step)
-            return self.heun_ode_step()
+            return
 
         self.set_parameter_grads()
 
@@ -174,7 +178,7 @@ class SimultaneousTrainer(BaseTrainer):
                 # normalize gradient
                 grad = normalize_grad(grad)
 
-                d_param.data = d_param.data + (step_size * 0.5 * -(grad))
+                d_param.grad = (step_size * 0.5 * grad)
 
         for g_param, phi_0_param, phi_1_param in zip(G.parameters(), phi_0.parameters(), phi_2.parameters()):
             if phi_1_param.grad is not None:
@@ -183,11 +187,7 @@ class SimultaneousTrainer(BaseTrainer):
                 # normalize gradient
                 grad = normalize_grad(grad)
 
-                g_param.data = g_param.data + (step_size * 0.5 * -(grad))
-
-        # Regularization step
-        for d_param, d_grad in zip(D.parameters(), D_norm_grads):
-            d_param.data = d_param.data - step_size * disc_reg * d_grad
+                g_param.grad = (step_size * 0.5 * grad)
 
         del theta_0, theta_1, theta_2
         del phi_0, phi_1, phi_2

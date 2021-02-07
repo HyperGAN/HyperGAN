@@ -201,11 +201,12 @@ if args.action == 'search':
         })
 
     config = search.random_config()
-
-inputs = InputLoader(args.batch_size)
+if __name__ == '__main__':
+    inputs = InputLoader(args.batch_size)
 
 def setup_gan(config, inputs, args):
     gan = GAN(config, inputs=inputs)
+    gan.load(save_file)
     return gan
 
 def train(config, args):
@@ -214,8 +215,10 @@ def train(config, args):
     test_batches = []
     accuracy = 0
 
+    best_accuracy = 0
     for i in range(args.steps):
         trainable_gan.step()
+
 
         if i == args.steps-1 or i % args.sample_every == 0 and i > 0:
             correct_prediction = 0
@@ -226,7 +229,11 @@ def train(config, args):
                 total += y.shape[0]
             accuracy = (float(correct_prediction) / total)*100
             print(config_name)
-            print("accuracy: ", accuracy)
+            print("accuracy:", accuracy, "best:", best_accuracy )
+            if accuracy > best_accuracy:
+                print("best accuracy, saving " + save_file)
+                trainable_gan.save()
+                best_accuracy=accuracy
 
     return accuracy
 
@@ -239,12 +246,13 @@ def search(config, args):
         print("Writing result")
         myfile.write(config_filename+","+",".join([str(x) for x in metrics])+"\n")
 
-if args.action == 'train':
-    metrics = train(config, args)
-    print(config_name + ": resulting metrics:", metrics)
-elif args.action == 'search':
-    search(config, args)
-else:
-    print("Unknown action: "+args.action)
+if __name__ == '__main__':
+    if args.action == 'train':
+        metrics = train(config, args)
+        print(config_name + ": resulting metrics:", metrics)
+    elif args.action == 'search':
+        search(config, args)
+    else:
+        print("Unknown action: "+args.action)
 
 

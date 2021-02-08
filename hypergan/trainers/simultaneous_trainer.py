@@ -162,7 +162,8 @@ class SimultaneousTrainer(BaseTrainer):
         def normalize_grad(grad: torch.Tensor) -> torch.Tensor:
             # normalize gradient
             grad_norm = grad.norm()
-            grad.div_(grad_norm)
+            if grad_norm > 1.:
+                grad.div_(grad_norm)
             return grad
 
 
@@ -176,7 +177,7 @@ class SimultaneousTrainer(BaseTrainer):
                 #     grad += disc_reg * d_param.data
 
                 # normalize gradient
-                grad = normalize_grad(grad)
+                #grad = normalize_grad(grad)
 
                 d_param.grad = (step_size * 0.5 * grad)
 
@@ -185,7 +186,7 @@ class SimultaneousTrainer(BaseTrainer):
                 grad = phi_0_param.grad + phi_1_param.grad
 
                 # normalize gradient
-                grad = normalize_grad(grad)
+                #grad = normalize_grad(grad)
 
                 g_param.grad = (step_size * 0.5 * grad)
 

@@ -275,16 +275,17 @@ class BaseGAN():
         for param in self.d_parameters():
             yield param
 
-    def setup_hooks(self):
+    def setup_hooks(self, config_name="hooks", add_to_hooks=True):
         hooks = []
-        for hook_config in (self.config.trainer["hooks"]):
+        for hook_config in (self.config.trainer[config_name]):
             hook_config = hc.lookup_functions(hook_config.copy())
             defn = {k: v for k, v in hook_config.items() if k in inspect.getargspec(hook_config['class']).args}
             defn['gan']=self
             defn['config']=hook_config
             hook = hook_config["class"](**defn)
             self.add_component("hook", hook)
-            hooks.append(hook)
+            if add_to_hooks:
+                hooks.append(hook)
 
         return hooks
 

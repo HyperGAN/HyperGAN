@@ -17,6 +17,9 @@ class SimultaneousTrainer(BaseTrainer):
     def _create(self):
         self.optimizer = self.create_optimizer()
         self.ttur = self.config.ttur or 1.0
+        self.relu = torch.nn.ReLU()
+        if self.config.post_ode_hooks:
+            self.post_ode_hooks = self.gan.setup_hooks(config_name="post_ode_hooks", add_to_hooks=False)
 
     def required(self):
         return "optimizer".split()
@@ -31,6 +34,9 @@ class SimultaneousTrainer(BaseTrainer):
             p.grad = np
         for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
             p.grad = np
+
+        #if self.config.gradient_max_norm:
+        #    torch.nn.utils.clip_grad_norm_(self.trainable_gan.parameters(), self.config.gradient_max_norm)
 
         return d_grads, g_grads
 
@@ -56,9 +62,44 @@ class SimultaneousTrainer(BaseTrainer):
             self.gan.add_metric("GNgf", gng)
             if self.config.gradient_max_norm:
                 torch.nn.utils.clip_grad_norm_(self.trainable_gan.parameters(), self.config.gradient_max_norm)
+
+            d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
+            g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
+            for hook in self.post_ode_hooks:
+                d_grads, g_grads = hook.gradients(d_grads, g_grads)
+            for p, np in zip(self.trainable_gan.d_parameters(), d_grads):
+                p.grad = np
+            for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
+                p.grad = np
+
+
+            #if(gn > 1.0):
+            #    #self.optimizer.zero_grad()
+            #    d_grad, g_grad = self.calculate_gradients(add_train_hooks=False, create_graph=True)
+            #    g_grad_magnitude= sum(g.square().sum() for g in g_grad)
+            #    print("G_GRAD", g_grad_magnitude)
+            #    gpd = torch.autograd.grad(g_grad_magnitude, self.trainable_gan.d_parameters())
+            #    print("GPD", sum([g.norm() for g in gpd]))
+            #    #gpg = torch.autograd.grad(g_grad_magnitude, self.trainable_gan.g_parameters())
+            #    for p, np in zip(self.trainable_gan.d_parameters(), gpd):
+            #        p.grad += np
+            #    #for p, np in zip(self.trainable_gan.g_parameters(), gpg):
+            #    #    p.grad += np
+
+            #    #d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
+            #    #g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
+            #    #for hook in self.train_hooks:
+            #    #    d_grads, g_grads = hook.gradients(d_grads, g_grads)
+            #    #for p, np in zip(self.trainable_gan.d_parameters(), d_grads):
+            #    #    p.grad = np
+            #    #for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
+            #    #    p.grad = np
+            #    self.optimizer.step()
+            #    print("skipping due to large GN")
+            #else:
             self.optimizer.step()
-            #if self.current_step % 10 == 0:
-            self.print_metrics(self.current_step)
+            if self.current_step % 10 == 0:
+                self.print_metrics(self.current_step)
             return
 
         self.set_parameter_grads()
@@ -171,8 +212,7 @@ class SimultaneousTrainer(BaseTrainer):
         def normalize_grad(grad: torch.Tensor) -> torch.Tensor:
             # normalize gradient
             grad_norm = grad.norm()
-            if grad_norm > 1.:
-                grad.div_(grad_norm)
+            grad.div_(grad_norm)
             return grad
 
 
@@ -369,7 +409,7 @@ class SimultaneousTrainer(BaseTrainer):
         d_loss.mean().backward(retain_graph=True)
         self.trainable_gan.set_generator_trainable(True)
 
-        d_grads = [p.grad * self.ttur for p in self.trainable_gan.d_parameters()]
+        d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
         g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
         gnd = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
         self.gan.add_metric("GNd", gnd)

@@ -3,6 +3,7 @@ import torch
 import hyperchamber as hc
 import inspect
 import copy
+import math
 
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.trainers.base_trainer import BaseTrainer
@@ -20,21 +21,21 @@ class SimultaneousTrainer(BaseTrainer):
     def required(self):
         return "optimizer".split()
 
-    def set_parameter_grads(self):
-        d_grads, g_grads = self.calculate_gradients()
+    def set_parameter_grads(self, add_train_hooks=True, first_step=False):
+        d_grads, g_grads = self.calculate_gradients(add_train_hooks=add_train_hooks, first_step=first_step)
 
         for hook in self.train_hooks:
-            d_grads, g_grads = hook.gradients(d_grads, g_grads)
+            if not first_step or hook.config.first_ode_step_only != True:
+                d_grads, g_grads = hook.gradients(d_grads, g_grads)
         for p, np in zip(self.trainable_gan.d_parameters(), d_grads):
             p.grad = np
         for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
             p.grad = np
-        if self.config.gradient_max_norm:
-            torch.nn.utils.clip_grad_norm_(self.trainable_gan.parameters(), self.config.gradient_max_norm)
 
         return d_grads, g_grads
 
     def _step(self, feed_dict):
+        self.gan._metrics = {}
         metrics = self.gan.metrics()
 
         self.before_step(self.current_step, feed_dict)
@@ -43,14 +44,21 @@ class SimultaneousTrainer(BaseTrainer):
         if self.config.ode_solver == 'rk4':
             self.rk4_ode_step()
             self.optimizer.step()
-            if self.current_step % 10 == 0:
-                self.print_metrics(self.current_step)
+            self.print_metrics(self.current_step)
             return 
         if self.config.ode_solver == 'heun':
+            gn = 100.0
+            self.gan._metrics = {}
             self.heun_ode_step()
+            gnd = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
+            self.gan.add_metric("GNdf", gnd)
+            gng = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
+            self.gan.add_metric("GNgf", gng)
+            if self.config.gradient_max_norm:
+                torch.nn.utils.clip_grad_norm_(self.trainable_gan.parameters(), self.config.gradient_max_norm)
             self.optimizer.step()
-            if self.current_step % 10 == 0:
-                self.print_metrics(self.current_step)
+            #if self.current_step % 10 == 0:
+            self.print_metrics(self.current_step)
             return
 
         self.set_parameter_grads()
@@ -88,13 +96,13 @@ class SimultaneousTrainer(BaseTrainer):
         return dest
 
 
-    def ode_gan_step(self, G, D, data, detach_err: bool = True, retain_graph: bool = False):
+    def ode_gan_step(self, G, D, data, detach_err: bool = True, retain_graph: bool = False, add_train_hooks = True, first_step = False):
         oldd = self.gan.discriminator.net
         oldg = self.gan.generator.net
         self.gan.discriminator.net = D
         self.gan.generator.net = G
         errD, errG = self.trainable_gan.forward_loss()
-        d_grads, g_grads = self.set_parameter_grads()
+        d_grads, g_grads = self.set_parameter_grads(add_train_hooks=add_train_hooks, first_step=first_step)
 
         DISC_GRAD_CACHE = self.grad_clone(self.gan.discriminator.net)
         GEN_GRAD_CACHE = self.grad_clone(self.gan.generator.net)
@@ -115,7 +123,8 @@ class SimultaneousTrainer(BaseTrainer):
         step_size = self.config.ode_step_size or 0.1
         disc_reg = 0.01
         # Compute first step of Heun
-        theta_1, phi_1, errD, errG, D_x, D_G_z1, D_G_z2 = self.ode_gan_step(G.net, D.net, data, detach_err=False, retain_graph=True)
+        theta_1, phi_1, errD, errG, D_x, D_G_z1, D_G_z2 = self.ode_gan_step(G.net, D.net, data, detach_err=False, retain_graph=True, add_train_hooks=True, first_step=True)
+
 
         # Compute the L2 norm using the prior computation graph
         grad_norm = None
@@ -158,7 +167,7 @@ class SimultaneousTrainer(BaseTrainer):
                 phi_1_param.data = g_param.data + (step_size * -phi_1_param.grad)
 
         # Compute second step of Heun
-        theta_2, phi_2, errD, errG, D_x, D_G_z1, D_G_z2 = self.ode_gan_step(phi_1, theta_1, data)
+        theta_2, phi_2, errD, errG, D_x, D_G_z1, D_G_z2 = self.ode_gan_step(phi_1, theta_1, data, add_train_hooks=True)
         def normalize_grad(grad: torch.Tensor) -> torch.Tensor:
             # normalize gradient
             grad_norm = grad.norm()
@@ -179,7 +188,7 @@ class SimultaneousTrainer(BaseTrainer):
                 # normalize gradient
                 #grad = normalize_grad(grad)
 
-                d_param.grad = (step_size * 0.5 * grad)
+                d_param.grad = 0.5 * grad
 
         for g_param, phi_0_param, phi_1_param in zip(G.parameters(), phi_0.parameters(), phi_2.parameters()):
             if phi_1_param.grad is not None:
@@ -188,7 +197,7 @@ class SimultaneousTrainer(BaseTrainer):
                 # normalize gradient
                 #grad = normalize_grad(grad)
 
-                g_param.grad = (step_size * 0.5 * grad)
+                g_param.grad = 0.5 * grad
 
         del theta_0, theta_1, theta_2
         del phi_0, phi_1, phi_2
@@ -335,22 +344,24 @@ class SimultaneousTrainer(BaseTrainer):
 
 
 
-    def calculate_gradients(self):
+    def calculate_gradients(self, add_train_hooks=True, create_graph=False, first_step=False):
         self.optimizer.zero_grad()
         d_loss, g_loss = self.trainable_gan.forward_loss()
         self.gan.add_metric('d_loss', d_loss.mean())
         self.gan.add_metric('g_loss', g_loss.mean())
-        for hook in self.train_hooks:
-            loss = hook.forward(d_loss, g_loss)
-            if loss[0] is not None:
-                d_loss += loss[0]
-            if loss[1] is not None:
-                g_loss += loss[1]
+        if add_train_hooks:
+            for hook in self.train_hooks:
+                if not first_step or hook.config.first_ode_step_only != True:
+                    loss = hook.forward(d_loss, g_loss)
+                    if loss[0] is not None:
+                        d_loss += loss[0]
+                    if loss[1] is not None:
+                        g_loss += loss[1]
 
         self.trainable_gan.set_generator_trainable(True)
         self.trainable_gan.set_discriminator_trainable(False)
 
-        g_loss.mean().backward(retain_graph=True)
+        g_loss.mean().backward(retain_graph=True, create_graph=create_graph)
 
         self.trainable_gan.set_generator_trainable(False)
         self.trainable_gan.set_discriminator_trainable(True)
@@ -360,10 +371,18 @@ class SimultaneousTrainer(BaseTrainer):
 
         d_grads = [p.grad * self.ttur for p in self.trainable_gan.d_parameters()]
         g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
+        gnd = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
+        self.gan.add_metric("GNd", gnd)
+        gng = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
+        self.gan.add_metric("GNg", gng)
         return d_grads, g_grads
 
     def print_metrics(self, step):
         metrics = self.gan.metrics()
         metric_values = self.output_variables(metrics)
         print(str(self.output_string(metrics) % tuple([step] + metric_values)))
+        for value in metric_values:
+            if math.isnan(value):
+                print("NAN detected, exitting")
+                exit()
 

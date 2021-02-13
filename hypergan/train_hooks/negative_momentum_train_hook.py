@@ -2,8 +2,8 @@ import torch
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
 
 class NegativeMomentumTrainHook(BaseTrainHook):
-  def __init__(self, gan=None, config=None, trainer=None):
-      super().__init__(config=config, gan=gan, trainer=trainer)
+  def __init__(self, gan=None, config=None):
+      super().__init__(config=config, gan=gan)
       self.d_grads = None
       self.g_grads = None
 

@@ -12,6 +12,17 @@ from hypergan.optimizers.sam import SAM
 
 TINY = 1e-12
 
+def ng(param):
+    grad = param.grad
+    grad_norm = grad.norm()
+    max_norm = (1e-2) * torch.maximum(param.norm(),torch.ones_like(param)*1e-8)
+    trigger = grad_norm < max_norm
+    ## This little max(., 1e-6) is distinct from the normal eps and just prevents
+    ## division by zero. It technically should be impossible to engage.
+    clipped_grad = grad * (max_norm / torch.maximum(grad_norm, torch.ones_like(grad_norm)*1e-6))
+    return torch.where(trigger, grad, clipped_grad)
+
+
 class SimultaneousTrainer(BaseTrainer):
     """ Steps G and D simultaneously """
     def _create(self):
@@ -58,19 +69,20 @@ class SimultaneousTrainer(BaseTrainer):
             self.heun_ode_step()
             gnd = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
             self.gan.add_metric("GNdf", gnd)
-            gng = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
-            self.gan.add_metric("GNgf", gng)
+            #gng = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
+            #self.gan.add_metric("GNgf", gng)
             if self.config.gradient_max_norm:
                 torch.nn.utils.clip_grad_norm_(self.trainable_gan.parameters(), self.config.gradient_max_norm)
 
-            d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
-            g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
-            for hook in self.post_ode_hooks:
-                d_grads, g_grads = hook.gradients(d_grads, g_grads)
-            for p, np in zip(self.trainable_gan.d_parameters(), d_grads):
-                p.grad = np
-            for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
-                p.grad = np
+            if self.config.post_ode_hooks:
+                d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
+                g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
+                for hook in self.post_ode_hooks:
+                    d_grads, g_grads = hook.gradients(d_grads, g_grads)
+                for p, np in zip(self.trainable_gan.d_parameters(), d_grads):
+                    p.grad = np
+                for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
+                    p.grad = np
 
 
             #if(gn > 1.0):
@@ -210,16 +222,13 @@ class SimultaneousTrainer(BaseTrainer):
         # Compute second step of Heun
         theta_2, phi_2, errD, errG, D_x, D_G_z1, D_G_z2 = self.ode_gan_step(phi_1, theta_1, data, add_train_hooks=True)
         def normalize_grad(grad: torch.Tensor) -> torch.Tensor:
-            # normalize gradient
             grad_norm = grad.norm()
             grad.div_(grad_norm)
             return grad
-
-
         # Compute grad norm and update discriminator
         for d_param, theta_0_param, theta_1_param in zip(D.parameters(), theta_0.parameters(), theta_2.parameters()):
             if theta_1_param.grad is not None:
-                grad = theta_0_param.grad + theta_1_param.grad
+                grad = ng(theta_0_param) + ng(theta_1_param)
 
                 # simulate regularization with weight decay
                 # if disc_reg > 0:
@@ -232,7 +241,7 @@ class SimultaneousTrainer(BaseTrainer):
 
         for g_param, phi_0_param, phi_1_param in zip(G.parameters(), phi_0.parameters(), phi_2.parameters()):
             if phi_1_param.grad is not None:
-                grad = phi_0_param.grad + phi_1_param.grad
+                grad = ng(phi_0_param) + ng(phi_1_param)
 
                 # normalize gradient
                 #grad = normalize_grad(grad)
@@ -340,6 +349,7 @@ class SimultaneousTrainer(BaseTrainer):
             return grad
 
 
+
         # Compute grad norm and update discriminator
         for d_param, theta_1_param, theta_2_param, theta_3_param, theta_4_param in zip(D.parameters(),
                                                                                        theta_1_cache.parameters(),
@@ -347,14 +357,14 @@ class SimultaneousTrainer(BaseTrainer):
                                                                                        theta_3_cache.parameters(),
                                                                                        theta_4.parameters()):
             if theta_1_param.grad is not None:
-                grad = (theta_1_param.grad + 2 * theta_2_param.grad + 2 * theta_3_param.grad + theta_4_param.grad)
+                grad = (ng(theta_1_param) + 2 * ng(theta_2_param) + 2 * ng(theta_3_param) + ng(theta_4_param))
 
                 # simulate regularization with weight decay
                 # if disc_reg > 0:
                 #     grad += disc_reg * d_param.data
 
                 # normalize gradient
-                grad = normalize_grad(grad)
+                #grad = normalize_grad(grad)
 
                 d_param.data = d_param.data + (step_size / 6. * -(grad))
 
@@ -365,9 +375,10 @@ class SimultaneousTrainer(BaseTrainer):
                                                                                phi_4.parameters()):
             if phi_1_param.grad is not None:
                 grad = (phi_1_param.grad + 2 * phi_2_param.grad + 2 * phi_3_param.grad + phi_4_param.grad)
+                grad = (ng(phi_1_param) + 2 * ng(phi_2_param) + 2 * ng(phi_3_param) + ng(phi_4_param))
 
                 # normalize gradient
-                grad = normalize_grad(grad)
+                #grad = normalize_grad(grad)
 
                 g_param.data = g_param.data + (step_size / 6.0 * -(grad))
 

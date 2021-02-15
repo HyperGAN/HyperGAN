@@ -21,6 +21,7 @@ from .layer import Layer
 from .minibatch import Minibatch
 from .multi_head_attention import MultiHeadAttention
 from .noise import Noise
+from .transformer import Transformer
 from .pixel_shuffle import PixelShuffle
 from .residual import Residual
 from .resizable_stack import ResizableStack

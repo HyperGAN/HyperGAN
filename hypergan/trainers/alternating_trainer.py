@@ -72,22 +72,39 @@ class AlternatingTrainer(BaseTrainer):
 
     def calculate_gradients(self, targets=['d','g']):
         g_grads = []
+        if self.gan.steps == 0:
+            self.gan.next_inputs()
+        if self.config.input_every is not None and self.gan.steps % self.config.input_every == 0:
+            self.gan._metrics={}
+            self.gan.next_inputs()
+        else:
+            self.gan._metrics={}
+            self.gan.next_inputs()
         if 'g' in targets:
-            if( self.config.train_g_every is None or
-                (self.trainable_gan.steps % self.config.train_g_every == 0)):
+            if self.config.train_g_every == -1:
+                self.g_optimizer.zero_grad()
+                self.setup_gradient_flow(self.trainable_gan.g_parameters(), self.trainable_gan.d_parameters())
+                _, g_loss = self.trainable_gan.forward_loss()#TODO targets=['d']
+                g_loss = torch.zeros_like(g_loss)
+                g_loss = sum([l[1] for l in self.train_hook_losses(None, g_loss) if l[1] is not None])
+                g_loss = g_loss.mean()
+                g_grads = self.grads_for(g_loss, self.trainable_gan.g_parameters())
+
+            elif( self.config.train_g_every is None or
+                (self.gan.steps % self.config.train_g_every == 0)):
                 g_grads = self.g_grads()
             if (self.config.pretrain_d is not None and
-                self.config.pretrain_d > self.trainable_gan.steps[0]):
+                self.config.pretrain_d > self.gan.steps):
                 g_grads = []
 
         d_grads = []
         if 'd' in targets:
             if ( self.config.train_d_every is None or
-               ( self.trainable_gan.steps % self.config.train_d_every == 0)):
+               ( self.gan.steps % self.config.train_d_every == 0)):
                 d_grads = self.d_grads()
 
             if (self.config.pretrain_d is not None and
-                self.config.pretrain_d > self.trainable_gan.steps):
+                self.config.pretrain_d > self.gan.steps):
                 d_grads = self.d_grads()
 
         return d_grads, g_grads
@@ -124,7 +141,7 @@ class AlternatingTrainer(BaseTrainer):
 
         self.after_step(self.current_step, feed_dict)
 
-        if self.current_step % 10 == 0:
+        if self.current_step % 10 == 0 or self.current_step % 10 == 1:
             self.print_metrics(self.current_step)
 
 

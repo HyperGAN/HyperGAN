@@ -24,6 +24,7 @@ class AdversarialNormTrainHook(BaseTrainHook):
         self.target = [Parameter(x, requires_grad=True) for x in self.gan.discriminator_real_inputs()]
         self.x_mod_target = torch.zeros_like(self.target[0])
         self.g_mod_target = torch.zeros_like(self.target[0])
+        self.loss = self.gan.create_component("loss")
 
     def forward(self, d_loss, g_loss):
         if self.config.mode == "real" or self.config.mode is None:
@@ -55,6 +56,17 @@ class AdversarialNormTrainHook(BaseTrainHook):
                     dadv = self.gan.forward_discriminator(mod_target)
                     norm += (-((dadv - self.gan.d_fake) ** 2)).mean()
             norm /= len(self.gan.discriminator_fake_inputs())
+        elif self.config.mode == "autoenc":
+            d_fake_in = self.gan.discriminator_fake_inputs()[0]
+            for target, data in zip(self.target, d_fake_in):
+                target.data = data.clone()
+            d_fake = self.gan.forward_discriminator(self.target)
+            d_real = self.gan.d_real
+            loss, norm, mod_target = self.regularize_adversarial_norm(d_real, d_fake, self.target)
+            d_real = self.gan.forward_discriminator([mod_target[0].detach().clone()])
+            d_fake = self.gan.forward_discriminator([self.gan.g])
+            d_l, g_l = self.loss.forward(d_real, d_fake)
+            return 0.1*d_l, 1000*g_l
 
         if self.config.loss:
           if "g" in self.config.loss:

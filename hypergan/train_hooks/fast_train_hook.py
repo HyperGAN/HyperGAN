@@ -14,8 +14,13 @@ from torch.autograd import grad as torch_grad
 class FastTrainHook(BaseTrainHook):
     def __init__(self, gan=None, config=None):
         super().__init__(config=config, gan=gan)
-        self.decoder = gan.create_component("decoder", defn=self.config.decoder, input=self.gan.discriminator.named_layers["f1"])
+        if self.config.use_generator:
+            self.decoder = gan.generator
+        else:
+            self.decoder = gan.create_component("decoder", defn=self.config.decoder, input=self.gan.discriminator.named_layers["f1"])
         gan.decoded = torch.zeros_like(gan.inputs.next())
+        self.loss = self.gan.initialize_component("loss")
+        gan.decoded_g = torch.zeros_like(gan.inputs.next())
         self.re_x = None
         self.target = [Parameter(x, requires_grad=True) for x in self.gan.discriminator_real_inputs()]
 
@@ -26,12 +31,20 @@ class FastTrainHook(BaseTrainHook):
             pass
         else:
             f1 = self.gan.discriminator.context[self.config.discriminator_layer_name]
-            l_recon = torch.nn.L1Loss(reduction="mean")(self.decoder(f1),self.gan.x.to(self.decoder.device)) * 10
             rex = self.decoder(f1)
             x = self.gan.x.to(self.decoder.device)
             d_fake = self.gan.forward_discriminator([rex])
-            d_real = self.gan.forward_discriminator([x])
-            d_l, g_l = self.gan.trainable_gan.loss.forward(d_real, d_fake)
+            d_real = self.gan.d_real#self.gan.forward_discriminator([x])
+            d_l, g_l = self.loss.forward(d_real, d_fake)
+            if self.config.exp1:
+                rex2 = self.decoder(torch.rand_like(f1)*2.0 -1.0)
+                self.gan.decoded_g = rex2
+                d_fake2 = self.gan.forward_discriminator([rex2])
+                d_l2, g_l2 = self.loss.forward(d_real, d_fake2)
+                self.gan.add_metric("gl2", g_l2)
+                self.gan.add_metric("dl2", d_l2)
+                d_l += d_l2
+                g_l += g_l2
             self.gan.add_metric("ft_df", d_fake.mean())
             d_fake = self.gan.forward_discriminator([self.re_x])
             f1 = self.gan.discriminator.context[self.config.discriminator_layer_name]

@@ -32,7 +32,7 @@ class AdversarialNormTrainHook(BaseTrainHook):
                 target.data = data.clone()
             d_fake = self.gan.d_fake
             d_real = self.gan.forward_discriminator(self.target)
-            loss, _, mod_target = self.regularize_adversarial_norm(d_fake, d_real, self.target)
+            loss, _, mod_target = self.regularize_adversarial_norm(d_fake, d_real, self.target) #wrong args?
             norm = (-((mod_target[0] - self.gan.discriminator_real_inputs()[0])**2)).mean()
             for mt, t in zip(mod_target[1:], self.gan.discriminator_real_inputs()[1:]):
                 norm += (-((mt - t) ** 2)).mean()
@@ -66,17 +66,8 @@ class AdversarialNormTrainHook(BaseTrainHook):
             d_real = self.gan.forward_discriminator(mod_target)
             d_fake = self.gan.forward_discriminator(d_fake_in)
             d_l, g_l = self.loss.forward(d_real, d_fake)
-            if self.config.real is None:
-                return (self.config.gammas[0]*d_l), (self.config.gammas[1]*g_l)
-            else:
-                for target, data in zip(self.target, mod_target):
-                    target.data = data.clone()
-                loss, _, mod2_target = self.regularize_adversarial_norm(d_fake, d_real, self.target)
-                norm = (-((mod2_target[0] - mod_target[0])**2)).mean()
-                for mt, t in zip(mod2_target[1:], mod_target):
-                    norm += (-((mt - t) ** 2)).mean()
-                self.gan.add_metric('r_d', norm)
-                return (self.config.real_gamma * norm + self.config.gammas[0]*d_l), (self.config.gammas[1]*g_l)
+            return (self.config.gammas[0]*d_l), None#(self.config.gammas[1]*g_l)
+
         elif self.config.mode == "autoenc_x":
             d_real_in = self.gan.discriminator_real_inputs()
             for target, data in zip(self.target, d_real_in):
@@ -87,15 +78,7 @@ class AdversarialNormTrainHook(BaseTrainHook):
             d_fake = self.gan.forward_discriminator(mod_target)
             d_real = self.gan.forward_discriminator(d_real_in)
             d_l, g_l = self.loss.forward(d_real, d_fake)
-            return (self.config.gammas[0]*d_l), (self.config.gammas[1]*g_l)
-
-        if self.config.second_order is not None:
-            for target, data in zip(self.target, mod_target):
-                target.data = data.clone()
-            loss, _, mod2_target = self.regularize_adversarial_norm(d_fake, d_real, self.target)
-            norm = (-((mod2_target[0] - mod_target[0])**2)).mean()
-            for mt, t in zip(mod2_target[1:], mod_target):
-                norm += (-((mt - t) ** 2)).mean()
+            return (self.config.gammas[0]*d_l), None#(self.config.gammas[1]*g_l)
 
         if self.config.loss:
           if "g" in self.config.loss:
@@ -115,8 +98,8 @@ class AdversarialNormTrainHook(BaseTrainHook):
 
         return [self.d_loss, self.g_loss]
 
-    def regularize_adversarial_norm(self, d1_logits, d2_logits, target):
-        loss = self.forward_adversarial_norm(d1_logits, d2_logits)
+    def regularize_adversarial_norm(self, d_real, d_fake, target):
+        loss = self.forward_adversarial_norm(d_real, d_fake)
 
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
         mod_target = [_d1 + _t for _d1, _t in zip(d1_grads, target)]
@@ -124,6 +107,4 @@ class AdversarialNormTrainHook(BaseTrainHook):
         return loss, None, mod_target
 
     def forward_adversarial_norm(self, d_real, d_fake):
-        #return (torch.sign(d_real-d_fake)*((d_real - d_fake)**2)).mean()
-        return ((d_real - d_fake)**2).mean()
-        #return 0.5 * (self.dist(d_real,d_fake) + self.dist(d_fake, d_real)).sum()
+        return self.loss.forward(d_fake, d_real)[0]

@@ -28,4 +28,5 @@ from .resizable_stack import ResizableStack
 from .evo_norm import EvoNorm
 from .segment_softmax import SegmentSoftmax
 from .skip_connection import SkipConnection
+from .slice import Slice
 from .upsample import Upsample

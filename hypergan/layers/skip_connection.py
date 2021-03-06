@@ -24,13 +24,14 @@ class SkipConnection(hg.Layer):
         ch_out = dims[0]
         self.size = LayerShape(*dims)
         self.main = nn.Sequential(  nn.AdaptiveAvgPool2d(4),
-                                nn.Conv2d(ch_in, ch_out, 4, 1, 0, bias=False), nn.ReLU(),
-                                nn.Conv2d(ch_out, ch_out, 1, 1, 0, bias=False), Swish() )
+                                nn.Conv2d(ch_in, ch_out, 4, 1, 0, bias=False), Swish(),
+                                nn.Conv2d(ch_out, ch_out, 1, 1, 0, bias=False), nn.Sigmoid() )
 
     def forward(self, input, context):
         feat_small = context[self.name]
         if len(feat_small.shape) == 2:
             feat_small = feat_small.view(feat_small.shape[0], 1, 1, -1)
+            return input.view(feat_small.shape[0], 1,1,-1) * self.main(feat_small)
         return input * self.main(feat_small)
 
     def output_size(self):

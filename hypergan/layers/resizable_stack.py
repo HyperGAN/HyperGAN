@@ -56,7 +56,7 @@ class ResizableStack(hg.Layer):
     def __init__(self, component, args, options):
         super(ResizableStack, self).__init__(component, args, options)
         self.size = LayerShape(component.gan.channels(), component.gan.height(), component.gan.width())
-        self.max_channels = options.max_channels or 256
+        self.max_channels = options.max_channels or 512
         self.segment_channels = options.segment_channels or 5
         self.style = options.style or "w"
         self.output_channels = options.output_channels or component.gan.channels()
@@ -64,24 +64,26 @@ class ResizableStack(hg.Layer):
         layers = []
 
         sizes = self.sizes(component.current_size.height, component.current_size.width, component.gan.height(), component.gan.width(), self.segment_channels * 2 * self.output_channels)
-        print("SIZES", sizes)
         layer_names = []
-        for i, size in enumerate(sizes[1:]):
+        for i, size in enumerate(sizes):
             c = min(size.channels, self.max_channels)
             upsample = hg.layers.Upsample(component, [], hc.Config({"w": size.width, "h": size.height}))
             component.current_size = upsample.output_size() #TODO abstract input_size
+            name = "_g_conv"+str(i)
+            print("SIZE", size)
+            _, conv = component.parse_layer("conv2d " + str(c) + " initializer=(xavier_normal) name="+name)
             if options.normalize != False:
-                _, add = component.parse_layer("add self (ez_norm initializer=(xavier_normal) style=" + self.style + ")")
-                name = "_g_conv"+str(i)
-            _, conv = component.parse_layer("conv2d " + str(size.channels) + " padding=0 initializer=(xavier_normal) name="+name)
-            #_, noise = component.parse_layer("learned_noise")
+                _, add = component.parse_layer("evo_norm")
+                #_, add = component.parse_layer("ez_norm initializer=(xavier_normal) style=" + self.style + "")
+            _, noise = component.parse_layer("learned_noise")
+            print("GENERATOR conv " + str(c))
 
 
             if options.normalize == False:
-                layers += [upsample, conv]
+                layers += [upsample, conv, noise]
                 layer_names += [None, name, None]
             else:
-                layers += [upsample, add, conv]
+                layers += [upsample, add, conv, noise]
                 layer_names += [None, None, name, None]
             if i < len(sizes) - 2:
                 layers += [nn.ReLU()]
@@ -95,6 +97,7 @@ class ResizableStack(hg.Layer):
         layers += [hg.layers.SegmentSoftmax(component, [self.output_channels], {})]
         layer_names += [None]
         self.layers = nn.ModuleList(layers)
+        print("LAYERS", self.layers)
         self.layer_names = layer_names
 
     def sizes(self, initial_height, initial_width, target_height, target_width, final_channels):
@@ -109,14 +112,11 @@ class ResizableStack(hg.Layer):
 
         channels.append(final_channels)
         while w < target_width or h < target_height:
-            if i > 0:
-                h-=2 #padding
-                w-=2 #padding
             h*=2 #upscale
             w*=2 #upscale
             channels.append(final_channels * 2**i)
-            hs.append(min(h, target_height+2))
-            ws.append(min(w, target_width+2))
+            hs.append(min(h, target_height))
+            ws.append(min(w, target_width))
             i+=1
 
         w = initial_width

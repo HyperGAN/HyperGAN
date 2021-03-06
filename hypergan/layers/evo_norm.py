@@ -26,14 +26,21 @@ def instance_std(x, eps=1e-5):
     return torch.sqrt(var + eps)
 
 def group_std(x, groups = 32, eps = 1e-5):
-    N, C, H, W = x.size()
-    x = torch.reshape(x, (N, groups, C // groups, H, W))
-    var = torch.var(x, dim = (2, 3, 4), keepdim = True).expand_as(x)
-    return torch.reshape(torch.sqrt(var + eps), (N, C, H, W))
+    if x.dim() == 4:
+        N, C, H, W = x.size()
+        x = torch.reshape(x, (N, groups, C // groups, H, W))
+        var = torch.var(x, dim = (2, 3, 4), keepdim = True).expand_as(x)
+        return torch.reshape(torch.sqrt(var + eps), (N, C, H, W))
+    if x.dim() == 3:
+        N, C, H = x.size()
+        x = torch.reshape(x, (N, groups, C // groups, H))
+        var = torch.var(x, dim = (2, 3), keepdim = True).expand_as(x)
+        return torch.reshape(torch.sqrt(var + eps), (N, C, H))
+
 
 class EvoNorm2D(nn.Module):
 
-    def __init__(self, input, non_linear = True, version = 'S0', efficient = False, affine = True, momentum = 0.9, eps = 1e-5, groups = 32, training = True):
+    def __init__(self, input, non_linear = True, version = 'S0', efficient = True, affine = False, momentum = 0.9, eps = 1e-5, groups = 32, training = True):
         super(EvoNorm2D, self).__init__()
         self.non_linear = non_linear
         self.version = version
@@ -65,20 +72,14 @@ class EvoNorm2D(nn.Module):
     def reset_parameters(self):
         self.running_var.fill_(1)
 
-    def _check_input_dim(self, x):
-        if x.dim() != 4:
-            raise ValueError('expected 4D input (got {}D input)'
-                             .format(x.dim()))
-    
     def forward(self, x):
-        self._check_input_dim(x)
         if self.version == 'S0':
             if self.non_linear:
                 if not self.efficient:
                     num = x * torch.sigmoid(self.v * x)   # Original Swish Implementation, however memory intensive.
                 else:
                     num = self.swish(x)    # Experimental Memory Efficient Variant of Swish
-                return num / group_std(x, groups = self.groups, eps = self.eps) * self.gamma + self.beta
+                return num / group_std(x, groups = self.groups, eps = self.eps)# * self.gamma + self.beta
             else:
                 return x * self.gamma + self.beta
         if self.version == 'B0':

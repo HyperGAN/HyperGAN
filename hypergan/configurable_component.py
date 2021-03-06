@@ -73,12 +73,15 @@ class ConfigurableComponent(GANComponent):
             "mul": hg.layers.Mul,
             "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
             "noise": hg.layers.Noise,
+            "transformer": hg.layers.Transformer,
             "pixel_shuffle": hg.layers.PixelShuffle,
             "residual": hg.layers.Residual,
             "resizable_stack": hg.layers.ResizableStack,
             "segment_softmax": hg.layers.SegmentSoftmax,
             "skip_connection": hg.layers.SkipConnection,
             "upsample": hg.layers.Upsample,
+            "evo_norm": hg.layers.EvoNorm,
+            "slice": hg.layers.Slice,
 
             #easy to convert
             "dropout": self.layer_dropout,
@@ -240,6 +243,7 @@ class ConfigurableComponent(GANComponent):
             "tanh": nn.Tanh(),
             "tanhshrink": nn.Tanhshrink()
         }
+
 
     def layer_dropout(self, net, args, options):
         return nn.Dropout2d(float(args[0]))

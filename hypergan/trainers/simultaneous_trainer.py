@@ -16,13 +16,7 @@ def ng(param):
     grad = param.grad
     grad_norm = grad.norm()
     max_norm = (1e-2) * torch.maximum(param.norm(),torch.ones_like(param)*1e-8)
-    trigger = grad_norm < max_norm
-    ## This little max(., 1e-6) is distinct from the normal eps and just prevents
-    ## division by zero. It technically should be impossible to engage.
-    clipped_grad = grad * (max_norm / torch.maximum(grad_norm, torch.ones_like(grad_norm)*1e-6))
-    return clipped_grad
-    return torch.where(trigger, grad, clipped_grad)
-
+    return grad * (max_norm / torch.maximum(grad_norm, torch.ones_like(grad_norm)*1e-6))
 
 class SimultaneousTrainer(BaseTrainer):
     """ Steps G and D simultaneously """

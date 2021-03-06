@@ -20,6 +20,7 @@ def ng(param):
     ## This little max(., 1e-6) is distinct from the normal eps and just prevents
     ## division by zero. It technically should be impossible to engage.
     clipped_grad = grad * (max_norm / torch.maximum(grad_norm, torch.ones_like(grad_norm)*1e-6))
+    return clipped_grad
     return torch.where(trigger, grad, clipped_grad)
 
 
@@ -63,7 +64,7 @@ class SimultaneousTrainer(BaseTrainer):
             self.optimizer.step()
             self.print_metrics(self.current_step)
             return 
-        if self.config.ode_solver == 'heun':
+        elif self.config.ode_solver == 'heun':
             gn = 100.0
             self.gan._metrics = {}
             self.heun_ode_step()
@@ -150,8 +151,8 @@ class SimultaneousTrainer(BaseTrainer):
 
 
     def ode_gan_step(self, G, D, data, detach_err: bool = True, retain_graph: bool = False, add_train_hooks = True, first_step = False):
-        oldd = self.gan.discriminator.net
-        oldg = self.gan.generator.net
+        oldds = [e.net for e in self.gan.discriminator_components()]
+        oldgs = [e.net for e in self.gan.generator_components()]
         self.gan.discriminator.net = D
         self.gan.generator.net = G
         errD, errG = self.trainable_gan.forward_loss()
@@ -164,8 +165,10 @@ class SimultaneousTrainer(BaseTrainer):
             errG = errG.detach()
             errD = errD.detach()
 
-        self.gan.discriminator.net = oldd
-        self.gan.generator.net = oldg
+        for e,oldd in zip(self.gan.discriminator_components(), oldds):
+            e.net = oldd
+        for e,oldg in zip(self.gan.generator_components(), oldgs):
+            e.net = oldg
         return DISC_GRAD_CACHE, GEN_GRAD_CACHE, errD, errG, None, None, None
 
     # Heun's ODE Step
@@ -420,12 +423,17 @@ class SimultaneousTrainer(BaseTrainer):
         d_loss.mean().backward(retain_graph=True)
         self.trainable_gan.set_generator_trainable(True)
 
-        d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
-        g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
-        gnd = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
-        self.gan.add_metric("GNd", gnd)
-        gng = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
-        self.gan.add_metric("GNg", gng)
+        if self.config.adaptive_gradient_norm:
+            d_grads = [ng(p) for p in self.trainable_gan.d_parameters()]
+            g_grads = [ng(p) for p in self.trainable_gan.g_parameters()]
+        else:
+            d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
+            g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
+
+        #gnd = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
+        #self.gan.add_metric("GNd", gnd)
+        #gng = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
+        #self.gan.add_metric("GNg", gng)
         return d_grads, g_grads
 
     def print_metrics(self, step):

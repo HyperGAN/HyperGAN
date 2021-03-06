@@ -15,11 +15,11 @@ TINY = 1e-12
 def ng(param):
     grad = param.grad
     grad_norm = grad.norm()
-    max_norm = (1e-2) * torch.maximum(param.norm(),torch.ones_like(param)*1e-8)
+    max_norm = (1e-2) * torch.maximum(param.norm(),torch.ones([], device=param.device)*1e-8)
     trigger = grad_norm < max_norm
     ## This little max(., 1e-6) is distinct from the normal eps and just prevents
     ## division by zero. It technically should be impossible to engage.
-    clipped_grad = grad * (max_norm / torch.maximum(grad_norm, torch.ones_like(grad_norm)*1e-6))
+    clipped_grad = grad * (max_norm / torch.maximum(grad_norm, torch.ones([], device=param.device)*1e-6))
     return torch.where(trigger, grad, clipped_grad)
 
 class SimultaneousTrainer(BaseTrainer):
@@ -42,8 +42,12 @@ class SimultaneousTrainer(BaseTrainer):
                 d_grads, g_grads = hook.gradients(d_grads, g_grads)
         for p, np in zip(self.trainable_gan.d_parameters(), d_grads):
             p.grad = np
+            if self.config.adaptive_gradient_norm:
+                p.grad = ng(p)
         for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
             p.grad = np
+            if self.config.adaptive_gradient_norm:
+                p.grad = ng(p)
 
         #if self.config.gradient_max_norm:
         #    torch.nn.utils.clip_grad_norm_(self.trainable_gan.parameters(), self.config.gradient_max_norm)
@@ -421,12 +425,9 @@ class SimultaneousTrainer(BaseTrainer):
         d_loss.mean().backward(retain_graph=True)
         self.trainable_gan.set_generator_trainable(True)
 
-        if self.config.adaptive_gradient_norm:
-            d_grads = [ng(p) for p in self.trainable_gan.d_parameters()]
-            g_grads = [ng(p) for p in self.trainable_gan.g_parameters()]
-        else:
-            d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
-            g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
+
+        d_grads = [p.grad for p in self.trainable_gan.d_parameters()]
+        g_grads = [p.grad for p in self.trainable_gan.g_parameters()]
 
         #gnd = sum([p.grad.norm() for p in self.trainable_gan.d_parameters()])
         #self.gan.add_metric("GNd", gnd)

@@ -10,7 +10,6 @@ class Attention(nn.Module):
         self.g = nn.Conv2d(in_channels = in_dim , out_channels = in_dim, kernel_size= 1)
         self.h = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
         self.v = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
-        self.gamma = nn.Parameter(torch.tensor(0.0))
 
         self.softmax  = nn.Softmax(dim=1) #
     def forward(self,x):

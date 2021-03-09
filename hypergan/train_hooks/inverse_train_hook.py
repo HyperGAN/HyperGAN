@@ -8,7 +8,7 @@ from torch.nn.parameter import Parameter
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
 
-class InverseSampleTrainHook(BaseTrainHook):
+class InverseTrainHook(BaseTrainHook):
     """
 
     Adds the terms:

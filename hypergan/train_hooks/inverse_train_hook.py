@@ -31,15 +31,10 @@ class InverseTrainHook(BaseTrainHook):
         for target, data in zip(self.target_x, self.gan.discriminator_real_inputs()):
             target.data = data.clone()
         inverse_fake = self.inverse(self.gan.d_real, self.gan.forward_discriminator(self.target_g), self.target_g)
-        reg_fake = self.regularize(inverse_fake, self.target_g)
+        reg_fake = self.loss.forward(self.gan.forward_discriminator(inverse_fake), self.gan.d_fake)[0]
         inverse_real = self.inverse(self.gan.d_fake, self.gan.forward_discriminator(self.target_x), self.target_x)
-        reg_real = self.regularize(self.target_x, inverse_real)
+        reg_real = self.loss.forward(self.gan.d_real, self.gan.forward_discriminator(inverse_real))[0]
         return self.gamma*(reg_fake + reg_real), None
-
-    def regularize(self, inputs, inverse):
-        inverse_real = self.gan.forward_discriminator(inverse)
-        inverse_fake = self.gan.forward_discriminator(inputs)
-        return self.loss.forward(inverse_real, inverse_fake)[0]
 
     def inverse(self, d_real, d_fake, target):
         loss = self.loss.forward(d_real, d_fake)[0]

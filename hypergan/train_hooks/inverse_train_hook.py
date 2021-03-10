@@ -38,9 +38,9 @@ class InverseTrainHook(BaseTrainHook):
         inverse = self.inverse(d_real, d_fake, target)
         if order == 1:
             d_real = self.gan.forward_discriminator(inputs)
-            d_fake = self.gan.forward_discriminator(mod_target)
+            d_fake = self.gan.forward_discriminator(inverse)
         else:
-            d_real = self.gan.forward_discriminator(mod_target)
+            d_real = self.gan.forward_discriminator(inverse)
             d_fake = self.gan.forward_discriminator(inputs)
         return self.loss.forward(d_fake, d_real)[0]
 

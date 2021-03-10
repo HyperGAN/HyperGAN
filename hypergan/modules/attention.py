@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.nn.parameter import Parameter
 
 class Attention(nn.Module):
     """ Self attention Layer from https://github.com/heykeetae/Self-Attention-GAN/blob/master/sagan_models.py """
@@ -10,6 +11,7 @@ class Attention(nn.Module):
         self.g = nn.Conv2d(in_channels = in_dim , out_channels = in_dim, kernel_size= 1)
         self.h = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
         self.v = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
+        self.scalar = Parameter(torch.zeros([]), requires_grad=True)
 
         self.softmax  = nn.Softmax(dim=1) #
     def forward(self,x):
@@ -21,4 +23,4 @@ class Attention(nn.Module):
         h = self.h(x).view(m_batchsize,C,width*height)
 
         fgh = torch.bmm(h, attention_map )
-        return self.v(fgh.view(x.shape))
+        return self.scalar * self.v(fgh.view(x.shape))

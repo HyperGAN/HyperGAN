@@ -42,9 +42,9 @@ class InverseTrainHook(BaseTrainHook):
         else:
             d_real = self.gan.forward_discriminator(inverse)
             d_fake = self.gan.forward_discriminator(inputs)
-        return self.loss.forward(d_fake, d_real)[0]
+        return self.loss.forward(d_real, d_fake)[0]
 
     def inverse(self, d_real, d_fake, target):
-        loss = self.loss.forward(d_fake, d_real)[0]
+        loss = self.loss.forward(d_real, d_fake)[0]
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
         return [_d1 + _t for _d1, _t in zip(d1_grads, target)]

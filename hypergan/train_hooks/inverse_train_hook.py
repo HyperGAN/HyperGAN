@@ -42,6 +42,6 @@ class InverseTrainHook(BaseTrainHook):
         return self.loss.forward(inverse_real, inverse_fake)[0]
 
     def inverse(self, d_real, d_fake, target):
-        loss = self.loss.forward(d_real, d_fake)[0]
+        loss = self.loss.forward(d_fake, d_real)[0]
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
         return [_d1 + _t for _d1, _t in zip(d1_grads, target)]

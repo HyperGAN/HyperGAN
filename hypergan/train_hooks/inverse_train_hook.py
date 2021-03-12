@@ -13,7 +13,7 @@ class InverseTrainHook(BaseTrainHook):
 
     Adds the terms:
 
-        D(inverse g, g) + D(x, inverse x)
+        D(x, inverse g) + D(x, inverse x)
     """
     def __init__(self, gan=None, config=None):
         super().__init__(config=config, gan=gan)
@@ -33,7 +33,7 @@ class InverseTrainHook(BaseTrainHook):
             for target, data in zip(self.target_g, self.gan.discriminator_fake_inputs()[0]):
                 target.data = data.clone()
             inverse_fake = self.inverse(self.gan.forward_discriminator(self.target_g), self.gan.d_real, self.target_g)
-            reg_fake = self.loss.forward(self.gan.forward_discriminator(inverse_fake), self.gan.d_fake)[0]
+            reg_fake = self.loss.forward(self.gan.d_real, self.gan.forward_discriminator(inverse_fake))[0]
             return self.gamma*(reg_fake), None
         else:
             for target, data in zip(self.target_x, self.gan.discriminator_real_inputs()):
@@ -44,5 +44,5 @@ class InverseTrainHook(BaseTrainHook):
 
     def inverse(self, d_real, d_fake, target):
         loss = self.loss.forward(d_real, d_fake)[0]
-        d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
-        return [_d1 + _t for _d1, _t in zip(d1_grads, target)]
+        d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True, only_inputs=True)
+        return [_d1 + torch.sign(_t)*0.1 for _d1, _t in zip(d1_grads, target)]

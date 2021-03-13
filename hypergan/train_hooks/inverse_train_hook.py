@@ -13,7 +13,7 @@ class InverseTrainHook(BaseTrainHook):
 
     Adds the terms:
 
-        D(x, inverse g) + D(x, inverse x)
+        D(inverse g, g) + D(x, inverse x)
     """
     def __init__(self, gan=None, config=None):
         super().__init__(config=config, gan=gan)

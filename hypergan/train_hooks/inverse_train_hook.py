@@ -13,7 +13,7 @@ class InverseTrainHook(BaseTrainHook):
 
     Adds the terms:
 
-        D(x, inverse g) + D(x, inverse x)
+        D(inverse g, g) + D(x, inverse x)
     """
     def __init__(self, gan=None, config=None):
         super().__init__(config=config, gan=gan)
@@ -38,7 +38,7 @@ class InverseTrainHook(BaseTrainHook):
         reg_fake, g_ = self.loss.forward(self.gan.forward_discriminator(inverse_fake), self.gan.forward_discriminator(self.gan.discriminator_fake_inputs()[0]))
         reg_real = self.loss.forward(self.gan.forward_discriminator(self.gan.discriminator_real_inputs()), self.gan.forward_discriminator(inverse_real))[0]
 
-        return self.gamma*(reg_fake+reg_real), g_
+        return self.gamma*(reg_fake+reg_real), self.gamma*g_
 
     def inverse(self, d_real, d_fake, target):
         loss = self.loss.forward(d_fake, d_real)[0]

@@ -7,3 +7,5 @@ pyparsing
 torch
 torchvision
 semantic_version
+chart_studio
+plotly

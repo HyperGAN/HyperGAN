@@ -24,25 +24,27 @@ class InverseTrainHook(BaseTrainHook):
 
     def forward(self, d_loss, g_loss):
         if self.target_x == None:
-            if self.config.use_g:
-                self.target_g = [Parameter(g, requires_grad=True) for g in self.gan.discriminator_fake_inputs()[0]]
-            else:
-                self.target_x = [Parameter(x, requires_grad=True) for x in self.gan.discriminator_real_inputs()]
+            self.target_g = [Parameter(g, requires_grad=True) for g in self.gan.discriminator_fake_inputs()[0]]
+            self.target_x = [Parameter(x, requires_grad=True) for x in self.gan.discriminator_real_inputs()]
 
-        if self.config.use_g:
-            for target, data in zip(self.target_g, self.gan.discriminator_fake_inputs()[0]):
-                target.data = data.clone()
-            inverse_fake = self.inverse(self.gan.forward_discriminator(self.target_g), self.gan.d_real, self.target_g)
-            reg_fake = self.loss.forward(self.gan.d_real, self.gan.forward_discriminator(inverse_fake))[0]
-            return self.gamma*(reg_fake), None
+        for target, data in zip(self.target_g, self.gan.discriminator_fake_inputs()[0]):
+            target.data = data.clone()
+        for target, data in zip(self.target_x, self.gan.discriminator_real_inputs()):
+            target.data = data.clone()
+
+        inverse_fake = self.inverse(self.gan.d_real, self.gan.forward_discriminator(self.target_g), self.target_g)
+        inverse_real = self.inverse(self.gan.forward_discriminator(self.target_x), self.gan.d_fake, self.target_x)
+
+        if self.config.form == 1:
+            reg_fake = self.loss.forward(self.gan.forward_discriminator(self.gan.discriminator_real_inputs()), self.gan.forward_discriminator(inverse_fake))[0]
+            reg_real = self.loss.forward(self.gan.forward_discriminator(self.gan.discriminator_real_inputs()), self.gan.forward_discriminator(inverse_real))[0]
         else:
-            for target, data in zip(self.target_x, self.gan.discriminator_real_inputs()):
-                target.data = data.clone()
-            inverse_real = self.inverse(self.gan.d_fake, self.gan.forward_discriminator(self.target_x), self.target_x)
-            reg_real = self.loss.forward(self.gan.d_real, self.gan.forward_discriminator(inverse_real))[0]
-            return self.gamma*(reg_real), None
+            reg_fake = self.loss.forward(self.gan.forward_discriminator(inverse_fake), self.gan.forward_discriminator(self.gan.discriminator_fake_inputs()[0]))[0]
+            reg_real = self.loss.forward(self.gan.forward_discriminator(self.gan.discriminator_real_inputs()), self.gan.forward_discriminator(inverse_real))[0]
+
+        return self.gamma*(reg_fake+reg_real), None
 
     def inverse(self, d_real, d_fake, target):
-        loss = self.loss.forward(d_real, d_fake)[0]
+        loss = self.loss.forward(d_fake, d_real)[0]
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True, only_inputs=True)
-        return [_d1 + torch.sign(_t)*0.1 for _d1, _t in zip(d1_grads, target)]
+        return [_t + _d1 for _d1, _t in zip(d1_grads, target)]

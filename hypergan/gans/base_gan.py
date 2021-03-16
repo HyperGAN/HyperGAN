@@ -5,6 +5,7 @@ from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
 from hypergan.samplers.factorization_batch_walk_sampler import FactorizationBatchWalkSampler
 from hypergan.samplers.input_sampler import InputSampler
+from hypergan.samplers.grid_sampler import GridSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.y_sampler import YSampler
 
@@ -201,7 +202,7 @@ class BaseGAN():
                 #'style_walk': StyleWalkSampler,
                 'batch_walk': BatchWalkSampler,
                 'batch': BatchSampler,
-                #'grid': GridSampler,
+                'grid': GridSampler,
                 #'sorted': SortedSampler,
                 #'gang': GangSampler,
                 #'began': BeganSampler,

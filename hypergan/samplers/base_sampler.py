@@ -13,6 +13,9 @@ class BaseSampler:
     def compatible_with(gan):
         return False
 
+    def setup_ui(self, *args):
+        pass
+
     def sample(self, path, save_samples):
         gan = self.gan
 

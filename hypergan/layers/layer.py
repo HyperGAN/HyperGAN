@@ -52,6 +52,7 @@ class Layer(hg.Layer):
         if options.upsample:
             self.size = LayerShape(self.size.channels, *component.current_size.dims[1:])
             self.upsample = nn.Upsample(self.size.dims[1:], mode="bilinear")
+        component.is_latent = component.named_is_latent[self.name]
 
     def forward(self, input, context):
         if hasattr(self, 'upsample'):

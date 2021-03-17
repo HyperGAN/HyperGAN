@@ -135,6 +135,8 @@ class CLI:
             print("Could not load save")
             return
         steps = 0
+        self.gan.cli = self #TODO remove this link
+        self.lazy_create()
         while not self.gan.destroy and (steps <= self.args.steps or self.args.steps == -1):
             self.trainable_gan.sample(self.sampler, self.sample_path)
             steps += 1

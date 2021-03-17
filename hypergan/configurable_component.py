@@ -50,6 +50,7 @@ class ConfigurableComponent(GANComponent):
         self.untrainable_parameters = set()
         self.layer_output_sizes = {}
         self.nn_layers = []
+        self.named_is_latent = {}
         self.layer_options = {}
         self.parsed_layers = []
         self.parser = hypergan.parser.Parser()
@@ -206,13 +207,16 @@ class ConfigurableComponent(GANComponent):
                 self.current_size = net.output_size()
                 if self.is_latent:
                     self._latent_parameters += net.latent_parameters()
-                    self.is_latent = False
             elif isinstance(self.layer_ops[op], nn.Module):
                 net = self.layer_ops[op]
             else:
                 net = self.layer_ops[op](None, args, options)
             if 'name' in options:
                 self.set_layer(options['name'], net)
+                self.named_is_latent[options['name']] = self.is_latent
+
+            if is_hg_layer and op != "layer":
+                self.is_latent = False
 
             if options.trainable == False:
                 self.untrainable_parameters = self.untrainable_parameters.union(set(net.parameters()))

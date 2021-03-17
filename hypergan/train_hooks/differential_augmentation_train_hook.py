@@ -14,9 +14,9 @@ class DifferentialAugmentationTrainHook(BaseTrainHook):
         https://arxiv.org/pdf/2006.10738
     """
     def augment_x(self, x):
-        return DiffAugment(x, policy=self.config.policy or '')
+        return DiffAugment(x, policy=self.config.policy or 'color,translation,cutout')
     def augment_g(self, g):
-        return DiffAugment(g, policy=self.config.policy or '')
+        return DiffAugment(g, policy=self.config.policy or 'color,translation,cutout')
 
 def DiffAugment(x, policy='', channels_first=True):
     if policy:

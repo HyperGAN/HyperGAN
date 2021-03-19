@@ -109,6 +109,7 @@ class ConfigurableComponent(GANComponent):
             "conv1d": self.layer_conv1d,
             "conv2d": self.layer_conv2d,
             "conv3d": self.layer_conv3d,
+            "deconv1d": self.layer_deconv1d,
             "deconv": self.layer_deconv,
             "equal_linear": self.layer_equal_linear,
             "instance_norm": self.layer_instance_norm,
@@ -299,10 +300,13 @@ class ConfigurableComponent(GANComponent):
         padding = 1
         if options.padding is not None:
             padding = options.padding
+        bias = True
+        if options.bias == False:
+            bias = False
 
         dilation = 1
 
-        layer = nn.Conv2d(options.input_channels or self.current_size.channels, channels, filter, stride, padding = (padding, padding))
+        layer = nn.Conv2d(options.input_channels or self.current_size.channels, channels, filter, stride, padding = (padding, padding), bias=bias)
         self.nn_init(layer, options.initializer)
         h, w = self.conv_output_shape((self.current_size.height, self.current_size.width), filter, stride, padding, dilation)
         self.current_size = LayerShape(channels, h, w)
@@ -439,7 +443,7 @@ class ConfigurableComponent(GANComponent):
         filter_size = options.filter
         if filter_size is None:
             filter_size = 2
-        self.current_size = LayerShape(self.current_size.channels, self.current_size.height // 2, self.current_size.width // 2)
+        self.current_size = LayerShape(self.current_size.channels, self.current_size.height // filter_size, self.current_size.width // filter_size)
         return nn.AvgPool2d(filter_size, filter_size)
 
     def layer_max_pool(self, net, args, options):
@@ -517,6 +521,27 @@ class ConfigurableComponent(GANComponent):
         self.nn_init(layer, options.initializer)
         self.current_size = LayerShape(channels, self.current_size.height * 2, self.current_size.width * 2)
         return layer
+
+    def layer_deconv1d(self, net, args, options):
+        if len(args) > 0:
+            channels = args[0]
+        else:
+            channels = self.current_size.channels
+        options = hc.Config(options)
+        filter = 4 #TODO
+        if options.filter:
+            filter = options.filter
+        stride = 2
+        if options.stride:
+            stride = options.stride
+        padding = 1
+        if options.padding:
+            padding = options.padding
+        layer = nn.ConvTranspose1d(options.input_channels or self.current_size.channels, channels, filter, stride, padding)
+        self.nn_init(layer, options.initializer)
+        self.current_size = LayerShape(channels, self.current_size.height * 2)
+        return layer
+
 
     def layer_pad(self, net, args, options):
         options = hc.Config(options)

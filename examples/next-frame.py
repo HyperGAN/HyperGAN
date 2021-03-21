@@ -160,91 +160,50 @@ class NextFrameGAN(BaseGAN):
 
     def create(self):
         self.latent = self.create_component("latent")
-        self.encoder = self.create_component("encoder")
-        self.decoder = self.create_component("decoder", input=self.encoder)
         c_w = 8
         c_h = 8
         c_channels = 512
         c_shape = LayerShape(c_channels, c_h, c_w)
-        self.state= self.create_component("state", input=self.encoder, context_shapes={"past": c_shape} )
+        self.encoder = self.create_component("encoder", context_shapes={"past": c_shape})
+        self.decoder = self.create_component("decoder", context_shapes={"state": c_shape})
+        self.state= self.create_component("state", input=self.encoder, context_shapes={"past": c_shape, "memory": c_shape} )
+        self.memory= self.create_component("memory", input=self.encoder, context_shapes={"past": c_shape} )
         self.discriminator = self.create_component("discriminator")
 
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0])
 
     def forward_pass(self, frames, xs, loss):
-        d_fakes = []
-        d_reals = []
-        d_losses = []
-        g_losses = []
-
         D = self.discriminator
         self.d_fake_inputs = []
-        state = self.gen_state() 
-        self.gs = frames
-        for i in range(self.frames-self.per_sample_frames+1):
-            rems = frames[i:i+self.per_sample_frames-1]
-            enc = self.encoder(torch.cat(rems, dim=1))
-            state = self.state(enc, context={"past": state})
-            g = self.decoder(state)
-            self.gs.append(g)
-            rems += [g]
+        state = self.gen_state()
+        memory = self.gen_state()
+        enc = self.gen_state()
+        xframes = torch.cat(frames[:self.per_sample_frames], dim=1)
+        d_real = D(xframes)
+        self.d_real = d_real
 
-            xframes = torch.cat(frames[i:i+self.per_sample_frames], dim=1)
-            d_real = D(xframes)
+        gframes = []
+        g = frames[0]
+        for i in range(self.per_sample_frames):
+            enc = self.encoder(g, context={"past": enc})
+            state = self.state(enc, context={"past": state, "memory": memory})
+            memory = self.memory(memory, context={"past": memory, "state": state})
+            g = self.decoder(g, {"state": state})
+            gframes += [g]
 
-            self.d_real = d_real
-            d_reals.append(d_real)
-            d_fake_input = torch.cat(rems, dim=1)
-            self.d_fake_inputs.append(d_fake_input.clone().detach())
-            d_fake = D(d_fake_input)
-            _d_loss, _g_loss = loss.forward(d_real, d_fake)
-            d_losses.append(_d_loss)
-            g_losses.append(_g_loss)
-            last_d_fake = d_fake
-            original_d_fake = d_fake
-            last_g_loss =  _g_loss
-            grems=rems
+        self.gs = gframes
+        d_fake_input = torch.cat(gframes, dim=1)
+        self.d_fake_inputs.append(d_fake_input.clone().detach())
+        d_fake = D(d_fake_input)
+        self.d_fake = d_fake
 
-            for j in range(self.config.forward_frames or 0):
-                grems = grems[1:]
-                #grems[-1] = grems[-1].clone().detach()
-                #state = state.clone().detach()
-                enc = self.encoder(torch.cat(grems, dim=1))
-                state = self.state(enc, context={"past": state})
-                g = self.decoder(state)
-                grems += [g]
-                d_fake_input = torch.cat(grems, dim=1)
-                d_fake = D(d_fake_input)
-                #if original_d_fake.mean().abs() < d_fake.mean().abs():
-                #    break
-                if last_d_fake.mean().abs() <= d_fake.mean().abs():
-                    break
-                last_d_fake = d_fake
-
-                self.d_fake_inputs.append(d_fake_input.clone().detach())
-                _d_loss, _g_loss = loss.forward(d_real, d_fake)
-                d_losses.append(_d_loss)
-                g_losses.append(_g_loss)
-            if(j != 0):
-                #d_losses = [_d_loss]
-                #g_losses = [_g_loss]
-                print("j ", j, "d_real", d_real.mean(), "d_fake", d_fake.mean())
-                #d_losses.append(_d_loss)
-                #g_losses.append(_g_loss)
-
-
-
- 
-        d_loss = sum(d_losses)/len(d_losses)
-        g_loss = sum(g_losses)/len(g_losses)
-        self.d_fake = sum(d_fake)/len(d_fake)
-        return d_loss, g_loss
+        return loss.forward(d_real, d_fake)
 
     def forward_loss(self, loss=None):
         current_inputs = list(torch.chunk(self.inputs.next(), self.frames, dim=1))
         self.xs = current_inputs
-        self.last_x = current_inputs[-1]
+        self.x = torch.cat(current_inputs, dim=1)
 
         if self.config.discriminator:
             d_loss, g_loss = self.forward_pass(current_inputs, self.xs, loss)
@@ -259,11 +218,9 @@ class NextFrameGAN(BaseGAN):
         components = [self.encoder, self.decoder, self.state]
         return components
 
-    def channels(self):
-        return super(NextFrameGAN, self).channels() * self.per_sample_frames
-
     def gen_state(self):
         shape = (self.batch_size(), self.encoder.current_size.channels, self.encoder.current_size.height, self.encoder.current_size.width)
+        return torch.zeros(shape).cuda()
         if self.config.statedist == "random":
             return self.random_z(self.latent.sample)
         if self.config.statedist == "uniform":
@@ -276,18 +233,10 @@ class NextFrameGAN(BaseGAN):
         return torch.abs(torch.randn(shape).cuda())
 
     def discriminator_fake_inputs(self):
-        if hasattr(self, 'd_fake_inputs'):
-            return list([[d_in] for d_in in self.d_fake_inputs]).copy()
-        else:
-            print("next gs")
-            return [list(torch.chunk(self.inputs.next(), self.per_sample_frames, dim=1))[-1]]
+        return list([[d_in] for d_in in self.d_fake_inputs])
 
     def discriminator_real_inputs(self):
-        if hasattr(self, 'xs'):
-            return self.xs
-        else:
-            print("next xs", self.per_sample_frames)
-            return [list(torch.chunk(self.inputs.next(), self.per_sample_frames, dim=1))[-1]]
+        return [self.x]
 
 class VideoFrameSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
@@ -297,20 +246,11 @@ class VideoFrameSampler(BaseSampler):
         self.i = 0
 
     def seed(self):
-        #self.c = self.gan.gen_c()
-        #self.z = self.gan.gen_z()
-        #self.z = self.gan.random_z(self.gan.latent.sample)
-        #self.c = self.gan.random_c(self.gan.latent.sample)
         g = self.input_cache[0]
-        self.state = self.gan.gen_state()
-        print("STATET1", self.state.shape)
-
-        enc = self.gan.encoder(torch.cat(self.input_cache[:-1], dim=1))
-        self.state = self.gan.state(enc, context={"past": self.state})
-        print("STATET", self.state.shape)
-        g = self.gan.decoder(self.state)
-        self.current_frames = self.input_cache[:-1]+[g]
         self.g = g
+        self.enc = self.gan.gen_state()
+        self.memory = self.gan.gen_state()
+        self.state = self.gan.gen_state()
 
     def refresh_input_cache(self):
         self.input_cache = list(torch.chunk(self.gan.inputs.next(), self.gan.frames, dim=1))
@@ -328,14 +268,11 @@ class VideoFrameSampler(BaseSampler):
     def _sample(self):
         self.next_input()
         samples = []
-        inframes = self.current_frames[-args.per_sample_frames+1:]
-        enc = self.gan.encoder(torch.cat(inframes, dim=1))
-        self.state = self.gan.state(enc, context={"past": self.state})
-        g = self.gan.decoder(self.state)
-        self.current_frames += [g]
-        self.current_frames = self.current_frames[1:]
-        self.g = g
-        print(self.g.mean())
+        self.enc = self.gan.encoder(self.g, context={"past": self.enc})
+        self.state = self.gan.state(self.enc, context={"past": self.state, "memory": self.memory})
+        self.memory = self.gan.memory(self.memory, context={"past": self.memory, "state": self.state})
+        self.g = self.gan.decoder(self.g, {"state": self.state})
+        print(self.state.mean())
         if self.i % (8*24) == 0:
             print("RESET")
             self.seed()
@@ -350,7 +287,7 @@ class TrainingVideoFrameSampler(BaseSampler):
 
     def _sample(self):
         gan = self.gan
-        return [('input', self.gan.last_x), ('gfirst', self.gan.gs[-2]), ('generator', self.gan.gs[-1])]
+        return [('input', self.gan.xs[0]), ('gfirst', self.gan.gs[-2]), ('generator', self.gan.gs[-1])]
 
 
 

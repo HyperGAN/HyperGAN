@@ -215,7 +215,9 @@ class NextFrameGAN(BaseGAN):
         return components
 
     def generator_components(self):
-        components = [self.encoder, self.decoder, self.state]
+        components = [self.encoder, self.decoder, self.state, self.memory]
+        if hasattr(self, 'generator'):
+            components += [self.generator]
         return components
 
     def gen_state(self):

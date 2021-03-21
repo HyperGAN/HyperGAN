@@ -668,7 +668,7 @@ class ConfigurableComponent(GANComponent):
         return model
 
     def layer_vae(self, net, args, options):
-        self.vae = Variational(options.input_size or self.current_size.channels, len(self.current_size.dims))
+        self.vae = Variational(options.input_size or self.current_size.channels)
         def vae_loss():
             logvar = self.vae.sigma
             mu = self.vae.mu

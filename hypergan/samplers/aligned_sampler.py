@@ -8,7 +8,7 @@ import torch
 class AlignedSampler(BaseSampler):
     def __init__(self, gan, samples_per_row=8):
         BaseSampler.__init__(self, gan, samples_per_row)
-        self.inputs = self.gan.inputs.next()
+        self.inputs = None
         self.z = self.gan.latent.next()
 
     def compatible_with(gan):
@@ -17,7 +17,8 @@ class AlignedSampler(BaseSampler):
         return False
 
     def _sample(self):
-        self.inputs = self.gan.inputs.next(0).clone().detach()
+        if self.inputs is None:
+            self.inputs = self.gan.inputs.next(0).clone().detach()
         self.gan.latent.z = self.z
         b = self.z.shape[0]
         y_ = torch.randint(0, len(self.gan.inputs.datasets), (b, )).to(self.z.device)

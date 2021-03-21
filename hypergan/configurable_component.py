@@ -668,7 +668,14 @@ class ConfigurableComponent(GANComponent):
         return model
 
     def layer_vae(self, net, args, options):
-        self.vae = Variational(self.current_size.channels)
+        self.vae = Variational(options.input_size or self.current_size.channels, len(self.current_size.dims))
+        def vae_loss():
+            logvar = self.vae.sigma
+            mu = self.vae.mu
+            vae = torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim = 1), dim = 0)
+            self.gan.add_metric('vae', vae)
+            return None, vae
+        self.gan.add_loss(vae_loss)
         return self.vae
 
     def layer_multi_head_attention(self, net, args, options):

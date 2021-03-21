@@ -28,6 +28,7 @@ class BaseGAN():
         """ Initialized a new GAN."""
         self._metrics = {}
         self.components = {}
+        self.additional_losses = []
         self.destroy = False
         self.inputs = inputs
         self.steps = Variable(torch.zeros([1]))
@@ -73,6 +74,9 @@ class BaseGAN():
         while(name+str(index) in self.components):
             index+=1
         self.components[name+str(index)] = component
+
+    def add_loss(self, loss_function):
+        self.additional_losses.append(loss_function)
 
     def create_component(self, name, *args, **kw_args):
         gan_component = self.initialize_component(name, *args, **kw_args)

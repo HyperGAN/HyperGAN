@@ -413,6 +413,12 @@ class SimultaneousTrainer(BaseTrainer):
                         d_loss += loss[0]
                     if loss[1] is not None:
                         g_loss += loss[1]
+        for loss_function in self.gan.additional_losses:
+            loss = loss_function()
+            if loss[0] is not None:
+                d_loss += loss[0]
+            if loss[1] is not None:
+                g_loss += loss[1]
 
         self.trainable_gan.set_generator_trainable(True)
         self.trainable_gan.set_discriminator_trainable(False)

@@ -95,7 +95,8 @@ class ThreadedTkViewerUI:
             scrollbar = ttk.Scrollbar(controls, orient="vertical", command=canvas.yview)
             scrollable_frame = ttk.Frame(canvas)
             #TODO hack
-            gan.cli.sampler.setup_ui(scrollable_frame)
+            if hasattr(gan, 'cli'):
+                gan.cli.sampler.setup_ui(scrollable_frame)
             scrollable_frame.bind(
                 "<Configure>",
                 lambda e: canvas.configure(

@@ -192,6 +192,7 @@ class NextFrameGAN(BaseGAN):
             g = frames[1]
             g_t_1 = frames[0]
         for i in range(self.per_sample_frames-1):
+            self.latent.next()
             enc = self.encoder(g, context={"past": enc})
             state = self.state(enc, context={"past": state, "memory": memory})
             memory = self.memory(memory, context={"past": memory, "state": state})
@@ -289,6 +290,7 @@ class VideoFrameSampler(BaseSampler):
 
     def _sample(self):
         self.next_input()
+        self.gan.latent.next()
         samples = []
         self.enc = self.gan.encoder(self.g, context={"past": self.enc})
         self.state = self.gan.state(self.enc, context={"past": self.state, "memory": self.memory})
@@ -296,6 +298,7 @@ class VideoFrameSampler(BaseSampler):
         self.g = self.gan.decoder(self.g_t_1, {"state": self.state})
         self.g_t_1 = self.g
 
+        self.gan.latent.next()
         if self.gan.config.use_generator:
             self.enc2 = self.gan.encoder(self.g2, context={"past": self.enc2})
             self.state2 = self.gan.state(self.enc2, context={"past": self.state2, "memory": self.memory2})
@@ -317,6 +320,7 @@ class VideoFrameSampler(BaseSampler):
         if self.gan.config.use_generator:
             samples += [('generator2', self.g2)]
         samples += [('generator2', self.g3)]
+        samples += [('generator2', self.g3-self.g)]
         return samples
 
 

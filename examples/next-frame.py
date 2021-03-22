@@ -195,7 +195,7 @@ class NextFrameGAN(BaseGAN):
             self.latent.next()
             enc = self.encoder(g, context={"past": enc})
             state = self.state(enc, context={"past": state, "memory": memory})
-            memory = self.memory(memory, context={"past": memory, "state": state})
+            memory = self.memory(state, context={"past": memory})
             g = self.decoder(g_t_1, {"state": state})
             g_t_1 = g
             gframes += [g]
@@ -294,7 +294,7 @@ class VideoFrameSampler(BaseSampler):
         samples = []
         self.enc = self.gan.encoder(self.g, context={"past": self.enc})
         self.state = self.gan.state(self.enc, context={"past": self.state, "memory": self.memory})
-        self.memory = self.gan.memory(self.memory, context={"past": self.memory, "state": self.state})
+        self.memory = self.gan.memory(self.state, context={"past": self.memory})
         self.g = self.gan.decoder(self.g_t_1, {"state": self.state})
         self.g_t_1 = self.g
 
@@ -302,12 +302,12 @@ class VideoFrameSampler(BaseSampler):
         if self.gan.config.use_generator:
             self.enc2 = self.gan.encoder(self.g2, context={"past": self.enc2})
             self.state2 = self.gan.state(self.enc2, context={"past": self.state2, "memory": self.memory2})
-            self.memory2 = self.gan.memory(self.memory2, context={"past": self.memory2, "state": self.state2})
+            self.memory2 = self.gan.memory(self.state2, context={"past": self.memory2})
             self.g2 = self.gan.decoder(self.g2, {"state": self.state2})
 
         self.enc3 = self.gan.encoder(self.g3, context={"past": self.enc3})
         self.state3 = self.gan.state(self.enc3, context={"past": self.state3, "memory": self.memory3})
-        self.memory3 = self.gan.memory(self.memory3, context={"past": self.memory3, "state": self.state3})
+        self.memory3 = self.gan.memory(self.state3, context={"past": self.memory3})
         self.g3 = self.gan.decoder(self.g3_t_1, {"state": self.state3})
         self.g3_t_1 = self.g3
 

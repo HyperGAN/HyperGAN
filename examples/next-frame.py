@@ -41,7 +41,7 @@ if __name__ == "__main__":
         "height": height,
         "random_crop": False,
         "resize": True,
-        "shuffle": args.action == "train",
+        "shuffle": True,
         "width": width
     })
     config_name = args.config
@@ -169,6 +169,8 @@ class NextFrameGAN(BaseGAN):
         self.state= self.create_component("state", input=self.encoder, context_shapes={"past": c_shape, "memory": c_shape} )
         self.memory= self.create_component("memory", input=self.encoder, context_shapes={"past": c_shape} )
         self.discriminator = self.create_component("discriminator")
+        if self.config.use_generator:
+            self.generator = self.create_component("generator")
 
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0])
@@ -179,17 +181,22 @@ class NextFrameGAN(BaseGAN):
         state = self.gen_state()
         memory = self.gen_state()
         enc = self.gen_state()
-        xframes = torch.cat(frames[:self.per_sample_frames], dim=1)
+        xframes = torch.cat(frames[1:self.per_sample_frames+1], dim=1)
         d_real = D(xframes)
         self.d_real = d_real
 
         gframes = []
-        g = frames[0]
-        for i in range(self.per_sample_frames):
+        if hasattr(self, 'generator'):
+            g = self.generator(self.latent.next())
+        else:
+            g = frames[1]
+            g_t_1 = frames[0]
+        for i in range(self.per_sample_frames-1):
             enc = self.encoder(g, context={"past": enc})
             state = self.state(enc, context={"past": state, "memory": memory})
             memory = self.memory(memory, context={"past": memory, "state": state})
-            g = self.decoder(g, {"state": state})
+            g = self.decoder(g_t_1, {"state": state})
+            g_t_1 = g
             gframes += [g]
 
         self.gs = gframes
@@ -203,10 +210,11 @@ class NextFrameGAN(BaseGAN):
     def forward_loss(self, loss=None):
         current_inputs = list(torch.chunk(self.inputs.next(), self.frames, dim=1))
         self.xs = current_inputs
-        self.x = torch.cat(current_inputs, dim=1)
+        self.x = torch.cat(current_inputs[1:], dim=1)
 
         if self.config.discriminator:
             d_loss, g_loss = self.forward_pass(current_inputs, self.xs, loss)
+
 
         return d_loss, g_loss
 
@@ -248,11 +256,23 @@ class VideoFrameSampler(BaseSampler):
         self.i = 0
 
     def seed(self):
-        g = self.input_cache[0]
+        g = self.input_cache[1]
+        self.g_t_1 = self.input_cache[0]
         self.g = g
         self.enc = self.gan.gen_state()
         self.memory = self.gan.gen_state()
         self.state = self.gan.gen_state()
+        if self.gan.config.use_generator:
+            g2 = self.gan.generator(self.gan.latent.next())
+            self.g2 = g2
+            self.enc2 = self.gan.gen_state()
+            self.memory2 = self.gan.gen_state()
+            self.state2 = self.gan.gen_state()
+        self.g3 = self.input_cache[1]
+        self.g3_t_1 = self.input_cache[0]
+        self.enc3 = self.gan.gen_state()
+        self.memory3 = self.gan.gen_state()
+        self.state3 = self.gan.gen_state()
 
     def refresh_input_cache(self):
         self.input_cache = list(torch.chunk(self.gan.inputs.next(), self.gan.frames, dim=1))
@@ -273,13 +293,30 @@ class VideoFrameSampler(BaseSampler):
         self.enc = self.gan.encoder(self.g, context={"past": self.enc})
         self.state = self.gan.state(self.enc, context={"past": self.state, "memory": self.memory})
         self.memory = self.gan.memory(self.memory, context={"past": self.memory, "state": self.state})
-        self.g = self.gan.decoder(self.g, {"state": self.state})
+        self.g = self.gan.decoder(self.g_t_1, {"state": self.state})
+        self.g_t_1 = self.g
+
+        if self.gan.config.use_generator:
+            self.enc2 = self.gan.encoder(self.g2, context={"past": self.enc2})
+            self.state2 = self.gan.state(self.enc2, context={"past": self.state2, "memory": self.memory2})
+            self.memory2 = self.gan.memory(self.memory2, context={"past": self.memory2, "state": self.state2})
+            self.g2 = self.gan.decoder(self.g2, {"state": self.state2})
+
+        self.enc3 = self.gan.encoder(self.g3, context={"past": self.enc3})
+        self.state3 = self.gan.state(self.enc3, context={"past": self.state3, "memory": self.memory3})
+        self.memory3 = self.gan.memory(self.memory3, context={"past": self.memory3, "state": self.state3})
+        self.g3 = self.gan.decoder(self.g3_t_1, {"state": self.state3})
+        self.g3_t_1 = self.g3
+
         print(self.state.mean())
         if self.i % (8*24) == 0:
             print("RESET")
             self.seed()
         self.i += 1
         samples += [('generator', self.g)]
+        if self.gan.config.use_generator:
+            samples += [('generator2', self.g2)]
+        samples += [('generator2', self.g3)]
         return samples
 
 

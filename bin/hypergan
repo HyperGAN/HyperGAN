@@ -98,7 +98,6 @@ if __name__ == '__main__':
             config_version = semantic_version.SimpleSpec(config.hypergan_version)
             assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
 
-
             if config.input is None and args.input_config is None:
                 directories = [args.directory]
                 if args.align:
@@ -122,9 +121,12 @@ if __name__ == '__main__':
                     if args.batch_size:
                         config.input["batch_size"] = args.batch_size
                     input_config = hc.Config(config.input)
+
+                    input_config["device"]=args.parameter_server_device
                 else:
                     input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
                     input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
+                    input_config["device"]=args.parameter_server_device
             if 'inherit' in config:
                 base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
                 base_config = hc.Selector().load(base_filename, load_toml=use_toml)

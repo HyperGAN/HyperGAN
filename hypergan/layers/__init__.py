@@ -26,6 +26,7 @@ from .pixel_shuffle import PixelShuffle
 from .residual import Residual
 from .resizable_stack import ResizableStack
 from .evo_norm import EvoNorm
+from .rnn import Rnn
 from .segment_softmax import SegmentSoftmax
 from .skip_connection import SkipConnection
 from .slice import Slice

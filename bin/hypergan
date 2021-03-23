@@ -114,6 +114,7 @@ if __name__ == '__main__':
                     "random_crop": args.random_crop,
                     "resize": args.resize,
                     "shuffle": True,
+                    "device": args.parameter_server_device,
                     "width": width
                 })
             else:

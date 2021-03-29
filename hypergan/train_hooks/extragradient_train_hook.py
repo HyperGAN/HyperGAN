@@ -20,7 +20,7 @@ class ExtragradientTrainHook(BaseTrainHook):
         g_grads_v1 = [g.clone().detach() for g in g_grads]
 
         self.step(d_grads_v1, g_grads_v1, step_size)
-        d_grads_v2, g_grads_v2 = self.gan.trainer.calculate_gradients()
+        d_grads_v2, g_grads_v2 = self.gan.trainable_gan.trainer.calculate_gradients()
         self.step([-g for g in d_grads_v1], [-g for g in g_grads_v1], step_size)
 
 

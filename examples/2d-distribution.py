@@ -47,6 +47,9 @@ class Custom2DInputDistribution:
     def modes(self, x):
         return (x*2)/2.0#+tf.random_normal(shape, 0, 0.04)
 
+    def to(self, device):
+        return self
+
     def sample(self):
         if args.distribution == 'circle':
             self.x.normal_()
@@ -180,6 +183,9 @@ if args.action == 'search':
         "lr": random.choice(list(np.linspace(0.0001, 0.002, num=1000))),
         "betas":[random.choice([0.1, 0.9, 0.9074537537537538, 0.99, 0.999]),random.choice([0,0.9,0.997])]
     },{
+        "class": "class:torch.optim.SGD",
+        "lr": random.choice([1e-1, 1, 1e-2, 4e-2])
+    },{
         "class": "class:torch.optim.RMSprop",
         "lr": random.choice([1e-3, 1e-4, 5e-4, 3e-3]),
         "alpha": random.choice([0.9, 0.99, 0.999]),
@@ -202,21 +208,26 @@ if args.action == 'search':
 
     config.trainer["hooks"].append(
       {
-        "class": "function:hypergan.train_hooks.gradient_norm_train_hook.GradientNormTrainHook",
+        "class": "function:hypergan.train_hooks.inverse_train_hook.InverseTrainHook",
         "gamma": random.choice([1, 10, 1e-1, 100]),
-        "loss": ["d"]
+        "only_real": random.choice([False, False, True]),
+        "only_fake": random.choice([False, False, True]),
+        "invert": random.choice([False, False, True])
       })
 
-    config.trainer["hooks"].append(
-    {
-      "class": "function:hypergan.train_hooks.online_ewc_train_hook.OnlineEWCTrainHook",
-      "gamma": random.choice([0.5, 0.1, 0.9, 0.7]),
-      "mean_decay": random.choice([0.9, 0.5, 0.99, 0.999, 0.1]),
-      "skip_after_steps": random.choice([2000, 1000, 500]),
-      "beta": random.choice([1e3, 1e4, 1e5, 1e2])
-    })
 
-    if(random.choice([False, True])):
+    if(random.choice([False, False, True])):
+       config.trainer["hooks"].append(
+            {
+            "class": "function:hypergan.train_hooks.online_ewc_train_hook.OnlineEWCTrainHook",
+            "gamma": random.choice([0.5, 0.1, 0.9, 0.7]),
+            "mean_decay": random.choice([0.9, 0.5, 0.99, 0.999, 0.1]),
+            "skip_after_steps": random.choice([2000, 1000, 500]),
+            "beta": random.choice([1e3, 1e4, 1e5, 1e2])
+            })
+
+
+    if(random.choice([False, False, True])):
         config.trainer["hooks"].append(
           {
 
@@ -251,10 +262,11 @@ def train(config, args):
     metrics = [accuracy_x_to_g, accuracy_g_to_x]
     sum_metrics = [0 for metric in metrics]
     broken = False
+    trainable_gan = hg.TrainableGAN(gan, devices="0")
     for i in range(steps):
         if broken:
             break
-        gan.step()
+        trainable_gan.step()
 
         if args.viewer and i % args.sample_every == 0:
             samples += 1

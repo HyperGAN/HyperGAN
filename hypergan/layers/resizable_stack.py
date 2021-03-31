@@ -91,7 +91,7 @@ class ResizableStack(hg.Layer):
                 layers += [upsample, conv]#, noise]
                 layer_names += [None, name]
             elif mode == "residual":
-                layer = "residual " + str(self.options.repeat or 1) + " block=up output_channels="+str(c)+" style="+self.style+" name="+name
+                layer = "residual " + str(self.options.repeat or 1) + " block=up output_channels="+str(c)+" style="+self.style+" name="+name+ " norm="+self.options.norm
                 residual = component.parse_layer(layer)[1]
                 layers += [ residual ]
                 layer_names += [ name ]

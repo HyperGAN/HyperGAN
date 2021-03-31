@@ -6,7 +6,7 @@ from hypergan.backends.cpu_backend import CPUBackend
 from hypergan.train_hook_collection import TrainHookCollection
 
 class TrainableGAN:
-    def __init__(self, gan, save_file = "default.save", devices = [], backend_name = "roundrobin"):
+    def __init__(self, gan, save_file = "default.save", devices = [], backend_name = "single-gpu"):
         self.gan = gan
         self.optimizers = []
         self.samples = 0
@@ -30,6 +30,7 @@ class TrainableGAN:
 
         self.loss = self.gan.initialize_component("loss")
         self.trainer = self.gan.initialize_component("trainer", self)
+        gan.trainable_gan = self
 
     def add_optimizer(self, optimizer):
         if self._create_optimizer:

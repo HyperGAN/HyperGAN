@@ -4,6 +4,7 @@ import hyperchamber as hc
 import inspect
 import copy
 import math
+import os
 
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.trainers.base_trainer import BaseTrainer
@@ -448,5 +449,5 @@ class SimultaneousTrainer(BaseTrainer):
         for value in metric_values:
             if math.isnan(value):
                 print("NAN detected, exitting")
-                exit()
+                os._exit(1)
 

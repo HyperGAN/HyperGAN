@@ -48,7 +48,7 @@ class EzNorm(hg.Layer):
         channels = component.current_size.channels
         dims = len(component.current_size.dims)
 
-        self.beta = nn.Linear(style_size, channels)
+        self.beta = nn.Linear(style_size, channels, bias=False)
 
         #if dims == 2:
         #    self.conv = nn.Conv1d(channels, 1, 1, 1, padding = 0)
@@ -57,7 +57,7 @@ class EzNorm(hg.Layer):
 
         component.nn_init(self.beta, options.initializer)
         #component.nn_init(self.conv, options.initializer)
-        self.relu = nn.ReLU()
+        self.activation = nn.ReLU()
 
     def forward(self, input, context):
         style = context[self.options.style or 'w']
@@ -68,10 +68,11 @@ class EzNorm(hg.Layer):
         view[self.dim] = D
 
         if self.options.conv is None:
+            return self.activation(self.beta(style).view(*view)) * input + input
             return self.beta(style).view(*view) + input
         else:
             conv = context[self.options.conv or 'r']
-            return self.relu(self.beta(style).view(*view)) * input +self.relu(conv)*input
+            return self.activation(self.beta(style).view(*view)) * input +self.activation(conv)*input
 
     def output_size(self):
         return self.size

@@ -65,3 +65,4 @@ class Layer(hg.Layer):
     def output_size(self):
         return self.size
 
+

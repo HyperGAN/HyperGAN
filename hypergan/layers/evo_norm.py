@@ -101,16 +101,10 @@ class EvoNorm2D(nn.Module):
 class EvoNorm(hg.Layer):
     """
         ---
-        description: 'layer ez_norm for configurable component'
+        description: 'layer evo_norm
         ---
 
-        # ez_norm layer
-
-        `ez_norm` is a custom normalization technique that uses a conv of the input by a linear projection of a style vector.
-
-        ## Optional arguments
-
-            `style` - The name of the style vector to use. Defaults to "w"
+        # evo_norm
 
         ## input size
 
@@ -123,7 +117,7 @@ class EvoNorm(hg.Layer):
         ## syntax
 
         ```json
-          "ez_norm style=[style vector name]"
+          "evo_norm"
         ```
 
         ## examples

@@ -39,7 +39,7 @@ class InverseTrainHook(BaseTrainHook):
             reg_real, g_ = self.loss.forward(self.gan.forward_discriminator(self.gan.discriminator_real_inputs()), self.gan.forward_discriminator(inverse_real))
             self.gan.add_metric('g_', g_.mean())
             self.gan.add_metric('ir', reg_real)
-            return self.gamma*(reg_real), (self.config.g_gamma or 0.1) * g_
+            return self.gamma[0]*(reg_real), (self.config.g_gamma or 0.1) * g_
 
         if self.config.only_fake:
             for target, data in zip(self.target_g, self.gan.discriminator_fake_inputs()[0]):
@@ -49,7 +49,7 @@ class InverseTrainHook(BaseTrainHook):
             self.gan.add_metric('g_', g_.mean())
             self.gan.add_metric('if', reg_fake)
             reg_fake, g_ = self.loss.forward(self.gan.forward_discriminator(inverse_fake), self.gan.forward_discriminator(self.gan.discriminator_fake_inputs()[0]))
-            return self.gamma*(reg_fake), (self.config.g_gamma or 0.1) * g_
+            return self.gamma[0]*(reg_fake), (self.config.g_gamma or 0.1) * g_
 
         for target, data in zip(self.target_x, self.gan.discriminator_real_inputs()):
             target.data = data.clone()

@@ -515,11 +515,16 @@ class ConfigurableComponent(GANComponent):
         if options.stride:
             stride = options.stride
         padding = 1
-        if options.padding:
+        if options.padding is not None:
             padding = options.padding
         layer = nn.ConvTranspose2d(options.input_channels or self.current_size.channels, channels, filter, stride, padding)
         self.nn_init(layer, options.initializer)
-        self.current_size = LayerShape(channels, self.current_size.height * 2, self.current_size.width * 2)
+        new_height = self.current_size.height * 2
+        new_width = self.current_size.width * 2
+        if int(padding) == 0:
+            new_width = (self.current_size.width - 1) * stride + filter
+            new_height = (self.current_size.height - 1) * stride + filter
+        self.current_size = LayerShape(channels, new_height, new_width)
         return layer
 
     def layer_deconv1d(self, net, args, options):
@@ -535,7 +540,7 @@ class ConfigurableComponent(GANComponent):
         if options.stride:
             stride = options.stride
         padding = 1
-        if options.padding:
+        if options.padding is not None:
             padding = options.padding
         layer = nn.ConvTranspose1d(options.input_channels or self.current_size.channels, channels, filter, stride, padding)
         self.nn_init(layer, options.initializer)

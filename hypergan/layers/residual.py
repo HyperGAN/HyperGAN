@@ -71,13 +71,15 @@ class Residual(hg.Layer):
                 layers += [component.parse_layer("conv " + str(output_channels) + " initializer=xavier_normal filter=3")[1]]
                 layers += [component.parse_layer("avg_pool")[1]]
             component.current_size = current_size
-            shortcut += [component.parse_layer("conv " + str(output_channels) + " initializer=xavier_normal filter=1 padding=0")[1]]
+            shortcut += [component.parse_layer("conv " + str(output_channels) + " initializer=orthogonal filter=1 padding=0")[1]]
             shortcut += [component.parse_layer("avg_pool")[1]]
         if self.block == "up":
             current_size = component.current_size
             for i in range(args[0] or 3):
                 upsample = hg.layers.Upsample(component, [], hc.Config({"w":component.current_size.width*2, "h": component.current_size.height*2}))
                 component.current_size = upsample.output_size()
+                layers += self.norm_layers(component)
+                layers += [nn.SELU()]
                 layers += [upsample]
                 layers += [component.parse_layer("conv " + str(component.current_size.channels) + " initializer=xavier_normal filter=3")[1]]
                 layers += self.norm_layers(component)
@@ -87,7 +89,7 @@ class Residual(hg.Layer):
             upsample = hg.layers.Upsample(component, [], hc.Config({"w":component.current_size.width*2, "h": component.current_size.height*2}))
             component.current_size = upsample.output_size()
             shortcut += [upsample]
-            shortcut += [component.parse_layer("conv " + str(output_channels) + " initializer=xavier_normal filter=1 padding=0")[1]]
+            shortcut += [component.parse_layer("conv " + str(output_channels) + " initializer=orthogonal filter=1 padding=0")[1]]
 
         self.size = component.current_size
         self.layer_names = [None for x in layers]

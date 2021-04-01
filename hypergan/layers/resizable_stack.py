@@ -113,13 +113,14 @@ class ResizableStack(hg.Layer):
                 layers += [ attention ]
                 layer_names += [ None ]
 
-            norm_layers = self.norm_layers(component)
-            layers += norm_layers
-            layer_names += [None for x in norm_layers]
+            if mode != "residual":
+                norm_layers = self.norm_layers(component)
+                layers += norm_layers
+                layer_names += [None for x in norm_layers]
 
-            if i < (len(sizes) - 1):
-                layers += [nn.SELU()]
-                layer_names += [None]
+                if i < (len(sizes) - 1):
+                    layers += [nn.SELU()]
+                    layer_names += [None]
 
             if (component.current_size.width > size.width or component.current_size.height > size.height):
                 print("Unexpected size, slicing", component.current_size)

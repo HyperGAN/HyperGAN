@@ -1,7 +1,9 @@
 import torch.nn as nn
+import torch
 import hyperchamber as hc
 import hypergan as hg
 from hypergan.layer_shape import LayerShape
+from torch.nn.parameter import Parameter
 
 class Residual(hg.Layer):
     """
@@ -47,6 +49,7 @@ class Residual(hg.Layer):
         self.block = options.block or "default"
         layers = []
         shortcut = []
+        self.scalar = Parameter(torch.zeros([]), requires_grad=True)
         output_channels = options.output_channels or component.current_size.channels
         dims = list(component.current_size.dims)
         dims[0] = output_channels
@@ -61,7 +64,7 @@ class Residual(hg.Layer):
                 layers += [nn.SELU()]
                 layers += [component.parse_layer("conv " + str(output_channels) + " initializer=xavier_normal filter=3")[1]]
             component.current_size = current_size
-            shortcut += [component.parse_layer("conv " + str(output_channels) + " initializer=xavier_normal filter=1 padding=0")[1]]
+            shortcut += [component.parse_layer("conv " + str(output_channels) + " initializer=orthogonal filter=1 padding=0")[1]]
         if self.block == "down":
             current_size = component.current_size
             for i in range(args[0] or 3):
@@ -101,6 +104,6 @@ class Residual(hg.Layer):
         return self.size
 
     def forward(self, input, context):
-        return self.forward_module_list(input, self.shortcut_layer_names, self.shortcut, context) + self.forward_module_list(input, self.layer_names, self.layers, context)
+        return self.forward_module_list(input, self.shortcut_layer_names, self.shortcut, context) + self.scalar * self.forward_module_list(input, self.layer_names, self.layers, context)
 
 

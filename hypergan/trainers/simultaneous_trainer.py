@@ -15,6 +15,8 @@ TINY = 1e-12
 
 def ng(param):
     grad = param.grad
+    if grad is None:
+        raise ValidationException("Missing gradient for " + str(param.shape))
     grad_norm = grad.norm()
     max_norm = (1e-2) * torch.maximum(param.norm(),torch.ones([], device=param.device)*1e-8)
     trigger = grad_norm < max_norm

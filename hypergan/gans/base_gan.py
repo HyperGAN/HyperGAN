@@ -32,6 +32,7 @@ class BaseGAN():
         self.destroy = False
         self.inputs = inputs
         self.steps = Variable(torch.zeros([1]))
+        self.trainable_gan = None
 
         if config == None:
             config = hg.Configuration.default()

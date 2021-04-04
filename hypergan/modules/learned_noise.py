@@ -12,5 +12,5 @@ class LearnedNoise(nn.Module):
         self.noise = torch.Tensor(self.batch_size, 1, self.h, self.w).cuda()
 
     def forward(self, input):
-        self.noise.normal_()
+        self.noise = torch.randn_like(self.noise, device=self.noise.device)
         return input + self.noise * self.weight

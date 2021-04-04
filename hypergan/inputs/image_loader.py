@@ -80,6 +80,8 @@ class ImageLoader:
                 self.multiple = torch.tensor(2.0, device=self.device)
                 self.offset = torch.tensor(-1.0, device=self.device)
             return self.datasets[index].next()[0].to(self.device) * self.multiple + self.offset
+        except OSError:
+            return self.next(index)
         except ValueError:
             return self.next(index)
         except PIL.UnidentifiedImageError:

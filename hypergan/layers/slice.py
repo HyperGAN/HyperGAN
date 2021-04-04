@@ -10,12 +10,16 @@ class Slice(hg.Layer):
         dims = list(component.current_size.dims)
         dims[0] = options.c or dims[0]
         dims[1] = options.h or dims[1]
-        dims[2] = options.w or dims[2]
+        if len(dims) == 3:
+            dims[2] = options.w or dims[2]
         self.size = LayerShape(*dims)
 
     def forward(self, input, context):
-
-        return input[:, :self.size.dims[0], :self.size.dims[1], :self.size.dims[2]]
+        c = self.size.dims[0] or input.shape[1]
+        if len(input.shape) == 4:
+            return input[:, :c, :self.size.dims[1], :self.size.dims[2]]
+        if len(input.shape) == 3:
+            return input[:, :c, :self.size.dims[1]]
 
     def output_size(self):
         return self.size

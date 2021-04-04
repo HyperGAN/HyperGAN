@@ -49,7 +49,9 @@ class EvoNorm2D(nn.Module):
         self.efficient = efficient
         if self.version == 'S0':
             self.swish = MemoryEfficientSwish()
-        self.groups = min(input, groups)
+        if input % groups != 0:
+            groups = input // 2
+        self.groups = groups
         self.eps = eps
         if self.version not in ['B0', 'S0']:
             raise ValueError("Invalid EvoNorm version")

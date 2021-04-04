@@ -91,22 +91,28 @@ class ResizableStack(hg.Layer):
                 layers += [upsample, conv]#, noise]
                 layer_names += [None, name]
             elif mode == "residual":
-                layer = "residual " + str(self.options.repeat or 1) + " block=up output_channels="+str(c)+" style="+self.style+" name="+name+ " norm="+self.options.norm
+                layer = "residual "+str(c)+" block="+(self.options.block or "up")+" style="+self.style+" name="+name+ " norm="+self.options.norm
                 residual = component.parse_layer(layer)[1]
                 layers += [ residual ]
                 layer_names += [ name ]
             elif mode == "deconv_residual":
-                layers += [
-                    component.parse_layer("deconv " + str(c) + " padding=0 filter=3 name="+name)[1]
-                ]
-                norm_layers = self.norm_layers(component)
-                layers += norm_layers
-                layer_names += [None for x in norm_layers]
-                layers += [nn.SELU()]
-                layer = "residual " + str(self.options.repeat or 1) + " output_channels="+str(c)+" style="+self.style+" name="+name
+                layer_names += [ None]
+                print("DECONV_RES")
+                layer = "residual "+str(c)+" block=up_deconv style="+self.style+" name="+name+ " norm="+self.options.norm
                 residual = component.parse_layer(layer)[1]
                 layers += [ residual ]
-                layer_names += [ None, name, None]
+                layer_names += [ name]
+            elif mode == "subpixel_residual":
+                layer = "residual "+str(c)+" block=up_subpixel style="+self.style+" name="+name+ " norm="+self.options.norm
+                residual = component.parse_layer(layer)[1]
+                layers += [ residual ]
+                layer_names += [ name]
+            elif mode == "subpixel":
+                layer = "subpixel "+str(c)+" block=up_subpixel style="+self.style+" name="+name+ " norm="+self.options.norm
+                subpixel = component.parse_layer(layer)[1]
+                layers += [ subpixel ]
+                layer_names += [ name]
+
 
             if i == attention_layer_index:
                 attention = component.parse_layer("add self (attention)")[1]
@@ -152,7 +158,10 @@ class ResizableStack(hg.Layer):
         i = 0
 
         channels.append(final_channels)
-        channel_exp = 6
+        if mode == "subpixel_residual":
+            channel_exp = 5
+        else:
+            channel_exp = 6
         while w < target_width or h < target_height:
             if i > 0:
                 if mode == "resize_conv":
@@ -169,8 +178,12 @@ class ResizableStack(hg.Layer):
                 w+=3
                 h+=3
 
+            #if mode == "subpixel_residual":
+            #    channels.append(min(self.max_channels, final_channels*(4**channel_exp)))
             channels.append(min(self.max_channels, 2**channel_exp))
+
             channel_exp += 1
+
             if mode == "resize_conv":
                 hs.append(min(h, target_height+2))
                 ws.append(min(w, target_width+2))

@@ -57,7 +57,7 @@ class EzNorm(hg.Layer):
 
         component.nn_init(self.beta, options.initializer)
         #component.nn_init(self.conv, options.initializer)
-        self.activation = nn.ReLU()
+        self.activation = nn.SELU()
 
     def forward(self, input, context):
         style = context[self.options.style or 'w']

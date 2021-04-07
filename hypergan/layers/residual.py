@@ -92,6 +92,19 @@ class Residual(hg.Layer):
             self.avg_pool = component.parse_layer("avg_pool")[1]
             component.current_size = LayerShape(output_channels, component.current_size.height, component.current_size.width)
 
+        if self.block == "down3":
+            current_size = component.current_size
+            layers += [component.parse_layer("conv " + str(output_channels) + " filter=3")[1]]
+            layers += [nn.ReLU()]
+            layers += [component.parse_layer("conv " + str(output_channels) + " filter=3")[1]]
+            layers += [component.parse_layer("avg_pool")[1]]
+            component.current_size = current_size
+            #shortcut += [component.parse_layer("avg_pool")[1]]
+            #shortcut += [component.parse_layer("conv " + str(output_channels) + " filter=1 padding=0")[1]]
+            self.conv_id = component.parse_layer("conv " + str(output_channels - current_size.channels) + " filter=3 stride=1")[1]
+            self.avg_pool = component.parse_layer("avg_pool")[1]
+            component.current_size = LayerShape(output_channels, component.current_size.height, component.current_size.width)
+
         if self.block == "down_cheap":
             current_size = component.current_size
             layers += [nn.ReLU()]
@@ -139,13 +152,13 @@ class Residual(hg.Layer):
             current_size = component.current_size
             layers += self.norm_layers(component)
             layers += [nn.SELU()]
-            layers += [component.parse_layer("deconv " + str(output_channels) + "padding=0 filter=3")[1]]
+            layers += [component.parse_layer("deconv " + str(output_channels) + " padding=0 filter=3")[1]]
             component.current_size = LayerShape(output_channels, component.current_size.height * 2, component.current_size.width * 2)
             layers += self.norm_layers(component)
             layers += [nn.SELU()]
             layers += [component.parse_layer("conv " + str(output_channels) + " filter=3 padding=1")[1]]
             component.current_size = current_size
-            shortcut += [component.parse_layer("deconv " + str(output_channels) + "padding=0 filter=3")[1]]
+            shortcut += [component.parse_layer("deconv " + str(output_channels) + " padding=0 filter=3")[1]]
             component.current_size = LayerShape(output_channels, component.current_size.height * 2, component.current_size.width * 2)
 
 
@@ -174,7 +187,7 @@ class Residual(hg.Layer):
         return self.size
 
     def forward(self, input, context):
-        if self.block == "down2":
+        if self.block == "down2" or self.block == "down3":
             avg_pool = self.avg_pool(input)
             shortcut = torch.cat([avg_pool, self.avg_pool(self.conv_id(input))], dim=1)
             rhs = self.forward_module_list(input, self.layer_names, self.layers, context)

@@ -32,6 +32,18 @@ class InverseTrainHook(BaseTrainHook):
             self.target_g = [Parameter(g, requires_grad=True) for g in self.gan.discriminator_fake_inputs()[0]]
             self.target_x = [Parameter(x, requires_grad=True) for x in self.gan.discriminator_real_inputs()]
 
+        if self.config.dg:
+            for target, data in zip(self.target_g, self.gan.discriminator_fake_inputs()[0]):
+                target.data = data.clone()
+            inverse_real = self.inverse( self.gan.forward_discriminator(self.target_g),self.gan.d_real, self.target_g)
+            reg_real = self.loss.forward(self.gan.forward_discriminator(self.gan.discriminator_real_inputs()), self.gan.forward_discriminator(inverse_real))
+            reg_fake = self.loss.forward(self.gan.forward_discriminator(self.gan.discriminator_real_inputs()), self.gan.forward_discriminator(self.gan.discriminator_fake_inputs()[0]))
+            dg = (reg_real[0] - reg_fake[0])
+
+            self.add_metric("dg", self.gamma[0]*dg)
+            return self.gamma[0]*dg, self.gamma[1]*dg
+
+
         if self.config.only_real:
             for target, data in zip(self.target_x, self.gan.discriminator_real_inputs()):
                 target.data = data.clone()

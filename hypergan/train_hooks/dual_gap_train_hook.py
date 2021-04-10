@@ -38,16 +38,16 @@ class DualGapTrainHook(BaseTrainHook):
 
         for p, copyp in zip(self.gan.discriminator.parameters(), self.d_copy.parameters()):
             copyp.data.copy_(p.data.clone().detach())
-            copyp.grad = torch.zeros_like(copyp.data)
         for p, copyp in zip(self.gan.generator.parameters(), self.g_copy.parameters()):
             copyp.data.copy_(p.data.clone().detach())
-            copyp.grad = torch.zeros_like(copyp.data)
 
 
         dloss = None
         gloss = None
 
         for i in range(self.config.steps or 10):
+            self.goptim.zero_grad()
+            self.doptim.zero_grad()
             dfake = self.d_copy(self.gan.generator(self.gan.latent.instance)).mean()
             dreal = self.d_copy(self.gan.x).mean()
             dloss = self.loss.forward(dreal, dfake)

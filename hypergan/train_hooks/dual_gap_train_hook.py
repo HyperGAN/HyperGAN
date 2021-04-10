@@ -55,13 +55,15 @@ class DualGapTrainHook(BaseTrainHook):
             for p, g in zip(self.d_copy.parameters(), d_grads):
                 p.grad = g
             self.doptim.step()
+            dnorm = sum([p.grad.norm() for p in self.d_copy.parameters()])
             gfake = self.gan.discriminator(self.g_copy(self.gan.latent.instance)).mean()
             greal = self.gan.discriminator(self.gan.x).mean()
             gloss = self.loss.forward(greal, gfake)
             g_grads = torch_grad(gloss[0], self.g_copy.parameters(), create_graph=True, retain_graph=True)
-            for p, g in zip(self.d_copy.parameters(), d_grads):
+            for p, g in zip(self.g_copy.parameters(), g_grads):
                 p.grad = -g
             self.goptim.step()
+            gnorm = sum([p.grad.norm() for p in self.g_copy.parameters()])
             #print(" %d -> dl %.2e gl %.2e " % (i, dloss[1], gloss[0]))
         dfake = self.d_copy(self.gan.generator(self.gan.latent.instance)).mean()
         dreal = self.d_copy(self.gan.x).mean()

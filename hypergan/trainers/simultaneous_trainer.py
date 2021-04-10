@@ -412,10 +412,16 @@ class SimultaneousTrainer(BaseTrainer):
             for hook in self.train_hooks:
                 if not first_step or hook.config.first_ode_step_only != True:
                     loss = hook.forward(d_loss, g_loss)
-                    if loss[0] is not None:
-                        d_loss += loss[0]
-                    if loss[1] is not None:
-                        g_loss += loss[1]
+                    if hook.config.only:
+                        if loss[0] is not None:
+                            d_loss = loss[0]
+                        if loss[1] is not None:
+                            g_loss = loss[1]
+                    else:
+                        if loss[0] is not None:
+                            d_loss += loss[0]
+                        if loss[1] is not None:
+                            g_loss += loss[1]
         for loss_function in self.gan.additional_losses:
             loss = loss_function()
             if loss[0] is not None:

@@ -45,7 +45,7 @@ class InverseTrainHook(BaseTrainHook):
                 dg = reg_real[0]*torch.log(reg_real[0]/d_loss)
                 dg += d_loss*torch.log(d_loss/reg_real[0])
             else:
-                dg = (reg_real[0] - d_loss)
+                dg = (reg_real[0] - d_loss.clone().detach())
 
             self.add_metric("dg", self.gamma[0]*dg)
             if self.config.add_g:

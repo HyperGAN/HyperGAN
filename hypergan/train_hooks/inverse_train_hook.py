@@ -37,21 +37,19 @@ class InverseTrainHook(BaseTrainHook):
                 target.data = data.clone()
             inverse_real = self.inverse(self.gan.forward_discriminator(self.target_g), self.gan.d_real, self.target_g)
 
-            for i in range(self.config.inverse_count or 0):
-                inverse_real = self.inverse(self.gan.forward_discriminator(inverse_real), self.gan.d_real, inverse_real)
+            #for i in range(self.config.inverse_count or 0):
+            #    inverse_real = self.inverse(self.gan.forward_discriminator(inverse_real), self.gan.d_real, inverse_real)
 
             reg_real = self.loss.forward(self.gan.forward_discriminator(self.gan.discriminator_real_inputs()), self.gan.forward_discriminator(inverse_real))
+            d_loss = d_loss.clone().detach()
             if self.config.distance == 'kl':
                 dg = reg_real[0]*torch.log(reg_real[0]/d_loss)
-                dg += d_loss*torch.log(d_loss/reg_real[0])
+                #dg += d_loss*torch.log(d_loss/reg_real[0])
             else:
-                dg = (reg_real[0] - d_loss.clone().detach())
+                dg = (reg_real[0] - d_loss)
 
             self.add_metric("dg", self.gamma[0]*dg)
-            if self.config.add_g:
-                return self.gamma[0]*dg, g_loss
-
-            return self.gamma[0]*dg, self.gamma[0]*dg
+            return self.gamma[0]*dg, g_loss
 
         if self.config.only_real:
             for target, data in zip(self.target_x, self.gan.discriminator_real_inputs()):

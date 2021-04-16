@@ -42,29 +42,49 @@ class DualGapTrainHook(BaseTrainHook):
             copyp.data.copy_(p.data.clone().detach())
 
 
-        dloss = None
+        dfake = self.d_copy(self.gan.generator(self.gan.latent.instance)).mean()
+        dreal = self.d_copy(self.gan.x).mean()
+        dloss = self.loss.forward(dreal, dfake)
         gloss = None
+        #gnorm = None
+        #dnorm = None
+        i = 0
+        dnorm = 0
+        gnorm = 0
 
-        for i in range(self.config.steps or 10):
+        for j in range(self.config.steps or 10):
             self.goptim.zero_grad()
             self.doptim.zero_grad()
-            dfake = self.d_copy(self.gan.generator(self.gan.latent.instance)).mean()
-            dreal = self.d_copy(self.gan.x).mean()
-            dloss = self.loss.forward(dreal, dfake)
-            d_grads = torch_grad(dloss[0], self.d_copy.parameters(), create_graph=True, retain_graph=True)
-            for p, g in zip(self.d_copy.parameters(), d_grads):
-                p.grad = g
-            self.doptim.step()
-            dnorm = sum([p.grad.norm() for p in self.d_copy.parameters()])
-            gfake = self.gan.discriminator(self.g_copy(self.gan.latent.instance)).mean()
-            greal = self.gan.discriminator(self.gan.x).mean()
-            gloss = self.loss.forward(greal, gfake)
-            g_grads = torch_grad(gloss[0], self.g_copy.parameters(), create_graph=True, retain_graph=True)
-            for p, g in zip(self.g_copy.parameters(), g_grads):
-                p.grad = -g
-            self.goptim.step()
-            gnorm = sum([p.grad.norm() for p in self.g_copy.parameters()])
-            #print(" %d -> dl %.2e gl %.2e " % (i, dloss[1], gloss[0]))
+            if dloss is None or \
+                dloss[0] >= self.config.dlosscutoff:
+                dfake = self.d_copy(self.gan.generator(self.gan.latent.instance)).mean()
+                dreal = self.d_copy(self.gan.x).mean()
+                dloss = self.loss.forward(dreal, dfake)
+                d_grads = torch_grad(dloss[0], self.d_copy.parameters(), create_graph=True, retain_graph=True)
+                for p, g in zip(self.d_copy.parameters(), d_grads):
+                    p.grad = g
+                self.doptim.step()
+                #dnorm = sum([p.grad.norm() for p in self.d_copy.parameters()])
+                #dnorm = torch.max(torch.cat([torch.flatten(p.grad) for p in self.d_copy.parameters()], 0).abs())
+            if gloss is None or \
+                gloss[0] <= self.config.glosscutoff:
+                gfake = self.gan.discriminator(self.g_copy(self.gan.latent.instance)).mean()
+                greal = self.gan.discriminator(self.gan.x).mean()
+                gloss = self.loss.forward(greal, gfake)
+                g_grads = torch_grad(gloss[0], self.g_copy.parameters(), create_graph=True, retain_graph=True)
+                for p, g in zip(self.g_copy.parameters(), g_grads):
+                    p.grad = -g
+                self.goptim.step()
+                #gnorm = sum([p.grad.norm() for p in self.g_copy.parameters()])
+                #gnorm = torch.max(torch.cat([torch.flatten(p.grad) for p in self.g_copy.parameters()], 0).abs())
+            i+=1
+            if self.config.cutoff and dnorm < self.config.cutoff:
+                break
+            if self.config.glosscutoff and gloss[0] > self.config.glosscutoff \
+                and self.config.dlosscutoff and dloss[0] < self.config.dlosscutoff:
+                break
+            print(" %d -> dl %.2e maxgrad %.2e gl %.2e maxgrad %.2e " % (i, dloss[0], dnorm, gloss[0], gnorm))
+        print("/ %d -> dl %.2e maxgrad %.2e gl %.2e maxgrad %.2e " % (i, dloss[0], dnorm, gloss[0], gnorm))
         dfake = self.d_copy(self.gan.generator(self.gan.latent.instance)).mean()
         dreal = self.d_copy(self.gan.x).mean()
         dloss = self.loss.forward(dreal, dfake)

@@ -51,6 +51,8 @@ class DualGapTrainHook(BaseTrainHook):
         i = 0
         dnorm = 0
         gnorm = 0
+        dsteps = 0
+        gsteps = 0
 
         for j in range(self.config.steps or 10):
             self.goptim.zero_grad()
@@ -64,6 +66,7 @@ class DualGapTrainHook(BaseTrainHook):
                 for p, g in zip(self.d_copy.parameters(), d_grads):
                     p.grad = g
                 self.doptim.step()
+                dsteps += 1
                 #dnorm = sum([p.grad.norm() for p in self.d_copy.parameters()])
                 #dnorm = torch.max(torch.cat([torch.flatten(p.grad) for p in self.d_copy.parameters()], 0).abs())
             if gloss is None or \
@@ -75,6 +78,7 @@ class DualGapTrainHook(BaseTrainHook):
                 for p, g in zip(self.g_copy.parameters(), g_grads):
                     p.grad = -g
                 self.goptim.step()
+                gsteps+=1
                 #gnorm = sum([p.grad.norm() for p in self.g_copy.parameters()])
                 #gnorm = torch.max(torch.cat([torch.flatten(p.grad) for p in self.g_copy.parameters()], 0).abs())
             i+=1
@@ -83,17 +87,26 @@ class DualGapTrainHook(BaseTrainHook):
             if self.config.glosscutoff and gloss[0] > self.config.glosscutoff \
                 and self.config.dlosscutoff and dloss[0] < self.config.dlosscutoff:
                 break
-            print(" %d -> dl %.2e maxgrad %.2e gl %.2e maxgrad %.2e " % (i, dloss[0], dnorm, gloss[0], gnorm))
-        print("/ %d -> dl %.2e maxgrad %.2e gl %.2e maxgrad %.2e " % (i, dloss[0], dnorm, gloss[0], gnorm))
-        dfake = self.d_copy(self.gan.generator(self.gan.latent.instance)).mean()
-        dreal = self.d_copy(self.gan.x).mean()
-        dloss = self.loss.forward(dreal, dfake)
-        gfake = self.gan.discriminator(self.g_copy(self.gan.latent.instance)).mean()
-        greal = self.gan.discriminator(self.gan.x).mean()
-        gloss = self.loss.forward(greal, gfake)
+            #print(" %d -> dl %.2e maxgrad %.2e gl %.2e maxgrad %.2e " % (i, dloss[0], dnorm, gloss[0], gnorm))
+        #print("/ %d -> dl %.2e maxgrad %.2e gl %.2e maxgrad %.2e " % (i, dloss[0], dnorm, gloss[0], gnorm))
+        self.gan.add_metric('dworst', dloss[0])
+        self.gan.add_metric('gworst', gloss[0])
+        self.gan.add_metric('Dsteps', dsteps)
+        self.gan.add_metric('Gsteps', gsteps)
+        dfake = self.d_copy(self.gan.generator(self.gan.latent.instance))
+        dreal = self.d_copy(self.gan.x)
+        dloss = self.loss._forward(dreal, dfake)
+        gfake = self.gan.discriminator(self.g_copy(self.gan.latent.instance))
+        greal = self.gan.discriminator(self.gan.x)
+        gloss = self.loss._forward(greal, gfake)
 
         #self.losses = [dloss[0] - gloss[0], dloss[0] - gloss[0]]
-        self.losses = [gloss[0] - dloss[0], gloss[0] - dloss[0]]
+        #self.losses = [gloss[0] - dloss[0], gloss[0] - dloss[0]]
+        loss = (gloss[0]-dloss[0]).mean()
+        #m = (dloss[0] + gloss[0])/2
+        #loss = gloss[0] * torch.log(gloss[0]/m) + m * torch.log(m/(dloss[0]))
+        #loss = gloss[0] * torch.log(gloss[0]/dloss[0])
+        self.losses = [loss, loss]
         self.gan.add_metric('DG', self.losses[0])
 
         self.g_copy.set_trainable(False)

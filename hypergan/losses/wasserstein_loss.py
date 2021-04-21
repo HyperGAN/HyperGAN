@@ -14,7 +14,7 @@ class WassersteinLoss(BaseLoss):
             d_fake_ratio = (d_fake.exp()+1e-8) / d_fake_norm
             d_fake = d_fake * d_fake_ratio
 
-        d_loss = -d_real + d_fake
-        g_loss = -d_fake
+        d_loss = d_real - d_fake
+        g_loss = d_fake
 
         return [d_loss, g_loss]

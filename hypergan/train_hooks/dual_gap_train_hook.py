@@ -78,3 +78,6 @@ class DualGapTrainHook(BaseTrainHook):
 
         return self.losses
 
+    def state_dict(self):
+        return {}
+

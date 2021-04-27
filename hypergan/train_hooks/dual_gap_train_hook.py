@@ -47,16 +47,16 @@ class DualGapTrainHook(BaseTrainHook):
             self.goptim.zero_grad()
             self.doptim.zero_grad()
 
-            gfake = self.gan.discriminator(self.g_copy(self.gan.latent.instance)).mean()
-            greal = self.gan.discriminator(self.gan.x).mean()
+            gfake = self.gan.discriminator(self.g_copy(self.gan.latent.sample())).mean()
+            greal = self.gan.discriminator(self.gan.inputs.next()).mean()
             gloss = self.loss.forward(greal, gfake)
             g_grads = torch_grad(gloss[0], self.g_copy.parameters(), create_graph=True, retain_graph=True)
             for p, g in zip(self.g_copy.parameters(), g_grads):
                 p.grad = g.detach()
             self.goptim.step()
 
-            dfake = self.d_copy(self.gan.generator(self.gan.latent.instance)).mean()
-            dreal = self.d_copy(self.gan.x).mean()
+            dfake = self.d_copy(self.gan.generator(self.gan.latent.sample())).mean()
+            dreal = self.d_copy(self.gan.inputs.next()).mean()
             dloss = self.loss.forward(dreal, dfake)
             d_grads = torch_grad(dloss[0], self.d_copy.parameters(), create_graph=True, retain_graph=True)
             for p, g in zip(self.d_copy.parameters(), d_grads):
@@ -64,8 +64,8 @@ class DualGapTrainHook(BaseTrainHook):
             self.doptim.step()
         self.gan.add_metric('dworst', dloss[0])
         self.gan.add_metric('gworst', gloss[0])
-        dfake = self.d_copy(self.gan.generator(self.gan.latent.instance))
-        dreal = self.d_copy(self.gan.x)
+        dfake = self.d_copy(self.gan.generator(self.gan.latent.sample())).mean()
+        dreal = self.d_copy(self.gan.inputs.next()).mean()
         dloss = self.loss._forward(dreal, dfake)
         gfake = self.gan.discriminator(self.g_copy(self.gan.latent.instance))
         greal = self.gan.discriminator(self.gan.x)

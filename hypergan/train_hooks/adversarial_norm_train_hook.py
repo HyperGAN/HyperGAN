@@ -24,26 +24,21 @@ class AdversarialNormTrainHook(BaseTrainHook):
             target.data = data.clone()
         for target, data in zip(self.target_x, self.gan.discriminator_real_inputs()):
             target.data = data.clone()
-        reg_fake = self.regularize(False, self.gan.discriminator_fake_inputs()[0], self.target_g, self.gan.d_real, self.gan.forward_discriminator(self.target_g))
-        reg_real = self.regularize(True, self.gan.discriminator_real_inputs(), self.target_x, self.gan.forward_discriminator(self.target_x), self.gan.d_fake)
-        return (reg_fake + reg_real), None
+        reg_fake = self.regularize(0, self.gan.discriminator_fake_inputs()[0], self.target_g, self.gan.d_real, self.gan.forward_discriminator(self.target_g))
+        reg_real = self.regularize(1, self.gan.discriminator_real_inputs(), self.target_x, self.gan.forward_discriminator(self.target_x), self.gan.d_fake)
+        return self.gamma*(reg_fake + reg_real), None
 
-    def regularize(self, invert, inputs, target, d_real, d_fake):
-        loss, norm, mod_target = self.regularize_adversarial_norm(d_real, d_fake, target)
-        d_real = self.gan.forward_discriminator(mod_target)
-        d_fake = self.gan.forward_discriminator(inputs)
-        if invert:
-            d_l, _g_l = self.loss.forward(d_fake, d_real)
+    def regularize(self, order, inputs, target, d_real, d_fake):
+        inverse = self.inverse(d_real, d_fake, target)
+        if order == 1:
+            d_real = self.gan.forward_discriminator(inputs)
+            d_fake = self.gan.forward_discriminator(inverse)
         else:
-            d_l, _g_l = self.loss.forward(d_real, d_fake)
-        return self.gamma*d_l
-
-    def regularize_adversarial_norm(self, d_real, d_fake, target):
-        loss = self.forward_adversarial_norm(d_real, d_fake)
-        d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
-        mod_target = [_d1 + _t for _d1, _t in zip(d1_grads, target)]
-
-        return loss, None, mod_target
-
-    def forward_adversarial_norm(self, d_real, d_fake):
+            d_real = self.gan.forward_discriminator(inverse)
+            d_fake = self.gan.forward_discriminator(inputs)
         return self.loss.forward(d_fake, d_real)[0]
+
+    def inverse(self, d_real, d_fake, target):
+        loss = self.loss.forward(d_fake, d_real)[0]
+        d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True)
+        return [_d1 + _t for _d1, _t in zip(d1_grads, target)]

@@ -71,12 +71,12 @@ class Residual(hg.Layer):
         if self.block == "down":
             current_size = component.current_size
             layers += [nn.ReLU()]
-            layers += [component.parse_layer("conv " + str(output_channels) + " filter=3")[1]]
+            layers += [component.parse_layer("conv " + str(output_channels) + " filter=3 initializer=(orthogonal)")[1]]
             layers += [nn.ReLU()]
-            layers += [component.parse_layer("conv " + str(output_channels) + " filter=3")[1]]
+            layers += [component.parse_layer("conv " + str(output_channels) + " filter=3 initializer=(orthogonal)")[1]]
             layers += [component.parse_layer("adaptive_avg_pool")[1]]
             component.current_size = current_size
-            shortcut += [component.parse_layer("conv " + str(output_channels) + " filter=1 padding=0")[1]]
+            shortcut += [component.parse_layer("conv " + str(output_channels) + " filter=1 padding=0 initializer=(orthogonal)")[1]]
             shortcut += [component.parse_layer("adaptive_avg_pool")[1]]
         if self.block == "down2":
             current_size = component.current_size

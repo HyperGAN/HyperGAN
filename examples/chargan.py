@@ -27,33 +27,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data
 import uuid
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, BertTokenizer, BertModel
+from transformers import GPT2Tokenizer, GPT2LMHeadModel
 
 class TextData(data.Dataset):
     def __init__(self, path, length, device, mode):
         self.size = os.path.getsize(path)
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')#GPT2Tokenizer.from_pretrained('gpt2')
-        self.model = BertModel.from_pretrained('bert-base-uncased').to("cuda:0")#GPT2LMHeadModel.from_pretrained('gpt2')
+        self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+        self.model = GPT2LMHeadModel.from_pretrained('gpt2')
         self.file = None
         self.path = path
         self.device = device
         self.length = length
         self.mode = mode
-        encoder_weights = []
+        self.encoder_weights = []
         self.encoder_index = []
 
+        weights = self.model.transformer.wte.weight
+        weights = weights.detach().cuda()
         for word in self.tokenizer.encoder.keys():
             index = self.tokenizer.encode(word)
-            ws = [weight.squeeze(0) for weight in self.model(index)]
-            #if len(index) > 1:
-            #    print("More than one index", word, index)
-            print("Decode", self.tokenizer.decode(index))
-            encoder_weights += ws
-            self.encoder_index += [ index for _ in ws ]
-            self.encoder_weights = torch.stack(encoder_weights)
-            val = sum(ws)/len(ws)
-            print("Triangulate", self.tokenizer.decode(self.closest_word_cosine_similarity(val)))
-        self.encoder_weights = torch.stack(encoder_weights)
+            #ws = [weight.squeeze(0) for weight in weights[index]]
+
+            self.encoder_weights.append(weights[index][-1].squeeze(0))
+            self.encoder_index += [ index[-1] ]
+        self.encoder_weights = torch.stack(self.encoder_weights)
 
     def encode_line(self, line):
         input_ids = self.tokenizer.encode(line)
@@ -97,7 +94,6 @@ class TextData(data.Dataset):
 
         for v in val:
             words.append(self.closest_word_cosine_similarity(v))
-        print(words)
         return self.tokenizer.decode(words)
 
     def sample_output_chars(self, val):

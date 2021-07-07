@@ -9,6 +9,7 @@ from hypergan.samplers.grid_sampler import GridSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.y_sampler import YSampler
 
+from hypergan.losses.stable_gan_loss import StableGANLoss
 from hypergan.train_hook_collection import TrainHookCollection
 from pathlib import Path
 from torch.autograd import Variable
@@ -134,6 +135,10 @@ class BaseGAN():
         return None, None
 
     def forward_loss(self, loss):
+        if(self.config.use_stabilized_loss):
+            if not hasattr(self, 'stable_gan_loss'):
+                self.stable_gan_loss = StableGANLoss(self.discriminator)
+            return self.stable_gan_loss.stable_loss(self.augmented_x, self.augmented_g)
         d_real, d_fake = self.forward_pass()
         d_loss, g_loss = loss.forward(d_real, d_fake)
         return [d_loss, g_loss]

@@ -8,6 +8,7 @@ from hypergan.inputs import *
 from hypergan.layer_shape import LayerShape
 from hypergan.samplers import *
 from hypergan.trainers import *
+from hypergan.losses.stable_gan_loss import StableGANLoss
 from torch.nn.parameter import Parameter
 import copy
 import hyperchamber as hc
@@ -28,6 +29,7 @@ class AAEGAN(BaseGAN):
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
         self.target_x = None
+        self.stable_gan_loss = None
 
     def build(self):
         torch.onnx.export(self.generator, self.latent.next(), "generator.onnx", verbose=True, input_names=["latent"], output_names=["generator"], opset_version=11)
@@ -37,7 +39,6 @@ class AAEGAN(BaseGAN):
 
     def create(self):
         self.latent = self.create_component("latent")
-        words = LayerShape(32, 300)
         coord = LayerShape(1)
         self.x = self.inputs.next()[0]
         self.encoder = self.create_component("encoder", input=self.x)
@@ -45,41 +46,17 @@ class AAEGAN(BaseGAN):
         self.decoder = self.create_component("decoder", input=z_shape)
         self.generator = self.decoder
         self.discriminator = self.create_component("discriminator")
-        if self.config.image_loss:
-            self.discriminator2 = self.create_component("discriminator")
+        if self.config.image_discriminator:
+            self.image_discriminator = self.create_component("image_discriminator")
 
         def image_loss():
-            d_fake2 = self.discriminator2(self.encoder(self.g))
-            d_real2 = self.discriminator2(self.encoder(self.x))
-            d_loss2, g_loss2 = self.loss.forward(d_real2, d_fake2)
+            ing = torch.cat([self.g,self.x], axis=1)
+            inx = torch.cat([self.x,self.x], axis=1)
+            if self.stable_gan_loss is None:
+                self.stable_gan_loss = StableGANLoss(self.image_discriminator)
+            d_loss2, g_loss2 = self.stable_gan_loss.stable_loss(inx, ing)
             self.add_metric("d_loss2", d_loss2)
             self.add_metric("g_loss2", g_loss2)
-
-            #fake_in = [self.x,self.g]
-            #real_in = [self.x,self.x]
-            #if self.target_x == None:
-            #    self.target_g = [Parameter(g, requires_grad=True) for g in fake_in]
-            #    self.target_x = [Parameter(x, requires_grad=True) for x in real_in]
-            #for target, data in zip(self.target_x, real_in):
-            #    target.data = data.clone()
-            #for target, data in zip(self.target_g, fake_in):
-            #    target.data = data.clone()
-            #d_add, g_add = self.hooks[-2].do_hook(d_loss2, g_loss2, fake_in, real_in, self.forward_image_discriminator, d_fake2, d_real2, self.target_g, self.target_x)
-            #lam = self.config.image_lambda or 1.0
-            #d_loss2 += lam*d_add
-            #g_loss2 += lam*g_add
-            #self.add_metric("d_add", d_add)
-            #self.add_metric("g_add", g_add)
-            #for target, data in zip(self.target_x, real_in):
-            #    target.data = data.clone()
-            #for target, data in zip(self.target_g, fake_in):
-            #    target.data = data.clone()
-
-            #d_add, g_add = self.hooks[-1].do_hook(d_loss2, g_loss2, fake_in, real_in, self.forward_image_discriminator, d_fake2, d_real2, self.target_g, self.target_x)
-            #d_loss2 += d_add
-            #g_loss2 += g_add
-            #self.add_metric("d_add2", d_add)
-            #self.add_metric("g_add2", g_add)
 
             return [d_loss2, g_loss2]
         def mse_loss():
@@ -88,7 +65,7 @@ class AAEGAN(BaseGAN):
             self.add_metric("mse", loss * lam)
             return None, loss * lam
 
-        if self.config.image_loss:
+        if self.config.image_discriminator:
             self.add_loss(image_loss)
         else:
             self.add_loss(mse_loss)
@@ -98,7 +75,7 @@ class AAEGAN(BaseGAN):
     def forward_discriminator(self, inputs):
         return self.discriminator(torch.cat([inp.view(*self.encoding.shape) for inp in inputs], dim=1))
     def forward_image_discriminator(self, inputs):
-        return self.image_discriminator(torch.cat([inputs[0], inputs[1]], dim=1), context={"words":inputs[2]})
+        return self.image_discriminator(torch.cat([inputs[0], inputs[1]], dim=1), context={})
 
     def next_inputs(self):
         self.x = self.inputs.next()
@@ -145,10 +122,8 @@ class AAEGAN(BaseGAN):
     def discriminator_components(self):
         if self.config.image_discriminator:
             return [self.discriminator, self.image_discriminator]
-        elif self.config.image_loss:
-            return [self.discriminator, self.discriminator2]
         else:
-            return [self.discriminator, self.discriminator2]
+            return [self.discriminator]
 
     def generator_components(self):
         return [self.encoder, self.decoder]

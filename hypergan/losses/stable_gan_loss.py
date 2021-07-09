@@ -38,7 +38,11 @@ class StableGANLoss:
         self.g = g
         self.d_real = self.discriminator(self.x)
         self.d_fake = self.discriminator(self.g)
+        d_losses = []
+        g_losses = []
         d_loss, g_loss = self.ragan(self.d_real, self.d_fake)
+        d_losses.append(d_loss)
+        g_losses.append(g_loss)
         if self.target1_x == None:
             self.target1_g = Parameter(self.g, requires_grad=True)
             self.target1_x = Parameter(self.x, requires_grad=True)
@@ -56,8 +60,8 @@ class StableGANLoss:
         reg_fake, _ = self.ragan(self.discriminator(self.x), self.discriminator(neg_inverse_fake))
         reg_real, g_ = self.ragan(self.discriminator(neg_inverse_real), self.discriminator(self.g))
 
-        d_loss += self.gamma2*(reg_fake+reg_real)
-        g_loss += self.g_gamma2 * g_
+        d_losses.append(self.gamma2*(reg_fake+reg_real))
+        g_losses.append(self.g_gamma2 * g_)
 
         inverse_fake = self.inverse(self.d_real, self.discriminator(self.target1_g), self.target1_g)[0]
         inverse_real = self.inverse(self.discriminator(self.target1_x), self.d_fake, self.target1_x)[0]
@@ -65,9 +69,10 @@ class StableGANLoss:
         reg_fake, g_ = self.ragan(self.discriminator(inverse_fake), self.discriminator(self.g))
         reg_real = self.ragan(self.discriminator(self.x), self.discriminator(inverse_real))[0]
 
-        d_loss += self.gamma1*(reg_fake+reg_real)
-        g_loss += self.g_gamma1 * g_
-        return d_loss.mean(), g_loss.mean()
+        d_losses.append(self.gamma1*(reg_fake+reg_real))
+        g_losses.append(self.g_gamma1 * g_)
+
+        return sum(d_losses)/len(d_losses), sum(g_losses)/len(g_losses)
 
     def inverse(self, d_real, d_fake, target):
         loss = self.ragan(d_fake, d_real)[0]

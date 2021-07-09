@@ -23,30 +23,55 @@ import string
 import sys
 import time
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import torch.utils.data as data
 import uuid
+from transformers import GPT2Tokenizer, GPT2LMHeadModel
 
 class TextData(data.Dataset):
     def __init__(self, path, length, device, mode):
         self.size = os.path.getsize(path)
+        self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+        self.model = GPT2LMHeadModel.from_pretrained('gpt2')
         self.file = None
         self.path = path
         self.device = device
         self.length = length
         self.mode = mode
+        self.encoder_weights = []
+        self.encoder_index = []
+
+        weights = self.model.transformer.wte.weight
+        weights = weights.detach().cuda()
+        for word in self.tokenizer.encoder.keys():
+            index = self.tokenizer.encode(word)
+            #ws = [weight.squeeze(0) for weight in weights[index]]
+
+            self.encoder_weights.append(weights[index][-1].squeeze(0))
+            self.encoder_index += [ index[-1] ]
+        self.encoder_weights = torch.stack(self.encoder_weights)
 
     def encode_line(self, line):
-        return torch.tensor([(c/256.0 * 2 - 1) for c in line])
+        input_ids = self.tokenizer.encode(line)
+
+        vector = [self.model.transformer.wte.weight[w, :].detach() for w in input_ids][:self.length]
+        stacked = torch.stack(vector, dim=0)
+        if len(vector) < self.length:
+            space = self.tokenizer.encode("unknown")
+            spaces = torch.tile(self.model.transformer.wte.weight[space[0], :].detach(), (self.length-len(vector), 1))
+            stacked = torch.cat([stacked, spaces])
+
+        #character = torch.tensor([(c/256.0 * 2 - 1) for c in line_binary])
+        return stacked#, character.to('cuda:0'))
+        #return (stacked.to('cuda:0'), character.to('cuda:0'))
 
     def __getitem__(self, index):
         if self.file is None:
-            self.file = open(self.path, 'rb')
+            self.file = open(self.path, 'r', encoding='utf-8')
         self.file.seek(index)
         data = self.file.read(self.length)
-        if self.mode == "constant":
-            encoded = torch.ones_like(self.encode_line(data).view(1, -1)) * 0.5
-        else:
-            encoded = self.encode_line(data).view(1, -1)
+        encoded = self.encode_line(data)
         return [encoded]
 
     def __len__(self):
@@ -57,15 +82,27 @@ class TextData(data.Dataset):
             line += [self.get_encoded_value(" ")]
         return line
 
+    def closest_word_cosine_similarity(self, val):
+        target = torch.tile(val.unsqueeze(0), (self.encoder_weights.shape[0], 1))
+        dist=F.cosine_similarity(target, self.encoder_weights)
+        order=torch.argsort(dist, descending=True)
+        token_id = self.encoder_index[order[0]]
+        return token_id
+
     def sample_output(self, val):
+        words = []
+
+        for v in val:
+            words.append(self.closest_word_cosine_similarity(v))
+        return self.tokenizer.decode(words)
+
+    def sample_output_chars(self, val):
         val = (np.reshape(val, [-1]) + 1.0) * 127.5
         x = val[0]
         val = np.round(val)
-
         ox_val = [chr(int(obj)) for obj in list(val)]
         string = "".join(ox_val)
         return string
-
 
 class TextInput:
     def __init__(self, config, batch_size, filename, length, mode='seek', one_hot=False, device=0):
@@ -106,6 +143,10 @@ class TextInput:
         except StopIteration:
             self.dataset = iter(self.dataloader)
             return self.next(index)
+        except TypeError as e:
+            print("Type Error from input! Continuing")
+            print(e)
+            return self.next(index)
 
     def batch_size(self):
         return self._batch_size
@@ -122,6 +163,7 @@ class TextInput:
 class CharGAN(BaseGAN):
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
+        #self.x, self.chars = self.inputs.next()
         self.x = self.inputs.next()
 
     def build(self):
@@ -132,18 +174,24 @@ class CharGAN(BaseGAN):
 
     def create(self):
         self.latent = self.create_component("latent")
-        self.generator = self.create_component("generator", input=self.latent, context_shapes={"q": LayerShape(self.config.length//2)})
+        self.generator = self.create_component("generator", input=self.latent, context_shapes={"q": LayerShape(self.config.length, 768)})
         self.discriminator = self.create_component("discriminator")
+        #self.to_chars = self.create_component("chars", defn=self.config.to_chars, input=self.inputs.next()[0]).to(self.device)
 
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0])
 
     def forward_pass(self):
+        #self.x, self.chars = self.inputs.next()
         self.x = self.inputs.next()
-        self.q, self.a = torch.split(self.x, self.config.length//2, dim=-1)
+        #self.q, self.a = torch.split(self.x, self.config.length//2, dim=1)
+        #self.x = self.q
+        self.q = self.x
+        self.a = self.x
         self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
-        a_g = self.generator(self.augmented_latent, context={"q": self.q}).view(self.q.shape)
-        self.g = torch.cat([self.q, a_g], dim=-1)
+        a_g = self.generator(self.augmented_latent, context={"q": self.q})
+        a_g = a_g.view(self.q.shape)
+        self.g = a_g#torch.cat(a_g, dim=-1)
         self.augmented_x = self.train_hooks.augment_x(self.x)
         self.augmented_g = self.train_hooks.augment_g(self.g)
         d_real = self.forward_discriminator([self.augmented_x])
@@ -151,6 +199,15 @@ class CharGAN(BaseGAN):
         self.d_fake = d_fake
         self.d_real = d_real
         return d_real, d_fake
+
+    def forward_loss(self, loss=None):
+        d_real, d_fake = self.forward_pass()
+        d_loss, g_loss = loss.forward(d_real, d_fake)
+
+        #reconstruct_chars = self.to_chars(self.x)
+        #loss = ((self.chars - reconstruct_chars)**2).mean()*100
+        #self.add_metric('char_loss', loss)
+        return [d_loss, g_loss]# + loss]
 
     def input_nodes(self):
         "used in hypergan build"
@@ -166,7 +223,7 @@ class CharGAN(BaseGAN):
         return [self.discriminator]
 
     def generator_components(self):
-        return [self.generator]
+        return [self.generator]#, self.to_chars]
 
     def discriminator_fake_inputs(self):
         return [[self.augmented_g]]
@@ -179,9 +236,7 @@ class CharGAN(BaseGAN):
 
 if __name__ == '__main__':
     arg_parser = ArgumentParser("Learn from a text file", require_directory=False)
-    arg_parser.parser.add_argument('--one_hot', action='store_true', help='Use character one-hot encodings.')
     arg_parser.parser.add_argument('--filename', type=str, default='chargan.txt', help='Input dataset');
-    arg_parser.parser.add_argument('--length', type=int, default=256, help='Length of string per line');
     args = arg_parser.parse_args()
 
     def lookup_config(args):
@@ -238,7 +293,7 @@ if __name__ == '__main__':
 
         trainers = []
 
-        x_0 = gan.inputs.next()
+        x_0 = gan.inputs.next()[0]
         z_0 = gan.latent.sample()
 
         ax_sum = 0
@@ -249,6 +304,7 @@ if __name__ == '__main__':
         steps = 0
         metric = 100
 
+        latent = gan.latent.sample()
         while(True):
             steps +=1
             if steps > args.steps and args.steps != -1:
@@ -260,17 +316,34 @@ if __name__ == '__main__':
                 trainable_gan.save()
 
             if steps % args.sample_every == 0 or steps == args.steps -1:
-                x_val = gan.inputs.next()
-                q, a = torch.split(x_val, x_val[0].shape[-1]//2, dim=-1)
-                g = gan.generator.forward(gan.latent.sample(), context={"q": q})
+                x_val = gan.x
+                print(x_val.shape)
+                #q, a = torch.split(x_val, x_val[0].shape[0]//2, dim=1)
+                q, a = x_val, x_val
+                print("Q", q.shape)
                 print("Query:")
-                print(inputs.textdata.sample_output(q[0].cpu().detach().numpy()))
-                print("X answer:")
-                print(inputs.textdata.sample_output(a[0].cpu().detach().numpy()))
+                print(inputs.textdata.sample_output(q[0][:128]))
+
+                req = gan.decoded
+                #req_bytes = gan.to_chars(x_val)
+                #print(req_bytes)
+                #chars = inputs.textdata.sample_output_chars(req_bytes[0].cpu().detach().numpy())
+                print("Q reencoded")
+                print(inputs.textdata.sample_output(req[0][:128]))
+                #print("Q bytes out")
+                #chars = re.sub(r'[\x00-\x10\x7f-\x9f]', '�', chars)
+                #print(chars)
+                #print("X answer:")
+                #print(inputs.textdata.sample_output(a[0]))
                 print("G answer:")
-                g_output = inputs.textdata.sample_output(g[0].cpu().detach().numpy())
-                g_output = re.sub(r'[\x00-\x09\x7f-\x9f]', '�', g_output)
+                g = gan.generator.forward(latent, context={"q": q})
+                g_output = inputs.textdata.sample_output(g[0][:128])
                 print(g_output)
+                #print("G encoded:")
+                #g_bytes = gan.to_chars(g)
+                #g_output = inputs.textdata.sample_output_chars(req_bytes[0].cpu().detach().numpy())
+                #g_output = re.sub(r'[\x00-\x09\x7f-\x9f]', '�', g_output)
+                #print(g_output)
                 print("Q mean:")
                 print(q.mean())
                 print("A mean:")

@@ -45,7 +45,6 @@ class ConfigurableComponent(GANComponent):
                 self.current_size = input.current_size
         if input_shape is not None:
             self.current_size = LayerShape(*input_shape)
-        self.layers = []
         self.layer_shapes = []
         self.untrainable_parameters = set()
         self.layer_output_sizes = {}
@@ -83,6 +82,8 @@ class ConfigurableComponent(GANComponent):
             "upsample": hg.layers.Upsample,
             "evo_norm": hg.layers.EvoNorm,
             "slice": hg.layers.Slice,
+            "expand": hg.layers.Expand,
+            "rnn": hg.layers.Rnn,
 
             #easy to convert
             "dropout": self.layer_dropout,
@@ -240,6 +241,7 @@ class ConfigurableComponent(GANComponent):
             "relu6": nn.ReLU6(),
             "selu": nn.SELU(),
             "sigmoid": nn.Sigmoid(),
+            "softmax": nn.Softmax(),
             "softplus": nn.Softplus(),
             "softshrink": nn.Softshrink(),
             "softsign": nn.Softsign(),

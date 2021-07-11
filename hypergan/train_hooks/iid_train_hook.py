@@ -37,10 +37,12 @@ class IIDTrainHook(BaseTrainHook):
 
         if self.source_x is None:
             self.source_x = x
+            self.gan.source = self.source_x
         types = ["z-g'(g(z))", "x - g(g'(x))", "mean", "std"]
         if self.config.types:
             types = self.config.types
         zprime = self.g_to_z(self.gan.g.clone().detach())
+        zxprime = self.g_to_z(x)
         reconstruct_x = self.gan.generator(self.g_to_z(x)).clone().detach()
 
         #m = (zprime + z) / 2
@@ -51,14 +53,15 @@ class IIDTrainHook(BaseTrainHook):
             if t == "z-g'(g(z))":
                 loss += ((z - zprime)**2).mean()
                 self.gan.add_metric("IID1d", loss)
-            elif t == 'zdisc':
-                z_loss = self.z_stable_loss.stable_loss(torch.cat([z,zprime], axis=1), torch.cat([zprime,zprime], axis=1))
-                d_l = z_loss[1]
-                #g_l = z_loss[0]
+            elif t == 'zdisc3':
+                z_loss = self.z_stable_loss.stable_loss(torch.cat([z,z,z-z], axis=1), torch.cat([z,zprime,zprime-z], axis=1))
+                d_l = z_loss[0]
+                g_l = z_loss[1]
                 self.gan.add_metric('zd', d_l)
-                #self.gan.add_metric('zg', g_l)
-                loss += d_l
-                self.gan.add_metric('zw', self.z_discriminator.nn_layers[1][1].weight.sum())
+                self.gan.add_metric('zg', g_l)
+                loss += g_l
+                #self.gan.add_metric('zw', self.z_discriminator.nn_layers[1][1].weight.sum())
+
             elif t == "g'(x)-g'(g(g'(x)))":
                 z_reconstruct_diff = ((self.g_to_z(x) - self.g_to_z(self.gan.generator(self.g_to_z(x).clone().detach())))**2).mean() * 0.5
                 self.gan.add_metric("IID1z", z_reconstruct_diff)
@@ -77,9 +80,6 @@ class IIDTrainHook(BaseTrainHook):
                 loss += std
             else:
                 raise ValidationException("Unknown type "+t)
-        reconstruct_source_x = self.gan.generator(self.g_to_z(self.source_x)).clone().detach()
-        self.gan.decoded = reconstruct_source_x
-        self.gan.source = self.source_x
 
         return d_l, loss
     def generator_components(self):

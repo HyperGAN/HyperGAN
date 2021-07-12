@@ -84,6 +84,8 @@ class ImageLoader:
             return self.next(index)
         except ValueError:
             return self.next(index)
+        except PIL.Image.DecompressionBombError:
+            return self.next(index)
         except PIL.UnidentifiedImageError:
             return self.next(index)
         except StopIteration:

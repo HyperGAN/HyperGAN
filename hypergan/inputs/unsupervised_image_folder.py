@@ -45,10 +45,7 @@ class UnsupervisedImageFolder(torchvision.datasets.vision.VisionDataset):
         return images
 
     def __getitem__(self, index):
-        try:
-            sample = self.loader(self.samples[index])
-        except Exception as e:
-            return self[(index+1)%len(self)]
+        sample = self.loader(self.samples[index])
         if self.transform is not None:
             sample = self.transform(sample)
 

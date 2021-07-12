@@ -77,8 +77,8 @@ class StableGANLoss:
 
     def inverse(self, d_real, d_fake, target):
         #loss = (d_fake - d_real) * self.inverse_gamma
-        loss = self.loss_fn(d_fake, d_real)[0]
+        loss = self.loss_fn(d_fake, d_real)[0] * self.inverse_gamma
         loss = loss.mean()
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True, only_inputs=True)
-        return [_t/_t.norm() * self.inverse_gamma + _d1 for _d1, _t in zip(d1_grads, target)]
-        #return [_t + _d1 for _d1, _t in zip(d1_grads, target)]
+        #return [_t + _d1/_d1.norm() for _d1, _t in zip(d1_grads, target)]
+        return [_t + _d1 for _d1, _t in zip(d1_grads, target)]

@@ -120,7 +120,7 @@ class BaseGAN():
         """
         []
 
-    def forward_discriminator(self, inputs):
+    def forward_discriminator(self, *inputs):
         """
             Runs a forward pass through the discriminator and returns the discriminator output
         """
@@ -135,11 +135,11 @@ class BaseGAN():
         return None, None
 
     def forward_loss(self, loss):
+        d_real, d_fake = self.forward_pass()
         if(self.config.use_stabilized_loss):
             if not hasattr(self, 'stable_gan_loss'):
-                self.stable_gan_loss = StableGANLoss(self.discriminator)
-            return self.stable_gan_loss.stable_loss(self.augmented_x, self.augmented_g)
-        d_real, d_fake = self.forward_pass()
+                self.stable_gan_loss = StableGANLoss()
+            return self.stable_gan_loss.stable_loss(self.forward_discriminator, self.discriminator_real_inputs(), self.discriminator_fake_inputs()[0], d_fake = self.d_fake, d_real = self.d_real)
         d_loss, g_loss = loss.forward(d_real, d_fake)
         return [d_loss, g_loss]
 

@@ -46,7 +46,7 @@ class StandardGAN(BaseGAN):
         self.generator = self.create_component("generator", input=self.latent)
         self.discriminator = self.create_component("discriminator")
 
-    def forward_discriminator(self, inputs):
+    def forward_discriminator(self, *inputs):
         return self.discriminator(inputs[0])
 
     def next_inputs(self):

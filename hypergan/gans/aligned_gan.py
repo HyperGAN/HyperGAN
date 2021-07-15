@@ -6,6 +6,7 @@ from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.layer_shape import LayerShape
+from hypergan.losses.stable_gan_loss import StableGANLoss
 from hypergan.samplers import *
 from hypergan.trainers import *
 import copy
@@ -37,6 +38,11 @@ class AlignedGAN(BaseGAN):
         else:
             self.generator = self.create_component("generator", input=self.x, context_shapes={"y": LayerShape(1)})
             self.discriminator = self.create_component("discriminator")
+
+        if self.config.add_cycle:
+            self.cycle_discriminator = self.create_component("cycle_discriminator", input=torch.cat([self.x, self.x], axis=1))
+            self.cycle_stable_loss = StableGANLoss()
+            self.cycle_generator = self.create_component("generator", input=self.x, context_shapes={"y": LayerShape(1)})
 
         self.classification = 0
 
@@ -93,13 +99,28 @@ class AlignedGAN(BaseGAN):
             d_loss += loss * lam
             g_loss += loss * lam
             self.add_metric("mse", loss * lam)
+        if self.config.add_cycle:
+            g = self.g#.clone().detach()
+            x = self.x
+            recon = self.cycle_generator(g)
+            inx = [torch.cat([x,x], axis=1)]
+            ing = [torch.cat([x,recon], axis=1)]
+            l = self.cycle_stable_loss.stable_loss(self.cycle_discriminator, inx, ing)
+            d_loss += l[0]
+            g_loss += l[1]
+            self.add_metric('cd', l[0])
+            self.add_metric('cg', l[1])
 
         return [d_loss, g_loss]
 
     def discriminator_components(self):
+        if self.config.add_cycle:
+            return [self.discriminator, self.cycle_discriminator]
         return [self.discriminator]
 
     def generator_components(self):
+        if self.config.add_cycle:
+            return [self.generator, self.cycle_generator]
         return [self.generator]
 
     def discriminator_fake_inputs(self):

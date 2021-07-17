@@ -51,7 +51,7 @@ class Residual(hg.Layer):
         self.block = options.block or "default"
         layers = []
         shortcut = []
-        self.scalar = Parameter(torch.zeros([]), requires_grad=True)
+        #self.scalar = Parameter(torch.zeros([]), requires_grad=True)
         output_channels = args[0]
         dims = list(component.current_size.dims)
         dims[0] = output_channels
@@ -95,13 +95,15 @@ class Residual(hg.Layer):
         if self.block == "down3":
             current_size = component.current_size
             layers += [component.parse_layer("conv " + str(output_channels) + " filter=3")[1]]
+            layers += self.norm_layers(component)
             layers += [nn.ReLU()]
             layers += [component.parse_layer("conv " + str(output_channels) + " filter=3")[1]]
+            layers += self.norm_layers(component)
             layers += [component.parse_layer("avg_pool")[1]]
             component.current_size = current_size
             #shortcut += [component.parse_layer("avg_pool")[1]]
             #shortcut += [component.parse_layer("conv " + str(output_channels) + " filter=1 padding=0")[1]]
-            self.conv_id = component.parse_layer("conv " + str(output_channels - current_size.channels) + " filter=3 stride=1")[1]
+            self.conv_id = component.parse_layer("conv " + str(output_channels - current_size.channels) + " filter=1 padding=0 stride=1")[1]
             self.avg_pool = component.parse_layer("avg_pool")[1]
             component.current_size = LayerShape(output_channels, component.current_size.height, component.current_size.width)
 
@@ -121,7 +123,7 @@ class Residual(hg.Layer):
             layers += self.norm_layers(component)
             layers += [nn.SELU()]
             layers += [upsample]
-            layers += [component.parse_layer("conv " + str(component.current_size.channels) + " filter=3")[1]]
+            layers += [component.parse_layer("conv " + str(output_channels) + " filter=3")[1]]
             layers += self.norm_layers(component)
             layers += [nn.SELU()]
             layers += [component.parse_layer("conv " + str(output_channels) + " filter=3")[1]]
@@ -138,12 +140,12 @@ class Residual(hg.Layer):
             layers += [component.parse_layer("conv " + str(output_channels*4) + " filter=3")[1]]
             component.current_size = LayerShape(output_channels, component.current_size.height * 2, component.current_size.width * 2)
             upsample = nn.PixelShuffle(2)
-            component.current_size = current_size
+            layers += [upsample]
             layers += self.norm_layers(component)
             layers += [nn.SELU()]
             layers += [component.parse_layer("conv " + str(output_channels) + " filter=3")[1]]
+            component.current_size = current_size
             upsample = nn.PixelShuffle(2)
-            layers += [upsample]
             shortcut += [component.parse_layer("conv " + str(output_channels*4) + " filter=1 padding=0")[1]]
             shortcut += [upsample]
             component.current_size = LayerShape(output_channels, component.current_size.height * 2, component.current_size.width * 2)
@@ -191,7 +193,7 @@ class Residual(hg.Layer):
             avg_pool = self.avg_pool(input)
             shortcut = torch.cat([avg_pool, self.avg_pool(self.conv_id(input))], dim=1)
             rhs = self.forward_module_list(input, self.layer_names, self.layers, context)
-            return shortcut + self.scalar * rhs
-        return self.forward_module_list(input, self.shortcut_layer_names, self.shortcut, context) + self.scalar * self.forward_module_list(input, self.layer_names, self.layers, context)
+            return shortcut + rhs
+        return self.forward_module_list(input, self.shortcut_layer_names, self.shortcut, context) + self.forward_module_list(input, self.layer_names, self.layers, context)
 
 

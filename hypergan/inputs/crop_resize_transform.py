@@ -38,7 +38,7 @@ class CropResizeTransform(object):
         v_scale = height / h
         h_scale = width / w
         scale = min(h_scale, v_scale)
-        min_size = [scale * h, scale * w]
+        min_size = [int(scale * h), int(scale * w)]
 
         img = F.center_crop(img, min_size)
 

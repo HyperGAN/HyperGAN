@@ -78,8 +78,7 @@ class PromptGAN(BaseGAN):
 
 
     def forward_pass(self):
-        prompt = self.config.prompt or "Buffy Summers from Buffy the Vampire Slayer"
-        prompt2 = self.config.prompt2 or "Person"
+        prompt = self.config.prompt or ""
         if PromptGAN.perceptor is None:
             clip_model = (self.config.clip_model or "ViT-B/32")
             jit = True if float(torch.__version__[:3]) < 1.8 else False

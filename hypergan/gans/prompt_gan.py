@@ -70,8 +70,9 @@ class PromptGAN(BaseGAN):
             self.make_cutouts = MakeCutouts(cut_size, self.config.cutn or 1, cut_pow=1)
         g = self.generator(self.augmented_latent)
         self.g = g
-        self.augmented_g = self.augment_g(self.g)
-        self.augmented_x = self.augment_x(self.x)
+        self.augmented_g = self.train_hooks.augment_g(self.g)
+        self.augmented_x = self.train_hooks.augment_x(self.x)
+
         enc_x = PromptGAN.perceptor.encode_image(self.normalize(self.make_cutouts(self.x))).float()
         enc_g = PromptGAN.perceptor.encode_image(self.normalize(self.make_cutouts(self.g))).float()
         self.x_args = [enc_x]

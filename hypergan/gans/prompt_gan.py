@@ -27,17 +27,6 @@ import uuid
 
 class PromptGAN(BaseGAN):
     perceptor = None
-    """
-    Standard GANs consist of:
-
-    * single input source
-    * latent
-    * generator
-    * discriminator
-
-    The generator creates a sample based on the latent.
-
-    """
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
         self.x = self.inputs.next()
@@ -67,15 +56,6 @@ class PromptGAN(BaseGAN):
     def next_inputs(self):
         self.x = self.inputs.next()
         self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
-    def inpaint(self, x):
-        mask = torch.cuda.FloatTensor(x.shape).uniform_() > 0.8
-        return x * mask
-    def augment_x(self, x):
-        return x#self.make_cutouts(x)
-
-    def augment_g(self, g):
-        return g#self.make_cutouts(g)
-
 
     def forward_pass(self):
         prompt = self.config.prompt or ""

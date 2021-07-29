@@ -58,8 +58,8 @@ class PromptGAN(BaseGAN):
         self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
 
     def forward_pass(self):
-        prompt = self.config.prompt or ""
-        if PromptGAN.perceptor is None:
+        prompt = self.config.prompt
+        if PromptGAN.perceptor is None and self.config.prompt is not None:
             clip_model = (self.config.clip_model or "ViT-B/32")
             jit = True if float(torch.__version__[:3]) < 1.8 else False
             PromptGAN.perceptor = clip.load(clip_model, jit=jit)[0].eval().requires_grad_(False).to(self.device)
@@ -70,8 +70,6 @@ class PromptGAN(BaseGAN):
             self.make_cutouts = MakeCutouts(cut_size, self.config.cutn or 1, cut_pow=1)
         g = self.generator(self.augmented_latent)
         self.g = g
-        self.augmented_g = self.augment_g(self.g)
-        self.augmented_x = self.augment_x(self.x)
         xcutouts = self.make_cutouts(self.x)
         gcutouts = self.make_cutouts(self.g)
         self.xcutouts = xcutouts

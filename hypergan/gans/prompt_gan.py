@@ -70,7 +70,6 @@ class PromptGAN(BaseGAN):
             self.make_cutouts = MakeCutouts(cut_size, self.config.cutn or 1, cut_pow=1)
         g = self.generator(self.augmented_latent)
         self.g = g
-<<<<<<< HEAD
         self.augmented_g = self.augment_g(self.g)
         self.augmented_x = self.augment_x(self.x)
         xcutouts = self.make_cutouts(self.x)

@@ -27,17 +27,6 @@ import uuid
 
 class PromptGAN(BaseGAN):
     perceptor = None
-    """
-    Standard GANs consist of:
-
-    * single input source
-    * latent
-    * generator
-    * discriminator
-
-    The generator creates a sample based on the latent.
-
-    """
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
         self.x = self.inputs.next()
@@ -67,19 +56,9 @@ class PromptGAN(BaseGAN):
     def next_inputs(self):
         self.x = self.inputs.next()
         self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
-    def inpaint(self, x):
-        mask = torch.cuda.FloatTensor(x.shape).uniform_() > 0.8
-        return x * mask
-    def augment_x(self, x):
-        return x#self.make_cutouts(x)
-
-    def augment_g(self, g):
-        return g#self.make_cutouts(g)
-
 
     def forward_pass(self):
-        prompt = self.config.prompt or "Buffy Summers from Buffy the Vampire Slayer"
-        prompt2 = self.config.prompt2 or "Person"
+        prompt = self.config.prompt or ""
         if PromptGAN.perceptor is None:
             clip_model = (self.config.clip_model or "ViT-B/32")
             jit = True if float(torch.__version__[:3]) < 1.8 else False
@@ -91,6 +70,7 @@ class PromptGAN(BaseGAN):
             self.make_cutouts = MakeCutouts(cut_size, self.config.cutn or 1, cut_pow=1)
         g = self.generator(self.augmented_latent)
         self.g = g
+<<<<<<< HEAD
         self.augmented_g = self.augment_g(self.g)
         self.augmented_x = self.augment_x(self.x)
         xcutouts = self.make_cutouts(self.x)

@@ -93,10 +93,24 @@ class PromptGAN(BaseGAN):
         self.g = g
         self.augmented_g = self.augment_g(self.g)
         self.augmented_x = self.augment_x(self.x)
-        enc_x = PromptGAN.perceptor.encode_image(self.normalize(self.make_cutouts(self.x))).float()
-        enc_g = PromptGAN.perceptor.encode_image(self.normalize(self.make_cutouts(self.g))).float()
-        self.x_args = [enc_x]
-        self.g_args = [enc_g]
+        xcutouts = self.make_cutouts(self.x)
+        gcutouts = self.make_cutouts(self.g)
+        self.xcutouts = xcutouts
+        self.gcutouts = gcutouts
+        enc_x = PromptGAN.perceptor.encode_image(self.normalize(xcutouts)).float()
+        enc_g = PromptGAN.perceptor.encode_image(self.normalize(gcutouts)).float()
+        if self.config.prompt != None:
+            proj_y = (enc_x*self.encoded_text).sum(dim=1,keepdim=True)/self.encoded_text.norm(dim=1,keepdim=True)*self.encoded_text
+            proj_x = (self.encoded_text*enc_x).sum(dim=1,keepdim=True)/enc_x.norm(dim=1,keepdim=True)*enc_x
+            xarg = enc_x + proj_y
+            gproj_y = (enc_g*self.encoded_text).sum(dim=1,keepdim=True)/self.encoded_text.norm(dim=1,keepdim=True)*self.encoded_text
+            gproj_x = (self.encoded_text*enc_g).sum(dim=1,keepdim=True)/enc_g.norm(dim=1,keepdim=True)*enc_g
+            garg = enc_g + 0.8*gproj_y
+        else:
+            xarg = enc_x
+            garg = enc_g
+        self.x_args = [xarg]
+        self.g_args = [garg]
         d_real = self.forward_discriminator(*self.x_args)
         d_fake = self.forward_discriminator(*self.g_args)
 

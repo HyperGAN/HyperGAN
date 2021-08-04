@@ -30,6 +30,8 @@ class StableGANLoss:
         d_real_prime = d_real
         d_losses = []
         g_losses = []
+        d_loss, g_loss = self.loss_fn(d_real, d_fake)
+        g_losses.append(g_loss)
         fake_grad_sum = 10000
         real_grad_sum = 10000
         real_adv_loss = 1e8
@@ -81,7 +83,6 @@ class StableGANLoss:
         d_loss, g_loss = self.loss_fn(d_real_prime, d_real)
         d_losses.append(d_loss)
         d_loss, g_loss = self.loss_fn(d_fake, d_fake_prime)
-        g_losses.append(-d_loss)
         d_losses.append(d_loss)
 
         return sum(d_losses), sum(g_losses)

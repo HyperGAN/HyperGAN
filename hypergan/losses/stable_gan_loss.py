@@ -54,7 +54,7 @@ class StableGANLoss:
                 target.data = data.clone()
         fake_imgs_adv = self.fake_imgs_adv
         real_imgs_adv = self.real_imgs_adv
-        self.state = collections.defaultdict(dict)
+        self.optimizer.state = collections.defaultdict(dict)
         while(True):
             real_value = d_real.mean()
             fake_value = d_fake.mean()
@@ -98,7 +98,6 @@ class StableGANLoss:
         d_loss, g_loss = self.loss_fn(d_real_prime, d_real)
         d_losses.append(d_loss)
         d_loss, g_loss = self.loss_fn(d_fake, d_fake_prime)
-        #g_losses.append(-d_loss)
         d_losses.append(d_loss)
 
         return sum(d_losses), sum(g_losses)

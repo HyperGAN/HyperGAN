@@ -139,7 +139,7 @@ class BaseGAN():
         if(self.config.use_stabilized_loss):
             if not hasattr(self, 'stable_gan_loss'):
                 self.stable_gan_loss = StableGANLoss()
-            return self.stable_gan_loss.stable_loss(self.forward_discriminator, self.discriminator_real_inputs(), self.discriminator_fake_inputs()[0], d_fake = self.d_fake, d_real = self.d_real)
+            return self.stable_gan_loss.stable_loss(self.forward_discriminator, self.discriminator_real_inputs(), self.discriminator_fake_inputs()[0], d_fake = self.d_fake, d_real = self.d_real, form=(self.config.form or 0))
         d_loss, g_loss = loss.forward(d_real, d_fake)
         return [d_loss, g_loss]
 

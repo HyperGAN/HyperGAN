@@ -103,3 +103,7 @@ class StableGANLoss:
             stable_d_loss = -0.5 * torch.mean(d_real) + 0.5 * torch.mean(torch.nn.functional.softplus(d_real)) + 0.5 * torch.mean(torch.nn.functional.softplus(-d_fake))
             stable_g_loss = -torch.mean(torch.nn.functional.softplus(-d_fake))
             return stable_d_loss, stable_g_loss
+        elif form==7:
+            uncertainty = d_fake.std() + d_real.std()
+            loss = d_fake.mean() - d_real.mean() + 1.0 * uncertainty
+            return loss, -loss

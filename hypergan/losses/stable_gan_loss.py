@@ -103,3 +103,17 @@ class StableGANLoss:
             stable_d_loss = -0.5 * torch.mean(d_real) + 0.5 * torch.mean(torch.nn.functional.softplus(d_real)) + 0.5 * torch.mean(torch.nn.functional.softplus(-d_fake))
             stable_g_loss = -torch.mean(torch.nn.functional.softplus(-d_fake))
             return stable_d_loss, stable_g_loss
+        elif form == 110:
+            eps = 1e-8
+            d_fake = F.sigmoid(d_fake)
+            d_real = F.sigmoid(d_real)
+            g_mode_finding_loss = torch.log(d_fake+eps).mean()
+            d_mode_finding_loss = torch.log(1 - d_fake+eps).mean() + torch.log(d_real+eps).mean()
+            d_loss = -(d_mode_finding_loss + g_mode_finding_loss) / 2
+            g_loss = -g_mode_finding_loss
+            return d_loss, g_loss
+        elif form == 115:
+            # This technique solves mode collapse by introducing a regularization term that causes the loss to approach zero when the discriminator outputs are indistinguishable
+            loss_d = (-torch.mean(d_real) + torch.mean(d_fake)) + (torch.mean(d_real ** 2) + torch.mean(d_fake ** 2)) / 2
+            loss_g = -torch.mean(d_fake)
+            return loss_d, loss_g

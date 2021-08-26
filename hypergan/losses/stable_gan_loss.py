@@ -215,4 +215,16 @@ class StableGANLoss:
                 torch.mean(torch.mul(shortcut, torch.log(F.sigmoid(d_real) + 1e-8)))
             g_loss = -torch.mean(torch.log(F.sigmoid(d_fake) + 1e-8))
             return d_loss, g_loss
+        elif form==17:
+            shortcut = d_real.clone()
+            shortcut[shortcut > 0] = 1
+            shortcut[shortcut <= 0] = 0
+            d_loss = -torch.mean(torch.log(F.sigmoid(d_real) + 1e-8) + torch.log(1 - F.sigmoid(d_fake) + 1e-8)) + \
+                torch.mean(torch.mul(shortcut, torch.log(F.sigmoid(d_real) + 1e-8)))
+            shortcut_g = d_fake.clone()
+            shortcut_g[shortcut_g > 0] = 1
+            shortcut_g[shortcut_g <= 0] = 0
+            g_loss = -torch.mean(torch.log(F.sigmoid(d_fake) + 1e-8) + torch.log(1 - F.sigmoid(d_real) + 1e-8)) + \
+                torch.mean(torch.mul(shortcut_g, torch.log(F.sigmoid(d_fake) + 1e-8)))
+            return d_loss, g_loss
 

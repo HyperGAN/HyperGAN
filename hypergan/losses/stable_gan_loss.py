@@ -1,4 +1,5 @@
 import hypergan
+import math
 import torch
 from torch.nn.parameter import Parameter
 import torch.nn.functional as F
@@ -121,3 +122,97 @@ class StableGANLoss:
             uncertainty = d_fake.std() + d_real.std()
             loss = d_fake.mean() - d_real.mean() + 1.0 * uncertainty
             return loss, -loss
+        elif form==8:
+            d_loss = F.relu(d_real - d_fake + 1.0).mean()
+            return d_loss, -d_loss
+        elif form==9:
+            gs = gs[0]
+            xs = xs[0]
+            uncertainty = (d_real ** 2).mean()
+            d_loss = F.relu(1 - d_real).mean() + F.relu(1 + d_fake).mean() + 0.1 * uncertainty
+            g_loss = -d_fake.mean()
+            # Now avoid bad neighborhoods
+            noise = torch.randn_like(gs)
+            perturbation = noise * (1 - gs)
+            d_perturbed = discriminator(gs + perturbation)
+            d_perturbed_loss = F.relu(1 + d_perturbed).mean()
+            d_loss += 0.5 * d_perturbed_loss
+            return d_loss, g_loss
+        elif form==10:
+            gs = gs[0]
+            xs = xs[0]
+            uncertainty = torch.std(d_real.detach(), dim=0)
+            uncertainty = uncertainty.mean()
+            d_loss = F.relu(1. - d_real).mean() + F.relu(1. + d_fake).mean() + 5.*uncertainty
+            g_loss = -d_fake.mean() + uncertainty
+            # Then to avoid mode collapse
+            num_gen = gs.shape[0]
+            noise = torch.randn(num_gen, 1, 1, 1, device=d_real.device)
+            gs_ = gs + noise
+            d_fake_ = discriminator(gs_)
+            d_loss += F.relu(1. + d_fake_).mean()
+            return d_loss, g_loss
+        elif form==11:
+            gs = gs[0]
+            xs = xs[0]
+            bs = xs.shape[0]
+            alpha = torch.rand(bs, 1, 1, 1, device=xs.device)
+            alpha = alpha.expand_as(xs)
+            x_hat = alpha * xs + (1 - alpha) * gs
+            x_hat = x_hat.detach()
+            x_hat.requires_grad = True
+            d_hat = discriminator(x_hat)
+            gradients = torch_grad(
+                outputs=d_hat,
+                inputs=x_hat,
+                grad_outputs=torch.ones_like(d_hat),
+                create_graph=True,
+                retain_graph=True,
+                only_inputs=True,
+            )[0]
+            gradient_norm = gradients.norm(2, dim=1)
+            gradient_penalty = 10 * gradient_norm.sub(1).pow(2).mean()
+            d_loss = d_fake.mean() - d_real.mean() + gradient_penalty
+            g_loss = -d_fake.mean()
+            return d_loss, g_loss
+        elif form==12:
+            gs = gs[0]
+            xs = xs[0]
+            bs = xs.shape[0]
+            d_loss = torch.mean(d_real - d_fake)
+            g_loss = torch.mean(d_fake)
+            d_grad = torch.autograd.grad(d_loss, discriminator.parameters(), retain_graph=True)
+            d_grad_norm = torch.norm(torch.cat([g.view(-1) for g in d_grad]))
+            d_grad_norm_clipped = d_grad_norm.clamp(max=0.5)
+            d_grad_penalty = (d_grad_norm_clipped - 0.5).pow(2)
+            d_loss = d_loss + 10 * d_grad_penalty
+            return d_loss, g_loss
+        elif form==13:
+            uncertainty = torch.exp(torch.log(torch.abs(d_real - d_fake)))
+            mode_seek = d_real * (1.0 - d_fake) + d_fake * (1.0 - d_real)
+            # Loss to seek mode in the most stable manner possible. 
+            d_loss = (1.0 - uncertainty) ** 2 / 2.0
+            g_loss = (1.0 - d_fake) ** 2 / 2.0
+            return d_loss, g_loss
+        elif form==14:
+            stable_d_loss = (d_fake - d_real + 1.0).mean()
+            stable_g_loss = (d_fake - d_real - 1.0).mean()
+            return stable_d_loss, stable_g_loss
+        elif form==15:
+            # Section 2.4, extremely fast convergence shortcut. This also mode seeks, avoids bad neighborhoods, and allows any D or G architecture. Works with SGD learning rate 1.
+            uncertainty = 0.5 * (d_real.std() + d_fake.std())
+            # Section 2.5
+            mode_seeking = (d_real.mean() - d_fake.mean()) ** 2
+            # Section 2.6. Or, if you're really into the flow paper and don't want to think too hard, it's just d_fake.mean() - d_real.mean()
+            d_loss = -torch.mean(d_real) + torch.mean(d_fake) + 0.1 * uncertainty + 0.1 * mode_seeking
+            g_loss = -torch.mean(d_fake)
+            return d_loss, g_loss
+        elif form==16:
+            shortcut = d_real.clone()
+            shortcut[shortcut > 0] = 1
+            shortcut[shortcut <= 0] = 0
+            d_loss = -torch.mean(torch.log(F.sigmoid(d_real) + 1e-8) + torch.log(1 - F.sigmoid(d_fake) + 1e-8)) + \
+                torch.mean(torch.mul(shortcut, torch.log(F.sigmoid(d_real) + 1e-8)))
+            g_loss = -torch.mean(torch.log(F.sigmoid(d_fake) + 1e-8))
+            return d_loss, g_loss
+

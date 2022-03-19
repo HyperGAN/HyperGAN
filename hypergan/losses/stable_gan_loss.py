@@ -16,8 +16,8 @@ class StableGANLoss:
         self.gamma1 = torch.tensor(10.0, device=device)
         self.g_gamma1 = torch.tensor(10.0, device=device)
         self.gamma2 = torch.tensor(10.0, device=device)
-        self.g_gamma2 = torch.tensor(0.1, device=device)
-        self.inverse_gamma = torch.tensor(1e3, device=device)
+        self.g_gamma2 = torch.tensor(0.0, device=device)
+        self.inverse_gamma = torch.tensor(1.0, device=device)
         self.target1_x = None
         self.target1_g = None
         self.target2_x = None
@@ -62,7 +62,7 @@ class StableGANLoss:
         reg_real, g_ = self.loss_fn(discriminator(*neg_inverse_real), d_fake)
 
         d_losses.append(self.gamma2*(reg_fake+reg_real))
-        g_losses.append(self.g_gamma2 * g_)
+        #g_losses.append(self.g_gamma2 * g_)
 
         inverse_fake = self.inverse(d_real, discriminator(*self.target1_g), self.target1_g)
         inverse_real = self.inverse(discriminator(*self.target1_x), d_fake, self.target1_x)
@@ -78,7 +78,7 @@ class StableGANLoss:
     def inverse(self, d_real, d_fake, target):
         #loss = (d_fake - d_real) * self.inverse_gamma
         loss = self.loss_fn(d_fake, d_real)[0] * self.inverse_gamma
-        loss = loss.mean()
+        #d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True, only_inputs=True)
         d1_grads = torch_grad(outputs=loss, inputs=target, retain_graph=True, create_graph=True, only_inputs=True)
         #return [_t + _d1/_d1.norm() for _d1, _t in zip(d1_grads, target)]
         return [_t + _d1 for _d1, _t in zip(d1_grads, target)]

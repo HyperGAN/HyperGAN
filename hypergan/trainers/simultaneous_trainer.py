@@ -13,10 +13,12 @@ from hypergan.optimizers.sam import SAM
 
 TINY = 1e-12
 
-def ng(param):
+def ng(param, gan):
     grad = param.grad
     if grad is None:
-        raise ValidationException("Missing gradient for " + str(param.shape))
+        if gan.steps == 0:
+            print("Warning: missing gradient for " + str(param.shape))
+        return None
     grad_norm = grad.norm()
     max_norm = (1e-2) * torch.maximum(param.norm(),torch.ones([], device=param.device)*1e-8)
     trigger = grad_norm < max_norm
@@ -46,11 +48,11 @@ class SimultaneousTrainer(BaseTrainer):
         for p, np in zip(self.trainable_gan.d_parameters(), d_grads):
             p.grad = np
             if self.config.adaptive_gradient_norm:
-                p.grad = ng(p)
+                p.grad = ng(p, self.gan)
         for p, np in zip(self.trainable_gan.g_parameters(), g_grads):
             p.grad = np
             if self.config.adaptive_gradient_norm:
-                p.grad = ng(p)
+                p.grad = ng(p, self.gan)
 
         #if self.config.gradient_max_norm:
         #    torch.nn.utils.clip_grad_norm_(self.trainable_gan.parameters(), self.config.gradient_max_norm)

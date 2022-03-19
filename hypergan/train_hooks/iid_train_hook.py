@@ -25,7 +25,7 @@ class IIDTrainHook(BaseTrainHook):
         self.source_x = None
         if self.config.z_discriminator:
             self.z_discriminator = gan.create_component("z_discriminator", defn=self.config.z_discriminator, input=torch.zeros_like(gan.latent.next()))
-            self.z_stable_loss = StableGANLoss()
+            self.z_stable_loss = StableGANLoss(gan=self.gan, gammas=self.config.gammas or [1.0, 10.0, 10.0, 0, 10.0])
 
 
     def forward(self, d_loss, g_loss):
@@ -60,6 +60,7 @@ class IIDTrainHook(BaseTrainHook):
                 self.gan.add_metric('zd', d_l)
                 self.gan.add_metric('zg', g_l)
                 loss += g_l
+                self.gan.add_metric("recon", ((reconstruct_x-x)**2).sum())
                 #self.gan.add_metric('zw', self.z_discriminator.nn_layers[1][1].weight.sum())
 
             elif t == "g'(x)-g'(g(g'(x)))":

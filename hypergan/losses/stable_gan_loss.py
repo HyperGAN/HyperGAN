@@ -12,7 +12,7 @@ class StableGANLoss:
         loss.stable_loss(discriminator, [x], [g])
     ```
     """
-    def __init__(self, device='cuda:0', gammas=[1.0, 10.0, 1.0, 0, 100.0], gan=None):
+    def __init__(self, device='cuda:0', gammas=[0, 10.0, 10.0, 0, 100.0], gan=None):
         self.gan = gan
         if gammas[0] == 0:
             self.gamma1 = None

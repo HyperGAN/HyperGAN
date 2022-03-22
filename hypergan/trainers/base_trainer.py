@@ -57,7 +57,7 @@ class BaseTrainer(GANComponent):
         output = " %2d: " 
         for name in sorted(metrics.keys()):
             output += " " + name
-            output += " %.2f"
+            output += " %.2e"
         return output
 
     def output_variables(self, metrics):

@@ -84,6 +84,7 @@ class ConfigurableComponent(GANComponent):
             "slice": hg.layers.Slice,
             "expand": hg.layers.Expand,
             "rnn": hg.layers.Rnn,
+            "ntm": hg.layers.NTMLayer,
 
             #easy to convert
             "dropout": self.layer_dropout,

@@ -32,3 +32,4 @@ from .skip_connection import SkipConnection
 from .slice import Slice
 from .upsample import Upsample
 from .expand import Expand
+from .ntm import NTMLayer

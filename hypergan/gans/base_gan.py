@@ -162,8 +162,10 @@ class BaseGAN():
             print("Loading " + path)
             try:
                 state_dict = torch.load(path)
-                print('state_dict', state_dict.keys())
-                component.load_state_dict(state_dict)
+                if name.startswith("optimizer"):
+                    component.load_state_dict(state_dict)
+                else:
+                    component.load_state_dict(state_dict, strict=False)
                 return True
             except Exception as e:
                 print("Warning: Could not load component " + name)

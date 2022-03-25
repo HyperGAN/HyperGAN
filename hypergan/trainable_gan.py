@@ -52,8 +52,10 @@ class TrainableGAN:
         self.gan.steps += 1
         self._metrics = {}
 
-    def load(self):
-        success = self.gan.load(self.save_file)
+    def load(self, save_file=None):
+        if(save_file is None):
+            save_file = self.save_file
+        success = self.gan.load(save_file)
         full_path = os.path.expanduser(os.path.dirname(self.save_file))
         for i, optimizer in enumerate(self.optimizers):
             self.gan._load(full_path, "optimizer"+str(i), optimizer)

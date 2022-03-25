@@ -1,6 +1,7 @@
 import torch.nn as nn
 import hypergan as hg
 from hypergan.layer_shape import LayerShape
+from hypergan.layers.ntm import NTMLayer
 
 class EzNorm(hg.Layer):
     """
@@ -48,31 +49,44 @@ class EzNorm(hg.Layer):
         channels = component.current_size.channels
         dims = len(component.current_size.dims)
 
-        self.beta = nn.Linear(style_size, channels, bias=False)
-
-        #if dims == 2:
-        #    self.conv = nn.Conv1d(channels, 1, 1, 1, padding = 0)
-        #else:
-        #    self.conv = nn.Conv2d(channels, 1, 1, 1, padding = 0)
+        options["input_size"] = component.layer_output_sizes['w'].size()
+        self.beta = NTMLayer(component, [channels], options)
+        self.gamma = NTMLayer(component, [channels], options)
 
         component.nn_init(self.beta, options.initializer)
-        #component.nn_init(self.conv, options.initializer)
-        self.activation = nn.SELU()
+        component.nn_init(self.gamma, options.initializer)
 
-    def forward(self, input, context):
-        style = context[self.options.style or 'w']
-        N = input.shape[0]
-        D = input.shape[self.dim]
-        view = [1 for x in input.shape]
-        view[0] = N
-        view[self.dim] = D
+    def calc_mean_std(self, feat, eps=1e-5):
+        size = feat.size()
+        assert (len(size) == 4)
+        N, C = size[:2]
+        feat_var = feat.view(N, C, -1).var(dim=2) + eps
+        feat_std = feat_var.sqrt().view(N, C, 1, 1)
+        feat_mean = feat.view(N, C, -1).mean(dim=2).view(N, C, 1, 1)
+        return feat_mean, feat_std
 
-        if self.options.conv is None:
-            return self.activation(self.beta(style).view(*view)) * input + input
-            return self.beta(style).view(*view) + input
-        else:
-            conv = context[self.options.conv or 'r']
-            return self.activation(self.beta(style).view(*view)) * input +self.activation(conv)*input
+    def calc_mean_std1d(self, feat, eps=1e-5):
+        size = feat.size()
+        assert (len(size) == 3)
+        N, C = size[:2]
+        feat_var = feat.view(N, C, -1).var(dim=2) + eps
+        feat_std = feat_var.sqrt().view(N, C, 1)
+        feat_mean = feat.view(N, C, -1).mean(dim=2).view(N, C, 1)
+        return feat_mean, feat_std
+
+
+    def forward(self, content, context, epsilon=1e-5):
+        style = context['w']
+        style = style.view(content.shape[0], -1)
+        gamma = self.gamma(style, context)
+        beta = self.beta(style, context)
+        if len(content.shape) == 4:
+            c_mean, c_var = self.calc_mean_std(content, epsilon)
+        elif len(content.shape) == 3:
+            c_mean, c_var = self.calc_mean_std1d(content, epsilon)
+
+        c_std = (c_var + epsilon).sqrt()
+        return (1+gamma.view(c_std.shape)) * ((content - c_mean) / c_std) + beta.view(c_std.shape)
 
     def output_size(self):
         return self.size

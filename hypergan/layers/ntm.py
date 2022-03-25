@@ -21,7 +21,6 @@ class NTMLayer(hg.Layer):
 
         * layers - number of inner layers
         * heads - number of read/write heads
-        * hidden_size - size of inner layer
         * memory_n - size of 2d memory
         * memory_m - size of 2d memory
 
@@ -48,10 +47,9 @@ class NTMLayer(hg.Layer):
         super(NTMLayer, self).__init__(component, args, options)
         M = options.memory_m or 10
         N = options.memory_n or 10
-        dim = component.current_size.dims[0]
+        dim = options.input_size or component.current_size.dims[0]
         layers = options.layers or None
         num_heads = options.heads or 2
-        inner_dim = options.hidden_size or 512
         heads = []
 
         self.output_dim = int(args[0])
@@ -59,8 +57,8 @@ class NTMLayer(hg.Layer):
         memory = FastMemory(N, M).cuda()
         for i in range(num_heads):
             heads += [
-                NTMReadHead(memory, inner_dim).cuda(),
-                NTMWriteHead(memory, inner_dim).cuda()
+                NTMReadHead(memory, dim).cuda(),
+                NTMWriteHead(memory, dim).cuda()
             ]
 
         self.ntm = NTM(dim, self.output_dim, memory, heads).cuda()

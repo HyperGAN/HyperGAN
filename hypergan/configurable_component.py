@@ -836,7 +836,14 @@ class ConfigurableComponent(GANComponent):
         return self._latent_parameters
 
     def set_trainable(self, flag):
-        for p in (set(list(self.parameters())) - self.untrainable_parameters):
+        if self.config.trainable == False:
+            flag = False
+        if not hasattr(self, 'trainable_parameters'):
+            self.trainable_parameters = (set(list(self.parameters())) - self.untrainable_parameters)
+        if self.gan.steps == 0:
+            for p in self.untrainable_parameters:
+                p.requires_grad = False
+        for p in self.trainable_parameters:
             p.requires_grad = flag
 
     def layer_shape(self):

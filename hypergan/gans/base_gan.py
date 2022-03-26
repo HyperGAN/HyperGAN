@@ -146,14 +146,17 @@ class BaseGAN():
     def next_inputs(self):
         return None
 
-    def load(self, save_file):
+    def load(self, save_file, load_components=None):
         print("Loading..." + str(len(self.components)))
         success = True
         full_path = os.path.expanduser(os.path.dirname(save_file))
         for name, component in self.components.items():
-            if not self._load(full_path, name, component):
-                print("Error loading", name)
-                success = False
+            if load_components is None or name in load_components:
+                if not self._load(full_path, name, component):
+                    print("Error loading", name)
+                    success = False
+            else:
+                print("Skipping load of", name)
         return success
 
     def _load_best_fit(self, name, savefile_state_dict, component_state_dict):

@@ -156,21 +156,71 @@ class BaseGAN():
                 success = False
         return success
 
+    def _load_best_fit(self, name, savefile_state_dict, component_state_dict):
+        matched = []
+        savefile_unmatched = []
+        component_unmatched = []
+        for param_tensor in savefile_state_dict.keys():
+            if param_tensor in component_state_dict and component_state_dict[param_tensor].size() == savefile_state_dict[param_tensor].size():
+                matched.append(param_tensor)
+            else:
+                savefile_unmatched.append(param_tensor)
+        for param_tensor in component_state_dict.keys():
+            if param_tensor not in savefile_state_dict:
+                component_unmatched.append(param_tensor)
+        print("  matched tensors", matched)
+        if len(savefile_unmatched) != 0:
+            print("  Warning: unmatched savefile tensors.  Trying to match", len(savefile_unmatched), "tensors from savefile to", name)
+        savefile_unloadable = []
+        for savefile_tensor in savefile_unmatched:
+            potential_matches = []
+            for component_tensor in component_unmatched:
+
+                if re.sub(r"net\.\d+", "", savefile_tensor) == re.sub(r"net\.\d+", "", component_tensor):
+                    if savefile_state_dict[savefile_tensor].size() == component_state_dict[component_tensor].size():
+                        potential_matches.append(component_tensor)
+
+            if len(potential_matches) == 0:
+                savefile_unloadable.append(savefile_tensor)
+            else:
+                if(len(potential_matches) > 1):
+                    print("    Multiple potential matches for", savefile_tensor, potential_matches)
+                    print("    chose ", potential_matches[0])
+                match = potential_matches[0]
+                savefile_state_dict[match] = savefile_state_dict[savefile_tensor]
+                del savefile_state_dict[savefile_tensor]
+
+                component_unmatched.remove(match)
+        if len(savefile_unloadable) == 0:
+            print("  All savefile tensors found a tensor.")
+        else:
+            print("  Some tensors from "+name+" save file were not used", savefile_unloadable)
+        if len(component_unmatched) == 0:
+            print("  All "+name+" tensors have been loaded.")
+        else:
+            print("  The following tensors have not been loaded", component_unmatched)
+        return savefile_state_dict
+
+
+
     def _load(self, full_path, name, component):
         path = full_path + "/"+name+".save"
         if Path(path).is_file():
             print("Loading " + path)
-            try:
-                state_dict = torch.load(path)
-                if name.startswith("optimizer"):
+            state_dict = torch.load(path)
+
+            if not name.startswith("optimizer"):
+                state_dict = self._load_best_fit(name,state_dict, component.state_dict())
+            if name.startswith("optimizer"):
+                try:
                     component.load_state_dict(state_dict)
-                else:
-                    component.load_state_dict(state_dict, strict=False)
-                return True
-            except Exception as e:
-                print("Warning: Could not load component " + name)
-                print(e)
-                return False
+                except Exception as e:
+                    print("  Warning: Could not load optimizer " + name)
+                    print("  best-fit loading is not implemented for optimizers.")
+                    return False
+            else:
+                component.load_state_dict(state_dict, strict=False)
+            return True
         else:
             print("Could not load " + path)
             return False
@@ -183,7 +233,7 @@ class BaseGAN():
     def _save(self, full_path, name, component):
         path = full_path + "/"+name+".save"
         print("Saving " + path)
-        print(component.state_dict().keys())
+        print(len(component.state_dict().keys()), "tensors saved")
         torch.save(component.state_dict(), path)
 
     def parse_args(self, strs):

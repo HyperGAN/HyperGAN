@@ -65,6 +65,7 @@ class NTMLayer(hg.Layer):
         self.batch_size = component.gan.batch_size()
         self.memory = memory
         self.softmax = torch.nn.Softmax(dim=1)
+        self.heads_only = options.heads_only or False
 
     def init_sequence(self):
         self.memory.reset(self.batch_size)
@@ -72,7 +73,7 @@ class NTMLayer(hg.Layer):
     def forward(self, input, context):
 
         self.init_sequence()
-        net = self.ntm(input)
+        net = self.ntm(input, heads_only=self.heads_only)
         return net
 
     def output_size(self):
@@ -231,6 +232,7 @@ class NTMReadHead(NTMHeadBase):
 
         # Corresponding to k, β, g, s, γ sizes from the paper
         self.read_lengths = [self.M, 1, 1, 3, 1]
+        self.controller_size = controller_size
         self.fc_read = nn.Linear(controller_size, sum(self.read_lengths))
         self.reset_parameters()
 
@@ -336,7 +338,7 @@ class NTM(nn.Module):
         nn.init.xavier_uniform_(self.fc.weight, gain=1)
         nn.init.normal_(self.fc.bias, std=0.01)
 
-    def forward(self, x):
+    def forward(self, x, heads_only=False):
         """NTM forward function.
 
         :param x: input vector (batch_size x num_inputs)
@@ -353,7 +355,11 @@ class NTM(nn.Module):
             heads_states += [head_state]
 
         # Generate Output
-        inp2 = torch.cat([x] + reads, dim=1)
-        o = self.fc(inp2)
+        if heads_only:
+            inp2 = sum(reads)
+            o = inp2
+        else:
+            inp2 = torch.cat([x] + reads, dim=1)
+            o = self.fc(inp2)
 
         return o

@@ -305,8 +305,10 @@ class BaseGAN():
     def __getstate__(self):
         pickled = dict(self.__dict__)
 
-        del pickled['inputs']
-        del pickled['x']
+        if 'inputs' in pickled:
+            del pickled['inputs']
+        if 'x' in pickled:
+            del pickled['x']
         return pickled
     def __setstate__(self, d):
         self.__dict__ = d

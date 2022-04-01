@@ -70,6 +70,7 @@ class ConfigurableComponent(GANComponent):
             "ez_norm": hg.layers.EzNorm,
             "layer": hg.layers.Layer,
             "minibatch": hg.layers.Minibatch,
+            "mlp_mixer": hg.layers.MlpMixer,
             "mul": hg.layers.Mul,
             "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
             "noise": hg.layers.Noise,

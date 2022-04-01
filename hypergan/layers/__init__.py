@@ -34,3 +34,4 @@ from .upsample import Upsample
 from .expand import Expand
 from .ntm import NTMLayer
 from .mlp_mixer import MlpMixer
+from .cellular_automata import CellularAutomata

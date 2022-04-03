@@ -80,6 +80,7 @@ class ConfigurableComponent(GANComponent):
             "residual": hg.layers.Residual,
             "resizable_stack": hg.layers.ResizableStack,
             "segment_softmax": hg.layers.SegmentSoftmax,
+            "synthesis_input": hg.layers.SynthesisInput,
             "skip_connection": hg.layers.SkipConnection,
             "upsample": hg.layers.Upsample,
             "evo_norm": hg.layers.EvoNorm,

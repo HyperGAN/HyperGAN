@@ -30,6 +30,7 @@ from .rnn import Rnn
 from .segment_softmax import SegmentSoftmax
 from .skip_connection import SkipConnection
 from .slice import Slice
+from .synthesis_input import SynthesisInput
 from .upsample import Upsample
 from .expand import Expand
 from .ntm import NTMLayer

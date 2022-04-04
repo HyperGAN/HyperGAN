@@ -52,6 +52,8 @@ class EzNorm(hg.Layer):
         options["input_size"] = component.layer_output_sizes['w'].size()
         self.beta = NTMLayer(component, [channels], options)
         self.gamma = NTMLayer(component, [channels], options)
+        self.offset = nn.Conv2d(in_channels = channels, out_channels = channels, kernel_size=1, padding=0)
+        self.activation = nn.SELU()
 
         component.nn_init(self.beta, options.initializer)
         component.nn_init(self.gamma, options.initializer)
@@ -60,7 +62,7 @@ class EzNorm(hg.Layer):
         size = feat.size()
         assert (len(size) == 4)
         N, C = size[:2]
-        feat_var = feat.view(N, C, -1).var(dim=2) + eps
+        feat_var = feat.view(N, C, -1).var(dim=2)# + eps
         feat_std = feat_var.sqrt().view(N, C, 1, 1)
         feat_mean = feat.view(N, C, -1).mean(dim=2).view(N, C, 1, 1)
         return feat_mean, feat_std
@@ -69,7 +71,7 @@ class EzNorm(hg.Layer):
         size = feat.size()
         assert (len(size) == 3)
         N, C = size[:2]
-        feat_var = feat.view(N, C, -1).var(dim=2) + eps
+        feat_var = feat.view(N, C, -1).var(dim=2)# + eps
         feat_std = feat_var.sqrt().view(N, C, 1)
         feat_mean = feat.view(N, C, -1).mean(dim=2).view(N, C, 1)
         return feat_mean, feat_std
@@ -80,13 +82,14 @@ class EzNorm(hg.Layer):
         style = style.view(content.shape[0], -1)
         gamma = self.gamma(style, context)
         beta = self.beta(style, context)
+        offset = self.offset(self.activation(content))
         if len(content.shape) == 4:
             c_mean, c_var = self.calc_mean_std(content, epsilon)
         elif len(content.shape) == 3:
             c_mean, c_var = self.calc_mean_std1d(content, epsilon)
 
-        c_std = (c_var + epsilon).sqrt()
-        return (1+gamma.view(c_std.shape)) * ((content - c_mean) / c_std) + beta.view(c_std.shape)
+        c_std = (c_var).sqrt()
+        return ((1+gamma.view(c_std.shape)) * (nn.functional.sigmoid(offset)*content)) + beta.view(c_std.shape)
 
     def output_size(self):
         return self.size

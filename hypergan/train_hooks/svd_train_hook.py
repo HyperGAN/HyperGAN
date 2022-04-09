@@ -12,14 +12,17 @@ from torch.autograd import grad as torch_grad
 from torch.nn.parameter import Parameter
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
+from info_nce import InfoNCE
 
 class SVDTrainHook(BaseTrainHook):
     """ Trains a classifier for svd interpolations of latent parameters. """
     def __init__(self, gan=None, config=None):
         super().__init__(config=config, gan=gan)
         self.ce_loss = torch.nn.CrossEntropyLoss()
-        self.svd_classifier = gan.create_component("svd_classifier", defn=self.config.svd_classifier, input=torch.zeros_like(gan.latent.next()))
-        self.z_stable_loss = StableGANLoss(gan=self.gan, gammas=self.config.gammas, offsets=self.config.offsets, metric_name="z")
+        if self.config.svd_classifier:
+            self.svd_classifier = gan.create_component("svd_classifier", defn=self.config.svd_classifier, input=torch.zeros_like(gan.latent.next()))
+        if self.config.info_nce:
+            self.info_nce = InfoNCE()
 
     def gram_schmidt(self, vv):
         def projection(u, v):
@@ -46,21 +49,43 @@ class SVDTrainHook(BaseTrainHook):
         g_params = self.gan.latent_parameters()
         eigvecs = [torch.linalg.svd(g_p) for g_p in g_params]
         e = eigvecs[0][2]
-        if self.config.type == "orthogonal":
-            xsch = self.gram_schmidt(g)
-            x = xsch / xsch.abs().sum()
 
         d_l = []
         g_l = []
-        if self.config.svd_classifier:
+        if self.config.info_nce:
+            selections = torch.randint(0, e.shape[0], [self.gan.batch_size()]).cuda()
+            z2 = self.gan.augmented_latent - (0.5 * e[selections])
+            z3 = self.gan.augmented_latent + (0.5 * e[selections])
+            g2 = self.gan.generator(z2)
+            g = self.gan.g
+            g3 = self.gan.generator(z3)
+            p1 = torch.cat([g2, g, g3], dim=1)
+            positive  = self.svd_classifier(p1)
+            query = torch.randn_like(positive)
+            negatives = []
+            for i in range(2):
+                selections2 = torch.randint(0, e.shape[0], [self.gan.batch_size()]).cuda()
+                z3f = self.gan.augmented_latent - (0.5 * e[selections2])
+                z4f = self.gan.augmented_latent + (0.5 * e[selections2])
+                g3f = self.gan.generator(z3f)
+                g4f = self.gan.generator(z4f)
+                n1 = torch.cat([g3f, g, g4f], dim=1)
+                negative = self.svd_classifier(n1)
+                negatives.append(negative)
+            negatives = torch.cat(negatives, dim=0)
+            loss = self.info_nce(query, positive, negatives)
+            d_l.append(loss)
+            g_l.append(loss)
+            self.gan.add_metric("infoNCE", loss)
+        elif self.config.svd_classifier:
             i = []
             selections = torch.randint(0, e.shape[0], [self.gan.batch_size()]).cuda()
             z2 = self.gan.augmented_latent - (0.5 * e[selections])
             z3 = self.gan.augmented_latent + (0.5 * e[selections])
             p = self.gan.generator(z2)
             f = self.gan.generator(z3)
-            #g = self.gan.g
-            x = torch.cat([p,f], dim=1)
+            g = self.gan.g
+            x = torch.cat([p,g,f], dim=1)
             #g2 = torch.cat([p,g], dim=1)
             logits = self.svd_classifier(x)
             l = self.ce_loss(logits, selections).sum()

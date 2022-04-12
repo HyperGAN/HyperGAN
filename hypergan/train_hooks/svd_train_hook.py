@@ -22,7 +22,7 @@ class SVDTrainHook(BaseTrainHook):
         if self.config.svd_classifier:
             self.svd_classifier = gan.create_component("svd_classifier", defn=self.config.svd_classifier, input=torch.zeros_like(gan.latent.next()))
         if self.config.info_nce:
-            self.info_nce = InfoNCE()
+            self.info_nce = InfoNCE(negative_mode='paired')
 
     def gram_schmidt(self, vv):
         def projection(u, v):
@@ -61,7 +61,13 @@ class SVDTrainHook(BaseTrainHook):
             g3 = self.gan.generator(z3)
             p1 = torch.cat([g2, g, g3], dim=1)
             positive  = self.svd_classifier(p1)
-            query = torch.randn_like(positive)
+            z2 = self.gan.augmented_latent - ((torch.rand_like(e[selections])/2.0+0.3) * e[selections])
+            z3 = self.gan.augmented_latent + ((torch.rand_like(e[selections])/2.0+0.3) * e[selections])
+            g2 = self.gan.generator(z2)
+            g = self.gan.g
+            g3 = self.gan.generator(z3)
+            p1 = torch.cat([g2, g, g3], dim=1)
+            query  = self.svd_classifier(p1)
             negatives = []
             for i in range(2):
                 selections2 = torch.randint(0, e.shape[0], [self.gan.batch_size()]).cuda()
@@ -71,8 +77,8 @@ class SVDTrainHook(BaseTrainHook):
                 g4f = self.gan.generator(z4f)
                 n1 = torch.cat([g3f, g, g4f], dim=1)
                 negative = self.svd_classifier(n1)
-                negatives.append(negative)
-            negatives = torch.cat(negatives, dim=0)
+                negatives.append(negative.unsqueeze(1))
+            negatives = torch.cat(negatives, dim=1)
             loss = self.info_nce(query, positive, negatives)
             d_l.append(loss)
             g_l.append(loss)

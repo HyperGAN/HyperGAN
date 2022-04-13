@@ -66,6 +66,7 @@ class ConfigurableComponent(GANComponent):
             "add": hg.layers.Add,
             "cat": hg.layers.Cat,
             "cellular_automata": hg.layers.CellularAutomata,
+            "cellular_automata_1d": hg.layers.CellularAutomata1D,
             "channel_attention": hg.layers.ChannelAttention,
             "efficient_attention": hg.layers.EfficientAttention,
             "ez_norm": hg.layers.EzNorm,

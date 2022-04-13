@@ -20,18 +20,28 @@ class EfficientAttention(hg.Layer):
         self.head_count = options.heads or 4
         self.value_channels = options.value_channels or 16
 
-        self.keys = nn.Conv2d(in_dim, self.key_channels, 1)
-        self.queries = nn.Conv2d(in_dim, self.key_channels, 1)
-        self.values = nn.Conv2d(in_dim, self.value_channels, 1)
-        self.reprojection = nn.Conv2d(self.value_channels, out_dim, 1)
+        if len(self.dims) == 3:
+            self.keys = nn.Conv2d(in_dim, self.key_channels, 1)
+            self.queries = nn.Conv2d(in_dim, self.key_channels, 1)
+            self.values = nn.Conv2d(in_dim, self.value_channels, 1)
+            self.reprojection = nn.Conv2d(self.value_channels, out_dim, 1)
+        else:
+            self.keys = nn.Conv1d(in_dim, self.key_channels, 1)
+            self.queries = nn.Conv1d(in_dim, self.key_channels, 1)
+            self.values = nn.Conv1d(in_dim, self.value_channels, 1)
+            self.reprojection = nn.Conv1d(self.value_channels, out_dim, 1)
 
-        self.size = LayerShape(out_dim, self.dims[1], self.dims[2])
+        self.size = LayerShape(*([out_dim] + self.dims[1:]))
 
     def output_size(self):
         return self.size
 
     def forward(self, input_, context):
-        n, _, h, w = input_.size()
+        if len(input_.shape) == 3:
+            n, _, h = input_.size()
+            w = 1
+        else:
+            n, _, h, w = input_.size()
         keys = self.keys(input_).reshape((n, self.key_channels, h * w))
         queries = self.queries(input_).reshape(n, self.key_channels, h * w)
         values = self.values(input_).reshape((n, self.value_channels, h * w))
@@ -58,11 +68,16 @@ class EfficientAttention(hg.Layer):
             context = key @ value.transpose(1, 2)
             attended_value = (
                 context.transpose(1, 2) @ query
-            ).reshape(n, head_value_channels, h, w)
+            )
+
+            if len(input_.shape) == 3:
+                attended_value = attended_value.reshape(n, head_value_channels, h)
+            else:
+                attended_value = attended_value.reshape(n, head_value_channels, h, w)
             attended_values.append(attended_value)
 
         aggregated_values = torch.cat(attended_values, dim=1)
         reprojected_value = self.reprojection(aggregated_values)
         attention = reprojected_value
 
-        return attention.view(*([input_.shape[0]]+list(self.output_size().dims)))
+        return attention.view([input_.shape[0]]+list(self.output_size().dims))

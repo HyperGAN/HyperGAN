@@ -537,7 +537,7 @@ class NTMGenerator(BaseGenerator):
         M = 32
         memory = FastMemory(N, M).cuda()
         clayers = 1
-        num_heads = 4
+        num_heads = 2
         if self.gan.config.lstm:
             controller = LSTMController(dim + M*num_heads, inner_dim, clayers).cuda()
         else:
@@ -559,18 +559,18 @@ class NTMGenerator(BaseGenerator):
         #        ).cuda()
         #encoder_layer = TransformerEncoderLayer(d_model=self.output_dim, nhead=4)
         #self.net = torch.nn.TransformerEncoder(encoder_layer, num_layers=2).cuda()
-        #self.decoder = nn.Sequential(nn.ReLU(), nn.Linear(self.output_dim, 256)).cuda()
-        self.decoder = nn.Sequential(nn.ReLU(), nn.Conv1d(self.output_dim//512, 1, kernel_size=3, stride=2, padding=1)).cuda()
+        #self.decoder = nn.Sequential(nn.Flatten(),nn.ReLU(), nn.Linear(self.output_dim, 256)).cuda()
+        self.decoder = nn.Sequential(nn.ReLU(), nn.Conv1d(self.output_dim//256, 1, kernel_size=1, stride=1, padding=0)).cuda()
         self.memory = memory
         self.controller = controller
         self.softmax = torch.nn.Softmax(dim=1)
         self.relu = torch.nn.ReLU()
         cas = []
         convs = []
-        num_ca_layers = 4
+        num_ca_layers = 2
         for i in range(num_ca_layers):
-            convs.append(nn.Conv1d(self.output_dim//512,self.output_dim//512, stride=1, kernel_size=1, padding=0).cuda())
-            cas.append(hg.layers.cellular_automata_1d.CellularAutomataModule(self.output_dim//512, 2).cuda())
+            convs.append(nn.Conv1d(self.output_dim//256,self.output_dim//256, stride=1, kernel_size=1, padding=0).cuda())
+            cas.append(hg.layers.cellular_automata_1d.CellularAutomataModule(self.output_dim//256, 2).cuda())
         self.ca_layers = [cas, convs]
 
     def init_sequence(self):
@@ -584,9 +584,9 @@ class NTMGenerator(BaseGenerator):
     def forward(self, input, context={}):
         net = input
         net, self.prev_state = self.ntm(net, self.prev_state)
-        net = net.view(net.shape[0], self.output_dim//512, 512)
+        net = net.view(net.shape[0], self.output_dim//256, 256)
         for (ca, conv) in zip(*self.ca_layers):
-            net = conv(net) + ca(net)
+            net = net + conv(net) + ca(net)
             net = self.relu(net)
         #net = self.net(net.unsqueeze(1))
         net = self.decoder(net)

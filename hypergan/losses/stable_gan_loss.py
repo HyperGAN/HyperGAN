@@ -30,9 +30,10 @@ class StableGANLoss:
             d_gammas = gammas
         self.d_gammas = [torch.tensor(gamma,device=device) for gamma in d_gammas]
         self.g_gamma = torch.tensor(10.0,device=device)
+        self.fake_g_gamma = torch.tensor(0.1,device=device)
         self.inverse_gamma = torch.tensor(1e3,device=device)
 
-    def stable_loss(self, discriminator, xs, gs, d_real = None, d_fake = None):
+    def stable_loss(self, discriminator, xs, gs, d_fake = None, d_real = None):
         d_losses = []
         g_losses = []
         for form in ["teacher", "teacher_fake", "regularize_fake", "regularize_real"]:
@@ -70,9 +71,9 @@ class StableGANLoss:
             neg_teacher_real = self.inverse(d_fake, discriminator(self.fake_target_x), self.fake_target_x)
 
             reg_fake, _ = self.loss.forward(d_real, discriminator(neg_teacher_fake))
-            reg_real, _ = self.loss.forward(discriminator(neg_teacher_real), d_fake)
+            reg_real, g_ = self.loss.forward(discriminator(neg_teacher_real), d_fake)
 
-            return self.d_gammas[1]*(reg_fake+reg_real), None
+            return self.d_gammas[1]*(reg_fake+reg_real), self.fake_g_gamma*g_
 
         if form == "regularize_fake":
             if self.reg_fake_target is None:
@@ -90,10 +91,12 @@ class StableGANLoss:
             norm = (reg_x**2).mean()
             return self.d_gammas[3] * norm.mean(), None
 
+        raise "Invalid form"
+
     def inverse(self, d_real, d_fake, target):
-        loss = self.loss.forward(d_fake, d_real)[0] * self.inverse_gamma
+        loss = self.loss.forward(d_fake, d_real)[0]# * self.inverse_gamma
         grads = torch_grad(outputs=loss, inputs=[target], retain_graph=True, create_graph=True, only_inputs=True)
-        return target + grads[0]
+        return grads[0]
 
     def regularize_adversarial_norm(self, d_real, d_fake, target):
         loss = ((d_real - d_fake)**2).mean()

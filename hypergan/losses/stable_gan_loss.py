@@ -96,7 +96,7 @@ class StableGANLoss:
     def inverse(self, d_real, d_fake, target):
         loss = self.loss.forward(d_fake, d_real)[0]# * self.inverse_gamma
         grads = torch_grad(outputs=loss, inputs=[target], retain_graph=True, create_graph=True, only_inputs=True)
-        return grads[0]
+        return target + grads[0]
 
     def regularize_adversarial_norm(self, d_real, d_fake, target):
         loss = ((d_real - d_fake)**2).mean()

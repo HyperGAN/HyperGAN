@@ -36,6 +36,10 @@ class StableGANLoss:
     def stable_loss(self, discriminator, xs, gs, d_fake = None, d_real = None):
         d_losses = []
         g_losses = []
+        if d_fake is None:
+            d_fake = discriminator(gs[0])
+        if d_real is None:
+            d_real = discriminator(xs[0])
         for form in ["teacher", "teacher_fake", "regularize_fake", "regularize_real"]:
             adv_d_loss, adv_g_loss = self.adversarial_norm(form, xs[0], gs[0], discriminator, d_real, d_fake) # TODO multiple
             self.gan.add_metric(form+'d', adv_d_loss.mean())

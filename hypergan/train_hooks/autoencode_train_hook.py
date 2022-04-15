@@ -47,9 +47,9 @@ class AutoencodeTrainHook(BaseTrainHook):
 
         d_l = None
         if self.config.type == 'g':
-            z_loss = self.ae_stable_loss.stable_loss(self.ae_discriminator, [torch.cat([g,g], axis=1)], [torch.cat([g,reconstruct_g], axis=1)])
+            z_loss = self.ae_stable_loss.ae_stable_loss(self.ae_discriminator, g, reconstruct_g)
         else:
-            z_loss = self.ae_stable_loss.stable_loss(self.ae_discriminator, [torch.cat([x,x], axis=1)], [torch.cat([x,reconstruct_x], axis=1)])
+            z_loss = self.ae_stable_loss.ae_stable_loss(self.ae_discriminator, x, reconstruct_x)
         d_l = z_loss[0]
         g_l = z_loss[1]
         self.gan.add_metric('aed', d_l)

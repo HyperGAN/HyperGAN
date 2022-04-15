@@ -55,7 +55,7 @@ class IIDTrainHook(BaseTrainHook):
                 loss += ((z - zprime)**2).mean()
                 self.gan.add_metric("IID1d", loss)
             elif t == 'zdisc3':
-                z_loss = self.z_stable_loss.stable_loss(self.z_discriminator, [torch.cat([z,z], axis=1)], [torch.cat([z,zprime], axis=1)])
+                z_loss = self.z_stable_loss.ae_stable_loss(self.z_discriminator, z, zprime)
                 d_l = z_loss[0]
                 g_l = z_loss[1]
                 self.gan.add_metric('zd', d_l)

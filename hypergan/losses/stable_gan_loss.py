@@ -80,15 +80,18 @@ class StableGANLoss:
             self.target_g.data = g.data.clone()
             gg = torch.cat([self.target_x2, self.target_g], axis=1)
             xx = torch.cat([self.target_x3, self.target_x], axis=1)
-            teacher_fake = self.inverse(d_real, discriminator(gg), gg)
-            teacher_real = self.inverse(discriminator(xx), d_fake, xx)
+            teacher_fake = self.ae_inverse(d_real, discriminator(gg), [self.target_x2, self.target_g])
+            teacher_real = self.ae_inverse(discriminator(xx), d_fake, [self.target_x3, self.target_x])
 
+            in_fake = torch.cat([teacher_fake[1], teacher_fake[1]], axis=1)
+            in_real = torch.cat([teacher_real[0], teacher_real[1]], axis=1)
             #in_fake = torch.cat([teacher_real, teacher_fake], axis=1)
             #in_real = torch.cat([teacher_real, teacher_real], axis=1)
             #in_fake = teacher_fake
-            #in_real = teacher_real
-            in_fake = teacher_real
-            in_real = teacher_fake
+            #in_fake = torch.cat(teacher_fake, axis=1)
+            #in_real = torch.cat(teacher_real, axis=1)
+            #in_fake = teacher_real
+            #in_real = teacher_fake
             reg_fake, g_ = self.loss.forward(discriminator(in_fake), d_fake)
             reg_real, _ = self.loss.forward(d_real, discriminator(in_real))
 
@@ -107,13 +110,15 @@ class StableGANLoss:
             self.fake_target_g.data = g.data.clone()
             gg = torch.cat([self.fake_target_x2, self.fake_target_g], axis=1)
             xx = torch.cat([self.fake_target_x3, self.fake_target_x], axis=1)
-            neg_teacher_fake = self.inverse(discriminator(gg), d_real, gg)
-            neg_teacher_real = self.inverse(d_fake, discriminator(xx), xx)
+            neg_teacher_fake = self.ae_inverse(discriminator(gg), d_real, [self.fake_target_x2, self.fake_target_g])
+            neg_teacher_real = self.ae_inverse(d_fake, discriminator(xx), [self.fake_target_x3, self.fake_target_x])
 
             #in_fake = torch.cat([neg_teacher_real, neg_teacher_fake], axis=1)
             #in_real = torch.cat([neg_teacher_real, neg_teacher_real], axis=1)
-            in_fake = neg_teacher_fake
-            in_real = neg_teacher_real
+            in_fake = torch.cat([neg_teacher_fake[1], neg_teacher_fake[1]], axis=1)
+            in_real = torch.cat([neg_teacher_real[0], neg_teacher_real[1]], axis=1)
+            #in_fake = neg_teacher_fake
+            #in_real = neg_teacher_real
             #in_fake = teacher_real
             #in_real = teacher_fake
             reg_fake, _ = self.loss.forward(d_real, discriminator(in_fake))
@@ -199,6 +204,15 @@ class StableGANLoss:
         loss = self.loss.forward(d_fake, d_real)[0]# * self.inverse_gamma
         grads = torch_grad(outputs=loss, inputs=[target], retain_graph=True, create_graph=True, only_inputs=True)
         return target + grads[0]
+
+    def ae_inverse(self, d_real, d_fake, targets):
+        loss = self.loss.forward(d_fake, d_real)[0]# * self.inverse_gamma
+        grads = torch_grad(outputs=loss, inputs=targets, retain_graph=True, create_graph=True, only_inputs=True)
+        result = []
+        for target, grad in zip(targets, grads):
+            result.append(target+grad)
+        return result
+
 
     def regularize_adversarial_norm(self, d_real, d_fake, target):
         loss = ((d_real - d_fake)**2).mean()

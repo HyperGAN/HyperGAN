@@ -10,11 +10,9 @@ from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.generators import *
 from hypergan.inputs import *
 from hypergan.samplers import *
-from CLIP import clip
 from torch import nn
 from hypergan.trainers import *
 from hypergan.layer_shape import LayerShape
-from hypergan.train_hooks.clip_prompt_train_hook import ClipPromptTrainHook, MakeCutouts
 import copy
 import hyperchamber as hc
 import hypergan as hg
@@ -46,22 +44,19 @@ class KnowledgeDistillationGAN(BaseGAN):
 
     def create(self):
         self.latent = self.create_component("latent")
-        self.generator = self.create_component("generator", input=self.latent)
+        self.generator = self.create_component("generator", input=torch.zeros([self.latent.shape[0], self.latent.shape[1]]))
         self.discriminator = self.create_component("discriminator")
-        with open("/ml/styleganxl_models/imagenet128.pkl", "rb") as f:
+        with open(self.config.pkl or "imagenet128.pkl", "rb") as f:
             G = legacy.load_network_pkl(f)['G_ema']
             G = G.eval().requires_grad_(False).to(self.device)
         self._teacher = G
 
-    def forward_discriminator(self, *inputs):
-        return self.discriminator(inputs[0])
+    def forward_discriminator(self, input):
+        return self.discriminator(input)
 
     def next_inputs(self):
         pass
 
-
-    def clip_encode(self, g):
-        return PromptGAN.perceptor.encode_image(self.make_cutouts(self.normalize(g))).float()
 
     def teacher(self, z, class_idx=None, labels = None):
         G = self._teacher
@@ -101,19 +96,21 @@ class KnowledgeDistillationGAN(BaseGAN):
         z = self.latent.next()
         x1, labels = self.teacher(z)
         self.labels = labels
-        zlabels = torch.cat([z, labels], dim=1)
+        if(labels is None):
+            zlabels = z
+        else:
+            zlabels = torch.cat([z, labels], dim=1)
         g1 = self.generator(zlabels)
         self.x = x1
-        xarg = torch.cat([x1,x1],dim=1)
-        garg = torch.cat([x1,g1],dim=1)
-        self.x_args = [xarg]
-        self.g_args = [garg]
-        d_real = self.forward_discriminator(*self.x_args)
-        d_fake = self.forward_discriminator(*self.g_args)
+        self.g = g1
+        return None, None
 
-        self.d_fake = d_fake
-        self.d_real = d_real
-        return d_real, d_fake
+    def forward_loss(self, loss):
+        d_real, d_fake = self.forward_pass()
+        if not hasattr(self, 'stable_gan_loss'):
+            self.stable_gan_loss = StableGANLoss(gan=self, gammas=self.config.stable_gammas, offsets = self.config.stable_offsets)
+        return self.stable_gan_loss.ae_stable_loss(self.forward_discriminator, self.discriminator_real_inputs()[0], self.discriminator_fake_inputs()[0][0])
+
 
     def input_nodes(self):
         "used in hypergan build"
@@ -132,8 +129,8 @@ class KnowledgeDistillationGAN(BaseGAN):
         return [self.generator]
 
     def discriminator_fake_inputs(self):
-        return [self.g_args]
+        return [[self.g]]
 
     def discriminator_real_inputs(self):
-        return self.x_args
+        return [self.x]
 

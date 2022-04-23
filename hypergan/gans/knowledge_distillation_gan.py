@@ -48,7 +48,7 @@ class KnowledgeDistillationGAN(BaseGAN):
         self.latent = self.create_component("latent")
         self.generator = self.create_component("generator", input=self.latent)
         self.discriminator = self.create_component("discriminator")
-        with open("/ml/styleganxl_models/imagenet128.pkl", "rb") as f:
+        with open(self.config.pkl, "rb") as f:
             G = legacy.load_network_pkl(f)['G_ema']
             G = G.eval().requires_grad_(False).to(self.device)
         self._teacher = G

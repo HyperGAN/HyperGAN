@@ -7,3 +7,6 @@ pyparsing
 torch
 torchvision
 semantic_version
+einops
+mlp_mixer_pytorch
+timm

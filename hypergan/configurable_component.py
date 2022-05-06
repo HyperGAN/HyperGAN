@@ -564,12 +564,16 @@ class ConfigurableComponent(GANComponent):
         return PixelNorm()
 
     def layer_pretrained(self, net, args, options):
-        model = getattr(torchvision.models, args[0])(pretrained=True)
-        model.train(True)
+        import timm
+
+        model = timm.create_model(args[0], pretrained=True)
+        #model = getattr(torchvision.models, args[0])(pretrained=True)
+        #model.train(True)
         if options.layer:
             layers = list(model.children())[:options.layer]
             if options.sublayer:
                 layers[-1] = nn.Sequential(*layers[-1][:options.sublayer])
+            print("Using pretrained network", layers)
         else:
             layers = [model]
             print("List of pretrained layers:", layers)

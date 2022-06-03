@@ -90,12 +90,12 @@ class ConfigurableComponent(GANComponent):
             "expand": hg.layers.Expand,
             "rnn": hg.layers.Rnn,
             "ntm": hg.layers.NTMLayer,
+            "pretrained": hg.layers.Pretrained,
 
             #easy to convert
             "dropout": self.layer_dropout,
             "identity": self.layer_identity,
             "flatten": self.layer_flatten,
-            "pretrained": self.layer_pretrained,
             "avg_pool": self.layer_avg_pool,#TODO handle dims
             "max_pool": self.layer_max_pool,#TODO handle dims
             "pad": self.layer_pad,
@@ -563,23 +563,6 @@ class ConfigurableComponent(GANComponent):
 
     def layer_pixel_norm(self, net, args, options):
         return PixelNorm()
-
-    def layer_pretrained(self, net, args, options):
-        import timm
-
-        model = timm.create_model(args[0], pretrained=True)
-        #model = getattr(torchvision.models, args[0])(pretrained=True)
-        #model.train(True)
-        if options.layer:
-            layers = list(model.children())[:options.layer]
-            if options.sublayer:
-                layers[-1] = nn.Sequential(*layers[-1][:options.sublayer])
-            print("Using pretrained network", layers)
-        else:
-            layers = [model]
-            print("List of pretrained layers:", layers)
-            raise ValidationException("layer=-1 required for pretrained, sublayer=-1 optional.  Layers outputted above.")
-        return nn.Sequential(*layers)
 
     def layer_resize_conv(self, net, args, options):
         return self.layer_resize_conv2d(net, args, options)

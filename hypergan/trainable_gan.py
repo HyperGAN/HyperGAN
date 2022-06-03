@@ -4,6 +4,7 @@ from hypergan.backends.roundrobin_backend import RoundrobinBackend
 from hypergan.backends.single_gpu_backend import SingleGPUBackend
 from hypergan.backends.cpu_backend import CPUBackend
 from hypergan.train_hook_collection import TrainHookCollection
+from torch import nn
 
 class TrainableGAN:
     def __init__(self, gan, save_file = "default.save", devices = [], backend_name = "single-gpu"):
@@ -73,17 +74,29 @@ class TrainableGAN:
 
     def set_generator_trainable(self, flag):
         for c in self.gan.generator_components():
-            c.set_trainable(flag)
+            if isinstance(c, nn.Module):
+                c.requires_grad_(flag)
+            else:
+                c.set_trainable(flag)
         for train_hook in self.gan.hooks:
             for c in train_hook.generator_components():
-                c.set_trainable(flag)
+                if isinstance(c, nn.Module):
+                    c.requires_grad_(flag)
+                else:
+                    c.set_trainable(flag)
 
     def set_discriminator_trainable(self, flag):
         for c in self.gan.discriminator_components():
-            c.set_trainable(flag)
+            if isinstance(c, nn.Module):
+                c.requires_grad_(flag)
+            else:
+                c.set_trainable(flag)
         for train_hook in self.gan.hooks:
             for c in train_hook.discriminator_components():
-                c.set_trainable(flag)
+                if isinstance(c, nn.Module):
+                    c.requires_grad_(flag)
+                else:
+                    c.set_trainable(flag)
 
     def to(self, device):
         self.gan.to(device)

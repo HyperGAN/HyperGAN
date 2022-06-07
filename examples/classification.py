@@ -117,7 +117,7 @@ class GAN(BaseGAN):
         self.discriminator = self.create_component("discriminator", context_shapes={"digit": LayerShape(10)})
         self.loss = self.create_component("loss")
 
-    def forward_discriminator(self, inputs):
+    def forward_discriminator(self, *inputs):
         return self.discriminator(inputs[0], {"digit": inputs[1]})
 
     def forward_pass(self):
@@ -130,8 +130,8 @@ class GAN(BaseGAN):
             self.gy = gy
             self.g2 = g2
         self.g = g
-        d_real = self.forward_discriminator([self.x, self.y])
-        d_fake = self.forward_discriminator([self.x, g])
+        d_real = self.forward_discriminator(*[self.x, self.y])
+        d_fake = self.forward_discriminator(*[self.x, g])
         correct = torch.floor((torch.round(g) == self.y).long().sum(axis=1)/10.0).view(-1,1)
         if self.config.generator2:
             d_fake += correct * self.forward_discriminator([g2, gy])

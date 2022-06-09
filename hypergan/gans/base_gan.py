@@ -8,6 +8,7 @@ from hypergan.samplers.input_sampler import InputSampler
 from hypergan.samplers.grid_sampler import GridSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.y_sampler import YSampler
+from hypergan.samplers.denoising_diffusion_sampler import DenoisingDiffusionSampler
 
 from hypergan.losses.stable_gan_loss import StableGANLoss
 from hypergan.train_hook_collection import TrainHookCollection
@@ -268,6 +269,7 @@ class BaseGAN():
                 'batch_walk': BatchWalkSampler,
                 'batch': BatchSampler,
                 'grid': GridSampler,
+                'diffusion': DenoisingDiffusionSampler,
                 #'sorted': SortedSampler,
                 #'gang': GangSampler,
                 #'began': BeganSampler,

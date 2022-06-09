@@ -159,7 +159,9 @@ class DiffusionTrainHook(BaseTrainHook):
         return None
 
     def q(self, x, t):
-        noise_level = random.uniform(0,1)
+        noise_level = 0.2#random.uniform(0,1)
+        if random.uniform(0, 1) > 0.5:
+            noise_level = 0
         t = self.diffusion.get_times(self.gan.batch_size(), noise_level)
         return self.diffusion.q_sample(x, t)
 

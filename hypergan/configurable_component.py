@@ -381,14 +381,15 @@ class ConfigurableComponent(GANComponent):
         if len(self.current_size.dims) != 1:
             layers += [nn.Flatten()]
 
-        layers += [nn.Linear(options.input_size or self.current_size.size(), output_size, bias=bias)]
+        linear_layer = nn.Linear(options.input_size or self.current_size.size(), output_size, bias=bias)
+        layers += [linear_layer]
         self.nn_init(layers[-1], options.initializer)
         self.current_size = LayerShape(*list(reversed(shape)))
         if len(shape) != 1:
             layers.append(Reshape(*self.current_size.dims))
 
         if self.is_latent:
-            self._latent_parameters += [layers[0].weight]
+            self._latent_parameters += [linear_layer.weight]
             self.is_latent = False
 
         return nn.Sequential(*layers)
@@ -495,7 +496,7 @@ class ConfigurableComponent(GANComponent):
         return nn.BatchNorm2d(self.current_size.channels)
 
     def layer_batch_norm1d(self, net, args, options):
-        return nn.BatchNorm1d(self.current_size.size())
+        return nn.BatchNorm1d(self.current_size.channels)
 
     def get_conv_options(self, config, options):
         stride = options.stride or self.ops.config_option("stride", [1,1])
@@ -726,13 +727,16 @@ class ConfigurableComponent(GANComponent):
         return Zeros(self.gan.latent.sample().shape)
 
     def nn_init(self, layer, initializer_option):
-        if initializer_option is None:
+        if initializer_option is None and self.config.initializer:
+            initializer_option = self.config.initializer.split(" ")
+            print("Set init ", initializer_option)
+        elif initializer_option is None:
             return
         if type(initializer_option) == pyparsing.ParseResults and type(initializer_option[0]) == hypergan.parser.Pattern:
             args = [initializer_option[0].layer_name] + initializer_option[0].args
             options = hc.Config(initializer_option[0].options)
         else:
-            args = [initializer_option]
+            args = initializer_option
             options = hc.Config({})
 
         layer_data = layer.weight.data

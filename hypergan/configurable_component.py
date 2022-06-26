@@ -217,6 +217,9 @@ class ConfigurableComponent(GANComponent):
                     self._latent_parameters += net.latent_parameters()
             elif isinstance(self.layer_ops[op], nn.Module):
                 net = self.layer_ops[op]
+                if hasattr(net, 'weight') and self.is_latent:
+                    self._latent_parameters += [net.weight]
+
             else:
                 net = self.layer_ops[op](None, args, options)
             if 'name' in options:

@@ -35,6 +35,7 @@ from .upsample import Upsample
 from .expand import Expand
 from .ntm import NTMLayer
 from .mlp_mixer import MlpMixer
+from .embed import Embed
 from .cellular_automata import CellularAutomata
 from .cellular_automata_1d import CellularAutomata1D
 from .cross_attention import CrossAttention

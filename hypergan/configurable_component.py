@@ -70,6 +70,7 @@ class ConfigurableComponent(GANComponent):
             "channel_attention": hg.layers.ChannelAttention,
             "cross_attention": hg.layers.CrossAttention,
             "efficient_attention": hg.layers.EfficientAttention,
+            "embed": hg.layers.Embed,
             "ez_norm": hg.layers.EzNorm,
             "layer": hg.layers.Layer,
             "minibatch": hg.layers.Minibatch,

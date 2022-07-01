@@ -126,29 +126,6 @@ class ProjectInOut(nn.Module):
         x = self.project_out(x)
         return x
 
-# cross attention transformer
-
-class CrossTransformer(nn.Module):
-    def __init__(self, sm_dim, lg_dim, depth, heads, dim_head, dropout):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-        for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                ProjectInOut(sm_dim, lg_dim, PreNorm(lg_dim, Attention(lg_dim, heads = heads, dim_head = dim_head, dropout = dropout))),
-                ProjectInOut(lg_dim, sm_dim, PreNorm(sm_dim, Attention(sm_dim, heads = heads, dim_head = dim_head, dropout = dropout)))
-            ]))
-
-    def forward(self, sm_tokens, lg_tokens):
-        (sm_cls, sm_patch_tokens), (lg_cls, lg_patch_tokens) = map(lambda t: (t[:, :1], t[:, 1:]), (sm_tokens, lg_tokens))
-
-        for sm_attend_lg, lg_attend_sm in self.layers:
-            sm_cls = sm_attend_lg(sm_cls, context = lg_patch_tokens, kv_include_self = True) + sm_cls
-            lg_cls = lg_attend_sm(lg_cls, context = sm_patch_tokens, kv_include_self = True) + lg_cls
-
-        sm_tokens = torch.cat((sm_cls, sm_patch_tokens), dim = 1)
-        lg_tokens = torch.cat((lg_cls, lg_patch_tokens), dim = 1)
-        return sm_tokens, lg_tokens
-
 class CrossAttentionModule(nn.Module):
     def __init__(
         self,
@@ -173,8 +150,7 @@ class CrossAttentionModule(nn.Module):
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias = False)
 
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim, bias = False),
+        self.to_out = nn.Sequential( nn.Linear(inner_dim, dim, bias = False),
             nn.LayerNorm(dim)
         )
 
@@ -211,6 +187,48 @@ class CrossAttentionModule(nn.Module):
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
+class EinopsToAndFromSequential(nn.Module):
+    def __init__(self, from_einops, to_einops, fns):
+        super().__init__()
+        self.from_einops = from_einops
+        self.to_einops = to_einops
+        self.fns = nn.ModuleList(fns)
+
+    def forward(self, x, **kwargs):
+        shape = x.shape
+        reconstitute_kwargs = dict(tuple(zip(self.from_einops.split(' '), shape)))
+        x = rearrange(x, f'{self.from_einops} -> {self.to_einops}')
+        for i, fn in enumerate(self.fns):
+            if i == 0:
+                x = fn(x, **kwargs)
+            else:
+                x = x + fn(x, **kwargs)
+        x = rearrange(x, f'{self.to_einops} -> {self.from_einops}', **reconstitute_kwargs)
+        return x
+
+class Block(nn.Module):
+    def __init__(
+            self,
+            dim,
+            dim_out,
+            groups = 8,
+            norm = True
+            ):
+        super().__init__()
+        self.groupnorm = nn.GroupNorm(groups, dim) if norm else nn.Identity()
+        self.activation = nn.SiLU()
+        self.project = nn.Conv2d(dim, dim_out, 3, padding = 1)
+
+    def forward(self, x, scale_shift = None):
+        x = self.groupnorm(x)
+
+        if exists(scale_shift):
+            scale, shift = scale_shift
+            x = x * (scale + 1) + shift
+
+        x = self.activation(x)
+        return self.project(x)
+
 
 class CrossAttention(hg.Layer):
     """
@@ -220,7 +238,7 @@ class CrossAttention(hg.Layer):
 
         # cross_attention layer
 
-	Applies a CrossTransformer layer between two different input sources
+	Applies a CrossAttention layer between two different input sources
 
         ## required arguments
 
@@ -254,26 +272,38 @@ class CrossAttention(hg.Layer):
         self.size = component.current_size
         self.layer_name = args[0]
         print('--', self.size)
-        sm_dim = component.layer_output_sizes[self.layer_name]
-        lg_dim = self.size.channels
+        sm_dim = self.size.channels
+        lg_dim = component.layer_output_sizes[self.layer_name].height
+
         print("SMDIM", sm_dim, lg_dim)
         depth = options.depth or 1
-        heads = options.heads or 1
+        heads = options.heads or 8
         dim_head = options.dim_head or 64
 
         self.cross_attn = EinopsToAndFrom(
             'b c h w',
             'b (h w) c',
             CrossAttentionModule(
-                dim = lg_dim,
-                context_dim = lg_dim
+                dim = sm_dim,
+                context_dim = lg_dim,
+                heads = heads
             )
             ).to('cuda:0')
+
+        self.block1 = Block(sm_dim, sm_dim, groups = 8)
+        self.block2 = Block(sm_dim, sm_dim, groups = 8)
+        self.res_conv = nn.Conv2d(sm_dim, sm_dim, 1) if sm_dim != sm_dim else nn.Identity()
 
     def output_size(self):
         return self.size
 
-    def forward(self, input, context):
+    def forward(self, x, context):
         other = context[self.layer_name]
-        return self.cross_attn.forward(input, context=other).view(other.shape[0], *self.size.dims)
+        #h = self.block1(x)
+        h = x
+
+        h = self.cross_attn(h, context = other).view(other.shape[0], *self.size.dims)# + h
+
+        h = self.block2(h)
+        return h + self.res_conv(x)
 

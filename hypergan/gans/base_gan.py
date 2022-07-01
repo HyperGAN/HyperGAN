@@ -1,6 +1,7 @@
 from hyperchamber import Config
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.samplers.aligned_sampler import AlignedSampler
+from hypergan.samplers.text_sampler import TextSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
 from hypergan.samplers.factorization_batch_walk_sampler import FactorizationBatchWalkSampler
@@ -268,6 +269,7 @@ class BaseGAN():
                 #'style_walk': StyleWalkSampler,
                 'batch_walk': BatchWalkSampler,
                 'batch': BatchSampler,
+                'text': TextSampler,
                 'grid': GridSampler,
                 'diffusion': DenoisingDiffusionSampler,
                 #'sorted': SortedSampler,

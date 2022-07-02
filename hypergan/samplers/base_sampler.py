@@ -1,6 +1,5 @@
 import numpy as np
 from PIL import Image
-from hypergan.viewer import GlobalViewer
 
 class BaseSampler:
     def __init__(self, gan, samples_per_row=8, session=None):
@@ -61,7 +60,6 @@ class BaseSampler:
                 print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
                 print(e)
 
-        GlobalViewer.update(self.gan, image)
         return image
 
     def plot_image(self, image, filename, save_sample, regularize=True):
@@ -77,5 +75,4 @@ class BaseSampler:
                 print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
                 print(e)
 
-        GlobalViewer.update(self.gan, image)
         return image

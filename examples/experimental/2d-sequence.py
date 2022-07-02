@@ -8,7 +8,6 @@ import hypergan as hg
 import hyperchamber as hc
 from hypergan.generators import *
 from hypergan.search.random_search import RandomSearch
-from hypergan.viewer import GlobalViewer
 from common import *
 
 arg_parser = ArgumentParser("Test your gan vs a known distribution", require_directory=False)
@@ -161,8 +160,6 @@ class Sequence2DSampler(BaseSampler):
 
 def train(config, args):
     title = "[hypergan] 2d-test " + args.config
-    GlobalViewer.title = title
-    GlobalViewer.enabled = args.viewer
 
     with tf.device(args.device):
         config.generator["class"]="class:__main__.Sequence2DGenerator"

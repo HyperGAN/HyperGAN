@@ -11,7 +11,6 @@ from hypergan.generators import *
 from hypergan.gans.base_gan import BaseGAN
 from hypergan.gans.standard_gan import StandardGAN
 from hypergan.samplers.aligned_sampler import AlignedSampler
-from hypergan.viewer import GlobalViewer
 from hypergan.gans.aligned_gan import AlignedGAN
 from hypergan.search.aligned_random_search import AlignedRandomSearch
 from common import *
@@ -68,8 +67,6 @@ def setup_gan(config, inputs, args):
     tf.train.start_queue_runners(sess=gan.session)
 
     title = "[hypergan] align-test " + args.config
-    GlobalViewer.title = title
-    GlobalViewer.enabled = args.viewer
 
     return gan
 

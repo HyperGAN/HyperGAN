@@ -6,7 +6,6 @@ import hypergan as hg
 import hyperchamber as hc
 import numpy as np
 from hypergan.generators import *
-from hypergan.viewer import GlobalViewer
 from common import *
 from hypergan.search.random_search import RandomSearch
 
@@ -57,8 +56,6 @@ def setup_gan(config, inputs, args):
 
     config_name = args.config
     title = "[hypergan] static " + config_name
-    GlobalViewer.title = title
-    GlobalViewer.enabled = args.viewer
 
     return gan
 

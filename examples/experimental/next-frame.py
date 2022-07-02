@@ -2,7 +2,6 @@ from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.gans.base_gan import BaseGAN
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
-from hypergan.viewer import GlobalViewer
 from common import *
 import copy
 import glob
@@ -25,7 +24,6 @@ parser = arg_parser.add_image_arguments()
 parser.add_argument('--frames', type=int, default=4, help='Number of frames to embed.')
 args = arg_parser.parse_args()
 
-GlobalViewer.set_options(enabled = args.viewer, title = "[hypergan] next-frame " + args.config, viewer_size = args.zoom)
 width, height, channels = [int(x) for x in args.size.split('x')]
 
 input_config = hc.Config({

@@ -1,4 +1,3 @@
-from hypergan.viewer import GlobalViewer
 import copy
 import hyperchamber as hc
 import numpy as np
@@ -8,8 +7,6 @@ from hypergan.gan_component import ValidationException, GANComponent
 from torch.autograd import grad as torch_grad
 from operator import itemgetter
 from hypergan.train_hooks.base_train_hook import BaseTrainHook
-
-from hypergan.viewer import GlobalViewer
 
 class DualGapTrainHook(BaseTrainHook):
     """ 

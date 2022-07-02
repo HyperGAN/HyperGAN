@@ -8,7 +8,6 @@ import numpy as np
 import glob
 import time
 import re
-from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.samplers.random_walk_sampler import RandomWalkSampler
@@ -542,9 +541,6 @@ def setup_gan(config, inputs, args):
     tf.train.start_queue_runners(sess=gan.session)
 
     config_name = args.config
-    GlobalViewer.title = "[hypergan] next-frame " + config_name
-    GlobalViewer.enabled = args.viewer
-    GlobalViewer.zoom = args.zoom
 
     return gan
 

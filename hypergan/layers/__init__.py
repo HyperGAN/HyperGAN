@@ -41,3 +41,5 @@ from .cellular_automata import CellularAutomata
 from .cellular_automata_1d import CellularAutomata1D
 from .cross_attention import CrossAttention
 from .pretrained import Pretrained
+
+from .jasper import Jasper

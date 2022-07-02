@@ -4,7 +4,6 @@ from torch.nn import functional as f
 from hypergan.layer_shape import LayerShape
 import hypergan as hg
 
-
 class EfficientAttention(hg.Layer):
     """https://github.com/cmsflash/efficient-attention"""
     def __init__(self, component, args, options):

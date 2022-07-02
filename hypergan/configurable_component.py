@@ -82,6 +82,7 @@ class ConfigurableComponent(GANComponent):
             "transformer": hg.layers.Transformer,
             "pixel_shuffle": hg.layers.PixelShuffle,
             "residual": hg.layers.Residual,
+            "jasper": hg.layers.Jasper,
             "resizable_stack": hg.layers.ResizableStack,
             "segment_softmax": hg.layers.SegmentSoftmax,
             "synthesis_input": hg.layers.SynthesisInput,

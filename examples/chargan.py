@@ -1,6 +1,5 @@
 from common import *
 from typing import Union, Callable, Optional
-from hypergan.viewer import GlobalViewer
 from hyperchamber import Config
 from hypergan.discriminators import *
 from hypergan.distributions import *
@@ -1011,5 +1010,3 @@ if __name__ == '__main__':
 
     else:
         print("Unknown action: "+args.action)
-
-GlobalViewer.close()

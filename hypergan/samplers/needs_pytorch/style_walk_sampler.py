@@ -1,6 +1,5 @@
 import numpy as np
 from PIL import Image
-from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 import time
 
@@ -81,4 +80,3 @@ class StyleWalkSampler(BaseSampler):
             except Exception as e:
                 print("Warning: could not sample to ", filename, ".  Please check permissions and make sure the path exists")
                 print(e)
-        GlobalViewer.update(self.gan, image)

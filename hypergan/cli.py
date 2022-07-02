@@ -3,7 +3,6 @@ The command line interface.  Trains a directory of data.
 """
 from .configuration import Configuration
 from .inputs import *
-from .viewer import GlobalViewer
 from hypergan.gan_component import ValidationException
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.process_manager import ProcessManager
@@ -59,12 +58,6 @@ class CLI:
             self.create_path(self.save_file)
 
         title = "[hypergan] " + self.config_name
-        GlobalViewer.set_options(
-            enable_menu = self.args.menu,
-            title = title,
-            viewer_size = self.args.viewer_size,
-            enabled = self.args.viewer,
-            zoom = self.args.zoom)
 
     def lazy_create(self):
         if(self.sampler == None):

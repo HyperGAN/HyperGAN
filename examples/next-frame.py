@@ -2,7 +2,6 @@ from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.inputs.crop_resize_transform import CropResizeTransform
 from hypergan.gans.base_gan import BaseGAN
 from hypergan.layer_shape import LayerShape
-from hypergan.viewer import GlobalViewer
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
 import copy
@@ -30,7 +29,6 @@ parser.add_argument('--per_sample_frames', type=int, default=3, help='Number of 
 args = arg_parser.parse_args()
 
 if __name__ == "__main__":
-    GlobalViewer.set_options(enabled = args.viewer, title = "[hypergan] next-frame " + args.config, viewer_size = args.zoom)
     width, height, channels = [int(x) for x in args.size.split('x')]
 
     input_config = hc.Config({

@@ -3,7 +3,6 @@ from chart_studio import plotly
 from common import *
 from hypergan.generators import *
 from hypergan.search.random_search import RandomSearch
-from hypergan.viewer import GlobalViewer
 from hypergan.samplers.base_sampler import BaseSampler
 import argparse
 import hyperchamber as hc
@@ -264,7 +263,6 @@ if args.action == 'search':
 
 def train(config, args):
     title = "[hypergan] 2d-test " + config_filename
-    GlobalViewer.set_options(enabled = args.viewer, title = title, viewer_size=1)
     print("ARGS", args)
 
     gan = hg.GAN(config, inputs = Custom2DInputDistribution({
@@ -334,4 +332,3 @@ elif args.action == 'search':
 else:
     print("Unknown action: "+args.action)
 
-GlobalViewer.close()

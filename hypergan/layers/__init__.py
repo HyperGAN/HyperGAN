@@ -14,6 +14,7 @@ from .operation import Operation
 from .add import Add
 from .cat import Cat
 from .mul import Mul
+from .attention import Attention
 from .channel_attention import ChannelAttention
 from .efficient_attention import EfficientAttention
 from .ez_norm import EzNorm

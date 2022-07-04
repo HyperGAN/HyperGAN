@@ -271,11 +271,9 @@ class CrossAttention(hg.Layer):
         super(CrossAttention, self).__init__(component, args, options)
         self.size = component.current_size
         self.layer_name = args[0]
-        print('--', self.size)
         sm_dim = self.size.channels
         lg_dim = component.layer_output_sizes[self.layer_name].height
 
-        print("SMDIM", sm_dim, lg_dim)
         depth = options.depth or 1
         heads = options.heads or 8
         dim_head = options.dim_head or 64
@@ -290,7 +288,6 @@ class CrossAttention(hg.Layer):
             )
             ).to('cuda:0')
 
-        self.block1 = Block(sm_dim, sm_dim, groups = 8)
         self.block2 = Block(sm_dim, sm_dim, groups = 8)
         self.res_conv = nn.Conv2d(sm_dim, sm_dim, 1) if sm_dim != sm_dim else nn.Identity()
 
@@ -301,7 +298,6 @@ class CrossAttention(hg.Layer):
         other = context[self.layer_name]
         #h = self.block1(x)
         h = x
-
         h = self.cross_attn(h, context = other).view(other.shape[0], *self.size.dims)# + h
 
         h = self.block2(h)

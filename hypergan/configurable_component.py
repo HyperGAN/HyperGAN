@@ -64,6 +64,7 @@ class ConfigurableComponent(GANComponent):
         self.layer_ops = {**self.activations(),
             **ConfigurableComponent.custom_layers,
             "add": hg.layers.Add,
+            "attention": hg.layers.Attention,
             "cat": hg.layers.Cat,
             "cellular_automata": hg.layers.CellularAutomata,
             "cellular_automata_1d": hg.layers.CellularAutomata1D,
@@ -81,6 +82,7 @@ class ConfigurableComponent(GANComponent):
             "transformer": hg.layers.Transformer,
             "pixel_shuffle": hg.layers.PixelShuffle,
             "residual": hg.layers.Residual,
+            "jasper": hg.layers.Jasper,
             "resizable_stack": hg.layers.ResizableStack,
             "segment_softmax": hg.layers.SegmentSoftmax,
             "synthesis_input": hg.layers.SynthesisInput,
@@ -108,7 +110,6 @@ class ConfigurableComponent(GANComponent):
             "adaptive_avg_pool1d": self.layer_adaptive_avg_pool1d,
             "adaptive_avg_pool3d": self.layer_adaptive_avg_pool3d,
             "adaptive_instance_norm": self.layer_adaptive_instance_norm,
-            "attention": self.layer_attention,
             "batch_norm": self.layer_batch_norm,
             "batch_norm1d": self.layer_batch_norm1d,
             "blur": self.layer_blur,
@@ -697,14 +698,6 @@ class ConfigurableComponent(GANComponent):
         if self.is_latent:
             self._latent_parameters += [layer.h.weight, layer.g.weight, layer.f.weight]
             self.is_latent = False
-        return layer
-
-    def layer_attention(self, net, args, options):
-        layer = Attention(self.current_size.channels)
-        self.nn_init(layer.v, options.initializer)
-        self.nn_init(layer.h, options.initializer)
-        self.nn_init(layer.g, options.initializer)
-        self.nn_init(layer.f, options.initializer)
         return layer
 
     def layer_norm(self, net, args, options):

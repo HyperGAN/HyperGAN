@@ -52,8 +52,9 @@ class LabeledDataset(data.Dataset):
     def __getitem__(self, index):
         img_path = self.paths[index]
         img_filename = os.path.relpath(img_path, self.folder)
-        assert img_filename in self.texts, f'Image {img_filename} not found in {img_path}'
-
+        #assert img_filename in self.texts, f'Image {img_filename} not found in {img_path}'
+        if img_filename not in self.texts:
+            return self.__getitem__((index+1) % len(self.texts))
         # Get the labels for this image
         all_labels = self.texts[img_filename]
 

@@ -251,6 +251,7 @@ class ConfigurableComponent(GANComponent):
             "relu": nn.ReLU(),
             "relu6": nn.ReLU6(),
             "selu": nn.SELU(),
+            "silu": nn.SiLU(),
             "sigmoid": nn.Sigmoid(),
             "softmax": nn.Softmax(),
             "softplus": nn.Softplus(),

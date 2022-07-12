@@ -105,15 +105,15 @@ class SimultaneousTrainer(BaseTrainer):
                             g_loss = loss[1]
                     else:
                         if loss[0] is not None:
-                            d_loss += loss[0]
+                            d_loss = d_loss + loss[0]
                         if loss[1] is not None:
-                            g_loss += loss[1]
+                            g_loss = g_loss + loss[1]
         for loss_function in self.gan.additional_losses:
             loss = loss_function()
             if loss[0] is not None:
-                d_loss += loss[0]
+                d_loss = d_loss + loss[0]
             if loss[1] is not None:
-                g_loss += loss[1]
+                g_loss = g_loss + loss[1]
 
         if self.config.joint:
             g_loss.mean().backward(retain_graph=True, create_graph=create_graph)

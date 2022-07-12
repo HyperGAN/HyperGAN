@@ -41,7 +41,10 @@ class LabeledImageLoader:
         if self.channels() == 4:
             mode = "RGBA"
         image_folder = LabeledDataset(config.directory, config.csv_path, transform=transform, mode=mode, device=device)
-        dataloader = data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=2, drop_last=True, pin_memory=True)
+        num_workers = 2
+        if self.config.num_workers is not None:
+            num_workers = self.config.num_workers
+        dataloader = data.DataLoader(image_folder, batch_size=config.batch_size, shuffle=shuffle, num_workers=num_workers, drop_last=True, pin_memory=True)
         self.dataloader = dataloader
         self.dataset = None
         self.device = device

@@ -93,7 +93,10 @@ class BaseGAN():
             defn = kw_args["defn"]
             del(kw_args["defn"])
         else:
-            defn = self.config[name]
+            if name in self.config:
+                defn = self.config[name]
+            else:
+                defn = None
         if defn == None:
             print("No definition found for " + name)
             return None
@@ -233,7 +236,8 @@ class BaseGAN():
     def save(self, full_path):
         print("Saving..." + str(len(self.components)))
         for name, component in self.components.items():
-            self._save(full_path, name, component)
+            if component is not None:
+                self._save(full_path, name, component)
 
     def _save(self, full_path, name, component):
         path = full_path + "/"+name+".save"

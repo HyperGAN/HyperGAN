@@ -5,16 +5,16 @@ import torch.nn.functional as F
 from .t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 class T5TextEncoder(nn.Module):
 
-    def __init__(self, device="cuda:0"):
+    def __init__(self, max_text_len=64, device="cuda:0"):
 
         super(T5TextEncoder, self).__init__()
         self.t5_dim = get_encoded_dim(DEFAULT_T5_NAME)
-        self.max_text_len = 64
+        self.max_text_len = max_text_len
         cond_dim=768
         self.text_encoder_name = DEFAULT_T5_NAME
         self.null_text_embed = nn.Parameter(torch.randn(1, self.max_text_len, cond_dim)).cuda()
         self.device = device
-    def encode_text(self, text, tokens=64):
+    def encode_text(self, text, tokens=64, dropout=False):
         text_embeds, text_masks = t5_encode_text(text, name = self.text_encoder_name)
         text_embeds, text_masks = map(lambda t: t.to(self.device), (text_embeds, text_masks))
 

@@ -41,34 +41,33 @@ class TextSampler(BaseSampler):
             self.latent = self.gan.latent.next()
             self.latent2 = self.gan.latent.next()
         b = self.z.shape[0]
-        if hasattr(self.gan, 's0'):
-            s0 = self.gan.encode_image(self.inputs)
-            print(self.text)
-            enc_text = self.gan.encode_text(self.text).float()
-            g0 = self.g(s0, enc_text)
-            enc_text2 = self.gan.encode_text(self.text2).float()
-            s0p = self.gan.pred(torch.cat([enc_text.unsqueeze(1), self.latent.unsqueeze(1)], 1)).squeeze()
-            g0p = self.g(s0p, enc_text)
-            s1 = self.gan.pred(torch.cat([enc_text2.unsqueeze(1), self.latent.unsqueeze(1)], 1)).squeeze()
-            g1 = self.g(s1, enc_text2)
-            g = g0p
-            g2 = g0
-            outputs.append(('g1',g1))
-            x_inputs = self.inputs
+        s0 = self.gan.encode_image(self.inputs)
+        print(self.text)
+        enc_text = self.gan.encode_text(self.text).float()
+        g0 = self.g(s0, enc_text)
+        enc_text2 = self.gan.encode_text(self.text2).float()
+        s0p = self.gan.pred(torch.cat([enc_text.unsqueeze(1), self.latent.unsqueeze(1)], 1)).squeeze()
+        g0p = self.g(s0p, enc_text)
+        s1 = self.gan.pred(torch.cat([enc_text2.unsqueeze(1), self.latent.unsqueeze(1)], 1)).squeeze()
+        g1 = self.g(s1, enc_text2)
+        g = g0p
+        g2 = g0
+        outputs.append(('g1',g1))
+        x_inputs = self.inputs
 
-        elif hasattr(self.gan, 'mapping'):
-            g = self.gan.generator(self.gan.mapping(self.latent, context={"text": self.text}))
-            g2 = self.gan.generator(self.gan.mapping(self.latent2, context={"text": self.text}))
-            ('g2', g2),
-            x_inputs = self.inputs
-        elif hasattr(self.gan, 'upsample'):
-            g = self.gan.generator(self.gan.upsample(self.inputs), context={"text": self.text})
-            g2 = self.gan.generator(self.gan.upsample(self.inputs), context={"text": self.prompt})
-            x_inputs = self.upsample(self.gan.upsample(self.inputs))
-        else:
-            g = self.gan.generator(self.latent, context={"text": self.text})
-            g2 = self.gan.generator(self.latent, context={"text": self.prompt})
-            x_inputs = self.inputs
+        #elif hasattr(self.gan, 'mapping'):
+        #    g = self.gan.generator(self.gan.mapping(self.latent, context={"text": self.text}))
+        #    g2 = self.gan.generator(self.gan.mapping(self.latent2, context={"text": self.text}))
+        #    ('g2', g2),
+        #    x_inputs = self.inputs
+        #elif hasattr(self.gan, 'upsample'):
+        #    g = self.gan.generator(self.gan.upsample(self.inputs), context={"text": self.text})
+        ##    g2 = self.gan.generator(self.gan.upsample(self.inputs), context={"text": self.prompt})
+        #    x_inputs = self.upsample(self.gan.upsample(self.inputs))
+        #else:
+        #    g = self.gan.generator(self.latent, context={"text": self.text})
+        #    g2 = self.gan.generator(self.latent, context={"text": self.prompt})
+        #    x_inputs = self.inputs
         return [
             ('x', x_inputs),
             ('g', g),

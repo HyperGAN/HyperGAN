@@ -129,8 +129,17 @@ class TextJepaGAN(BaseGAN):
             self.add_metric('vict', loss.mean())
             return loss ,loss
 
+        def pred_ce_loss():
+            prediction = self.text_prediction
+            target = (self.encoded_text > 0.0 ).float().squeeze()
+            loss = F.cross_entropy(prediction, target)# * 0.05
+            self.add_metric('pred_ce', loss)
+            return loss, loss
+
+
         self.add_loss(vicreg_loss_image)
         self.add_loss(vicreg_loss_text)
+        self.add_loss(pred_ce_loss)
         self.add_loss(l2_loss)
         self.text_encoder = T5TextEncoder(max_text_len=(self.config.tokens or 64))
 
@@ -164,15 +173,16 @@ class TextJepaGAN(BaseGAN):
             self.s0 = self.encode_image(self.x)
 
         self.encoded_text = self.encode_text(self.text)
-        self.autoencoding = self.generator(self.s0.clone().detach())
         self.s1 = self.pred(torch.cat([self.encoded_text.unsqueeze(1), self.augmented_latent.unsqueeze(1)], 1))
+        self.autoencoding = self.generator(self.s0)
         self.st = self.encode_image(self.x)
-        self.g_args = [ self.encoded_text.unsqueeze(1), self.s1]
-        self.x_args = [ self.encoded_text.unsqueeze(1), self.st.unsqueeze(1)]
+        self.g_args = [ self.st.unsqueeze(1).clone().detach(), self.encode_image(self.autoencoding).unsqueeze(1), self.s0.unsqueeze(1), self.encoded_text.unsqueeze(1), self.s1]
+        self.x_args = [ self.st.unsqueeze(1), self.st.unsqueeze(1),  self.st.unsqueeze(1), self.encoded_text.unsqueeze(1), self.st.unsqueeze(1)]
         self.g_args = [torch.cat(self.g_args, dim=1)]
-        self.x_args = [torch.cat(self.x_args, dim=1)]
+        self.x_args = [torch.cat(self.x_args, dim=1).clone().detach()]
         d_real = self.forward_discriminator(*self.x_args)
         d_fake = self.forward_discriminator(*self.g_args)
+        self.text_prediction = self.discriminator.context['text_prediction']
 
         self.d_fake = d_fake
         self.d_real = d_real

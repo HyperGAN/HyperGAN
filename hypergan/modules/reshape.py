@@ -5,4 +5,4 @@ class Reshape(nn.Module):
         self.dims = dims
         super(Reshape, self).__init__()
     def forward(self, x):
-        return x.view(x.size()[0], *self.dims)
+        return x.reshape(x.size()[0], *self.dims)

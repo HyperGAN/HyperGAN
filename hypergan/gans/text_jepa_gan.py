@@ -82,9 +82,9 @@ class TextJepaGAN(BaseGAN):
             cov_loss = off_diagonal(cov_z_a).pow_(2).sum() / D + \
                 off_diagonal(cov_z_b).pow_(2).sum() / D
 
-            mu = 2.5
-            lam = 2.5
-            nu = 1
+            mu = (self.config.vicreg_mu or 2.5)
+            lam = (self.config.vicreg_lambda or 2.5)
+            nu = (self.config.vicreg_nu or 1)
             loss = lam * sim_loss + mu * std_loss + nu * cov_loss
             self.add_metric('vicr', loss.mean())
             return loss ,loss
@@ -122,24 +122,15 @@ class TextJepaGAN(BaseGAN):
             cov_loss = off_diagonal(cov_z_a).pow_(2).sum() / D + \
                 off_diagonal(cov_z_b).pow_(2).sum() / D
 
-            mu = 2.5
-            lam = 2.5
-            nu = 1
+            mu = (self.config.vicreg_mu or 2.5)
+            lam = (self.config.vicreg_lambda or 2.5)
+            nu = (self.config.vicreg_nu or 1)
             loss = lam * sim_loss + mu * std_loss + nu * cov_loss
             self.add_metric('vict', loss.mean())
             return loss ,loss
 
-        def pred_ce_loss():
-            prediction = self.text_prediction
-            target = (self.encoded_text > 0.0 ).float().squeeze()
-            loss = F.cross_entropy(prediction, target)# * 0.05
-            self.add_metric('pred_ce', loss)
-            return loss, loss
-
-
         self.add_loss(vicreg_loss_image)
         self.add_loss(vicreg_loss_text)
-        self.add_loss(pred_ce_loss)
         self.add_loss(l2_loss)
         self.text_encoder = T5TextEncoder(max_text_len=(self.config.tokens or 64))
 
@@ -176,10 +167,10 @@ class TextJepaGAN(BaseGAN):
         self.s1 = self.pred(torch.cat([self.encoded_text.unsqueeze(1), self.augmented_latent.unsqueeze(1)], 1))
         self.autoencoding = self.generator(self.s0)
         self.st = self.encode_image(self.x)
-        self.g_args = [ self.st.unsqueeze(1).clone().detach(), self.encode_image(self.autoencoding).unsqueeze(1), self.s0.unsqueeze(1), self.encoded_text.unsqueeze(1), self.s1]
-        self.x_args = [ self.st.unsqueeze(1), self.st.unsqueeze(1),  self.st.unsqueeze(1), self.encoded_text.unsqueeze(1), self.st.unsqueeze(1)]
+        self.g_args = [ self.encoded_text.unsqueeze(1), self.s1]
+        self.x_args = [ self.encoded_text.unsqueeze(1), self.st.unsqueeze(1)]
         self.g_args = [torch.cat(self.g_args, dim=1)]
-        self.x_args = [torch.cat(self.x_args, dim=1).clone().detach()]
+        self.x_args = [torch.cat(self.x_args, dim=1)]
         d_real = self.forward_discriminator(*self.x_args)
         d_fake = self.forward_discriminator(*self.g_args)
         self.text_prediction = self.discriminator.context['text_prediction']

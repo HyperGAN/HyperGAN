@@ -165,12 +165,12 @@ class TextJepaGAN(BaseGAN):
 
         self.encoded_text = self.encode_text(self.text)
         self.s1 = self.pred(torch.cat([self.encoded_text.unsqueeze(1), self.augmented_latent.unsqueeze(1)], 1))
-        self.autoencoding = self.generator(self.s0)
+        self.autoencoding = self.generator(self.s0.clone().detach())
         self.st = self.encode_image(self.x)
         self.g_args = [ self.encoded_text.unsqueeze(1), self.s1]
         self.x_args = [ self.encoded_text.unsqueeze(1), self.st.unsqueeze(1)]
         self.g_args = [torch.cat(self.g_args, dim=1)]
-        self.x_args = [torch.cat(self.x_args, dim=1)]
+        self.x_args = [torch.cat(self.x_args, dim=1).clone().detach()]
         d_real = self.forward_discriminator(*self.x_args)
         d_fake = self.forward_discriminator(*self.g_args)
         self.text_prediction = self.discriminator.context['text_prediction']

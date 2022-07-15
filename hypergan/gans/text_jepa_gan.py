@@ -33,15 +33,14 @@ class TextJepaGAN(BaseGAN):
         return "generator pred custom_encoder custom_text_encoder project_image project_text discriminator".split()
 
     def create(self):
+        self.custom_encoder = self.create_component("custom_encoder")
+        self.custom_text_encoder = self.create_component("custom_text_encoder")
+        self.discriminator = self.create_component("discriminator")
         self.latent = self.create_component("latent")
         self.generator = self.create_component("generator", input=self.latent)
-        self.custom_encoder = self.create_component("custom_encoder")
+        self.pred = self.create_component("pred")
         self.project_image = self.create_component("project_image")
         self.project_text = self.create_component("project_text")
-        self.custom_text_encoder = self.create_component("custom_text_encoder")
-        self.pred = self.create_component("pred")
-        encoded_shape = LayerShape(1024)
-        self.discriminator = self.create_component("discriminator", context_shapes={"encoded": encoded_shape})
 
         def l2_loss():
             target = self.x
@@ -158,11 +157,7 @@ class TextJepaGAN(BaseGAN):
     def forward_pass(self):
         prompt = self.config.prompt
 
-        if self.config.denoising:
-            self.s0 = self.encode_image(self.partial_noise(self.x))
-        else:
-            self.s0 = self.encode_image(self.x)
-
+        self.s0 = self.encode_image(self.partial_noise(self.x))
         self.encoded_text = self.encode_text(self.text)
         self.s1 = self.pred(torch.cat([self.encoded_text.unsqueeze(1), self.augmented_latent.unsqueeze(1)], 1))
         self.autoencoding = self.generator(self.s0.clone().detach())
@@ -170,7 +165,7 @@ class TextJepaGAN(BaseGAN):
         self.g_args = [ self.encoded_text.unsqueeze(1), self.s1]
         self.x_args = [ self.encoded_text.unsqueeze(1), self.st.unsqueeze(1)]
         self.g_args = [torch.cat(self.g_args, dim=1)]
-        self.x_args = [torch.cat(self.x_args, dim=1).clone().detach()]
+        self.x_args = [torch.cat(self.x_args, dim=1)]
         d_real = self.forward_discriminator(*self.x_args)
         d_fake = self.forward_discriminator(*self.g_args)
 

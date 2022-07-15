@@ -50,7 +50,7 @@ class LabeledImageLoader:
         self.device = device
 
     def to(self, device):
-        return ImageLoader(self.config, device=device)
+        return LabeledImageLoader(self.config, device=device)
 
     def batch_size(self):
         return self.config.batch_size

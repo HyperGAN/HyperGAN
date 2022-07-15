@@ -63,8 +63,8 @@ class TextJepaGAN(BaseGAN):
             return self.augs(x)
 
         def vicreg_loss_image():
-            x_a = augment(self.x)
-            x_b = augment(self.x)
+            x_a = self.partial_noise(self.x)
+            x_b = self.partial_noise(self.x)
             z_a = self.encode_image(x_a)
             z_b = self.encode_image(x_b)
             z_a = self.project_image(z_a)
@@ -173,7 +173,6 @@ class TextJepaGAN(BaseGAN):
         self.x_args = [torch.cat(self.x_args, dim=1).clone().detach()]
         d_real = self.forward_discriminator(*self.x_args)
         d_fake = self.forward_discriminator(*self.g_args)
-        self.text_prediction = self.discriminator.context['text_prediction']
 
         self.d_fake = d_fake
         self.d_real = d_real

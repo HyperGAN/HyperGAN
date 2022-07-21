@@ -12,6 +12,7 @@ class AlignedSampler(BaseSampler):
         self.inputs = None
         self.z = self.gan.latent.next().clone()
         self.upsample = nn.Upsample((self.gan.height(),self.gan.width()), mode='bilinear')
+        self.x = None
 
 
     def compatible_with(gan):
@@ -21,8 +22,10 @@ class AlignedSampler(BaseSampler):
 
     def _sample(self):
         #if self.inputs is None:
+        if self.x is None:
+            self.x = self.gan.inputs.next(0)
         if self.inputs is None:
-            inp = self.gan.inputs.next(0)
+            inp = self.x
             #self.inputs = inp['img'].clone().detach().cuda()
             self.inputs = inp.clone().detach().cuda()
             if hasattr(self.gan, 'text_encoder'):
@@ -36,9 +39,8 @@ class AlignedSampler(BaseSampler):
             else:
                 self.text = None
                 self.prompt = None
-                self.latent = self.gan.encoder(inp)
-                self.latent2 = self.gan.encoder(inp)
-            #self.labels = self.gan.labels
+        self.latent, _, _ = self.gan.quantizer(self.gan.encoder(self.inputs))
+        #self.latent2 = self.gan.encoder(inp)
         b = self.z.shape[0]
         #mapping = self.gan.mapping(self.z)
         #enc = self.gan.encoder(self.inputs)
@@ -48,7 +50,6 @@ class AlignedSampler(BaseSampler):
         if hasattr(self.gan, 'mapping'):
             g = self.gan.generator(self.gan.mapping(self.latent, context={"text": self.text}))
             g2 = self.gan.generator(self.gan.mapping(self.latent2, context={"text": self.text}))
-            ('g2', g2),
             x_inputs = self.inputs
         elif hasattr(self.gan, 'upsample'):
             g = self.gan.generator(self.gan.upsample(self.inputs), context={"text": self.text})
@@ -57,7 +58,7 @@ class AlignedSampler(BaseSampler):
         else:
             g = self.gan.generator(self.latent, context={"text": self.text})
             g2 = self.gan.generator(self.latent, context={"text": self.prompt})
-            x_inputs = self.inputs
+            x_inputs = self.x
         outputs = []
         if hasattr(self.gan, 'autoencoding'):
 
@@ -73,8 +74,8 @@ class AlignedSampler(BaseSampler):
             #('x2', encoded_x2),
             #('g2', g2),
             ('x', x_inputs),
-            ('g', g),
-            ('g2', g2)
+            ('g', g)
+            #('g2', g2)
             #('tg', tg),
             #('g2',self.gan.generator.forward(self.gan.inputs.next(1).clone().detach(), context={"y": negy_.float().view(b,1)}))
         ]+outputs

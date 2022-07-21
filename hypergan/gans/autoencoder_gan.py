@@ -45,6 +45,7 @@ class AutoencoderGAN(BaseGAN):
         self.make_cutouts = MakeCutouts(cut_size, self.config.cutn or 1, cut_pow=1)
         self.perceptor = model.eval().requires_grad_(False).to(self.device)
         self.quantizer = VectorQuantizer(self.config.n_embed or 256, 8*8, beta=0.25, remap=None, sane_index_shape=False).to(self.device)
+        self.add_component("quantizer", self.quantizer)
         def add_emb_loss():
             return self.emb_loss, self.emb_loss
 
@@ -85,6 +86,7 @@ class AutoencoderGAN(BaseGAN):
         self.augmented_x = torch.cat([aug1, aug2], dim=1)
 
         self.e, self.emb_loss, info = self.quantizer(self.encoder(self.x))
+        self.add_metric('emb', self.emb_loss.mean())
         self.g = self.generator(self.e)
         self.augmented_g = torch.cat([aug1, self.train_hooks.augment_g(self.g)], dim=1)
         if self.config.z_ae:

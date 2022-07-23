@@ -83,21 +83,15 @@ class AutoencoderGAN(BaseGAN):
         b = self.x.shape[0]
         aug1 = self.train_hooks.augment_x(self.x)
         aug2 = self.train_hooks.augment_x(self.x)
-        self.augmented_x = torch.cat([aug1, aug2], dim=1)
+        self.augmented_x = [aug1, aug2]
 
         self.e, self.emb_loss, info = self.quantizer(self.encoder(self.x))
         self.add_metric('emb', self.emb_loss.mean())
-        self.g = self.generator(self.e)
-        self.augmented_g = torch.cat([aug1, self.train_hooks.augment_g(self.g)], dim=1)
-        if self.config.z_ae:
-            e_real = self.augmented_latent.view(self.e.shape)
-            z = torch.cat([e_real, self.e], dim=1)
-            zprime = torch.cat([e_real, e_real], dim=1)
-            x_args = [self.augmented_x, zprime]
-            g_args = [self.augmented_g, z]
-        else:
-            x_args = [self.augmented_x]
-            g_args = [self.augmented_g]
+        self.g = self.train_hooks.augment_g(self.generator(self.e))
+        self.add_metric("l2", ((self.x - self.g)**2).mean())
+        self.augmented_g = [aug1, self.g]
+        x_args = self.augmented_x
+        g_args = self.augmented_g
         self.x_args = x_args
         self.g_args = g_args
 

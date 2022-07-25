@@ -1,4 +1,5 @@
 import os
+from hypergan.gan_component import GANComponent
 from hypergan.backends.hogwild_backend import HogwildBackend
 from hypergan.backends.roundrobin_backend import RoundrobinBackend
 from hypergan.backends.single_gpu_backend import SingleGPUBackend
@@ -87,16 +88,16 @@ class TrainableGAN:
 
     def set_discriminator_trainable(self, flag):
         for c in self.gan.discriminator_components():
-            if isinstance(c, nn.Module):
-                c.requires_grad_(flag)
-            else:
+            if isinstance(c, GANComponent):
                 c.set_trainable(flag)
+            else:
+                c.requires_grad_(flag)
         for train_hook in self.gan.hooks:
             for c in train_hook.discriminator_components():
-                if isinstance(c, nn.Module):
-                    c.requires_grad_(flag)
-                else:
+                if isinstance(c, GANComponent):
                     c.set_trainable(flag)
+                else:
+                    c.requires_grad_(flag)
 
     def to(self, device):
         self.gan.to(device)

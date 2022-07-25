@@ -12,6 +12,7 @@ __all__ = [ basename(f)[:-3] for f in modules if isfile(f)]
 
 from .operation import Operation
 from .add import Add
+from .sub import Sub
 from .cat import Cat
 from .mul import Mul
 from .attention import Attention

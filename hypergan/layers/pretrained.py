@@ -29,6 +29,7 @@ class Pretrained(hg.Layer):
     def __init__(self, component, args, options):
         super(Pretrained, self).__init__(component, args, options)
         channels = component.current_size.channels
+        self.gan = component.gan
         import timm
 
         model = timm.create_model(args[0], pretrained=options.pretrained or False)
@@ -59,7 +60,10 @@ class Pretrained(hg.Layer):
         self.size = LayerShape(*list(test_activation.shape[1:]))
 
     def forward(self, input, context):
-        return self.network(self.normalize((input + 1) / 2))
+        s = input.shape
+        input = input.reshape(-1,3,s[2],s[3])
+        self.gan.add_metric('w', self.network[0].weight.mean())
+        return self.network(self.normalize((input + 1) / 2).view(s))
 
     def output_size(self):
         return self.size

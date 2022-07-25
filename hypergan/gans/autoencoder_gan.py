@@ -58,7 +58,8 @@ class AutoencoderGAN(BaseGAN):
             self.add_metric('mean', target.mean())
             self.add_metric('max', target.max().mean())
             return loss, None
-        self.add_loss(kloss)
+        if self.config.skip_k_loss != True:
+            self.add_loss(kloss)
         self.add_loss(add_emb_loss)
 
 
@@ -83,12 +84,22 @@ class AutoencoderGAN(BaseGAN):
         b = self.x.shape[0]
         aug1 = self.train_hooks.augment_x(self.x)
         aug2 = self.train_hooks.augment_x(self.x)
-        self.augmented_x = [aug1, aug2]
+        orig_aug2 = aug2.clone()
+
 
         self.e, self.emb_loss, info = self.quantizer(self.encoder(self.x))
         self.add_metric('emb', self.emb_loss.mean())
         self.g = self.train_hooks.augment_g(self.generator(self.e))
+        orig_g = self.g.clone()
         self.add_metric("l2", ((self.x - self.g)**2).mean())
+        if(self.config.mask_second):
+            #augment_lambda = self.config.augment_lambda or 0.5
+            mask = (torch.rand_like(aug2) > 0).float()
+            aug2 = mask * aug2 + (1.0-mask)*self.g.clone().detach()
+            mask = (torch.rand_like(aug2) > 0.1).float()
+            self.g = mask * aug2 + (1.0-mask)*self.g
+
+        self.augmented_x = [aug1, aug2]
         self.augmented_g = [aug1, self.g]
         x_args = self.augmented_x
         g_args = self.augmented_g
@@ -97,7 +108,8 @@ class AutoencoderGAN(BaseGAN):
 
         d_fake = self.forward_discriminator(*g_args)
         d_real = self.forward_discriminator(*x_args)
-        self.predicted_x = self.discriminator.context["x_prediction"]
+        if "x_prediction" in self.discriminator.context:
+            self.predicted_x = self.discriminator.context["x_prediction"]
         self.d_fake = d_fake
         self.d_real = d_real
 

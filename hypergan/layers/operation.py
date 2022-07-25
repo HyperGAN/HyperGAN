@@ -83,6 +83,8 @@ class Operation(hg.Layer):
             else:
                 if self.operation == "+":
                     output = output + layer_output
+                elif self.operation == "-":
+                    output = output - layer_output
                 elif self.operation == "*":
                     output = output * layer_output
                 elif self.operation == "cat":

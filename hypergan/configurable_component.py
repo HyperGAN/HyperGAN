@@ -94,7 +94,10 @@ class ConfigurableComponent(GANComponent):
             "expand": hg.layers.Expand,
             "rnn": hg.layers.Rnn,
             "ntm": hg.layers.NTMLayer,
+            "vit": hg.layers.ViTLayer,
+            "xunet": hg.layers.XUnetLayer,
             "pretrained": hg.layers.Pretrained,
+            "style_swin": hg.layers.StyleSwinLayer,
 
             #easy to convert
             "dropout": self.layer_dropout,

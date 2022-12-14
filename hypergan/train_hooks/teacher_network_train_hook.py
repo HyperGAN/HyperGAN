@@ -31,7 +31,7 @@ class TeacherNetworkTrainHook(BaseTrainHook):
         pretrained_args.criterion = None
         pretrained_args.lr_scheduler = None
         task = tasks.setup_task(pretrained_args.task)
-        pretrained_args.task.data = cfg.data
+        #pretrained_args.task.data = cfg.data
         model = task.build_model(pretrained_args.model, from_checkpoint=True)
         model.remove_pretraining_modules()
         model.load_state_dict(state["model"], strict=True)
@@ -43,8 +43,8 @@ class TeacherNetworkTrainHook(BaseTrainHook):
         layer = self.data2vec(inpx, mask=False, features_only=True)["layer_results"][-1]
         prediction = self.gan.discriminator.context[self.config.layer_name]
         target = (layer > 0).float()
-        #loss = F.cross_entropy(prediction.view(target.shape[0], -1), target.view(target.shape[0], -1))# * 0.05
-        loss = F.mse_loss(prediction.view(target.shape[0], -1), target.view(target.shape[0], -1))# * 0.05
+        loss = F.cross_entropy(prediction.view(target.shape[0], -1), target.view(target.shape[0], -1))# * 0.05
+        #loss = F.mse_loss(prediction.view(target.shape[0], -1), target.view(target.shape[0], -1))# * 0.05
         self.add_metric('ce', loss)
         self.add_metric('t', target.mean())
         return loss, loss

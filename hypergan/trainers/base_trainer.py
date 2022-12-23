@@ -33,13 +33,18 @@ class BaseTrainer(GANComponent):
             hook.after_create()
             setattr(self, 'train_hook'+str(i), hook)
 
-    def create_optimizer(self, name="optimizer"):
+    def create_optimizer(self, name="optimizer", trainable_gan=True, parameters=[]):
         defn = getattr(self.config, name) or self.config.optimizer
         defn = defn.copy()
         klass = GANComponent.lookup_function(None, defn['class'])
         del defn["class"]
 
-        optimizer = self.trainable_gan.create_optimizer(klass, defn)
+
+        if trainable_gan:
+            optimizer = self.trainable_gan.create_optimizer(klass, defn)
+        else:
+            optimizer = klass(parameters, **defn)
+
         return optimizer
 
     def calculate_gradients(self):

@@ -1,4 +1,5 @@
 from hypergan.samplers.base_sampler import BaseSampler
+import torch
 import numpy as np
 
 class StaticBatchSampler(BaseSampler):
@@ -16,7 +17,11 @@ class StaticBatchSampler(BaseSampler):
         if(self.x is None):
             self.x = self.gan.inputs.next()
         self.gan.latent.z = self.latent
-        g = self.gan.generator.forward(self.latent)
+        #e1 = self.gan.encoder(self.x)
+        #latent = torch.cat([e1, self.latent], dim=1)
+        latent = self.latent
+        pro = self.gan.projector(latent)
+        g = self.gan.generator.forward(pro)
         samples = [
             ('generator', g),
         ]
@@ -28,11 +33,17 @@ class StaticBatchSampler(BaseSampler):
         if hasattr(self.gan, 'mask_layers'):
             for mask_layer in self.gan.mask_layers:
                 samples.append(('mask_layer', mask_layer))
-        if hasattr(self.gan, 'encoder'):
-            encoding = self.gan.encoder(self.x)
-            encoded_x = self.gan.decoder.forward(encoding)
-            samples.append(('x', self.x))
-            samples.append(('ex', encoded_x))
+        #if hasattr(self.gan, 'encoder'):
+        #    encoding = self.gan.encoder(self.x)
+        #    encoded_x = self.gan.decoder.forward(encoding)
+        #    samples.append(('x', self.x))
+        #    samples.append(('ex', encoded_x))
+        self.gan.forward_discriminator(self.x)
+        d = self.gan.discriminator.context['z']
+        x_prime = self.gan.generator(d)
+
+        samples.append(('x_prime', x_prime))
+        samples.append(('x', self.x))
 
 
         return samples

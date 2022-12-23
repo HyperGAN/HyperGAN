@@ -63,6 +63,9 @@ class SimultaneousTrainer(BaseTrainer):
         self.gan._metrics = {}
         metrics = self.gan.metrics()
 
+        for c in self.gan.components():
+            c.train()
+
         self.before_step(self.current_step, feed_dict)
         self.gan.next_inputs()
 
@@ -86,6 +89,7 @@ class SimultaneousTrainer(BaseTrainer):
         else:
             self.optimizer.step()
 
+        self.after_step(self.current_step, feed_dict)
         if self.current_step % 10 == 0:
             self.print_metrics(self.current_step)
 
@@ -130,6 +134,11 @@ class SimultaneousTrainer(BaseTrainer):
 
             d_loss.mean().backward(retain_graph=True)
             self.trainable_gan.set_generator_trainable(True)
+
+        for loss, optim in self.gan.additional_optimizer_steps:
+            optim.zero_grad()
+            loss().backward()
+            optim.step()
 
 
         d_grads = [p.grad for p in self.trainable_gan.d_parameters()]

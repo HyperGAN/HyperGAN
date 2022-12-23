@@ -30,7 +30,6 @@ class TrainableGAN:
         chosen_backend = self.available_backends[backend_name]
         self.backend = chosen_backend(self, devices=devices)
 
-        self.loss = self.gan.initialize_component("loss")
         self.trainer = self.gan.initialize_component("trainer", self)
         gan.trainable_gan = self
 
@@ -43,11 +42,11 @@ class TrainableGAN:
         self.add_optimizer(optimizer)
         return optimizer
 
-    def forward_loss(self):
+    def forward_loss(self, task=0):
         """
             Runs a forward pass through the GAN and returns (d_loss, g_loss)
         """
-        return self.gan.forward_loss(self.loss)
+        return self.gan.forward_loss(task=task)
 
     def step(self):
         self.backend.step()
@@ -77,23 +76,31 @@ class TrainableGAN:
         for c in self.gan.generator_components():
             if isinstance(c, nn.Module):
                 c.requires_grad_(flag)
+            elif c is None:
+                pass
             else:
                 c.set_trainable(flag)
         for train_hook in self.gan.hooks:
             for c in train_hook.generator_components():
                 if isinstance(c, nn.Module):
                     c.requires_grad_(flag)
+                elif c is None:
+                    pass
                 else:
                     c.set_trainable(flag)
 
     def set_discriminator_trainable(self, flag):
         for c in self.gan.discriminator_components():
+            if c is None:
+                continue
             if isinstance(c, GANComponent):
                 c.set_trainable(flag)
             else:
                 c.requires_grad_(flag)
         for train_hook in self.gan.hooks:
             for c in train_hook.discriminator_components():
+                if c is None:
+                    continue
                 if isinstance(c, GANComponent):
                     c.set_trainable(flag)
                 else:
@@ -112,25 +119,29 @@ class TrainableGAN:
     def g_parameters(self):
         #TODO add optimizer params
         for component in self.gan.generator_components():
-            for param in component.parameters():
-                yield param
+            if component is not None:
+                for param in component.parameters():
+                    yield param
 
         for train_hook in self.gan.hooks:
             for component in train_hook.generator_components():
-                for param in component.parameters():
-                    yield param
+                if component is not None:
+                    for param in component.parameters():
+                        yield param
 
 
     def d_parameters(self):
         #TODO add optimizer params
         for component in self.gan.discriminator_components():
-            for param in component.parameters():
-                yield param
+            if component is not None:
+                for param in component.parameters():
+                    yield param
 
         for train_hook in self.gan.hooks:
             for component in train_hook.discriminator_components():
-                for param in component.parameters():
-                    yield param
+                if component is not None:
+                    for param in component.parameters():
+                        yield param
 
 
     def parameters(self):

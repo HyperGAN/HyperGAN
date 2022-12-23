@@ -30,8 +30,9 @@ class BaseGAN():
     def __init__(self, config=None, inputs=None, device="cuda"):
         """ Initialized a new GAN."""
         self._metrics = {}
-        self.components = {}
+        self._components = {}
         self.additional_losses = []
+        self.additional_optimizer_steps = []
         self.destroy = False
         self.inputs = inputs
         self.steps = Variable(torch.zeros([1]))
@@ -45,6 +46,8 @@ class BaseGAN():
         self.create()
         self.hooks = self.setup_hooks()
         self.train_hooks = TrainHookCollection(self)
+        self.loss = self.initialize_component("loss")
+        self._components["loss"] = self.loss
 
     def g_parameters(self):
         print("Warning: BaseGAN.g_parameters() called directly.  Please override")
@@ -75,12 +78,16 @@ class BaseGAN():
 
     def add_component(self, name, component):
         index = 0
-        while(name+str(index) in self.components):
+        while(name+str(index) in self._components):
             index+=1
-        self.components[name+str(index)] = component
+        self._components[name+str(index)] = component
 
     def add_loss(self, loss_function):
         self.additional_losses.append(loss_function)
+
+    def add_optimizer_step(self, loss_function, optimizer):
+        self.additional_optimizer_steps.append((loss_function, optimizer))
+
 
     def create_component(self, name, *args, **kw_args):
         gan_component = self.initialize_component(name, *args, **kw_args)
@@ -139,7 +146,8 @@ class BaseGAN():
         print("Warning: BaseGAN.forward_pass() called directly.  Please override")
         return None, None
 
-    def forward_loss(self, loss):
+    def forward_loss(self, task=0):
+        loss = self.loss
         d_real, d_fake = self.forward_pass()
         if(self.config.use_stabilized_loss):
             if not hasattr(self, 'stable_gan_loss'):
@@ -152,12 +160,12 @@ class BaseGAN():
         return None
 
     def load(self, save_file, load_components=None):
-        print("Loading..." + str(len(self.components)))
+        print("Loading..." + str(len(self._components)))
         success = True
         full_path = os.path.expanduser(os.path.dirname(save_file))
-        for name, component in self.components.items():
+        for name, component in self._components.items():
             if load_components is None or name in load_components:
-                if not self._load(full_path, name, component):
+                if component is not None and not self._load(full_path, name, component):
                     print("Error loading", name)
                     success = False
             else:
@@ -234,8 +242,8 @@ class BaseGAN():
             return False
 
     def save(self, full_path):
-        print("Saving..." + str(len(self.components)))
-        for name, component in self.components.items():
+        print("Saving..." + str(len(self._components)))
+        for name, component in self._components.items():
             if component is not None:
                 self._save(full_path, name, component)
 
@@ -285,6 +293,9 @@ class BaseGAN():
                 #'segment': SegmentSampler,
                 'aligned': AlignedSampler
             }
+
+    def components(self):
+        return self.discriminator_components() + self.generator_components()
 
     def discriminator_components(self):
         print("Warning: BaseGAN.discriminator_components() called directly.  Please override")

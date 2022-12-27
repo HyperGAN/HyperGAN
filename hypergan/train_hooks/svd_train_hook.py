@@ -54,29 +54,47 @@ class SVDTrainHook(BaseTrainHook):
         g_l = []
         if self.config.info_nce:
             selections = torch.randint(0, e.shape[0], [self.gan.batch_size()]).cuda()
-            z2 = self.gan.augmented_latent - (0.5 * e[selections])
-            z3 = self.gan.augmented_latent + (0.5 * e[selections])
+            amount = torch.rand_like(e[selections])/2.0+0.3
+            z2 = self.gan.augmented_latent - amount * e[selections]
+            amount = torch.rand_like(e[selections])/2.0+0.3
+            z3 = self.gan.augmented_latent + amount * e[selections]
             g2 = self.gan.generator(z2)
             g = self.gan.g
             g3 = self.gan.generator(z3)
-            p1 = torch.cat([g2, g, g3], dim=1)
-            positive  = self.svd_classifier(p1)
-            z2 = self.gan.augmented_latent - ((torch.rand_like(e[selections])/2.0+0.3) * e[selections])
-            z3 = self.gan.augmented_latent + ((torch.rand_like(e[selections])/2.0+0.3) * e[selections])
+            p1 = torch.cat([g, g3], dim=-1)
+            if self.config.discriminator_layer:
+                self.gan.forward_discriminator(g)
+                positive1 = self.gan.discriminator.context[self.config.discriminator_layer]
+                self.gan.forward_discriminator(g3)
+                positive2 = self.gan.discriminator.context[self.config.discriminator_layer]
+                p1 = torch.cat([positive1, positive2], dim=-1)
+                positive  = self.svd_classifier(p1)
+            else:
+                positive  = self.svd_classifier(p1)
             g2 = self.gan.generator(z2)
             g = self.gan.g
             g3 = self.gan.generator(z3)
-            p1 = torch.cat([g2, g, g3], dim=1)
-            query  = self.svd_classifier(p1)
+            q1 = torch.cat([g2, g], dim=-1)
+            if self.config.discriminator_layer:
+                self.gan.forward_discriminator(g3)
+                query2 = self.gan.discriminator.context[self.config.discriminator_layer]
+                q1 = torch.cat([positive1, query2], dim=-1)
+                query  = self.svd_classifier(q1)
+            else:
+                query  = self.svd_classifier(q1)
             negatives = []
             for i in range(2):
                 selections2 = torch.randint(0, e.shape[0], [self.gan.batch_size()]).cuda()
-                z3f = self.gan.augmented_latent - (0.5 * e[selections2])
-                z4f = self.gan.augmented_latent + (0.5 * e[selections2])
-                g3f = self.gan.generator(z3f)
+                z4f = self.gan.augmented_latent + ((torch.rand_like(e[selections2])/2.0+0.3) * e[selections2])
                 g4f = self.gan.generator(z4f)
-                n1 = torch.cat([g3f, g, g4f], dim=1)
-                negative = self.svd_classifier(n1)
+                n1 = torch.cat([g, g4f], dim=-1)
+                if self.config.discriminator_layer:
+                    self.gan.forward_discriminator(g4f)
+                    negative2 = self.gan.discriminator.context[self.config.discriminator_layer]
+                    n1 = torch.cat([positive1, negative2], dim=-1)
+                    negative  = self.svd_classifier(n1)
+                else:
+                    negative = self.svd_classifier(n1)
                 negatives.append(negative.unsqueeze(1))
             negatives = torch.cat(negatives, dim=1)
             loss = self.info_nce(query, positive, negatives)
@@ -86,14 +104,22 @@ class SVDTrainHook(BaseTrainHook):
         elif self.config.svd_classifier:
             i = []
             selections = torch.randint(0, e.shape[0], [self.gan.batch_size()]).cuda()
-            z2 = self.gan.augmented_latent - (0.5 * e[selections])
-            z3 = self.gan.augmented_latent + (0.5 * e[selections])
+            z2 = self.gan.augmented_latent - ((torch.rand_like(e[selections])/2.0+0.3) * e[selections])
+            z3 = self.gan.augmented_latent + ((torch.rand_like(e[selections])/2.0+0.3) * e[selections])
             p = self.gan.generator(z2)
             f = self.gan.generator(z3)
-            g = self.gan.g
-            x = torch.cat([p,g,f], dim=1)
+            #g = self.gan.g
+            x = torch.cat([p,f], dim=-1)
             #g2 = torch.cat([p,g], dim=1)
-            logits = self.svd_classifier(x)
+            if self.config.discriminator_layer:
+                self.gan.forward_discriminator(p)
+                l1 = self.gan.discriminator.context[self.config.discriminator_layer]
+                self.gan.forward_discriminator(f)
+                l2 = self.gan.discriminator.context[self.config.discriminator_layer]
+                pf = torch.cat([l1,l2], dim=-1)
+                logits  = self.svd_classifier(pf)
+            else:
+                logits = self.svd_classifier(x)
             l = self.ce_loss(logits, selections).sum()
             g_l += [l]
             d_l += [l]

@@ -13,13 +13,19 @@ class Slice(hg.Layer):
         if len(dims) == 3:
             dims[2] = options.w or dims[2]
         self.size = LayerShape(*dims)
+        self.transpose = False
+        if options.transpose:
+            self.transpose = True
 
     def forward(self, input, context):
         c = self.size.dims[0] or input.shape[1]
         if len(input.shape) == 4:
             return input[:, :c, :self.size.dims[1], :self.size.dims[2]]
         if len(input.shape) == 3:
-            return input[:, :c, :self.size.dims[1]]
+            result = input[:, :c, :self.size.dims[1]]
+            if self.transpose:
+                result = result.transpose(1,2)
+            return result
 
     def output_size(self):
         return self.size

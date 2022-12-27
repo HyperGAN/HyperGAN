@@ -15,15 +15,16 @@ class StaticBatchSampler(BaseSampler):
 
     def _sample(self):
         if(self.x is None):
-            self.x = self.gan.inputs.next()
+            self.x = self.gan.inputs.next(gan=self.gan)
         self.gan.latent.z = self.latent
         #e1 = self.gan.encoder(self.x)
         #latent = torch.cat([e1, self.latent], dim=1)
         latent = self.latent
-        pro = self.gan.projector(latent)
-        g = self.gan.generator.forward(pro)
+        #pro = self.gan.projector(latent)
+        g = self.gan.generator.forward_sample(latent)
         samples = [
             ('generator', g),
+            #('generator', g3)
         ]
         if hasattr(self.gan, 'g_to_z'):
             samples.append(('decoded', self.gan.generator(self.gan.g_to_z(g))))
@@ -38,12 +39,12 @@ class StaticBatchSampler(BaseSampler):
         #    encoded_x = self.gan.decoder.forward(encoding)
         #    samples.append(('x', self.x))
         #    samples.append(('ex', encoded_x))
-        self.gan.forward_discriminator(self.x)
-        d = self.gan.discriminator.context['z']
-        x_prime = self.gan.generator(d)
+        #self.gan.forward_discriminator(self.x)
+        #d = self.gan.discriminator.context['z']
+        #x_prime = self.gan.generator(d)
 
-        samples.append(('x_prime', x_prime))
-        samples.append(('x', self.x))
+        #samples.append(('x_prime', x_prime))
+        #samples.append(('x', self.x))
 
 
         return samples

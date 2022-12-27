@@ -5,6 +5,7 @@ from hypergan.backends.roundrobin_backend import RoundrobinBackend
 from hypergan.backends.single_gpu_backend import SingleGPUBackend
 from hypergan.backends.cpu_backend import CPUBackend
 from hypergan.train_hook_collection import TrainHookCollection
+from hypergan.gan_component import GANComponent
 from torch import nn
 
 class TrainableGAN:
@@ -74,20 +75,20 @@ class TrainableGAN:
 
     def set_generator_trainable(self, flag):
         for c in self.gan.generator_components():
-            if isinstance(c, nn.Module):
+            if isinstance(c, GANComponent):
+                c.set_trainable(flag)
+            elif isinstance(c, nn.Module):
                 c.requires_grad_(flag)
             elif c is None:
                 pass
-            else:
-                c.set_trainable(flag)
         for train_hook in self.gan.hooks:
             for c in train_hook.generator_components():
-                if isinstance(c, nn.Module):
+                if isinstance(c, GANComponent):
+                    c.set_trainable(flag)
+                elif isinstance(c, nn.Module):
                     c.requires_grad_(flag)
                 elif c is None:
                     pass
-                else:
-                    c.set_trainable(flag)
 
     def set_discriminator_trainable(self, flag):
         for c in self.gan.discriminator_components():
@@ -117,7 +118,6 @@ class TrainableGAN:
         return result
 
     def g_parameters(self):
-        #TODO add optimizer params
         for component in self.gan.generator_components():
             if component is not None:
                 for param in component.parameters():
@@ -131,7 +131,6 @@ class TrainableGAN:
 
 
     def d_parameters(self):
-        #TODO add optimizer params
         for component in self.gan.discriminator_components():
             if component is not None:
                 for param in component.parameters():

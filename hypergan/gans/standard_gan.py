@@ -33,7 +33,6 @@ class StandardGAN(BaseGAN):
     """
     def __init__(self, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
-        self.x = self.inputs.next()
 
     def build(self):
         torch.onnx.export(self.generator, self.latent.next(), "generator.onnx", verbose=True, input_names=["latent"], output_names=["generator"], opset_version=11)
@@ -50,14 +49,15 @@ class StandardGAN(BaseGAN):
         return self.discriminator(inputs[0])
 
     def next_inputs(self):
-        self.x = self.inputs.next()
         self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
-        self.augmented_x = self.train_hooks.augment_x(self.x)
+        self.x = self.inputs.next(gan=self)
+        #self.augmented_x = self.train_hooks.augment_x(self.x)
+        self.augmented_x = self.x#self.train_hooks.augment_x(self.x)
 
     def forward_pass(self):
         g = self.generator(self.augmented_latent)
         self.g = g
-        self.augmented_g = self.train_hooks.augment_g(self.g)
+        self.augmented_g = self.g#self.train_hooks.augment_g(self.g)
         d_fake = self.forward_discriminator(self.augmented_g)
         d_real = self.forward_discriminator(self.augmented_x)
         self.d_fake = d_fake
@@ -87,5 +87,5 @@ class StandardGAN(BaseGAN):
         if hasattr(self, 'augmented_x'):
             return [self.augmented_x]
         else:
-            return [self.inputs.next()]
+            return [self.inputs.next(gan=self)]
 

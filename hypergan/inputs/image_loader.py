@@ -73,7 +73,7 @@ class ImageLoader:
     def channels(self):
         return self.config.channels
 
-    def next(self, index=0):
+    def next(self, index=0, gan=None):
         if len(self.datasets) == 0:
             self.datasets = [iter(dl) for dl in self.dataloaders]
         if self.config.blank:

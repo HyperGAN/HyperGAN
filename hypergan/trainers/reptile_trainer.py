@@ -36,7 +36,7 @@ class ReptileTrainer(BaseTrainer):
         self.task_count = 0
         if self.config.post_ode_hooks:
             self.post_ode_hooks = self.gan.setup_hooks(config_name="post_ode_hooks", add_to_hooks=False)
-        self.meta_gan = hg.GAN(config=self.gan.config, inputs=self.gan.inputs, device=self.gan.device) #TODO load/save
+        self.meta_gan = hg.GAN(config=self.gan.config, inputs=self.gan.inputs, device=self.gan.device, use_vae=False) #TODO load/save
         self.meta_optimizer = self.create_optimizer(trainable_gan=False, parameters=self.meta_gan.parameters())
         self.reptile_save_file = "/".join(self.trainable_gan.save_file.split("/")[:-1])+"-reptile/save"
         success = self.load_meta_gan()
@@ -46,6 +46,12 @@ class ReptileTrainer(BaseTrainer):
         return "optimizer".split()
 
     def set_parameter_grads(self, optimizer, task, add_train_hooks=True, first_step=False):
+        #if task == 0 or task == 2:
+        #    lr = 0.0001
+        #if task == 1:
+        #    lr = 0.0005
+        #for g in optimizer.param_groups:
+        #    g['lr'] = lr
         d_grads, g_grads = self.calculate_gradients(optimizer, task, add_train_hooks=add_train_hooks, first_step=first_step)
 
         for hook in self.train_hooks:
@@ -81,8 +87,8 @@ class ReptileTrainer(BaseTrainer):
             self.print_metrics(self.current_step)
 
     def _step(self, feed_dict):
-        inner_steps=2
-        num_tasks = 2
+        inner_steps=self.config.inner_steps or 2
+        num_tasks = self.config.num_tasks or 3
         for c, mc in zip(self.gan.components(), self.meta_gan.components()):
             c.train()
             mc.train()
@@ -94,6 +100,7 @@ class ReptileTrainer(BaseTrainer):
         # optimize active gan
         for i in range(inner_steps):
             self.inner_step(feed_dict, self.gan, self.optimizer, task)
+        self.meta_gan.mode = self.gan.mode
 
         self.task_count += 1
         self.meta_optimizer.zero_grad()
@@ -105,7 +112,7 @@ class ReptileTrainer(BaseTrainer):
 
         self.meta_optimizer.step()
 
-        if self.task_count % 1000 == 0:
+        if self.task_count % 10000 == 0:
             print("Saving reptile")
             self.save_meta_gan()
 
@@ -126,21 +133,21 @@ class ReptileTrainer(BaseTrainer):
         optimizer.zero_grad()
         d_loss, g_loss = self.trainable_gan.forward_loss(task)
         self.gan.add_metric('d_loss', d_loss.mean())
-        self.gan.add_metric('g_loss', g_loss.mean())
-        if add_train_hooks:
-            for hook in self.train_hooks:
-                if not first_step or hook.config.first_ode_step_only != True:
-                    loss = hook.forward(d_loss, g_loss)
-                    if hook.config.only:
-                        if loss[0] is not None:
-                            d_loss = loss[0]
-                        if loss[1] is not None:
-                            g_loss = loss[1]
-                    else:
-                        if loss[0] is not None:
-                            d_loss = d_loss + loss[0]
-                        if loss[1] is not None:
-                            g_loss = g_loss + loss[1]
+        if g_loss is not None:
+            self.gan.add_metric('g_loss', g_loss.mean())
+        for hook in self.train_hooks:
+            if not first_step or hook.config.first_ode_step_only != True:
+                loss = hook.forward(d_loss, g_loss)
+                if hook.config.only:
+                    if loss[0] is not None:
+                        d_loss = loss[0]
+                    if loss[1] is not None:
+                        g_loss = loss[1]
+                else:
+                    if loss[0] is not None:
+                        d_loss = d_loss + loss[0]
+                    if loss[1] is not None:
+                        g_loss = g_loss + loss[1]
         for loss_function in self.gan.additional_losses:
             loss = loss_function()
             if loss[0] is not None:
@@ -153,10 +160,11 @@ class ReptileTrainer(BaseTrainer):
             d_loss.mean().backward(retain_graph=True)
         else:
 
-            self.trainable_gan.set_generator_trainable(True)
-            self.trainable_gan.set_discriminator_trainable(False)
+            if g_loss is not None:
+                self.trainable_gan.set_generator_trainable(True)
+                self.trainable_gan.set_discriminator_trainable(False)
 
-            g_loss.mean().backward(retain_graph=True, create_graph=create_graph)
+                g_loss.mean().backward(retain_graph=True, create_graph=create_graph)
 
             self.trainable_gan.set_generator_trainable(False)
             self.trainable_gan.set_discriminator_trainable(True)

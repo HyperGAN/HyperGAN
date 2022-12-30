@@ -1,5 +1,7 @@
 from .base_gan import BaseGAN
 from torchvision import transforms
+from info_nce import InfoNCE
+from diffusers.models import AutoencoderKL
 from hyperchamber import Config
 from hypergan.discriminators import *
 from hypergan.distributions import *
@@ -20,13 +22,16 @@ import sys
 import time
 import torch
 import uuid
-from hypergan.train_hooks.clip_prompt_train_hook import ClipPromptTrainHook, MakeCutouts
+from hypergan.train_hooks.clip_prompt_train_hook import ClipPromptTrainHook, MakeCutouts, spherical_dist_loss
 import open_clip
+import random
 
 class ReptileGAN(BaseGAN):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, use_vae=False, *args, **kwargs):
         BaseGAN.__init__(self, *args, **kwargs)
+        self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
         self.x = self.inputs.next()
+        self.mode = 'aae'
         self.step = 0
 
     def build(self):
@@ -38,10 +43,18 @@ class ReptileGAN(BaseGAN):
     def create(self):
         self.latent = self.create_component("latent")
         self.generator = self.create_component("generator", input=self.latent)
+        #self.encoder = self.create_component("encoder", input=self.latent)
+        self.info_nce = InfoNCE(negative_mode='paired')
         #self.encoder = self.create_component("encoder")
-        self.projector = self.create_component("projector")
-        self.discriminator = self.create_component("discriminator")
+        #self.projector = self.create_component("projector")
+        #self.discriminator = self.create_component("discriminator")
+        self.discriminator2 = self.create_component("discriminator2")
+        self.discriminator3 = self.create_component("discriminator2")
+        self.encoder = self.create_component("discriminator")
+        self.discriminator = self.encoder #TODO wrong
+        self.discriminator5 = self.create_component("discriminator")
         self.decoder = self.generator
+        self.softplus = torch.nn.Softplus(self.config.beta or 1, self.config.threshold or 20)
         cut_size = 224
         self.make_cutouts = MakeCutouts(cut_size, self.config.cutn or 1, cut_pow=1)
         model, train_transform, eval_transform = open_clip.create_model_and_transforms(self.config.model or 'ViT-B-32', self.config.model_provider or 'openai')
@@ -49,10 +62,14 @@ class ReptileGAN(BaseGAN):
 
         self.normalize = transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
                                   std=[0.26862954, 0.26130258, 0.27577711])
+        if self.config.use_vae:
+            self.vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae").cuda().eval()
+            self.vae.requires_grad_(False)
+        self.task = 0
 
 
     def forward_discriminator(self, *inputs):
-        return self.discriminator(inputs[0])
+        return self.discriminator2(inputs[0])
 
     def next_inputs(self):
         self.x = self.inputs.next()
@@ -63,7 +80,7 @@ class ReptileGAN(BaseGAN):
         x1 = self.augmented_x
         #e1 = self.encoder(x1)
         #e1 = torch.cat([e1, self.augmented_latent], dim=1)
-        e1 = self.projector(self.augmented_latent)
+        #e1 = self.projector(self.augmented_latent)
         g = self.generator(e1)
         self.g = g
         self.augmented_g = self.train_hooks.augment_g(self.g)
@@ -107,7 +124,7 @@ class ReptileGAN(BaseGAN):
         return d_real, d_fake
 
     def encode_image(self, x):
-        return self.perceptor.encode_image(self.make_cutouts(self.normalize((x+1.0)/2.0)))
+        return self.perceptor.encode_image(self.make_cutouts(self.normalize(x/2+0.5)))
 
     def partial_noise(self, x):
         gamma = self.config.denoising_gamma or 0.2
@@ -115,27 +132,68 @@ class ReptileGAN(BaseGAN):
         return mask*x
 
     def forward_loss(self, task=0):
-        d_real, d_fake = self.forward_pass(task)
+        criterion = torch.nn.BCEWithLogitsLoss()
+
         if task == 0:
-            criterion = torch.nn.BCEWithLogitsLoss()
-            cr = torch.mean(d_real,0)
-            cf = torch.mean(d_fake,0)
-            g_loss = criterion(d_fake-cr, torch.ones_like(d_fake))
-            d_loss = criterion(d_real-cf, torch.ones_like(d_real)) + criterion(d_fake-cr, torch.zeros_like(d_fake))
-        #reg = self.generator.context["reg"]
-        #elif task == 1:
-        #    g_loss = d_fake
-        #    d_loss = d_real - d_fake
+            self.discriminator(self.x)
+            eg = self.discriminator.context['z']
+            self.augmented_g = eg
+            d_fake = self.discriminator2(eg)
+            self.p = torch.rand_like(eg)*2-1
+            d_real = self.discriminator2(self.p)
+            self.d_fake = d_fake
+            self.d_real = d_real
+            d_loss = self.softplus(-d_real) + self.softplus(d_fake)
+            self.mode = 'aae'
+            g_loss = self.softplus(-d_fake)
         if task == 1:
-            self.forward_discriminator(self.x)#self.partial_noise(self.encode_image(self.x)))
+            self.discriminator(self.x)
             d = self.discriminator.context['z']
-            regularizer = torch.mean(d, dim=1)**2
-            regularizer = regularizer# + (torch.std(d, dim=1, unbiased=False)-torch.ones_like(regularizer))**2
             x_prime = self.generator(d)
             mse_loss = F.mse_loss(self.x, x_prime)#+ regularizer
-            g_loss = mse_loss
-            d_loss = mse_loss
+            lam = self.config.mse_lambda or 1
+            g_loss = mse_loss * lam
+            self.mode = 'aae'
+            d_loss = mse_loss * lam
+            self.add_metric('mse', mse_loss.mean())
 
+        if task == 2:
+            d_fake = self.discriminator2(torch.rand_like(self.augmented_latent)*2-1)
+            d_real = self.discriminator3(torch.rand_like(self.augmented_latent)*2-1)#.clone().detach()
+            self.d_fake = d_fake
+            self.d_real = d_real
+            self.mode = 'aae'
+            lam = self.config.intrisic_lambda or 1.0
+            d_loss = torch.norm(self.softplus(-d_real) + self.softplus(d_fake), dim=1) * lam
+            g_loss = torch.norm(self.softplus(-d_fake), dim=1) * lam
+
+        if task == 3:
+            self.g = self.generator(self.augmented_latent)
+
+            d_fake = self.discriminator(self.g)
+            d_real = self.discriminator(self.x)
+            self.d_fake = d_fake
+            self.d_real = d_real
+            d_loss = self.softplus(-d_real) + self.softplus(d_fake)
+            g_loss = self.softplus(-d_fake)
+            self.mode = 'gan'
+
+        if task == 4:
+            self.g = self.generator(self.augmented_latent)
+            d_fake = self.discriminator(self.g)
+            d_real = self.discriminator5(self.x).clone().detach()
+            self.d_fake = d_fake
+            self.d_real = d_real
+            d_loss =self.softplus(-d_real) + self.softplus(d_fake)
+            g_loss =self.softplus(-d_fake)
+            self.mode = 'gan'
+
+            lam = self.config.intrisic_lambda or 1.0
+            d_loss = torch.norm(d_loss, dim=1) * lam
+            g_loss = torch.norm(g_loss, dim=1) * lam
+
+
+        self.task = task
         return [d_loss, g_loss]
 
     def input_nodes(self):
@@ -149,17 +207,20 @@ class ReptileGAN(BaseGAN):
         ]
 
     def discriminator_components(self):
-        return [self.discriminator]
+        if self.mode == "aae":
+            return [self.discriminator2]#, self.discriminator5]
+        else:
+            return [self.discriminator]
 
     def generator_components(self):
-        return [self.generator, self.projector]#, self.encoder]
+        if self.mode == "aae":
+
+            return [self.encoder, self.generator]#, self.encoder]#, self.projector]#, self.encoder]
+        else:
+            return [self.generator]
 
     def discriminator_fake_inputs(self):
         return [[self.augmented_g]]
 
     def discriminator_real_inputs(self):
-        if hasattr(self, 'augmented_x'):
-            return [self.augmented_x]
-        else:
-            return [self.inputs.next()]
-
+        return [self.p]

@@ -50,8 +50,11 @@ class EzNorm(hg.Layer):
         dims = len(component.current_size.dims)
 
         options["input_size"] = component.layer_output_sizes['w'].size()
-        self.beta = NTMLayer(component, [channels], options)
-        self.gamma = NTMLayer(component, [channels], options)
+        self.beta = nn.Linear(style_size, channels)
+        self.gamma = nn.Linear(style_size, channels)
+
+        #self.beta = NTMLayer(component, [channels], options)
+        #self.gamma = NTMLayer(component, [channels], options)
         self.offset = nn.Conv2d(in_channels = channels, out_channels = channels, kernel_size=1, padding=0)
         self.activation = nn.SELU()
 
@@ -80,8 +83,8 @@ class EzNorm(hg.Layer):
     def forward(self, content, context, epsilon=1e-5):
         style = context['w']
         style = style.view(content.shape[0], -1)
-        gamma = self.gamma(style, context)
-        beta = self.beta(style, context)
+        gamma = self.gamma(style)
+        beta = self.beta(style)
         offset = self.offset(self.activation(content))
         if len(content.shape) == 4:
             c_mean, c_var = self.calc_mean_std(content, epsilon)

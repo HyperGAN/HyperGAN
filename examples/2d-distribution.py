@@ -131,11 +131,16 @@ class Custom2DSampler(BaseSampler):
                 z_v.append(gan.latent.sample().detach().clone())
 
         samples = []
+        aes = []
         for j in range(args.sample_points // gan.batch_size()):
             z_v_sample = z_v[j]
             x_v_sample = x_v[j]
             sample = gan.generator(z_v_sample)
             samples.append(sample)
+            gan.discriminator(x_v_sample)
+            z = gan.discriminator.context['z']
+            ae = gan.generator(z)
+            aes.append(ae)
         sample = torch.cat(samples, dim=0).detach().cpu().numpy()
         points = go.Scatter(x=sample[:,0], y=sample[:,1],
                 mode='markers',
@@ -155,6 +160,16 @@ class Custom2DSampler(BaseSampler):
                        width = 2
                     )),
                 name='real')
+        ae= torch.cat(aes, dim=0).detach().cpu().numpy()
+        points2 = go.Scatter(x=ae[:,0], y=ae[:,1],
+                mode='markers',
+                marker = dict(
+                    size = 10,
+                    line = dict(
+                       width = 2
+                    )),
+                name='fake')
+
 
         layout = go.Layout(hovermode='closest',
                 xaxis=dict(range=[-1.5,1.5]),
@@ -163,7 +178,7 @@ class Custom2DSampler(BaseSampler):
                 showlegend=False,
                 height=480
         )
-        fig = go.Figure([xpoints, points], layout=layout)
+        fig = go.Figure([xpoints, points, points2], layout=layout)
         data = pio.to_image(fig, format='png')
         #pio.write_image(fig,filename)
         img = Image.open(io.BytesIO(data))

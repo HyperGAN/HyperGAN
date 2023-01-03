@@ -51,13 +51,12 @@ class StandardGAN(BaseGAN):
     def next_inputs(self):
         self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
         self.x = self.inputs.next(gan=self)
-        #self.augmented_x = self.train_hooks.augment_x(self.x)
-        self.augmented_x = self.x#self.train_hooks.augment_x(self.x)
+        self.augmented_x = self.train_hooks.augment_x(self.x)
 
     def forward_pass(self):
         g = self.generator(self.augmented_latent)
         self.g = g
-        self.augmented_g = self.g#self.train_hooks.augment_g(self.g)
+        self.augmented_g = self.train_hooks.augment_g(self.g)
         d_fake = self.forward_discriminator(self.augmented_g)
         d_real = self.forward_discriminator(self.augmented_x)
         self.d_fake = d_fake

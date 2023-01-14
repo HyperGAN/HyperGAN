@@ -42,6 +42,7 @@ from .cellular_automata import CellularAutomata
 from .cellular_automata_1d import CellularAutomata1D
 from .cross_attention import CrossAttention
 from .pretrained import Pretrained
+from .convnext import ConvNext
 from .vit import ViTLayer
 from .xunet import XUnetLayer
 from .style_swin_layer import StyleSwinLayer

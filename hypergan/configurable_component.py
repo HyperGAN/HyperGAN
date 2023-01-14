@@ -93,6 +93,7 @@ class ConfigurableComponent(GANComponent):
             "slice": hg.layers.Slice,
             "expand": hg.layers.Expand,
             "rnn": hg.layers.Rnn,
+            "convnext": hg.layers.ConvNext,
             "ntm": hg.layers.NTMLayer,
             "vit": hg.layers.ViTLayer,
             "xunet": hg.layers.XUnetLayer,

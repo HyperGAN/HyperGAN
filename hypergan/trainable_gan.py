@@ -43,11 +43,11 @@ class TrainableGAN:
         self.add_optimizer(optimizer)
         return optimizer
 
-    def forward_loss(self, task=0):
+    def forward_loss(self, **kwargs):
         """
             Runs a forward pass through the GAN and returns (d_loss, g_loss)
         """
-        return self.gan.forward_loss(task=task)
+        return self.gan.forward_loss(**kwargs)
 
     def step(self):
         self.backend.step()

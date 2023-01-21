@@ -67,7 +67,6 @@ class SimultaneousTrainer(BaseTrainer):
             c.train()
 
         self.before_step(self.current_step, feed_dict)
-        self.gan.next_inputs()
 
         self.set_parameter_grads()
 
@@ -94,10 +93,8 @@ class SimultaneousTrainer(BaseTrainer):
             self.print_metrics(self.current_step)
 
     def calculate_gradients(self, add_train_hooks=True, create_graph=False, first_step=False):
+
         self.optimizer.zero_grad()
-        d_loss, g_loss = self.trainable_gan.forward_loss()
-        self.gan.add_metric('d_loss', d_loss.mean())
-        self.gan.add_metric('g_loss', g_loss.mean())
         if add_train_hooks:
             for hook in self.train_hooks:
                 if not first_step or hook.config.first_ode_step_only != True:
@@ -124,21 +121,31 @@ class SimultaneousTrainer(BaseTrainer):
             d_loss.mean().backward(retain_graph=True)
         else:
 
-            self.trainable_gan.set_generator_trainable(True)
-            self.trainable_gan.set_discriminator_trainable(False)
-
-            g_loss.mean().backward(retain_graph=True, create_graph=create_graph)
+            self.gan.next_inputs()
 
             self.trainable_gan.set_generator_trainable(False)
             self.trainable_gan.set_discriminator_trainable(True)
+            d_loss, g_loss = self.trainable_gan.forward_loss(mode='d')
+            self.gan.add_metric('d_loss', d_loss.mean())
+            d_loss.mean().backward(retain_graph=True, create_graph=create_graph)
 
-            d_loss.mean().backward(retain_graph=True)
+            self.gan.next_inputs()
+
             self.trainable_gan.set_generator_trainable(True)
+            self.trainable_gan.set_discriminator_trainable(False)
+            d_loss, g_loss = self.trainable_gan.forward_loss(mode='g')
+            self.gan.add_metric('g_loss', g_loss.mean())
+            g_loss.mean().backward(retain_graph=True)
+
+            self.trainable_gan.set_generator_trainable(True)
+
 
         for loss, optim in self.gan.additional_optimizer_steps:
             optim.zero_grad()
             loss().backward()
             optim.step()
+
+        self.gan.post_step()
 
 
         d_grads = [p.grad for p in self.trainable_gan.d_parameters()]

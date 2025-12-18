@@ -93,6 +93,17 @@ GPU: Nvidia, GTX 1080+ recommended
 
 This will create a mymodel.json based off the default configuration. You can change configuration templates with the `-c` flag.
 
+### Lightweight setup script (safe)
+
+If you don't have a Python environment set up or want to avoid installing heavy packages like PyTorch while creating a new configuration, use the helper script:
+
+```bash
+chmod +x scripts/setup_and_new.sh
+./scripts/setup_and_new.sh mymodel
+```
+
+The script creates a Python 3 virtual environment, installs only the minimal dependencies required to run `bin/hypergan new`, and creates `mymodel.json` in the current directory. Add `--install-editable` to the script command if you later want to install the full project in editable mode (note: that may install heavy dependencies such as `torch`).
+
 ### List configuration templates
 
 ```bash

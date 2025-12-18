@@ -5,12 +5,16 @@ import sys, os
 import traceback
 
 import hyperchamber as hc
-import hypergan as hg
-import hypergan.cli as cli
-from hypergan.viewer import GlobalViewer
 import pkg_resources
 import semantic_version
-hg_version=semantic_version.Version(pkg_resources.require("hypergan")[0].version)
+import shutil
+
+# NOTE: avoid importing the full `hypergan` package at module import time.
+# Importing the package triggers `hypergan/__init__.py` which imports heavy
+# optional dependencies (e.g., torch) and can raise ImportError or SyntaxError
+# on user systems. We handle the lightweight commands (`new`, `--list-templates`)
+# without importing the package. For other commands we import lazily below.
+hg_version = None
 
 class CommandParser:
     def common(self, parser, directory=True):
@@ -91,62 +95,115 @@ if __name__ == '__main__':
             config_format = '.json'
         config_name = args.config or 'default'
 
-        if args.method != 'new':
-            config_filename = hg.Configuration.find(config_name, config_format=config_format)
-            config = hc.Selector().load(config_filename, load_toml=use_toml)
-            assert config.hypergan_version, "hypergan_version must be specified as a base configuration string.  Example \"hypergan_version\": \"~1\""
-            config_version = semantic_version.SimpleSpec(config.hypergan_version)
-            assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
+        # Handle the 'new' command without importing the heavyweight package
+        if args.method == 'new':
+            template = args.directory + config_format
+            print("[hypergan] Creating new configuration file '"+template+"' based off of '"+config_name+config_format)
+            if os.path.isfile(template):
+                print("Error: File exists: " + template)
+                sys.exit(1)
 
-
-            if config.input is None and args.input_config is None:
-                directories = [args.directory]
-                if args.align:
-                    directories+=args.align
-                crop = not args.nocrop
-                input_config = hc.Config({
-                    "class": "class:hypergan.inputs.image_loader.ImageLoader",
-                    "batch_size": args.batch_size,
-                    "directories": directories,
-                    "channels": channels,
-                    "crop": crop,
-                    "height": height,
-                    "random_crop": args.random_crop,
-                    "resize": args.resize,
-                    "shuffle": True,
-                    "width": width
-                })
+            # First try to find a configuration shipped in the source tree
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            repo_root = os.path.abspath(os.path.join(script_dir, '..'))
+            local_candidate = os.path.join(repo_root, 'hypergan', 'configurations', config_name+config_format)
+            source_configuration = None
+            if os.path.isfile(local_candidate):
+                source_configuration = local_candidate
             else:
-                if config.input:
-                    if args.batch_size:
-                        config.input["batch_size"] = args.batch_size
-                    input_config = hc.Config(config.input)
-                else:
-                    input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
-                    input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
-            if 'inherit' in config:
-                base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
-                base_config = hc.Selector().load(base_filename, load_toml=use_toml)
-                config = {**base_config, **config}
+                # Try pkg_resources (installed package)
+                try:
+                    candidate = pkg_resources.resource_filename('hypergan', 'configurations/' + config_name+config_format)
+                    if os.path.isfile(candidate):
+                        source_configuration = candidate
+                except Exception:
+                    source_configuration = None
+
+            if not source_configuration:
+                print("Could not find prepackaged configuration: " + config_name + config_format)
+                sys.exit(1)
+
+            shutil.copyfile(source_configuration, template)
+            print("Created configuration: " + template)
+            sys.exit(0)
+
+        # For any other command we need the full package; import now (lazy import)
+        try:
+            import hypergan as hg
+            import hypergan.cli as cli
+            from hypergan.viewer import GlobalViewer
+            hg_version = semantic_version.Version(pkg_resources.require("hypergan")[0].version)
+        except Exception:
+            traceback.print_exc()
+            print("Error importing hypergan package. Install dependencies and try again.")
+            sys.exit(1)
+
+        # Load configuration for non-new methods
+        config_filename = hg.Configuration.find(config_name, config_format=config_format)
+        config = hc.Selector().load(config_filename, load_toml=use_toml)
+        assert config.hypergan_version, "hypergan_version must be specified as a base configuration string.  Example \"hypergan_version\": \"~1\""
+        config_version = semantic_version.SimpleSpec(config.hypergan_version)
+        assert config_version.match(hg_version), "incompatible config version ("+config.hypergan_version+") for hypergan ("+str(hg_version)+")"
+
+
+        if config.input is None and args.input_config is None:
+            directories = [args.directory]
+            if args.align:
+                directories+=args.align
+            crop = not args.nocrop
+            input_config = hc.Config({
+                "class": "class:hypergan.inputs.image_loader.ImageLoader",
+                "batch_size": args.batch_size,
+                "directories": directories,
+                "channels": channels,
+                "crop": crop,
+                "height": height,
+                "random_crop": args.random_crop,
+                "resize": args.resize,
+                "shuffle": True,
+                "width": width
+            })
         else:
-            input_config = None
-            config = None
+            if config.input:
+                if args.batch_size:
+                    config.input["batch_size"] = args.batch_size
+                input_config = hc.Config(config.input)
+            else:
+                input_config_filename = hg.Configuration.find(args.input_config, config_format=config_format)
+                input_config = hc.Selector().load(input_config_filename, load_toml=use_toml)
+        if 'inherit' in config:
+            base_filename = hg.Configuration.find(config['inherit']+config_format, config_format=config_format)
+            base_config = hc.Selector().load(base_filename, load_toml=use_toml)
+            config = {**base_config, **config}
 
         if args.list_templates:
-            configs = hg.Configuration.list(config_format=config_format, prepackaged=True)
-            for config in configs:
+            # List templates from the package or source tree without requiring extra deps
+            configs = []
+            # Check repo configurations dir
+            repo_configs_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')),
+                                            'hypergan', 'configurations')
+            if os.path.isdir(repo_configs_dir):
+                for fn in os.listdir(repo_configs_dir):
+                    if fn.endswith(config_format):
+                        configs.append(os.path.splitext(fn)[0])
+            else:
                 try:
-                    template = hg.Configuration.load(config+config_format, verbose=False, use_toml=use_toml, prepackaged=True)
-                except Exception as e:
-                    template = hc.Config({"description": str(e), "publication": "error"})
-                print("%-30s - %-60s" %  (config, str(template.description)+"("+str(template.publication)+")"))
-                if template.runtime and "train" in template.runtime:
-                    print("%30s   Usage: %s" %  ("", template.runtime["train"]))
+                    for fn in pkg_resources.resource_listdir('hypergan', 'configurations'):
+                        if fn.endswith(config_format):
+                            configs.append(os.path.splitext(fn)[0])
+                except Exception:
+                    pass
+
+            for cfg in configs:
+                print(cfg)
         else:
             gancli = cli.CLI(args=vars(args), input_config=input_config, gan_config=config)
             gancli.run()
-    except:
+    except Exception:
         traceback.print_exc()
         print("Error detected, HyperGAN exiting")
     finally:
-        GlobalViewer.close()
+        try:
+            GlobalViewer.close()
+        except Exception:
+            pass

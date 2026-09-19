@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HyperGAN shared reducer proof</title>
+<style>body{font:16px system-ui;max-width:900px;margin:3rem auto;padding:0 1rem;background:#111827;color:#e5e7eb}h1{font-size:1.8rem}pre{white-space:pre-wrap;background:#1f2937;padding:1rem;border-radius:8px}button{font:inherit;padding:.5rem 1rem}canvas{width:100%;background:#1f2937;margin-top:1rem;border-radius:8px}</style>
+<h1>One reducer, two runtimes</h1><p>This bounded proof continues Python bootstrap state in a browser worker using the identical bundled WebAssembly module.</p>
+<button id="run">Run proof</button><canvas width="900" height="200" id="plot"></canvas><pre id="result">Ready. Serve this folder on localhost and run scripts/reducer_proof.py to create proof.json.</pre>
+<script type="module">
+import {ReducerWorker} from './client.js';
+window.runProof = async payload => {
+  const worker = new ReducerWorker();
+  try {
+    const results = {};
+    for (const [name,fixture] of Object.entries(payload.cases)) {
+      results[name] = await worker.call({op:'continue',bootstrap:fixture.bootstrap,frames:fixture.frames});
+      if (JSON.stringify(results[name].value) !== JSON.stringify(fixture.expected)) throw new Error(`${name}: Python/browser mismatch`);
+    }
+    const points = payload.plot || [];
+    const ctx = document.querySelector('#plot').getContext('2d'); ctx.clearRect(0,0,900,200); ctx.strokeStyle='#34d399'; ctx.lineWidth=2; ctx.beginPath();
+    points.forEach((v,i) => {const x=10+i*880/Math.max(1,points.length-1),y=100-v*70;i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();
+    return results;
+  } finally { worker.close(); }
+};
+document.querySelector('#run').onclick = async () => {
+  try { const response=await fetch('./proof.json'); if(!response.ok)throw new Error('Create proof.json with scripts/reducer_proof.py first');
+    const results=await window.runProof(await response.json()); document.querySelector('#result').textContent=JSON.stringify({status:'passed',results},null,2);
+  } catch(error) { document.querySelector('#result').textContent=String(error); }
+};
+</script></html>

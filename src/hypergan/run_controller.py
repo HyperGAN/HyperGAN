@@ -321,7 +321,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         manifest.update(resume_supported=not reasons, resume_unsupported_reasons=reasons,
                         data_identity=info.data_identity, status='running')
         manifest['qualification']['resume'] = False
-        manifest['qualification']['recovery_scope'] = 'CPU full-state protocol; custom hidden state is author responsibility'
+        manifest['qualification']['recovery_scope'] = 'Full-state protocol on the recorded execution device; custom hidden state is author responsibility'
         for reason in reasons:
             if reason not in manifest['warnings']:
                 manifest['warnings'].append(reason)

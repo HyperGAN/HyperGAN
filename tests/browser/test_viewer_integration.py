@@ -208,6 +208,14 @@ def test_artifact_shelf_streams_while_metrics_are_unselected(real_viewer):
     page.get_by_role('button',name='Preview numbers').click()
     page.locator('.numeric-preview').filter(has_text='1, 2, 3, 4').wait_for()
     assert 'Shape 2 × 2' in page.locator('#artifact-items').inner_text()
+    # A redundant inventory notification must preserve the open preview node.
+    page.locator('.numeric-preview').filter(has_text='1, 2, 3, 4').evaluate("el => el.dataset.retained = 'yes'")
+    before = len([url for url in requests if url.endswith('/artifacts')])
+    next(iter(experiment.service.streams.values())).task.get_loop().call_soon_threadsafe(
+        experiment.service.notify, 'artifacts', {})
+    page.wait_for_function("count => performance.getEntriesByType('resource').filter(x => x.name.endsWith('/artifacts')).length > count", arg=before)
+    page.locator('.numeric-preview[data-retained="yes"]').filter(has_text='1, 2, 3, 4').wait_for()
+
     with page.expect_download() as download:
         page.locator('a[href$="/artifacts/audio"]').click()
     assert Path(download.value.path()).read_bytes()==audio

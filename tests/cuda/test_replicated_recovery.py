@@ -33,6 +33,8 @@ def install_faults():
         trainer = state['trainer']
         mode = os.environ.get('HG_ACCEPTANCE_MODE')
         root = Path(os.environ['HG_ACCEPTANCE_MARKERS'])
+        if operation == 'restore':
+            globals()['_LIVE_DATA_ID'] = id(trainer.data)
         if operation == 'update' and trainer.step == 1:
             if mode == 'rank-exit' and dist.get_rank() == 1:
                 (root / 'rank-fault').write_text('rank-exit')
@@ -64,7 +66,7 @@ MODELS = (_base.MODELS
     .replace('        super().__init__(**kwargs)', '        super().__init__(**kwargs)\n        install_faults()', 1)
     .replace('torch.randn(len(x), 2)', 'torch.randn(len(x), 2, device=x.device)')
     .replace('    def load_state_dict(self, state):\n',
-             "    def load_state_dict(self, state):\n        if os.environ.get('HG_ACCEPTANCE_MODE', '').startswith('corrupt-'):\n            (Path(os.environ['HG_ACCEPTANCE_MARKERS']) / 'unexpected-data-load').write_text('called')\n")) + FAULTS
+             "    def load_state_dict(self, state):\n        if os.environ.get('HG_ACCEPTANCE_MODE', '').startswith('corrupt-'):\n            root = Path(os.environ['HG_ACCEPTANCE_MARKERS'])\n            (root / f'candidate-load-{dist.get_rank()}').write_text('called')\n            if id(self) == globals().get('_LIVE_DATA_ID'):\n                (root / f'live-load-{dist.get_rank()}').write_text('called')\n")) + FAULTS
 
 CALLBACK = '''
 import json
@@ -137,7 +139,8 @@ if __name__ == '__main__':
             assert (run / 'manifest.json').read_bytes() == before
             assert (run / 'distributed-checkpoints/latest.json').read_bytes() == pointer
             assert sorted(path.name for path in (run / 'attempts').iterdir()) == attempts
-            assert not (markers / 'unexpected-data-load').exists()
+            assert not (markers / 'candidate-load-1').exists()
+            assert not list(markers.glob('live-load-*'))
             result = {'rejected': True}
         elif mode in ('resume', 'replay', 'orphan'):
             if mode == 'replay':

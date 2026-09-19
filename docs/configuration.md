@@ -81,6 +81,122 @@ objectives, weights or the training schedule still invalidates numerical resume.
 Give additional objectives a stable `id`, for example `id = "reconstruction"`,
 to publish `loss/objectives/reconstruction`. Without an explicit ID, a deterministic
 content hash names the term. Repeated identical terms require distinct explicit
-IDs. Custom scalar factories, snapshot evaluation and expensive metrics such as
-FID are not implemented by this scalar slice; explicitly configuring them fails
-validation instead of silently ignoring the request.
+IDs. Custom scalar factories and explicit manual snapshot evaluation are described
+below. Unsupported scheduling modes fail validation; a built-in FID adapter is
+not yet provided.
+
+## Custom metrics and explicit snapshot evaluation
+
+Custom metrics use ordinary importable Python factories. Structural validation
+checks configuration without importing a factory. Runtime preflight executes
+`describe()` in a fresh bounded worker and records its source hashes and output
+metadata. Selected calls execute in fresh workers too; no live trainer or tensor
+is passed to a primitive transform. Every custom metric is explicit opt-in.
+
+```toml
+[metrics.custom.loss_ratio]
+factory = "hypergan.metric_examples:ScalarRatio"
+inputs = { numerator = "update.g_loss", denominator = "update.d_loss" }
+mode = "scalar"
+every_steps = 100
+timeout = 10
+on_error = "disable"
+```
+
+`describe()` returns `kind = "scalar"` plus optional text `label`, `unit`,
+`direction` (`none`, `minimize`, `maximize`) and `description`. For this mode,
+`evaluate(*, context, **inputs)` returns a finite Python number. Bindings select
+the internal D/G totals, raw/weighted adversarial values, gradient penalty, prior
+regularizer, learning-rate scale, step or step seconds via `update.<name>`.
+They remain available when the corresponding built-in published metric is
+removed. Factory construction/description changes create a different definition
+hash on resume, independently of numerical recipe identity.
+
+A selected custom call starts a fresh process and has visible startup cost;
+choose a cadence suited to that cost. Built-in scalars require no worker. The
+per-metric timeout includes worker startup, evaluation and shutdown, with the
+broker's cleanup grace additional. There is one synchronous call at a time and
+no unbounded queue or implicit retries. `on_error = "disable"` records a visible
+reason and disables that metric for the remainder of the attempt; a new attempt
+preflights it again. `on_error = "fail"` fails the attempt. Because transforms
+run after a complete numerical update, a required failure may leave a completed
+but unpublished update beyond the last durable checkpoint; resume replays from
+the selected complete checkpoint. Disabling optional publication never disables
+mandatory numerical validation.
+
+Factories are trusted Python. Input/output bytes and deadlines are bounded;
+arbitrary allocations, external state and subprocesses created by plugin code
+are not sandboxed. Instances and global RNG state are isolated from training,
+but persistent evaluator state across calls is not supported.
+
+Snapshot metrics use a separate evaluation dataset/iterator and RNG, and an
+immutable copied EMA inference bundle. This first implementation is explicit
+and standalone; automatic snapshot schedules are rejected.
+
+```toml
+[metrics.custom.color_mean]
+factory = "hypergan.metric_examples:ColorMomentDistance"
+mode = "snapshot"
+trigger = "manual"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+timeout = 120
+on_error = "fail"
+[metrics.custom.color_mean.args]
+statistic = "mean" # "spread" measures population standard deviation
+color_space = "rgb"
+low = -1.0
+high = 1.0
+[metrics.custom.color_mean.evaluation]
+device = "cuda" # default; CPU correctness fixtures opt in explicitly
+sample_count = 256
+batch_size = 16
+seed = 123
+[metrics.custom.color_mean.evaluation.data]
+factory = "my_project.data:EvaluationData"
+args = { split = "validation" }
+```
+
+Call the standalone evaluation API with the run and metric ID:
+
+```python
+from hypergan.metric_evaluation import evaluate
+receipt = evaluate("runs/experiment", "color_mean", config_path="config.toml")
+```
+
+The integrated CLI exposes the same operation as `hypergan evaluate RUN --metric
+color_mean --config config.toml`. `--bundle` selects an older `model.pt` under
+this run's attempts directory. The selected numerical recipe must match the run;
+observation settings may differ. Evaluation holds the run lock and requires a
+terminal run, so it cannot compete with this run's trainer. GPU remains the
+default. The source inference bundle must have saved run/attempt/step provenance
+and a matching SHA256; no old-format migration is provided.
+
+Snapshot `evaluate(*, batches, context)` receives a bounded iterator of dictionaries
+with the explicitly bound generated/reference tensors. It must consume the full
+declared sample count and return a finite scalar or, with `kind = "histogram"`,
+`{"edges": [...], "counts": [...]}` with ordered finite edges and at most 512
+nonnegative bins. Data factories follow the normal batched tensor API; custom
+evaluation data also provides `resume_identity()` identifying its actual dataset,
+split and preprocessing. There is no implicit training-data fallback.
+
+`ColorMomentDistance` compares pixel-weighted RGB mean or population spread.
+`ColorHistogramDifference` produces absolute differences of fixed-bin pooled RGB
+probabilities. Both require declared RGB ranges and finite NCHW RGB tensors.
+These are color-statistic diagnostics, not semantic or spatial-quality claims.
+Other modalities can use the generic snapshot protocol without the RGB examples.
+
+Results live in `metrics/evaluations/<id>/`, with a receipt, one immutable JSONL
+result and an atomic `stream.json` registration. They retain evaluated snapshot,
+source attempt/step, EMA choice, sample count, seed, data identity, factory/runtime
+sources and protocol hash. Late results do not inherit the trainer's current
+step. Scalar values use `metrics`; histograms use `distributions`. Failures have
+explicit statuses; unknown source position is marked `source_position_known =
+false` and has no plotted value. An interrupted evaluator restarts only as a new
+evaluation ID; the next explicit evaluation reconciles abandoned receipts and
+releases temporary snapshot copies. It also recovers a completed result whose
+registration was interrupted, without recomputing that result.
+
+Automatic snapshot scheduling, asynchronous evaluation, partial-job resume and a
+built-in FID adapter remain unsupported. No dataset or weight downloads occur
+implicitly. A future FID adapter still needs a pinned implementation, explicit
+local weights and a complete preprocessing/sample protocol.

@@ -1,6 +1,6 @@
 # CPU accumulation checkpoint — 2026-09-19
 
-This checkpoint adds microbatch activation replay to the internal fixed-world-size CPU/Gloo trainer. It advances the numerical preparation for multi-GPU training; public `train`/`resume` still use the single-process service. The next cutpoint is the first shared lifecycle extraction in the [distributed run-service design](distributed-run-service-design-2026-09-19.md).
+[PR #310](https://github.com/HyperGAN/HyperGAN/pull/310) adds microbatch activation replay to the internal fixed-world-size CPU/Gloo trainer. It advances the numerical preparation for multi-GPU training; public `train`/`resume` still use the single-process service. The next cutpoint is the first shared lifecycle extraction in the [distributed run-service design](distributed-run-service-design-2026-09-19.md).
 
 ## Numerical contract
 

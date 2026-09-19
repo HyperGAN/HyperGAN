@@ -97,8 +97,13 @@ class ReplicatedExecution:
         if self.context is not None:
             raise ValueError('Replicated execution attempt identity is immutable')
         if on_event is not None:
-            self.observer = BoundedObserver(on_event, timeout=self.policy['observer_timeout'],
-                run_id=context.run_id, attempt_id=context.attempt_id)
+            from .bounded_cli_output import CLIProgress
+
+            # Only the concrete CLI sink performs bounded parent delivery.
+            # Ordinary user callbacks retain their isolated worker contract.
+            self.observer = (on_event if type(on_event) is CLIProgress else
+                BoundedObserver(on_event, timeout=self.policy['observer_timeout'],
+                    run_id=context.run_id, attempt_id=context.attempt_id))
         self.context = {key: str(value) if isinstance(value, Path) else value for key, value in asdict(context).items()}
         return {'execution': self.profile['execution'], 'service_policy': self.policy}
 

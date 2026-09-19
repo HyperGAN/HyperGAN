@@ -52,7 +52,7 @@ Durable local build/test logs, the initial CI failure and integration receipts a
 
 - [x] Implement, validate and merge complete fixed-batch CPU updates and bounded worker lifecycle: PR #308.
 - [x] Implement and validate coordinated fixed-topology checkpoint publication and fresh whole-group recovery with per-rank RNG/data state and failure coverage: PR #309, with required CI as its merge gate.
-- [ ] Implement memory-bounded accumulation while preserving full-global-batch RA and VICReg semantics. `accumulation_steps=1` is the only current strategy; other values fail explicitly.
+- [ ] At this checkpoint, accumulation was limited to one. See the later [accumulation checkpoint](core-accumulation-2026-09-19.md) and current status ledger for subsequent implementation and evidence.
 - [ ] Connect distributed execution to the shared run/attempt/event/preview/request service and a usable launch/resume workflow with one designated writer.
 - [ ] Resolve image extraction licensing and freeze the direct image experiment, data/evaluation protocol and pretrained-weight identity.
 - [ ] Qualify actual local two-GPU NCCL only after CPU numerical/recovery gates; then prepare a separately agreed real two-node allocation.

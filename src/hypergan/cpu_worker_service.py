@@ -141,7 +141,7 @@ def _flush(channel, timeout=2):
         time.sleep(0.01)
 
 
-def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout, bootstrap, initialize_process_group):
+def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout, bootstrap, initialize_process_group, backend='gloo'):
     channel = _Channel(sock)
     sequence, operation = 0, '__start__'
     try:
@@ -151,10 +151,20 @@ def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout,
             import torch
             import torch.distributed as dist
             torch.set_num_threads(1)
-            dist.init_process_group('gloo', init_method=rendezvous, rank=rank, world_size=world_size,
-                                    timeout=timedelta(seconds=collective_timeout))
+            options = {}
+            if backend == 'nccl':
+                if not torch.cuda.is_available() or not dist.is_nccl_available():
+                    raise RuntimeError('NCCL execution requires CUDA-enabled PyTorch and available NVIDIA GPUs')
+                if world_size > torch.cuda.device_count():
+                    raise ValueError(f'NCCL world_size={world_size} requires at least {world_size} visible GPUs; found {torch.cuda.device_count()}')
+                torch.cuda.set_device(rank)
+                options['device_id'] = torch.device('cuda', rank)
+            dist.init_process_group(backend, init_method=rendezvous, rank=rank, world_size=world_size,
+                                    timeout=timedelta(seconds=collective_timeout), **options)
         factory, handler, args = pickle.loads(bootstrap)
         state = factory(rank, world_size, *args)
+        if initialize_process_group and backend == 'nccl' and torch.cuda.current_device() != rank:
+            raise ValueError('NCCL factory changed the rank-owned current CUDA device')
         channel.send(_envelope(identity, sequence, operation, 'ready', rank=rank, pid=os.getpid()))
         while True:
             row = _receive(channel)  # Idle outside Gloo; broker owns deadlines.
@@ -164,6 +174,8 @@ def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout,
             if set(row) != {'run_id', 'attempt_id', 'sequence', 'operation', 'kind', 'payload'} or row['kind'] != 'command':
                 raise ValueError('Invalid CPU service command fields')
             if initialize_process_group:
+                if backend == 'nccl' and torch.cuda.current_device() != rank:
+                    raise ValueError('NCCL handler changed the rank-owned current CUDA device')
                 digest = hashlib.sha256(_json(row)).hexdigest()
                 agreed = [None] * world_size
                 dist.all_gather_object(agreed, digest)
@@ -183,7 +195,7 @@ def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout,
     except BaseException as exc:
         try:
             channel.outgoing = b''
-            hint = (" Install CPU dependencies with pip install 'hypergan[train]'."
+            hint = (" Install training dependencies (CUDA-enabled Torch for NCCL) with pip install 'hypergan[train]'."
                     if isinstance(exc, ModuleNotFoundError)
                     and (exc.name or '').split('.')[0] in ('torch', 'numpy', 'particlegan') else '')
             channel.send(_envelope(identity, sequence, operation, 'error', rank=rank,
@@ -214,7 +226,7 @@ def _reap(processes):
         raise RuntimeError('Operating system did not reap a terminated CPU rank')
 
 
-def _broker_main(sock, identity, world_size, limits, bootstrap, started, initialize_process_group):
+def _broker_main(sock, identity, world_size, limits, bootstrap, started, initialize_process_group, backend='gloo'):
     parent = mp.parent_process()
     control = _Channel(sock)
     context = mp.get_context('spawn')
@@ -235,7 +247,7 @@ def _broker_main(sock, identity, world_size, limits, bootstrap, started, initial
                     local, remote = socket.socketpair()
                     process = context.Process(target=_rank_main, name=f'hypergan-service-rank-{rank}',
                                               args=(remote, rank, world_size, identity, rendezvous,
-                                                    limits['collective_timeout'], bootstrap, initialize_process_group))
+                                                    limits['collective_timeout'], bootstrap, initialize_process_group, backend))
                     try:
                         process.start()
                     except BaseException:
@@ -343,15 +355,19 @@ class CPUWorkerService:
     """
     def __init__(self, factory, handler, *, args=(), run_id, attempt_id, world_size=2,
                  startup_timeout=60, command_timeout=30, collective_timeout=15, total_timeout=300,
-                 initialize_process_group=True):
+                 initialize_process_group=True, backend='gloo'):
         if not callable(factory) or not callable(handler) or not isinstance(args, tuple):
             raise ValueError('CPU service requires callable factory/handler and tuple args')
         if any(not isinstance(value, str) or not _ID.fullmatch(value) for value in (run_id, attempt_id)):
             raise ValueError('CPU service run/attempt IDs require 1-128 ASCII letters/digits, underscores or hyphens')
+        if type(backend) is not str or backend not in ('gloo', 'nccl'):
+            raise ValueError('Worker service backend must be gloo or nccl')
+        if backend == 'nccl' and not initialize_process_group:
+            raise ValueError('NCCL backend requires an initialized process group')
         if type(initialize_process_group) is not bool:
             raise ValueError('initialize_process_group must be a boolean')
         if type(world_size) is not int or not (2 <= world_size <= 64 if initialize_process_group else world_size == 1):
-            raise ValueError('CPU service requires world_size 2..64 with Gloo, or world_size=1 without a process group')
+            raise ValueError('CPU service requires world_size 2..64 with a process group, or world_size=1 without a process group')
         limits = dict(startup_timeout=startup_timeout, command_timeout=command_timeout,
                       collective_timeout=collective_timeout, total_timeout=total_timeout)
         for name, value in limits.items():
@@ -363,6 +379,7 @@ class CPUWorkerService:
                 raise ValueError(f'{name} must be finite positive seconds')
         self._identity, self._world_size, self._limits = (run_id, attempt_id), world_size, limits
         self._initialize_process_group = initialize_process_group
+        self._backend = backend
         self.factory, self.handler, self.args = factory, handler, args
         self._process = self._channel = None
         self._sequence = 0
@@ -385,6 +402,10 @@ class CPUWorkerService:
     @property
     def world_size(self):
         return self._world_size
+
+    @property
+    def backend(self):
+        return self._backend
 
     @property
     def sequence(self):
@@ -411,7 +432,7 @@ class CPUWorkerService:
         bootstrap = pickle.dumps((self.factory, self.handler, self.args), protocol=5)
         local, remote = socket.socketpair()
         process = mp.get_context('spawn').Process(target=_broker_main, name='hypergan-cpu-broker',
-                    args=(remote, self._identity, self._world_size, self._limits, bootstrap, started, self._initialize_process_group))
+                    args=(remote, self._identity, self._world_size, self._limits, bootstrap, started, self._initialize_process_group, self._backend))
         try:
             process.start()
             self._process, self._channel = process, _Channel(local)

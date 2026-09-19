@@ -1,4 +1,4 @@
-"""Construction-only CPU runtime preflight in bounded, disposable workers.
+"""Construction-only CPU/CUDA runtime preflight in bounded, disposable workers.
 
 Importing and calling the parent side loads no numerical runtime. Custom Python
 constructors and identity hooks run only in supervised workers. No batch/forward,
@@ -12,6 +12,7 @@ import tempfile
 
 from .config import config_values, fingerprint, resolve_config
 from .cpu_workers import launch_cpu_workers
+from .cpu_worker_service import CPUWorkerService
 from .execution_profiles import resolve_execution_profile
 
 
@@ -89,24 +90,24 @@ def _runtime_worker(rank, world_size, config, profile, directory):
         if requested['name'] == 'cpu-single':
             trainer = ReferenceTrainer(config)
         else:
-            from .distributed_training import ReplicatedCPUTrainer
-            trainer = ReplicatedCPUTrainer(config, world_size=world_size,
+            from .distributed_training import ReplicatedTrainer
+            trainer = ReplicatedTrainer(config, world_size=world_size,
                                            accumulation_steps=requested['accumulation_steps'])
         if trainer.step != 0:
             raise ValueError('Preflight constructed a trainer with a nonzero update counter')
         if torch.get_num_threads() != 1:
-            raise ValueError(f'Runtime threads differs from CPU profile: expected 1, found {torch.get_num_threads()}')
+            raise ValueError(f'Runtime threads differs from execution profile: expected 1, found {torch.get_num_threads()}')
         if torch.get_default_dtype() != torch.float32:
-            raise ValueError(f'Runtime default_dtype differs from CPU float32 profile: {torch.get_default_dtype()}')
+            raise ValueError(f'Runtime default_dtype differs from float32 profile: {torch.get_default_dtype()}')
         for owner in ('graph', 'prior', 'ema_graph', 'ema_prior'):
             module = getattr(trainer, owner)
             for kind, values in (('parameter', module.named_parameters()), ('buffer', module.named_buffers())):
                 for name, value in values:
                     field = f'{owner}.{kind}.{name}'
-                    if value.device.type != 'cpu' or value.layout != torch.strided:
-                        raise ValueError(f'{field} must be a dense CPU tensor')
+                    if value.device != trainer.device or value.layout != torch.strided:
+                        raise ValueError(f'{field} must be a dense tensor on {trainer.device}')
                     if value.is_complex() or (value.is_floating_point() and value.dtype != torch.float32):
-                        raise ValueError(f'{field} must use CPU float32')
+                        raise ValueError(f'{field} must use float32')
                     if not torch.isfinite(value).all():
                         raise ValueError(f'{field} contains nonfinite values')
         if requested['name'] != 'cpu-single':
@@ -136,17 +137,23 @@ def _runtime_worker(rank, world_size, config, profile, directory):
                                'trainable': {key: value.requires_grad for key, value in module.named_parameters()}}
             state['optimizers'] = [trainer.opt_g.state_dict(), trainer.opt_d.state_dict()]
             state['base_lrs'] = trainer.base_lrs
-            initial_state = _digest(state)
+            from .recipes import move_tensors
+            initial_state = _digest(move_tensors(state, 'cpu'))
         finally:
             restore_rng(rng)
         # Identity/state hooks are trusted Python too; reject runtime mutations
-        # after inspection rather than publishing a contradictory CPU profile.
+        # after inspection rather than publishing a contradictory execution profile.
         if torch.get_num_threads() != 1 or torch.get_default_dtype() != torch.float32:
-            raise ValueError('Identity/state inspection changed CPU runtime threads or default_dtype')
-        runtime = runtime_info()
-        runtime.update(world_size=world_size, threads=torch.get_num_threads(),
-                       interop_threads=torch.get_num_interop_threads(),
-                       backend='gloo' if requested['name'] != 'cpu-single' else 'none')
+            raise ValueError('Identity/state inspection changed ' + ('CPU ' if trainer.device.type == 'cpu' else 'CUDA ') + 'runtime threads or default_dtype')
+        if trainer.device.type == 'cuda':
+            torch.cuda.synchronize(trainer.device)
+        if requested['name'] != 'cpu-single':
+            from .distributed_checkpoints import distributed_runtime_info
+            runtime = distributed_runtime_info(trainer)
+        else:
+            runtime = runtime_info()
+            runtime.update(world_size=world_size, threads=torch.get_num_threads(),
+                           interop_threads=torch.get_num_interop_threads(), backend='none')
         identity = {'config_sha256': fingerprint(config), 'execution': requested,
                     'runtime': runtime, 'implementation': implementation, 'data_contract': contract,
                     'recovery': {'supported': not reasons, 'reasons': reasons},
@@ -158,6 +165,17 @@ def _runtime_worker(rank, world_size, config, profile, directory):
                                                *[str(item.message)[:1000] for item in captured]]))[:32]
         result = {'rank': rank, 'status': 'passed', 'step': 0, 'identity': identity, 'warnings': warning_messages}
         Path(directory, f'rank-{rank}.json').write_bytes(_encode(result))
+
+
+def _preflight_factory(rank, world_size, config, profile, directory):
+    return rank, world_size, config, profile, directory
+
+
+def _preflight_command(state, operation, payload):
+    if operation != 'construct' or payload is not None:
+        raise ValueError('Invalid runtime preflight operation')
+    _runtime_worker(*state)
+    return None
 
 
 def preflight(config, profile, *, expected_identity=None):
@@ -183,12 +201,22 @@ def preflight(config, profile, *, expected_identity=None):
             raise ValueError('expected_identity must be a complete identity dictionary')
         expected_identity = json.loads(_encode(expected_identity))
     with tempfile.TemporaryDirectory(prefix='hypergan-preflight-') as directory:
-        launch_cpu_workers(_runtime_worker, args=(config_values(config), profile, directory),
-                           world_size=profile['execution']['world_size'],
-                           timeout=profile['preflight']['timeout'],
-                           collective_timeout=profile['preflight']['collective_timeout'],
-                           stdout_to_stderr=True,
-                           initialize_process_group=profile['execution']['name'] != 'cpu-single')
+        if profile['execution']['name'] == 'cuda-replicated-nccl':
+            limits = profile['preflight']
+            with CPUWorkerService(_preflight_factory, _preflight_command,
+                    args=(config_values(config), profile, directory),
+                    run_id='preflight', attempt_id='construction',
+                    world_size=profile['execution']['world_size'], backend='nccl',
+                    startup_timeout=limits['timeout'], command_timeout=limits['timeout'],
+                    collective_timeout=limits['collective_timeout'], total_timeout=limits['timeout']) as service:
+                service.command('construct')
+        else:
+            launch_cpu_workers(_runtime_worker, args=(config_values(config), profile, directory),
+                               world_size=profile['execution']['world_size'],
+                               timeout=profile['preflight']['timeout'],
+                               collective_timeout=profile['preflight']['collective_timeout'],
+                               stdout_to_stderr=True,
+                               initialize_process_group=profile['execution']['name'] != 'cpu-single')
         workers = []
         for rank in range(profile['execution']['world_size']):
             path = Path(directory, f'rank-{rank}.json')
@@ -209,10 +237,11 @@ def preflight(config, profile, *, expected_identity=None):
             raise ValueError('Preflight expected identity differs: ' + ', '.join(differences))
     report = {'schema_version': 1, 'status': 'passed', 'stage': 'runtime', 'runtime_checked': True, 'scope': 'construction-only',
               'profile': profile, 'identity': identity,
-              'checker': _source_hashes(['hypergan.execution_preflight', 'hypergan.execution_profiles', 'hypergan.cpu_workers']),
+              'checker': _source_hashes(['hypergan.execution_preflight', 'hypergan.execution_profiles', 'hypergan.cpu_workers'] +
+                                        (['hypergan.cpu_worker_service'] if profile['execution']['name'] == 'cuda-replicated-nccl' else [])),
               'ranks': [{key: value for key, value in worker.items() if key != 'identity'} for worker in workers],
               'warnings': list(dict.fromkeys(message for worker in workers for message in worker['warnings'])),
               'not_validated': ['data batches and model forward I/O', 'optimizer updates and numerical parity',
-                                'checkpoint publication or restore', 'GPU or cluster execution']}
+                                'checkpoint publication or restore', 'complete GPU training' if profile['execution']['name'] == 'cuda-replicated-nccl' else 'GPU execution', 'cluster execution']}
     _encode(report)
     return report

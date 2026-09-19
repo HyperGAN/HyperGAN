@@ -1,4 +1,4 @@
-"""Torch-free CPU execution profiles, separate from recipe and runtime checks."""
+"""Torch-free execution profiles, separate from recipe and runtime checks."""
 import math
 from pathlib import Path
 
@@ -9,9 +9,10 @@ except ModuleNotFoundError:  # Python 3.10
 
 
 MAX_PROFILE_BYTES = 65536
-_NAMES = ('cpu-single', 'cpu-replicated-gloo')
+_NAMES = ('cpu-single', 'cpu-replicated-gloo', 'cuda-replicated-nccl')
 _KINDS = {'cpu-single': 'hypergan-training-checkpoint',
-          'cpu-replicated-gloo': 'hypergan-distributed-training-checkpoint'}
+          'cpu-replicated-gloo': 'hypergan-distributed-training-checkpoint',
+          'cuda-replicated-nccl': 'hypergan-distributed-training-checkpoint'}
 
 
 def _table(value, name, allowed, required=()):
@@ -58,19 +59,22 @@ def resolve_execution_profile(values, config):
     execution = _table(values['execution'], 'execution', ('name', 'world_size', 'accumulation_steps'), ('name',))
     name = execution['name']
     if not isinstance(name, str) or name not in _NAMES:
-        raise ValueError('execution.name must be cpu-single or cpu-replicated-gloo')
+        raise ValueError('execution.name must be cpu-single, cpu-replicated-gloo or cuda-replicated-nccl')
     world = _positive_integer(execution.get('world_size', 1 if name == 'cpu-single' else 2), 'execution.world_size')
     accumulation = _positive_integer(execution.get('accumulation_steps', 1), 'execution.accumulation_steps')
     if world > 64:
         raise ValueError('execution.world_size must be at most 64')
     if name == 'cpu-single' and (world != 1 or accumulation != 1):
         raise ValueError('cpu-single requires world_size=1 and accumulation_steps=1')
-    if name == 'cpu-replicated-gloo' and world < 2:
-        raise ValueError('cpu-replicated-gloo requires world_size between 2 and 64')
+    if name != 'cpu-single' and world < 2:
+        raise ValueError(f'{name} requires world_size between 2 and 64')
     if not isinstance(config, dict) or not isinstance(config.get('training'), dict):
         raise ValueError('Execution profile requires a recipe config with a training table')
     training = config['training']
-    if training.get('device') != 'cpu':
+    if name == 'cuda-replicated-nccl':
+        if training.get('device') != 'cuda':
+            raise ValueError('cuda-replicated-nccl requires training.device=cuda; each rank owns its visible GPU index, so cuda:N is ambiguous')
+    elif training.get('device') != 'cpu':
         raise ValueError('CPU execution profiles require training.device=cpu')
     batch = _positive_integer(training.get('batch_size'), 'training.batch_size')
     if batch % world:
@@ -115,7 +119,7 @@ def validate_checkpoint_kind(kind, profile):
     execution = profile.get('execution') if isinstance(profile, dict) else None
     name = execution.get('name') if isinstance(execution, dict) else None
     if not isinstance(name, str) or name not in _NAMES:
-        raise ValueError('Checkpoint kind validation requires a resolved CPU execution profile')
+        raise ValueError('Checkpoint kind validation requires a resolved execution profile')
     if kind != _KINDS[name]:
         raise ValueError(f'{name} requires checkpoint kind {_KINDS[name]}; no implicit format conversion')
     return kind

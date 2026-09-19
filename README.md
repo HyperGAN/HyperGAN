@@ -21,6 +21,8 @@ hypergan new demo
 hypergan validate demo
 ```
 
+Run these commands in a terminal (PowerShell on Windows), not at the Python `>>>` prompt. Use the activated environment so `python`, `pip` and `hypergan` refer to the same installation.
+
 On Windows, activate with `.venv\Scripts\Activate.ps1`. Lightweight commands do not need PyTorch or ParticleGAN. The development package version is `2.0.0a1`; these instructions install this checkout, not a promised published release.
 
 For the Linux CPU reference, install the tested runtime and training extra:

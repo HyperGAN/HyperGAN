@@ -158,8 +158,9 @@ def test_memory_capture_oversize_and_exact_sink(monkeypatch):
     with training_output(progress_json=True) as output:
         assert type(output.progress) is CLIProgress
         output.stdout.write('x' * (MAX_LINE_BYTES + 1) + '\n')
+        output.stdout.write('é' * MAX_LINE_BYTES + '\n')
         output.progress({'event': 'train', 'step': 2})
-        assert output.stdout.dropped_lines == 1
+        assert output.stdout.dropped_lines == 2
         assert output.stdout.pending.maxsize == MAX_PENDING_LINES
     assert json.loads(stdout.getvalue()) == {'event': 'train', 'step': 2}
     assert stderr.getvalue() == ''

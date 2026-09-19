@@ -122,9 +122,22 @@ accessible plots/tables, raw API exports, and discovery on reload. A separate
 actual CPU training/evaluation/Chromium run produced two earlier-snapshot scalar
 results at step 1, a 32-bin current-snapshot histogram at step 2, and an explicit
 partial-iterator failure; all four appeared with no browser errors. Its receipt
-and screenshot are `/tmp/hypergan-evaluation-browser-proof.json` and
-`/tmp/hypergan-evaluation-browser-proof.png`. Source tests use exact M4 protocol
+is preserved in [the committed acceptance receipt](metrics-evaluation-browser-2026-09-19.json),
+including source/event/catalog/protocol identities. The external screenshot is
+`/tmp/hypergan-evaluation-browser-proof.png`. This proof explicitly prepares the
+training projection before starting the read-only HTTP server. Source tests use exact M4 protocol
 fixtures; this additional local proof exercises the actual supervised evaluator.
+
+After integrating the standalone server's bootstrap/replay fixes, the combined
+API/browser suite passed **29 tests in 28.11 seconds**. A later targeted run found
+an artifact notification race during SSE replacement: a sample published after
+the old connection closes but before the new subscription could be missed.
+Refreshing the artifact inventory on `ready` fixes it without polling. A
+regression now publishes exactly in that gap; the final browser suites passed
+**10 tests in 21.73 seconds**, and the bundled JavaScript reproducibility check
+passed. The actual CPU/evaluator/browser proof was rerun successfully against
+that final source. Independent QC found no blocking protocol, isolation,
+resource-bound or UI issues.
 
 Public source cursors now carry logical run/stream/generation identity instead
 of local path/inode identity. Copied-run replay, changed generation, consumed

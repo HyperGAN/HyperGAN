@@ -8,11 +8,17 @@ The owner's clarified requirements are reflected throughout this plan: cluster t
 
 This document is a plan, not a completed migration. Three parallel subagents audited functionality, branches, and ParticleGAN; the coordinating agent reviewed product scope, user issues, and deployment options. Follow-up audits covered distributed numerical behavior and report accuracy. Remote refs were refreshed, repository contents and live GitHub metadata were inspected, and limited validation was performed. The initial audit did not change branches, issues, or PRs; the subsequent publication step creates a documentation branch and PR for this plan. Implementation and branch retirement remain pending. Recommendations below are proposed decisions unless explicitly described as observed facts.
 
+## Accepted first-session scope
+
+The owner approved coordinator-reviewed and coordinator-merged PRs targeting `develop`, with subagents working in separate worktrees. The first stopping point is a clean, installable foundation with a bounded HyperGAN-owned ParticleGAN CPU reference, modern CI, preserved history, and retired legacy code. Image quality, complete training resume, GPU and cluster qualification follow. See [the live execution ledger](resurrection-status.md) for evidence and remaining work.
+
+Recipe configuration owns generator/discriminator/optional encoder/auxiliary components, constructor parameters, explicit input/output bindings, losses, regularizers, optimizers and schedules. Built-in identifiers and explicit importable Python components allow custom architectures without the old layer DSL. Conditioning and paired inputs must be representable for future colorization and super-resolution recipes; a tiny paired fixture validates the contract. Default numerical settings follow pinned ParticleGAN, including b-cap and VICReg. Custom combinations run with an unqualified warning; qualification is tied to resolved settings, component versions and execution profile. Actual incompatibilities fail loudly, with no silent component substitution or ignored settings. Configurability alone makes no quality/distributed/deployment claim.
+
 ## Execution checklist
 
 **Recommended order: preserve and simplify branches → establish honest CI → add ParticleGAN and the new loop → remove replaced code → complete recovery/data contracts → prove multi-GPU → prove two-node training → finish the user journey and deployment → release.** Start the next version with the first implementation PR; release it after these gates pass. Treat each numbered item as a milestone with one or more small PRs. Check it off only when its stated evidence is linked. All implementation milestones below are currently unchecked.
 
-- [ ] **1. Preserve the project and close the branch backlog.** Refresh the branch/PR inventory, back up uncommitted work, create archive tags and a verified Git bundle, and restore it in a temporary checkout. Delete the already-merged `develop` and `fix/examples` branches after checking references. Record selected `fastgan`/`nd` ideas as concrete extraction tasks with source commits, then archive their tips and the unfinished Electron/StyleGAN/OmniGAN work. Resolve old PRs with an explicit disposition; keep an unresolved one only if it has an owner and next action. **Done when:** every old branch/PR is closed, archived, or assigned a specific integration task; nothing unique is lost and no idle divergent branch remains active by accident.
+- [ ] **1. Preserve the project and close the branch backlog.** Refresh the branch/PR inventory, back up uncommitted work, create archive tags and a verified Git bundle, and restore it in a temporary checkout. Preserve and advance the existing `develop` branch as the next-release integration branch; retire the already-merged `fix/examples` branch after checking references. Record selected `fastgan`/`nd` ideas as concrete extraction tasks with source commits, then archive their tips and the unfinished Electron/StyleGAN/OmniGAN work. Resolve old PRs with an explicit disposition; keep an unresolved one only if it has an owner and next action. **Done when:** every old branch/PR is closed, archived, or assigned a specific integration task; nothing unique is lost and no idle divergent branch remains active by accident.
 
 - [ ] **2. Make CI useful before rewriting the runtime.** Replace obsolete CircleCI/release scripts with GitHub Actions and modern package metadata. Establish clean wheel/sdist installation, lightweight CLI entrypoints, configuration validation, and a documented supported Python matrix. Record known legacy failures separately with an explicit retirement decision; do not claim the old runtime works or hide new failures behind blanket skips. Start the new package/test boundary here and add required checks as each capability lands. **Done when:** a fresh checkout builds/install-tests the intended package, required checks are green, and deliberately breaking a supported command makes CI fail. No GPU purchase is needed for this milestone.
 
@@ -34,14 +40,7 @@ This document is a plan, not a completed migration. Three parallel subagents aud
 
 **The pieces missing from a cleanup-only sequence are complete run state, objective correctness across ranks, image-quality qualification, and actual deployment.** A green build and a job using several GPUs would not establish those. Keep data/checkpoint/artifact schemas and a distributed numerical fixture early; pay for the full two-node check only after cheap tests and single-node execution pass. Branch cleanup and a CI skeleton can proceed alongside provider access checks. UI polish can follow a stable run service. Do not delay cluster architecture until after shipping the new loop.
 
-**Use a small, explicit budget for cluster validation.** A proposed first allocation is **$100 total**, pending the owner's chosen cap and configured provider access; no compute is being purchased by this documentation PR. This is a debugging/qualification budget, not a promise to reproduce a full quality study or train a state-of-the-art model. Start with the existing local two-GPU machine if available. Reserve cloud spending for evidence that requires distinct nodes.
-
-| Allocation | Proposed maximum | Evidence bought |
-| --- | ---: | --- |
-| Two-node startup/collective smoke | $20 | Actual node identity, rendezvous, collectives and identical runtime/data manifests |
-| Checkpoint/failure/restart checks | $30 | Nonzero-rank termination, durable checkpoint and coherent restart |
-| Bounded image comparison | $30 | Matched-budget image run, metrics, throughput and artifacts |
-| Startup/retry/storage headroom | $20 | Overhead reserve; unused capacity stays unspent |
+**Use local validation first and reserve the owner's $30 Modal credit for later cluster qualification.** No paid compute is authorized for the first foundation session. The owner is willing to spend more later; choose a concrete allocation and exact job before doing so. Credit is not a promise that all two-node qualification will fit. Start with existing local GPUs only after CPU correctness and recovery gates pass.
 
 Modal is a candidate, subject to access and price checks. Its current multi-node feature is beta, and clustered functions require full GPU nodes; the documented H100 profile uses eight GPUs per node. That can make a tiny two-box test much larger than two GPUs. Verify account eligibility and supported topology before choosing it. See [Modal multi-node documentation](https://modal.com/docs/guide/multi-node-training).
 
@@ -51,7 +50,7 @@ Before any paid run, configure credentials through the provider's local authenti
 
 ## Audit and design details
 
-**The foundation should change through a dependency and a new implementation inside HyperGAN's existing history.** “Rebase on ParticleGAN” should mean adopting its implementation as the technical foundation. Create a short-lived `resurrection/particlegan` branch from HyperGAN's current `master`; preserve the historical line with an archive tag; replace the supported runtime in reviewable commits. A Git rebase across the two unrelated projects would not establish a useful maintenance relationship.
+**The foundation should change through a dependency and a new implementation inside HyperGAN's existing history.** “Rebase on ParticleGAN” should mean adopting its implementation as the technical foundation. Advance the existing `develop` branch with preserved `master` ancestry, then create short-lived implementation branches and reviewed PRs targeting `develop`; preserve the historical line with archive tags. A Git rebase across the two unrelated projects would not establish a useful maintenance relationship.
 
 | Decision | Recommendation | Reason |
 | --- | --- | --- |
@@ -297,8 +296,8 @@ PyTorch documents its current ONNX export path, and ONNX Runtime offers web and 
 | Branch/ref | Audited tip | Ahead / behind | Recommended disposition |
 | --- | --- | --- | --- |
 | `master` | `291ddccd` | 0 / 0 | Preserve historical tip; base the new implementation branch here |
-| `develop` | `36363df1` | 0 / 220 | Fully merged; delete remote branch after backup/reference check |
-| `fix/examples` | `2c001140` | 0 / 65 | Fully merged; delete remote branch after backup/reference check |
+| `develop` | `36363df1` | 0 / 220 | Preserve old tip; advance as next-release integration branch |
+| `fix/examples` | `2c001140` | 0 / 65 | Preserve old tip; advance as next-release integration branch |
 | `electron-train` / PR #280 | `e1fdaa1a` | 13 / 126 | Extract UI/run-event requirements; archive implementation; close as superseded when replacement is linked |
 | `stylegan` / PR #264 | `9d557a54` | 2 / 202 | Archive incomplete integration; retain pretrained-model use case in backlog |
 | `feature/omnigan` | `03a5813c` | 1 / 50 | Archive single unfinished experiment |
@@ -332,10 +331,10 @@ Perform branch cleanup as follows, in order:
 2. Create a verified Git bundle outside the repository and archive tags for every unique branch/PR tip being retired, including both `fastgan` and `nd`. A Git bundle does not back up uncommitted files; preserve those separately if present. Record tag-to-SHA mappings and verify a restore in a temporary checkout.
 3. Keep an extraction ledger: source branch/commit, capability, decision, replacement commit/test or reason for archival. Credit original contributors in retained/reimplemented work. Do not mass-cherry-pick dependency-heavy research commits.
 4. Create the resurrection branch from `master` and implement the baseline and product slices. If the resurrection work lasts, synchronize only maintained integration branches; do not rebase every archived experiment to manufacture a clean-looking graph.
-5. Retire fully merged `develop` and `fix/examples` first after checking active automation/default references. Retire the other branches only after their archive and extraction ledger are complete. Close related PRs with a concrete replacement/archive explanation at that time.
+5. Preserve `develop`; retire fully merged `fix/examples` first after checking active automation/default references. Retire the other branches only after their archive and extraction ledger are complete. Close related PRs with a concrete replacement/archive explanation at that time.
 6. Remove linked worktrees through `git worktree remove` only after verifying they contain nothing to preserve; then remove their local branches. For cherry-picked/superseded work, explicitly check archive reachability before any force deletion. Do not use recursive directory deletion as branch cleanup.
 7. Delete ordinary remote branch heads only against the rechecked expected tips, using a lease/check against concurrent updates. Close PRs through GitHub; do not try to delete GitHub-owned `refs/pull/*`. Remove obsolete local PR tracking refs after archival.
-8. Promote the reviewed resurrection implementation through a normal PR into `master`. Default-branch renaming is optional and separate. Update branch protections, package/docs links and contributor guidance; allow short-lived feature branches rather than another permanent divergent `develop`.
+8. Integrate reviewed feature PRs into `develop`; promote a qualified release through an ancestry-preserving `develop` → `master` PR. Keep master-only hotfixes synchronized back into develop. Update branch protections, package/docs links and contributor guidance.
 
 This sequence is specified for implementation; none of the destructive cleanup or external PR communication has been performed in this planning pass.
 

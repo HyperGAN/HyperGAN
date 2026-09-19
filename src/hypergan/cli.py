@@ -74,9 +74,14 @@ def main(argv=None):
                 _warnings(resolved)
                 _print_json(resolved)
         elif args.command == "train":
-            from .config import load_config
+            from .config import config_values, load_config, resolve_config
 
-            _warnings(load_config(args.config))
+            resolved = load_config(args.config)
+            if args.steps is not None:
+                values = config_values(resolved)
+                values["training"]["steps"] = args.steps
+                resolved = resolve_config(values)
+            _warnings(resolved)
             from .training import train
 
             _print_json(train(args.config, args.run_dir, steps=args.steps))

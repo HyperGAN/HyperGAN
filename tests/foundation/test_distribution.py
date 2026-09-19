@@ -19,7 +19,7 @@ def test_base_requirements_do_not_pull_training_stack():
     requirements = importlib.metadata.requires("hypergan") or []
     active = [Requirement(value) for value in requirements]
     assert not any(
-        requirement.name in {"torch", "particlegan"}
+        requirement.name in {"torch", "particlegan", "numpy"}
         and (requirement.marker is None or requirement.marker.evaluate({"extra": ""}))
         for requirement in active
     )

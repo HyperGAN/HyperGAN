@@ -31,7 +31,7 @@ def equal(left, right):
 
 
 def test_resume_matches_uninterrupted_and_replays_old_checkpoint_without_overwrite(tmp_path):
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     full = train(config, tmp_path / 'full', checkpoint_every=1)
     stopped = train(config, tmp_path / 'split', checkpoint_every=1, stop_after_steps=3)
     assert stopped['status'] == 'stopped' and stopped['steps'] == stopped['last_durable_step'] == 3
@@ -52,7 +52,7 @@ def test_resume_matches_uninterrupted_and_replays_old_checkpoint_without_overwri
 
 
 def test_failure_after_discriminator_update_preserves_prior_durable_boundary(tmp_path, monkeypatch):
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     full = train(config, tmp_path / 'full')
     original = torch.optim.Adam.step
     calls = 0
@@ -74,11 +74,11 @@ def test_failure_after_discriminator_update_preserves_prior_durable_boundary(tmp
 
 
 def test_runtime_config_tampering_and_inference_rejected_without_mutation(tmp_path):
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     stopped = train(config, tmp_path / 'run', stop_after_steps=2)
     manifest_path = tmp_path / 'run/manifest.json'
     before = manifest_path.read_bytes()
-    other = write_default(tmp_path / 'other')
+    other = write_default(tmp_path / 'other', device="cpu")
     other.write_text(other.read_text().replace('steps = 5', 'steps = 6'))
     with pytest.raises(ValueError, match='configuration'):
         resume(tmp_path / 'run', config_path=other)
@@ -95,7 +95,7 @@ def test_runtime_config_tampering_and_inference_rejected_without_mutation(tmp_pa
 
 
 def test_checkpoint_write_failure_keeps_last_durable_pointer(tmp_path, monkeypatch):
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     original = torch.save
     calls = 0
     def broken(value, destination, *args, **kwargs):
@@ -138,7 +138,7 @@ def test_global_rng_restore_after_constructors_and_module_modes():
 
 
 def test_lock_partial_log_and_observer_error_are_honest(tmp_path):
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     def observer(row):
         random.random()
         np.random.random()
@@ -159,7 +159,7 @@ def test_lock_partial_log_and_observer_error_are_honest(tmp_path):
 
 
 def test_wall_time_zero_update_stop_has_checkpoint_no_inference(tmp_path):
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     result = train(config, tmp_path / 'run', max_seconds=1e-12)
     assert result['status'] == 'stopped' and result['steps'] == result['last_durable_step'] == 0
     assert result['stop_reason'] == 'max_seconds' and 'sample_path' not in result
@@ -183,7 +183,7 @@ def test_nonpersistent_buffers_and_dynamic_trainability_restored():
 @pytest.mark.parametrize('damage', ['metadata-list', 'metadata-key', 'payload', 'missing-optimizer'])
 def test_malformed_checkpoint_is_actionable_without_run_mutation(tmp_path, damage):
     import hashlib
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     manifest = train(config, tmp_path / 'run', stop_after_steps=1)
     path = Path(manifest['checkpoint_path'])
     run_manifest = (tmp_path / 'run/manifest.json').read_bytes()
@@ -207,7 +207,7 @@ def test_malformed_checkpoint_is_actionable_without_run_mutation(tmp_path, damag
 
 
 def test_older_checkpoint_zero_update_resume_updates_default_pointer(tmp_path):
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     stopped = train(config, tmp_path / 'run', stop_after_steps=2)
     resume(tmp_path / 'run')
     rolled_back = resume(tmp_path / 'run', checkpoint=stopped['checkpoint_path'], max_seconds=1e-12)
@@ -219,7 +219,7 @@ def test_older_checkpoint_zero_update_resume_updates_default_pointer(tmp_path):
 
 
 def test_observer_rng_and_failure_do_not_change_numerics(tmp_path):
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     train(config, tmp_path / 'normal')
     def callback(row):
         random.random()
@@ -240,7 +240,7 @@ def test_unknown_data_trains_without_false_recovery_claim(tmp_path, monkeypatch)
     monkeypatch.setitem(sys.modules, 'unknown', types.ModuleType('unknown'))
     original = module.construct
     monkeypatch.setattr(module, 'construct', lambda spec: UnknownData() if spec['factory'] == 'unknown:Data' else original(spec))
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     config.write_text(config.read_text().replace('factory = "gaussian_grid"', 'factory = "unknown:Data"'))
     with pytest.warns(RuntimeWarning, match='Custom data'):
         result = train(config, tmp_path / 'run')

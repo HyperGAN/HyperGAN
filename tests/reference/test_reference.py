@@ -73,7 +73,7 @@ def test_one_update_matches_upstream_loop_gradients_weights_prior_and_ema():
 
 
 def test_run_and_fresh_process_inference(tmp_path):
-    config = write_default(tmp_path / "project")
+    config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
     manifest = train(config, run)
     assert manifest["status"] == "complete" and manifest["steps"] == 5
@@ -130,7 +130,7 @@ def test_unavailable_custom_constructor_is_actionable():
 
 
 def test_tampered_bundle_rejected(tmp_path):
-    config = write_default(tmp_path / "project")
+    config = write_default(tmp_path / "project", device="cpu")
     manifest = train(config, tmp_path / "run")
     with Path(manifest["bundle_path"]).open("ab") as stream:
         stream.write(b"changed")
@@ -154,7 +154,7 @@ def test_integer_conditioning_survives_native_bundle(tmp_path):
 
 
 def test_interrupted_manifest_is_terminal(tmp_path, monkeypatch):
-    path = write_default(tmp_path / "project")
+    path = write_default(tmp_path / "project", device="cpu")
     def interrupted(*args, **kwargs):
         raise KeyboardInterrupt
     monkeypatch.setattr(ReferenceTrainer, "update", interrupted)

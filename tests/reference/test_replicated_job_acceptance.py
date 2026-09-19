@@ -236,7 +236,7 @@ def _setup(tmp_path):
     (tmp_path / 'job_fixture.py').write_text(MODELS, encoding='utf-8')
     driver = tmp_path / 'replicated_job.py'
     driver.write_text(DRIVER, encoding='utf-8')
-    config = write_default(tmp_path / 'project')
+    config = write_default(tmp_path / 'project', device="cpu")
     config.write_text(config.read_text().replace('steps = 5', 'steps = 4').replace('batch_size = 16', 'batch_size = 8')
                       .replace('num_particles = 20000', 'num_particles = 32')
                       .replace('factory = "mlp"', 'factory = "job_fixture:Generator"', 1)

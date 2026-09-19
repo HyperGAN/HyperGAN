@@ -111,3 +111,22 @@ raise SystemExit(main(sys.argv[1:]))
     assert "hypergan[train]" in result.stderr
     assert "unqualified" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("device", [None, "cpu", "cuda:1"])
+def test_new_cli_device_selection(tmp_path, device):
+    project = tmp_path / "project"
+    options = [] if device is None else ["--device", device]
+    result = run_cli(tmp_path, "new", project, *options)
+    assert result.returncode == 0, result.stderr
+    result = run_cli(tmp_path, "validate", project)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["training"]["device"] == (device or "cuda")
+
+
+def test_invalid_new_device_leaves_no_project(tmp_path):
+    project = tmp_path / "project"
+    result = run_cli(tmp_path, "new", project, "--device", "cuda:-1")
+    assert result.returncode != 0
+    assert "training.device" in result.stderr
+    assert not project.exists()

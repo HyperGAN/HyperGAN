@@ -2,7 +2,7 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-19 (America/Denver).
 
-Current cutpoint: GPU-first project creation and native CUDA training/recovery are implemented, real two-GPU NCCL diagnostics pass, and the remaining whole-job persistence/partial-update fault gates are covered. The owner authorizes both local RTX A6000 GPUs. Full replicated CUDA training, public distributed profiles and actual multi-host qualification remain ahead; CPU correctness fixtures stay in CI. See the current session checkpoint below for validation and integration state.
+Current cutpoint: the internal supervised CUDA/NCCL strategy now performs complete two-GPU GAN updates, accumulated replay and fixed-topology recovery. Actual local GPU numerical, stochastic recovery, rank-failure and coordinator-death acceptance pass. Public distributed profile routing and bounded CLI output are next; actual multi-host qualification follows a concrete agreed allocation. CPU correctness fixtures stay in CI. See the local CUDA checkpoint below and its durable final integration receipt for installed-package and PR/merge results.
 
 ## First checkpoint
 
@@ -150,7 +150,15 @@ Three subagents implemented and cross-reviewed the renderer, callback service an
 
 Focused acceptance passed 37 CPU tests, 9 CUDA tests and the required two-GPU diagnostic. Final installed-package/PR integration results and exact source identity are recorded in the GPU core report's durable receipt directory. New projects select `cuda`; `--device cuda:1` and `--device cpu` are explicit alternatives. Existing lightweight and CPU CI remain required. No paid compute, dataset download, upstream architecture copy or release occurred.
 
-## Next bounded checkpoint: GPU execution and public distributed integration
+## Supervised local CUDA replication checkpoint
+
+[PR #318](https://github.com/HyperGAN/HyperGAN/pull/318), the [replicated CUDA report](core-replicated-cuda-2026-09-19.md) and [internal workflow](../docs/replicated-cuda.md) extend the existing independent worker broker and shared run controller to rank-owned GPUs. The `cuda-replicated-nccl` profile keeps recipe device selection unindexed, binds rank *r* to visible GPU *r*, and uses device-aware numerical and metadata collectives. CUDA completion precedes acknowledgements. Coordinated checkpoints stage portable CPU tensors and validate common ordered GPU/runtime identity plus each rank's complete CUDA RNG before fresh-group continuation. CPU APIs and CI remain available for explicit correctness fixtures.
+
+Three subagents implemented and independently reviewed numerical execution, profile/supervisor integration and whole-job acceptance; the coordinator handled checkpoint/runtime identity, preview portability and integration. Real two-GPU tests cover complete D/G/prior/auxiliary/Adam/EMA parity against a controlled global reference (RP/RA, accumulation one/two, unique VICReg and lazy higher derivatives), exact stochastic/shuffled recovery with observations and earlier-snapshot replay, partial G backward failure, abrupt rank loss, coordinator death with blocked workers and corrupted CUDA RNG. Test-only fixture corrections and the corrected CPU preflight checker-shape regression are preserved in the report; no numerical tolerance was widened. Final installed-package results, exact source/artifact identity and PR/post-merge checks are recorded under `/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-nccl-core/`.
+
+Both owner-authorized RTX A6000s were used; unrelated GPU jobs were left running. No paid compute, dataset download, upstream architecture copy or release occurred. Public `train`/`resume` still select native single-process execution. The five retained issues remain open, and actual clusters, image quality and deployment are not qualified by this local synthetic milestone.
+
+## Next bounded checkpoint: public distributed integration
 
 
 - [x] Complete fixed-global-batch two-process CPU D/G/prior/auxiliary/Adam/EMA updates and worker cleanup.
@@ -164,8 +172,8 @@ Focused acceptance passed 37 CPU tests, 9 CUDA tests and the required two-GPU di
 - [x] Add isolated snapshot preview execution without a training process group and bound parent progress delivery. Keep worker health monitoring independent of slow or hung observers; compare complete state with observation on/off. See the [bounded observation checkpoint](core-bounded-observation-2026-09-19.md).
 - [x] Finish whole-job staging/publication/partial-update fault acceptance: staging disk failure, rename/pointer failure before selection, exception after a complete selected commit, second G microbatch backward failure and EMA failure after the G optimizer. Fresh groups recover complete state exactly; failed attempts do not acknowledge partial updates or successful saves. See the GPU core checkpoint below.
 - [x] Add GPU-first project defaults and native CUDA training/recovery, with separate installed-package CPU and explicit local CUDA acceptance gates. Two-GPU NCCL diagnostics are infrastructure evidence; they do not close full replicated GPU training.
-- [ ] **Next core cutpoint:** port the supervised replicated strategy to rank-owned CUDA devices and NCCL-aware numerical/control paths. Qualify complete two-GPU updates, accumulated replay, CUDA RNG and coordinated recovery against controlled single-process results, including rank failure and independent cleanup.
-- [ ] Expose execution profiles through public `train`/`resume`, with GPU-first user workflows and explicit CPU fixtures. Preserve headless operation, persisted numerical identity, mutable deadlines, early conflict rejection and bounded progress/result stream behavior. Existing CLI closures/stdout writes cannot be routed unchanged through isolated callbacks; prove slow/closed-output handling and installed end-to-end recovery.
+- [x] Port the supervised replicated strategy to rank-owned CUDA devices and NCCL-aware numerical/control paths. Qualify complete two-GPU updates, accumulated replay, CUDA RNG and coordinated recovery against controlled single-process results, including rank failure and independent cleanup. See the [local CUDA checkpoint](core-replicated-cuda-2026-09-19.md).
+- [ ] **Next core cutpoint:** expose execution profiles through public `train`/`resume`, with GPU-first user workflows and explicit CPU fixtures. Preserve headless operation, persisted numerical identity, mutable deadlines, early conflict rejection and bounded progress/result stream behavior. Existing CLI closures/stdout writes cannot be routed unchanged through isolated callbacks; prove slow/closed-output handling and installed end-to-end recovery.
 - [ ] Resolve upstream explicit licensing and freeze the selected image experiment's architecture, preprocessing/augmentation/evaluation and pretrained-weight identity. A synthetic image recovery fixture is not image-quality qualification.
 - [ ] After full local two-GPU training/recovery gates pass, prepare a concrete, separately agreed real two-node allocation using the reserved Modal credit or another provider. Communication-only diagnostics do not authorize this transition.
 

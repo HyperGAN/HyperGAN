@@ -2,7 +2,7 @@
 
 An execution profile describes how to run a recipe. Keep it in a separate TOML file so changing worker count or accumulation does not rewrite the model, objective or learning rate. This slice provides structural and runtime preflight; public `train` and `resume` still use the single-process service and do not accept a profile flag.
 
-For the current single-process execution:
+For explicit CPU single-process preflight:
 
 ```toml
 schema_version = 1

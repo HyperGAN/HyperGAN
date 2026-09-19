@@ -496,9 +496,9 @@ async function loadBootstrap(epoch) {
     }
   }
 }
-function scheduleReconnect(epoch) {
+function scheduleReconnect(epoch, catchingUp = false) {
   if (epoch !== state.epoch || state.retry) return;
-  const delay = Math.min(1000 * 2 ** state.retries++, 15000);
+  const delay = catchingUp ? 100 : Math.min(1000 * 2 ** state.retries++, 15000);
   connection("Disconnected · reconnecting", "error");
   state.retry = setTimeout(async () => {
     state.retry = null;
@@ -535,6 +535,7 @@ function openStream(epoch) {
         const data = parse(event);
         if (data.run) updateRun(data.run);
         if (name === "ready") api(`${base()}/views`).then(result => evaluations.refresh(result.data.streams || [])).catch(error => notice(error.message));
+        if (name === "ready") state.retries = 0;
         if (state.ready || controlsOnly) connection("Live stream", "live");
         else if (name === "ready") loadBootstrap(epoch);
       } catch (error) {
@@ -557,17 +558,21 @@ function openStream(epoch) {
     if (epoch === state.epoch)
       refreshArtifacts().catch((error) => notice(error.message));
   });
-  for (const name of ["reset_required", "gap"])
-    stream.addEventListener(name, (event) => {
-      if (epoch !== state.epoch) return;
-      stream.close();
-      notice(
-        name === "gap"
-          ? "The stream paused because this browser fell behind. Reloading coverage."
-          : "Run history changed. Reloading the current view.",
-      );
-      refreshMetadata(epoch);
-    });
+  stream.addEventListener("gap", () => {
+    if (epoch !== state.epoch) return;
+    stream.close();
+    notice("Catching up from the last applied frame…");
+    // A gap concerns delivery, not mathematical state. Preserve the worker and
+    // drain its queue before resuming the acknowledged cursor. Each bounded
+    // replay makes progress even when a cold bootstrap has a large live suffix.
+    scheduleReconnect(epoch, true);
+  });
+  stream.addEventListener("reset_required", () => {
+    if (epoch !== state.epoch) return;
+    stream.close();
+    notice("Run history changed. Reloading the current view.");
+    refreshMetadata(epoch);
+  });
   stream.addEventListener("frame", (event) => {
     if (epoch !== state.epoch || !state.ready) return;
     let envelope;
@@ -588,7 +593,7 @@ function openStream(epoch) {
       notice(
         "The browser queue reached its limit. Reconnecting from the last applied frame.",
       );
-      scheduleReconnect(epoch);
+      scheduleReconnect(epoch, true);
       return;
     }
     state.queueCount++;

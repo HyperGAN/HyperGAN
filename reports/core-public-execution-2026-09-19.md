@@ -133,7 +133,9 @@ Python source difference from the preceding viewer proof is `web_autostart.py`;
 
 The `b50f0942` Linux browser CI job failed one artifact reconnect assertion:
 `test_artifact_shelf_streams_while_metrics_are_unselected` did not find the numeric
-preview within ten seconds; fourteen other browser tests passed. The failure log
+preview within ten seconds; fourteen other browser tests passed. The same head's
+CPU reference job passed **227 tests in 985.55 seconds**; its long runtime was
+not an exit hang (`routing-b50-cpu-ci.log`). The browser failure log
 is preserved as `routing-browser-ci-failure.log`. On a fresh installed wheel with
 the identical bundled browser hash, that test passed ten separate subprocess
 repeats, and the complete browser suite passed **15 tests in 23.27 seconds**.

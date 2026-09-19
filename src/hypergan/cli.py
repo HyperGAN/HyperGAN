@@ -135,26 +135,6 @@ def _warnings(config):
         print(f"warning: {warning}", file=sys.stderr)
 
 
-def _progress(args):
-    def emit(event):
-        if args.progress_json:
-            print(json.dumps(event, allow_nan=False), flush=True)
-        elif event.get("event") == "train":
-            metrics = event.get("metrics", {})
-            values = " ".join(f"{label}={metrics[key]:.6g}" for key, label in
-                              (("loss/d_total", "D"), ("loss/g_total", "G")) if key in metrics)
-            print(f"step {event['step']}" + (f": {values}" if values else ""),
-                  file=sys.stderr, flush=True)
-    return emit
-
-
-def _run_result(args, result):
-    if args.progress_json:
-        print(json.dumps({"event": "result", "manifest": result}, allow_nan=False), flush=True)
-    else:
-        _print_json(result)
-
-
 def _training_viewer(args):
     if args.no_server:
         if args.open or args.server_port is not None:
@@ -168,6 +148,14 @@ def _training_viewer(args):
 
 def main(argv=None):
     args = _parser().parse_args(argv)
+    if args.command in {"train", "resume"}:
+        from .bounded_cli_output import training_output
+        with training_output(progress_json=args.progress_json) as output:
+            return _dispatch(args, output=output)
+    return _dispatch(args)
+
+
+def _dispatch(args, *, output=None):
     try:
         if args.command == "version":
             print(f"hypergan {__version__}")
@@ -298,7 +286,7 @@ def main(argv=None):
                 prepared = prepare_resume(args.run_dir, args.checkpoint, args.config, **options)
             _warnings(prepared.config)
             with _training_viewer(args):
-                _run_result(args, prepared.run(on_event=_progress(args)))
+                output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
         elif args.command == "sample":
             from .artifacts import sample
 

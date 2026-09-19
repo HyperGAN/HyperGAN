@@ -54,7 +54,8 @@ def test_resume_matches_uninterrupted_and_replays_old_checkpoint_without_overwri
 def test_failure_after_discriminator_update_preserves_prior_durable_boundary(tmp_path, monkeypatch):
     config = write_default(tmp_path / 'config', device="cpu")
     full = train(config, tmp_path / 'full')
-    original = torch.optim.Adam.step
+    from hypergan.training import DeviceAdam
+    original = DeviceAdam.step
     calls = 0
     def fail_generator(self, *args, **kwargs):
         nonlocal calls
@@ -62,13 +63,13 @@ def test_failure_after_discriminator_update_preserves_prior_durable_boundary(tmp
         if calls == 2:
             raise KeyboardInterrupt('after D, before G')
         return original(self, *args, **kwargs)
-    monkeypatch.setattr(torch.optim.Adam, 'step', fail_generator)
+    monkeypatch.setattr(DeviceAdam, 'step', fail_generator)
     with pytest.raises(KeyboardInterrupt):
         train(config, tmp_path / 'interrupted', checkpoint_every=1)
     manifest = json.loads((tmp_path / 'interrupted/manifest.json').read_text())
     assert manifest['status'] == 'interrupted' and manifest['steps'] == manifest['last_durable_step'] == 0
     assert read_checkpoint(tmp_path / 'interrupted')[2]['step'] == 0
-    monkeypatch.setattr(torch.optim.Adam, 'step', original)
+    monkeypatch.setattr(DeviceAdam, 'step', original)
     resume(tmp_path / 'interrupted')
     equal(read_checkpoint(tmp_path / 'full')[2], read_checkpoint(tmp_path / 'interrupted')[2])
 

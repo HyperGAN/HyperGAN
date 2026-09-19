@@ -161,7 +161,8 @@ def test_manual_request_is_never_serviced_after_partial_update(tmp_path, monkeyp
     from hypergan.run_requests import submit_checkpoint_request, checkpoint_request_status
     config = write_default(tmp_path / 'config', device="cpu")
     requests = []
-    original = torch.optim.Adam.step
+    from hypergan.training import DeviceAdam
+    original = DeviceAdam.step
     calls = 0
     def fail_generator(self, *args, **kwargs):
         nonlocal calls
@@ -172,12 +173,12 @@ def test_manual_request_is_never_serviced_after_partial_update(tmp_path, monkeyp
             requests.append(request['request']['request_id'])
             raise KeyboardInterrupt('half update')
         return original(self, *args, **kwargs)
-    monkeypatch.setattr(torch.optim.Adam, 'step', fail_generator)
+    monkeypatch.setattr(DeviceAdam, 'step', fail_generator)
     with pytest.raises(KeyboardInterrupt):
         train(config, tmp_path / 'run')
     assert read_checkpoint(tmp_path / 'run')[2]['step'] == 0
     assert checkpoint_request_status(tmp_path / 'run', requests[0])['status'] == 'pending'
-    monkeypatch.setattr(torch.optim.Adam, 'step', original)
+    monkeypatch.setattr(DeviceAdam, 'step', original)
     resume(tmp_path / 'run')
     receipt = checkpoint_request_status(tmp_path / 'run', requests[0])
     assert receipt['status'] == 'rejected' and 'attempt' in receipt['error']

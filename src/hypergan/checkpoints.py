@@ -26,11 +26,24 @@ def file_sha256(path):
 
 def capture_rng():
     numpy = np.random.get_state()
-    return {'torch': torch.get_rng_state(), 'python': random.getstate(),
-            'numpy': [numpy[0], numpy[1].tolist(), numpy[2], numpy[3], numpy[4]]}
+    result = {'torch': torch.get_rng_state(), 'python': random.getstate(),
+              'numpy': [numpy[0], numpy[1].tolist(), numpy[2], numpy[3], numpy[4]]}
+    # CPU execution must not initialize CUDA merely to observe random state.
+    if torch.cuda.is_initialized():
+        result['cuda'] = torch.cuda.get_rng_state_all()
+        result['cuda_device'] = torch.cuda.current_device()
+    return result
 
 
 def restore_rng(state):
+    if 'cuda' in state:
+        if (not torch.cuda.is_available() or type(state['cuda']) is not list
+                or len(state['cuda']) != torch.cuda.device_count()
+                or any(not isinstance(value, torch.Tensor) or value.dtype != torch.uint8 or value.ndim != 1 or value.device.type != 'cpu' for value in state['cuda'])
+                or type(state.get('cuda_device')) is not int or not 0 <= state['cuda_device'] < torch.cuda.device_count()):
+            raise ValueError('Checkpoint CUDA RNG device inventory differs from the runtime')
+        torch.cuda.set_rng_state_all(state['cuda'])
+        torch.cuda.set_device(state['cuda_device'])
     torch.set_rng_state(state['torch'])
     random.setstate(state['python'])
     numpy = state['numpy']
@@ -88,6 +101,16 @@ def _restore_trainer(trainer, state):
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
     if not isinstance(state, dict) or set(state) != required:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
+    if getattr(trainer, 'device', torch.device('cpu')).type == 'cuda':
+        rng = state['rng']
+        if not isinstance(rng, dict) or 'cuda' not in rng or 'cuda_device' not in rng:
+            raise ValueError('CUDA training checkpoint is missing complete CUDA RNG state')
+        if type(rng['cuda']) is not list or len(rng['cuda']) != torch.cuda.device_count():
+            raise ValueError('Checkpoint CUDA RNG device inventory differs from the runtime')
+        for index, saved in enumerate(rng['cuda']):
+            if (not isinstance(saved, torch.Tensor) or saved.dtype != torch.uint8 or saved.device.type != 'cpu'
+                    or saved.shape != torch.cuda.get_rng_state(index).shape):
+                raise ValueError('Checkpoint CUDA RNG tensor is incompatible')
     if type(state['step']) is not int or not 0 <= state['step'] <= trainer.config['training']['steps']:
         raise ValueError('Checkpoint step is outside the configured training schedule')
     if len(state['optimizers']) != 2 or len(state['base_lrs']) != 2:
@@ -139,7 +162,8 @@ def _restore_trainer(trainer, state):
         trainer.data.load_state_dict(state['data'])
     # Constructors and custom load hooks can consume global randomness.
     restore_rng(state['rng'])
-    return state['last_batch']
+    from .recipes import move_tensors
+    return move_tensors(state['last_batch'], getattr(trainer, 'device', 'cpu'))
 
 
 def restore_trainer(trainer, state):

@@ -45,9 +45,37 @@ class PairedLinear:
 BUILTINS = {"mlp": MLP, "linear": nn.Linear, "identity": nn.Identity, "mse": nn.MSELoss, "l1": nn.L1Loss, "gaussian_grid": GaussianGrid, "paired_linear": PairedLinear, "image_folder": ImageFolder}
 
 
-def make_prior(spec):
+def execution_device(value):
+    """Resolve an explicit native device; requesting CUDA never falls back to CPU."""
+    device = torch.device(value)
+    if device.type not in ('cpu', 'cuda'):
+        raise ValueError('Native execution requires cpu or cuda[:index]')
+    if device.type == 'cuda':
+        if not torch.cuda.is_available():
+            raise ValueError('CUDA was requested but is unavailable; install a CUDA-enabled PyTorch build and check the NVIDIA driver, or explicitly select cpu')
+        index = 0 if device.index is None else device.index
+        if not 0 <= index < torch.cuda.device_count():
+            raise ValueError(f'CUDA device index {index} is unavailable')
+        device = torch.device('cuda', index)
+    return device
+
+
+def move_tensors(value, device):
+    if isinstance(value, torch.Tensor):
+        return value.to(device)
+    if isinstance(value, dict):
+        return {key: move_tensors(item, device) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return type(value)(move_tensors(item, device) for item in value)
+    return value
+
+
+def make_prior(spec, *, device=None):
     from particlegan import GaussianPrior, MoGParticlePrior, ParticlePrior
-    return {"particles": ParticlePrior, "mog": MoGParticlePrior, "gaussian": GaussianPrior}[spec["kind"]](**spec["args"])
+    args = dict(spec['args'])
+    if device is not None:
+        args['device'] = device
+    return {"particles": ParticlePrior, "mog": MoGParticlePrior, "gaussian": GaussianPrior}[spec["kind"]](**args)
 
 
 def construct(spec):

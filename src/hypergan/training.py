@@ -1,6 +1,6 @@
-"""HyperGAN-owned, bounded single-process CPU reference loop.
+"""HyperGAN-owned single-process CPU/CUDA reference loop.
 
-CPU recovery is supported; image quality and DDP require separate qualification.
+Fixed-runtime recovery is supported; image quality and DDP require separate qualification.
 """
 import copy
 import hashlib
@@ -11,13 +11,14 @@ import platform
 import subprocess
 import random
 import inspect
+import os
 
 import numpy as np
 
 import torch
 from particlegan import GANLoss, GradientPenalty, ParticleRegularizer, learning_rate_scale
 
-from .recipes import ComponentGraph, construct, detach, make_prior
+from .recipes import ComponentGraph, construct, detach, make_prior, execution_device, move_tensors
 from .checkpoints import data_contract
 
 
@@ -36,8 +37,21 @@ def _version(name):
         return "unknown (source import without distribution metadata)"
 
 
-def runtime_info():
-    return {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__, "platform": platform.system(), "machine": platform.machine(), "threads": 1, "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "device": "cpu", "dtype": "float32", "world_size": 1, "default_dtype": str(torch.get_default_dtype()), "deterministic_algorithms": torch.are_deterministic_algorithms_enabled()}
+def runtime_info(device='cpu'):
+    device = execution_device(device)
+    result = {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__, "platform": platform.system(), "machine": platform.machine(), "threads": 1, "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "device": str(device), "dtype": "float32", "world_size": 1, "default_dtype": str(torch.get_default_dtype()), "deterministic_algorithms": torch.are_deterministic_algorithms_enabled()}
+    if device.type == 'cuda':
+        properties = torch.cuda.get_device_properties(device)
+        result['cuda'] = {'version': torch.version.cuda, 'cudnn': torch.backends.cudnn.version(),
+            'name': properties.name, 'capability': list(torch.cuda.get_device_capability(device)),
+            'uuid': str(getattr(properties, 'uuid', 'unavailable')),
+            'visible_devices': [str(getattr(torch.cuda.get_device_properties(index), 'uuid', 'unavailable')) for index in range(torch.cuda.device_count())],
+            'cudnn_benchmark': torch.backends.cudnn.benchmark, 'cudnn_deterministic': torch.backends.cudnn.deterministic,
+            'cublas_workspace_config': os.environ.get('CUBLAS_WORKSPACE_CONFIG'),
+            'deterministic_warn_only': torch.is_deterministic_algorithms_warn_only_enabled(),
+            'matmul_precision': torch.get_float32_matmul_precision(),
+            'matmul_allow_tf32': torch.backends.cuda.matmul.allow_tf32, 'cudnn_allow_tf32': torch.backends.cudnn.allow_tf32}
+    return result
 
 
 def source_info():
@@ -61,21 +75,47 @@ def source_info():
     return result
 
 
+class DeviceAdam(torch.optim.Adam):
+    """CPU parameters cannot be CUDA-graph captured; avoid initializing a GPU.
+
+    Torch 2.14's generic capture guard queries the accelerator even for an
+    entirely CPU optimizer. Keep its normal guard for accelerator parameters.
+    """
+    def _accelerator_graph_capture_health_check(self):
+        if any(parameter.device.type != 'cpu' for group in self.param_groups for parameter in group['params']):
+            return super()._accelerator_graph_capture_health_check()
+
+    def _cuda_graph_capture_health_check(self):
+        if any(parameter.device.type != 'cpu' for group in self.param_groups for parameter in group['params']):
+            return super()._cuda_graph_capture_health_check()
+
+
 class ReferenceTrainer:
     """Small inspectable state machine; future distributed strategies wrap this contract."""
     def __init__(self, config):
+        self.device = execution_device(config['training']['device'])
+        if self.device.type == 'cuda':
+            with torch.cuda.device(self.device):
+                self._initialize(config)
+        else:
+            self._initialize(config)
+
+    def _initialize(self, config):
         self.config = config
         settings = config["training"]
         torch.manual_seed(settings["seed"])
         random.seed(settings["seed"])
         np.random.seed(settings["seed"] % (2 ** 32))
-        self.graph = ComponentGraph(config["components"]).float()
-        self.prior = make_prior(config["prior"]).float()
+        self.graph = ComponentGraph(config["components"]).float().to(self.device)
+        self.prior = make_prior(config["prior"], device=self.device).float()
         self.data = construct(config["data"])
         self.gan = GANLoss(**{k: v for k, v in config["adversarial"].items() if k != "weight"})
         self.penalty = GradientPenalty(**config["gradient_penalty"])
         self.spread = ParticleRegularizer(**{k: v for k, v in config["prior_regularizer"].items() if k != "rows"})
         self.objectives = [construct(term) for term in config["objectives"]]
+        for objective in self.objectives:
+            if isinstance(objective, torch.nn.Module):
+                objective.to(self.device)
         if any(isinstance(term, torch.nn.Module) and any(p.requires_grad for p in term.parameters()) for term in self.objectives):
             raise ValueError("Objective constructors must not own trainable parameters; declare trainable transforms as components and bind their outputs into an objective")
         if any(isinstance(term, torch.nn.Module) and list(term.buffers()) for term in self.objectives):
@@ -88,23 +128,31 @@ class ReferenceTrainer:
         d_parameters = [p for p in self.graph.models["discriminator"].parameters() if p.requires_grad]
         if not groups[0]["params"] or not d_parameters:
             raise ValueError("The reference adversarial loop requires trainable generator and discriminator parameters")
-        self.opt_g = torch.optim.Adam(groups, betas=tuple(opt["betas"]))
-        self.opt_d = torch.optim.Adam(d_parameters, lr=opt["lr"] * opt["d_lr_mult"], betas=tuple(opt["betas"]))
+        self.opt_g = DeviceAdam(groups, betas=tuple(opt["betas"]))
+        self.opt_d = DeviceAdam(d_parameters, lr=opt["lr"] * opt["d_lr_mult"], betas=tuple(opt["betas"]))
         self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in (self.opt_g, self.opt_d)]
         self.ema_graph = copy.deepcopy(self.graph).eval().requires_grad_(False)
         self.ema_prior = copy.deepcopy(self.prior).eval().requires_grad_(False)
-        self.streams = {"data": torch.Generator().manual_seed(settings["seed"] + 1), "prior": torch.Generator().manual_seed(settings["seed"] + 2), "penalty": torch.Generator().manual_seed(settings["seed"] + 3)}
+        self.streams = {"data": torch.Generator().manual_seed(settings["seed"] + 1), "prior": torch.Generator(device=self.device).manual_seed(settings["seed"] + 2), "penalty": torch.Generator(device=self.device).manual_seed(settings["seed"] + 3)}
         self.step = 0
 
     def batch(self):
         batch = self.data(self.config["training"]["batch_size"], generator=self.streams["data"])
         if not isinstance(batch, dict) or not isinstance(batch.get("real"), torch.Tensor):
             raise ValueError("Data constructor must return a callable producing a dict containing tensor 'real'")
-        if batch["real"].device.type != "cpu" or not batch["real"].is_floating_point():
-            raise ValueError("Reference real data must be floating-point CPU tensors")
-        return batch
+        if not batch["real"].is_floating_point():
+            raise ValueError("Reference real data must be floating-point tensors")
+        return move_tensors(batch, self.device)
 
     def update(self, batch=None, latent_draw=None):
+        if self.device.type == 'cuda':
+            with torch.cuda.device(self.device):
+                result = self._update(batch, latent_draw)
+                torch.cuda.synchronize(self.device)
+                return result
+        return self._update(batch, latent_draw)
+
+    def _update(self, batch=None, latent_draw=None):
         """Execute one D update followed by G/prior/aux update and matched EMA.
 
         Explicit batch and (latent, indices) enable controlled numerical comparisons.
@@ -116,10 +164,10 @@ class ReferenceTrainer:
         for optimizer, rates in zip((self.opt_g, self.opt_d), self.base_lrs):
             for group, rate in zip(optimizer.param_groups, rates):
                 group["lr"] = rate * scale
-        batch = self.batch() if batch is None else batch
+        batch = self.batch() if batch is None else move_tensors(batch, self.device)
         if len(batch["real"]) != settings["batch_size"]:
             raise ValueError("Data batch length must match training.batch_size")
-        z, ids = self.prior.sample(len(batch["real"]), generator=self.streams["prior"]) if latent_draw is None else latent_draw
+        z, ids = self.prior.sample(len(batch["real"]), generator=self.streams["prior"]) if latent_draw is None else move_tensors(latent_draw, self.device)
         context = self.graph.generate(z, batch)
         fake, real = context["generated"], batch["real"]
         if not isinstance(fake, torch.Tensor) or fake.shape != real.shape:

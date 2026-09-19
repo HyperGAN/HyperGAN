@@ -63,8 +63,9 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None):
     # Constructors and custom modules may use global RNGs even in eval mode.
     # An observer must neither consume training randomness nor depend on it.
     python_state, numpy_state = random.getstate(), np.random.get_state()
+    cuda_device = torch.cuda.current_device() if torch.cuda.is_initialized() else None
     try:
-        with torch.random.fork_rng(devices=[]):
+        with torch.random.fork_rng(devices=list(range(torch.cuda.device_count())) if torch.cuda.is_initialized() else []):
             torch.manual_seed(seed)
             random.seed(seed)
             np.random.seed(seed % (2**32))
@@ -72,6 +73,8 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None):
     finally:
         random.setstate(python_state)
         np.random.set_state(numpy_state)
+        if cuda_device is not None:
+            torch.cuda.set_device(cuda_device)
 
 
 def _sample(run_dir, count, seed, output, *, inputs):
@@ -101,7 +104,7 @@ def _sample(run_dir, count, seed, output, *, inputs):
         graph.models[name].load_state_dict(weights)
         if "model_buffers" in state:
             _restore_buffers(graph.models[name], state["model_buffers"].get(name))
-    prior = make_prior(config["prior"]).float().eval().requires_grad_(False)
+    prior = make_prior(config["prior"], device='cpu').float().eval().requires_grad_(False)
     prior.load_state_dict(state["prior"])
     if "prior_buffers" in state:
         _restore_buffers(prior, state["prior_buffers"])

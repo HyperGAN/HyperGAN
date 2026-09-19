@@ -28,6 +28,6 @@ jobs:
           if git merge-base --is-ancestor "$BASE_SHA" "$LEGACY_BASELINE"; then
             BASE_SHA="$LEGACY_BASELINE"
           fi
-          git diff --check "$BASE_SHA...$HEAD_SHA" -- . ':!worktrees' 
+          git diff --check "$BASE_SHA...$HEAD_SHA" -- . ':!worktrees'
       - name: Verify project attribution
         run: test -s LICENSE

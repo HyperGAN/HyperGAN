@@ -1,6 +1,6 @@
 # CPU distributed numerical groundwork
 
-`hypergan.distributed_training.ReplicatedCPUTrainer` implements bounded, fixed-world-size CPU GAN updates over Gloo. It is an internal strategy with explicit gradient reduction, **not DDP**. The product `train`/`resume` CLI remains single-process CPU; no distributed CLI, GPU execution, cluster launching or distributed checkpoint/recovery is enabled here. The lower-level `GlooCollectives` primitives remain the numerical building blocks described below.
+`hypergan.distributed_training.ReplicatedCPUTrainer` implements bounded, fixed-world-size CPU GAN updates over Gloo. It is an internal strategy with explicit gradient reduction, **not DDP**. The product `train`/`resume` CLI remains single-process CPU; no distributed CLI, GPU execution or cluster launching is enabled here. Separate [fixed-topology checkpoint APIs](distributed-recovery.md) now recover this internal strategy. The lower-level `GlooCollectives` primitives remain the numerical building blocks described below.
 
 ## Complete replicated CPU updates
 
@@ -19,7 +19,7 @@ Each update computes D backward (including exact lazy b-cap), averages complete 
 
 The gradient reducer runs **after backward**, without DDP hooks. A parameter unused on one rank contributes zero; if unused everywhere, its gradient stays `None` so Adam does not advance its state. Ranks agree on gradient participation and reject nonfinite/sparse gradients before each optimizer step; reduced gradients are checked again for overflow. Parameters, optimizer moments/groups, original learning rates, persistent and nonpersistent buffers, registered extra state, module modes and trainability must agree at complete boundaries. Initialization checks equality rather than silently replacing divergent constructors. Training-mode BatchNorm is rejected because rank-local statistics would not preserve the specified global-batch reference; frozen evaluation-mode normalization can be used. Other custom components remain runnable but unqualified, and observed replica-state divergence fails the update rather than being hidden by a rank-zero broadcast.
 
-An error can occur after D has already stepped. `checkpoint_ready` is false throughout an update and becomes true only after G/prior/auxiliary/EMA and complete replica agreement. Failed trainers are poisoned and refuse further updates. This is a boundary contract for future coordinated recovery, not a rollback implementation or permission to save independent rank files as a successful job checkpoint.
+An error can occur after D has already stepped. `checkpoint_ready` is false throughout an update and becomes true only after G/prior/auxiliary/EMA and complete replica agreement. Failed trainers are poisoned and refuse further updates. The coordinated checkpoint API checks this boundary on every rank. It does not roll back failed updates or treat independently saved rank files as a successful job checkpoint.
 
 ### Global data ownership
 
@@ -31,7 +31,7 @@ A custom data callable must produce the same global draw under the supplied name
 
 `tests/reference/test_distributed_training.py` runs three bounded subprocess tests. Its parity fixture exercises all 12 Rp/RA/vanilla × logistic/hinge/Wasserstein/LSGAN combinations for three complete updates against `ReferenceTrainer`, comparing parameters, prior, both Adam states, base learning rates, EMA and metrics. It also tests a nonlinear critic's active lazy b-cap with controlled interpolation, global data slicing, Gaussian prior handling, absent gradient contributions, rank-local nonfinite input refusal, poisoned-state reuse and unsupported accumulation/global-batch/config mismatches.
 
-These float32 comparisons use explicit numerical tolerances, not bitwise equality. Reduction order changes floating-point cancellation. In particular, RA's additive critic-bias direction is mathematically null, and tiny residual gradients can be amplified by Adam's epsilon; the controlled RA fixture omits that bias. Arbitrary architectures, data and custom objectives are not promoted to a qualified profile by these tests. Multi-GPU/NCCL, real clusters, efficient accumulation, distributed checkpoint publication and whole-job recovery remain separate gates.
+These float32 comparisons use explicit numerical tolerances, not bitwise equality. Reduction order changes floating-point cancellation. In particular, RA's additive critic-bias direction is mathematically null, and tiny residual gradients can be amplified by Adam's epsilon; the controlled RA fixture omits that bias. Arbitrary architectures, data and custom objectives are not promoted to a qualified profile by these tests. Multi-GPU/NCCL, real clusters, efficient accumulation and a distributed run service remain separate gates. Fixed-topology snapshot/restart evidence is documented in the recovery guide.
 
 ## Collective primitives
 
@@ -79,7 +79,7 @@ An empty global ID union is returned as an empty tensor. Whether a particular re
 - the actual lazy b-cap input-gradient/parameter-backward computation, including an inactive step and the active lazy multiplier;
 - collective input/operation errors, a rank exiting and a live rank failing to participate until timeout.
 
-The primitive fixtures use explicit averaged parameter reductions. The trainer fixtures above additionally compare complete optimizer and EMA updates. Neither exercises DDP hooks or establishes coordinated checkpoints or recovered worker groups. Passing these tests does not qualify a future DDP implementation of b-cap.
+The primitive fixtures use explicit averaged parameter reductions. The trainer fixtures above additionally compare complete optimizer and EMA updates. Neither exercises DDP hooks; checkpoint/restart qualification uses the separate recovery tests. Passing these tests does not qualify a future DDP implementation of b-cap.
 
 Local validation uses Python 3.12.13, PyTorch 2.14.0+cpu and ParticleGAN 0.5.0. Run the bounded test with the numerical dependencies installed:
 
@@ -87,4 +87,4 @@ Local validation uses Python 3.12.13, PyTorch 2.14.0+cpu and ParticleGAN 0.5.0. 
 python -m pytest tests/reference/test_distributed.py -q
 ```
 
-Next, qualify coordinated complete-state publication, rank-specific RNG/data restore, worker failure and whole-job restart, followed by efficient global-objective accumulation. Only then qualify actual two-GPU NCCL and real multi-node behavior. Internal CPU updates do not close the distributed-training issue or establish cluster support.
+Next, qualify efficient global-objective accumulation and connect the implemented complete-state publication, rank-specific RNG/data restore and worker lifecycle to the shared run service. Only then qualify actual two-GPU NCCL and real multi-node behavior. Internal CPU updates do not close the distributed-training issue or establish cluster support.

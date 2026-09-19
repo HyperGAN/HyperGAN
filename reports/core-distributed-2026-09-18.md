@@ -18,6 +18,14 @@ The independent global oracle uses a bias-free critic and explicit matched draws
 
 `launch_cpu_workers` starts a fresh local spawn/Gloo group with finite collective and whole-job deadlines. A worker exception, abrupt exit, stall, partial spawn failure or parent interruption terminates and reaps the remaining direct children. Every worker must finish its callback and the final barrier before success. Restart is explicit; there are no automatic paid retries or external resource allocations. See [the worker guide](../docs/cpu-workers.md) and [numerical contracts](../docs/distributed.md).
 
+## Coordinated recovery
+
+A separate distributed checkpoint format stores complete per-rank snapshots and publishes one latest pointer after all-rank readiness. Strict identity includes the configured recipe/schedule, runtime and actual thread settings, source modules, data/class map and fixed topology. Both named and global RNG, sampler ownership, last local batches, optimizers and all registered numerical state survive a fresh worker-group restart. The [recovery guide](../docs/distributed-recovery.md) defines caller locking, compatibility and atomic-publication limits.
+
+The recovery implementation is `3f55dcb0` (integrated as `54f5a958`), independent RNG/metadata acceptance is `7a21918b` (integrated as `0b9e3d69`), and coordinator integration is `831e2d52`. Review fixed RNG-consuming identity hooks, metadata bounds, latest-pointer consistency, Pillow module handling during validation copies, load-hook mutation of expected state, and poisoning after partial live restore. A staged generation cannot be published merely because all payloads arrived: a worker death before final readiness leaves the prior latest pointer intact.
+
+The image recovery fixture uses seven generated grayscale images, labels, shuffled global data and an original tiny stochastic generator. It is shape/recovery evidence, with no copied upstream image architecture, external dataset or image-quality claim. A separate custom sampler checks rank ownership explicitly. The coordinator's integration test exercises the actual spawn supervisor, designated writer lock, updates, complete publication and fresh-group resume together.
+
 ## Validation and review
 
 The numerical implementation is `70091f6b` (integrated as `9e7c4732`), the independent acceptance suite is `67c4d6fa` (integrated as `8e8153a6`), and the coordinator's worker lifecycle is `5310e641` plus `1d517f7d`. Three subagents split numerical implementation, recovery implementation and independent adversarial review; the coordinator reviewed and integrated the pieces.

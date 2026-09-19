@@ -21,7 +21,7 @@ def worker(rank, world_size, directory, mode):
     from hypergan.run_state import run_lock
 
     with run_lock(directory) if rank == 0 else nullcontext():
-        config = resolve_config({'training': {'steps': 3}, 'prior': {'args': {'num_particles': 32}}})
+        config = resolve_config({'training': {'steps': 3}, 'prior': {'args': {'num_particles': 32, 'z_dim': 4}}})
         trainer = ReplicatedCPUTrainer(config, world_size=world_size)
         batch = None
         if mode == 'resume':

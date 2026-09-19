@@ -112,7 +112,7 @@ def _event(line, previous):
         raise ValueError(f'Corrupt complete event row: {exc}') from exc
 
 
-def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576, include_cursors=False):
+def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576, include_cursors=False, _open_file=None):
     """Read forward from a cursor (or the beginning), preserving incomplete tails.
 
     Returns events, cursor, has_more and partial_tail. A page reads at most
@@ -135,7 +135,7 @@ def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576, inclu
     }
     path = root / 'events.jsonl'
     try:
-        handle = path.open('rb')
+        handle = _open_file(path) if _open_file else path.open('rb')
     except FileNotFoundError:
         if state['file'] is not None:
             raise ValueError('Stale event cursor: the log was removed; restart without a cursor')
@@ -143,7 +143,7 @@ def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576, inclu
         if include_cursors:
             result['event_cursors'] = []
         return result
-    with handle:
+    with handle as handle:
         stat = os.fstat(handle.fileno())
         identity = _identity(stat)
         if state['file'] is not None and state['file'] != identity:

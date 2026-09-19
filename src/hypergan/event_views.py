@@ -302,8 +302,9 @@ def _frame(row, revision, previous):
         raise ValueError(f'Corrupt projection frame: {exc}') from exc
 
 
-def _metadata(directory, revision):
-    with (directory / 'projection.json').open('rb') as handle:
+def _metadata(directory, revision, _open_file=None):
+    path = directory / 'projection.json'
+    with (_open_file(path) if _open_file else path.open('rb')) as handle:
         raw = handle.read(MAX_FRAME_BYTES + 1)
     if len(raw) > MAX_FRAME_BYTES:
         raise ValueError('Projection metadata exceeds byte budget')
@@ -461,7 +462,7 @@ def _cursor(state):
     return base64.urlsafe_b64encode(_json(state)).decode('ascii')
 
 
-def read_projection_page(run_dir, map_revision, cursor=None, *, limit=100, max_bytes=1048576):
+def read_projection_page(run_dir, map_revision, cursor=None, *, limit=100, max_bytes=1048576, _open_file=None):
     """Read unchanged complete frames with an end cursor for each frame.
 
     Cursors bind revision, generation, offset, sequence and boundary digest; they
@@ -472,7 +473,7 @@ def read_projection_page(run_dir, map_revision, cursor=None, *, limit=100, max_b
     _integer(limit, 'limit', 1, 10000)
     _integer(max_bytes, 'max_bytes', 1, 16 * 1048576)
     directory = Path(run_dir) / 'views' / map_revision
-    metadata = _metadata(directory, map_revision)
+    metadata = _metadata(directory, map_revision, _open_file)
     state = {'version': 1, 'map_revision': map_revision, 'generation': metadata['generation'],
              'offset': 0, 'sequence': 0, 'anchor': hashlib.sha256(b'').hexdigest(), 'source': None}
     if cursor is not None:
@@ -492,7 +493,8 @@ def read_projection_page(run_dir, map_revision, cursor=None, *, limit=100, max_b
             state = saved
         except (ValueError, TypeError, UnicodeError, KeyError) as exc:
             raise ValueError(f'Invalid projection cursor: {exc}') from exc
-    with (directory / 'contributions.jsonl').open('rb') as handle:
+    path = directory / 'contributions.jsonl'
+    with (_open_file(path) if _open_file else path.open('rb')) as handle:
         file_stat = os.fstat(handle.fileno())
         size = file_stat.st_size
         offset = state['offset']

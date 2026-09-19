@@ -122,7 +122,7 @@ def publish_catalog(run_dir, config):
     return revision
 
 
-def read_catalog(run_dir, revision=None):
+def read_catalog(run_dir, revision=None, *, _open_file=None):
     root = Path(run_dir)
     if revision is None:
         revision = json.loads((root / 'manifest.json').read_text())['metrics_catalog']
@@ -131,7 +131,7 @@ def read_catalog(run_dir, revision=None):
     path = root / 'metrics' / f'catalog-{revision}.json'
     if path.is_symlink():
         raise ValueError('Metric catalog must not be a symlink')
-    with path.open('rb') as stream:
+    with (_open_file(path) if _open_file else path.open('rb')) as stream:
         value = stream.read(MAX_CATALOG_BYTES + 1)
     if len(value) > MAX_CATALOG_BYTES:
         raise ValueError('Metric catalog exceeds 1 MiB')

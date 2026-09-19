@@ -304,3 +304,22 @@ def test_snapshot_scalar_histogram_failure_discovery_and_export(real_viewer, mon
     assert page.locator('#evaluation-items li').count() == 3
     assert not errors
     assert not any(token in url for url in requests)
+
+
+def test_single_measurement_has_a_visible_chart_mark(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(1)
+    sign_in(page, session, token)
+    page.locator('#g-loss').filter(has_text='1').wait_for()
+    # With no second observation there is no line segment; the value must
+    # still appear on the actual canvas, not only in the adjacent value card.
+    page.wait_for_function("""() => {
+      const canvas = document.querySelector('.chart-canvas canvas');
+      if (!canvas) return false;
+      const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      let marks = 0;
+      for (let i = 0; i < pixels.length; i += 4)
+        if (Math.abs(pixels[i] - 215) < 5 && Math.abs(pixels[i+1] - 187) < 5 && Math.abs(pixels[i+2] - 129) < 5 && pixels[i+3] > 200) marks++;
+      return marks > 3;
+    }""")
+    assert not errors

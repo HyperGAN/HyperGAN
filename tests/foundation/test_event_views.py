@@ -288,3 +288,20 @@ def test_missing_projection_reader_does_not_create_state(tmp_path):
     with pytest.raises(FileNotFoundError):
         read_projection_page(tmp_path, MapSpec().revision)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_source_generation_transition_fails_before_append(tmp_path):
+    append(tmp_path, 1)
+    with Projector(tmp_path) as projector:
+        projector.project()
+    original = projector.path.read_bytes()
+    append(tmp_path, 1, start=2)
+    source = tmp_path / 'events.jsonl'
+    rows = source.read_bytes().splitlines()
+    second = json.loads(rows[1])
+    second['stream_generation'] = 'replacement'
+    source.write_bytes(rows[0] + b'\n' + encode(second) + b'\n')
+    with Projector(tmp_path) as projector:
+        with pytest.raises(ValueError, match='stream identity changed'):
+            projector.project()
+    assert projector.path.read_bytes() == original

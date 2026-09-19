@@ -181,11 +181,11 @@ def test_unsupported_observers_rejected_before_new_run_artifacts(tmp_path, optio
     assert not root.exists() and instances[0].closed
 
 
-def test_factory_environment_failure_closes_configured_adapter_without_artifacts(tmp_path):
+def test_adapter_environment_failure_closes_configured_adapter_without_artifacts(tmp_path, monkeypatch):
     path, root, factory, _, _, instances = setup(tmp_path)
     def failed_environment():
         raise OSError('Runtime environment could not be inspected')
-    factory.environment = failed_environment
+    monkeypatch.setattr(FencedExecution, "environment", staticmethod(failed_environment))
     with pytest.raises(OSError, match='environment could not be inspected'):
         run_train(path, root, execution_factory=factory)
     assert not root.exists() and instances[0].closed

@@ -68,8 +68,7 @@ class ArtifactResult:
 
 
 class Execution(Protocol):
-    @staticmethod
-    def environment() -> dict: ...
+    def environment(self) -> dict: ...
     def start(self) -> ExecutionInfo: ...
     def restore(self, run_dir, checkpoint, run_id, config_sha256) -> Restored: ...
     def update(self) -> CompletedUpdate: ...
@@ -170,7 +169,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
     managed = False
     try:
         descriptor = _configure_attempt(execution, context, preview_every, on_event)
-        environment = execution_factory.environment()
+        environment = execution.environment()
         run_dir.mkdir(parents=True, exist_ok=False)
         manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id,
                 'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),

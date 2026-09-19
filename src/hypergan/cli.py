@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -13,6 +14,24 @@ def _positive_int(value):
     if number < 1:
         raise argparse.ArgumentTypeError("must be a positive integer")
     return number
+
+
+def _positive_seconds(value):
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError("must be a finite positive number of seconds")
+    return number
+
+
+def _run_options(parser, *, resume=False):
+    parser.add_argument("--checkpoint-every", type=_positive_int, default=None if resume else 100,
+                        help="save a complete checkpoint every N updates (default: 100; resume inherits)")
+    parser.add_argument("--max-seconds", type=_positive_seconds,
+                        help="stop at an update boundary after this attempt's wall-time budget")
+    parser.add_argument("--stop-after-steps", type=_positive_int,
+                        help="stop this attempt after N updates, preserving the total learning-rate schedule")
+    parser.add_argument("--progress-json", action="store_true",
+                        help="stream flushed JSONL events and a final result to stdout")
 
 
 def _parser():
@@ -36,6 +55,12 @@ def _parser():
     train.add_argument("config", type=Path)
     train.add_argument("--run-dir", type=Path, required=True)
     train.add_argument("--steps", type=_positive_int)
+    _run_options(train)
+    resume = commands.add_parser("resume", help="Continue a complete CPU training checkpoint")
+    resume.add_argument("run_dir", type=Path)
+    resume.add_argument("--checkpoint", type=Path, help="choose an older checkpoint within this run")
+    resume.add_argument("--config", type=Path, help="verify exact compatibility with this configuration")
+    _run_options(resume, resume=True)
     sample = commands.add_parser("sample", help="Sample a saved reference model (requires the train extra)")
     sample.add_argument("run_dir", type=Path)
     sample.add_argument("--count", type=_positive_int, default=16)
@@ -51,6 +76,23 @@ def _print_json(value):
 def _warnings(config):
     for warning in config.get("warnings", []):
         print(f"warning: {warning}", file=sys.stderr)
+
+
+def _progress(args):
+    def emit(event):
+        if args.progress_json:
+            print(json.dumps(event, allow_nan=False), flush=True)
+        elif event.get("event") == "train":
+            print(f"step {event['step']}: D={event['d_loss']:.6g} G={event['g_loss']:.6g}",
+                  file=sys.stderr, flush=True)
+    return emit
+
+
+def _run_result(args, result):
+    if args.progress_json:
+        print(json.dumps({"event": "result", "manifest": result}, allow_nan=False), flush=True)
+    else:
+        _print_json(result)
 
 
 def main(argv=None):
@@ -101,7 +143,15 @@ def main(argv=None):
             _warnings(resolved)
             from .training import train
 
-            _print_json(train(args.config, args.run_dir, steps=args.steps))
+            _run_result(args, train(args.config, args.run_dir, steps=args.steps,
+                                   checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
+                                   stop_after_steps=args.stop_after_steps, on_event=_progress(args)))
+        elif args.command == "resume":
+            from .training import resume
+
+            _run_result(args, resume(args.run_dir, checkpoint=args.checkpoint, config_path=args.config,
+                                    checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
+                                    stop_after_steps=args.stop_after_steps, on_event=_progress(args)))
         elif args.command == "sample":
             from .artifacts import sample
 
@@ -110,7 +160,7 @@ def main(argv=None):
         print("error: interrupted", file=sys.stderr)
         return 130
     except ModuleNotFoundError as exc:
-        if exc.name and exc.name.split(".")[0] in {"torch", "particlegan"}:
+        if exc.name and exc.name.split(".")[0] in {"torch", "particlegan", "numpy"}:
             print("error: training dependencies are missing; install 'hypergan[train]' in this environment", file=sys.stderr)
         else:
             print(f"error: {exc}", file=sys.stderr)

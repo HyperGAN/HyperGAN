@@ -1,21 +1,30 @@
 """HyperGAN-owned, bounded single-process CPU reference loop.
 
-This establishes numerical integration, not image quality, resume, or DDP support.
+CPU recovery is supported; image quality and DDP require separate qualification.
 """
 import copy
 import hashlib
+import importlib
 import importlib.metadata
 import json
 from pathlib import Path
 import platform
 import subprocess
 import time
+import random
+import uuid
+import warnings
+import inspect
+
+import numpy as np
 
 import torch
 from particlegan import GANLoss, GradientPenalty, ParticleRegularizer, learning_rate_scale
 
 from .config import config_values, fingerprint, load_config, resolve_config
 from .recipes import ComponentGraph, construct, detach, make_prior
+from .checkpoints import capture_rng, restore_rng, data_contract, read_checkpoint, restore_trainer, write_checkpoint
+from .run_state import atomic_json, repair_event_tail, run_lock, sync_directory
 
 
 @torch.no_grad()
@@ -34,7 +43,7 @@ def _version(name):
 
 
 def runtime_info():
-    return {"python": platform.python_version(), "torch": torch.__version__, "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "device": "cpu", "dtype": "float32", "world_size": 1}
+    return {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__, "platform": platform.system(), "machine": platform.machine(), "threads": 1, "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "device": "cpu", "dtype": "float32", "world_size": 1, "default_dtype": str(torch.get_default_dtype()), "deterministic_algorithms": torch.are_deterministic_algorithms_enabled()}
 
 
 def source_info():
@@ -64,6 +73,8 @@ class ReferenceTrainer:
         self.config = config
         settings = config["training"]
         torch.manual_seed(settings["seed"])
+        random.seed(settings["seed"])
+        np.random.seed(settings["seed"] % (2 ** 32))
         self.graph = ComponentGraph(config["components"]).float()
         self.prior = make_prior(config["prior"]).float()
         self.data = construct(config["data"])
@@ -170,54 +181,243 @@ class ReferenceTrainer:
             raise ValueError(f"Nonfinite {name} gradient; run stopped")
 
 
-def _json(path, value):
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
-    temporary.replace(path)
+def _controls(checkpoint_every, max_seconds, stop_after_steps):
+    if type(checkpoint_every) is not int or checkpoint_every < 1:
+        raise ValueError('checkpoint_every must be a positive integer')
+    if max_seconds is not None and (type(max_seconds) not in (int, float) or not np.isfinite(max_seconds) or max_seconds <= 0):
+        raise ValueError('max_seconds must be a finite positive number')
+    if stop_after_steps is not None and (type(stop_after_steps) is not int or stop_after_steps < 1):
+        raise ValueError('stop_after_steps must be a positive integer')
 
 
-def train(config_path, run_dir, steps=None):
+def _implementation(trainer):
+    """Hash imported implementation bytes without depending on checkout location."""
+    import hypergan.checkpoints
+    import hypergan.config
+    import hypergan.recipes
+    objects = [hypergan.checkpoints, hypergan.config, hypergan.recipes, ReferenceTrainer,
+               GANLoss, GradientPenalty, ParticleRegularizer, learning_rate_scale,
+               type(trainer.data), type(trainer.prior), *[type(x) for x in trainer.graph.modules()],
+               *[x if inspect.isfunction(x) else type(x) for x in trainer.objectives]]
+    specifications = [trainer.config['data'], *trainer.config['components'].values(), *trainer.config['objectives']]
+    for specification in specifications:
+        factory = specification['factory']
+        if ':' in factory:
+            objects.append(importlib.import_module(factory.split(':', 1)[0]))
+    result = {}
+    for obj in objects:
+        module = inspect.getmodule(obj)
+        path = getattr(module, '__file__', None)
+        if path and Path(path).is_file():
+            result[module.__name__] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return result
+
+
+def _recovery_contract(trainer):
+    contract = data_contract(trainer.data, trainer.config['data'])
+    reasons = []
+    if not contract['supported']:
+        reasons.append('Custom data must declare resume_stateless=True or paired state_dict/load_state_dict methods for recovery')
+    for spec, objective in zip(trainer.config['objectives'], trainer.objectives):
+        if spec['factory'] not in ('mse', 'l1') and getattr(objective, 'resume_stateless', False) is not True:
+            reasons.append('Custom objectives must declare resume_stateless=True for recovery; move mutable state into registered component buffers')
+    return contract, reasons
+
+
+def _new_attempt(run_dir):
+    root = run_dir / 'attempts'
+    root.mkdir(exist_ok=True)
+    indexes = [int(p.name.split('-')[0]) for p in root.iterdir() if p.is_dir() and p.name.split('-')[0].isdigit()]
+    index = max(indexes, default=0) + 1
+    identity = f'{index:04d}-{uuid.uuid4().hex}'
+    path = root / identity
+    path.mkdir()
+    sync_directory(root)
+    return index, identity, path
+
+
+def train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
+          stop_after_steps=None, on_event=None):
+    """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
+    _controls(checkpoint_every, max_seconds, stop_after_steps)
     config = load_config(config_path)
     if steps is not None:
         raw = config_values(config)
-        raw["training"]["steps"] = steps
+        raw['training']['steps'] = steps
         config = resolve_config(raw)
     run_dir = Path(run_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=False)
-    runtime = runtime_info()
-    qualification = dict(config["qualification"])
-    # This revision introduces the fixture. A manifest records observed checks rather
-    # than promoting an arbitrary installed wheel/runtime to a certified profile.
-    qualification["status"] = "reference-only" if qualification["recipe_match"] else "unqualified"
-    qualification["runtime_qualification"] = "not-certified; run numerical parity CI for this exact runtime"
-    manifest = {"schema_version": 1, "status": "running", "run_dir": str(run_dir), "config": config_values(config), "config_sha256": fingerprint(config), "runtime": runtime, "source": source_info(), "qualification": qualification, "warnings": config["warnings"], "steps": 0, "global_batch_size": config["training"]["batch_size"], "rng_streams": {"data": config["training"]["seed"] + 1, "prior": config["training"]["seed"] + 2, "penalty": config["training"]["seed"] + 3, "sampling": config["sampling"]["seed"]}, "resume_supported": False}
-    _json(run_dir / "manifest.json", manifest)
+    qualification = dict(config['qualification'])
+    qualification['status'] = 'reference-only' if qualification['recipe_match'] else 'unqualified'
+    qualification['runtime_qualification'] = 'not-certified; run numerical parity CI for this exact runtime'
+    manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': uuid.uuid4().hex,
+                'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
+                'runtime': runtime_info(), 'source': source_info(), 'qualification': qualification,
+                'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
+                'global_batch_size': config['training']['batch_size'], 'resume_supported': False,
+                'last_durable_step': None, 'checkpoint_path': None, 'next_sample_sequence': 1,
+                'rng_streams': {name: config['training']['seed'] + offset for name, offset in [('data', 1), ('prior', 2), ('penalty', 3)]}}
+    manifest['rng_streams']['sampling'] = config['sampling']['seed']
+    with run_lock(run_dir):
+        return _execute(config, run_dir, manifest, checkpoint_every, max_seconds, stop_after_steps, on_event)
+
+
+def resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
+           max_seconds=None, stop_after_steps=None, on_event=None):
+    """Resume a full checkpoint from this run, retaining the original schedule."""
+    run_dir = Path(run_dir).resolve()
+    if not run_dir.is_dir():
+        raise ValueError(f'Run directory does not exist: {run_dir}')
+    with run_lock(run_dir):
+        manifest = json.loads((run_dir / 'manifest.json').read_text())
+        required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}
+        if not isinstance(manifest, dict) or not required.issubset(manifest) or manifest['schema_version'] != 1:
+            raise ValueError('Run manifest has no supported full recovery contract')
+        checkpoint_every = manifest.get('checkpoint_every', 100) if checkpoint_every is None else checkpoint_every
+        _controls(checkpoint_every, max_seconds, stop_after_steps)
+        config = load_config(config_path) if config_path is not None else resolve_config(manifest['config'])
+        target, info, state = read_checkpoint(run_dir, checkpoint)
+        if info['run_id'] != manifest['run_id']:
+            raise ValueError('Checkpoint belongs to a different run')
+        if fingerprint(config) != info['config_sha256'] or fingerprint(config) != manifest['config_sha256']:
+            raise ValueError('Resume configuration differs from checkpoint; total training schedule cannot change')
+        if runtime_info() != info['runtime']:
+            raise ValueError('Resume runtime/topology differs from checkpoint')
+        previous_threads = torch.get_num_threads()
+        try:
+            torch.set_num_threads(1)
+            trainer = ReferenceTrainer(config)
+            contract, reasons = _recovery_contract(trainer)
+            if reasons:
+                raise ValueError('Recovery unsupported: ' + '; '.join(reasons))
+            if contract != info['data_contract']:
+                raise ValueError('Resume data identity or state protocol differs from checkpoint')
+            if _implementation(trainer) != info['implementation']:
+                raise ValueError('Resume implementation differs from checkpoint')
+            batch = restore_trainer(trainer, state)
+            manifest.update(checkpoint_path=str(target), last_durable_step=trainer.step,
+                            resumed_from=str(target), steps=trainer.step)
+            return _execute(config, run_dir, manifest, checkpoint_every, max_seconds,
+                            stop_after_steps, on_event, trainer=trainer, last_batch=batch)
+        finally:
+            torch.set_num_threads(previous_threads)
+
+
+def _execute(config, run_dir, manifest, checkpoint_every, max_seconds, stop_after_steps,
+             on_event, trainer=None, last_batch=None):
     previous_threads = torch.get_num_threads()
     started = time.monotonic()
+    index, attempt_id, attempt_dir = _new_attempt(run_dir)
+    manifest.update(attempt_id=attempt_id, attempt_index=index, attempt_dir=str(attempt_dir),
+                    status='initializing', checkpoint_every=checkpoint_every, stop_reason=None,
+                    possible_lost_steps=0)
+    for key in ('error', 'sample_path', 'bundle_path'):
+        manifest.pop(key, None)
+    atomic_json(run_dir / 'manifest.json', manifest)
+    repair_event_tail(run_dir / 'events.jsonl')
+    sequence = 0
+
+    def emit(event, **values):
+        nonlocal sequence
+        sequence += 1
+        row = dict(values, schema_version=1, event=event, run_id=manifest['run_id'],
+                   attempt_id=attempt_id, sequence=sequence,
+                   step=manifest['steps'], seconds=time.monotonic() - started)
+        with (run_dir / 'events.jsonl').open('a', encoding='utf-8') as output:
+            output.write(json.dumps(row, allow_nan=False) + '\n')
+            output.flush()
+        if on_event is not None:
+            rng = capture_rng()
+            try:
+                on_event(dict(row))
+            except Exception as exc:
+                try:
+                    warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
+                except Warning:
+                    pass
+            finally:
+                restore_rng(rng)
+        return row
+
+    def publish():
+        manifest['seconds'] = time.monotonic() - started
+        atomic_json(run_dir / 'manifest.json', manifest)
+        atomic_json(attempt_dir / 'manifest.json', manifest)
+
     try:
         torch.set_num_threads(1)
-        trainer = ReferenceTrainer(config)
-        with (run_dir / "events.jsonl").open("x") as events:
-            events.write(json.dumps({"event": "start", "config_sha256": manifest["config_sha256"], "qualification": qualification}) + "\n")
-            events.flush()
-            for _ in range(config["training"]["steps"]):
-                row, batch = trainer.update()
-                row["seconds"] = time.monotonic() - started
-                events.write(json.dumps(row, allow_nan=False) + "\n")
-                events.flush()
-                manifest["steps"] = trainer.step
+        trainer = trainer if trainer is not None else ReferenceTrainer(config)
+        contract, reasons = _recovery_contract(trainer)
+        manifest.update(resume_supported=not reasons, resume_unsupported_reasons=reasons,
+                        data_identity=contract['identity'], status='running')
+        manifest['qualification']['resume'] = False
+        manifest['qualification']['recovery_scope'] = 'CPU full-state protocol; custom hidden state is author responsibility'
+        for reason in reasons:
+            if reason not in manifest['warnings']:
+                manifest['warnings'].append(reason)
+            warnings.warn(reason, RuntimeWarning)
+        metadata = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
+                    'config': config_values(config), 'config_sha256': fingerprint(config),
+                    'runtime': runtime_info(), 'data_contract': contract,
+                    'implementation': _implementation(trainer),
+                    'next_sample_sequence': manifest['next_sample_sequence']}
+
+        def checkpoint_now():
+            if not manifest['resume_supported']:
+                return
+            path = write_checkpoint(run_dir, trainer, last_batch, metadata)
+            manifest.update(checkpoint_path=str(path), last_durable_step=trainer.step,
+                            possible_lost_steps=0)
+            publish()
+            emit('checkpoint', checkpoint_path=str(path))
+
+        emit('resume' if manifest.get('resumed_from') else 'start', config_sha256=fingerprint(config))
+        if manifest['last_durable_step'] is None or manifest.get('resumed_from'):
+            # Accepting an older recovery point must also move the default pointer,
+            # even if this attempt stops before another update.
+            checkpoint_now()
+        publish()
+        attempt_steps = 0
+        while trainer.step < config['training']['steps']:
+            if max_seconds is not None and time.monotonic() - started >= max_seconds:
+                manifest['stop_reason'] = 'max_seconds'
+                break
+            if stop_after_steps is not None and attempt_steps >= stop_after_steps:
+                manifest['stop_reason'] = 'stop_after_steps'
+                break
+            row, last_batch = trainer.update()
+            attempt_steps += 1
+            manifest['steps'] = trainer.step
+            durable = manifest['last_durable_step']
+            manifest['possible_lost_steps'] = trainer.step - durable if durable is not None else trainer.step
+            emit('train', **{key: value for key, value in row.items() if key not in ('event', 'step')})
+            if trainer.step % checkpoint_every == 0:
+                checkpoint_now()
+            publish()
+        if manifest['last_durable_step'] != trainer.step:
+            checkpoint_now()
+        if last_batch is not None:
             from .artifacts import save_bundle, sample
-            save_bundle(run_dir, trainer, batch)
-            sample_path = sample(run_dir, count=config["sampling"]["count"], seed=config["sampling"]["seed"])
-            manifest.update(status="complete", sample_path=str(sample_path), bundle_path=str(run_dir / "model.pt"), seconds=time.monotonic() - started)
-            events.write(json.dumps({"event": "complete", "step": trainer.step, "sample_path": str(sample_path)}) + "\n")
-        _json(run_dir / "manifest.json", manifest)
+            bundle_dir = attempt_dir / 'inference'
+            bundle_dir.mkdir()
+            sync_directory(attempt_dir)
+            trainer.artifact_identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
+                                         'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence']}
+            manifest['next_sample_sequence'] += 1
+            publish()
+            save_bundle(bundle_dir, trainer, last_batch)
+            sample_path = sample(bundle_dir, count=config['sampling']['count'], seed=config['sampling']['seed'])
+            manifest.update(bundle_path=str(bundle_dir / 'model.pt'), sample_path=str(sample_path))
+        manifest['status'] = 'complete' if trainer.step == config['training']['steps'] else 'stopped'
+        publish()
+        emit(manifest['status'], stop_reason=manifest['stop_reason'], checkpoint_path=manifest['checkpoint_path'])
         return manifest
     except BaseException as exc:
-        manifest.update(status="interrupted" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "failed", error=f"{type(exc).__name__}: {exc}")
-        _json(run_dir / "manifest.json", manifest)
-        with (run_dir / "events.jsonl").open("a") as events:
-            events.write(json.dumps({"event": manifest["status"], "step": manifest["steps"], "error": manifest["error"]}) + "\n")
+        # Live trainer may contain a half update: NEVER checkpoint in this handler.
+        manifest.update(status='interrupted' if isinstance(exc, (KeyboardInterrupt, SystemExit)) else 'failed',
+                        error=f'{type(exc).__name__}: {exc}')
+        publish()
+        emit(manifest['status'], error=manifest['error'], checkpoint_path=manifest['checkpoint_path'])
         raise
     finally:
         torch.set_num_threads(previous_threads)

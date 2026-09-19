@@ -6,6 +6,8 @@ import subprocess
 import sys
 import sysconfig
 
+import pytest
+
 
 def run_cli(tmp_path, *args):
     return subprocess.run(
@@ -82,7 +84,8 @@ def test_manifest_inspection_without_model_loading(tmp_path):
     assert "Traceback" not in missing.stderr
 
 
-def test_missing_runtime_has_install_guidance(tmp_path):
+@pytest.mark.parametrize("missing", ["numpy", "torch", "particlegan"])
+def test_missing_runtime_has_install_guidance(tmp_path, missing):
     project = tmp_path / "project"
     created = run_cli(tmp_path, "new", project)
     assert created.returncode == 0, created.stderr
@@ -91,16 +94,17 @@ def test_missing_runtime_has_install_guidance(tmp_path):
     code = """
 import importlib.abc
 import sys
+blocked = sys.argv.pop(1)
 class MissingRuntime(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path, target=None):
-        if fullname.split('.')[0] in {'torch', 'particlegan'}:
+        if fullname.split('.')[0] == blocked:
             raise ModuleNotFoundError(f'No module named {fullname!r}', name=fullname)
 sys.meta_path.insert(0, MissingRuntime())
 from hypergan.cli import main
 raise SystemExit(main(sys.argv[1:]))
 """
     result = subprocess.run(
-        [sys.executable, "-I", "-c", code, "train", str(project), "--run-dir", str(tmp_path / "run"), "--steps", "6"],
+        [sys.executable, "-I", "-c", code, missing, "train", str(project), "--run-dir", str(tmp_path / "run"), "--steps", "6"],
         cwd=tmp_path, capture_output=True, text=True, timeout=30,
     )
     assert result.returncode != 0

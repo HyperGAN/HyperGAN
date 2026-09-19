@@ -78,7 +78,7 @@ def test_run_and_fresh_process_inference(tmp_path):
     manifest = train(config, run)
     assert manifest["status"] == "complete" and manifest["steps"] == 5
     assert manifest["qualification"]["scope"] == "numerical-reference"
-    assert not manifest["resume_supported"]
+    assert manifest["resume_supported"]
     assert manifest["source"]["particlegan_distribution_commit"] is None
     events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
     assert events[0]["event"] == "start" and events[-1]["event"] == "complete"
@@ -87,7 +87,7 @@ def test_run_and_fresh_process_inference(tmp_path):
     code = "from hypergan.artifacts import sample; import sys; sample(sys.argv[1],count=256,seed=123,output=sys.argv[2]); assert 'hypergan.training' not in sys.modules"
     subprocess.run([sys.executable, "-c", code, str(run), str(output)], cwd=tmp_path, check=True)
     assert json.loads(output.read_text()) == original
-    state = torch.load(run / "model.pt", weights_only=True)
+    state = torch.load(manifest["bundle_path"], weights_only=True)
     assert "discriminator" not in state["model_states"]
     assert "optimizer" not in state
     with pytest.raises(FileExistsError):
@@ -131,8 +131,8 @@ def test_unavailable_custom_constructor_is_actionable():
 
 def test_tampered_bundle_rejected(tmp_path):
     config = write_default(tmp_path / "project")
-    train(config, tmp_path / "run")
-    with (tmp_path / "run" / "model.pt").open("ab") as stream:
+    manifest = train(config, tmp_path / "run")
+    with Path(manifest["bundle_path"]).open("ab") as stream:
         stream.write(b"changed")
     with pytest.raises(ValueError, match="hash mismatch"):
         sample(tmp_path / "run")
@@ -161,4 +161,5 @@ def test_interrupted_manifest_is_terminal(tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         train(path, tmp_path / "run")
     manifest = json.loads((tmp_path / "run" / "manifest.json").read_text())
-    assert manifest["status"] == "interrupted" and not manifest["resume_supported"]
+    assert manifest["status"] == "interrupted" and manifest["resume_supported"]
+    assert manifest["last_durable_step"] == 0

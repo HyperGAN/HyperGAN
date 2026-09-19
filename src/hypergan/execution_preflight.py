@@ -119,7 +119,8 @@ def _runtime_worker(rank, world_size, config, profile, directory):
             contract, reasons = _recovery_contract(trainer)
             implementation = _implementation(trainer)
             if requested['name'] != 'cpu-single':
-                implementation.update(_source_hashes(['hypergan.distributed_training', 'hypergan.distributed', 'hypergan.distributed_checkpoints']))
+                implementation.update(_source_hashes(['hypergan.distributed_training', 'hypergan.distributed',
+                                                       'hypergan.distributed_checkpoints', 'hypergan.distributed_commit']))
             # Snapshot only numerical state: data is described by its contract;
             # sampling it or simulating checkpoint publication would exceed scope.
             from .distributed_checkpoints import _digest

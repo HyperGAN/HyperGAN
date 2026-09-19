@@ -8,3 +8,11 @@ prune tests
 recursive-include tests/foundation *.py
 recursive-include tests/reference *.py
 recursive-include tests/cuda *.py
+recursive-include tests/reducers *.py
+recursive-include tests/browser *.py
+recursive-include reducers/core *.toml *.lock *.rs *.md *.py
+include reducers/core/rust-toolchain.toml
+prune reducers/core/target
+include scripts/build_reducer.py
+recursive-include src/hypergan/metrics_reducer/assets *.txt
+recursive-include src/hypergan/metrics_reducer/assets *.wasm *.json *.js *.html

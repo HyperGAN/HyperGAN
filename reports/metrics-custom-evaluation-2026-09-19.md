@@ -53,9 +53,14 @@ results identify the evaluated source attempt/step, snapshot digest, EMA choice,
 factory/runtime sources, data identity, sample count, seed and protocol digest.
 Failed results expose a reason and explicitly mark unknown source position;
 they never create a fake step-zero metric value. Scalar values use `metrics` and
-histograms use `distributions`. The standalone viewer can discover these raw
-streams after training; chart projection for arbitrary evaluation streams is a
-separate integration concern.
+histograms use `distributions`. The standalone viewer discovers these streams on load, on reconnect and via
+`stream_added` after training. A separate evaluation shelf loads each source's
+own catalog and displays scalar/histogram results, source attempt/step, failed
+status, protocol provenance, plots, exact-value accessible tables and raw exports.
+Results never enter training curves or inherit the current training catalog.
+Plots and tables allocate on expansion; result loads are serialized and bounded
+by the 64-stream inventory. Live evaluation display does not run a server reducer.
+General multi-evaluation aggregate projections remain a future extension.
 
 Completed events and receipts precede stream registration. A later explicit
 evaluation recovers an interrupted registration without recomputing the result.
@@ -67,8 +72,7 @@ code are outside the managed-process guarantee; arbitrary plugin allocations
 are not a security sandbox.
 
 The CLI integration helper exposes `evaluate RUN --metric ID [--config FILE]
-[--bundle PATH]` and the same torch-free host API. The coordinator integrates its
-parser/dispatch into the shared CLI. GPU is the default evaluation device; CPU
+[--bundle PATH]` and the same torch-free host API. The parser/dispatch is integrated into the shared CLI. GPU is the default evaluation device; CPU
 use is explicit. This slice uses no implicit dataset/weight downloads and adds
 no third-party dependency.
 
@@ -108,6 +112,26 @@ checks belong to coordinator integration.
   test an actual evaluator timeout. A test's in-process no-Torch assertion was
   also moved to an isolated subprocess because reference test collection imports
   Torch before foundation tests. These were fixture corrections, not skips.
+
+Integrated API/browser acceptance used a separate source environment
+`/tmp/hypergan-evaluation-ui-py312` without modifying installed-package validation
+environments. **24 API/browser tests passed in 25.07 seconds**, including scalar
+and histogram results whose catalogs differ from the training catalog, late
+registration while training curves are unselected, failed source position,
+accessible plots/tables, raw API exports, and discovery on reload. A separate
+actual CPU training/evaluation/Chromium run produced two earlier-snapshot scalar
+results at step 1, a 32-bin current-snapshot histogram at step 2, and an explicit
+partial-iterator failure; all four appeared with no browser errors. Its receipt
+and screenshot are `/tmp/hypergan-evaluation-browser-proof.json` and
+`/tmp/hypergan-evaluation-browser-proof.png`. Source tests use exact M4 protocol
+fixtures; this additional local proof exercises the actual supervised evaluator.
+
+Public source cursors now carry logical run/stream/generation identity instead
+of local path/inode identity. Copied-run replay, changed generation, consumed
+boundary mutation, and inventory overflow preserving live manifest updates have
+API regressions. Those backend fixes belong to the standalone-server milestone
+and were separated as commit `40c78adf` for integration. The 64-stream cap remains
+explicit; overflow reports a discovery error while existing streams continue.
 
 No FID backend, pretrained weights, asynchronous resource allocation, automatic
 snapshot scheduler, partial-job resume, real multi-host qualification, paid

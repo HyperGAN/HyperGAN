@@ -146,3 +146,28 @@ def test_bootstrap_corruption(reducer):
                     {"state":{**view["state"],"count":1,"sum":2}}]:
         with pytest.raises(ReducerError):
             validate_bootstrap(reducer,{**view,**changes})
+
+
+def test_cached_native_resources_close_before_dependency_teardown(tmp_path):
+    import subprocess
+    import sys
+
+    # Model dependency globals being torn down while the compiled cache is
+    # still reachable. Without explicit ownership cleanup both Managed.__del__
+    # calls emit the same NoneType errors seen after the integrated suite.
+    code = """
+import atexit
+import wasmtime._ffi as ffi
+
+def dependency_shutdown():
+    ffi.wasmtime_module_delete = None
+    ffi.wasm_engine_delete = None
+
+atexit.register(dependency_shutdown)
+from hypergan.metrics_reducer import Reducer
+assert Reducer().identity('mean/v1')['count'] == 0
+"""
+    result = subprocess.run([sys.executable, '-I', '-c', code], cwd=tmp_path,
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ''

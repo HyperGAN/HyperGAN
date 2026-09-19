@@ -5,6 +5,7 @@ partition identity, ordered coverage and duplicate delivery.
 """
 from __future__ import annotations
 
+import atexit
 from functools import lru_cache
 import hashlib
 from importlib.resources import files
@@ -30,6 +31,18 @@ def descriptor() -> dict[str, Any]:
     return json.loads(assets().joinpath("reducer.json").read_text(encoding="utf-8"))
 
 
+def _close_compiled(module, engine):
+    # Cache ownership outlives individual requests. Release native resources
+    # before Python clears Wasmtime's FFI globals during interpreter teardown.
+    try:
+        module.close()
+    finally:
+        try:
+            engine.close()
+        finally:
+            _compiled.cache_clear()
+
+
 @lru_cache(maxsize=1)
 def _compiled():
     try:
@@ -48,6 +61,7 @@ def _compiled():
     module = wasmtime.Module(engine, binary)
     if module.imports:
         raise ReducerError("Bundled reducer must have no host imports")
+    atexit.register(_close_compiled, module, engine)
     return wasmtime, spec, engine, module
 
 

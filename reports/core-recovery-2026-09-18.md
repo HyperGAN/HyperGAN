@@ -31,7 +31,7 @@ Independent review exposed and fixed missing optimizer cardinality validation, i
 - [x] Validate explicit image decoding/preprocessing, content identity and resumable order.
 - [x] Implement complete CPU checkpoints and exact interrupted/resumed state comparisons.
 - [x] Preserve immutable artifacts across older-checkpoint replay and repeated sampling.
-- [ ] Finish the observer W1 contract: reconnect cursors, periodic preview publication/retention, and a common serialized manual save-request API. Current observation exposes a bounded event tail; no browser/server is implemented.
+- [x] Finish the observer W1 contract: [the subsequent core observation slice](core-observation-2026-09-18.md) adds reconnect cursors, periodic preview publication/retention, and a common serialized manual save-request API. No browser/server is implemented.
 - [ ] Add fixed-size two-process CPU distributed objective/state/failure fixtures, including global prior statistics and double-backward penalties. Accumulation and distributed recovery remain unimplemented.
 - [ ] Resolve upstream explicit licensing and implement the selected image reference without changing its numerical experiment accidentally. Freeze held-out data/augmentation/evaluation behavior and pretrained weight provenance before GPU comparison.
 - [ ] Qualify actual two-GPU NCCL, then a separately budgeted real two-node job. No cloud allocation or keys are needed for this code checkpoint.

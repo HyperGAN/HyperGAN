@@ -32,6 +32,14 @@ def _run_options(parser, *, resume=False):
                         help="stop this attempt after N updates, preserving the total learning-rate schedule")
     parser.add_argument("--progress-json", action="store_true",
                         help="stream flushed JSONL events and a final result to stdout")
+    previews = parser.add_mutually_exclusive_group()
+    previews.add_argument("--preview-every", type=_positive_int,
+                          help="publish an isolated EMA preview every N complete updates")
+    previews.add_argument("--no-previews", dest="preview_every", action="store_const", const=0,
+                          help="disable periodic previews for this attempt")
+    parser.set_defaults(preview_every=None if resume else 0)
+    parser.add_argument("--preview-keep", type=_positive_int, default=None if resume else 3,
+                        help="retain at most N periodic previews (default: 3; resume inherits)")
 
 
 def _parser():
@@ -51,6 +59,17 @@ def _parser():
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
     inspect = commands.add_parser("inspect", help="Read a run manifest without loading model weights")
     inspect.add_argument("path", type=Path)
+    events = commands.add_parser("events", help="Read a bounded page of run events without loading training")
+    events.add_argument("run_dir", type=Path)
+    events.add_argument("--cursor", help="opaque cursor returned by the previous page")
+    events.add_argument("--limit", type=_positive_int, default=100)
+    events.add_argument("--max-bytes", type=_positive_int, default=1048576)
+    checkpoint = commands.add_parser("checkpoint", help="Request a checkpoint at the trainer's next safe boundary")
+    checkpoint.add_argument("run_dir", type=Path)
+    operation = checkpoint.add_mutually_exclusive_group()
+    operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
+    operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
+    checkpoint.add_argument("--attempt-id", help="target this attempt (default: current manifest attempt)")
     train = commands.add_parser("train", help="Run a bounded CPU numerical reference (requires the train extra)")
     train.add_argument("config", type=Path)
     train.add_argument("--run-dir", type=Path, required=True)
@@ -107,6 +126,32 @@ def main(argv=None):
             if not isinstance(manifest, dict):
                 raise ValueError("run manifest must contain a JSON object")
             _print_json(manifest)
+        elif args.command == "events":
+            from .run_events import read_event_page
+
+            _print_json(read_event_page(args.run_dir, args.cursor, limit=args.limit, max_bytes=args.max_bytes))
+        elif args.command == "checkpoint":
+            from .run_requests import checkpoint_request_status, submit_checkpoint_request
+
+            if args.status is not None:
+                if args.attempt_id is not None:
+                    raise ValueError("--attempt-id cannot be combined with --status")
+                _print_json(checkpoint_request_status(args.run_dir, args.status))
+            else:
+                with (args.run_dir / "manifest.json").open(encoding="utf-8") as stream:
+                    manifest = json.load(stream)
+                if not isinstance(manifest, dict) or not manifest.get("run_id") or not manifest.get("attempt_id"):
+                    raise ValueError("Run manifest has no run/attempt identity for a checkpoint request")
+                if manifest.get("status") != "running":
+                    if args.request_id is None:
+                        raise ValueError("Run is not running; use resume to continue a stopped run")
+                    try:
+                        checkpoint_request_status(args.run_dir, args.request_id)
+                    except FileNotFoundError as exc:
+                        raise ValueError("Run is not running; use resume to continue a stopped run") from exc
+                _print_json(submit_checkpoint_request(args.run_dir, run_id=manifest["run_id"],
+                                                      attempt_id=args.attempt_id or manifest["attempt_id"],
+                                                      request_id=args.request_id))
         elif args.command == "data-check":
             from .config import load_config
             from .data import ImageFolder
@@ -145,13 +190,15 @@ def main(argv=None):
 
             _run_result(args, train(args.config, args.run_dir, steps=args.steps,
                                    checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
-                                   stop_after_steps=args.stop_after_steps, on_event=_progress(args)))
+                                   stop_after_steps=args.stop_after_steps, on_event=_progress(args),
+                                   preview_every=args.preview_every, preview_keep=args.preview_keep))
         elif args.command == "resume":
             from .training import resume
 
             _run_result(args, resume(args.run_dir, checkpoint=args.checkpoint, config_path=args.config,
                                     checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
-                                    stop_after_steps=args.stop_after_steps, on_event=_progress(args)))
+                                    stop_after_steps=args.stop_after_steps, on_event=_progress(args),
+                                    preview_every=args.preview_every, preview_keep=args.preview_keep))
         elif args.command == "sample":
             from .artifacts import sample
 

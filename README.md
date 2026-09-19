@@ -46,6 +46,8 @@ hypergan resume runs/recoverable
 
 Resume creates a new attempt and preserves existing samples. `--max-seconds` provides a cooperative wall-time limit; `--progress-json` emits live JSONL for process managers. See [recovery and compatibility](docs/recovery.md). Image-folder preflight uses the optional `image` extra and `hypergan data-check CONFIG`; see [image data and preprocessing](docs/image-data.md). The default generator remains a 2D numerical fixture and cannot consume image batches.
 
+Use `--preview-every N` for bounded periodic EMA previews. `hypergan events RUN_DIR` reads reconnectable event pages, and `hypergan checkpoint RUN_DIR` requests a save at the next complete update boundary. These commands share the [run observation contract](docs/observation.md); the optional browser server is still planned.
+
 ## Configure the recipe
 
 `hypergan new` writes `config.toml`. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.

@@ -26,4 +26,6 @@ Built-in synthetic data is stateless apart from the trainer's RNG. `image_folder
 
 For process managers, `--progress-json` writes flushed JSONL events to stdout, followed by a `result` event containing the final manifest. Diagnostics remain on stderr. Without that flag, updates go to stderr and the final manifest goes to stdout. The Python API starts no server, and the optional browser viewer remains unimplemented.
 
+For bounded event pages, periodic previews and acknowledged manual checkpoint requests, see [run observation](observation.md). Periodic preview retention never deletes complete checkpoints or final attempt inference bundles. A submitted save request is pending until the trainer acknowledges a durable checkpoint at a safe boundary.
+
 The manifest and event stream are versioned for future observers. A run has one writer; concurrent resume attempts are rejected by a process lock. On restart, a partial trailing event is handled without treating it as a complete update. Checkpoints load tensor/basic-value state with `weights_only=True`, but configured Python factories still execute trusted code. Use artifacts and implementations you trust.

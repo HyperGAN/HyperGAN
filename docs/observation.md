@@ -43,6 +43,9 @@ No HTTP server, browser startup or GPU execution is part of this interface. The 
 
 ### Bounded training command output
 
+The internal output transport below is available for public command integration;
+`train`/`resume` routing follows in the next slice.
+
 Training CLI output is best effort: unread, slow or closed stdout/stderr does not
 hold training or terminal process cleanup. Independent drain processes preserve
 Python and native diagnostics with a healthy consumer. Each stream has at most

@@ -41,7 +41,7 @@ A five-step run checks the integration; it is not a convergence benchmark. The r
 
 The reference defaults to ParticleGAN's relativistic-paired objective, b-cap discriminator regularization and VICReg prior regularization. Custom configurations remain runnable with an explicit qualification warning. An unknown combination is different from an invalid binding or incompatible tensor shape: actual incompatibilities fail with an error. No custom configuration inherits quality, distributed or deployment approval merely by completing a run.
 
-See [configuration and component contracts](docs/configuration.md). Custom factories execute Python code from your environment; use implementations you trust. Lightweight validation checks configuration structure without importing those factories; training validates runtime bindings and tensors.
+See [configuration and component contracts](docs/configuration.md) and the [paired synthetic example](examples/paired-linear.toml). Custom factories execute Python code from your environment; use implementations you trust. Lightweight validation checks configuration structure without importing those factories; training validates runtime bindings and tensors.
 
 ## Development and migration
 

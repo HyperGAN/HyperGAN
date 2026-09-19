@@ -148,5 +148,3 @@ def test_controller_preserves_primary_failure_when_cleanup_also_fails(tmp_path):
     assert 'primary update failure' in manifest['error']
     assert executions[0].closed and trace[-1][0] == 'event:failed'
     assert [row for row in trace if row[0] == 'checkpoint'] == [('checkpoint', 0)]
-
-

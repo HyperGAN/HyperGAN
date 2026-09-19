@@ -70,6 +70,7 @@ def _worker(rank, root):
         dist.barrier()
         assert pointer.read_bytes() == prior_pointer
         assert not list((run / 'distributed-checkpoints').glob('.pending-*'))
+        assert not list((run / 'distributed-checkpoints' / '.prepared').rglob('command-*'))
         (root / f'rank-{rank}.json').write_text(json.dumps({'passed': True}))
     finally:
         dist.destroy_process_group()

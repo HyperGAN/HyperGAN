@@ -40,7 +40,7 @@ The five reviewable steps are lifecycle extraction preserving current behavior; 
 
 ## Session acceptance and remaining work
 
-The source-distribution-built wheel at implementation/test head `07f99694` passed **194 installed-package tests in 185.19 seconds** outside the checkout. A separate base-only installation passed **59 tests in 1.30 seconds**, with torch, ParticleGAN, NumPy and Pillow absent. Runtime: Python 3.12.13, torch 2.14.0+cpu, ParticleGAN 0.5.0, NumPy 2.5.3 and Pillow 12.3.0. Required PR CI is the integration gate; the durable receipt records the final reviewed head, checks, merge and branch preservation.
+The source-distribution-built wheel at implementation/test head `07f99694` passed **194 installed-package tests in 185.19 seconds** outside the checkout. A separate base-only installation passed **59 tests in 1.30 seconds**, with torch, ParticleGAN, NumPy and Pillow absent. Runtime: Python 3.12.13, torch 2.14.0+cpu, ParticleGAN 0.5.0, NumPy 2.5.3 and Pillow 12.3.0. Required PR CI passed and PR #310 merged at `628a406cb2efa1a377b1ed03b7528356f8e8904d`. Its later [post-merge Foundation run](https://github.com/HyperGAN/HyperGAN/actions/runs/35426214214) failed in a Windows checkpoint-request lock test while CPU numerical tests passed. The subsequent [lifecycle checkpoint](core-lifecycle-2026-09-19.md) records the diagnosis and fix. The durable receipt records the reviewed head, merge and branch preservation.
 
 Installed-package build/test evidence and the reviewed PR are recorded in the [status ledger](resurrection-status.md). Durable session logs and Git preservation receipts are under `/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-accumulation/`.
 

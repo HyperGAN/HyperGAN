@@ -318,7 +318,7 @@ class ObservationService:
 
     def page(self, stream_id, cursor, *, limit=256):
         def safe_open(path):
-            return _open(self.root, str(Path(path).relative_to(self.root)))
+            return _open(self.root, Path(path).relative_to(self.root).as_posix())
         if stream_id in self.source_paths:
             source = self.root / self.source_paths[stream_id]
             if not source.exists():

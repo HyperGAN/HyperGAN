@@ -1,0 +1,177 @@
+"""Real ASGI, file projection, Python bootstrap, WASM worker and browser acceptance."""
+import json
+from pathlib import Path
+import threading
+import time
+from urllib.parse import parse_qs, urlparse
+
+import pytest
+from playwright.sync_api import sync_playwright
+import uvicorn
+
+from hypergan.event_views import MapSpec, Projector, read_projection_page
+from hypergan.metrics import digest
+from hypergan.metrics_reducer import Reducer
+from hypergan.run_state import atomic_json
+from hypergan.web_launch import bind_loopback
+from hypergan.web_server import create_app
+from hypergan.web_session import LocalSession
+
+
+class Experiment:
+    def __init__(self, root):
+        self.root = root
+        self.manifest = None
+        self.sequence = 0
+        self.catalog_revision = None
+
+    def catalog(self, version):
+        descriptor = dict(kind='scalar', source='g_loss', label='Generator total', version=version)
+        descriptor['definition_hash'] = digest(descriptor)
+        value = dict(schema_version=1, metrics={'loss/g_total': descriptor})
+        self.catalog_revision = digest(value)
+        atomic_json(self.root / 'metrics' / f'catalog-{self.catalog_revision}.json', value)
+
+    def create(self, count=3):
+        self.root.mkdir()
+        self.catalog('original')
+        self.manifest = dict(schema_version=1, run_id='browser-run', attempt_id='attempt-a',
+                             config={'name':'Browser acceptance'}, steps=0, total_steps=20,
+                             last_durable_step=1, status='running', metrics_catalog=self.catalog_revision)
+        self.event('start', 0, parent_attempt_id=None, restored_step=0)
+        for step in range(1, count+1):
+            self.event('train', step, metrics={'loss/g_total':float(step)})
+        self.publish()
+        self.project()
+
+    def event(self, kind, step, **values):
+        self.sequence += 1
+        event = dict(schema_version=2, run_id=self.manifest['run_id'], stream_id='training',
+                     stream_generation='browser-run', attempt_id=self.manifest['attempt_id'],
+                     sequence=self.sequence, step=step, event=kind,
+                     catalog=self.catalog_revision, **values)
+        with (self.root / 'events.jsonl').open('ab') as handle:
+            handle.write(json.dumps(event, allow_nan=False).encode()+b'\n')
+        self.manifest['steps'] = step
+
+    def publish(self):
+        self.manifest['metrics_catalog'] = self.catalog_revision
+        atomic_json(self.root / 'manifest.json', self.manifest)
+
+    def project(self):
+        with Projector(self.root) as projector:
+            projector.project(limit=10000)
+
+
+@pytest.fixture
+def real_viewer(tmp_path):
+    experiment = Experiment(tmp_path / 'run')
+    listener = bind_loopback()
+    session = LocalSession(listener.getsockname()[1])
+    session.write_credentials(tmp_path / 'session.json')
+    token = json.loads((tmp_path / 'session.json').read_text())['token']
+    app = create_app(experiment.root, session, poll_seconds=.02)
+    experiment.service = app.state.observations
+    server = uvicorn.Server(uvicorn.Config(app, log_level='error', lifespan='on'))
+    thread = threading.Thread(target=lambda: server.run(sockets=[listener]), daemon=True)
+    thread.start()
+    deadline = time.monotonic()+10
+    while not server.started:
+        if not thread.is_alive() or time.monotonic()>deadline:
+            raise AssertionError('ASGI server did not start')
+        time.sleep(.01)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            context = browser.new_context(viewport={'width':1280,'height':900})
+            page = context.new_page()
+            errors, requests = [], []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.on('request', lambda request: requests.append(request.url))
+            yield experiment, session, token, page, context, errors, requests
+            browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        listener.close()
+        assert not thread.is_alive(), 'ASGI server did not shut down'
+
+
+def sign_in(page, session, token):
+    page.goto(session.origin)
+    page.get_by_label('Session token', exact=True).fill(token)
+    page.get_by_role('button', name='Open workspace').click()
+
+
+def test_actual_bootstrap_live_reconnect_and_recovery_lineage(real_viewer, monkeypatch):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create()
+    page.goto(session.origin)
+    assert page.locator('#workspace').is_hidden()
+    page.get_by_label('Session token', exact=True).fill('wrong-token')
+    page.get_by_role('button', name='Open workspace').click()
+    page.locator('#login-error').filter(has_text='session').wait_for()
+    page.get_by_label('Session token', exact=True).fill(token)
+    page.get_by_role('button', name='Open workspace').click()
+    page.locator('#g-loss').filter(has_text='3').wait_for()
+    assert page.locator('#run-name').inner_text()=='Browser acceptance'
+    assert page.locator('.chart-canvas canvas').count()==1
+    page.locator('.data-table summary').click()
+    reductions = []
+    original_add = Reducer.add
+    def tracked_add(self, *args, **kwargs):
+        reductions.append(1)
+        return original_add(self, *args, **kwargs)
+    monkeypatch.setattr(Reducer, 'add', tracked_add)
+
+    experiment.event('train',4,metrics={'loss/g_total':4.})
+    experiment.publish();experiment.project()
+    page.locator('#g-loss').filter(has_text='4').wait_for()
+    applied_cursor=read_projection_page(experiment.root,MapSpec().revision)['cursor']
+    context.set_offline(True)
+    def disconnect_consumers():
+        for subscriber in list(experiment.service.subscribers):
+            subscriber.offer('heartbeat', {})
+            subscriber.closed = True
+    loop = next(iter(experiment.service.streams.values())).task.get_loop()
+    loop.call_soon_threadsafe(disconnect_consumers)
+    page.locator('#connection').filter(has_text='Disconnected').wait_for(timeout=10000)
+    experiment.event('train',5,metrics={'loss/g_total':5.})
+    experiment.publish();experiment.project()
+    context.set_offline(False)
+    page.locator('#g-loss').filter(has_text='5').wait_for(timeout=15000)
+    reconnect_cursors=[parse_qs(urlparse(url).query).get('cursor',[None])[0]
+                       for url in requests if '/stream?' in url]
+    assert applied_cursor in reconnect_cursors
+    assert reductions == [], 'Live fanout or reconnect reran server reduction'
+
+    # Recover the parent at step2 with no new updates. Its abandoned3..5 values
+    # must disappear immediately after the lineage notification/bootstrap.
+    experiment.manifest['attempt_id']='attempt-b'
+    experiment.manifest['recovery_parent']={'attempt_id':'attempt-a','step':2}
+    experiment.sequence=0
+    experiment.catalog('changed-definition')
+    experiment.event('resume',2,parent_attempt_id='attempt-a',restored_step=2)
+    experiment.publish();experiment.project()
+    page.locator('#g-loss').filter(has_text='2').wait_for(timeout=15000)
+    assert 'attempt-b' not in page.locator('#values-table').inner_text()
+    experiment.event('train',3,metrics={'loss/g_total':33.})
+    experiment.publish();experiment.project()
+    page.locator('#g-loss').filter(has_text='33').wait_for(timeout=15000)
+    table=page.locator('#values-table').inner_text()
+    assert 'attempt-a' in table and 'attempt-b' in table
+    assert len(page.locator('#values-table tr').all())==2
+    assert not errors
+    assert not any(token in url for url in requests)
+
+
+def test_real_waiting_server_discovers_new_run_without_polling(real_viewer):
+    experiment,session,token,page,context,errors,requests=real_viewer
+    sign_in(page,session,token)
+    page.locator('#run-name').filter(has_text='Waiting for training').wait_for()
+    before=len([url for url in requests if url.endswith('/capabilities')])
+    page.wait_for_timeout(200)
+    assert len([url for url in requests if url.endswith('/capabilities')])==before
+    experiment.create(2)
+    page.locator('#g-loss').filter(has_text='2').wait_for(timeout=15000)
+    assert not errors

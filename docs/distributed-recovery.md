@@ -1,5 +1,7 @@
 # Fixed-topology CPU recovery
 
+The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](../reports/resurrection-status.md) for the current combined scope.
+
 `hypergan.distributed_checkpoints` saves and restores the internal replicated CPU trainer. Every rank calls the same API in the same order on a default Gloo group with a finite timeout. The [local worker supervisor](cpu-workers.md) can start a fresh group and clean up failed workers. These APIs do not enable distributed `hypergan train` or `resume`; integration with the shared run/event/preview/request service remains a separate gate.
 
 The caller creates the run directory before workers start and supplies the same run and attempt IDs to all ranks. The compatibility `save_distributed_checkpoint` API still uses a rank-zero `run_lock(run_dir)` for the job lifetime. A parent-supervised service instead holds that lock in its parent and uses the preparation/publication split below. Do not acquire the same writer lock in both parent and workers. Custom factories and worker code are trusted Python, as in the single-process runtime.

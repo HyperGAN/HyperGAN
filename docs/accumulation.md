@@ -1,5 +1,7 @@
 # CPU gradient accumulation
 
+The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](../reports/resurrection-status.md) for the current combined scope.
+
 `ReplicatedCPUTrainer(config, world_size=2, accumulation_steps=2)` divides each rank's effective local batch into equal microbatches. The factor must be a positive integer dividing `training.batch_size / world_size`. Every nonscalar input tensor must retain the local batch dimension; critic outputs must retain the microbatch dimension. Batch size still means the global number of samples in one complete D → G/prior/auxiliary → EMA update. Learning rates, lazy-penalty frequency and update counts retain their configured meaning.
 
 This internal CPU/Gloo strategy is used by callers of the [worker API](cpu-workers.md); public `train` and `resume` remain single-process. GPU/NCCL, mixed precision and actual clusters require later qualification.

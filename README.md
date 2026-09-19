@@ -35,7 +35,7 @@ hypergan inspect runs/demo
 hypergan sample runs/demo --count 16 --seed 42 --output samples.json
 ```
 
-`hypergan new demo` writes `training.device="cuda"`. Select another visible GPU with `hypergan new demo-gpu1 --device cuda:1`. Training requires that device and fails with installation/device guidance if it is unavailable; it does not silently fall back to CPU. The native path uses one GPU per run. Two-GPU NCCL communication is checked separately; full replicated GPU training and real clusters remain upcoming gates.
+`hypergan new demo` writes `training.device="cuda"`. Select another visible GPU with `hypergan new demo-gpu1 --device cuda:1`. Training requires that device and fails with installation/device guidance if it is unavailable; it does not silently fall back to CPU. The native CLI path uses one GPU per run. Developers can use the [internal replicated CUDA service](docs/replicated-cuda.md) for fixed local GPU training and recovery; public distributed commands and real clusters remain upcoming gates.
 
 For a CPU correctness fixture, install the CPU PyTorch wheel instead (`--index-url https://download.pytorch.org/whl/cpu`) and create the project with `hypergan new cpu-demo --device cpu`.
 
@@ -52,7 +52,7 @@ Resume creates a new attempt and preserves existing samples. `--max-seconds` pro
 
 Use `--preview-every N` for bounded periodic EMA previews. `hypergan events RUN_DIR` reads reconnectable event pages, and `hypergan checkpoint RUN_DIR` requests a save at the next complete update boundary. These commands share the [run observation contract](docs/observation.md); the optional browser server is still planned.
 
-Developers can also exercise the internal [replicated CPU run service](docs/replicated-run-service.md): the shared controller now manages attempts, recovery, save requests, [bounded previews and progress](docs/replicated-observation.md), and final artifacts through [persistent CPU workers](docs/cpu-worker-service.md). It uses the [replicated CPU strategy](docs/distributed.md), parent-controlled checkpoint publication and cleanup after coordinator death. The [blocking worker supervisor](docs/cpu-workers.md) remains available for finite callbacks. The public training commands remain single-process; public distributed integration, multi-GPU and cluster qualification are still ahead.
+Developers can exercise the internal [replicated run service](docs/replicated-run-service.md) with CPU/Gloo fixtures or [CUDA/NCCL workers](docs/replicated-cuda.md). The shared controller manages attempts, recovery, save requests, [bounded previews and progress](docs/replicated-observation.md), and final artifacts. The independent broker retains parent-controlled checkpoint publication and cleanup after coordinator death. The public training commands remain single-process; public distributed integration and real cluster qualification are still ahead.
 
 Check a proposed CPU execution profile separately from an explicitly created CPU recipe:
 
@@ -61,7 +61,7 @@ hypergan preflight cpu-demo --profile examples/execution/cpu-replicated.toml
 hypergan preflight cpu-demo --profile examples/execution/cpu-replicated.toml --runtime
 ```
 
-The first command checks structure without training dependencies. `--runtime` constructs the recipe in supervised local CPU workers with a deadline and reports runtime/source/data identity and declared recovery capability. It performs no training updates. See [execution profiles and preflight](docs/execution-profiles.md) for the checks and limits; profile selection for `train` and `resume` is a later integration step.
+For GPU construction checks, use `demo` with `--profile examples/execution/cuda-replicated-nccl.toml`. The first command checks structure without training dependencies. `--runtime` constructs the recipe in supervised local workers with a deadline and reports runtime/source/data identity and declared recovery capability. It performs no training updates. See [execution profiles and preflight](docs/execution-profiles.md) for the checks and limits; profile selection for `train` and `resume` is a later integration step.
 
 ## Configure the recipe
 

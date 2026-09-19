@@ -61,6 +61,24 @@ def test_identity_and_command_sequence_fence(change):
         _validate(row, ('run','attempt'), 1, 'save')
 
 
+@pytest.mark.parametrize('operation,fields', [
+    ('__start__', {'kind':'ready', 'worker_pids':[1, True]}),
+    ('__start__', {'kind':'ready', 'worker_pids':[1, 1]}),
+    ('__health__', {'kind':'result', 'results':[None, None]}),
+    ('__shutdown__', {'kind':'closed', 'unexpected':True}),
+    ('save', {'kind':'result', 'results':[None]}),
+])
+def test_malformed_matching_fence_replies_are_rejected(operation, fields):
+    service = CPUWorkerService(str, str, run_id='run', attempt_id='attempt')
+    row = dict(fields, run_id='run', attempt_id='attempt', sequence=0, operation=operation)
+    class Channel:
+        def pump(self):
+            return [row]
+    service._channel = Channel()
+    with pytest.raises(RuntimeError, match='result schema or rank count'):
+        service._reply(operation, 1)
+
+
 def test_service_import_is_torch_free(tmp_path):
     script = '''
 import importlib.abc,sys

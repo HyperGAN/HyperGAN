@@ -82,6 +82,16 @@ if __name__ == '__main__':
                 os.kill(service.worker_pids[1],9)
                 time.sleep(0.1)
                 service.assert_healthy()
+            elif mode=='malformed':
+                pump=service._channel.pump
+                def malformed():
+                    rows=pump()
+                    for row in rows:
+                        if row.get('kind')=='result':
+                            row.pop('results',None)
+                    return rows
+                service._channel.pump=malformed
+                service.command('add',1)
             else:
                 service.command(mode)
     except (RuntimeError, TimeoutError, EOFError, OSError) as exc:
@@ -100,6 +110,8 @@ if __name__ == '__main__':
         assert not list(Path(root).glob('handler-*')),'handler ran without all-rank command agreement'
     if mode=='mismatch':
         assert 'disagree' in error,error
+    if mode=='malformed':
+        assert 'Invalid CPU service command result' in error,error
     for path in Path(root).glob('rank-*.pid'):
         try: os.kill(int(path.read_text()),0)
         except ProcessLookupError: pass
@@ -110,7 +122,7 @@ if __name__ == '__main__':
 '''
 
 
-@pytest.mark.parametrize('mode', ['happy', 'fail', 'hang', 'exit', 'startup', 'stale', 'total', 'idle-exit', 'mismatch', 'missing'])
+@pytest.mark.parametrize('mode', ['happy', 'fail', 'hang', 'exit', 'startup', 'stale', 'total', 'idle-exit', 'mismatch', 'missing', 'malformed'])
 def test_persistent_commands_and_cleanup(tmp_path, mode):
     script = tmp_path / 'service_driver.py'
     script.write_text(DRIVER, encoding='utf-8')

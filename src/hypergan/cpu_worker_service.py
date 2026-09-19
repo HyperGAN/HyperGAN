@@ -431,6 +431,21 @@ class CPUWorkerService:
             raise RuntimeError(f"CPU service run={self._identity[0]} attempt={self._identity[1]} "
                                f"sequence={result.get('sequence')} operation={result.get('operation')}: {result.get('error')}")
         _validate(result, self._identity, self._sequence, operation)
+        expected = {'run_id', 'attempt_id', 'sequence', 'operation', 'kind'}
+        if operation == '__start__':
+            pids = result.get('worker_pids')
+            valid = (result.get('kind') == 'ready' and set(result) == expected | {'worker_pids'}
+                     and type(pids) is list and len(pids) == self._world_size
+                     and all(type(pid) is int and pid > 0 for pid in pids)
+                     and len(set(pids)) == len(pids))
+        elif operation in ('__health__', '__shutdown__'):
+            valid = (set(result) == expected and result.get('kind') ==
+                     ('healthy' if operation == '__health__' else 'closed'))
+        else:
+            valid = (result.get('kind') == 'result' and set(result) == expected | {'results'}
+                     and type(result.get('results')) is list and len(result['results']) == self._world_size)
+        if not valid:
+            raise RuntimeError('Invalid CPU service command result schema or rank count')
         return result
 
     def _request(self, operation, payload=None):

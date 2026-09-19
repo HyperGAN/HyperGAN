@@ -141,17 +141,18 @@ def _flush(channel, timeout=2):
         time.sleep(0.01)
 
 
-def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout, bootstrap):
+def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout, bootstrap, initialize_process_group):
     channel = _Channel(sock)
     sequence, operation = 0, '__start__'
     try:
         sys.stdout.flush()
         os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
-        import torch
-        import torch.distributed as dist
-        torch.set_num_threads(1)
-        dist.init_process_group('gloo', init_method=rendezvous, rank=rank, world_size=world_size,
-                                timeout=timedelta(seconds=collective_timeout))
+        if initialize_process_group:
+            import torch
+            import torch.distributed as dist
+            torch.set_num_threads(1)
+            dist.init_process_group('gloo', init_method=rendezvous, rank=rank, world_size=world_size,
+                                    timeout=timedelta(seconds=collective_timeout))
         factory, handler, args = pickle.loads(bootstrap)
         state = factory(rank, world_size, *args)
         channel.send(_envelope(identity, sequence, operation, 'ready', rank=rank, pid=os.getpid()))
@@ -162,14 +163,16 @@ def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout,
             _validate(row, identity, sequence)
             if set(row) != {'run_id', 'attempt_id', 'sequence', 'operation', 'kind', 'payload'} or row['kind'] != 'command':
                 raise ValueError('Invalid CPU service command fields')
-            digest = hashlib.sha256(_json(row)).hexdigest()
-            agreed = [None] * world_size
-            dist.all_gather_object(agreed, digest)
-            if any(item != digest for item in agreed):
-                raise ValueError('Ranks disagree on CPU command identity or payload')
+            if initialize_process_group:
+                digest = hashlib.sha256(_json(row)).hexdigest()
+                agreed = [None] * world_size
+                dist.all_gather_object(agreed, digest)
+                if any(item != digest for item in agreed):
+                    raise ValueError('Ranks disagree on CPU command identity or payload')
             if operation == '__shutdown__':
-                dist.barrier()
-                dist.destroy_process_group()
+                if initialize_process_group:
+                    dist.barrier()
+                    dist.destroy_process_group()
                 channel.send(_envelope(identity, sequence, operation, 'result', rank=rank, value=None))
                 _flush(channel)
                 return
@@ -211,7 +214,7 @@ def _reap(processes):
         raise RuntimeError('Operating system did not reap a terminated CPU rank')
 
 
-def _broker_main(sock, identity, world_size, limits, bootstrap, started):
+def _broker_main(sock, identity, world_size, limits, bootstrap, started, initialize_process_group):
     parent = mp.parent_process()
     control = _Channel(sock)
     context = mp.get_context('spawn')
@@ -232,7 +235,7 @@ def _broker_main(sock, identity, world_size, limits, bootstrap, started):
                     local, remote = socket.socketpair()
                     process = context.Process(target=_rank_main, name=f'hypergan-service-rank-{rank}',
                                               args=(remote, rank, world_size, identity, rendezvous,
-                                                    limits['collective_timeout'], bootstrap))
+                                                    limits['collective_timeout'], bootstrap, initialize_process_group))
                     try:
                         process.start()
                     except BaseException:
@@ -339,13 +342,16 @@ class CPUWorkerService:
     It is itself adopted/reaped by the operating system when its parent is gone.
     """
     def __init__(self, factory, handler, *, args=(), run_id, attempt_id, world_size=2,
-                 startup_timeout=60, command_timeout=30, collective_timeout=15, total_timeout=300):
+                 startup_timeout=60, command_timeout=30, collective_timeout=15, total_timeout=300,
+                 initialize_process_group=True):
         if not callable(factory) or not callable(handler) or not isinstance(args, tuple):
             raise ValueError('CPU service requires callable factory/handler and tuple args')
         if any(not isinstance(value, str) or not _ID.fullmatch(value) for value in (run_id, attempt_id)):
             raise ValueError('CPU service run/attempt IDs require 1-128 ASCII letters/digits, underscores or hyphens')
-        if type(world_size) is not int or not 2 <= world_size <= 64:
-            raise ValueError('CPU service world_size must be between 2 and 64')
+        if type(initialize_process_group) is not bool:
+            raise ValueError('initialize_process_group must be a boolean')
+        if type(world_size) is not int or not (2 <= world_size <= 64 if initialize_process_group else world_size == 1):
+            raise ValueError('CPU service requires world_size 2..64 with Gloo, or world_size=1 without a process group')
         limits = dict(startup_timeout=startup_timeout, command_timeout=command_timeout,
                       collective_timeout=collective_timeout, total_timeout=total_timeout)
         for name, value in limits.items():
@@ -356,6 +362,7 @@ class CPUWorkerService:
             if not valid:
                 raise ValueError(f'{name} must be finite positive seconds')
         self._identity, self._world_size, self._limits = (run_id, attempt_id), world_size, limits
+        self._initialize_process_group = initialize_process_group
         self.factory, self.handler, self.args = factory, handler, args
         self._process = self._channel = None
         self._sequence = 0
@@ -404,7 +411,7 @@ class CPUWorkerService:
         bootstrap = pickle.dumps((self.factory, self.handler, self.args), protocol=5)
         local, remote = socket.socketpair()
         process = mp.get_context('spawn').Process(target=_broker_main, name='hypergan-cpu-broker',
-                    args=(remote, self._identity, self._world_size, self._limits, bootstrap, started))
+                    args=(remote, self._identity, self._world_size, self._limits, bootstrap, started, self._initialize_process_group))
         try:
             process.start()
             self._process, self._channel = process, _Channel(local)

@@ -27,7 +27,7 @@ import hypergan.replicated_execution
                    check=True, capture_output=True, text=True)
 
 
-@pytest.mark.parametrize('kwargs', [{'preview_every': 1}, {'on_event': lambda _: None},
+@pytest.mark.parametrize('kwargs', [{'service_policy': {'preview_timeout': False}}, {'on_event': lambda _: None},
     {'service_policy': {'command_timeout': True}}, {'service_policy': {'collective_timeout': 1000}},
     {'profile': {'schema_version': 1, 'execution': {'name': 'cpu-single'}}}])
 def test_unsupported_controls_fail_before_run_mutation(tmp_path, kwargs):

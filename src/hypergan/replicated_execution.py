@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import tempfile
 
 from .bounded_observer import BoundedObserver
 from .config import config_values, fingerprint
@@ -16,7 +17,7 @@ from .cpu_worker_service import CPUWorkerService
 from .distributed_commit import CheckpointCommitAuthority
 from .execution_preflight import _resolve_profile
 from .execution_profiles import load_execution_profile
-from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, Restored
+from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, PreviewResult, Restored
 
 MAX_SAMPLE_COUNT = 1024
 
@@ -46,7 +47,7 @@ def _policy(profile, values):
     defaults = {'startup_timeout': profile['preflight']['timeout'],
                 'command_timeout': profile['preflight']['timeout'],
                 'collective_timeout': profile['preflight']['collective_timeout'], 'total_timeout': 3600.0,
-                'observer_timeout': 5.0}
+                'observer_timeout': 5.0, 'preview_timeout': 60.0}
     if values is not None:
         if not isinstance(values, dict) or set(values) - defaults.keys():
             raise ValueError('Unknown replicated service_policy field')
@@ -94,8 +95,6 @@ class ReplicatedExecution:
     def configure_attempt(self, context, *, preview_every, on_event):
         if self.context is not None:
             raise ValueError('Replicated execution attempt identity is immutable')
-        if preview_every:
-            raise ValueError('Replicated execution does not yet support previews')
         if on_event is not None:
             self.observer = BoundedObserver(on_event, timeout=self.policy['observer_timeout'],
                 run_id=context.run_id, attempt_id=context.attempt_id)
@@ -246,8 +245,49 @@ class ReplicatedExecution:
         except BaseException as error:
             self._fail(error)
 
-    def preview(self, *args, **kwargs):
-        raise FatalExecutionError('Replicated preview execution is not implemented')
+    def preview(self, run_dir, identity, *, keep):
+        from .previews import publish_preview_payload
+        from .snapshot_renderer import render_snapshot
+        temporary, result, error = None, None, None
+        try:
+            self.service.assert_healthy()
+            if str(Path(run_dir).resolve()) != self.context['run_dir']:
+                raise ValueError('Preview run differs from configured attempt')
+            temporary = tempfile.TemporaryDirectory(prefix='.preview-', dir=self.context['attempt_dir'])
+            snapshot, output = Path(temporary.name) / 'snapshot.pt', Path(temporary.name) / 'preview.json'
+            results = self._results(self._command('preview-snapshot', {'path': str(snapshot), 'identity': identity}),
+                                    expected_step=self.step)
+            try:
+                descriptor = results[0]['snapshot']
+            except BaseException as failure:
+                self._fail(failure)
+            payload = render_snapshot(snapshot, descriptor, identity, self.step, output,
+                                      timeout=self.policy['preview_timeout'])
+            record, index, errors = publish_preview_payload(run_dir, payload, identity, self.step, keep)
+            result = PreviewResult(record=record, index=index, errors=errors)
+        except BaseException as failure:
+            error = failure
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.cleanup()
+                except BaseException as cleanup:
+                    if error is None:
+                        error = cleanup
+                    elif hasattr(error, 'add_note'):
+                        error.add_note(f'Preview cleanup also failed: {cleanup}')
+            # Cover capture, rendering, publication AND temporary cleanup. Optional
+            # observer failures cannot hide a dead/poisoned training group, and
+            # cleanup must never replace an original fatal error or interrupt.
+            try:
+                if self._poisoned:
+                    raise FatalExecutionError('Training group was poisoned during preview capture')
+                self.service.assert_healthy()
+            except BaseException as health:
+                self._fail(error if isinstance(error, (FatalExecutionError, KeyboardInterrupt, SystemExit)) else health)
+        if error is not None:
+            raise error
+        return result
 
     def observe(self, callback, event):
         # The controller's local warning wrapper is intentionally not sent to a

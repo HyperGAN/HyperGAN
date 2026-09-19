@@ -18,6 +18,14 @@ def test_invalid_service_controls(kwargs):
         CPUWorkerService(str, str, **values)
 
 
+@pytest.mark.parametrize('values', [{'initialize_process_group': 0},
+                                  {'initialize_process_group': False, 'world_size': 2},
+                                  {'initialize_process_group': False, 'world_size': True}])
+def test_group_free_service_requires_exact_boolean_and_single_worker(values):
+    with pytest.raises(ValueError):
+        CPUWorkerService(str, str, run_id='run', attempt_id='attempt', **values)
+
+
 def test_identity_and_timeout_policy_are_not_mutable_through_public_fields():
     service = CPUWorkerService(str, str, run_id='run', attempt_id='attempt')
     service.limits['total_timeout'] = 0

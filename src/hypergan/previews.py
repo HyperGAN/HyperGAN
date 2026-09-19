@@ -1,17 +1,11 @@
 """Bounded immutable EMA previews, separate from deployable inference bundles."""
-import copy
 import json
 import os
 from pathlib import Path
-import random
 import re
 import shutil
 import uuid
 
-import numpy as np
-import torch
-
-from .checkpoints import capture_rng, restore_rng
 from .run_state import atomic_json, sync_directory
 
 MAX_COUNT = 16
@@ -38,6 +32,11 @@ def _inputs(trainer, batch):
 
 def render_preview(trainer, batch, identity):
     """Copy EMA state before eval: custom forwards cannot mutate live buffers."""
+    import copy
+    import random
+    import numpy as np
+    import torch
+    from .checkpoints import capture_rng, restore_rng
     rng = capture_rng()
     try:
         seed = trainer.config['sampling']['seed']
@@ -96,6 +95,24 @@ def _write_bounded(path, payload):
 
 
 def publish_preview(run_dir, trainer, batch, identity, keep=3):
+    return _publish_preview(run_dir, identity, trainer.step,
+                            lambda: render_preview(trainer, batch, identity), keep)
+
+
+def publish_preview_payload(run_dir, payload, identity, step, keep=3):
+    """Publish an already-rendered bounded JSON preview without numerical imports."""
+    if (not isinstance(payload, dict) or payload.get('schema_version') != 1
+            or payload.get('kind') != 'ema-preview' or type(payload.get('step')) is not int
+            or payload['step'] != step
+            or json.dumps(payload.get('identity'), sort_keys=True) != json.dumps(identity, sort_keys=True)
+            or type(payload.get('count')) is not int or not 1 <= payload['count'] <= MAX_COUNT
+            or type(payload.get('shape')) is not list or not payload['shape']
+            or payload['shape'][0] != payload['count']):
+        raise ValueError('Rendered preview identity, step or shape is invalid')
+    return _publish_preview(run_dir, identity, step, lambda: payload, keep)
+
+
+def _publish_preview(run_dir, identity, step, render, keep):
     """Publish a complete directory, update its bounded index, then prune old previews.
 
     The trainer's run lock serializes producers. Only this managed preview directory
@@ -112,15 +129,15 @@ def publish_preview(run_dir, trainer, batch, identity, keep=3):
     for pending in root.iterdir():
         if pending.name.startswith('.pending-') and _GENERATION.fullmatch(pending.name) and pending.is_dir() and not pending.is_symlink():
             shutil.rmtree(pending)
-    name = f"{identity['sample_sequence']:012d}-{identity['attempt_id']}-step{trainer.step:08d}-{uuid.uuid4().hex}"
+    name = f"{identity['sample_sequence']:012d}-{identity['attempt_id']}-step{step:08d}-{uuid.uuid4().hex}"
     temporary, target = root / ('.pending-' + name), root / name
     temporary.mkdir()
     completed = False
     try:
-        payload = render_preview(trainer, batch, identity)
+        payload = render()
         size = _write_bounded(temporary / 'preview.json', payload)
         record = {'schema_version': 1, 'kind': 'ema-preview', 'identity': dict(identity),
-                  'step': trainer.step, 'path': str(target / 'preview.json'), 'bytes': size,
+                  'step': step, 'path': str(target / 'preview.json'), 'bytes': size,
                   'count': payload['count'], 'shape': payload['shape']}
         atomic_json(temporary / 'manifest.json', record)
         sync_directory(temporary)

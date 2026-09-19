@@ -24,6 +24,7 @@ from hypergan.distributed_checkpoints import save_distributed_checkpoint, restor
 
 _FORWARD_LIMIT = None
 _MAX_FORWARD_ROWS = 0
+_BACKWARD_COUNT = 0
 
 
 def _observe(value):
@@ -102,6 +103,26 @@ class MutableGenerator(Generator):
         return super().forward(x, condition)
 
 
+class _FailSecondMicroBackward(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, value):
+        return value.clone()
+
+    @staticmethod
+    def backward(ctx, gradient):
+        global _BACKWARD_COUNT
+        _BACKWARD_COUNT += 1
+        if dist.get_rank() == 1 and _BACKWARD_COUNT == 2:
+            raise RuntimeError('injected rank1 second-micro backward failure')
+        return gradient
+
+
+class BackwardFailureGenerator(Generator):
+    def forward(self, x, condition):
+        # Forward is pure: only a real G backward increments the failure counter.
+        return _FailSecondMicroBackward.apply(super().forward(x, condition))
+
+
 class OrderedData:
     def __init__(self):
         self.order, self.cursor = [], 0
@@ -129,7 +150,7 @@ class OrderedData:
         return {'fixture': 'seven-deterministic-paired-points'}
 
 
-def _config(mode='ra', kernel='logistic', rows='sampled_unique', *, memory=False, stochastic=False, mutable=False):
+def _config(mode='ra', kernel='logistic', rows='sampled_unique', *, memory=False, stochastic=False, mutable=False, backward_failure=False):
     raw = copy.deepcopy(DEFAULT)
     raw['name'] = 'independent/accumulation'
     raw['training'].update(steps=3, batch_size=64 if memory else 16, seed=421, lr_anneal_start=.3)
@@ -138,7 +159,7 @@ def _config(mode='ra', kernel='logistic', rows='sampled_unique', *, memory=False
     raw['prior'] = {'kind': 'mog', 'args': {'num_particles': 12, 'z_dim': 4, 'sigma_rel': .03}}
     raw['prior_regularizer']['rows'] = rows
     raw['gradient_penalty'].update(arm='f_none' if memory else 'b_cap', lazy_k=2, kappa=.03)
-    generator = 'MutableGenerator' if mutable else 'StochasticGenerator' if stochastic else 'Generator'
+    generator = 'BackwardFailureGenerator' if backward_failure else 'MutableGenerator' if mutable else 'StochasticGenerator' if stochastic else 'Generator'
     raw['components'] = {
         'encoder': {'factory': f'{__name__}:Encoder', 'inputs': {'input': 'batch.condition'}},
         'generator': {'factory': f'{__name__}:{generator}',
@@ -277,6 +298,43 @@ def _recovery_case(mode, root):
         return str(path)
 
 
+def _second_micro_failure(root):
+    global _BACKWARD_COUNT
+    trainer = ReplicatedCPUTrainer(_config(backward_failure=True), world_size=2, accumulation_steps=2)
+    run = root / 'failure'
+    with run_lock(run) if trainer.rank == 0 else nullcontext():
+        before = copy.deepcopy(trainer_state(trainer, None))
+        saved = save_distributed_checkpoint(run, trainer, None,
+            {'run_id': 'backward-failure', 'attempt_id': 'initial'})
+        pointer = run / 'distributed-checkpoints/latest.json'
+        pointer_before = pointer.read_bytes()
+        _BACKWARD_COUNT = 0
+        batch, draw = _draw(trainer, 1)
+        with pytest.raises(RuntimeError, match='rank1 second-micro backward failure'):
+            trainer.update(batch, draw)
+        assert _BACKWARD_COUNT == 2, 'Failure must occur during the second real microbatch backward'
+        assert trainer._poisoned and not trainer.checkpoint_ready and trainer.step == 0
+        after = trainer_state(trainer, None)
+        # D completed first; neither the G/prior/aux optimizer nor either EMA committed.
+        assert trainer.opt_d.state and all(int(state['step']) == 1 for state in trainer.opt_d.state.values())
+        assert any(not torch.equal(value, before['graph'][name]) for name, value in after['graph'].items()
+                   if name.startswith('models.discriminator.') and isinstance(value, torch.Tensor))
+        _equal(after['optimizers'][0], before['optimizers'][0], exact=True)
+        for key in ('prior', 'ema_graph', 'ema_prior', 'base_lrs', 'step'):
+            _equal(after[key], before[key], exact=True, path=key)
+        for name, value in before['graph'].items():
+            if not name.startswith('models.discriminator.'):
+                _equal(after['graph'][name], value, exact=True, path=name)
+        assert all(parameter.requires_grad for parameter in trainer.graph.models['discriminator'].parameters())
+        with pytest.raises(ValueError, match='complete update boundary|half/failed'):
+            save_distributed_checkpoint(run, trainer, batch,
+                {'run_id': 'backward-failure', 'attempt_id': 'must-not-commit'})
+        dist.barrier()
+        assert pointer.read_bytes() == pointer_before
+        assert json.loads((saved / 'manifest.json').read_text())['step'] == 0
+        assert [path for path in (run / 'distributed-checkpoints').iterdir() if path.is_dir()] == [saved]
+
+
 def _worker(mode, rank, root):
     root = Path(root)
     torch.set_num_threads(1)
@@ -296,6 +354,8 @@ def _worker(mode, rank, root):
             with pytest.raises(ValueError, match='identity|topology'):
                 restore_distributed_checkpoint(root / 'split', trainer, {'run_id': 'accumulation'})
             _equal(trainer_state(trainer, None), before, exact=True)
+        elif mode == 'second-micro-failure':
+            _second_micro_failure(root)
         elif mode == 'mutation':
             trainer = ReplicatedCPUTrainer(_config(mutable=True), world_size=2, accumulation_steps=2)
             batch, draw = _draw(trainer, 1)
@@ -352,6 +412,11 @@ def test_accumulated_checkpoint_resumes_exactly_in_fresh_worker_group(tmp_path):
 
 def test_mutating_forward_state_cannot_be_replayed_or_checkpointed(tmp_path):
     assert _launch(tmp_path, 'mutation') == [{'passed': True}, {'passed': True}]
+
+
+def test_second_micro_backward_failure_keeps_prior_durable_checkpoint(tmp_path):
+    (tmp_path / 'failure').mkdir()
+    assert _launch(tmp_path, 'second-micro-failure') == [{'passed': True}, {'passed': True}]
 
 
 if __name__ == '__main__':

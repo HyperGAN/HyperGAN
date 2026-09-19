@@ -129,7 +129,7 @@ Public train/resume, browser serving, GPU/NCCL, real clusters and paid compute a
 
 ## Internal replicated run-service checkpoint
 
-The [replicated service report](core-replicated-service-2026-09-19.md) and [developer guide](../docs/replicated-run-service.md) record the shared-controller integration. A candidate attempt identity is fixed before strict restore and persisted only after success. Resolved numerical execution identity is separate from mutable service deadlines. Workers acknowledge complete steps and global metrics; parent-only checkpoint publication remains fenced and fatal group errors cannot be swallowed by optional saves.
+[PR #314](https://github.com/HyperGAN/HyperGAN/pull/314), the [replicated service report](core-replicated-service-2026-09-19.md) and [developer guide](../docs/replicated-run-service.md) record the shared-controller integration. A candidate attempt identity is fixed before strict restore and persisted only after success. Resolved numerical execution identity is separate from mutable service deadlines. Workers acknowledge complete steps and global metrics; parent-only checkpoint publication remains fenced and fatal group errors cannot be swallowed by optional saves.
 
 Filesystem events, coalesced save requests, lost-acknowledgement reconciliation and monotonic sample reservations use the existing controller. Final copied-state inference artifacts, when a completed/restored batch is available, and successful group shutdown precede terminal success. The internal adapter rejects periodic preview and callback options before run mutation while isolated bounded observation remains unimplemented. Public train/resume remain single-process.
 

@@ -1,6 +1,6 @@
 # Replicated CPU execution through the shared controller
 
-Date: 2026-09-19. Baseline: develop `d65c338cf9dfbd89ab5e3abeb1a21167fe7bc47f`, after PR #313.
+Date: 2026-09-19. [PR #314](https://github.com/HyperGAN/HyperGAN/pull/314). Baseline: develop `d65c338cf9dfbd89ab5e3abeb1a21167fe7bc47f`, after PR #313.
 
 This checkpoint connects the persistent CPU worker service and parent checkpoint authority to the shared run controller. It is an internal, headless CPU integration. Public `hypergan train` and `hypergan resume` remain single-process while bounded observation and the remaining public integration gates are completed.
 

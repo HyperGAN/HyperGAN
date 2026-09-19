@@ -61,6 +61,18 @@ fn validate(state: &State) -> Result<(), String> {
                 p.position.validate()?;
                 if !p.value.is_finite() { return Err("nonfinite envelope value".into()); }
             }
+            let mut distinct = 0;
+            for (index, candidate) in points.iter().enumerate() {
+                if let Some(point) = candidate {
+                    if !points[..index].iter().any(|earlier| earlier.as_ref()
+                        .is_some_and(|earlier| earlier.position == point.position)) {
+                        distinct += 1;
+                    }
+                }
+            }
+            if distinct > *count {
+                return Err("envelope retains more positions than its count".into());
+            }
             if let (Some(f), Some(lo), Some(hi), Some(l)) = (first, min, max, last) {
                 if points.into_iter().flatten().any(|p| p.position < f.position || p.position > l.position || p.value < lo.value || p.value > hi.value) {
                     return Err("inconsistent envelope bounds".into());

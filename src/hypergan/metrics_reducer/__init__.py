@@ -60,7 +60,9 @@ class Reducer:
         self._runtime, self.spec, engine, module = _compiled()
         self._store = self._runtime.Store(engine)
         self._store.set_limits(memory_size=self.spec["max_memory_bytes"], memories=1, instances=1)
-        self._store.set_fuel(fuel)
+        # Construction/ABI discovery is distinct from the caller's per-request
+        # fuel budget. Even fuel=1 must construct before its first request traps.
+        self._store.set_fuel(50_000_000)
         self._exports = self._runtime.Instance(self._store, module, []).exports(self._store)
         if self._exports["abi_version"](self._store) != 1:
             raise ReducerError("Unsupported reducer ABI")

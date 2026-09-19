@@ -27,7 +27,7 @@ function plot(value, label, step, unit) {
   const edges = value.edges.map(x => x / scale);
   const extent = edges.at(-1) - edges[0];
   if (!finite(extent) || extent <= 0) throw new Error('Histogram range cannot be plotted');
-  const max = Math.max(1, ...value.counts);
+  const max = Math.max(...value.counts) || 1;
   value.counts.forEach((count, i) => {
     const x = 35 + 530 * ((edges[i] - edges[0]) / extent);
     const width = 530 * ((edges[i+1] - edges[i]) / extent);

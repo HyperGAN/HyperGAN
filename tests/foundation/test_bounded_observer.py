@@ -1,4 +1,5 @@
 """Progress isolation needs no optional numerical dependencies."""
+import importlib
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,22 @@ import pytest
 from hypergan.bounded_observer import BoundedObserver, ObserverError, callback_reference
 
 
+@pytest.fixture
+def callbacks(tmp_path, monkeypatch):
+    # Spawn inherits this explicit import path even when pytest itself used
+    # --import-mode=importlib and the interpreter was invoked with -I.
+    module_name = '_hypergan_bounded_observer_callbacks'
+    (tmp_path / (module_name + '.py')).write_text(
+        'import json, os, sys, time\nfrom pathlib import Path\n' + _CALLBACK_SOURCE)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    module = importlib.import_module(module_name)
+    try:
+        yield module
+    finally:
+        sys.modules.pop(module_name, None)
+
+
+_CALLBACK_SOURCE = """
 def record(event):
     Path(event['path']).write_text(json.dumps({'event': event, 'pid': os.getpid(),
                                              'torch_imported': 'torch' in sys.modules}))
@@ -30,6 +47,8 @@ def hang(event):
 def no_op(event):
     pass
 
+"""
+
 
 def assert_gone(pids):
     if sys.platform != 'linux':
@@ -37,8 +56,8 @@ def assert_gone(pids):
     assert all(not Path(f'/proc/{pid}').exists() for pid in pids)
 
 
-def test_success_snapshot_no_torch_and_reaped(tmp_path):
-    observer = BoundedObserver(record, timeout=10, run_id='run', attempt_id='attempt')
+def test_success_snapshot_no_torch_and_reaped(tmp_path, callbacks):
+    observer = BoundedObserver(callbacks.record, timeout=10, run_id='run', attempt_id='attempt')
     assert observer.broker_pid is None
     event = {'path': str(tmp_path / 'event.json'), 'step': 7}
     assert observer.deliver(event) is True
@@ -57,8 +76,8 @@ def test_success_snapshot_no_torch_and_reaped(tmp_path):
         observer.deliver(event)
 
 
-def test_callback_error_disables_once_and_reaps():
-    observer = BoundedObserver(fail, timeout=10)
+def test_callback_error_disables_once_and_reaps(callbacks):
+    observer = BoundedObserver(callbacks.fail, timeout=10)
     with pytest.raises(ObserverError, match='deliberate callback failure.*',):
         observer.deliver({})
     assert observer.disabled
@@ -68,8 +87,8 @@ def test_callback_error_disables_once_and_reaps():
     assert pids == [observer.broker_pid, *observer.worker_pids]
 
 
-def test_hang_bounded_and_reaped(tmp_path):
-    observer = BoundedObserver(hang, timeout=2)
+def test_hang_bounded_and_reaped(tmp_path, callbacks):
+    observer = BoundedObserver(callbacks.hang, timeout=2)
     started = time.monotonic()
     with pytest.raises(ObserverError, match='deadline'):
         observer.deliver({'path': str(tmp_path / 'pid')})
@@ -81,24 +100,24 @@ def test_hang_bounded_and_reaped(tmp_path):
 
 @pytest.mark.parametrize('event', [[], {'x': float('nan')}, {'x': object()},
                                     {'x': 'a' * 65536}, {1: 'value'}])
-def test_invalid_event_rejected_before_process(event):
-    observer = BoundedObserver(no_op)
+def test_invalid_event_rejected_before_process(event, callbacks):
+    observer = BoundedObserver(callbacks.no_op)
     with pytest.raises(ValueError):
         observer.deliver(event)
     assert observer.broker_pid is None
     assert not observer.disabled
 
 
-def test_exact_event_size_limit(tmp_path):
+def test_exact_event_size_limit(callbacks):
     # JSON {'x': '...'} has eight framing bytes; the control envelope remains
     # small because the validated event is part of the bounded bootstrap args.
-    observer = BoundedObserver(no_op, timeout=10)
+    observer = BoundedObserver(callbacks.no_op, timeout=10)
     assert observer.deliver({'x': 'a' * (65536 - 8)})
     with pytest.raises(ValueError, match='65536'):
         observer.deliver({'x': 'a' * (65536 - 7)})
 
 
-def test_static_callback_validation_and_single_outstanding():
+def test_static_callback_validation_and_single_outstanding(callbacks):
     for callback in (lambda event: None, object(), print):
         with pytest.raises(ValueError, match='module-level'):
             BoundedObserver(callback)
@@ -106,8 +125,8 @@ def test_static_callback_validation_and_single_outstanding():
         pass
     with pytest.raises(ValueError, match='module-level'):
         BoundedObserver(closure)
-    assert callback_reference(no_op).endswith(':no_op')
-    observer = BoundedObserver(no_op)
+    assert callback_reference(callbacks.no_op).endswith(':no_op')
+    observer = BoundedObserver(callbacks.no_op)
     observer._delivery_lock.acquire()
     try:
         with pytest.raises(RuntimeError, match='one progress'):
@@ -119,9 +138,9 @@ def test_static_callback_validation_and_single_outstanding():
 
 
 @pytest.mark.parametrize('timeout', [0, -1, True, float('inf'), '5'])
-def test_invalid_deadline_before_process(timeout):
+def test_invalid_deadline_before_process(timeout, callbacks):
     with pytest.raises(ValueError, match='finite positive'):
-        BoundedObserver(no_op, timeout=timeout)
+        BoundedObserver(callbacks.no_op, timeout=timeout)
 
 
 def test_module_import_is_torch_free():

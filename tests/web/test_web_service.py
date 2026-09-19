@@ -447,3 +447,67 @@ def test_blocked_asgi_send_closes_subscription(tmp_path):
         finally:
             await app.state.observations.close()
     asyncio.run(scenario())
+
+
+def test_public_source_cursor_copy_generation_and_boundary(tmp_path):
+    import base64
+    import shutil
+    original = tmp_path / 'original'
+    fixture_run(original, 3)
+    session = LocalSession(8123)
+    session.write_credentials(tmp_path / 'credentials.json')
+    token = json.loads((tmp_path / 'credentials.json').read_bytes())['token']
+    headers = {'authorization': 'Bearer ' + token}
+    with TestClient(create_app(original, session), base_url=session.origin) as client:
+        page = client.get('/api/v1/runs/run/events?limit=2', headers=headers).json()
+        cursor = page['cursor']
+        encoded = json.loads(base64.urlsafe_b64decode(cursor))
+        assert set(encoded) == {'version', 'run_id', 'stream_id', 'stream_generation', 'offset', 'anchor', 'last'}
+        assert encoded['run_id'] == encoded['stream_generation'] == 'run'
+        assert encoded['stream_id'] == 'training'
+    copied = tmp_path / 'copied'
+    shutil.copytree(original, copied)
+    assert original.stat().st_ino != copied.stat().st_ino
+    with TestClient(create_app(copied, session), base_url=session.origin) as client:
+        result = client.get('/api/v1/runs/run/events', params={'cursor': cursor}, headers=headers)
+        assert result.status_code == 200
+        assert [event['step'] for event in result.json()['events']] == [2, 3]
+        # An exhausted cursor must still check the first document's generation.
+        end = result.json()['cursor']
+        path = copied / 'events.jsonl'
+        rows = path.read_bytes().splitlines()
+        first = json.loads(rows[0]); first['stream_generation'] = 'new'
+        rows[0] = json.dumps(first).encode()
+        path.write_bytes(b'\n'.join(rows) + b'\n')
+        result = client.get('/api/v1/runs/run/events', params={'cursor': end}, headers=headers)
+        assert result.status_code == 400 and 'generation' in result.text
+        first['stream_generation'] = 'run'; rows[0] = json.dumps(first).encode()
+        row = json.loads(rows[1]); row['metrics']['loss/g_total'] = 9.0
+        rows[1] = json.dumps(row).encode(); path.write_bytes(b'\n'.join(rows) + b'\n')
+        result = client.get('/api/v1/runs/run/events', params={'cursor': cursor}, headers=headers)
+        assert result.status_code == 400 and 'boundary' in result.text
+
+
+def test_discovery_overflow_keeps_metadata_live(tmp_path):
+    fixture_run(tmp_path, 1)
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            directory = tmp_path / 'metrics/evaluations'
+            directory.mkdir(parents=True)
+            for index in range(65):
+                (directory / f'{index:032x}').mkdir()
+            await service.discover()
+            assert 'bounded observation directory' in service.discovery_error
+            manifest = dict(service.manifest, status='completed', steps=42)
+            atomic_json(tmp_path / 'manifest.json', manifest)
+            for _ in range(100):
+                if service.manifest['steps'] == 42:
+                    break
+                await asyncio.sleep(.02)
+            assert service.manifest['steps'] == 42
+            assert service.manifest['status'] == 'completed'
+            assert service.page('training', None)[0]
+        finally:
+            await service.close()
+    asyncio.run(scenario())

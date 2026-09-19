@@ -134,6 +134,7 @@ class ObservationService:
         self._closed = False
         self._history_slots = asyncio.Semaphore(1)
         self._source_revision = 0
+        self.discovery_error = None
 
     async def start(self):
         await self._activate()
@@ -254,6 +255,18 @@ class ObservationService:
         stream.task = asyncio.create_task(self._tail(stream))
 
     async def discover(self):
+        # Bad/over-budget optional inventories must not freeze run metadata or
+        # trigger endless bootstrap resets for already registered consumers.
+        previous = self.discovery_error
+        try:
+            await self._discover()
+            self.discovery_error = None
+        except (OSError, ValueError, KeyError) as exc:
+            self.discovery_error = str(exc)
+        if self.discovery_error != previous:
+            self.notify('discovery_error', {'reason': self.discovery_error or '', 'status': 'error' if self.discovery_error else 'available'})
+
+    async def _discover(self):
         for relative, kind in (('views', 'projection'), ('metrics/evaluations', 'evaluation')):
             directory = self.root / relative
             if not directory.exists():
@@ -276,8 +289,8 @@ class ObservationService:
                             or record.get('stream_id') != stream_id or record.get('stream_generation') != path.name
                             or record.get('path') != expected):
                         raise ValueError('Invalid evaluation stream registration')
-                    self.source_paths[stream_id] = expected
                     self._register(stream_id)
+                    self.source_paths[stream_id] = expected
 
     async def _watch(self):
         while True:
@@ -310,7 +323,9 @@ class ObservationService:
             source = self.root / self.source_paths[stream_id]
             if not source.exists():
                 raise FileNotFoundError('Training event stream has not been published yet')
-            page = read_event_page(source.parent, cursor, limit=limit, max_bytes=1048576, include_cursors=True, _open_file=safe_open)
+            page = read_event_page(source.parent, cursor, limit=limit, max_bytes=1048576, include_cursors=True, _open_file=safe_open,
+                _stream_identity={'run_id': self.run_id, 'stream_id': stream_id,
+                                  'stream_generation': self.run_id if stream_id == 'training' else stream_id[11:]})
             for event in page['events']:
                 if event.get('run_id') != self.run_id or event.get('stream_id', 'training') != stream_id:
                     raise ValueError('Source document run/stream identity differs from its registration')

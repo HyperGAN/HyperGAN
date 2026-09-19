@@ -1,6 +1,6 @@
-# Observe a CPU run and request a checkpoint
+# Observe a run and request a checkpoint
 
-Run observation works from a base installation, without importing PyTorch or loading model weights. Periodic previews are opt-in while the browser server remains planned.
+Event reads and checkpoint requests work from a base installation without importing PyTorch or loading model weights. Native CUDA and local replicated runs share these records. Periodic previews are opt-in; the [optional local viewer](local-web.md) can start with training or reconnect independently.
 
 ```sh
 hypergan train demo --run-dir runs/demo --preview-every 10 --preview-keep 3
@@ -35,16 +35,16 @@ This is a local filesystem protocol for a trusted run directory, not a remote au
 
 Previews are immutable numeric JSON artifacts, with run, attempt, update and monotonic sample identities. They are not image grids or training checkpoints. Their run-wide counter never rewinds when an older checkpoint is replayed; gaps are allowed after failed publication. Retention runs after successful publication and applies only to periodic preview artifacts. Cleanup errors are visible and may leave extra files until a later successful cleanup; the retention setting is not a disk quota. Complete checkpoints and final attempt inference bundles remain separate.
 
-Sampling uses a copied EMA graph and prior, copied conditioning inputs, evaluation mode and isolated random state. The supported CPU contract protects model buffers, optimizer state and data/prior/penalty RNG streams. Tests exercise stochastic modules and nonpersistent buffers. Arbitrary side effects in trusted custom Python components remain the author's responsibility.
+Sampling uses a copied EMA graph and prior, copied conditioning inputs, evaluation mode and isolated random state. The supported native and replicated execution contracts protect model buffers, optimizer state and data/prior/penalty RNG streams. Tests exercise stochastic modules and nonpersistent buffers. Arbitrary side effects in trusted custom Python components remain the author's responsibility.
 
 Previews cap sample count at 16 and combined output/conditioning tensors at 65,536 elements, with a 2 MiB serialized artifact limit. Large samples can reduce the effective count or fail preview publication. Rendering and preview-artifact errors are reported separately and do not stop optimization while mandatory run manifest/event writes remain available. Failure of those core writes can still fail the run. Forward execution and model copying still cost time and memory; these bounds are not a sandbox or a hard latency deadline for custom code.
 
-No HTTP server, browser startup or GPU execution is part of this interface. The [viewer plan](../reports/local-web-view-plan-2026-09-18.md) builds on these records after their core contracts settle.
+The [local viewer](local-web.md) serves these records through the public API and read-only browser. Use `--no-server` for headless training. [Execution profiles](execution.md) select native CUDA or supervised local CUDA/NCCL and explicit CPU fixtures; observation does not change their numerical identity.
 
 ### Bounded training command output
 
-The internal output transport below is available for public command integration;
-`train`/`resume` routing follows in the next slice.
+Public `train` and `resume` use the bounded output transport below for native and
+replicated execution.
 
 Training CLI output is best effort: unread, slow or closed stdout/stderr does not
 hold training or terminal process cleanup. Independent drain processes preserve

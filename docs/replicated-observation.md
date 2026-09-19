@@ -1,6 +1,6 @@
 # Bounded observation for replicated CPU runs
 
-The internal [replicated run service](replicated-run-service.md) supports periodic EMA previews and progress callbacks while keeping the numerical workers isolated from rendering and callback execution. Public distributed CLI integration remains a separate acceptance gate. Native single-process callbacks and previews retain their existing behavior.
+The internal [replicated run service](replicated-run-service.md) supports periodic EMA previews and progress callbacks while keeping the numerical workers isolated from rendering and callback execution. The [public execution commands](execution.md) use this preview service and a concrete [bounded CLI output sink](observation.md#bounded-training-command-output). Arbitrary Python callbacks retain the isolated-function contract below. Native Python callbacks and previews retain their existing behavior.
 
 ## Previews
 

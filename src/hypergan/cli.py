@@ -24,6 +24,11 @@ def _positive_seconds(value):
 
 
 def _run_options(parser, *, resume=False):
+    parser.add_argument("--profile", help="execution profile name or TOML path; train defaults to native device, resume inherits")
+    from .execution import SERVICE_TIMEOUTS
+    for name in SERVICE_TIMEOUTS:
+        parser.add_argument("--" + name.replace("_", "-"), type=_positive_seconds,
+                            help="replicated service deadline in seconds (attempt policy)")
     server = parser.add_mutually_exclusive_group()
     server.add_argument("--server", action="store_true", help="require the local viewer before training starts")
     server.add_argument("--no-server", action="store_true", help="train without web imports or listening sockets")
@@ -60,12 +65,12 @@ def _parser():
     new.add_argument("--device", default="cuda", help="training device: cuda (default), cuda:N, or explicit cpu")
     validate = commands.add_parser("validate", help="Validate a project without loading training dependencies")
     validate.add_argument("path", type=Path)
-    preflight = commands.add_parser("preflight", help="Check a CPU execution profile before training")
+    preflight = commands.add_parser("preflight", help="Check an execution profile before training")
     preflight.add_argument("config", type=Path)
     preflight.add_argument("--profile", type=Path, required=True,
                            help="separate execution-profile TOML file")
     preflight.add_argument("--runtime", action="store_true",
-                           help="also construct the recipe in bounded CPU workers (requires train extra)")
+                           help="also construct the recipe in bounded CPU/CUDA workers (requires train extra)")
     data_check = commands.add_parser("data-check", help="Validate an image_folder inventory and preprocessing")
     data_check.add_argument("config", type=Path)
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
@@ -130,26 +135,6 @@ def _warnings(config):
         print(f"warning: {warning}", file=sys.stderr)
 
 
-def _progress(args):
-    def emit(event):
-        if args.progress_json:
-            print(json.dumps(event, allow_nan=False), flush=True)
-        elif event.get("event") == "train":
-            metrics = event.get("metrics", {})
-            values = " ".join(f"{label}={metrics[key]:.6g}" for key, label in
-                              (("loss/d_total", "D"), ("loss/g_total", "G")) if key in metrics)
-            print(f"step {event['step']}" + (f": {values}" if values else ""),
-                  file=sys.stderr, flush=True)
-    return emit
-
-
-def _run_result(args, result):
-    if args.progress_json:
-        print(json.dumps({"event": "result", "manifest": result}, allow_nan=False), flush=True)
-    else:
-        _print_json(result)
-
-
 def _training_viewer(args):
     if args.no_server:
         if args.open or args.server_port is not None:
@@ -163,6 +148,14 @@ def _training_viewer(args):
 
 def main(argv=None):
     args = _parser().parse_args(argv)
+    if args.command in {"train", "resume"}:
+        from .bounded_cli_output import training_output
+        with training_output(progress_json=args.progress_json) as output:
+            return _dispatch(args, output=output)
+    return _dispatch(args)
+
+
+def _dispatch(args, *, output=None):
     try:
         if args.command == "version":
             print(f"hypergan {__version__}")
@@ -278,30 +271,22 @@ def main(argv=None):
                 resolved = config.load_config(args.path)
                 _warnings(resolved)
                 _print_json(resolved)
-        elif args.command == "train":
-            from .config import config_values, load_config, resolve_config
+        elif args.command in {"train", "resume"}:
+            from .execution import SERVICE_TIMEOUTS, prepare_train, prepare_resume
 
-            resolved = load_config(args.config)
-            if args.steps is not None:
-                values = config_values(resolved)
-                values["training"]["steps"] = args.steps
-                resolved = resolve_config(values)
-            _warnings(resolved)
+            options = dict(profile=args.profile,
+                           service_policy={name: getattr(args, name) for name in SERVICE_TIMEOUTS
+                                           if getattr(args, name) is not None},
+                           checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
+                           stop_after_steps=args.stop_after_steps,
+                           preview_every=args.preview_every, preview_keep=args.preview_keep)
+            if args.command == "train":
+                prepared = prepare_train(args.config, args.run_dir, args.steps, **options)
+            else:
+                prepared = prepare_resume(args.run_dir, args.checkpoint, args.config, **options)
+            _warnings(prepared.config)
             with _training_viewer(args):
-                from .training import train
-
-                _run_result(args, train(args.config, args.run_dir, steps=args.steps,
-                                       checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
-                                       stop_after_steps=args.stop_after_steps, on_event=_progress(args),
-                                       preview_every=args.preview_every, preview_keep=args.preview_keep))
-        elif args.command == "resume":
-            with _training_viewer(args):
-                from .training import resume
-
-                _run_result(args, resume(args.run_dir, checkpoint=args.checkpoint, config_path=args.config,
-                                        checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
-                                        stop_after_steps=args.stop_after_steps, on_event=_progress(args),
-                                        preview_every=args.preview_every, preview_keep=args.preview_keep))
+                output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
         elif args.command == "sample":
             from .artifacts import sample
 

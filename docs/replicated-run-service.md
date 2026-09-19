@@ -1,6 +1,6 @@
 # Internal replicated run service
 
-The internal replicated adapter uses the same run controller as native single-process training. It connects fixed-size CPU/Gloo or CUDA/NCCL workers to attempts, full recovery, events, save requests and final inference artifacts. The parent process does not import Torch. This is a developer integration contract; public `hypergan train` and `hypergan resume` still use the single-process adapter.
+The internal replicated adapter uses the same run controller as native single-process training. It connects fixed-size CPU/Gloo or CUDA/NCCL workers to attempts, full recovery, events, save requests and final inference artifacts. The parent process does not import Torch. This guide describes the developer integration contract behind [public execution profiles](execution.md). Public `train --profile cuda-replicated-nccl` or `cpu-replicated-gloo` selects this adapter, and `resume` infers the saved profile.
 
 ## Run and resume
 
@@ -64,7 +64,7 @@ This first adapter treats preparation and publication errors as fatal, including
 
 ## Observation and completion limits
 
-Use filesystem events and the manifest for durable progress. Periodic previews and importable progress callbacks now run through [bounded isolated observation](replicated-observation.md). The renderer has no training process group; callback failures disable further delivery for the attempt while filesystem events continue. Public distributed commands remain gated on the bounded CLI output and public profile acceptance cases.
+Use filesystem events and the manifest for durable progress. Periodic previews and importable progress callbacks now run through [bounded isolated observation](replicated-observation.md). The renderer has no training process group; callback failures disable further delivery for the attempt while filesystem events continue. Public distributed commands use a trusted bounded CLI sink for progress and results; arbitrary Python callbacks still use isolated observation. Slow or closed CLI pipes cannot hold the numerical workers or run lock.
 
 When a completed or restored batch is available, rank zero produces required inference artifacts after the final checkpoint from a copied EMA/config/batch snapshot under the command deadline. A cooperative stop at initial step zero has no batch and can succeed without inference artifacts. Other ranks return to their idle control channels outside collectives. Terminal success requires the artifact result and coordinated successful worker exit. No successful terminal status is written while the group is still running.
 

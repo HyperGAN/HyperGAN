@@ -1,6 +1,6 @@
 # Execution profiles and preflight
 
-An execution profile describes how to run a recipe. Keep it in a separate TOML file so changing worker count or accumulation does not rewrite the model, objective or learning rate. This slice provides structural and runtime preflight; public `train` and `resume` still use the single-process service and do not accept a profile flag.
+An execution profile describes how to run a recipe. Keep it in a separate TOML file so changing worker count or accumulation does not rewrite the model, objective or learning rate. The structural and runtime preflight below checks the same profiles accepted by public `train --profile NAME_OR_TOML`. Public `resume` infers the persisted numerical profile; an explicit selection must match it. See [public execution](execution.md) for GPU-first commands, earlier snapshot recovery and mutable attempt deadlines.
 
 For explicit CPU single-process preflight:
 

@@ -1,6 +1,6 @@
 # Core recovery and image data — 2026-09-18
 
-This checkpoint advances the CPU core: deterministic image-folder input, complete training state, explicit resume, immutable attempt artifacts and live CLI progress. Three subagents implemented and reviewed separate parts, with coordinator integration on `develop`. No GPU or paid compute was used.
+This checkpoint advances the CPU core: deterministic image-folder input, complete training state, explicit resume, immutable attempt artifacts and live CLI progress. Three subagents implemented and reviewed separate parts, with coordinator integration on `develop` through [PR #304](https://github.com/HyperGAN/HyperGAN/pull/304) and [PR #305](https://github.com/HyperGAN/HyperGAN/pull/305). No GPU or paid compute was used.
 
 ## Delivered workflow
 

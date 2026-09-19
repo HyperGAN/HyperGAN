@@ -7,6 +7,7 @@ import torch
 
 from .checkpoints import capture_rng, read_checkpoint, restore_rng, restore_trainer, write_checkpoint
 from .config import config_values, fingerprint
+from .metrics import validate_update_scalars
 from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, PreviewResult, Restored
 from .training import ReferenceTrainer, _implementation, _recovery_contract, runtime_info, source_info
 from .recipes import execution_device
@@ -88,6 +89,7 @@ class SingleProcessExecution:
         self._boundary()
         self._ready = False
         row, self._last_batch = self._trainer.update()
+        validate_update_scalars(row, len(self._config["objectives"]))
         self._ready = True
         return CompletedUpdate(step=self._trainer.step, metrics=row)
 

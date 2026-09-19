@@ -33,6 +33,22 @@ def test_parent_interrupt_reaps_started_workers(monkeypatch):
     assert {p.pid for p in multiprocessing.active_children()} == before
 
 
+def test_later_spawn_failure_reaps_earlier_worker():
+    class FailsSecondPickle:
+        calls = 0
+
+        def __reduce__(self):
+            self.calls += 1
+            if self.calls == 2:
+                raise ValueError("second worker serialization failed")
+            return str, ("first worker argument",)
+
+    before = {p.pid for p in multiprocessing.active_children()}
+    with pytest.raises(ValueError, match="second worker serialization failed"):
+        launch_cpu_workers(print, args=(FailsSecondPickle(),))
+    assert {p.pid for p in multiprocessing.active_children()} == before
+
+
 SCRIPT = '''
 import json
 import multiprocessing

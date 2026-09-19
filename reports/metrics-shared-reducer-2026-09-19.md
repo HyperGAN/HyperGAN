@@ -1,6 +1,6 @@
 # Shared metrics reducer proof
 
-M0 of the [metrics plan](metrics-first-research-2026-09-19.md), implemented on
+[PR #320](https://github.com/HyperGAN/HyperGAN/pull/320), M0 of the [metrics plan](metrics-first-research-2026-09-19.md), implemented on
 2026-09-19. This slice supplies a portable reducer and its delivery contract;
 training publication, Python event maps and the production viewer follow in
 separate PRs. No database, training dependency or JavaScript implementation of
@@ -8,8 +8,8 @@ the reducer mathematics was added.
 
 The same bundled Rust/core-WASM module runs in Python/Wasmtime and a dedicated
 browser worker. Its SHA256 is
-`72b75748ec5845d93546280c2ebe493055391045ff9111177e1605130bfc9c54`
-(152,814 bytes). The source, locked dependency graph, pinned Rust 1.90.0
+`727faa849990730404dd6ca1f898526d380b56bd4ad9384f9186a2bc4d7b275d`
+(153,189 bytes). The source, locked dependency graph, pinned Rust 1.90.0
 toolchain, rebuild script and applicable dependency licenses are included.
 End users install the optional `reducers` extra; they do not compile Rust.
 The base package can still import readers and reducer descriptors without
@@ -60,13 +60,23 @@ python scripts/reducer_proof.py --output /path/to/proof.json --benchmark
 
 The independent coordinator run passed all 27 tests in 1.50 seconds. The
 pinned rebuild matched the bundled bytes. One local Python proof measurement
-reported 52.2 ms first construction, 0.90 ms per 1,024-value mean batch and
-1.46 ms per envelope batch. Sending the same number of values as individual
-calls took 56.3/69.7 ms. Serialized state measured 72/258 bytes for that fixture;
+reported 46.9 ms first construction, 0.88 ms per 1,024-value mean batch and
+1.57 ms per envelope batch. Sending the same number of values as individual
+calls took 55.3/73.6 ms. Serialized state measured 72/258 bytes for that fixture;
 WASM linear memory remained 1,769,472 bytes. These are reducer microbenchmarks,
 not browser rendering, complete process RSS or training-overhead guarantees.
 Batching is required for efficient historical bootstrap.
 
+Independent review added rejection of envelopes retaining more distinct positions
+than their count. Initial macOS/Windows CI exposed a one-unit test fuel budget
+being consumed by constructor ABI discovery, before the tested request. The
+constructor now has a separate fixed discovery budget; the unchanged one-unit
+request budget still traps and poisons the instance on every platform. No test
+was skipped or request limit widened.
+
+The first sdist-rebuilt installed wheel passed 263 base-only tests in 8.09 seconds
+and all 27 optional reducer/browser cases in 1.53 seconds outside the checkout.
+Final rebuild/test receipts include the reviewed validation fixes above.
 Installed-package results, source/artifact hashes and GitHub PR/check receipts
 are retained at
 `/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-metrics-implementation/`.

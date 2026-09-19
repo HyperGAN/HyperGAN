@@ -83,6 +83,9 @@ def test_malformed_mean_state(reducer, mutation):
 
 
 def test_malformed_envelope(reducer):
+    four = reducer.add(reducer.identity("envelope/v1"), points([2, 0, 4, 3]))
+    with pytest.raises(ReducerError, match="more positions"):
+        reducer.finalize({**four, "count": 2})
     state = reducer.add(reducer.identity("envelope/v1"), points([1, 2, 3]))
     for field, value in [("first",None), ("count",0), ("count",1)]:
         with pytest.raises(ReducerError):

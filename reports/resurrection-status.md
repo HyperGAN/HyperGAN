@@ -2,7 +2,7 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-19 (America/Denver).
 
-Current work: GPU-first project creation, native CUDA training/recovery, real two-GPU NCCL diagnostics and the remaining whole-job persistence/partial-update fault gates. The owner authorizes both local RTX A6000 GPUs. Full replicated CUDA training, public distributed profiles and actual multi-host qualification remain ahead; CPU correctness fixtures stay in CI. See the current session checkpoint below for validation and integration state.
+Current cutpoint: GPU-first project creation and native CUDA training/recovery are implemented, real two-GPU NCCL diagnostics pass, and the remaining whole-job persistence/partial-update fault gates are covered. The owner authorizes both local RTX A6000 GPUs. Full replicated CUDA training, public distributed profiles and actual multi-host qualification remain ahead; CPU correctness fixtures stay in CI. See the current session checkpoint below for validation and integration state.
 
 ## First checkpoint
 
@@ -146,7 +146,7 @@ Three subagents implemented and cross-reviewed the renderer, callback service an
 
 ## GPU-first native execution and remaining fault gates
 
-The [GPU core report](core-gpu-2026-09-19.md) records GPU-first project creation, one-device native CUDA training and complete recovery, plus all six remaining shared-controller persistence/partial-update fault cases. Three subagents implemented and independently reviewed the changes. Actual two-GPU communication, autograd and linear Adam parity passed; the separate [NCCL readiness report](gpu-readiness-2026-09-19.md) records the timeout-diagnostic delay and verified worker cleanup. This is not yet full replicated CUDA GAN training.
+[PR #317](https://github.com/HyperGAN/HyperGAN/pull/317) and the [GPU core report](core-gpu-2026-09-19.md) record GPU-first project creation, one-device native CUDA training and complete recovery, plus all six remaining shared-controller persistence/partial-update fault cases. Three subagents implemented and independently reviewed the changes. Actual two-GPU communication, autograd and linear Adam parity passed; the separate [NCCL readiness report](gpu-readiness-2026-09-19.md) records the timeout-diagnostic delay and verified worker cleanup. This is not yet full replicated CUDA GAN training.
 
 Focused acceptance passed 37 CPU tests, 9 CUDA tests and the required two-GPU diagnostic. Final installed-package/PR integration results and exact source identity are recorded in the GPU core report's durable receipt directory. New projects select `cuda`; `--device cuda:1` and `--device cpu` are explicit alternatives. Existing lightweight and CPU CI remain required. No paid compute, dataset download, upstream architecture copy or release occurred.
 
@@ -163,7 +163,7 @@ Focused acceptance passed 37 CPU tests, 9 CUDA tests and the required two-GPU di
 - [x] Reuse one event/request/counter service for the internal replicated lifecycle; require final inference artifacts when a batch is available and successful group shutdown before terminal success.
 - [x] Add isolated snapshot preview execution without a training process group and bound parent progress delivery. Keep worker health monitoring independent of slow or hung observers; compare complete state with observation on/off. See the [bounded observation checkpoint](core-bounded-observation-2026-09-19.md).
 - [x] Finish whole-job staging/publication/partial-update fault acceptance: staging disk failure, rename/pointer failure before selection, exception after a complete selected commit, second G microbatch backward failure and EMA failure after the G optimizer. Fresh groups recover complete state exactly; failed attempts do not acknowledge partial updates or successful saves. See the GPU core checkpoint below.
-- [ ] **Current integration gate:** land GPU-first project defaults and native CUDA training/recovery, with installed-package CPU and explicit local CUDA acceptance. Two-GPU NCCL diagnostics are infrastructure evidence; they do not close full replicated GPU training.
+- [x] Add GPU-first project defaults and native CUDA training/recovery, with separate installed-package CPU and explicit local CUDA acceptance gates. Two-GPU NCCL diagnostics are infrastructure evidence; they do not close full replicated GPU training.
 - [ ] **Next core cutpoint:** port the supervised replicated strategy to rank-owned CUDA devices and NCCL-aware numerical/control paths. Qualify complete two-GPU updates, accumulated replay, CUDA RNG and coordinated recovery against controlled single-process results, including rank failure and independent cleanup.
 - [ ] Expose execution profiles through public `train`/`resume`, with GPU-first user workflows and explicit CPU fixtures. Preserve headless operation, persisted numerical identity, mutable deadlines, early conflict rejection and bounded progress/result stream behavior. Existing CLI closures/stdout writes cannot be routed unchanged through isolated callbacks; prove slow/closed-output handling and installed end-to-end recovery.
 - [ ] Resolve upstream explicit licensing and freeze the selected image experiment's architecture, preprocessing/augmentation/evaluation and pretrained-weight identity. A synthetic image recovery fixture is not image-quality qualification.

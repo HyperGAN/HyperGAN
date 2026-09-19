@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0a1 — development foundation (unreleased)
+
+- Rebuild the supported package around configurable ParticleGAN primitives and a HyperGAN-owned CPU reference loop.
+- Add lightweight CLI/configuration tooling, conditional component bindings, run metadata and reloadable EMA inference artifacts.
+- Replace legacy packaging and CI with installed-wheel checks and explicit numerical tests.
+- Archive the previous runtime and research branches. Image recipes, complete resume, multi-GPU/cluster execution and deployment remain release gates.
+
+The entries below describe historical versions; see [migration notes](docs/migration.md) before using legacy configurations or checkpoints.
+
 ## 1.0 - Pytorch!
 
 * Switched to pytorch

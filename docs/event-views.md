@@ -6,6 +6,19 @@ the contributions. A new reducer or renderer reuses the same map output. This
 module implements the file/worker boundary; it does not start a web server or a
 training observer automatically.
 
+The lightweight CLI uses the same files and reader contracts:
+
+```sh
+hypergan metrics runs/example
+hypergan project runs/example             # catch up to the current complete tail
+hypergan project runs/example --follow    # independent live map worker
+hypergan contributions runs/example --limit 100
+```
+
+Persist the returned contribution cursor only after consuming its entire page.
+`project --map-spec mapping.json` accepts the fields of `MapSpec` below; custom
+code is supervised. Serving never starts a mapper implicitly.
+
 ```python
 from hypergan.event_views import MapSpec, Projector, ViewSpec, read_projection_page
 

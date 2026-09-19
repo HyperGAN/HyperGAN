@@ -118,6 +118,19 @@ without asserting that it explains every earlier macOS stall. A guarded CI
 launcher now reports process trees and Python/native stacks if pytest has not
 exited after its diagnostic deadline.
 
+Final installed acceptance after the stop-owner repair is recorded in
+`viewer-shutdown-acceptance.json`. A newly rebuilt sdist/wheel passed **21 viewer
+tests in 8.01 seconds**, including the killed-owner regression in **0.215
+seconds**, with clean exit and only the two existing dependency deprecations.
+Actual two-GPU viewer train/stop/resume again matched the headless result across
+**144 tensors and 2,740 state values**. Live authenticated reads observed steps
+one and three, current event/projection frames and historical WASM bootstrap
+results with one and three groups. Process and credential cleanup passed and
+stderr contained no finalizer errors. This acceptance source tree matches
+`d1d26ef8`; the following report-only commit changes no runtime code. The sole
+Python source difference from the preceding viewer proof is `web_autostart.py`;
+45 other Python files are unchanged. Both GPUs were released afterward.
+
 The `b50f0942` Linux browser CI job failed one artifact reconnect assertion:
 `test_artifact_shelf_streams_while_metrics_are_unselected` did not find the numeric
 preview within ten seconds; fourteen other browser tests passed. The failure log

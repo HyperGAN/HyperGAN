@@ -151,7 +151,8 @@ def _failures(rank):
     trainer = ReplicatedCPUTrainer(config, accumulation_steps=2)
     metrics, _ = trainer.update(*_draw(trainer, rank))
     assert trainer.checkpoint_ready and metrics['objectives'][0] == pytest.approx(2e38)
-    config['objectives'].append(dict(config['objectives'][0]))
+    # Distinct named contributions deliberately overflow only when combined.
+    config['objectives'].append(dict(config['objectives'][0], id='second-huge-loss'))
     trainer = ReplicatedCPUTrainer(config, accumulation_steps=2)
     with pytest.raises(RuntimeError, match='Nonfinite loss'):
         trainer.update(*_draw(trainer, rank))

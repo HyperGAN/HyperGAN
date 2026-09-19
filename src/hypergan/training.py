@@ -176,7 +176,8 @@ class ReferenceTrainer:
         self.opt_d.zero_grad(set_to_none=True)
         d_adversarial = self.gan.d_loss(critic(real), critic(fake.detach()))
         d_penalty = self.penalty(critic, real, fake.detach(), step=step, generator=self.streams["penalty"])
-        d_loss = cfg["adversarial"]["weight"] * d_adversarial + d_penalty
+        d_adversarial_weighted = cfg["adversarial"]["weight"] * d_adversarial
+        d_loss = d_adversarial_weighted + d_penalty
         if not torch.isfinite(d_loss).all():
             raise ValueError("Nonfinite discriminator loss; run stopped")
         d_loss.backward()
@@ -202,7 +203,8 @@ class ReferenceTrainer:
                 if not isinstance(value, torch.Tensor) or value.numel() != 1:
                     raise ValueError("Each objective must return one scalar tensor")
                 objective_losses.append(term["weight"] * value)
-            g_loss = cfg["adversarial"]["weight"] * g_adversarial + prior_loss + sum(objective_losses)
+            g_adversarial_weighted = cfg["adversarial"]["weight"] * g_adversarial
+            g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
             if not torch.isfinite(g_loss).all():
                 raise ValueError("Nonfinite generator loss; run stopped")
             g_loss.backward()
@@ -215,7 +217,7 @@ class ReferenceTrainer:
         update_ema(self.ema_graph, self.graph, settings["ema"])
         update_ema(self.ema_prior, self.prior, settings["ema"])
         self.step = step
-        return {"event": "train", "step": step, "d_loss": float(d_loss.detach()), "g_loss": float(g_loss.detach()), "g_adversarial": float(g_adversarial.detach()), "prior_loss": float(prior_loss.detach()), "gradient_penalty": float(d_penalty.detach()), "objectives": [float(x.detach()) for x in objective_losses], "lr_scale": scale}, detach(batch)
+        return {"event": "train", "step": step, "d_loss": float(d_loss.detach()), "d_adversarial": float(d_adversarial.detach()), "d_adversarial_weighted": float(d_adversarial_weighted.detach()), "g_adversarial_weighted": float(g_adversarial_weighted.detach()), "g_loss": float(g_loss.detach()), "g_adversarial": float(g_adversarial.detach()), "prior_loss": float(prior_loss.detach()), "gradient_penalty": float(d_penalty.detach()), "objectives": [float(x.detach()) for x in objective_losses], "lr_scale": scale}, detach(batch)
 
     @staticmethod
     def _check_gradients(parameters, name):
@@ -227,10 +229,11 @@ def _implementation(trainer):
     """Hash imported implementation bytes without depending on checkout location."""
     import hypergan.checkpoints
     import hypergan.config
+    import hypergan.metrics
     import hypergan.recipes
     import hypergan.run_controller
     import hypergan.single_execution
-    objects = [hypergan.checkpoints, hypergan.config, hypergan.recipes,
+    objects = [hypergan.checkpoints, hypergan.config, hypergan.metrics, hypergan.recipes,
                hypergan.run_controller, hypergan.single_execution, ReferenceTrainer,
                GANLoss, GradientPenalty, ParticleRegularizer, learning_rate_scale,
                type(trainer.data), type(trainer.prior), *[type(x) for x in trainer.graph.modules()],

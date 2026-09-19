@@ -156,7 +156,7 @@ def test_lock_partial_log_and_observer_error_are_honest(tmp_path):
     resume(tmp_path / 'run')
     rows = read_events(tmp_path / 'run', limit=3)
     assert len(rows) == 3 and rows[-1]['event'] == 'complete'
-    assert all(row['schema_version'] == 1 for row in rows)
+    assert all(row['schema_version'] == 2 for row in rows)
 
 
 def test_wall_time_zero_update_stop_has_checkpoint_no_inference(tmp_path):

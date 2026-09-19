@@ -12,7 +12,8 @@ from typing import Protocol
 import uuid
 import warnings
 
-from .config import config_values, fingerprint, load_config, resolve_config
+from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint
+from .metrics import digest, metric_catalog, publish_catalog, select_metrics
 from .run_state import atomic_json, repair_event_tail, run_lock, sync_directory
 
 
@@ -221,6 +222,13 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
                 raise ValueError('Resume numerical execution identity differs from the run manifest')
             restored = execution.restore(run_dir, checkpoint, manifest['run_id'], manifest['config_sha256'])
             _apply_execution(manifest, descriptor)
+            checkpoint_info = json.loads((Path(restored.checkpoint_path) / 'manifest.json').read_text())
+            manifest['recovery_parent'] = {
+                'attempt_id': checkpoint_info['attempt_id'], 'step': restored.step,
+                'checkpoint_id': Path(restored.checkpoint_path).name,
+                'checkpoint_sha256': digest(checkpoint_info),
+            }
+            manifest['config'] = config_values(config)
             manifest.update(preview_every=preview_every, preview_keep=preview_keep,
                             checkpoint_path=str(restored.checkpoint_path), last_durable_step=restored.step,
                             resumed_from=str(restored.checkpoint_path), steps=restored.step)
@@ -258,6 +266,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     context = context or _candidate_attempt(run_dir, manifest['run_id'])
     _persist_attempt(context)
     index, attempt_id, attempt_dir = context.attempt_index, context.attempt_id, context.attempt_dir
+    catalog = metric_catalog(config)
+    catalog_revision = publish_catalog(run_dir, config)
+    manifest.update(metrics_catalog=catalog_revision, observation_sha256=observation_fingerprint(config))
     manifest.update(attempt_id=attempt_id, attempt_index=index, attempt_dir=str(attempt_dir),
                     status='initializing', checkpoint_every=checkpoint_every, stop_reason=None,
                     possible_lost_steps=0)
@@ -270,7 +281,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     def emit(event, *, _observe=True, **values):
         nonlocal sequence
         sequence += 1
-        row = dict(values, schema_version=1, event=event, run_id=manifest['run_id'],
+        row = dict(values, schema_version=2, event=event, run_id=manifest['run_id'],
+                   stream_id='training', stream_generation=manifest['run_id'], catalog=catalog_revision,
                    attempt_id=attempt_id, sequence=sequence,
                    step=manifest['steps'], seconds=time.monotonic() - started)
         with (run_dir / 'events.jsonl').open('a', encoding='utf-8') as output:
@@ -426,7 +438,13 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     observer_error('manual_checkpoint', error)
 
         publish()  # A start/resume observer can immediately submit an attempt-bound request.
-        emit('resume' if manifest.get('resumed_from') else 'start', config_sha256=fingerprint(config))
+        parent = manifest.get('recovery_parent')
+        emit('resume' if parent else 'start', config_sha256=fingerprint(config),
+             observation_sha256=manifest['observation_sha256'],
+             parent_attempt_id=parent['attempt_id'] if parent else None,
+             restored_step=parent['step'] if parent else 0,
+             checkpoint_id=parent['checkpoint_id'] if parent else None,
+             checkpoint_sha256=parent['checkpoint_sha256'] if parent else None)
         if manifest['last_durable_step'] is None or manifest.get('resumed_from'):
             # Accepting an older recovery point must also move the default pointer,
             # even if this attempt stops before another update.
@@ -441,13 +459,19 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if stop_after_steps is not None and attempt_steps >= stop_after_steps:
                 manifest['stop_reason'] = 'stop_after_steps'
                 break
+            update_started = time.monotonic()
             completed = execution.update()
+            step_seconds = time.monotonic() - update_started
             row = completed.metrics
             attempt_steps += 1
             manifest['steps'] = completed.step
             durable = manifest['last_durable_step']
             manifest['possible_lost_steps'] = manifest['steps'] - durable if durable is not None else manifest['steps']
-            emit('train', **{key: value for key, value in row.items() if key not in ('event', 'step')})
+            metrics, statuses, publication = select_metrics(config, catalog, row, completed.step, step_seconds)
+            emit('train', metrics=metrics, measurement_status=statuses, metric_publication=publication,
+                 samples_seen=completed.step * config['training']['batch_size'],
+                 **{key: row[key] for key in ('global_batch_size', 'local_batch_size', 'world_size',
+                                             'accumulation_steps', 'microbatch_size') if key in row})
             if manifest['steps'] % checkpoint_every == 0:
                 checkpoint_now()
             poll_requests()

@@ -9,6 +9,8 @@ import math
 import re
 from pathlib import Path
 
+from .metrics import DEFAULT_METRICS, objective_id, validate_metrics
+
 try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.10
@@ -17,6 +19,7 @@ except ModuleNotFoundError:  # Python 3.10
 
 DEFAULT = {
     "schema_version": 1,
+    "metrics": deepcopy(DEFAULT_METRICS),
     "name": "reference/100gaussians",
     "data": {"factory": "gaussian_grid", "args": {"side": 10, "noise": 0.015}},
     "components": {
@@ -122,7 +125,7 @@ def _factory(value, builtins, location):
 
 
 def _spec(value, location, objectives=False):
-    allowed = {"factory", "args", "inputs", "weight", "detach"} if objectives else {"factory", "args", "inputs", "trainable"}
+    allowed = {"id", "factory", "args", "inputs", "weight", "detach"} if objectives else {"factory", "args", "inputs", "trainable"}
     _keys(value, allowed, location)
     _factory(value.get("factory"), {"mse", "l1"} if objectives else {"mlp", "linear", "identity"}, location)
     value.setdefault("args", {})
@@ -209,6 +212,14 @@ def resolve_config(raw):
         raise ValueError("objectives must be an array of tables")
     for i, term in enumerate(result["objectives"]):
         _spec(term, f"objectives[{i}]", objectives=True)
+    objective_ids = []
+    for term in result["objectives"]:
+        if 'id' in term and (not isinstance(term['id'], str) or re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}', term['id']) is None):
+            raise ValueError('Objective id must be 1–128 letters, digits, dots, underscores or hyphens')
+        objective_ids.append(objective_id(term))
+    if len(set(objective_ids)) != len(objective_ids):
+        raise ValueError('Objective IDs must be unique; give repeated objectives explicit IDs')
+    validate_metrics(result)
     for key in ("lr", "d_lr_mult", "prior_lr_mult"):
         _positive(result["optimizer"][key], f"optimizer.{key}")
     for key in ("betas", "prior_betas"):
@@ -264,7 +275,7 @@ def resolve_config(raw):
         warnings.append("GaussianPrior has no trainable table: optimizer.prior_lr_mult and prior_betas, and prior_regularizer row settings, are not applicable.")
     elif result["prior"]["args"].get("learnable") is False:
         warnings.append("The prior table is frozen: prior optimizer settings do not apply and its regularizer contributes no trainable gradient.")
-    match = result == DEFAULT
+    match = {k: v for k, v in result.items() if k != "metrics"} == {k: v for k, v in DEFAULT.items() if k != "metrics"}
     if not match:
         warnings.append("Custom resolved recipe: runnable combinations are unqualified until separately evaluated.")
     if any(":" in s["factory"] for s in components.values()) or ":" in result["data"]["factory"] or any(":" in t["factory"] for t in result["objectives"]):
@@ -278,8 +289,17 @@ def config_values(config):
     return {key: deepcopy(config[key]) for key in DEFAULT}
 
 
+def numerical_values(config):
+    return {key: value for key, value in config_values(config).items() if key != 'metrics'}
+
+
+def observation_fingerprint(config):
+    return hashlib.sha256(json.dumps(config['metrics'], sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
 def fingerprint(config):
-    return hashlib.sha256(json.dumps(config_values(config), sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    """Numerical recipe identity; observation publication can change on resume."""
+    return hashlib.sha256(json.dumps(numerical_values(config), sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
 def load_config(path):

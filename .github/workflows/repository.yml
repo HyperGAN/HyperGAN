@@ -1,0 +1,26 @@
+name: Repository integrity
+on:
+  push:
+    branches: [develop, master, 'resurrection/**']
+  pull_request:
+    branches: [develop, master]
+permissions:
+  contents: read
+jobs:
+  repository-integrity:
+    name: Repository integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify complete Git history
+        run: git fsck --full --no-reflogs --no-dangling
+      - name: Check contribution whitespace
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "$BASE_SHA...$HEAD_SHA" -- . ':!worktrees'
+      - name: Verify project attribution
+        run: test -s LICENSE

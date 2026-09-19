@@ -15,20 +15,20 @@ Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.
 
 | ID | Task / owner | Dependencies | State and evidence |
 | --- | --- | --- | --- |
-| F1 | Preserve history / branch agent | none | Active: external archives and restore verification |
-| F2 | Bootstrap develop / coordinator | verified checks | PR #299: preserve master ancestry; replace stale required CircleCI check after Actions passes |
-| F3 | Plan and continuity / coordinator | F2 | PR #298 will target develop; this ledger and AGENTS.md |
+| F1 | Preserve history / branch agent | none | Complete: 15 published archive tags; 59 refs restored; bundle SHA and evidence in preservation report |
+| F2 | Bootstrap develop / coordinator | verified checks | Complete: PR #299 merged; real Repository integrity check passed and replaced obsolete CircleCI requirement |
+| F3 | Plan and continuity / coordinator | F2 | Complete: PR #298 merged into develop with this ledger and AGENTS.md |
 | F4 | Packaging, CLI, CI / package agent | F2 | `resurrection/package-foundation`, external `resurrection-worktrees/package` |
 | F5 | Configuration and CPU reference / reference agent | F4 interface | `resurrection/recipe-reference`, external `resurrection-worktrees/reference` |
-| F6 | Legacy code and branch retirement / coordinator | F1, working F4+F5 | Pending |
+| F6 | Legacy code and branch retirement / coordinator | F1, working F4+F5 | PR #300 prepared; six legacy remote branches and five PRs retired after verified archives; code removal awaits foundation |
 | F7 | Integrated acceptance and handoff / coordinator | F1–F6 | Pending |
 
 ## Acceptance evidence
 
-Implementation gates are pending. The earlier audit's 143 upstream test passes are upstream evidence, not tests of the new HyperGAN code. Bootstrap integrity checks validate history/attribution only and do not establish runtime support.
+Runtime implementation gates are pending. Preservation and develop bootstrap are complete; see [the preservation report](resurrection-preservation-2026-09-18.md). The earlier audit's 143 upstream test passes are upstream evidence, not tests of the new HyperGAN code. Bootstrap integrity checks validate history/attribution only and do not establish runtime support.
 
 ## Resume here
 
-Check live PRs #298/#299 and agent worktrees; complete bootstrap, then integrate packaging and reference changes in dependency order. Require fresh-install CLI tests, configuration/paired-I/O tests, numerical update parity, finite reference execution, fresh-process inference reload, and clean wheel/sdist contents before the foundation checkpoint is complete.
+PRs #298/#299 are merged. Integrate packaging and reference changes as one coherent foundation PR, then update/merge cleanup PR #300 and complete its documentation walkthrough. Require fresh-install CLI tests, configuration/paired-I/O tests, numerical update parity, finite reference execution, fresh-process inference reload, and clean wheel/sdist contents before the foundation checkpoint is complete.
 
 Follow-on checkpoint: image workflow, full atomic training checkpoint/resume, and two-process CPU objective/state parity, then actual two-GPU and two-node qualification.

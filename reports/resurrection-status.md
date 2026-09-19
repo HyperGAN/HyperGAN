@@ -119,7 +119,7 @@ No GPU execution, paid compute, dataset download, copied upstream architecture, 
 
 ## CPU worker commands and parent publication checkpoint
 
-The [worker-service report](core-worker-service-2026-09-19.md), [command guide](../docs/cpu-worker-service.md) and [checkpoint guide](../docs/distributed-recovery.md) record the internal APIs. Persistent workers agree run/attempt/sequence/operation before each command and wait outside Gloo between commands. An independent broker owns the numerical processes and monitors exits, coordinator death and deadlines even while the caller is idle or a worker is stuck in native code.
+[PR #313](https://github.com/HyperGAN/HyperGAN/pull/313), the [worker-service report](core-worker-service-2026-09-19.md), [command guide](../docs/cpu-worker-service.md) and [checkpoint guide](../docs/distributed-recovery.md) record the internal APIs. Persistent workers agree run/attempt/sequence/operation before each command and wait outside Gloo between commands. An independent broker owns the numerical processes and monitors exits, coordinator death and deadlines even while the caller is idle or a worker is stuck in native code.
 
 Checkpoint preparation now returns a bounded descriptor after complete rank staging and readiness. It leaves canonical generations and latest untouched. The parent retains the run lock, checks successful all-rank command completion and current health, and uses a process-bound authority to validate expected identity, staged bytes and command lineage before publication. The authority does not itself acquire or verify the OS lock. New supervised code must use this split path; the legacy standalone helper retains its rank-zero publication contract.
 

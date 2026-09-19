@@ -1,6 +1,6 @@
 # CPU worker commands and parent checkpoint publication
 
-Date: 2026-09-19. Baseline: develop `ea824231d015dc4ea814c3f08c2b9d16dd07fd22`, after PR #312.
+Date: 2026-09-19. [PR #313](https://github.com/HyperGAN/HyperGAN/pull/313). Baseline: develop `ea824231d015dc4ea814c3f08c2b9d16dd07fd22`, after PR #312.
 
 This checkpoint implements two prerequisites for the shared distributed run service: [persistent supervised worker commands](../docs/cpu-worker-service.md) and [checkpoint preparation separated from canonical publication](../docs/distributed-recovery.md). Public `train` and `resume` remain single-process. The replicated execution adapter, shared observation integration and bounded renderer are the next cutpoint.
 

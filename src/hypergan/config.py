@@ -170,7 +170,7 @@ def resolve_config(raw):
             raise ValueError(f"The adversarial loop requires trainable {name}; frozen auxiliary modules are supported")
     if "candidate" not in components["discriminator"]["inputs"].values():
         raise ValueError("discriminator must bind its candidate input to 'candidate'")
-    _factory(result["data"]["factory"], {"gaussian_grid", "paired_linear"}, "data.factory")
+    _factory(result["data"]["factory"], {"gaussian_grid", "paired_linear", "image_folder"}, "data.factory")
     if not isinstance(result["data"]["args"], dict):
         raise ValueError("data.args must be a table")
     if result["prior"]["kind"] not in {"particles", "mog", "gaussian"}:

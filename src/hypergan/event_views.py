@@ -333,6 +333,7 @@ class Projector:
         self._stack = self._service = None
         self.cursor = None
         self.sequence = 0
+        self.source = None
         self._failed = False
         self._catalogs = OrderedDict()
 
@@ -357,7 +358,7 @@ class Projector:
                             'generation': uuid.uuid4().hex, 'map': self.descriptor}
                 atomic_json(metadata_path, metadata)
             self.generation = metadata['generation']
-            self.cursor, self.sequence, self._failed = None, 0, False
+            self.cursor, self.sequence, self._failed, self.source = None, 0, False, None
             self._output = stack.enter_context(self.path.open('a+b'))
             # Only the final complete frame is needed to recover progress. Read
             # at most two frame budgets even for a multi-gigabyte projection.
@@ -383,7 +384,7 @@ class Projector:
                     raise ValueError('Corrupt projection final frame')
                 _integer(row.get('projection_sequence'), 'projection sequence', 1, 2 ** 63 - 1)
                 _frame(row, self.revision, row['projection_sequence'] - 1)
-                self.cursor, self.sequence = row['source_cursor'], row['projection_sequence']
+                self.cursor, self.sequence, self.source = row['source_cursor'], row['projection_sequence'], row['source']
                 self._output.truncate(begin + end + 1)
             self._output.seek(0, os.SEEK_END)
             # Validate saved source generation/boundary before appending anything.
@@ -419,6 +420,9 @@ class Projector:
                                max_bytes=1048576, include_cursors=True)
         emitted = 0
         for event, source_cursor in zip(page['events'], page['event_cursors']):
+            source = {key: event.get(key, 'training' if key == 'stream_id' else event['run_id'])
+                      for key in ('run_id', 'stream_id', 'stream_generation', 'attempt_id', 'sequence')}
+            _source_contiguous(source, self.source)
             revision = event.get('catalog')
             if revision not in self._catalogs:
                 self._catalogs[revision] = _definitions(self.root, event)
@@ -431,15 +435,14 @@ class Projector:
                 output = self._service.command('map', event)['results'][0]
             row = {'schema_version': 1, 'map_revision': self.revision,
                    'projection_sequence': self.sequence + 1, 'source_cursor': source_cursor,
-                   'source': {key: event.get(key, 'training' if key == 'stream_id' else event['run_id'])
-                              for key in ('run_id', 'stream_id', 'stream_generation', 'attempt_id', 'sequence')},
+                   'source': source,
                    'emissions': _emissions(event, output, self.revision, definitions)}
             encoded = _json(row) + b'\n'
             if len(encoded) > MAX_FRAME_BYTES:
                 raise ValueError('Projection frame exceeds 65536 bytes')
             self._output.write(encoded)
             self._output.flush()
-            self.cursor, self.sequence = source_cursor, row['projection_sequence']
+            self.cursor, self.sequence, self.source = source_cursor, row['projection_sequence'], source
             emitted += 1
         return {'documents': emitted, 'source_cursor': self.cursor, 'has_more': page['has_more'],
                 'partial_tail': page['partial_tail'], 'projection_sequence': self.sequence}

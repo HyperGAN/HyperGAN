@@ -240,6 +240,59 @@ class _Stream:
         self.process.stdin.close()
 
 
+def _native_standard_streams():
+    """Resolve only the owning C runtime's standard stdout/stderr streams.
+
+    Never fflush(NULL): unrelated FILEs may target unrelated blocking devices.
+    Custom native streams, separate CRTs and externally held FILE locks are
+    not managed here.
+    """
+    import ctypes
+
+    libraries = []
+    if os.name == 'nt':
+        modern = ctypes.CDLL('ucrtbase')
+        modern.__acrt_iob_func.argtypes = [ctypes.c_uint]
+        modern.__acrt_iob_func.restype = ctypes.c_void_p
+        libraries.append((modern, [modern.__acrt_iob_func(index) for index in (1, 2)]))
+    else:
+        libc = ctypes.CDLL(None)
+        names = ('__stdoutp', '__stderrp') if sys.platform == 'darwin' else ('stdout', 'stderr')
+        libraries.append((libc, [ctypes.c_void_p.in_dll(libc, name).value for name in names]))
+    for library, streams in libraries:
+        if any(not stream for stream in streams):
+            raise RuntimeError('Native stdout/stderr pointer is unavailable')
+        library.fflush.argtypes = [ctypes.c_void_p]
+        library.fflush.restype = ctypes.c_int
+    return libraries
+
+
+class _NativeStreams:
+    def __init__(self):
+        self.libraries = _native_standard_streams()
+
+    def flush(self):
+        for library, streams in self.libraries:
+            for stream in streams:
+                library.fflush(stream)
+
+
+def _flush_cached_streams(originals):
+    # Some dependencies cache the original objects (or sys.__stdout__) before
+    # CLI redirection. Their buffers must not survive restoration of a full
+    # terminal pipe. They still point at the independently drained FDs here.
+    seen = set()
+    for original in (*originals, sys.__stdout__, sys.__stderr__):
+        if original is None or id(original) in seen:
+            continue
+        seen.add(id(original))
+        try:
+            original.flush()
+        except (OSError, ValueError):
+            # A disconnected/caller-closed stream is optional output as well.
+            pass
+
+
 class CLIProgress:
     """Exact internal sink type allowed to bypass arbitrary callback isolation."""
     def __init__(self, output):
@@ -293,18 +346,30 @@ def training_output(*, progress_json=False):
     training. Shutdown gets one shared second plus forced process cleanup.
     """
     originals = sys.stdout, sys.stderr
-    stdout = stderr = None
+    stdout = stderr = native = None
     try:
+        native = _NativeStreams()
         stdout = _Stream(originals[0], 1)
         stderr = _Stream(originals[1], 2)
         sys.stdout, sys.stderr = stdout, stderr
         yield TrainingOutput(stdout, stderr, progress_json)
     finally:
-        sys.stdout, sys.stderr = originals
-        deadline = time.monotonic() + CLOSE_SECONDS
-        for stream in (stdout, stderr):
-            if stream is not None:
-                stream.close(deadline)
+        # Flush cached Python and C stdio while both independent input drains
+        # are alive. Otherwise interpreter/libc finalization could write those
+        # buffers into the restored, already full destination and hang exit.
+        try:
+            if stdout is not None and stderr is not None:
+                _flush_cached_streams(originals)
+                native.flush()
+        finally:
+            sys.stdout, sys.stderr = originals
+            deadline = time.monotonic() + CLOSE_SECONDS
+            try:
+                if stdout is not None:
+                    stdout.close(deadline)
+            finally:
+                if stderr is not None:
+                    stderr.close(deadline)
 
 
 if __name__ == '__main__':

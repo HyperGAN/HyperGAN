@@ -35,7 +35,14 @@ Shutdown shares a one-second drain grace across stdout/stderr, then kills and
 reaps blocked drains. Raw feeder writes use no Python text-stream locks and are
 released by closing the killed receiver. An independent watcher exits each drain
 when the coordinator dies, including while its destination writer is blocked.
-The context restores original descriptors and streams. Native worker lifetime
+Before restoration, the context flushes cached Python standard streams and
+only the owning C runtime's stdout/stderr (libc on Linux/macOS, UCRT on Windows)
+through the still-active drains. This prevents buffered native output from
+hanging interpreter exit after restoring a full destination. Arbitrary custom
+FILEs, separately cached OS handles, separate CRT streams and externally held
+FILE locks are outside this descriptor transport. No blanket `fflush(NULL)` or
+old-runtime compatibility shim is used. Cleanup still restores/reaps resources
+if flush raises. The context restores original descriptors and streams. Native worker lifetime
 continues to be governed by the existing worker broker; output drains do not
 replace numerical supervision.
 
@@ -46,10 +53,29 @@ PYTHONPATH=src /tmp/hypergan-public-coordinator-cpu/bin/python -m pytest \
   tests/foundation/test_bounded_cli_output.py -q
 ```
 
-Nine lightweight tests cover actual unread, closed and slowly read stdout/stderr
+The nine focused tests passed in 6.11 seconds. A fresh wheel rebuilt through
+its source distribution at `e55677ec6463686c906bf3e25cff827532cdd437` passed the
+complete installed foundation suite: **355 passed in 17.49 seconds**, with no
+skips and no numerical extras installed:
+
+```sh
+/tmp/hypergan-public-output-verify/bin/python -I -m pytest \
+  /home/martyn/dev/hypergan/public-bounded-output/tests/foundation \
+  --import-mode=importlib -q
+```
+
+[PR #328](https://github.com/HyperGAN/HyperGAN/pull/328) targets `develop`.
+Build/test logs are `/tmp/hypergan-public-output-build.log` and
+`/tmp/hypergan-public-output-installed-tests.log`; the coordinator retains the
+integrated durable receipt and exact-head required CI results.
+
+Twelve lightweight tests cover actual unread, closed and slowly read stdout/stderr
 pipes; native and inherited subprocess diagnostic forwarding; complete normal
 JSON/JSONL results; oversized result fallback; parent-death cleanup; memory
-capture bounds; and exception restoration. Installed-wheel and platform CI
+capture bounds; and exception restoration. New regressions cover buffered cached Python/native
+stdio at process exit, healthy buffered diagnostic forwarding, and forced flush
+error cleanup. The initially installed 355-test receipt above precedes these
+three additional cases; final installed/platform results are recorded in the PR. Installed-wheel and platform CI
 results are recorded in the PR and coordinator's integration receipt. The next
 slice routes public `train`/`resume` through this context and qualifies actual
 CPU and two-GPU stop/resume with disconnected output. No paid compute or release.

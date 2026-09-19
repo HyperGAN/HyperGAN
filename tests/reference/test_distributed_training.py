@@ -134,8 +134,8 @@ def _data_and_none_gradients(rank):
 
 def _errors(rank):
     config = _config()
-    with pytest.raises(ValueError, match='accumulation_steps=1'):
-        ReplicatedCPUTrainer(config, accumulation_steps=2)
+    with pytest.raises(ValueError, match='divide local_batch_size'):
+        ReplicatedCPUTrainer(config, accumulation_steps=3)
     bad = copy.deepcopy(config)
     bad['training']['batch_size'] = 7
     with pytest.raises(ValueError, match='divide evenly'):

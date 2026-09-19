@@ -1,6 +1,6 @@
 # Core observation checkpoint — 2026-09-18
 
-This slice finishes the local CPU observation foundation before a browser server or a distributed trainer is introduced. Three subagents divide event/request protocols, preview/trainer integration, and independent CPU collective groundwork; the coordinator integrates the CLI, tests installed distributions and reviews the changes for `develop`. No GPU execution, dataset download, cloud allocation or release publishing is part of this checkpoint.
+[PR #307](https://github.com/HyperGAN/HyperGAN/pull/307) finishes the local CPU observation foundation before a browser server or a distributed trainer is introduced. Three subagents divide event/request protocols, preview/trainer integration, and independent CPU collective groundwork; the coordinator integrates the CLI, tests installed distributions and reviews the changes for `develop`. No GPU execution, dataset download, cloud allocation or release publishing is part of this checkpoint.
 
 ## Delivered core workflow
 
@@ -21,7 +21,7 @@ Independent review found and fixed an unbounded orphan-generation case after cor
 
 ## Next satisfying cutpoint
 
-- [ ] Merge this observation slice after independent review and installed-package/CI acceptance, then update the W1 ledger with evidence.
+- [x] Implement and independently review W1, pass installed-package acceptance, and record the observation contract and next gate. PR #307 integrates this slice into `develop` only after required CI passes.
 - [x] Merge bounded CPU collective groundwork separately: compare global objectives, first/second derivatives and prior populations in two real Gloo processes. Label this numerical groundwork explicitly; it is not a training launcher.
 - [ ] Implement one fixed-world-size CPU distributed update path with explicit G/prior/auxiliary ownership, alternating D/G reducers and accumulation semantics. Compare parameters, Adam state and EMA across complete updates against a controlled global reference.
 - [ ] Add coordinated fixed-topology checkpoints, per-rank RNG/data state and whole-job failure/restart. Only complete rank sets establish a recoverable global update.

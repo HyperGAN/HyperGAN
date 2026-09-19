@@ -108,6 +108,7 @@ jobs:
 
   web:
     name: Viewer API (${{ matrix.os }})
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -130,7 +131,7 @@ jobs:
           python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[web,test]'])"
       - name: Exercise public API and local service outside checkout
         working-directory: ${{ runner.temp }}
-        run: python -I -m pytest "${{ github.workspace }}/tests/web" --import-mode=importlib
+        run: python -I -m pytest "${{ github.workspace }}/tests/web" --import-mode=importlib -vv -o faulthandler_timeout=60
 
   foundation:
     name: Foundation CI

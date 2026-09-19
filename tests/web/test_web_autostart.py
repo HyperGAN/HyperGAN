@@ -142,3 +142,106 @@ def test_cli_explicit_bind_preflight_before_numerical_import_or_run_creation(tmp
                      str(occupied.getsockname()[1])]) == 1
     assert not root.exists()
     assert capsys.readouterr().out == ''
+
+
+_STOP_OWNER_DEATH = '''
+from hypergan import web_autostart as web
+from pathlib import Path
+import faulthandler,json,os,signal,sys,time
+
+real_broker,real_project=web._broker,web._project
+
+def interrupted_server(root,listener,session,stop):
+    # Kill inside the old Event's condition critical section. Lock-free stop
+    # flags have no cross-process critical section to interrupt.
+    condition=getattr(stop,'_cond',None)
+    if condition is not None:
+        condition.acquire()
+    (root.parent/'server.pid').write_text(str(os.getpid()))
+    time.sleep(60)
+
+def recorded_project(root,stop):
+    (root.parent/'projector.pid').write_text(str(os.getpid()))
+    real_project(root,stop)
+
+def fault_broker(*args):
+    web._server,web._project=interrupted_server,recorded_project
+    real_broker(*args)
+
+if __name__ == '__main__':
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(10,repeat=True)
+    web._broker=fault_broker
+    directory=Path(sys.argv[1])
+    viewer=web.Viewer(directory/'pending')
+    (directory/'credential-path.json').write_text(json.dumps(str(viewer.credential_path)))
+    deadline=time.monotonic()+10
+    while not all((directory/name).exists() for name in ('server.pid','projector.pid')):
+        if time.monotonic()>deadline:
+            raise RuntimeError('worker PID receipt timed out')
+        time.sleep(.02)
+    pids=[viewer.process.pid,*[int((directory/name).read_text()) for name in ('server.pid','projector.pid')]]
+    (directory/'pids.json').write_text(json.dumps(pids))
+    os.kill(pids[1],signal.SIGTERM)
+    started=time.monotonic()
+    viewer.close()
+    (directory/'closed.json').write_text(json.dumps({'seconds':time.monotonic()-started}))
+'''
+
+
+def _process_running(pid):
+    if sys.platform == 'win32':
+        import ctypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.OpenProcess.restype = ctypes.c_void_p
+        kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel.OpenProcess(0x100000, False, pid)
+        if not handle:
+            return False
+        try:
+            return kernel.WaitForSingleObject(handle, 0) == 258
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    stat = Path(f'/proc/{pid}/stat')
+    return not (stat.exists() and stat.read_text().split()[2] == 'Z')
+
+
+def test_killed_stop_owner_cannot_strand_broker_or_projector(tmp_path):
+    script = tmp_path / 'stop_owner.py'
+    script.write_text(_STOP_OWNER_DEATH)
+    with (tmp_path / 'parent.log').open('wb') as log:
+        process = subprocess.Popen([sys.executable, str(script), str(tmp_path)], stdout=log, stderr=log)
+        passed = False
+        try:
+            assert process.wait(timeout=18) == 0
+            pids = json.loads((tmp_path / 'pids.json').read_text())
+            until(lambda: not any(_process_running(pid) for pid in pids), timeout=3)
+            assert json.loads((tmp_path / 'closed.json').read_text())['seconds'] < 5
+            credential = json.loads((tmp_path / 'credential-path.json').read_text())
+            assert not Path(credential).exists()
+            passed = True
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(5)
+            # Preserve failed assertions while cleaning deliberate pre-fix leaks.
+            receipt = tmp_path / 'pids.json'
+            if receipt.exists():
+                for pid in json.loads(receipt.read_text()):
+                    if _process_running(pid):
+                        os.kill(pid, signal.SIGTERM if sys.platform == 'win32' else signal.SIGKILL)
+            credentials = tmp_path / 'credential-path.json'
+            if credentials.exists():
+                path = Path(json.loads(credentials.read_text()))
+                path.unlink(missing_ok=True)
+                try:
+                    path.parent.rmdir()
+                except OSError:
+                    pass
+            if not passed:
+                print((tmp_path / 'parent.log').read_text(), file=sys.stderr)

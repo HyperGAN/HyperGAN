@@ -15,5 +15,10 @@ include reducers/core/rust-toolchain.toml
 prune reducers/core/target
 include scripts/build_reducer.py
 include scripts/reducer_proof.py
+include scripts/metrics_server_proof.py
 recursive-include src/hypergan/metrics_reducer/assets *.txt
 recursive-include src/hypergan/metrics_reducer/assets *.wasm *.json *.js *.html
+recursive-include src/hypergan/web_assets *.html *.css *.js *.txt *.json
+recursive-include tests/web *.py
+recursive-include frontend *.json *.js *.mjs *.md
+prune frontend/node_modules

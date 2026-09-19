@@ -85,6 +85,11 @@ def _parser():
     contributions.add_argument("--cursor", help="last applied projection cursor")
     contributions.add_argument("--limit", type=_positive_int, default=100)
     contributions.add_argument("--max-bytes", type=_positive_int, default=1048576)
+    serve = commands.add_parser("serve", help="Serve an existing run over the local API and browser UI (web extra)")
+    serve.add_argument("run_dir", type=Path)
+    serve.add_argument("--port", type=int, default=0, help="loopback port; default chooses an available port")
+    serve.add_argument("--session-file", type=Path, help="new private credential file outside the run")
+    serve.add_argument("--open", action="store_true", help="open the local viewer in a browser")
     checkpoint = commands.add_parser("checkpoint", help="Request a checkpoint at the trainer's next safe boundary")
     checkpoint.add_argument("run_dir", type=Path)
     operation = checkpoint.add_mutually_exclusive_group()
@@ -158,6 +163,10 @@ def main(argv=None):
             from .metrics import read_catalog
 
             _print_json(read_catalog(args.run_dir, args.revision))
+        elif args.command == "serve":
+            from .web_launch import serve
+
+            serve(args.run_dir, port=args.port, session_file=args.session_file, open_browser=args.open)
         elif args.command == "contributions":
             from .event_views import MapSpec, read_projection_page
 

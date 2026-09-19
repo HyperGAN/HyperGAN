@@ -1,0 +1,16 @@
+{
+  "name": "hypergan-local-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node build.mjs --check"
+  },
+  "dependencies": {
+    "echarts": "6.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

@@ -2,7 +2,7 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-19 (America/Denver).
 
-Current cutpoint: CPU accumulation now preserves full-global-batch GAN objectives while replaying one microbatch at a time. Complete replicated updates, worker supervision and fixed-topology recovery are implemented. Next, extract the shared run lifecycle while preserving current single-process behavior, then connect distributed launch/resume and observation. GPU and real cluster qualification remain ahead.
+Current cutpoint: the shared run controller and single-process execution adapter are extracted, with exact old/new behavior checks and 214 installed-package tests passing. A Windows lock initialization race found in the preceding post-merge CI run is fixed. Next, add the CPU execution profile and structural/runtime preflight, then connect supervised distributed launch/resume. GPU and real cluster qualification remain ahead.
 
 ## First checkpoint
 
@@ -89,22 +89,32 @@ This is an internal CPU execution/recovery contract. Public `train`/`resume`, li
 
 ## CPU accumulation checkpoint
 
-[PR #310](https://github.com/HyperGAN/HyperGAN/pull/310) delivers this checkpoint. The [accumulation report](core-accumulation-2026-09-19.md) and [usage contract](../docs/accumulation.md) document complete CPU updates with accumulation greater than one. Detached full-batch logits preserve RA derivatives, and global unique/full-table VICReg is evaluated once. Microbatch replay retains one network graph at a time; the full input/prior/logit state still exists. Custom sample-independent components remain configurable with an unqualified warning, and custom separable objectives declare mean/sum aggregation. Registered forward mutation, replay mismatch, nonfinite combined losses and invalid controls fail explicitly.
+[PR #310](https://github.com/HyperGAN/HyperGAN/pull/310) merged at `628a406cb2efa1a377b1ed03b7528356f8e8904d` after required PR CI passed. The [accumulation report](core-accumulation-2026-09-19.md) and [usage contract](../docs/accumulation.md) document complete CPU updates with accumulation greater than one. Detached full-batch logits preserve RA derivatives, and global unique/full-table VICReg is evaluated once. Microbatch replay retains one network graph at a time; the full input/prior/logit state still exists. Custom sample-independent components remain configurable with an unqualified warning, and custom separable objectives declare mean/sum aggregation. Registered forward mutation, replay mismatch, nonfinite combined losses and invalid controls fail explicitly.
 
 Three subagents handled implementation, independent numerical/memory/recovery acceptance and shared-service design review. Complete Adam/EMA updates match accumulation one across all 12 adversarial combinations at unchanged tolerances. A controlled network measured 395,380 bytes versus 98,784 bytes of peak saved activation storage at factors one and four; this is not total memory or a GPU benchmark. Fresh-group accumulated recovery is exact for the tested stochastic/sampler contract, changed accumulation is rejected, and a rank failure on the second G microbatch preserves the previous durable checkpoint.
 
-The source-distribution-built wheel at implementation/test head `07f99694` passed **194 installed-package tests in 185.19 seconds** outside the checkout. A separate base-only installation passed **59 tests in 1.30 seconds**, with torch, ParticleGAN, NumPy and Pillow absent. Runtime: Python 3.12.13, torch 2.14.0+cpu, ParticleGAN 0.5.0, NumPy 2.5.3 and Pillow 12.3.0. Required PR CI is the integration gate; the durable receipt records the final reviewed head, checks, merge and branch preservation.
+The source-distribution-built wheel at implementation/test head `07f99694` passed **194 installed-package tests in 185.19 seconds** outside the checkout. A separate base-only installation passed **59 tests in 1.30 seconds**, with torch, ParticleGAN, NumPy and Pillow absent. Runtime: Python 3.12.13, torch 2.14.0+cpu, ParticleGAN 0.5.0, NumPy 2.5.3 and Pillow 12.3.0. Required [PR Foundation CI](https://github.com/HyperGAN/HyperGAN/actions/runs/35425978102) and [Repository integrity](https://github.com/HyperGAN/HyperGAN/actions/runs/35425978123) passed. The later [post-merge Foundation run](https://github.com/HyperGAN/HyperGAN/actions/runs/35426214214) failed in the Windows/Python 3.12 checkpoint-request lock test; its CPU reference job passed. The next session diagnosed a pre-lock initialization write race, documented in the [lifecycle checkpoint](core-lifecycle-2026-09-19.md). The durable receipt records the reviewed head, merge and branch preservation.
 
 The [shared run-service design](distributed-run-service-design-2026-09-19.md) is a proposal for the next milestone. Workers must wait outside Gloo between updates; one controller owns run state and checkpoint commit authority. Parent-death fencing and bounded preview execution are public-integration gates. No distributed CLI, browser server, GPU execution, paid compute, dataset download, copied upstream image architecture or release was added. The five tracked issues remain open.
 
-## Next bounded checkpoint: shared run lifecycle
+## Shared lifecycle and Windows lock checkpoint
+
+[PR #311](https://github.com/HyperGAN/HyperGAN/pull/311), the [lifecycle report](core-lifecycle-2026-09-19.md) and [developer guide](../docs/run-lifecycle.md) record the extraction. One torch-free controller owns locks, attempts, stop policy, events, checkpoint requests and sample counters. The single-process adapter owns trainer/batch state, strict restore, numerical updates, snapshots, inference and callback RNG/thread isolation. Successful shutdown precedes terminal success; failure cleanup retains the run lock and never snapshots a partial update. Public command signatures and numerical code remain unchanged.
+
+Three subagents handled extraction, independent acceptance and the Windows CI failure. Review fixed warning handlers escaping RNG isolation and stale cleanup diagnostics across attempts. Both run and request-queue locks now acquire their OS lock without an unsafe initialization write. Regressions cover actual process contention and release, including empty lock files; required platform CI confirms native Windows behavior before integration.
+
+The sdist-built wheel at source/test head `4a8c1703` passed **214 installed-package tests in 188.23 seconds** outside the checkout, plus **74 tests in 1.62 seconds** in a separate base-only installation. Default, paired and stochastic old/new runs also matched full checkpoint state and normalized lifecycle results exactly through stop/resume, previews and a manual save. Source hashes now include the extracted files, deliberately rejecting old-source native and internal distributed checkpoints; those runs require their original installation. Required PR CI and the final merge are recorded in the durable session receipt.
+
+No distributed CLI, server, GPU execution, paid compute, dataset download, upstream architecture copy or release was added. All five tracked issues remain open. Durable evidence is under `/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-lifecycle/`.
+
+## Next bounded checkpoint: CPU execution profile and preflight
 
 
 - [x] Complete fixed-global-batch two-process CPU D/G/prior/auxiliary/Adam/EMA updates and worker cleanup.
 - [x] Implement coordinated fixed-topology snapshots and exact fresh-group continuation, including shuffled image data and rank failure.
 - [x] Add CPU activation-memory-bounded accumulation preserving full-global-batch RA and VICReg, complete updates and exact fixed-strategy recovery. See the accumulation checkpoint above.
-- [ ] **First next-session cutpoint:** extract the common lifecycle controller and single-process adapter from `training.py`; preserve the current commands, attempts, checkpoints, previews and request semantics under the installed-package suite.
-- [ ] Add the CPU execution profile and structural/runtime preflight, with strict numerical identity and actionable rank errors.
+- [x] Extract the common lifecycle controller and single-process adapter from `training.py`; preserve current commands, attempts, checkpoints, previews and request semantics under installed-package and old/new behavior comparisons.
+- [ ] **First next-session cutpoint:** add the CPU execution profile and structural/runtime preflight, with strict numerical identity and actionable rank errors. Keep recipe architecture separate from execution policy; validate structure without training dependencies and runtime behavior in bounded workers.
 - [ ] Connect supervised worker commands, distributed train/resume and checkpoint prepare/commit; prove parent-death cleanup and safe takeover before exposing the distributed CLI.
 - [ ] Reuse one event/request/counter service and add bounded snapshot preview execution outside training collectives.
 - [ ] Complete installed-package whole-job acceptance with accumulated shuffled data, fresh-group recovery and fault injection; preserve headless behavior.

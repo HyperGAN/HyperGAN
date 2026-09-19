@@ -1,0 +1,380 @@
+"""Shared run policy, independent of numerical trainers and tensor state.
+
+The execution interface is internal. This extraction supplies only a synchronous
+single-process adapter; it does not expose distributed launch or a run server.
+"""
+from dataclasses import dataclass
+import json
+import math
+from pathlib import Path
+import time
+from typing import Protocol
+import uuid
+import warnings
+
+from .config import config_values, fingerprint, load_config, resolve_config
+from .run_state import atomic_json, repair_event_tail, run_lock, sync_directory
+
+
+@dataclass(frozen=True)
+class ExecutionInfo:
+    step: int
+    data_identity: dict
+    recovery_reasons: list
+    checkpoint_metadata: dict
+
+
+@dataclass(frozen=True)
+class Restored:
+    checkpoint_path: Path
+    step: int
+
+
+@dataclass(frozen=True)
+class CompletedUpdate:
+    step: int
+    metrics: dict
+
+
+@dataclass(frozen=True)
+class PreviewResult:
+    record: dict
+    index: dict
+    errors: list
+
+
+@dataclass(frozen=True)
+class ArtifactResult:
+    bundle_path: Path
+    sample_path: Path
+
+
+class Execution(Protocol):
+    @staticmethod
+    def environment() -> dict: ...
+    def start(self) -> ExecutionInfo: ...
+    def restore(self, run_dir, checkpoint, run_id, config_sha256) -> Restored: ...
+    def update(self) -> CompletedUpdate: ...
+    def checkpoint(self, run_dir, metadata) -> Path: ...
+    def preview(self, run_dir, identity, *, keep) -> PreviewResult: ...
+    @property
+    def inference_available(self) -> bool: ...
+    def inference(self, bundle_dir, identity) -> ArtifactResult: ...
+    def observe(self, callback, event) -> None: ...
+    def shutdown(self) -> None: ...
+
+
+def _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every=0, preview_keep=3):
+    if type(preview_every) is not int or preview_every < 0:
+        raise ValueError("preview_every must be a nonnegative integer; zero disables previews")
+    if type(preview_keep) is not int or not 1 <= preview_keep <= 100:
+        raise ValueError("preview_keep must be between 1 and 100")
+    if type(checkpoint_every) is not int or checkpoint_every < 1:
+        raise ValueError('checkpoint_every must be a positive integer')
+    if max_seconds is not None and (type(max_seconds) not in (int, float) or not math.isfinite(max_seconds) or max_seconds <= 0):
+        raise ValueError('max_seconds must be a finite positive number')
+    if stop_after_steps is not None and (type(stop_after_steps) is not int or stop_after_steps < 1):
+        raise ValueError('stop_after_steps must be a positive integer')
+
+
+def _new_attempt(run_dir):
+    root = run_dir / 'attempts'
+    root.mkdir(exist_ok=True)
+    indexes = [int(p.name.split('-')[0]) for p in root.iterdir() if p.is_dir() and p.name.split('-')[0].isdigit()]
+    index = max(indexes, default=0) + 1
+    identity = f'{index:04d}-{uuid.uuid4().hex}'
+    path = root / identity
+    path.mkdir()
+    sync_directory(root)
+    return index, identity, path
+
+
+def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
+          stop_after_steps=None, on_event=None, preview_every=0, preview_keep=3, execution_factory=None):
+    """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
+    if execution_factory is None:
+        raise TypeError('run_train requires an execution_factory')
+    _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
+    config = load_config(config_path)
+    if steps is not None:
+        raw = config_values(config)
+        raw['training']['steps'] = steps
+        config = resolve_config(raw)
+    run_dir = Path(run_dir).resolve()
+    run_dir.mkdir(parents=True, exist_ok=False)
+    qualification = dict(config['qualification'])
+    qualification['status'] = 'reference-only' if qualification['recipe_match'] else 'unqualified'
+    qualification['runtime_qualification'] = 'not-certified; run numerical parity CI for this exact runtime'
+    environment = execution_factory.environment()
+    manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': uuid.uuid4().hex,
+                'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
+                'runtime': environment['runtime'], 'source': environment['source'], 'qualification': qualification,
+                'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
+                'global_batch_size': config['training']['batch_size'], 'resume_supported': False,
+                'last_durable_step': None, 'checkpoint_path': None, 'next_sample_sequence': 1,
+                'preview_every': preview_every, 'preview_keep': preview_keep, 'previews': [], 'observation_errors': [],
+                'rng_streams': {name: config['training']['seed'] + offset for name, offset in [('data', 1), ('prior', 2), ('penalty', 3)]}}
+    manifest['rng_streams']['sampling'] = config['sampling']['seed']
+    with run_lock(run_dir):
+        return execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_after_steps, on_event,
+                           execution=execution_factory(config))
+
+
+def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
+               max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None,
+               preview_keep=None, execution_factory=None):
+    """Restore through the execution adapter before reserving a new attempt."""
+    if execution_factory is None:
+        raise TypeError('run_resume requires an execution_factory')
+    run_dir = Path(run_dir).resolve()
+    if not run_dir.is_dir():
+        raise ValueError(f'Run directory does not exist: {run_dir}')
+    with run_lock(run_dir):
+        manifest = json.loads((run_dir / 'manifest.json').read_text())
+        required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}
+        if not isinstance(manifest, dict) or not required.issubset(manifest) or manifest['schema_version'] != 1:
+            raise ValueError('Run manifest has no supported full recovery contract')
+        checkpoint_every = manifest.get('checkpoint_every', 100) if checkpoint_every is None else checkpoint_every
+        preview_every = manifest.get('preview_every', 0) if preview_every is None else preview_every
+        preview_keep = manifest.get('preview_keep', 3) if preview_keep is None else preview_keep
+        _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
+        config = load_config(config_path) if config_path is not None else resolve_config(manifest['config'])
+        execution = execution_factory(config)
+        try:
+            restored = execution.restore(run_dir, checkpoint, manifest['run_id'], manifest['config_sha256'])
+        except BaseException:
+            try:
+                execution.shutdown()
+            except BaseException:
+                pass  # Preserve the validation/restore error without creating an attempt.
+            raise
+        manifest.update(preview_every=preview_every, preview_keep=preview_keep,
+                        checkpoint_path=str(restored.checkpoint_path), last_durable_step=restored.step,
+                        resumed_from=str(restored.checkpoint_path), steps=restored.step)
+        return execute_run(config, run_dir, manifest, checkpoint_every, max_seconds,
+                           stop_after_steps, on_event, execution=execution)
+
+
+def execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_after_steps,
+                on_event, *, execution):
+    """Hold one adapter for an attempt; cleanup also covers early persistence errors."""
+    shutdown_attempted = False
+    def shutdown():
+        nonlocal shutdown_attempted
+        if not shutdown_attempted:
+            shutdown_attempted = True
+            execution.shutdown()
+    try:
+        return _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds,
+                            stop_after_steps, on_event, execution=execution, shutdown=shutdown)
+    except BaseException:
+        try:
+            shutdown()
+        except BaseException:
+            pass
+        raise
+
+
+def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_after_steps,
+             on_event, *, execution, shutdown):
+    started = time.monotonic()
+    index, attempt_id, attempt_dir = _new_attempt(run_dir)
+    manifest.update(attempt_id=attempt_id, attempt_index=index, attempt_dir=str(attempt_dir),
+                    status='initializing', checkpoint_every=checkpoint_every, stop_reason=None,
+                    possible_lost_steps=0)
+    for key in ('error', 'shutdown_error', 'sample_path', 'bundle_path'):
+        manifest.pop(key, None)
+    atomic_json(run_dir / 'manifest.json', manifest)
+    repair_event_tail(run_dir / 'events.jsonl')
+    sequence = 0
+
+    def emit(event, **values):
+        nonlocal sequence
+        sequence += 1
+        row = dict(values, schema_version=1, event=event, run_id=manifest['run_id'],
+                   attempt_id=attempt_id, sequence=sequence,
+                   step=manifest['steps'], seconds=time.monotonic() - started)
+        with (run_dir / 'events.jsonl').open('a', encoding='utf-8') as output:
+            output.write(json.dumps(row, allow_nan=False) + '\n')
+            output.flush()
+        if on_event is not None:
+            def notify(value):
+                try:
+                    on_event(value)
+                except Exception as exc:
+                    try:
+                        warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
+                    except Warning:
+                        pass
+            execution.observe(notify, dict(row))
+        return row
+
+    def publish():
+        manifest['seconds'] = time.monotonic() - started
+        atomic_json(run_dir / 'manifest.json', manifest)
+        atomic_json(attempt_dir / 'manifest.json', manifest)
+
+    try:
+        info = execution.start()
+        reasons = info.recovery_reasons
+        manifest['steps'] = info.step
+        manifest.update(resume_supported=not reasons, resume_unsupported_reasons=reasons,
+                        data_identity=info.data_identity, status='running')
+        manifest['qualification']['resume'] = False
+        manifest['qualification']['recovery_scope'] = 'CPU full-state protocol; custom hidden state is author responsibility'
+        for reason in reasons:
+            if reason not in manifest['warnings']:
+                manifest['warnings'].append(reason)
+            warnings.warn(reason, RuntimeWarning)
+        metadata = dict(info.checkpoint_metadata, run_id=manifest['run_id'], attempt_id=attempt_id,
+                        next_sample_sequence=manifest['next_sample_sequence'])
+
+        def checkpoint_now(request_ids=None, observer=False):
+            if not manifest['resume_supported']:
+                return
+            metadata['next_sample_sequence'] = manifest['next_sample_sequence']
+            metadata['request_ids'] = list(request_ids or [])
+            try:
+                path = execution.checkpoint(run_dir, metadata)
+            except Exception as exc:
+                if observer:
+                    return None, exc
+                raise
+            manifest.update(checkpoint_path=str(path), last_durable_step=manifest['steps'],
+                            possible_lost_steps=0)
+            publish()
+            emit('checkpoint', checkpoint_path=str(path), request_ids=list(request_ids or []))
+            return path, None
+
+        def observer_error(source, error):
+            record = {'source': source, 'step': manifest['steps'], 'attempt_id': attempt_id,
+                      'error': f'{type(error).__name__}: {error}'[:1000]}
+            manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
+            publish()
+            emit('observer_error', **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
+
+        def preview_now():
+            identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
+                        'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence']}
+            manifest['next_sample_sequence'] += 1
+            publish()  # Reserve before rendering: failed or killed attempts never reuse a sequence.
+            try:
+                preview = execution.preview(run_dir, identity, keep=manifest['preview_keep'])
+                record, preview_index, errors = preview.record, preview.index, preview.errors
+            except Exception as exc:
+                observer_error('preview', exc)
+                return
+            manifest['previews'] = preview_index['previews']
+            manifest['preview_path'] = record['path']
+            publish()
+            emit('preview', preview=record)
+            for error in errors:
+                observer_error('preview_retention', RuntimeError(error))
+
+        def poll_requests():
+            from .run_requests import pending_requests, acknowledge_request
+            try:
+                pending = pending_requests(run_dir)
+            except RuntimeError:
+                return  # A producer holds the short queue lock; retry next boundary.
+            except Exception as exc:
+                observer_error('checkpoint_requests', exc)
+                return
+            matching = []
+            def acknowledge(request, status, path=None, error=None, saved_step=None):
+                try:
+                    receipt = acknowledge_request(run_dir, request['request_id'], status=status,
+                                                  attempt_id=attempt_id, checkpoint_path=str(path) if path else None,
+                                                  step=(manifest['steps'] if saved_step is None else saved_step) if path else None, error=error)
+                except Exception as exc:
+                    observer_error('checkpoint_acknowledgement', exc)
+                    return
+                emit('checkpoint_request', receipt=receipt)
+            for request in pending:
+                if request['run_id'] != manifest['run_id'] or request['attempt_id'] != attempt_id:
+                    acknowledge(request, 'rejected', error='Request targets a different run or attempt; it cannot be applied after resume')
+                elif not manifest['resume_supported']:
+                    acknowledge(request, 'rejected', error='Full training checkpoints are unsupported for this configuration')
+                else:
+                    matching.append(request)
+            if matching and manifest.get('checkpoint_path'):
+                # A lost acknowledgement must not repeat a still-identifiable save.
+                try:
+                    saved_path = Path(manifest['checkpoint_path'])
+                    saved = json.loads((saved_path / 'manifest.json').read_text(encoding='utf-8'))
+                    completed_ids = set(saved.get('request_ids', [])) if saved.get('attempt_id') == attempt_id else set()
+                except Exception as exc:
+                    observer_error('checkpoint_request_reconciliation', exc)
+                    return
+                remaining = []
+                for request in matching:
+                    if request['request_id'] in completed_ids:
+                        acknowledge(request, 'succeeded', path=saved_path, saved_step=saved['step'])
+                    else:
+                        remaining.append(request)
+                matching = remaining
+            if matching:
+                path, error = checkpoint_now([request['request_id'] for request in matching], observer=True)
+                for request in matching:
+                    acknowledge(request, 'succeeded' if path else 'rejected', path=path,
+                                error=f'{type(error).__name__}: {error}'[:1000] if error else None)
+                if error:
+                    observer_error('manual_checkpoint', error)
+
+        publish()  # A start/resume observer can immediately submit an attempt-bound request.
+        emit('resume' if manifest.get('resumed_from') else 'start', config_sha256=fingerprint(config))
+        if manifest['last_durable_step'] is None or manifest.get('resumed_from'):
+            # Accepting an older recovery point must also move the default pointer,
+            # even if this attempt stops before another update.
+            checkpoint_now()
+        publish()
+        poll_requests()
+        attempt_steps = 0
+        while manifest['steps'] < config['training']['steps']:
+            if max_seconds is not None and time.monotonic() - started >= max_seconds:
+                manifest['stop_reason'] = 'max_seconds'
+                break
+            if stop_after_steps is not None and attempt_steps >= stop_after_steps:
+                manifest['stop_reason'] = 'stop_after_steps'
+                break
+            completed = execution.update()
+            row = completed.metrics
+            attempt_steps += 1
+            manifest['steps'] = completed.step
+            durable = manifest['last_durable_step']
+            manifest['possible_lost_steps'] = manifest['steps'] - durable if durable is not None else manifest['steps']
+            emit('train', **{key: value for key, value in row.items() if key not in ('event', 'step')})
+            if manifest['steps'] % checkpoint_every == 0:
+                checkpoint_now()
+            poll_requests()
+            if manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
+                preview_now()
+            publish()
+        if manifest['last_durable_step'] != manifest['steps']:
+            checkpoint_now()
+        if execution.inference_available:
+            bundle_dir = attempt_dir / 'inference'
+            bundle_dir.mkdir()
+            sync_directory(attempt_dir)
+            identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
+                                         'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence']}
+            manifest['next_sample_sequence'] += 1
+            publish()
+            artifacts = execution.inference(bundle_dir, identity)
+            manifest.update(bundle_path=str(artifacts.bundle_path), sample_path=str(artifacts.sample_path))
+        shutdown()
+        manifest['status'] = 'complete' if manifest['steps'] == config['training']['steps'] else 'stopped'
+        publish()
+        emit(manifest['status'], stop_reason=manifest['stop_reason'], checkpoint_path=manifest['checkpoint_path'])
+        return manifest
+    except BaseException as exc:
+        # Execution may contain a half update: NEVER checkpoint in this handler.
+        try:
+            shutdown()
+        except BaseException as cleanup_error:
+            manifest['shutdown_error'] = f'{type(cleanup_error).__name__}: {cleanup_error}'[:1000]
+        manifest.update(status='interrupted' if isinstance(exc, (KeyboardInterrupt, SystemExit)) else 'failed',
+                        error=f'{type(exc).__name__}: {exc}')
+        publish()
+        emit(manifest['status'], error=manifest['error'], checkpoint_path=manifest['checkpoint_path'])
+        raise

@@ -264,16 +264,16 @@ def test_acknowledgement_retry_reuses_identifiable_saved_checkpoint(tmp_path, mo
 
 
 def test_manual_checkpoint_failure_is_rejected_without_changing_training(tmp_path, monkeypatch):
-    import hypergan.training as training
+    import hypergan.single_execution as execution
     from hypergan.run_requests import submit_checkpoint_request, checkpoint_request_status
     config = write_default(tmp_path / 'config')
     train(config, tmp_path / 'full')
-    original = training.write_checkpoint
+    original = execution.write_checkpoint
     def fail_manual(run_dir, trainer, batch, metadata):
         if metadata.get('request_ids'):
             raise OSError('manual checkpoint volume unavailable')
         return original(run_dir, trainer, batch, metadata)
-    monkeypatch.setattr(training, 'write_checkpoint', fail_manual)
+    monkeypatch.setattr(execution, 'write_checkpoint', fail_manual)
     ids = []
     def observer(row):
         if row['event'] == 'train' and row['step'] == 2:

@@ -1,10 +1,10 @@
 # Shared CPU run service: integration design
 
-Date: 2026-09-19. **Proposal, not implemented behavior.** Reviewed against develop `96222fc6` after PR #309. The coordinator owns the status ledger and implementation sequencing. This report does not qualify GPU, NCCL, multi-node execution, image quality or a release.
+Date: 2026-09-19. **Distributed integration proposal.** Originally reviewed against develop `96222fc6` after PR #309. The first shared-controller/single-process extraction is now covered by the [lifecycle checkpoint](core-lifecycle-2026-09-19.md); the replicated adapter, profile, parent-death handling and bounded renderer remain planned. The coordinator owns the status ledger and implementation sequencing. This report does not qualify GPU, NCCL, multi-node execution, image quality or a release.
 
 ## Starting point
 
-The public [training service](../src/hypergan/training.py) already owns attempts, stop budgets, events, required checkpoints, optional previews, manual-save receipts and final inference artifacts. Its `_execute` function couples those policies to `ReferenceTrainer` and the single-process checkpoint format. Preserve that behavior while separating lifecycle decisions from numerical execution.
+The public [training service](../src/hypergan/training.py) already owns attempts, stop budgets, events, required checkpoints, optional previews, manual-save receipts and final inference artifacts. At the design baseline its `_execute` function coupled those policies to `ReferenceTrainer` and the single-process checkpoint format. The [shared controller](../src/hypergan/run_controller.py) and [single-process adapter](../src/hypergan/single_execution.py) now separate lifecycle policy from trainer/batch access while preserving the public commands. The remaining sections define distributed integration requirements.
 
 The internal [replicated trainer](../src/hypergan/distributed_training.py) owns complete CPU Gloo updates, global data draws followed by rank slicing, replica agreement and readiness/poison state. The [checkpoint helper](../src/hypergan/distributed_checkpoints.py) preserves every rank's state, requires all-rank readiness before rank-zero publication and restores fixed topology strictly. The [supervisor](../src/hypergan/cpu_workers.py) launches and reaps a finite group, but currently offers only a blocking callback interface. It explicitly does not handle abrupt parent death. None of these internal APIs supplies the public distributed run lifecycle.
 
@@ -12,7 +12,7 @@ The current [observation contract](../docs/observation.md) and [preview implemen
 
 ## Small shared controller, two execution adapters
 
-Extract one controller from `_execute`; do not introduce a second distributed training loop with copied attempt, receipt and preview policies. Keep its interface internal until both adapters pass the same lifecycle tests.
+Use the extracted controller for both adapters; do not introduce a second distributed training loop with copied attempt, receipt and preview policies. Keep its interface internal until both adapters pass the same lifecycle tests.
 
 | Responsibility | Owner |
 | --- | --- |
@@ -79,11 +79,11 @@ On completion or cooperative stop, require the final checkpoint and inference ar
 
 ## Accumulation review contract
 
-The in-progress accumulation design uses detached full-batch logits to compute nonlinear GAN derivatives, then replays microbatch vector-Jacobian products. It retains a complete latent graph and applies the global prior regularizer once. Its strategy identity must include accumulation count, microbatch size and algorithm revision; a changed accumulation strategy is a strict resume mismatch unless separately qualified.
+The implemented [CPU accumulation contract](core-accumulation-2026-09-19.md) uses detached full-batch logits to compute nonlinear GAN derivatives, then replays microbatch vector-Jacobian products. It retains a complete latent graph and applies the global prior regularizer once. Its strategy identity must include accumulation count, microbatch size and algorithm revision; a changed accumulation strategy is a strict resume mismatch unless separately qualified.
 
 Checkpoint/control/preview boundaries remain outside the complete logical update. Replay must restore each microbatch's RNG entry state temporarily and preserve one canonical post-discovery continuation for Torch, Python, NumPy and every named stream. Data sampling, lazy penalty timing, learning-rate schedule, optimizer steps and EMA advance once per logical update. A failure after the D optimizer or during any G/prior replay leaves readiness false and poisons the group.
 
-Custom modules remain configurable but unqualified unless their forward/backward and mutable-state behavior meet the replay contract. Registered state and replay-output checks provide diagnostics, not a proof for arbitrary Python or unregistered state. In particular, regenerating the fake under a different grad mode from discovery must either produce the same value or be rejected explicitly. These review requirements supplement numerical parity and fresh-group recovery tests; this report does not mark the evolving accumulation implementation complete.
+Custom modules remain configurable but unqualified unless their forward/backward and mutable-state behavior meet the replay contract. Registered state and replay-output checks provide diagnostics, not a proof for arbitrary Python or unregistered state. In particular, regenerating the fake under a different grad mode from discovery must either produce the same value or be rejected explicitly. These review requirements supplement numerical parity and fresh-group recovery tests; its implementation and acceptance are recorded in the accumulation report.
 
 ## Reviewable implementation sequence and acceptance
 
@@ -97,4 +97,4 @@ Custom modules remain configurable but unqualified unless their forward/backward
 
 Fault fixtures must cover rank failure after D but before G; after payload gather but before checkpoint readiness; after a complete commit but before result delivery; disk-full staging/publication; malformed/corrupt state; partial live restore; interrupted coordinator and rank-zero premature exit. Assert prior latest remains selected when no complete new commit exists, and valid post-commit generations remain recoverable when a later job failure occurs. Required persistence failures are fatal; optional failures are isolated only while execution remains healthy.
 
-The shared lifecycle is the next CPU usability gate, not completion of distributed issue #186. Actual NCCL/two-GPU and real multi-node qualification, license resolution, selected image-experiment admission, dataset acquisition, deployment and the optional viewer remain the separate gates recorded in the [status ledger](resurrection-status.md) and [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md).
+The shared single-process lifecycle extraction is complete; CPU profile/preflight and the replicated adapter are the next usability gates. This does not complete distributed issue #186. Actual NCCL/two-GPU and real multi-node qualification, license resolution, selected image-experiment admission, dataset acquisition, deployment and the optional viewer remain the separate gates recorded in the [status ledger](resurrection-status.md) and [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md).

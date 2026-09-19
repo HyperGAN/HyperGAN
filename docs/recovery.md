@@ -22,6 +22,8 @@ Every resume creates a new attempt with a monotonic index and unique identifier.
 
 The checkpoint includes generator/discriminator/auxiliary state, prior, EMA, Adam states and original learning rates, update counters, named RNG streams, global CPU Torch/Python/NumPy RNG states, and the declared data state. Resume validates the saved configuration and execution/data identity before continuing. `--config CONFIG` verifies that a supplied configuration matches; it does not override the checkpoint.
 
+Implementation source is part of that strict identity. The [shared lifecycle extraction](run-lifecycle.md) changes source hashes for both native and internal distributed checkpoints; use the original installation to continue checkpoints created before that change. Cross-version checkpoint migration is not implemented.
+
 Built-in synthetic data is stateless apart from the trainer's RNG. `image_folder` records its content/preprocessing/class-map identity, shuffled order and cursor. Custom data must implement the documented state protocol or explicitly declare itself stateless to support recovery. Custom components must register their tensor state and obey the recovery contract; arbitrary Python caches and external services cannot be inferred from a model's weights. Unsupported recovery does not silently become a successful restore.
 
 For process managers, `--progress-json` writes flushed JSONL events to stdout, followed by a `result` event containing the final manifest. Diagnostics remain on stderr. Without that flag, updates go to stderr and the final manifest goes to stdout. The Python API starts no server, and the optional browser viewer remains unimplemented.

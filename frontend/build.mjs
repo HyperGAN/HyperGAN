@@ -42,7 +42,7 @@ const outputs = [
       "../src/hypergan/web_assets/THIRD_PARTY_LICENSES.txt",
       import.meta.url,
     ),
-    Buffer.from(notices),
+    Buffer.from(notices.replace(/\r\n/g, "\n")),
   ],
 ];
 for (const [path, bytes] of outputs) {

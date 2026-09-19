@@ -2,8 +2,10 @@
 import json
 from pathlib import Path
 import random
+import queue
 import subprocess
 import sys
+import threading
 
 import numpy as np
 import pytest
@@ -77,15 +79,26 @@ def test_progress_is_observable_before_process_completion(tmp_path):
         cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     try:
-        for line in process.stdout:
+        lines = queue.Queue()
+        def read_progress():
+            for line in process.stdout:
+                lines.put(line)
+            lines.put(None)
+        reader = threading.Thread(target=read_progress, daemon=True)
+        reader.start()
+        while True:
+            line = lines.get(timeout=45)
+            if line is None:
+                pytest.fail("No live training event was emitted")
             if json.loads(line).get("event") == "train":
                 assert process.poll() is None
                 break
-        else:
-            pytest.fail("No live training event was emitted")
-        _, stderr = process.communicate(timeout=45)
+        process.wait(timeout=45)
+        reader.join(timeout=5)
+        stderr = process.stderr.read()
         assert process.returncode == 0, stderr
     finally:
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=10)
+

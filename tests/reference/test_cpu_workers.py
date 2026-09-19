@@ -15,6 +15,7 @@ from hypergan.cpu_workers import launch_cpu_workers
     {"world_size": True}, {"world_size": 0}, {"world_size": 65},
     {"timeout": float("nan")}, {"timeout": 0}, {"collective_timeout": True},
     {"timeout": 1, "collective_timeout": 2}, {"args": []},
+    {"stdout_to_stderr": 1}, {"initialize_process_group": 1}, {"initialize_process_group": False},
 ])
 def test_invalid_worker_controls(arguments):
     with pytest.raises(ValueError):

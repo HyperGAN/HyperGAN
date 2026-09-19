@@ -1,10 +1,10 @@
 """Exercise installed entrypoints from outside the source checkout."""
 
 import json
-import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 
 
 def run_cli(tmp_path, *args):
@@ -31,7 +31,7 @@ def test_help_and_version_are_lightweight(tmp_path):
 
 
 def test_console_entrypoint(tmp_path):
-    executable = shutil.which("hypergan", path=os.path.dirname(sys.executable))
+    executable = shutil.which("hypergan", path=sysconfig.get_path("scripts"))
     assert executable, "installed console entrypoint was not generated"
     result = subprocess.run([executable, "version"], cwd=tmp_path, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr

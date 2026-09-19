@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=77,<83"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hypergan"
+dynamic = ["version"]
+description = "Train and deploy proven GAN recipes with reproducible workflows."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = ["tomli>=2,<3; python_version < '3.11'"]
+
+[project.optional-dependencies]
+train = ["particlegan==0.5.0", "torch>=2.6,<3"]
+test = ["pytest>=8,<10"]
+dev = ["build>=1,<2", "pytest>=8,<10"]
+
+[project.scripts]
+hypergan = "hypergan.cli:main"
+
+[project.urls]
+Repository = "https://github.com/HyperGAN/HyperGAN"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["hypergan", "hypergan.*"]
+namespaces = false
+
+[tool.setuptools.dynamic]
+version = {attr = "hypergan.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests/foundation", "tests/reference"]
+addopts = "--import-mode=importlib -ra"

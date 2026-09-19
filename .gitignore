@@ -8,3 +8,10 @@ samples/*
 tests/coverage
 .coverage
 hypergan.egg-info
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+runs/
+worktrees/

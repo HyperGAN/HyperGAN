@@ -48,13 +48,18 @@ def worker(rank, world_size, directory):
             'components': {
                 'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [8]}, 'inputs': {'x': 'latent'}},
                 'discriminator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}}},
-            'adversarial': {'mode': 'vanilla', 'loss_type': 'logistic', 'label_smoothing': .12, 'label_flip_prob': .35},
+            'adversarial': {'mode': 'vanilla', 'loss_type': 'logistic'},
             'gradient_penalty': {'arm': 'f_none'},
             'prior_regularizer': {'weight': 0.0, 'rows': 'full'},
             'training': {'batch_size': 8, 'steps': 2}})
         for factor in (2, 4):
             ordinary = ReplicatedCPUTrainer(config, world_size=world_size)
             accumulated = ReplicatedCPUTrainer(config, world_size=world_size, accumulation_steps=factor)
+            # Instrument the upstream loss directly; these optional upstream
+            # fields are not currently exposed by HyperGAN's recipe schema.
+            for trainer in (ordinary, accumulated):
+                trainer.gan.label_smoothing = .12
+                trainer.gan.label_flip_prob = .35
             initial_prior = copy.deepcopy(ordinary.prior.state_dict())
             for step in range(2):
                 # The logical loss must sample one full-local-batch set of labels.
@@ -78,6 +83,23 @@ def worker(rank, world_size, directory):
             if prior_kind != 'learned':
                 close(accumulated.prior.state_dict(), initial_prior)
                 assert len(accumulated.opt_g.param_groups) == 1
+    # A disconnected explicit latent graph must retain absent gradients, so
+    # Adam does not create moments or advance a prior the recipe did not use.
+    config = resolve_config({
+        'prior': {'kind': 'particles', 'args': {'num_particles': 16, 'z_dim': 4}},
+        'components': {
+            'generator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 2}, 'inputs': {'input': 'batch.real'}},
+            'discriminator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}}},
+        'gradient_penalty': {'arm': 'f_none'},
+        'training': {'batch_size': 8, 'steps': 1}})
+    ordinary = ReplicatedCPUTrainer(config, world_size=world_size)
+    accumulated = ReplicatedCPUTrainer(config, world_size=world_size, accumulation_steps=2)
+    batch = {'real': torch.linspace(-1, 1, 8).reshape(4, 2) + rank * .1}
+    ordinary.update(batch, (ordinary.prior.z[:4].square(), None))
+    accumulated.update(batch, (accumulated.prior.z[:4].square(), None))
+    close(state(accumulated), state(ordinary))
+    assert accumulated.prior.z.grad is None
+    assert accumulated.prior.z not in accumulated.opt_g.state
     (Path(directory) / f'rank-{rank}.json').write_text('{"passed": true}')
 
 

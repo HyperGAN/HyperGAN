@@ -71,6 +71,20 @@ def _parser():
     events.add_argument("--cursor", help="opaque cursor returned by the previous page")
     events.add_argument("--limit", type=_positive_int, default=100)
     events.add_argument("--max-bytes", type=_positive_int, default=1048576)
+    metrics = commands.add_parser("metrics", help="Read immutable metric definitions without loading training")
+    metrics.add_argument("run_dir", type=Path)
+    metrics.add_argument("--revision", help="historical catalog SHA256 (default: active catalog)")
+    project = commands.add_parser("project", help="Build Python event-map contributions independently of serving")
+    project.add_argument("run_dir", type=Path)
+    project.add_argument("--map-spec", type=Path, help="JSON MapSpec; default selects published scalar metrics")
+    project.add_argument("--follow", action="store_true", help="continue projecting newly completed events")
+    project.add_argument("--limit", type=_positive_int, default=100, help="documents per bounded work page")
+    contributions = commands.add_parser("contributions", help="Read a bounded page of mapped event frames")
+    contributions.add_argument("run_dir", type=Path)
+    contributions.add_argument("--map-revision", help="map SHA256 (default: built-in scalar map)")
+    contributions.add_argument("--cursor", help="last applied projection cursor")
+    contributions.add_argument("--limit", type=_positive_int, default=100)
+    contributions.add_argument("--max-bytes", type=_positive_int, default=1048576)
     checkpoint = commands.add_parser("checkpoint", help="Request a checkpoint at the trainer's next safe boundary")
     checkpoint.add_argument("run_dir", type=Path)
     operation = checkpoint.add_mutually_exclusive_group()
@@ -140,6 +154,38 @@ def main(argv=None):
             from .run_events import read_event_page
 
             _print_json(read_event_page(args.run_dir, args.cursor, limit=args.limit, max_bytes=args.max_bytes))
+        elif args.command == "metrics":
+            from .metrics import read_catalog
+
+            _print_json(read_catalog(args.run_dir, args.revision))
+        elif args.command == "contributions":
+            from .event_views import MapSpec, read_projection_page
+
+            _print_json(read_projection_page(args.run_dir, args.map_revision or MapSpec().revision,
+                                            args.cursor, limit=args.limit, max_bytes=args.max_bytes))
+        elif args.command == "project":
+            from .event_views import MapSpec, Projector
+            import time
+
+            spec = MapSpec(**json.loads(args.map_spec.read_text(encoding="utf-8"))) if args.map_spec else MapSpec()
+            # Reopen before the custom worker's five-minute lifetime expires.
+            # Its durable projection frame is the only restart watermark.
+            following = True
+            while following:
+                opened = time.monotonic()
+                with Projector(args.run_dir, spec) as projector:
+                    while True:
+                        progress = projector.project(limit=args.limit)
+                        if args.follow and progress["documents"]:
+                            print(json.dumps(dict(progress, map_revision=spec.revision)), flush=True)
+                        if not args.follow and not progress["has_more"]:
+                            _print_json(dict(progress, map_revision=spec.revision))
+                            following = False
+                            break
+                        if time.monotonic() - opened >= 240:
+                            break
+                        if not progress["has_more"]:
+                            time.sleep(0.25)
         elif args.command == "checkpoint":
             from .run_requests import checkpoint_request_status, submit_checkpoint_request
 

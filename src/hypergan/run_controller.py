@@ -14,6 +14,7 @@ import warnings
 
 from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics
+from .metric_plugins import prepare_custom, ScalarMetrics
 from .run_state import atomic_json, repair_event_tail, run_lock, sync_directory
 
 
@@ -161,6 +162,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
     run_dir = Path(run_dir).resolve()
     if run_dir.exists():
         raise FileExistsError(f'Run directory already exists: {run_dir}')
+    prepare_custom(config)
     qualification = dict(config['qualification'])
     qualification['status'] = 'reference-only' if qualification['recipe_match'] else 'unqualified'
     qualification['runtime_qualification'] = 'not-certified; run numerical parity CI for this exact runtime'
@@ -213,6 +215,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
         preview_keep = manifest.get('preview_keep', 3) if preview_keep is None else preview_keep
         _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
         config = load_config(config_path) if config_path is not None else resolve_config(manifest['config'])
+        prepare_custom(config)
         context = _candidate_attempt(run_dir, manifest['run_id'])
         execution = execution_factory(config)
         try:
@@ -266,6 +269,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     context = context or _candidate_attempt(run_dir, manifest['run_id'])
     _persist_attempt(context)
     index, attempt_id, attempt_dir = context.attempt_index, context.attempt_id, context.attempt_dir
+    custom_metrics = ScalarMetrics(config)
     catalog = metric_catalog(config)
     catalog_revision = publish_catalog(run_dir, config)
     manifest.update(metrics_catalog=catalog_revision, observation_sha256=observation_fingerprint(config))
@@ -468,6 +472,12 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             durable = manifest['last_durable_step']
             manifest['possible_lost_steps'] = manifest['steps'] - durable if durable is not None else manifest['steps']
             metrics, statuses, publication = select_metrics(config, catalog, row, completed.step, step_seconds)
+            custom_values, custom_statuses = custom_metrics.evaluate(dict(row, step=completed.step, step_seconds=step_seconds),
+                {'run_id': manifest['run_id'], 'attempt_id': attempt_id, 'step': completed.step})
+            metrics.update(custom_values)
+            statuses.update(custom_statuses)
+            if custom_values:
+                publication = 'sampled'
             emit('train', metrics=metrics, measurement_status=statuses, metric_publication=publication,
                  samples_seen=completed.step * config['training']['batch_size'],
                  **{key: row[key] for key in ('global_batch_size', 'local_batch_size', 'world_size',

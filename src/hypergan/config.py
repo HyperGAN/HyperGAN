@@ -275,6 +275,8 @@ def resolve_config(raw):
         warnings.append("GaussianPrior has no trainable table: optimizer.prior_lr_mult and prior_betas, and prior_regularizer row settings, are not applicable.")
     elif result["prior"]["args"].get("learnable") is False:
         warnings.append("The prior table is frozen: prior optimizer settings do not apply and its regularizer contributes no trainable gradient.")
+    if result['metrics']['custom']:
+        warnings.append("Custom metrics execute trusted Python in bounded workers; input/output and deadlines are bounded, arbitrary allocations or descendants are not sandboxed.")
     match = {k: v for k, v in result.items() if k != "metrics"} == {k: v for k, v in DEFAULT.items() if k != "metrics"}
     if not match:
         warnings.append("Custom resolved recipe: runnable combinations are unqualified until separately evaluated.")

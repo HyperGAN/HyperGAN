@@ -25,9 +25,18 @@ def schemas():
         'projection_sequence': {'type': 'integer', 'minimum': 1}, 'source_cursor': CURSOR,
         'source': ref('SourceIdentity'), 'emissions': {'type': 'array', 'maxItems': 128, 'items': ref('Emission')}},
         ('schema_version', 'map_revision', 'projection_sequence', 'source_cursor', 'source', 'emissions'))
+    histogram = object_schema({'edges': {'type': 'array', 'minItems': 2, 'maxItems': 513, 'items': {'type': 'number'}},
+        'counts': {'type': 'array', 'minItems': 1, 'maxItems': 512, 'items': {'type': 'number', 'minimum': 0}}},
+        ('edges', 'counts'), additionalProperties=False)
     event = object_schema({**source['properties'], 'schema_version': {'const': 2}, 'event': {'type': 'string'},
         'step': SAFE_INTEGER, 'catalog': HASH, 'metrics': {'type': 'object', 'additionalProperties': {'type': 'number'}},
-        'measurement_status': {'type': 'object'}}, (*source['required'], 'schema_version', 'event', 'step', 'catalog'))
+        'measurement_status': {'type': 'object'},
+        'distributions': {'type': 'object', 'additionalProperties': ref('Histogram')},
+        'evaluation_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'},
+        'status': {'enum': ['complete', 'failed']},
+        'source_position_known': {'type': 'boolean', 'description': 'False on failures before snapshot load; step is not a measurement position.'},
+        'snapshot_sha256': HASH, 'snapshot_identity': {'type': 'object'}, 'protocol_sha256': HASH,
+        'evaluation_protocol': {'type': 'object', 'description': 'Immutable numerical, data, factory, RNG, sample count and runtime protocol.'}}, (*source['required'], 'schema_version', 'event', 'step', 'catalog'))
     point = object_schema({'value': {'type': 'number'}, 'position': {'type': 'array',
         'prefixItems': [SAFE_INTEGER, {'type': 'string', 'maxLength': 128}], 'minItems': 2, 'maxItems': 2}},
         ('value', 'position'))
@@ -52,7 +61,7 @@ def schemas():
         'frames': {'type': 'array', 'maxItems': 1000, 'items': ref('ProjectionFrame')},
         'frame_cursors': {'type': 'array', 'items': CURSOR}}, ('cursor', 'has_more', 'partial_tail'))
     catalog = object_schema({'schema_version': {'const': 1}, 'metrics': {'type': 'object',
-        'additionalProperties': object_schema({'definition_hash': HASH, 'kind': {'type': 'string'},
+        'additionalProperties': object_schema({'definition_hash': HASH, 'kind': {'enum': ['scalar', 'histogram']},
             'source': {'type': 'string'}, 'label': {'type': 'string'}, 'unit': {'type': 'string'}},
             ('definition_hash', 'kind', 'source'))}}, ('schema_version', 'metrics'))
     stream_frame = object_schema({'stream_id': {'type': 'string'}, 'cursor': CURSOR,
@@ -61,8 +70,8 @@ def schemas():
                             'status': {'type': 'string'}, 'job_id': HASH})
     run = object_schema({'run_id': {'type': 'string'}, 'attempt_id': {'type': 'string'}, 'name': {'type': 'string'},
         'status': {'type': 'string'}, 'steps': SAFE_INTEGER, 'total_steps': SAFE_INTEGER,
-        'last_durable_step': SAFE_INTEGER, 'metrics_catalog': HASH}, ('status',))
-    return {'SourceIdentity': source, 'Emission': emission, 'ProjectionFrame': frame, 'Event': event,
+        'last_durable_step': {'oneOf': [SAFE_INTEGER, {'type': 'null'}]}, 'metrics_catalog': HASH}, ('status',))
+    return {'Histogram': histogram, 'SourceIdentity': source, 'Emission': emission, 'ProjectionFrame': frame, 'Event': event,
             'Point': point, 'EnvelopeState': envelope, 'Group': group, 'Bootstrap': bootstrap,
             'Page': page, 'Catalog': catalog, 'StreamFrame': stream_frame, 'StreamControl': control,
             'Run': run, 'Error': object_schema({'error': {'type': 'string'}}, ('error',)),
@@ -94,7 +103,7 @@ def enrich(document):
             query = {'stream_id': {'type': 'string', 'description': 'training, projection:<map revision>, evaluation:<id>, or *'}, 'cursor': CURSOR}
             operation['responses']['200']['content'] = {'text/event-stream': {'schema': {'type': 'string'}}}
             operation['x-sse-events'] = {'frame': ref('StreamFrame'), **{name: ref('StreamControl') for name in
-                ('ready', 'heartbeat', 'stream_added', 'metadata', 'artifacts', 'bootstrap_ready', 'gap', 'reset_required')}}
+                ('ready', 'heartbeat', 'stream_added', 'metadata', 'artifacts', 'bootstrap_ready', 'gap', 'reset_required', 'discovery_error')}}
         operation['parameters'].extend({'name': name, 'in': 'query', 'schema': schema,
                                          'required': name == 'series'} for name, schema in query.items())
     return document

@@ -699,3 +699,17 @@ footer {
   font-size: 11px;
   line-height: 1.7;
 }
+
+.evaluation-list { margin-top: 28px; }
+.evaluation-list ul { list-style: none; padding: 0; display: grid; gap: 12px; }
+.evaluation-list li { background: #1b2220; border: 1px solid #33403a; border-radius: 7px; padding: 18px; overflow-wrap: anywhere; }
+.evaluation-list h3 { display: inline; margin-right: 12px; font-size: 15px; }
+.evaluation-list p, .evaluation-list summary { font-size: 12px; line-height: 1.6; }
+.evaluation-list details { margin-top: 14px; }
+.evaluation-list summary { cursor: pointer; }
+.evaluation-list .evaluation-value { font-size: 22px; color: #d7bb81; }
+.evaluation-failure { color: #e8ab95; }
+.evaluation-plot { width: 100%; max-height: 220px; fill: #8fbdaa; margin-top: 12px; }
+.evaluation-plot text { fill: #d4ded6; font: 11px monospace; }
+.evaluation-list .table-scroll { max-height: 260px; }
+.evaluation-list pre { max-height: 260px; overflow: auto; }

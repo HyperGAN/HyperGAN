@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-19",
+  "source_commit": "571376f7",
+  "device": "cpu",
+  "status": "passed",
+  "procedure": [
+    "tests/reference/test_metric_evaluation.py setup: RGB 2x2 CPU fixture, stop at step1 and resume to step2",
+    "Projector outside the HTTP server prepares training projection",
+    "Start real loopback ASGI viewer and sign into Chromium through the public login",
+    "Run actual evaluate for mean twice at earlier step1 bundle and histogram at current step2",
+    "Inspect 32 histogram bars and exact-value table rows in browser",
+    "Run actual partial-iterator evaluator and observe failed stream with unknown source position"
+  ],
+  "checks": {
+    "evaluation_count": 4,
+    "histogram_bins": 32,
+    "browser_errors": [],
+    "source_attempt_steps": [
+      1,
+      1,
+      2
+    ]
+  },
+  "evaluations": [
+    {
+      "evaluation_id": "18758ad09fa746e3b8f210343250067f",
+      "status": "complete",
+      "step": 1,
+      "source_position_known": true,
+      "catalog": "66d5fb1ad24720d1ff6c2f6f9d8d14f4ba0282388b1c2d08ef6fe751a981fba7",
+      "snapshot_sha256": "864c8f41b60d16e0f30c56c299819553013675296ace35b3f983ec4a46a8e475",
+      "event_sha256": "cacbb4427d447c3f0439e27abeff4d5a47e4d8f9b6850fe9704ed27db77e2d3f",
+      "protocol_sha256": "75d7fb0cfefd19d2af6b788a889d3cb4aa830cdf66e5e7e94e34d526bac14404",
+      "metrics": {
+        "mean": 0.049256239861798744
+      }
+    },
+    {
+      "evaluation_id": "1fa45187b1524082975d73180d5c05bc",
+      "status": "complete",
+      "step": 1,
+      "source_position_known": true,
+      "catalog": "66d5fb1ad24720d1ff6c2f6f9d8d14f4ba0282388b1c2d08ef6fe751a981fba7",
+      "snapshot_sha256": "864c8f41b60d16e0f30c56c299819553013675296ace35b3f983ec4a46a8e475",
+      "event_sha256": "a0ae08d88e914854941a465350314f1b9ff8bb2860d98700a5abd88428bee545",
+      "protocol_sha256": "75d7fb0cfefd19d2af6b788a889d3cb4aa830cdf66e5e7e94e34d526bac14404",
+      "metrics": {
+        "mean": 0.049256239861798744
+      }
+    },
+    {
+      "evaluation_id": "7d07bd80891c49bfa5bc3b38bdc2cb3c",
+      "status": "failed",
+      "step": 0,
+      "source_position_known": false,
+      "catalog": "30c57320a7dfbb5b1ca72ab4a40a04e201a23fa88cb4dd75c2d66075936ade28",
+      "snapshot_sha256": "02a4e9f61a9706a52f0082bdbe4b26c7ddee73148f149a684449002c95c13941",
+      "event_sha256": "d0df5a627cd2a810a96408af0c891a503bf59c1a49515526043807f68bd7ef36",
+      "failure": "Snapshot metric did not consume its complete declared evaluation sample count"
+    },
+    {
+      "evaluation_id": "d0244db1f3ad46e1a61aa9f2984c978d",
+      "status": "complete",
+      "step": 2,
+      "source_position_known": true,
+      "catalog": "c73fad5dba8adb68c1b0031870ddf93f8827edfec2886f6eeb652a78060f25f8",
+      "snapshot_sha256": "02a4e9f61a9706a52f0082bdbe4b26c7ddee73148f149a684449002c95c13941",
+      "event_sha256": "bd263597bfebea78e5dc87e4bae9c3fca3b6b1e226564923bb332110248218f1",
+      "protocol_sha256": "fbe0aa3595d24558d683615e841fa939839b99e6405f8e712cfbbb8170c9fcb1",
+      "histogram_bins": {
+        "histogram": 32
+      }
+    }
+  ],
+  "external_run": "/tmp/hypergan-evaluation-browser-proof-_lkfvi_b/run",
+  "external_screenshot": "/tmp/hypergan-evaluation-browser-proof.png"
+}

@@ -1,6 +1,6 @@
 # Standard Loss
 
-* Source: [/losses/standard_loss.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/standard_loss.py)
+* Source: [/losses/standard\_loss.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/standard_loss.py)
 
 ```python
 criterion = torch.nn.BCEWithLogitsLoss()
@@ -10,7 +10,7 @@ d_loss = criterion(d_real, torch.ones_like(d_real)) + criterion(d_fake, torch.ze
 
 ## examples
 
-* Configurations: [/losses/standard_loss/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/losses/standard_loss/)
+* Configurations: [/losses/standard\_loss/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/losses/standard_loss/)
 
 ```javascript
 {

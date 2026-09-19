@@ -9,6 +9,7 @@ from hypergan.search.random_search import RandomSearch
 from hypergan.discriminators.base_discriminator import BaseDiscriminator
 from hypergan.generators.base_generator import BaseGenerator
 from hypergan.gans.base_gan import BaseGAN
+from hypergan.layer_shape import LayerShape
 from common import *
 
 from torch import optim
@@ -16,25 +17,51 @@ from torch.autograd import Variable
 
 from torchvision import datasets, transforms
 
-arg_parser = ArgumentParser(description='Train an MNIST classifier G(x) = label')
+arg_parser = ArgumentParser(description='Train an classifier G(x) = label')
+arg_parser.parser.add_argument('--dataset', '-D', type=str, default='mnist', help='dataset to use - options are mnist / cifar10')
+arg_parser.parser.add_argument('--augment', '-A', type=bool, default=True, help='flip crop and normalize input')
 args = arg_parser.parse_args()
+config_name = args.config
+save_file = "saves/"+config_name+"/model.ckpt"
+os.makedirs(os.path.expanduser(os.path.dirname(save_file)), exist_ok=True)
 
-class MNISTInputLoader:
+class InputLoader:
     def __init__(self, batch_size):
-        kwargs = {'num_workers': 1, 'pin_memory': True}
-        dataset_folder = 'mnist'
+        kwargs = {'num_workers': 0, 'pin_memory': True}
+        dataset_folder = args.dataset
+        dataset = datasets.MNIST
+        if args.dataset == 'cifar10':
+            dataset = datasets.CIFAR10
+        transform_train = transforms.Compose([
+            #transforms.RandomCrop(32, padding=4),
+            #transforms.RandomHorizontalFlip(),
+            transforms.ToTensor()#,
+            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ])
 
+        transform_test = transforms.Compose([
+            transforms.ToTensor()#,
+            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        ])
+        if args.augment:
+            transform_train = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
+
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            ])
         train_loader = torch.utils.data.DataLoader(
-            datasets.MNIST(dataset_folder, train=True, download=True,
-                           transform=transforms.Compose([
-                               transforms.ToTensor()
-                           ])),
+            dataset(dataset_folder, train=True, download=True,
+                           transform=transform_train),
             batch_size=args.batch_size, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST(dataset_folder, train=False, transform=transforms.Compose([
-                transforms.ToTensor()
-            ])),
+            dataset(dataset_folder, train=False, transform=transform_test),
             batch_size=args.batch_size, shuffle=False, **kwargs)
 
         self.train_loader = train_loader
@@ -74,49 +101,68 @@ class MNISTInputLoader:
             except StopIteration:
                 return
 
-class MNISTGAN(BaseGAN):
+class GAN(BaseGAN):
     def __init__(self, *args, **kwargs):
         self.discriminator = None
         self.generator = None
         self.loss = None
-        self.trainer = None
         BaseGAN.__init__(self, *args, **kwargs)
         self.x, self.y = self.inputs.next()
 
     def create(self):
+        self.latent = self.create_component("latent")
         self.generator = self.create_component("generator", input=self.inputs.next()[0])
-        self.discriminator = self.create_component("discriminator")
+        if self.config.generator2:
+            self.generator2 = self.create_component("generator2", input=self.inputs.next()[1])
+        self.discriminator = self.create_component("discriminator", context_shapes={"digit": LayerShape(10)})
         self.loss = self.create_component("loss")
-        self.trainer = self.create_component("trainer")
 
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0], {"digit": inputs[1]})
 
     def forward_pass(self):
+        self.latent.next()
         self.x, self.y = self.inputs.next()
         g = self.generator(self.x)
+        if self.config.generator2:
+            g2 = self.generator2(self.y)
+            gy = self.generator(g2)
+            self.gy = gy
+            self.g2 = g2
         self.g = g
         d_real = self.forward_discriminator([self.x, self.y])
         d_fake = self.forward_discriminator([self.x, g])
+        correct = torch.floor((torch.round(g) == self.y).long().sum(axis=1)/10.0).view(-1,1)
+        if self.config.generator2:
+            d_fake += correct * self.forward_discriminator([g2, gy])
         self.d_fake = d_fake
         self.d_real = d_real
+        self.adversarial_norm_fake_targets = [
+            [self.x, self.g]
+        ]
+        if self.config.generator2:
+           self.adversarial_norm_fake_targets += [
+             [g2, self.gy]
+           ]
         return d_real, d_fake
 
-    def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.x, self.g]
+    def discriminator_fake_inputs(self):
+        return self.adversarial_norm_fake_targets
 
-    def discriminator_real_inputs(self, discriminator_index=0):
+    def discriminator_real_inputs(self):
         if hasattr(self, 'x'):
             return [self.x, self.y]
         else:
             return self.inputs.next()
 
     def generator_components(self):
+        if self.config.generator2:
+            return [self.generator2, self.generator]
         return [self.generator]
     def discriminator_components(self):
         return [self.discriminator]
 
-class MNISTGenerator(BaseGenerator):
+class Generator(BaseGenerator):
     def create(self):
         self.linear = torch.nn.Linear(28*28*1, 1024)
         self.relu = torch.nn.ReLU()
@@ -130,7 +176,7 @@ class MNISTGenerator(BaseGenerator):
         net = self.sigmoid(net)
         return net
 
-class MNISTDiscriminator(BaseDiscriminator):
+class Discriminator(BaseDiscriminator):
     def create(self):
         self.linear = torch.nn.Linear(28*28*1+10, 1024)
         self.linear2 = torch.nn.Linear(1024, 1)
@@ -150,26 +196,28 @@ config = lookup_config(args)
 
 if args.action == 'search':
     search = RandomSearch({
-        'generator': {'class': MNISTGenerator, 'end_features': 10},
-        'discriminator': {'class': MNISTDiscriminator}
+        'generator': {'class': Generator, 'end_features': 10},
+        'discriminator': {'class': Discriminator}
         })
 
     config = search.random_config()
 
-inputs = MNISTInputLoader(args.batch_size)
+inputs = InputLoader(args.batch_size)
 
 def setup_gan(config, inputs, args):
-    gan = MNISTGAN(config, inputs=inputs)
+    gan = GAN(config, inputs=inputs)
     return gan
 
 def train(config, args):
     gan = setup_gan(config, inputs, args)
+    trainable_gan = hg.TrainableGAN(gan, save_file = save_file, devices = args.devices, backend_name = args.backend)
     test_batches = []
+    accuracy = 0
 
     for i in range(args.steps):
-        gan.step()
+        trainable_gan.step()
 
-        if i % args.sample_every == 0 and i > 0:
+        if i == args.steps-1 or i % args.sample_every == 0 and i > 0:
             correct_prediction = 0
             total = 0
             for (x,y) in gan.inputs.testdata():
@@ -177,9 +225,10 @@ def train(config, args):
                 correct_prediction += (torch.argmax(prediction,1) == torch.argmax(y,1)).sum()
                 total += y.shape[0]
             accuracy = (float(correct_prediction) / total)*100
+            print(config_name)
             print("accuracy: ", accuracy)
 
-    return sum_metrics
+    return accuracy
 
 def search(config, args):
     metrics = train(config, args)
@@ -192,7 +241,7 @@ def search(config, args):
 
 if args.action == 'train':
     metrics = train(config, args)
-    print("Resulting metrics:", metrics)
+    print(config_name + ": resulting metrics:", metrics)
 elif args.action == 'search':
     search(config, args)
 else:

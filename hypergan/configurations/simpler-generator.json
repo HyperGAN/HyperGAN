@@ -1,0 +1,80 @@
+
+{
+  "description": "A default configuration that scales to multiple resolutions.",
+  "discriminator":
+  {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "layers":[
+      "conv 64 stride=2", "relu",
+      "conv 128 stride=2", "relu",
+      "conv 256 stride=2", "relu",
+      "conv 512 stride=2", "relu",
+      "conv 512 stride=2", "relu",
+      "linear 1024", "relu",
+      "linear 128", "relu",
+      "multi_head_attention 1"
+    ]
+  },
+  "latent":
+  {
+    "class": "function:hypergan.distributions.uniform_distribution.UniformDistribution",
+    "min": -1,
+    "max": 1,
+    "z": 256
+  },
+  "generator": {
+    "class": "class:hypergan.discriminators.configurable_discriminator.ConfigurableDiscriminator",
+    "layers":[
+      "linear 256",
+      "relu name=w",
+      "linear 10*10*256","relu",
+      "resizable_stack", "hardtanh"
+    ]
+  },
+  "loss":
+  {
+    "class": "function:hypergan.losses.standard_loss.StandardLoss",
+    "reduce": "reduce_mean"
+  },
+  "trainer": {
+    "class": "function:hypergan.trainers.simultaneous_trainer.SimultaneousTrainer",
+
+    "hooks": [
+      {
+        "class": "function:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
+        "gammas": [-1e12, 1e12],
+        "offset": 1.0,
+        "loss": [
+          "dg"
+        ],
+        "mode": "fake"
+      },
+      {
+        "class": "function:hypergan.train_hooks.adversarial_norm_train_hook.AdversarialNormTrainHook",
+        "gamma": -1e12,
+        "offset": 1.0,
+        "loss": [
+          "d"
+        ],
+        "mode": "real"
+      }
+    ],
+     "optimizer": {
+      "amsgrad": true,
+      "betas": [
+        0.1,
+        0.997
+      ],
+      "class": "class:torch.optim.Adam",
+      "eps": 1e-08,
+      "lr": 0.0001,
+      "weight_decay": 0
+    }
+  },
+  "runtime": {
+    "anysize": true,
+    "train": "hypergan train [dataset] --sampler static_batch -b 8 --size 64x64x3"
+  },
+  "hypergan_version": "~1",
+  "class": "class:hypergan.gans.standard_gan.StandardGAN"
+}

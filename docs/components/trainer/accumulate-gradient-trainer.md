@@ -1,6 +1,6 @@
 # Accumulate Gradient Trainer
 
-* Source: [/trainers/accumulate_gradient_trainer.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/trainers/accumulate_gradient_trainer.py)
+* Source: [/trainers/accumulate\_gradient\_trainer.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/trainers/accumulate_gradient_trainer.py)
 
 ```python
 d_grads, g_grads = self.calculate_gradients()
@@ -15,7 +15,7 @@ else:
 
 ## examples
 
-* Configurations: [/trainers/accumulate_gradient_trainer/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/trainers/accumulate_gradient_trainer/)
+* Configurations: [/trainers/accumulate\_gradient\_trainer/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/trainers/accumulate_gradient_trainer/)
 
 ```javascript
 {
@@ -40,12 +40,13 @@ else:
   ]
 }
 ```
+
 ## options
 
 | attribute | description | type |
 | :--- | :--- | :--- |
-| g_optimizer | Optimizer configuration for G | Config \(required\) |
-| d_optimizer | Optimizer configuration for D | Config \(required\) |
+| g\_optimizer | Optimizer configuration for G | Config \(required\) |
+| d\_optimizer | Optimizer configuration for D | Config \(required\) |
 | hooks | Train Hooks | Array of configs \(optional\) |
 | accumulate | Amount of steps to accumulate G.  Defaults to 3 | Integer \(optional\) |
 | type | `agree` or `average`.  Defaults to `average` | String \(optional\) |

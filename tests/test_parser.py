@@ -77,8 +77,7 @@ class TestParser:
         obj = self.parse(line)[1][0]
         assert obj == "self"
         obj = self.parse(line)[1][1][0] #TODO why is this nested, should be just [1]
-        print("OBJ", obj)
-        assert obj.to_list() == ["conv2d", [], {"filter": 1}]
+        assert obj.to_list() == ["conv", [], {"filter": 1}]
 
     def test_parses_configurable_param_in_options(self):
         line = "conv2d options=(conv2d test)"

@@ -8,9 +8,9 @@ class LearnedNoise(nn.Module):
         self.h = h
         self.w = w
         self.c = c
-        self.weight = nn.Parameter(torch.randn(1, self.c, 1, 1) * mul)
+        self.weight = nn.Parameter(torch.zeros(1), requires_grad=True)
         self.noise = torch.Tensor(self.batch_size, 1, self.h, self.w).cuda()
 
     def forward(self, input):
         self.noise.normal_()
-        return self.noise * self.weight
+        return input + self.noise * self.weight

@@ -3,10 +3,12 @@ from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.samplers.aligned_sampler import AlignedSampler
 from hypergan.samplers.batch_sampler import BatchSampler
 from hypergan.samplers.batch_walk_sampler import BatchWalkSampler
+from hypergan.samplers.factorization_batch_walk_sampler import FactorizationBatchWalkSampler
 from hypergan.samplers.input_sampler import InputSampler
 from hypergan.samplers.static_batch_sampler import StaticBatchSampler
 from hypergan.samplers.y_sampler import YSampler
-from hypergan.skip_connections import SkipConnections
+
+from hypergan.train_hook_collection import TrainHookCollection
 from pathlib import Path
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
@@ -21,46 +23,28 @@ import torch
 import torch.nn as nn
 
 class BaseGAN():
-    def __init__(self, config=None, inputs=None):
+    def __init__(self, config=None, inputs=None, device="cuda"):
         """ Initialized a new GAN."""
-        self.steps = Variable(torch.zeros([1]))
-        self.inputs = inputs
-        self.inputs.gan = self
+        self._metrics = {}
         self.components = {}
-        self.skip_connections = SkipConnections()
         self.destroy = False
+        self.inputs = inputs
+        self.steps = Variable(torch.zeros([1]))
 
         if config == None:
             config = hg.Configuration.default()
 
         self.config = config
-        self._metrics = {}
+        self.device = device
         self.create()
-
-    def add_metric(self, name, value):
-        """adds metric to monitor during training
-            name:string
-            value:Tensor
-        """
-        self._metrics[name] = value
-        return self._metrics
-
-    def parameters(self):
-        for param in self.g_parameters():
-            yield param
-        for param in self.d_parameters():
-            yield param
-        yield self.steps
+        self.hooks = self.setup_hooks()
+        self.train_hooks = TrainHookCollection(self)
 
     def g_parameters(self):
         print("Warning: BaseGAN.g_parameters() called directly.  Please override")
 
     def d_parameters(self):
         print("Warning: BaseGAN.d_parameters() called directly.  Please override")
-
-    def metrics(self):
-        """returns a metric : tensor hash"""
-        return self._metrics
 
     def batch_size(self):
         return self.inputs.batch_size()
@@ -90,6 +74,11 @@ class BaseGAN():
         self.components[name+str(index)] = component
 
     def create_component(self, name, *args, **kw_args):
+        gan_component = self.initialize_component(name, *args, **kw_args)
+        self.add_component(name, gan_component)
+        return gan_component
+
+    def initialize_component(self, name, *args, **kw_args):
         print("Creating component:", name)
         defn = self.config[name]
         if defn == None:
@@ -100,38 +89,32 @@ class BaseGAN():
         klass = GANComponent.lookup_function(None, defn['class'])
         gan_component = klass(self, defn, *args, **kw_args)
         if(isinstance(gan_component, nn.Module)):
-            gan_component = gan_component.cuda()
-        self.add_component(name, gan_component)
+            gan_component = gan_component.to(self.device)
+        else:
+            print("Warning", name, "is not a nn.Module")
         return gan_component
 
     def create(self):
         print("Warning: BaseGAN.create() called directly.  Please override")
 
-    def discriminator_fake_inputs(self, discriminator_index=0):
+    def discriminator_fake_inputs(self):
         """
             Fake inputs to the discriminator, should be cached
         """
         []
 
-    def discriminator_real_inputs(self, discriminator_index=0):
+    def discriminator_real_inputs(self):
         """
             Real inputs to the discriminator, should be cached
         """
         []
 
-    def forward_discriminator(self, inputs, discriminator_index=0):
+    def forward_discriminator(self, inputs):
         """
             Runs a forward pass through the discriminator and returns the discriminator output
         """
         print("Warning: BaseGAN.forward_discriminator() called directly.  Please override")
         return None
-
-    def forward_loss(self):
-        """
-            Runs a forward pass through the GAN and returns (d_loss, g_loss)
-        """
-        d_real, d_fake = self.forward_pass()
-        return self.loss.forward(d_real, d_fake)
 
     def forward_pass(self):
         """
@@ -140,28 +123,10 @@ class BaseGAN():
         print("Warning: BaseGAN.forward_pass() called directly.  Please override")
         return None, None
 
-    def step(self, feed_dict={}):
-        self.steps += 1
-        self._metrics = {}
-        return self._step(feed_dict)
-
-    def _step(self, feed_dict={}):
-        if self.trainer == None:
-            raise ValidationException("gan.trainer is missing.  Cannot train.")
-        return self.trainer.step(feed_dict)
-
-    def save(self, save_file):
-        print("Saving..." + str(len(self.components)))
-        full_path = os.path.expanduser(os.path.dirname(save_file))
-        os.makedirs(full_path, exist_ok=True)
-        for name, component in self.components.items():
-            self._save(full_path, name, component)
-
-    def _save(self, full_path, name, component):
-        path = full_path + "/"+name+".save"
-        print("Saving " + path)
-        print(component.state_dict().keys())
-        torch.save(component.state_dict(), path)
+    def forward_loss(self, loss):
+        d_real, d_fake = self.forward_pass()
+        d_loss, g_loss = loss.forward(d_real, d_fake)
+        return [d_loss, g_loss]
 
     def load(self, save_file):
         print("Loading..." + str(len(self.components)))
@@ -182,13 +147,24 @@ class BaseGAN():
                 print('state_dict', state_dict.keys())
                 component.load_state_dict(state_dict)
                 return True
-            except:
+            except Exception as e:
                 print("Warning: Could not load component " + name)
+                print(e)
                 return False
         else:
             print("Could not load " + path)
             return False
 
+    def save(self, full_path):
+        print("Saving..." + str(len(self.components)))
+        for name, component in self.components.items():
+            self._save(full_path, name, component)
+
+    def _save(self, full_path, name, component):
+        path = full_path + "/"+name+".save"
+        print("Saving " + path)
+        print(component.state_dict().keys())
+        torch.save(component.state_dict(), path)
 
     def parse_args(self, strs):
         options = hc.Config({})
@@ -210,6 +186,7 @@ class BaseGAN():
     def get_registered_samplers(self=None):
         return {
                 'static_batch': StaticBatchSampler,
+                'factorization_batch_walk': FactorizationBatchWalkSampler,
                 'input': InputSampler,
                 #'progressive': ProgressiveSampler,
                 #'random_walk': RandomWalkSampler,
@@ -228,28 +205,11 @@ class BaseGAN():
                 'aligned': AlignedSampler
             }
 
-    def g_parameters(self):
-        for component in self.generator_components():
-            for param in component.parameters():
-                yield param
-
-    def d_parameters(self):
-        for component in self.discriminator_components():
-            for param in component.parameters():
-                yield param
-
     def discriminator_components(self):
         print("Warning: BaseGAN.discriminator_components() called directly.  Please override")
 
     def generator_components(self):
         print("Warning: BaseGAN.generator_components() called directly.  Please override")
-
-    def train_hooks(self):
-        result = []
-        for component in self.gan.components:
-            if hasattr(component, "train_hooks"):
-                result += component.train_hooks
-        return result
 
     def sampler_for(self, name, default=StaticBatchSampler):
         samplers = self.get_registered_samplers()
@@ -263,10 +223,72 @@ class BaseGAN():
     def regularize_adversarial_norm(self):
         raise ValidationException("Not implemented")
 
-    def set_generator_trainable(self, flag):
+    def latent_parameters(self):
+        params = []
         for c in self.generator_components():
-            c.set_trainable(flag)
+            params += c.latent_parameters()
+        return params
 
-    def set_discriminator_trainable(self, flag):
-        for c in self.discriminator_components():
-            c.set_trainable(flag)
+    def __getstate__(self):
+        pickled = dict(self.__dict__)
+
+        del pickled['inputs']
+        del pickled['x']
+        return pickled
+    def __setstate__(self, d):
+        self.__dict__ = d
+
+    def to(self, device):
+        self.generator = self.generator.to(device)
+        self.generator.device=device
+        self.discriminator = self.discriminator.to(device)
+        self.discriminator.device=device
+        self.device = device
+        return self #TODO should create new instance
+
+    def create_input(self, blank=False, rank=None):
+        klass = GANComponent.lookup_function(None, self.input_config['class'])
+        self.input_config["blank"]=blank
+        self.input_config["rank"]=rank
+        return klass(self.input_config)
+
+    def g_parameters(self):
+        for component in self.generator_components():
+            for param in component.parameters():
+                yield param
+
+    def d_parameters(self):
+        for component in self.discriminator_components():
+            for param in component.parameters():
+                yield param
+
+    def parameters(self):
+        for param in self.g_parameters():
+            yield param
+        for param in self.d_parameters():
+            yield param
+
+    def setup_hooks(self):
+        hooks = []
+        for hook_config in (self.config.trainer["hooks"]):
+            hook_config = hc.lookup_functions(hook_config.copy())
+            defn = {k: v for k, v in hook_config.items() if k in inspect.getargspec(hook_config['class']).args}
+            defn['gan']=self
+            defn['config']=hook_config
+            hook = hook_config["class"](**defn)
+            self.add_component("hook", hook)
+            hooks.append(hook)
+
+        return hooks
+
+    def add_metric(self, name, value):
+        """adds metric to the gan
+            name:string
+            value:Tensor
+        """
+        self._metrics[name] = value
+        return self._metrics
+
+    def metrics(self):
+        """returns a metric : tensor hash"""
+        return self._metrics

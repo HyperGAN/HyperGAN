@@ -47,7 +47,9 @@ description: 'https://arxiv.org/abs/1912.00144'
     </tr>
   </thead>
   <tbody></tbody>
-</table><table>
+</table>
+
+<table>
   <thead>
     <tr>
       <th style="text-align:left">skip_g</th>
@@ -60,7 +62,9 @@ description: 'https://arxiv.org/abs/1912.00144'
     </tr>
   </thead>
   <tbody></tbody>
-</table>{% hint style="info" %}
+</table>
+
+{% hint style="info" %}
 Floats are [configurable parameters](../../configuration/configurable-parameters.md)
 {% endhint %}
 

@@ -15,6 +15,7 @@ import torch.nn as nn
 from .gan_component import GANComponent
 from hypergan.gan_component import ValidationException
 from hypergan.layer_shape import LayerShape
+from hypergan.distributions.base_distribution import BaseDistribution
 
 from hypergan.modules.adaptive_instance_norm import AdaptiveInstanceNorm
 from hypergan.modules.attention import Attention
@@ -32,7 +33,8 @@ import torchvision
 import hypergan as hg
 
 class ConfigurableComponent(GANComponent):
-    def __init__(self, gan, config, input=None, input_shape=None, context_shapes = {}):
+    custom_layers = {}
+    def __init__(self, gan, config, input=None, input_shape=None, context_shapes = {}, input_is_latent=False):
         self.current_size = LayerShape(gan.channels(), gan.height(), gan.width())
         if isinstance(input, GANComponent):
             if hasattr(input, 'current_height'):
@@ -52,13 +54,25 @@ class ConfigurableComponent(GANComponent):
         self.parsed_layers = []
         self.parser = hypergan.parser.Parser()
         self.context_shapes = context_shapes
+        for key, shape in self.context_shapes.items():
+            self.layer_output_sizes[key] = shape
+        if isinstance(input, BaseDistribution):
+            self.is_latent = True
+        else:
+            self.is_latent = False
+        self._latent_parameters = []
         self.layer_ops = {**self.activations(),
+            **ConfigurableComponent.custom_layers,
             "add": hg.layers.Add,
             "cat": hg.layers.Cat,
             "channel_attention": hg.layers.ChannelAttention,
+            "efficient_attention": hg.layers.EfficientAttention,
             "ez_norm": hg.layers.EzNorm,
+            "layer": hg.layers.Layer,
+            "minibatch": hg.layers.Minibatch,
             "mul": hg.layers.Mul,
             "multi_head_attention2": hg.layers.MultiHeadAttention, #TODO rename
+            "noise": hg.layers.Noise,
             "pixel_shuffle": hg.layers.PixelShuffle,
             "residual": hg.layers.Residual,
             "resizable_stack": hg.layers.ResizableStack,
@@ -69,7 +83,6 @@ class ConfigurableComponent(GANComponent):
             "dropout": self.layer_dropout,
             "identity": self.layer_identity,
             "flatten": self.layer_flatten,
-            "layer": self.layer_layer,
             "pretrained": self.layer_pretrained,
             "avg_pool": self.layer_avg_pool,#TODO handle dims
             "pad": self.layer_pad,
@@ -100,7 +113,6 @@ class ConfigurableComponent(GANComponent):
             "learned_noise": self.layer_learned_noise,
             "linear": self.layer_linear,
             "modulated_conv2d": self.layer_modulated_conv2d,
-            "module": self.layer_module,
             "multi_head_attention": self.layer_multi_head_attention,
             "pixel_norm": self.layer_pixel_norm,
             "resize_conv": self.layer_resize_conv,
@@ -123,7 +135,6 @@ class ConfigurableComponent(GANComponent):
             #"layer_norm": self.layer_layer_norm,#TODO
             #"mask": self.layer_mask,#TODO
             #"match_support": self.layer_match_support,#TODO
-            #"minibatch": self.layer_minibatch,#TODO
             #"pixel_norm": self.layer_pixel_norm,#TODO
             #"progressive_replace": self.layer_progressive_replace,#TODO
             #"reduce_sum": self.layer_reduce_sum,#TODO might want to just do "reduce sum" instead
@@ -141,6 +152,7 @@ class ConfigurableComponent(GANComponent):
             gan.named_layers = {}
         self.subnets = hc.Config(hc.Config(config).subnets or {})
         GANComponent.__init__(self, gan, config)
+        self.device = self.config.device or "cuda:0"
         self.const_two = torch.Tensor([2.0]).float()[0].cuda()
         self.const_one = torch.Tensor([1.0]).float()[0].cuda()
 
@@ -180,36 +192,26 @@ class ConfigurableComponent(GANComponent):
     def build_layer(self, op, args, options):
         if self.layer_ops[op]:
             try:
-                is_hg_module = issubclass(self.layer_ops[op], hg.Layer)
+                is_hg_layer = issubclass(self.layer_ops[op], hg.Layer)
             except TypeError:
-                is_hg_module = False
+                is_hg_layer = False
 
-            if is_hg_module:
+            if is_hg_layer:
                 net = self.layer_ops[op](self, args, options)
                 self.current_size = net.output_size()
+                if self.is_latent:
+                    self._latent_parameters += net.latent_parameters()
+                    self.is_latent = False
             elif isinstance(self.layer_ops[op], nn.Module):
                 net = self.layer_ops[op]
             else:
-                #before_count = self.count_number_trainable_params()
-                print("Size before: ", self.current_size.dims)
                 net = self.layer_ops[op](None, args, options)
-                print("Size after: ", self.current_size.dims)
             if 'name' in options:
                 self.set_layer(options['name'], net)
+
             if options.trainable == False:
                 self.untrainable_parameters = self.untrainable_parameters.union(set(net.parameters()))
             return net
-
-            #after = self.variables()
-            #new = set(after) - set(before)
-            #for j in new:
-            #    self.layer_options[j]=options
-            #after_count = self.count_number_trainable_params()
-            #if not self.ops._reuse:
-            #    if net == None:
-            #        print("[Error] Layer resulted in null return value: ", op, args, options)
-            #        raise ValidationException("Configurable layer is null")
-            #    print("layer: ", self.ops.shape(net), op, args, after_count-before_count, "params")
         else:
             print("ConfigurableComponent: Op not defined", op)
 
@@ -231,6 +233,7 @@ class ConfigurableComponent(GANComponent):
             "softplus": nn.Softplus(),
             "softshrink": nn.Softshrink(),
             "softsign": nn.Softsign(),
+            "hardsigmoid": nn.Hardsigmoid(),
             "hardtanh": nn.Hardtanh(),
             "tanh": nn.Tanh(),
             "tanhshrink": nn.Tanhshrink()
@@ -246,9 +249,12 @@ class ConfigurableComponent(GANComponent):
         lr_mul = 1
         if options.lr_mul is not None:
             lr_mul = options.lr_mul
-        result = EqualLinear(self.current_size.size(), args[0], lr_mul=lr_mul)
+        result = EqualLinear(options.input_size or self.current_size.size(), args[0], lr_mul=lr_mul)
         self.current_size = LayerShape(args[0])
         return result
+
+    def get_device(self):
+        return torch.device(self.device or "cuda:0")
 
     def get_same_padding(self, input_rows, filter_rows, stride, dilation):
         out_rows = (input_rows + stride - 1) // stride
@@ -356,6 +362,10 @@ class ConfigurableComponent(GANComponent):
         if len(shape) != 1:
             layers.append(Reshape(*self.current_size.dims))
 
+        if self.is_latent:
+            self._latent_parameters += [layers[0].weight]
+            self.is_latent = False
+
         return nn.Sequential(*layers)
 
     def layer_modulated_conv2d(self, net, args, options):
@@ -390,12 +400,6 @@ class ConfigurableComponent(GANComponent):
         elif downsample:
             self.current_size = LayerShape(channels, self.current_size.height // 2, self.current_size.width // 2)
         return result
-
-    def layer_module(self, net, args, options):
-        klass = GANComponent.lookup_function(None,"function:__main__."+args[0])
-        instance = klass(self.gan, net, args, options, self.current_size)
-        self.current_size = instance.layer_shape(self.current_size)
-        return instance
 
     def layer_blur(self, net, args, options):
         blur_kernel=[1, 3, 3, 1]
@@ -542,7 +546,7 @@ class ConfigurableComponent(GANComponent):
         layers = [nn.Upsample((h)),
                 nn.Conv1d(options.input_channels or self.current_size.channels, channels, options.filter or 3, 1, padding=padding)]
         self.nn_init(layers[-1], options.initializer)
-        h, _ = self.conv_output_shape((self.current_size.height, self.current_size.height), options.filter or 3, 1, padding, 1)
+        h, _ = self.conv_output_shape((h, h), options.filter or 3, 1, padding, 1)
         self.current_size = LayerShape(channels, h)
         return nn.Sequential(*layers)
 
@@ -608,11 +612,7 @@ class ConfigurableComponent(GANComponent):
 
     def layer_latent(self, net, args, options):
         self.current_size = LayerShape(self.gan.latent.current_input_size)
-        return NoOp()
-
-    def layer_layer(self, net, args, options):
-        if args[0] in self.layer_output_sizes:
-            self.current_size = self.layer_output_sizes[args[0]]
+        self.is_latent = True
         return NoOp()
 
     def layer_linformer(self, net, args, options):
@@ -636,6 +636,10 @@ class ConfigurableComponent(GANComponent):
         self.nn_init(layer.h, options.initializer)
         self.nn_init(layer.g, options.initializer)
         self.nn_init(layer.f, options.initializer)
+
+        if self.is_latent:
+            self._latent_parameters += [layer.h.weight, layer.g.weight, layer.f.weight]
+            self.is_latent = False
         return layer
 
     def layer_attention(self, net, args, options):
@@ -723,6 +727,8 @@ class ConfigurableComponent(GANComponent):
 
 
     def forward(self, input, context={}):
+        if self.get_device().index != input.device.index:
+            input = input.to(self.get_device())
         for module, parsed, layer_shape in zip(self.net, self.parsed_layers, self.layer_shapes):
             try:
                 options = parsed.parsed_options
@@ -737,8 +743,6 @@ class ConfigurableComponent(GANComponent):
                     input = module(input, context['w'])
                 elif layer_name == "split":
                     input = torch.split(input, args[0], options.dim or -1)[args[1]]
-                elif layer_name == "layer":
-                    input = context[args[0]]
                 elif layer_name == "latent":
                     input = self.gan.latent.z#sample()
                 elif layer_name == "modulated_conv2d":
@@ -759,7 +763,7 @@ class ConfigurableComponent(GANComponent):
                         print("Error: Actual output size", size.dims)
                         raise "Layer size error, cannot continue"
                     else:
-                        print("Sizes as expected", input.shape[1:], layer_shape.dims)
+                        pass
                 if name is not None:
                     context[name] = input
             except:
@@ -767,6 +771,23 @@ class ConfigurableComponent(GANComponent):
         self.sample = input
         return input
 
+    def latent_parameters(self):
+        return self._latent_parameters
+
     def set_trainable(self, flag):
         for p in (set(list(self.parameters())) - self.untrainable_parameters):
             p.requires_grad = flag
+
+    def layer_shape(self):
+        return self.current_size
+
+    def __getstate__(self):
+        obj = dict(self.__dict__)
+        del obj["parser"]
+
+        return obj
+
+    def __setstate__(self, d):
+        self.__dict__ = d
+        self.parser = hypergan.parser.Parser()
+

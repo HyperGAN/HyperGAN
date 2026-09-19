@@ -1,6 +1,6 @@
 # Balanced Trainer
 
-* Source: [/trainers/balanced_trainer.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/trainers/balanced_trainer.py)
+* Source: [/trainers/balanced\_trainer.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/trainers/balanced_trainer.py)
 
 ```python
 fake, real = self.gan.forward_discriminator()
@@ -12,7 +12,7 @@ else:
 
 ## examples
 
-* Configurations: [/trainers/balanced_trainer/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/trainers/balanced_trainer/)
+* Configurations: [/trainers/balanced\_trainer/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/trainers/balanced_trainer/)
 
 ```javascript
 {
@@ -59,16 +59,16 @@ else:
     }
   ]
 }
- 
 ```
+
 ## options
 
 | attribute | description | type |
 | :--- | :--- | :--- |
-| g_optimizer | Optimizer configuration for G | Config \(required\) |
-| d_optimizer | Optimizer configuration for D | Config \(required\) |
+| g\_optimizer | Optimizer configuration for G | Config \(required\) |
+| d\_optimizer | Optimizer configuration for D | Config \(required\) |
 | hooks | Train Hooks | Array of configs \(optional\) |
-| pretrain_d | First N steps only trains D | Integer \(optional\) |
-| imbalance | Threshold distance for G training.  Defaults to 0.1 | Float \(optional\)  |
-| d_fake_balance | Changes conditional to `d_fake(t) > d_fake(t-1)` | Boolean \(optional\)  |
+| pretrain\_d | First N steps only trains D | Integer \(optional\) |
+| imbalance | Threshold distance for G training.  Defaults to 0.1 | Float \(optional\) |
+| d\_fake\_balance | Changes conditional to `d_fake(t) > d_fake(t-1)` | Boolean \(optional\) |
 

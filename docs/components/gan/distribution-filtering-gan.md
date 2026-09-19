@@ -1,2 +1,0 @@
-# Distribution Filtering GAN
-

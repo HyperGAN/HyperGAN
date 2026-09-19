@@ -1,7 +1,7 @@
 # Softmax Loss
 
 * Adapted from [https://arxiv.org/abs/1704.06191](https://arxiv.org/abs/1704.06191)
-* Source: [/losses/softmax_loss.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/softmax_loss.py)
+* Source: [/losses/softmax\_loss.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/losses/softmax_loss.py)
 
 ```python
 ln_zb = (((-d_real).exp().sum()+(-d_fake).exp().sum())+1e-12).log()
@@ -15,7 +15,7 @@ d_loss = d_target * d_real.sum() + ln_zb
 
 ## examples
 
-* Configurations: [/losses/softmax_loss/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/losses/softmax_loss/)
+* Configurations: [/losses/softmax\_loss/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/losses/softmax_loss/)
 
 ```javascript
 {                                                                                       

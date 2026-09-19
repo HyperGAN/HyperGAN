@@ -39,7 +39,9 @@ $$
     </tr>
   </thead>
   <tbody></tbody>
-</table><table>
+</table>
+
+<table>
   <thead>
     <tr>
       <th style="text-align:left">lambda</th>
@@ -52,7 +54,9 @@ $$
     </tr>
   </thead>
   <tbody></tbody>
-</table><table>
+</table>
+
+<table>
   <thead>
     <tr>
       <th style="text-align:left">components</th>
@@ -64,9 +68,7 @@ $$
     </tr>
   </thead>
   <tbody></tbody>
-</table>| flex | Max amount of gradient before penalty | float |
-| :--- | :--- | :--- |
-
+</table>
 
 <table>
   <thead>
@@ -81,7 +83,9 @@ $$
     </tr>
   </thead>
   <tbody></tbody>
-</table><table>
+</table>
+
+<table>
   <thead>
     <tr>
       <th style="text-align:left">loss</th>
@@ -95,7 +99,9 @@ $$
     </tr>
   </thead>
   <tbody></tbody>
-</table>{% hint style="info" %}
+</table>
+
+{% hint style="info" %}
 Floats are [configurable parameters](../../configuration/configurable-parameters.md)
 {% endhint %}
 

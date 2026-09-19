@@ -1,6 +1,6 @@
 # Simultaneous Trainer
 
-* Source: [/trainers/simultaneous_trainer.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/trainers/simultaneous_trainer.py)
+* Source: [/trainers/simultaneous\_trainer.py](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/trainers/simultaneous_trainer.py)
 
 ```python
 d_grads,g_grads = self.calculate_gradients(D, G)
@@ -10,7 +10,7 @@ self.train_g(g_grads)
 
 ## examples
 
-* Configurations: [/trainers/simultaneous_trainer/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/trainers/simultaneous_trainer/)
+* Configurations: [/trainers/simultaneous\_trainer/](https://github.com/HyperGAN/HyperGAN/tree/pytorch/hypergan/configurations/components/trainers/simultaneous_trainer/)
 
 ```javascript
 {
@@ -33,11 +33,11 @@ self.train_g(g_grads)
   ]
 }
 ```
+
 ## options
 
 | attribute | description | type |
 | :--- | :--- | :--- |
 | optimizer | Optimizer configuration | Config \(required\) |
 | hooks | Train Hooks | Array of configs \(optional\) |
-
 

@@ -1,6 +1,6 @@
 # Getting started
 
-HyperGAN is currently in open beta.
+HyperGAN is currently in pre-release and open beta.
 
 Everyone will have different goals when using hypergan. Here are some common uses:
 
@@ -69,5 +69,5 @@ Also, try to save refactoring until after it works.
 
 `hypergan build`
 
-This builds a standard tensorflow graph. You can then quantize and/or deploy the model.
+This builds a standard pytorch onxx file. You can then quantize and/or deploy the model.
 

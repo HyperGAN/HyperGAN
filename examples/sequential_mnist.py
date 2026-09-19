@@ -125,10 +125,10 @@ class MNISTGAN(BaseGAN):
     def d_parameters(self):
         return self.discriminator.parameters()
 
-    def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.x, self.g]
+    def discriminator_fake_inputs(self):
+        return [[self.x, self.g]]
 
-    def discriminator_real_inputs(self, discriminator_index=0):
+    def discriminator_real_inputs(self):
         if hasattr(self, 'x'):
             return [self.x, self.y]
         else:

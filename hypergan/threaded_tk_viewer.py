@@ -211,7 +211,7 @@ class ThreadedTkViewerUI:
         self.screen.fill((0, 0, 0))
         self.pg.surfarray.blit_array(self.surface, image[:,:,:3])
         self.screen.blit(self.pg.transform.scale(self.surface,self.size),(0,0))
-        self.clock.tick_busy_loop(60)
+        self.clock.tick_busy_loop(24)
         self.pg.display.flip()
 
 

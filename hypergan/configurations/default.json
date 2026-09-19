@@ -8,7 +8,9 @@
       "conv 64 stride=2", "relu",
       "conv 128 stride=2", "relu",
       "conv 256 stride=2", "relu",
-      "conv 256 stride=2", "relu",
+      "conv 512 stride=2", "relu",
+      "conv 512 stride=2", "relu",
+      "linear 1024", "relu",
       "linear 128", "relu",
       "multi_head_attention 1"
     ]
@@ -81,6 +83,6 @@
     "anysize": true,
     "train": "hypergan train [dataset] --sampler static_batch -b 8 --size 64x64x3"
   },
-  "hypergan_version": "0.10.0",
+  "hypergan_version": "~1",
   "class": "class:hypergan.gans.standard_gan.StandardGAN"
 }

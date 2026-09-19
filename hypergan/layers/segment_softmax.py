@@ -56,8 +56,10 @@ class SegmentSoftmax(hg.Layer):
 
     def forward(self, input, context):
         content, segment = torch.split(input, input.shape[1]//2, 1)
-        net_in = content.view(content.shape[0], content.shape[1]//self.channels, self.channels, content.shape[2], content.shape[3])
-        segment = segment.view(content.shape[0], content.shape[1]//self.channels, self.channels, content.shape[2], content.shape[3])
+        content_shape = list(content.shape)
+        new_shape = [content_shape[0], content_shape[1]//self.channels, self.channels, *content.shape[2:]]
+        net_in = content.view(*new_shape)
+        segment = segment.view(*new_shape)
         selection = self.softmax(segment)
         rendered = (selection * net_in).sum(dim=1).view([input.shape[0]]+list(self.output_size().dims))
         return rendered

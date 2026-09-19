@@ -20,55 +20,44 @@ import torch
 import uuid
 
 class StandardGAN(BaseGAN):
-    """ 
+    """
     Standard GANs consist of:
-    
-    *required to sample*
-    
+
+    * single input source
     * latent
     * generator
-    * sampler
-
-    *required to train*
-
     * discriminator
-    * loss
-    * trainer
+
+    The generator creates a sample based on the latent.
+
     """
     def __init__(self, *args, **kwargs):
-        self.discriminator = None
-        self.latent = None
-        self.generator = None
-        self.loss = None
-        self.trainer = None
-        self.features = []
         BaseGAN.__init__(self, *args, **kwargs)
         self.x = self.inputs.next()
 
     def build(self):
-        torch.onnx.export(self.generator, torch.randn(*self.latent.z.shape, device='cuda'), "generator.onnx", verbose=True, input_names=["latent"], output_names=["generator"])
+        torch.onnx.export(self.generator, self.latent.next(), "generator.onnx", verbose=True, input_names=["latent"], output_names=["generator"], opset_version=11)
 
     def required(self):
         return "generator".split()
 
     def create(self):
-        config = self.config
-
         self.latent = self.create_component("latent")
         self.generator = self.create_component("generator", input=self.latent)
         self.discriminator = self.create_component("discriminator")
-        self.loss = self.create_component("loss")
-        self.trainer = self.create_component("trainer")
 
     def forward_discriminator(self, inputs):
         return self.discriminator(inputs[0])
 
     def forward_pass(self):
         self.x = self.inputs.next()
-        g = self.generator(self.latent.next())
+        self.augmented_latent = self.train_hooks.augment_latent(self.latent.next())
+        g = self.generator(self.augmented_latent)
         self.g = g
-        d_real = self.forward_discriminator([self.x])
-        d_fake = self.forward_discriminator([g])
+        self.augmented_x = self.train_hooks.augment_x(self.x)
+        self.augmented_g = self.train_hooks.augment_g(self.g)
+        d_real = self.forward_discriminator([self.augmented_x])
+        d_fake = self.forward_discriminator([self.augmented_g])
         self.d_fake = d_fake
         self.d_real = d_real
         return d_real, d_fake
@@ -89,12 +78,12 @@ class StandardGAN(BaseGAN):
     def generator_components(self):
         return [self.generator]
 
-    def discriminator_fake_inputs(self, discriminator_index=0):
-        return [self.g]
+    def discriminator_fake_inputs(self):
+        return [[self.augmented_g]]
 
-    def discriminator_real_inputs(self, discriminator_index=0):
-        if hasattr(self, 'x'):
-            return [self.x]
+    def discriminator_real_inputs(self):
+        if hasattr(self, 'augmented_x'):
+            return [self.augmented_x]
         else:
             return [self.inputs.next()]
 

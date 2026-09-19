@@ -9,20 +9,19 @@ description: Trains the GAN object.
 The trainer creates the optimizer, and any associated train hooks.
 
 ```python
-trainer_config = {...}
-gan.create_component(trainer_config)
+trainable_gan = TrainableGAN(gan)
 ```
 
 ## Access
 
 ```text
-gan.trainer
+trainable_gan.trainer
 ```
 
 ## Actions
 
 ```python
-gan.trainer.step(feed_dict) # Step forward
+trainer.step(feed_dict) # Step forward
 ```
 
 ## Events

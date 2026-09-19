@@ -6,21 +6,23 @@ from .inputs import *
 from .viewer import GlobalViewer
 from hypergan.gan_component import ValidationException
 from hypergan.gan_component import ValidationException, GANComponent
+from hypergan.process_manager import ProcessManager
+from hypergan.trainable_gan import TrainableGAN
 from time import sleep
 import gc
 import hyperchamber as hc
 import hypergan as hg
 import numpy as np
 import os
-import os
 import shutil
 import sys
 import sys
 import tempfile
 import time
+
 class CLI:
     def __init__(self, args={}, input_config=None, gan_config=None):
-        self.samples = 0
+        self.steps = 0
         self.should_sample=False
         self.gan_config = gan_config
         self.input_config = input_config
@@ -28,6 +30,7 @@ class CLI:
         args = hc.Config(args)
         self.args = args
 
+        self.devices = args.devices
         crop =  self.args.crop
 
         self.config_name = self.args.config or 'default'
@@ -37,6 +40,7 @@ class CLI:
 
         self.sampler_name = args.sampler
         self.sampler = None
+        self.sample_path = "samples/%s" % self.config_name
 
         self.loss_every = self.args.loss_every or 1
 
@@ -62,6 +66,35 @@ class CLI:
             enabled = self.args.viewer,
             zoom = self.args.zoom)
 
+    def lazy_create(self):
+        if(self.sampler == None):
+            self.sampler = self.gan.sampler_for(self.sampler_name)(self.gan, samples_per_row=self.args.width)
+            if(self.sampler == None):
+                raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
+
+    def step(self):
+        self.steps+=1
+        self.trainable_gan.step()
+
+        if(self.steps % self.sample_every == 0):
+            sample_list = self.trainable_gan.sample(self.sampler, self.sample_path)
+
+    def create_path(self, filename):
+        return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
+
+    def create_input(self, blank=False, rank=None):
+        klass = GANComponent.lookup_function(None, self.input_config['class'])
+        self.input_config["blank"]=blank
+        self.input_config["rank"]=rank
+        return klass(self.input_config)
+
+    def build(self):
+        return self.gan.build()
+
+    def serve(self, gan):
+        return gan_server(self.gan.session, config)
+
+
     def sample(self, allow_save=True):
         """ Samples to a file.  Useful for visualizing the learning process.
 
@@ -77,42 +110,33 @@ class CLI:
         self.create_path(sample_file)
         self.lazy_create()
         sample_list = self.sampler.sample(sample_file, allow_save and self.args.save_samples)
+        print("Devices D:")
+        for component in self.gan.discriminator_components():
+            print(component.device)
+        print("Devices G:")
+        for component in self.gan.generator_components():
+            print(component.device)
+
         if allow_save:
             self.samples += 1
 
         return sample_list
 
-    def lazy_create(self):
-        if(self.sampler == None):
-            self.sampler = self.gan.sampler_for(self.sampler_name)(self.gan, samples_per_row=self.args.width)
-            if(self.sampler == None):
-                raise ValidationException("No sampler found by the name '"+self.sampler_name+"'")
 
-    def step(self):
-        self.gan.step()
-
-        if(self.gan.steps % self.sample_every == 0):
-            sample_list = self.sample()
-
-    def create_path(self, filename):
-        return os.makedirs(os.path.expanduser(os.path.dirname(filename)), exist_ok=True)
-
-    def create_input(self, blank=False):
-        klass = GANComponent.lookup_function(None, self.input_config['class'])
-        self.input_config["blank"]=blank
-        return klass(self.input_config)
-
-    def build(self):
-        return self.gan.build()
-
-    def serve(self, gan):
-        return gan_server(self.gan.session, config)
 
     def sample_forever(self):
         self.gan.inputs.next()
+        self.lazy_create()
+        self.trainable_gan = hg.TrainableGAN(self.gan, save_file = self.save_file, devices = self.devices, backend_name = self.args.backend)
+
+        if self.trainable_gan.load():
+            print("Model loaded")
+        else:
+            print("Could not load save")
+            return
         steps = 0
         while not self.gan.destroy and (steps <= self.args.steps or self.args.steps == -1):
-            self.sample()
+            self.trainable_gan.sample(self.sampler, self.sample_path)
             steps += 1
 
     def train(self):
@@ -123,19 +147,21 @@ class CLI:
             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-        self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input())
+        self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input(), device=self.args.parameter_server_device)
         self.gan.cli = self #TODO remove this link
         self.gan.inputs.next()
+        self.lazy_create()
 
-        if self.gan.load(self.save_file):
+        self.trainable_gan = hg.TrainableGAN(self.gan, save_file = self.save_file, devices = self.devices, backend_name = self.args.backend)
+
+        if self.trainable_gan.load():
             print("Model loaded")
         else:
             print("Initializing new model")
 
-        self.sample()
+        self.trainable_gan.sample(self.sampler, self.sample_path)
 
-        while((i < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
-            i+=1
+        while((self.steps < self.total_steps or self.total_steps == -1) and not self.gan.destroy):
             self.step()
             if self.should_sample:
                 self.should_sample = False
@@ -144,9 +170,9 @@ class CLI:
             if (self.args.save_every != None and
                 self.args.save_every != -1 and
                 self.args.save_every > 0 and
-                i % self.args.save_every == 0):
+                self.steps % self.args.save_every == 0):
                 print(" |= Saving network")
-                self.gan.save(self.save_file)   
+                self.trainable_gan.save()
                 self.create_path(self.advSavePath+'advSave.txt')
                 if os.path.isfile(self.advSavePath+'advSave.txt'):
                     with open(self.advSavePath+'advSave.txt', 'w') as the_file:
@@ -154,7 +180,7 @@ class CLI:
             if self.args.ipython:
                 self.check_stdin()
         print("Done training model.  Saving")
-        self.gan.save(self.save_file)
+        self.trainable_gan.save()
         print("============================")
         print("HyperGAN model trained")
         print("============================")
@@ -180,7 +206,7 @@ class CLI:
         print("[hypergan] Creating new configuration file '"+template+"' based off of '"+self.config_name+config_format)
         if os.path.isfile(template):
             raise ValidationException("File exists: " + template)
-        source_configuration = Configuration.find(self.config_name+config_format, config_format=config_format)
+        source_configuration = Configuration.find(self.config_name+config_format, config_format=config_format, prepackaged=True)
         shutil.copyfile(source_configuration, template)
 
         return
@@ -192,12 +218,6 @@ class CLI:
             self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input(blank=True))
             if not self.gan.load(self.save_file):
                 raise ValidationException("Could not load model: "+ self.save_file)
-            else:
-                if os.path.isfile(self.advSavePath+'advSave.txt'):
-                    with open(self.advSavePath+'advSave.txt', 'r') as the_file:
-                        content = [x.strip() for x in the_file]
-                        self.samples = int(content[1])
-                print("Model loaded")
             self.build()
         elif self.method == 'new':
             self.new()
@@ -205,11 +225,6 @@ class CLI:
             self.gan = hg.GAN(config=self.gan_config, inputs=self.create_input(blank=False))
             if not self.gan.load(self.save_file):
                 print("Initializing new model")
-            else:
-                if os.path.isfile(self.advSavePath+'advSave.txt'):
-                    with open(self.advSavePath+'advSave.txt', 'r') as the_file:
-                        content = [x.strip() for x in the_file]
-                        self.samples = int(content[1])
-                print("Model loaded")
 
             self.sample_forever()
+

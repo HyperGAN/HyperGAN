@@ -41,7 +41,7 @@ class Residual(hg.Layer):
         super(Residual, self).__init__(component, args, options)
         self.size = component.current_size
         layers = []
-        for i in range(options.count or 3):
+        for i in range(args[0] or 3):
             layers += [nn.Conv2d(self.size.channels, self.size.channels, 3, 1, padding = (1, 1))]
             layers += [nn.ReLU()]
             layers += [nn.Conv2d(self.size.channels, self.size.channels, 3, 1, padding = (1, 1))]

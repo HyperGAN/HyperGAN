@@ -18,6 +18,3 @@ class BaseLoss(GANComponent):
 
         return d_loss, g_loss
 
-    def forward_adversarial_norm(self, d_real, d_fake):
-        return (torch.sign(d_real-d_fake)*((d_real - d_fake)**2)).mean()
-        #return 0.5 * (self.dist(d_real,d_fake) + self.dist(d_fake, d_real)).sum()

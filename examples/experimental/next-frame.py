@@ -1,9 +1,9 @@
-from common import *
 from hypergan.gan_component import ValidationException, GANComponent
 from hypergan.gans.base_gan import BaseGAN
-from hypergan.viewer import GlobalViewer
 from torch.autograd import Variable
 from torch.autograd import grad as torch_grad
+from hypergan.viewer import GlobalViewer
+from common import *
 import copy
 import glob
 import hyperchamber as hc

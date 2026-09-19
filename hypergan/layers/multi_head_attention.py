@@ -58,4 +58,6 @@ class MultiHeadAttention(hg.Layer):
     def forward(self, input, context):
         return self.layer.forward(input)
 
+    def latent_parameters(self):
+        return [ self.layer.h.weight, self.layer.g.weight, self.layer.f.weight ]
 

@@ -109,7 +109,7 @@ No distributed CLI, server, GPU execution, paid compute, dataset download, upstr
 
 ## CPU execution profile and preflight checkpoint
 
-The [preflight report](core-preflight-2026-09-19.md) records separate CPU profile TOML, torch-free structural checks and construction-only runtime checks in bounded workers. `hypergan preflight CONFIG --profile FILE` validates execution settings; `--runtime` additionally checks CPU state, actual runtime/source/data identity, initialized replicas and recovery declarations. Global batch remains recipe-owned, and preflight timeouts stay outside numerical identity. Public `train`/`resume` remain single-process.
+[PR #312](https://github.com/HyperGAN/HyperGAN/pull/312) and the [preflight report](core-preflight-2026-09-19.md) record separate CPU profile TOML, torch-free structural checks and construction-only runtime checks in bounded workers. `hypergan preflight CONFIG --profile FILE` validates execution settings; `--runtime` additionally checks CPU state, actual runtime/source/data identity, initialized replicas and recovery declarations. Global batch remains recipe-owned, and preflight timeouts stay outside numerical identity. Public `train`/`resume` remain single-process.
 
 Three subagents implemented the profile and runtime and independently tested rank failures, data-identity disagreement, hung startup, strict comparisons and worker cleanup. Review corrected single-process preflight inadvertently initializing a Gloo group; it now matches native single-process construction. Worker output stays on stderr while the CLI emits JSON. Unsupported recovery declarations are reported with reasons rather than mistaken for a failed construction or proven restore.
 

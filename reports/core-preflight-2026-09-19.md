@@ -1,6 +1,6 @@
 # CPU execution profiles and preflight
 
-Date: 2026-09-19. Baseline: develop `e615afabd62d2cf3ba9e57a1b22e184add118b83`, after PR #311. This checkpoint adds a usable way to check execution settings and worker startup before the distributed run service is connected.
+Date: 2026-09-19. [PR #312](https://github.com/HyperGAN/HyperGAN/pull/312). Baseline: develop `e615afabd62d2cf3ba9e57a1b22e184add118b83`, after PR #311. This checkpoint adds a usable way to check execution settings and worker startup before the distributed run service is connected.
 
 ## Workflow and scope
 

@@ -39,6 +39,16 @@ python -I -m pytest /path/to/checkout/tests --import-mode=importlib -q
 
 The walkthrough exercised help/version/recipes/new/validate/train/inspect/sample plus the paired example. Default commands emitted no stderr; the paired recipe emitted its expected unqualified warning. Default and paired samples had finite shapes [16,2] and [8,2]. Durable local evidence is under the preservation directory's `foundation-acceptance/`; temporary environments can be recreated from README/CI.
 
+## Complete issue audit and viewer decision
+
+[PR #302](https://github.com/HyperGAN/HyperGAN/pull/302) publishes the [complete audit](issue-audit-2026-09-18.md) and [local web contract](local-web-view-plan-2026-09-18.md). Three subagents reviewed all 112 original issues and 299 comments. The coordinator posted 17 individual explanations, closed 13 obsolete/completed/deferred issues, and kept four concrete requirements open. All 95 historical closed issues were left untouched. GitHub state and posted comments were re-read and verified; the report links every action.
+
+The five remaining open issues are [#166](https://github.com/HyperGAN/HyperGAN/issues/166) dataset acquisition, [#186](https://github.com/HyperGAN/HyperGAN/issues/186) distributed training, [#213](https://github.com/HyperGAN/HyperGAN/issues/213) resume-safe sample numbering, [#224](https://github.com/HyperGAN/HyperGAN/issues/224) containers, and newly created [#303](https://github.com/HyperGAN/HyperGAN/issues/303) optional local viewer. Their comments/body define acceptance gates. Closure of installation issues describes unreleased develop behavior; historical PyPI packages were not repaired or republished.
+
+The audit added explicit requirements for wall-time stopping, serialized save requests, last durable checkpoint visibility, data/class-map compatibility, preprocessing/image diagnostics, beginner command context and supervisor-friendly live logs. These are incorporated into the workstream table and next checkpoint. The server remains planned: no viewer code, flags or new dependency was added in this documentation slice.
+
+Audit evidence is preserved outside the repository at `/home/martyn/dev/hypergan/resurrection-backups/2026-09-18-issue-audit/`, including the snapshot, reviewed decisions, action receipt and final inventory. Reports have exact 112/112 unique issue coverage and resolving local file links; PR #302 requires the existing full CI checks before merge. No GPU execution, paid compute or release occurred.
+
 ## Next bounded checkpoint: ready for GPU qualification
 
 1. Resolve the upstream explicit license declaration before copying image architectures or publishing a release. The dependency integration is provisional; no root-license provenance was invented.

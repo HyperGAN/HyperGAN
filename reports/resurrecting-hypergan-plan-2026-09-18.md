@@ -338,7 +338,7 @@ Perform branch cleanup as follows, in order:
 7. Delete ordinary remote branch heads only against the rechecked expected tips, using a lease/check against concurrent updates. Close PRs through GitHub; do not try to delete GitHub-owned `refs/pull/*`. Remove obsolete local PR tracking refs after archival.
 8. Integrate reviewed feature PRs into `develop`; promote a qualified release through an ancestry-preserving `develop` → `master` PR. Keep master-only hotfixes synchronized back into develop. Update branch protections, package/docs links and contributor guidance.
 
-This sequence describes the original preservation gates. It has since been executed; [the preservation report](resurrection-preservation-2026-09-18.md) and [execution ledger](resurrection-status.md) record the archived refs, retired branches and merged/closed PRs.
+The preservation and legacy-retirement portions of this sequence have been executed; release promotion from develop to master remains gated and has not occurred. [The preservation report](resurrection-preservation-2026-09-18.md) and [execution ledger](resurrection-status.md) record the archived refs, retired branches and merged/closed PRs.
 
 **Execute in gates, with image and distributed correctness deciding whether the product proceeds.** Estimates assume one experienced maintainer with a reference CUDA machine and access to a two-node allocation; GPU evaluation time, cluster integration and user trials may extend elapsed time. Parallel work is useful for packaging, launcher integration, documentation, and target validation, but do not build a broad recipe catalog before the run/artifact contracts settle. The early cluster work is required scope even if a small demo ships ahead of it.
 

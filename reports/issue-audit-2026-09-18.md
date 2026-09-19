@@ -23,7 +23,7 @@ The coordinator owns sequencing and review, using implementation PRs targeting `
 | 3. Complete recovery | Save live model/prior/auxiliary state, EMA, optimizers, schedule/counters, RNG and data position; version compatibility; explicit transfer versus resume; serialize save requests at update boundaries; wall-time stopping | Next checkpoint: uninterrupted/resumed next-step parity; failed/interrupted save never replaces last complete checkpoint. Reject incompatible configs/data/class maps with explanations. Schema/class-map-aware transfer reports loaded/skipped/reset state, including optimizer and head resets; matching shapes alone do not validate category semantics. Show checkpoint paths, last durable step, save interval and possible lost-work window |
 | 3a. Immutable samples | Preserve sample sequence across resumed runs and repeated sampling; no overwrite; record run/attempt/update/conditioning provenance | Keep [#213](https://github.com/HyperGAN/HyperGAN/issues/213) open until actual resume tests preserve existing files and continue numbering. Current exclusive inference writes alone do not close it |
 | 4. Device and cluster correctness | Explicit effective device/dtype, no silent CPU fallback, global batch/statistics/prior semantics, bounded failure handling and worker cleanup; understandable OOM/driver diagnostics | Keep [#186](https://github.com/HyperGAN/HyperGAN/issues/186) open through CPU multiprocess parity, actual two-GPU NCCL and two distinct hosts with coordinated recovery. Device visibility is not distributed correctness |
-| 5. Realtime browser view | Optional local server, `--no-server`, headless workers, reconnectable progress/previews, resizable display, escaped errors and functioning stdout/stderr under supervisors | Follow [web plan W1–W5](local-web-view-plan-2026-09-18.md). First server is read-only; viewer failure/disconnect leaves training intact, and controlled state matches viewer-off training |
+| 5. Realtime browser view | Optional local server, `--no-server`, headless workers, reconnectable progress/previews, resizable display, escaped errors and functioning stdout/stderr under supervisors | Track [#303](https://github.com/HyperGAN/HyperGAN/issues/303) and follow [web plan W1–W5](local-web-view-plan-2026-09-18.md). First server is read-only; viewer failure/disconnect leaves training intact, and controlled state matches viewer-off training |
 | 6. Image usefulness and exploration | Reproducible sample seeds, actual image-quality/diversity diagnostics, normalization/output conversion and min/max/variance/constant-black checks, fixed evaluation inputs, meaningful failure reports; distinguish low GAN loss from convergence | Freeze one image recipe and evaluation protocol. Latent walks, checkpoint comparisons and pretrained fine-tuning remain later acceptance slices; particle interpolation needs explicit semantics |
 | 7. Build/deploy | Dataset-free sampling, independent inference artifact, tested container mounts/entrypoint/signals/runtime; CPU/ONNX target parity before device-specific claims | Native fresh-process inference is foundation-tested. Keep [#224](https://github.com/HyperGAN/HyperGAN/issues/224) open for a working tested container. Raspberry Pi/game engines are later measured deployment profiles; no promise of training on small devices |
 | 8. Recipe admission and extension | Ordinary configurable Python components, explicit bindings, conditional/multi-label contracts and task objectives; only mature, reproducible architectures become qualified recipes | Custom configs remain allowed with warnings. No automatic revival of old hooks, TensorFlow shims, competitive optimizers, EBGAN, ALAE, progressive/resolution-changing models or multiple-discriminator orchestration. Admit each only with a concrete use case, compatible/license-cleared implementation and numerical/quality/target evidence |
@@ -47,7 +47,7 @@ The original snapshot and action evidence are preserved outside the Git tree at 
 
 ## Individual open-issue decisions
 
-These are the reviewed dispositions; the execution receipt below records the actual GitHub changes. Four existing issues retain concrete unfinished work; thirteen are slated for closure (four completed on develop, six superseded, three deferred).
+These are the reviewed dispositions; the execution receipt below records the actual GitHub changes. Four existing issues retain concrete unfinished work; thirteen were closed (four completed on develop, six superseded, three deferred).
 
 | Issue | Decision | Reason | Retained action |
 | --- | --- | --- | --- |
@@ -173,4 +173,28 @@ All 95 remain closed. Each row reflects the body and full discussion, including 
 
 ## Execution receipt
 
-The coordinator will apply the reviewed open-issue comments/dispositions after publishing this report, then replace this paragraph with verified results. No historical closed issue will be reopened or commented on.
+Applied and independently re-read through GitHub at 2026-09-19T04:03:22Z: **17 individual comments, 13 closures, four original issues retained, and one new implementation tracker**. All 95 originally closed issues retain their original state and update timestamp. The complete original 112-issue set is accounted for; with the new tracker there are now 113 issues, of which five are open. No issue body or title was rewritten.
+
+| Original issue | Verified result | Explanation / acceptance comment |
+| --- | --- | --- |
+| [#1](https://github.com/HyperGAN/HyperGAN/issues/1) | closed (`not_planned`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/1#issuecomment-5739212387) |
+| [#120](https://github.com/HyperGAN/HyperGAN/issues/120) | closed (`completed`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/120#issuecomment-5739212607) |
+| [#165](https://github.com/HyperGAN/HyperGAN/issues/165) | closed (`not_planned`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/165#issuecomment-5739212873) |
+| [#166](https://github.com/HyperGAN/HyperGAN/issues/166) | open | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/166#issuecomment-5739213068) |
+| [#185](https://github.com/HyperGAN/HyperGAN/issues/185) | closed (`not_planned`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/185#issuecomment-5739213191) |
+| [#186](https://github.com/HyperGAN/HyperGAN/issues/186) | open | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/186#issuecomment-5739213353) |
+| [#213](https://github.com/HyperGAN/HyperGAN/issues/213) | open | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/213#issuecomment-5739213485) |
+| [#224](https://github.com/HyperGAN/HyperGAN/issues/224) | open | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/224#issuecomment-5739213606) |
+| [#255](https://github.com/HyperGAN/HyperGAN/issues/255) | closed (`not_planned`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/255#issuecomment-5739213695) |
+| [#269](https://github.com/HyperGAN/HyperGAN/issues/269) | closed (`completed`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/269#issuecomment-5739213846) |
+| [#272](https://github.com/HyperGAN/HyperGAN/issues/272) | closed (`not_planned`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/272#issuecomment-5739214071) |
+| [#285](https://github.com/HyperGAN/HyperGAN/issues/285) | closed (`not_planned`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/285#issuecomment-5739214338) |
+| [#286](https://github.com/HyperGAN/HyperGAN/issues/286) | closed (`completed`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/286#issuecomment-5739214551) |
+| [#287](https://github.com/HyperGAN/HyperGAN/issues/287) | closed (`completed`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/287#issuecomment-5739214710) |
+| [#288](https://github.com/HyperGAN/HyperGAN/issues/288) | closed (`not_planned`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/288#issuecomment-5739214888) |
+| [#293](https://github.com/HyperGAN/HyperGAN/issues/293) | closed (`not_planned`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/293#issuecomment-5739215070) |
+| [#294](https://github.com/HyperGAN/HyperGAN/issues/294) | closed (`not_planned`) | [Read comment](https://github.com/HyperGAN/HyperGAN/issues/294#issuecomment-5739215233) |
+
+New tracker: [#303 — optional local web viewer](https://github.com/HyperGAN/HyperGAN/issues/303). Remaining open: #166 (dataset acquisition), #186 (distributed training), #213 (resume-safe samples), #224 (containers), and #303 (viewer).
+
+Publication: [PR #302](https://github.com/HyperGAN/HyperGAN/pull/302), targeting `develop`. Review verified exact 112/112 unique issue rows, complete snapshot/issue-number reconciliation, current local Markdown file targets, and `git diff --check`. Required Foundation CI and Repository integrity gate the merge. Raw reviewed decisions, action/comment IDs, original and final inventory, and verification timestamps are retained alongside the snapshot.

@@ -305,3 +305,15 @@ def test_source_generation_transition_fails_before_append(tmp_path):
         with pytest.raises(ValueError, match='stream identity changed'):
             projector.project()
     assert projector.path.read_bytes() == original
+
+
+def test_recovery_rejects_source_cursor_ahead_of_committed_document(tmp_path):
+    append(tmp_path, 3)
+    with Projector(tmp_path) as projector:
+        projector.project(limit=1)
+    frame = json.loads(projector.path.read_bytes())
+    frame['source_cursor'] = read_event_page(tmp_path)['cursor']
+    projector.path.write_bytes(encode(frame) + b'\n')
+    with pytest.raises(ValueError, match='cursor does not match'):
+        with Projector(tmp_path):
+            pass

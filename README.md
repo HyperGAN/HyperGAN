@@ -2,7 +2,7 @@
 
 HyperGAN is being rebuilt to make proven GANs configurable and practical: prepare data, train, inspect samples, recover runs, and build generators for applications. The next release integrates on `develop`, using [ParticleGAN](https://github.com/255BITS/ParticleGAN) primitives inside a HyperGAN-owned training loop.
 
-The current foundation is a **CPU numerical reference**, with flexible component configuration and reloadable inference artifacts. It is not yet a qualified image-training product. Image recipes, complete training resume, multi-GPU and real cluster training remain release gates. Custom visual generators are the first product direction; conditional input/output contracts also support development of colorization and super-resolution recipes.
+The current foundation is a **CPU numerical reference**, with flexible component configuration, complete CPU training checkpoints, reloadable inference artifacts and an optional image-folder data contract. It is not yet a qualified image-training product. Image recipes, multi-GPU and real cluster training remain release gates. Custom visual generators are the first product direction; conditional input/output contracts also support development of colorization and super-resolution recipes.
 
 ## Install the development foundation
 
@@ -35,7 +35,16 @@ hypergan inspect runs/demo
 hypergan sample runs/demo --count 16 --seed 42 --output samples.json
 ```
 
-A five-step run checks the integration; it is not a convergence benchmark. The run records its resolved configuration, runtime, counters and events, and saves a generator/prior inference artifact. Inference artifacts are not resumable training checkpoints. Use a new run directory for a new experiment.
+A five-step run checks the integration; it is not a convergence benchmark. The run records its resolved configuration, runtime, counters and events, and saves separate complete training checkpoints and generator/prior inference artifacts. Use a new run directory for a new experiment.
+
+To stop and continue the same numerical schedule:
+
+```sh
+hypergan train demo --run-dir runs/recoverable --checkpoint-every 1 --stop-after-steps 2
+hypergan resume runs/recoverable
+```
+
+Resume creates a new attempt and preserves existing samples. `--max-seconds` provides a cooperative wall-time limit; `--progress-json` emits live JSONL for process managers. See [recovery and compatibility](docs/recovery.md). Image-folder preflight uses the optional `image` extra and `hypergan data-check CONFIG`; see [image data and preprocessing](docs/image-data.md). The default generator remains a 2D numerical fixture and cannot consume image batches.
 
 ## Configure the recipe
 
@@ -47,7 +56,7 @@ See [configuration and component contracts](docs/configuration.md) and the [pair
 
 ## Development and migration
 
-Install `.[dev,train]` in the tested runtime environment, then run `python -m pytest`. [Foundation CI](.github/workflows/ci.yml) additionally builds wheel/sdist artifacts, checks clean installations outside the checkout and tests lightweight commands without the training stack.
+Install `.[dev,train,image]` in the tested runtime environment, then run `python -m pytest`. [Foundation CI](.github/workflows/ci.yml) additionally builds wheel/sdist artifacts, checks clean installations outside the checkout and tests lightweight commands without the training stack.
 
 Historical HyperGAN code and experiments are preserved in archive tags. Legacy configurations and checkpoints require their archived runtime; see [migration notes](docs/migration.md) and [preservation evidence](reports/resurrection-preservation-2026-09-18.md).
 

@@ -197,3 +197,68 @@ def test_oversized_result_has_explicit_manifest_fallback(capsys, tmp_path):
         'event': 'output_omitted', 'reason': 'result_exceeds_output_limit',
         'read': str(tmp_path / 'manifest.json')}
     assert 'read the durable run manifest.json' in captured.err
+
+
+_BUFFERED_CODE = '''
+from hypergan.bounded_cli_output import training_output,_native_standard_streams
+import ctypes,json,os,sys,time
+from pathlib import Path
+runtime,streams = _native_standard_streams()[0]
+runtime.fputs.argtypes = [ctypes.c_char_p,ctypes.c_void_p]
+runtime.setvbuf.argtypes = [ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_size_t]
+for stream in streams:
+ assert runtime.setvbuf(stream,None,0,4096) == 0
+sys.__stdout__.write('cached-before')
+with training_output(progress_json=True) as output:
+ pids=[output.stdout.process.pid,output.stderr.process.pid]
+ if sys.argv[2] == 'unread':
+  for step in range(100):
+   output.progress({'event':'train','step':step,'data':'x'*32000})
+   print('diagnostic'*3000,file=sys.stderr)
+  time.sleep(0.3)
+ sys.__stdout__.write('cached-python-stdout')
+ sys.__stderr__.write('cached-python-stderr')
+ runtime.fputs(b'cached-native-stdout',streams[0])
+ runtime.fputs(b'cached-native-stderr',streams[1])
+ output.result({'step':100})
+Path(sys.argv[1]).write_text(json.dumps(pids))
+'''
+
+
+def test_cached_python_and_native_stdio_cannot_hang_exit(tmp_path):
+    receipt = tmp_path / 'pids.json'
+    process = subprocess.Popen([sys.executable, '-c', _BUFFERED_CODE, str(receipt), 'unread'],
+                               env=_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        assert process.wait(timeout=12) == 0
+        _assert_dead(json.loads(receipt.read_text()))
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        process.stdout.close()
+        process.stderr.close()
+
+
+def test_cached_python_and_native_stdio_are_forwarded(tmp_path):
+    result = subprocess.run([sys.executable, '-c', _BUFFERED_CODE, str(tmp_path / 'pids'), 'healthy'],
+                            env=_env(), capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert b'cached-before' in result.stdout
+    assert b'cached-python-stdout' in result.stdout
+    assert b'cached-native-stdout' in result.stdout
+    assert b'cached-python-stderr' in result.stderr
+    assert b'cached-native-stderr' in result.stderr
+
+
+def test_flush_failure_still_restores_and_reaps(monkeypatch, capfd):
+    from hypergan.bounded_cli_output import _NativeStreams
+    originals = sys.stdout, sys.stderr
+    def fail(_):
+        raise RuntimeError('native flush fixture')
+    monkeypatch.setattr(_NativeStreams, 'flush', fail)
+    with pytest.raises(RuntimeError, match='native flush fixture'):
+        with training_output() as output:
+            pids = [output.stdout.process.pid, output.stderr.process.pid]
+    assert (sys.stdout, sys.stderr) == originals
+    _assert_dead(pids)

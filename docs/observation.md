@@ -61,3 +61,10 @@ produce a small `output_omitted` record with reason `result_exceeds_output_limit
 and a durable manifest location, plus a warning. Backpressure can drop even the
 final record; the run manifest remains authoritative. This transport changes no
 checkpoint or numerical completion semantics.
+
+Cached Python standard streams and the owning C runtime's stdout/stderr are
+flushed through the active drains before descriptor restoration, so buffered
+stdio cannot hold interpreter exit against a full destination. This covers libc
+on Linux/macOS and UCRT on Windows. Arbitrary custom streams, separate CRTs,
+separately cached OS handles and externally held native stream locks remain
+outside the descriptor transport.

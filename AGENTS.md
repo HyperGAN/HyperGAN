@@ -9,3 +9,5 @@ Recipe configuration must remain flexible: ordinary Python components, explicit 
 Older-checkpoint compatibility is not a resurrection requirement. Breaking checkpoint formats or source identities is acceptable; do not add migrations, compatibility shims or maintenance of old runtimes solely to support earlier implementations. Keep complete, validated save/resume and recovery from earlier snapshots within runs supported by the current implementation.
 
 Update the status ledger at milestone boundaries and before a handoff/compaction. Record commands/results, PRs, blockers and the next concrete action. Preserve historical attribution and archive evidence before deleting legacy code or branches.
+
+GPU execution is the product default. New projects target CUDA; CPU use is explicit for small correctness fixtures. The owner authorizes this machine's two local GPUs for validation. Keep CPU CI, qualify CUDA save/resume and full two-GPU numerical/recovery behavior, then real multi-host execution. A successful NCCL diagnostic alone does not qualify distributed GAN training. Paid compute still requires a concrete agreed allocation.

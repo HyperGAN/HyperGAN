@@ -1,6 +1,39 @@
 # CPU distributed numerical groundwork
 
-`hypergan.distributed.GlooCollectives` is an internal numerical building block. It does **not** enable distributed `train`, DDP, `torchrun`, GPU execution, cluster launching or distributed recovery. The existing training runtime remains single-process CPU. These tests are one prerequisite for a future fixed-world-size strategy.
+`hypergan.distributed_training.ReplicatedCPUTrainer` implements bounded, fixed-world-size CPU GAN updates over Gloo. It is an internal strategy with explicit gradient reduction, **not DDP**. The product `train`/`resume` CLI remains single-process CPU; no distributed CLI, GPU execution, cluster launching or distributed checkpoint/recovery is enabled here. The lower-level `GlooCollectives` primitives remain the numerical building blocks described below.
+
+## Complete replicated CPU updates
+
+The caller initializes the default Gloo process group with a finite timeout and invokes the trainer on every rank in the same order:
+
+```python
+from hypergan.distributed_training import ReplicatedCPUTrainer
+
+trainer = ReplicatedCPUTrainer(config, world_size=2, accumulation_steps=1)
+metrics, local_batch = trainer.update()
+```
+
+`config` uses the normal resolved recipe schema. `training.batch_size` is the **global** batch size and must divide the world size. `update(batch=..., latent_draw=(z, ids))` accepts explicit **local** shards for controlled comparisons. No learning rate is scaled automatically. Accumulation other than one fails explicitly: independently averaging microbatch RA means or VICReg covariance would change the objective, and memory-saving accumulation remains a separate gate.
+
+Each update computes D backward (including exact lazy b-cap), averages complete D parameter gradients, steps D, then computes and averages G/prior/auxiliary gradients, steps their shared optimizer, and advances EMA. Rp preserves local real/fake pairing. RA gathers differentiable logits and delegates all four loss kernels to the public ParticleGAN implementation, so its means span the global batch. Sampled-row VICReg uses the globally unique raw prior population once per update; standardized MoG still depends on the full replicated table. Custom scalar objectives are averaged across ranks: built-in elementwise mean MSE/L1 fits that contract, while custom global statistics require explicit collective logic and remain unqualified.
+
+The gradient reducer runs **after backward**, without DDP hooks. A parameter unused on one rank contributes zero; if unused everywhere, its gradient stays `None` so Adam does not advance its state. Ranks agree on gradient participation and reject nonfinite/sparse gradients before each optimizer step; reduced gradients are checked again for overflow. Parameters, optimizer moments/groups, original learning rates, persistent and nonpersistent buffers, registered extra state, module modes and trainability must agree at complete boundaries. Initialization checks equality rather than silently replacing divergent constructors. Training-mode BatchNorm is rejected because rank-local statistics would not preserve the specified global-batch reference; frozen evaluation-mode normalization can be used. Other custom components remain runnable but unqualified, and observed replica-state divergence fails the update rather than being hidden by a rank-zero broadcast.
+
+An error can occur after D has already stepped. `checkpoint_ready` is false throughout an update and becomes true only after G/prior/auxiliary/EMA and complete replica agreement. Failed trainers are poisoned and refuse further updates. This is a boundary contract for future coordinated recovery, not a rollback implementation or permission to save independent rank files as a successful job checkpoint.
+
+### Global data ownership
+
+Automatic data loading performs the same **global draw on every rank**, using the same named data RNG, checks the complete batch digest, then selects contiguous rank slices. For `image_folder`, all ranks advance the same permutation/cursor through one global epoch order; they do not run independent shuffled epochs. This deliberately duplicates CPU decoding and data I/O. It establishes correctness before an efficient rank-zero loader or a qualified sharded sampler is implemented.
+
+A custom data callable must produce the same global draw under the supplied named generator; different outputs fail agreement. Explicit local batch fixtures bypass the data sampler. Prior, penalty and global stochastic-module RNGs use distinct deterministic rank seeds, while the data seed is shared. This does not promise that arbitrary stochastic custom modules follow a bit-identical single-process random trajectory.
+
+### Complete-update evidence and limits
+
+`tests/reference/test_distributed_training.py` runs three bounded subprocess tests. Its parity fixture exercises all 12 Rp/RA/vanilla × logistic/hinge/Wasserstein/LSGAN combinations for three complete updates against `ReferenceTrainer`, comparing parameters, prior, both Adam states, base learning rates, EMA and metrics. It also tests a nonlinear critic's active lazy b-cap with controlled interpolation, global data slicing, Gaussian prior handling, absent gradient contributions, rank-local nonfinite input refusal, poisoned-state reuse and unsupported accumulation/global-batch/config mismatches.
+
+These float32 comparisons use explicit numerical tolerances, not bitwise equality. Reduction order changes floating-point cancellation. In particular, RA's additive critic-bias direction is mathematically null, and tiny residual gradients can be amplified by Adam's epsilon; the controlled RA fixture omits that bias. Arbitrary architectures, data and custom objectives are not promoted to a qualified profile by these tests. Multi-GPU/NCCL, real clusters, efficient accumulation, distributed checkpoint publication and whole-job recovery remain separate gates.
+
+## Collective primitives
 
 The caller initializes the **default Gloo process group**, with a finite operation timeout, and owns the worker lifecycle. Construct `GlooCollectives(world_size=2)` in both workers. Group membership must remain fixed for its lifetime. The wrapper provides:
 
@@ -46,7 +79,7 @@ An empty global ID union is returned as an empty tensor. Whether a particular re
 - the actual lazy b-cap input-gradient/parameter-backward computation, including an inactive step and the active lazy multiplier;
 - collective input/operation errors, a rank exiting and a live rank failing to participate until timeout.
 
-Losses and parameter derivatives use explicit averaged reductions in these fixtures. No DDP reducer is exercised, and no synchronized optimizer, EMA, sharded data stream, coordinated checkpoint or recovered worker group is implemented. In particular, passing b-cap and collective double-backward fixtures separately does not qualify their interaction with DDP hooks in a complete GAN update.
+The primitive fixtures use explicit averaged parameter reductions. The trainer fixtures above additionally compare complete optimizer and EMA updates. Neither exercises DDP hooks or establishes coordinated checkpoints or recovered worker groups. Passing these tests does not qualify a future DDP implementation of b-cap.
 
 Local validation uses Python 3.12.13, PyTorch 2.14.0+cpu and ParticleGAN 0.5.0. Run the bounded test with the numerical dependencies installed:
 
@@ -54,4 +87,4 @@ Local validation uses Python 3.12.13, PyTorch 2.14.0+cpu and ParticleGAN 0.5.0. 
 python -m pytest tests/reference/test_distributed.py -q
 ```
 
-Next, integrate these semantics into a fixed-world-size CPU trainer and compare complete D/G/prior updates, optimizer/EMA state, accumulation and recoverable rank state against the single-process reference. Only then qualify actual two-GPU NCCL and real multi-node behavior. These primitives do not close the distributed-training issue or establish cluster support.
+Next, qualify coordinated complete-state publication, rank-specific RNG/data restore, worker failure and whole-job restart, followed by efficient global-objective accumulation. Only then qualify actual two-GPU NCCL and real multi-node behavior. Internal CPU updates do not close the distributed-training issue or establish cluster support.

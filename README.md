@@ -48,6 +48,8 @@ Resume creates a new attempt and preserves existing samples. `--max-seconds` pro
 
 Use `--preview-every N` for bounded periodic EMA previews. `hypergan events RUN_DIR` reads reconnectable event pages, and `hypergan checkpoint RUN_DIR` requests a save at the next complete update boundary. These commands share the [run observation contract](docs/observation.md); the optional browser server is still planned.
 
+Developers can also exercise the internal [replicated CPU strategy](docs/distributed.md) and [bounded worker supervisor](docs/cpu-workers.md). The public training commands remain single-process; multi-GPU and cluster qualification are still ahead.
+
 ## Configure the recipe
 
 `hypergan new` writes `config.toml`. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.

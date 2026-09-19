@@ -49,36 +49,39 @@ chart implementation and was not loosened.
 
 An explicit one-million-update proof generated 263,668,368 bytes of source events
 and 841,142,342 bytes of mapped frames. Its temporary data was removed afterward.
-The first measured server prototype produced:
+The source-hashed final run produced:
 
 | Measurement | Result |
 | --- | ---: |
-| Source/projection background indexing | 87.42 seconds |
-| First historical envelope bootstrap | 74.38 seconds |
-| Warm compatible query, p95 including JSON serialization | 2.19 milliseconds |
+| Source/projection background indexing | 86.43 seconds |
+| First historical envelope bootstrap | 75.46 seconds |
+| Warm compatible query, p95 including JSON serialization | 2.32 milliseconds |
 | Bootstrap payload / grouped states | 326,427 bytes / 513 |
-| One new frame delivered to five viewers | 19.9 milliseconds |
+| One new frame delivered to five viewers | 19.4 milliseconds |
 | Live server reducer calls | 0, asserted |
-| Peak process RSS | 193.15 MiB |
-| Synthetic fixture generation | 37.38 seconds |
+| Peak process RSS | 202.68 MiB |
+| Synthetic fixture generation | 39.67 seconds |
 
 Command:
 
 ```sh
 python scripts/metrics_server_proof.py --events 1000000 \
-  --output /home/martyn/dev/hypergan/resurrection-backups/2026-09-19-metrics-implementation/million-event-server-proof.json
+  --output /home/martyn/dev/hypergan/resurrection-backups/2026-09-19-metrics-implementation/million-event-server-final-proof.json
 ```
 
-This first run explicitly allowed a 180-second historical job budget. It exposes
-the high cost of cold full-history JSONL validation/reduction; the initial default
+This run used the final 180-second historical job budget. Its recorded SHA256s
+for `web_service.py`, `event_views.py` and `run_events.py` were checked against the
+final working tree; all three match. The initial prototype receipt is preserved
+alongside it as `million-event-server-proof.json`. It exposes
+the high cost of cold full-history JSONL validation/reduction; the earlier prototype
 60-second history budget would reject this particular million-row request. The
 warm-query, live-latency and RSS research targets passed in this standalone
 synthetic experiment. It does **not** measure training overhead, qualify arbitrary
 hardware, or establish a p95 live-latency distribution from one frame. A sparse
 historical index/direct-tail initialization is a potential follow-up optimization.
 The implemented default was therefore raised to 180 seconds, with a validated
-explicit override and the actual limit exposed in capabilities. Source-identical
-revalidation is recorded at integration.
+explicit override and the actual limit exposed in capabilities. This source-identical
+revalidation confirms the measured default can complete the fixture.
 
 No database, paid compute, dataset download, public deployment or release was used.
 Source metrics and their catalogs remain canonical; projections are rebuildable,

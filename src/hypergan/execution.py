@@ -60,7 +60,7 @@ def _policy(profile, service_policy):
     return resolve_policy(profile, service_policy)
 
 
-def _checkpoint(run_dir, checkpoint, manifest, execution):
+def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
     """Pin a complete generation and reject routing/config conflicts without torch.
 
     The adapter validates all payload bytes, runtime, data and implementation
@@ -92,7 +92,7 @@ def _checkpoint(run_dir, checkpoint, manifest, execution):
     info = _read_metadata(target / 'manifest.json')
     if type(info.get('schema_version')) is not int or info['schema_version'] != 1:
         raise ValueError('Unsupported training checkpoint schema')
-    if type(info.get('step')) is not int or not 0 <= info['step'] <= manifest['config']['training']['steps']:
+    if type(info.get('step')) is not int or not 0 <= info['step'] <= total_steps:
         raise ValueError('Checkpoint step is outside the original schedule')
     if pointer is not None and (type(pointer.get('step')) is not int or pointer['step'] != info['step']):
         raise ValueError('Checkpoint pointer step differs from generation')
@@ -201,7 +201,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, 
     preview_every = manifest.get('preview_every', 0) if preview_every is None else preview_every
     preview_keep = manifest.get('preview_keep', 3) if preview_keep is None else preview_keep
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
-    checkpoint = _checkpoint(run_dir, checkpoint, manifest, execution)
+    checkpoint = _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'])
     controls = dict(checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                     stop_after_steps=stop_after_steps, preview_every=preview_every, preview_keep=preview_keep)
     return PreparedExecution('resume', config, run_dir, config_path, checkpoint, None, profile, policy, controls)

@@ -170,3 +170,18 @@ def test_checkpoint_topology_and_step_are_strict(tmp_path):
     path.write_text(json.dumps(info))
     with pytest.raises(ValueError, match='Checkpoint step'):
         prepare_resume(run)
+
+
+@pytest.mark.parametrize('saved_config', [{}, {'training': None}, 'invalid'])
+def test_explicit_config_supplies_validated_checkpoint_schedule(tmp_path, saved_config):
+    config_path, run, checkpoint, manifest = stopped(tmp_path)
+    manifest['config'] = saved_config
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    prepared = prepare_resume(run, config_path=config_path)
+    assert prepared.checkpoint == checkpoint
+    info_path = checkpoint / 'manifest.json'
+    info = json.loads(info_path.read_text())
+    info['step'] = prepared.config['training']['steps'] + 1
+    info_path.write_text(json.dumps(info))
+    with pytest.raises(ValueError, match='outside the original schedule'):
+        prepare_resume(run, config_path=config_path)

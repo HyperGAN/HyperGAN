@@ -137,3 +137,61 @@ def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=10)
+
+
+def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path):
+    """Optional web qualification belongs to the explicitly provisioned web+train job."""
+    import importlib.util
+    if any(importlib.util.find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):
+        # Base numerical CI has no web dependencies: prove explicit headless CLI.
+        config = write_default(tmp_path / 'project', device='cpu')
+        result = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server')
+        assert result.returncode == 0, result.stderr
+        assert 'Viewer:' not in result.stderr
+        assert json.loads(result.stdout)['status'] == 'complete'
+        return
+    config = write_default(tmp_path / 'project', device='cpu')
+    headless = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server')
+    assert headless.returncode == 0, headless.stderr
+    first = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'viewed', '--server',
+                '--stop-after-steps', 2, '--progress-json')
+    assert first.returncode == 0, first.stderr
+    assert 'Viewer:' in first.stderr
+    rows = [json.loads(line) for line in first.stdout.splitlines()]
+    assert rows[-1]['manifest']['steps'] == 2
+    resumed = cli(tmp_path, 'resume', tmp_path / 'viewed', '--server')
+    assert resumed.returncode == 0, resumed.stderr
+    expected, actual = json.loads(headless.stdout), json.loads(resumed.stdout)
+    assert expected['steps'] == actual['steps'] == 5
+    expected_sample = json.loads(Path(expected['sample_path']).read_text())
+    actual_sample = json.loads(Path(actual['sample_path']).read_text())
+    for sample_record in (expected_sample, actual_sample):
+        sample_record.pop('identity')
+        sample_record.pop('bundle_sha256')
+    assert expected_sample == actual_sample
+    def same_state(left, right):
+        if isinstance(left, torch.Tensor):
+            assert torch.equal(left, right)
+        elif isinstance(left, dict):
+            assert left.keys() == right.keys()
+            for key in left:
+                same_state(left[key], right[key])
+        elif isinstance(left, (list, tuple)):
+            assert len(left) == len(right)
+            for a, b in zip(left, right):
+                same_state(a, b)
+        else:
+            assert left == right
+    same_state(torch.load(Path(expected['checkpoint_path']) / 'state.pt', weights_only=True),
+               torch.load(Path(actual['checkpoint_path']) / 'state.pt', weights_only=True))
+    for root in [tmp_path / 'headless', tmp_path / 'viewed']:
+        events = [json.loads(line) for line in (root / 'events.jsonl').read_text().splitlines()]
+        losses = [{key: value for key, value in event['metrics'].items() if not key.startswith('timing/')}
+                  for event in events if event['event'] == 'train']
+        if root.name == 'headless':
+            expected_losses = losses
+        else:
+            assert losses == expected_losses
+    receipts = list((tmp_path / 'viewed' / 'observations').glob('viewer-*.json'))
+    assert len(receipts) == 2
+    assert all(json.loads(path.read_text())['status'] == 'stopped' for path in receipts)

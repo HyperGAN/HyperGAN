@@ -24,6 +24,11 @@ def _positive_seconds(value):
 
 
 def _run_options(parser, *, resume=False):
+    server = parser.add_mutually_exclusive_group()
+    server.add_argument("--server", action="store_true", help="require the local viewer before training starts")
+    server.add_argument("--no-server", action="store_true", help="train without web imports or listening sockets")
+    parser.add_argument("--server-port", type=int, help="require a specific loopback port (default: automatic)")
+    parser.add_argument("--open", action="store_true", help="require the viewer and open its sign-in page")
     parser.add_argument("--checkpoint-every", type=_positive_int, default=None if resume else 100,
                         help="save a complete checkpoint every N updates (default: 100; resume inherits)")
     parser.add_argument("--max-seconds", type=_positive_seconds,
@@ -141,6 +146,17 @@ def _run_result(args, result):
         print(json.dumps({"event": "result", "manifest": result}, allow_nan=False), flush=True)
     else:
         _print_json(result)
+
+
+def _training_viewer(args):
+    if args.no_server:
+        if args.open or args.server_port is not None:
+            raise ValueError("--no-server cannot be combined with --open or --server-port")
+        from contextlib import nullcontext
+        return nullcontext()
+    from .web_autostart import training_viewer
+    return training_viewer(args.run_dir, required=args.server or args.open or args.server_port is not None,
+                           port=args.server_port if args.server_port is not None else 0, open_browser=args.open)
 
 
 def main(argv=None):
@@ -265,19 +281,21 @@ def main(argv=None):
                 values["training"]["steps"] = args.steps
                 resolved = resolve_config(values)
             _warnings(resolved)
-            from .training import train
+            with _training_viewer(args):
+                from .training import train
 
-            _run_result(args, train(args.config, args.run_dir, steps=args.steps,
-                                   checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
-                                   stop_after_steps=args.stop_after_steps, on_event=_progress(args),
-                                   preview_every=args.preview_every, preview_keep=args.preview_keep))
+                _run_result(args, train(args.config, args.run_dir, steps=args.steps,
+                                       checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
+                                       stop_after_steps=args.stop_after_steps, on_event=_progress(args),
+                                       preview_every=args.preview_every, preview_keep=args.preview_keep))
         elif args.command == "resume":
-            from .training import resume
+            with _training_viewer(args):
+                from .training import resume
 
-            _run_result(args, resume(args.run_dir, checkpoint=args.checkpoint, config_path=args.config,
-                                    checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
-                                    stop_after_steps=args.stop_after_steps, on_event=_progress(args),
-                                    preview_every=args.preview_every, preview_keep=args.preview_keep))
+                _run_result(args, resume(args.run_dir, checkpoint=args.checkpoint, config_path=args.config,
+                                        checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
+                                        stop_after_steps=args.stop_after_steps, on_event=_progress(args),
+                                        preview_every=args.preview_every, preview_keep=args.preview_keep))
         elif args.command == "sample":
             from .artifacts import sample
 

@@ -6,7 +6,7 @@ import pytest
 
 from hypergan.config import write_default
 from hypergan.run_controller import (
-    CompletedUpdate, ExecutionInfo, FatalExecutionError, Restored, run_resume, run_train,
+    CompletedUpdate, ExecutionInfo, FatalExecutionError, ObserverError, Restored, run_resume, run_train,
 )
 from hypergan.run_requests import checkpoint_request_status, submit_checkpoint_request
 
@@ -220,3 +220,56 @@ def test_preview_cannot_swallow_a_fatal_execution_failure(tmp_path, fatal):
     manifest = json.loads((root / 'manifest.json').read_text())
     assert manifest['status'] == ('failed' if fatal else 'complete')
     assert bool(manifest['observation_errors']) is not fatal
+
+
+@pytest.mark.parametrize('fatal', [False, True])
+def test_supervised_progress_failure_is_recorded_without_recursive_delivery(tmp_path, fatal):
+    path, root, factory, _, _, instances = setup(tmp_path)
+    original = factory
+    delivered = []
+    def supervised(config):
+        execution = original(config)
+        def observe(callback, event):
+            delivered.append(event['event'])
+            if event['event'] == 'train':
+                failure = FatalExecutionError if fatal else ObserverError
+                raise failure('Observer deadline exceeded')
+        execution.observe = observe
+        return execution
+    supervised.environment = original.environment
+    if fatal:
+        with pytest.raises(FatalExecutionError, match='deadline'):
+            run_train(path, root, steps=2, execution_factory=supervised, on_event=lambda _: None)
+    else:
+        run_train(path, root, steps=2, execution_factory=supervised, on_event=lambda _: None)
+    manifest = json.loads((root / 'manifest.json').read_text())
+    events = [json.loads(line) for line in (root / 'events.jsonl').read_text().splitlines()]
+    assert manifest['status'] == ('failed' if fatal else 'complete')
+    assert instances[0].closed
+    assert 'observer_error' not in delivered
+    assert [event['sequence'] for event in events] == list(range(1, len(events) + 1))
+    assert bool(manifest['observation_errors']) is not fatal
+    if not fatal:
+        assert len(manifest['observation_errors']) == 2
+        assert all(error['source'] == 'progress' for error in manifest['observation_errors'])
+        assert sum(event['event'] == 'observer_error' for event in events) == 2
+
+
+def test_unclassified_observer_execution_failure_remains_fatal(tmp_path):
+    path, root, factory, _, _, instances = setup(tmp_path)
+    original = factory
+    def broken_restore(config):
+        execution = original(config)
+        def observe(callback, event):
+            if event['event'] == 'train':
+                raise RuntimeError('Numerical observer state restoration failed')
+        execution.observe = observe
+        return execution
+    broken_restore.environment = original.environment
+    with pytest.raises(RuntimeError, match='restoration failed'):
+        run_train(path, root, steps=3, execution_factory=broken_restore, on_event=lambda _: None)
+    manifest = json.loads((root / 'manifest.json').read_text())
+    assert manifest['status'] == 'failed'
+    assert manifest['steps'] == 1 and manifest['last_durable_step'] == 0
+    assert manifest['possible_lost_steps'] == 1 and not manifest['observation_errors']
+    assert instances[0].closed

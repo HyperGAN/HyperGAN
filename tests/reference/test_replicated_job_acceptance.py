@@ -177,7 +177,7 @@ if __name__ == '__main__':
                 bad.write_text(config.read_text().replace('steps = 4', 'steps = 5'))
                 options['config_path'] = bad
             if mode == 'preview':
-                options['preview_every'] = 1
+                options['preview_every'] = -1
             if mode == 'observer':
                 options['on_event'] = lambda row: None
             try:

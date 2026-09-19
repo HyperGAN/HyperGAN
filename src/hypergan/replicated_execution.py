@@ -9,13 +9,15 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import tempfile
 
+from .bounded_observer import BoundedObserver
 from .config import config_values, fingerprint
 from .cpu_worker_service import CPUWorkerService
 from .distributed_commit import CheckpointCommitAuthority
 from .execution_preflight import _resolve_profile
 from .execution_profiles import load_execution_profile
-from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, Restored
+from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, PreviewResult, Restored
 
 MAX_SAMPLE_COUNT = 1024
 
@@ -44,7 +46,8 @@ def _profile(value, config):
 def _policy(profile, values):
     defaults = {'startup_timeout': profile['preflight']['timeout'],
                 'command_timeout': profile['preflight']['timeout'],
-                'collective_timeout': profile['preflight']['collective_timeout'], 'total_timeout': 3600.0}
+                'collective_timeout': profile['preflight']['collective_timeout'], 'total_timeout': 3600.0,
+                'observer_timeout': 5.0, 'preview_timeout': 60.0}
     if values is not None:
         if not isinstance(values, dict) or set(values) - defaults.keys():
             raise ValueError('Unknown replicated service_policy field')
@@ -87,12 +90,14 @@ class ReplicatedExecution:
         self.context = self.service = self.authority = self.information = None
         self.step, self._inference_available = 0, False
         self._closed = self._poisoned = False
+        self.observer = None
 
     def configure_attempt(self, context, *, preview_every, on_event):
         if self.context is not None:
             raise ValueError('Replicated execution attempt identity is immutable')
-        if preview_every or on_event is not None:
-            raise ValueError('Replicated execution does not yet support previews or event callbacks')
+        if on_event is not None:
+            self.observer = BoundedObserver(on_event, timeout=self.policy['observer_timeout'],
+                run_id=context.run_id, attempt_id=context.attempt_id)
         self.context = {key: str(value) if isinstance(value, Path) else value for key, value in asdict(context).items()}
         return {'execution': self.profile['execution'], 'service_policy': self.policy}
 
@@ -140,7 +145,8 @@ class ReplicatedExecution:
             self.service = CPUWorkerService(_create_worker, _handle_command,
                 args=(config_values(self.config), self.profile['execution'], self.context),
                 run_id=self.context['run_id'], attempt_id=self.context['attempt_id'],
-                world_size=self.profile['execution']['world_size'], **self.policy)
+                world_size=self.profile['execution']['world_size'],
+                **{key: self.policy[key] for key in ('startup_timeout', 'command_timeout', 'collective_timeout', 'total_timeout')})
             self.service.start()
             results = self._results(self._command('describe'), expected_step=0)
             info = results[0]['information']
@@ -239,11 +245,69 @@ class ReplicatedExecution:
         except BaseException as error:
             self._fail(error)
 
-    def preview(self, *args, **kwargs):
-        raise FatalExecutionError('Replicated preview execution is not implemented')
+    def preview(self, run_dir, identity, *, keep):
+        from .previews import publish_preview_payload
+        from .snapshot_renderer import render_snapshot
+        temporary, result, error = None, None, None
+        try:
+            self.service.assert_healthy()
+            if str(Path(run_dir).resolve()) != self.context['run_dir']:
+                raise ValueError('Preview run differs from configured attempt')
+            temporary = tempfile.TemporaryDirectory(prefix='.preview-', dir=self.context['attempt_dir'])
+            snapshot, output = Path(temporary.name) / 'snapshot.pt', Path(temporary.name) / 'preview.json'
+            results = self._results(self._command('preview-snapshot', {'path': str(snapshot), 'identity': identity}),
+                                    expected_step=self.step)
+            try:
+                descriptor = results[0]['snapshot']
+            except BaseException as failure:
+                self._fail(failure)
+            payload = render_snapshot(snapshot, descriptor, identity, self.step, output,
+                                      timeout=self.policy['preview_timeout'])
+            record, index, errors = publish_preview_payload(run_dir, payload, identity, self.step, keep)
+            result = PreviewResult(record=record, index=index, errors=errors)
+        except BaseException as failure:
+            error = failure
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.cleanup()
+                except BaseException as cleanup:
+                    if error is None:
+                        error = cleanup
+                    elif hasattr(error, 'add_note'):
+                        error.add_note(f'Preview cleanup also failed: {cleanup}')
+            # Cover capture, rendering, publication AND temporary cleanup. Optional
+            # observer failures cannot hide a dead/poisoned training group, and
+            # cleanup must never replace an original fatal error or interrupt.
+            try:
+                if self._poisoned:
+                    raise FatalExecutionError('Training group was poisoned during preview capture')
+                self.service.assert_healthy()
+            except BaseException as health:
+                self._fail(error if isinstance(error, (FatalExecutionError, KeyboardInterrupt, SystemExit)) else health)
+        if error is not None:
+            raise error
+        return result
 
-    def observe(self, *args, **kwargs):
-        raise FatalExecutionError('Replicated event callbacks are not implemented')
+    def observe(self, callback, event):
+        # The controller's local warning wrapper is intentionally not sent to a
+        # child. Configure validated the original importable callback once.
+        if self.observer is None or self.observer.disabled:
+            return
+        primary = None
+        try:
+            self.observer.deliver(event)
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            # Terminal callbacks run after numerical shutdown. During training,
+            # even a failed optional callback must not hide a failed rank.
+            if self.service is not None and not self._closed:
+                try:
+                    self.service.assert_healthy()
+                except BaseException as error:
+                    self._fail(primary if isinstance(primary, (KeyboardInterrupt, SystemExit, FatalExecutionError)) else error)
 
     def shutdown(self):
         if self._closed:

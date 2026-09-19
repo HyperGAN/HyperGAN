@@ -135,4 +135,17 @@ def handle_command(state, operation, payload):
         return {**_ready(state), 'receipt_sha256': digest, **({'receipt': receipt} if state['rank'] == 0 else {})}
     if operation == 'inference':
         return _inference(state, payload)
+    if operation == 'preview-snapshot':
+        identity, path = payload['identity'], Path(payload['path'])
+        if (any(identity[key] != context[key] for key in ('run_id', 'attempt_id', 'attempt_index'))
+                or path.name != 'snapshot.pt' or path.parent.parent != Path(context['attempt_dir'])
+                or not path.parent.name.startswith('.preview-') or path.parent.is_symlink()):
+            raise ValueError('Preview snapshot destination or identity differs from the current attempt')
+        if state['batch'] is None:
+            raise ValueError('Preview capture requires a completed batch')
+        if state['rank']:
+            return _ready(state)
+        from .preview_snapshot import capture_snapshot
+        descriptor = capture_snapshot(trainer, state['batch'], identity, path)
+        return {**_ready(state), 'snapshot': descriptor}
     raise ValueError(f'Unknown replicated execution operation: {operation}')

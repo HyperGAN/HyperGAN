@@ -38,6 +38,10 @@ class FatalExecutionError(RuntimeError):
     """The execution group is unusable; optional observation must not swallow it."""
 
 
+class ObserverError(RuntimeError):
+    """Optional delivery failed while the execution adapter remains usable."""
+
+
 @dataclass(frozen=True)
 class Restored:
     checkpoint_path: Path
@@ -264,7 +268,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     repair_event_tail(run_dir / 'events.jsonl')
     sequence = 0
 
-    def emit(event, **values):
+    def emit(event, *, _observe=True, **values):
         nonlocal sequence
         sequence += 1
         row = dict(values, schema_version=1, event=event, run_id=manifest['run_id'],
@@ -273,7 +277,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         with (run_dir / 'events.jsonl').open('a', encoding='utf-8') as output:
             output.write(json.dumps(row, allow_nan=False) + '\n')
             output.flush()
-        if on_event is not None:
+        if on_event is not None and _observe:
             def notify(value):
                 try:
                     on_event(value)
@@ -284,7 +288,20 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                         warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
                     except Warning:
                         pass
-            execution.observe(notify, dict(row))
+            try:
+                execution.observe(notify, dict(row))
+            except FatalExecutionError:
+                raise
+            except ObserverError as exc:
+                # A supervised adapter delivers its configured callback outside
+                # this process. Its failure must remain observable without
+                # recursively invoking that same failed observer.
+                record = {'source': 'progress', 'step': manifest['steps'],
+                          'attempt_id': attempt_id,
+                          'error': f'{type(exc).__name__}: {exc}'[:1000]}
+                manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
+                publish()
+                emit('observer_error', _observe=False, source='progress', error=record['error'])
         return row
 
     def publish():

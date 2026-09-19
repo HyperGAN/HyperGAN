@@ -1,6 +1,6 @@
 # Bounded replicated observation checkpoint
 
-Date: 2026-09-19. Baseline: `bc95251155f382b3539726b718b96c8b60920cb0` on develop, following the [internal replicated adapter](core-replicated-service-2026-09-19.md) and checkpoint-policy PR [#315](https://github.com/HyperGAN/HyperGAN/pull/315). This checkpoint implements isolated CPU previews and bounded progress delivery. Public distributed train/resume, GPU/NCCL, real clusters and the browser remain separate work.
+Date: 2026-09-19. Baseline: `bc95251155f382b3539726b718b96c8b60920cb0` on develop, following the [internal replicated adapter](core-replicated-service-2026-09-19.md) and checkpoint-policy PR [#315](https://github.com/HyperGAN/HyperGAN/pull/315). [PR #316](https://github.com/HyperGAN/HyperGAN/pull/316) implements isolated CPU previews and bounded progress delivery. Public distributed train/resume, GPU/NCCL, real clusters and the browser remain separate work.
 
 ## Behavior and ownership
 

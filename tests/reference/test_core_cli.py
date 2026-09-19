@@ -24,18 +24,23 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     config = write_default(tmp_path / "project")
     run = tmp_path / "run"
     first = cli(tmp_path, "train", config, "--run-dir", run, "--stop-after-steps", 2,
-                "--checkpoint-every", 1, "--progress-json")
+                "--checkpoint-every", 1, "--preview-every", 1, "--preview-keep", 2, "--progress-json")
     assert first.returncode == 0, first.stderr
     rows = [json.loads(line) for line in first.stdout.splitlines()]
     assert [row["step"] for row in rows if row["event"] == "train"] == [1, 2]
     before = rows[-1]["manifest"]
     assert before["status"] != "complete" and before["last_durable_step"] == 2
+    previews = json.loads((run / "previews" / "index.json").read_text())
+    assert [record["step"] for record in previews["previews"]] == [1, 2]
     old_sample = Path(before["sample_path"])
     saved = old_sample.read_bytes()
     second = cli(tmp_path, "resume", run)
     assert second.returncode == 0, second.stderr
     after = json.loads(second.stdout)
     assert after["status"] == "complete" and after["steps"] == 5
+    previews = json.loads((run / "previews" / "index.json").read_text())
+    assert [record["step"] for record in previews["previews"]] == [4, 5]
+    assert after["preview_every"] == 1 and after["preview_keep"] == 2
     assert after["attempt_id"] != before["attempt_id"]
     assert after["sample_path"] != before["sample_path"]
     assert old_sample.read_bytes() == saved
@@ -93,11 +98,11 @@ def test_inference_restores_nonpersistent_registered_buffers(tmp_path):
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 
-def test_progress_is_observable_before_process_completion(tmp_path):
+def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
     config = write_default(tmp_path / "project")
     run = tmp_path / "run"
-    # Stop reading once the first update arrives, before the bounded long attempt
-    # can finish. communicate then drains both pipes and enforces a timeout.
+    # Submit from another process as soon as the start event arrives, before the
+    # bounded attempt finishes. The reader keeps draining progress throughout.
     process = subprocess.Popen(
         [sys.executable, "-I", "-m", "hypergan", "train", str(config), "--run-dir", str(run),
          "--steps", "1000", "--stop-after-steps", "100", "--progress-json"],
@@ -114,14 +119,20 @@ def test_progress_is_observable_before_process_completion(tmp_path):
         while True:
             line = lines.get(timeout=45)
             if line is None:
-                pytest.fail("No live training event was emitted")
-            if json.loads(line).get("event") == "train":
+                pytest.fail("No live start event was emitted")
+            if json.loads(line).get("event") == "start":
                 assert process.poll() is None
+                requested = cli(tmp_path, "checkpoint", run, "--request-id", "live-save")
+                assert requested.returncode == 0, requested.stderr
                 break
         process.wait(timeout=45)
         reader.join(timeout=5)
         stderr = process.stderr.read()
         assert process.returncode == 0, stderr
+        receipt = cli(tmp_path, "checkpoint", run, "--status", "live-save")
+        assert receipt.returncode == 0, receipt.stderr
+        acknowledged = json.loads(receipt.stdout)
+        assert acknowledged["status"] == "succeeded"
     finally:
         if process.poll() is None:
             process.kill()

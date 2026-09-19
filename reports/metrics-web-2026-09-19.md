@@ -76,7 +76,9 @@ warm-query, live-latency and RSS research targets passed in this standalone
 synthetic experiment. It does **not** measure training overhead, qualify arbitrary
 hardware, or establish a p95 live-latency distribution from one frame. A sparse
 historical index/direct-tail initialization is a potential follow-up optimization.
-Final policy and source-identical revalidation are recorded at integration.
+The implemented default was therefore raised to 180 seconds, with a validated
+explicit override and the actual limit exposed in capabilities. Source-identical
+revalidation is recorded at integration.
 
 No database, paid compute, dataset download, public deployment or release was used.
 Source metrics and their catalogs remain canonical; projections are rebuildable,

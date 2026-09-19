@@ -5,6 +5,7 @@ python scripts/metrics_server_proof.py --events 1000000 --output /tmp/proof.json
 The temporary synthetic source and projections are removed after measurements.
 """
 import argparse
+import hashlib
 import asyncio
 import json
 from pathlib import Path
@@ -111,6 +112,9 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.events <= 1000000:
         parser.error('--events must be in 1..1000000')
+    import hypergan.web_service, hypergan.event_views, hypergan.run_events
+    sources = {module.__name__: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
+               for module in (hypergan.web_service, hypergan.event_views, hypergan.run_events)}
     with tempfile.TemporaryDirectory(prefix='hypergan-metrics-server-proof-') as directory:
         root = Path(directory)
         started = time.perf_counter()
@@ -118,6 +122,7 @@ def main():
         generation_seconds = time.perf_counter() - started
         result = asyncio.run(prove(root, args.events, base))
         result['fixture_generation_seconds'] = generation_seconds
+        result['source_sha256'] = sources
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result, indent=2))

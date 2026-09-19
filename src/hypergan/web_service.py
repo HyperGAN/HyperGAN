@@ -9,6 +9,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 import hashlib
 import json
+import math
 from pathlib import Path
 from itertools import islice
 import re
@@ -110,8 +111,12 @@ class BootstrapJob:
 
 
 class ObservationService:
-    def __init__(self, run_dir, *, poll_seconds=.25, history_timeout=60):
+    def __init__(self, run_dir, *, poll_seconds=.25, history_timeout=180):
         self.root = Path(run_dir).resolve()
+        if type(history_timeout) not in (int, float) or not math.isfinite(history_timeout) or not 1 <= history_timeout <= 3600:
+            raise ValueError('history timeout must be finite seconds in 1..3600')
+        if type(poll_seconds) not in (int, float) or not math.isfinite(poll_seconds) or not .005 <= poll_seconds <= 60:
+            raise ValueError('poll interval must be finite seconds in .005..60')
         self.poll_seconds = poll_seconds
         self.history_timeout = history_timeout
         self.streams = {}
@@ -530,7 +535,7 @@ class ObservationService:
         target = cursor_offset(cursor)
         while cursor_offset(replay) < target:
             if time.monotonic() - started > self.history_timeout:
-                raise ValueError('Historical reduction exceeded its time budget; narrow the requested range')
+                raise ValueError('Historical reduction exceeded its time budget; retry with a larger explicit history budget or prepare a smaller projection')
             frames, cursors, page = await asyncio.to_thread(self.page, 'projection:' + query['map_revision'], replay)
             if not frames:
                 raise ValueError('Historical projection watermark disappeared')

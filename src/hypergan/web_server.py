@@ -9,7 +9,7 @@ from .web_service import ObservationService, MapSpec, ViewSpec
 from .web_session import LocalSession
 
 
-def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=60):
+def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
     """Construct without importing torch, running maps or computing measurements."""
     try:
         from starlette.applications import Starlette
@@ -57,7 +57,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=60):
                              'status': service.manifest.get('status'), 'server_instance_id': session.instance_id,
                              'transports': ['sse'], 'reducer': descriptor(),
                              'limits': {'subscribers': 32, 'queue_bytes': 1048576, 'groups': 2048,
-                                        'bootstrap_bytes': 1048576, 'stream_count': 64}})
+                                        'bootstrap_bytes': 1048576, 'stream_count': 64,
+                                        'history_seconds': service.history_timeout}})
 
     async def run(request):
         check_run(request)
@@ -244,10 +245,10 @@ def openapi_schema(*, cookie_name=LocalSession.cookie_name):
                 'cookieAuth': {'type': 'apiKey', 'in': 'cookie', 'name': cookie_name}}}})
 
 
-def run_socket(run_dir, bound_socket, session):
+def run_socket(run_dir, bound_socket, session, *, history_seconds=180):
     """Serve a prebound loopback socket; the caller owns credentials/lifecycle."""
     import uvicorn
-    app = create_app(run_dir, session)
+    app = create_app(run_dir, session, history_timeout=history_seconds)
     server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=bound_socket.getsockname()[1],
                                         access_log=False, log_level='warning'))
     server.run(sockets=[bound_socket])

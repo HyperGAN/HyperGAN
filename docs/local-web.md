@@ -71,7 +71,8 @@ Resource bounds are explicit: 32 subscribers, 1 MiB/256 queued messages per
 subscriber, 4096 frames per reconnect replay, 64 registered streams, 4096 lineage
 attempts, eight cached/pending history jobs with one reducer job active, 32 selected
 metrics and 2048 grouped states per bootstrap. Responses cap bootstrap state at
-1 MiB; history jobs have a 60-second runtime budget. A slow subscriber receives a
+1 MiB; history jobs have a 180-second runtime budget, reported in capabilities.
+The limit can be set explicitly when constructing the server. A slow subscriber receives a
 visible gap and disconnects instead of delaying training. Increase bucket size or
 narrow step bounds if a requested view exceeds its state budget. Excessive replay
 requires a refreshed bootstrap or explicit raw-page reads. These finite limits are

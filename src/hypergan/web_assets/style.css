@@ -651,3 +651,51 @@ footer {
     font-size: 9px;
   }
 }
+.artifact-list ul {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.artifact-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: #1b2220;
+  border: 1px solid #33403a;
+  border-radius: 7px;
+  padding: 14px 16px;
+}
+.artifact-list li strong {
+  display: block;
+  color: #d4ded6;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.artifact-list li span {
+  display: block;
+  font-size: 10px;
+  margin-top: 5px;
+}
+.artifact-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.numeric-preview {
+  order: 3;
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #121a16;
+  border-radius: 5px;
+  color: #bfd1c5;
+  font-size: 11px;
+  line-height: 1.7;
+}

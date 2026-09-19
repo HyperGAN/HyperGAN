@@ -156,16 +156,143 @@ function updateRun(run) {
     ? `of ${fmt(run.total_steps)} configured steps`
     : "Completed optimizer updates";
   $("raw-events").href = `/api/v1${base()}/events`;
-  renderArtifacts(run.artifacts || []);
+}
+async function refreshArtifacts() {
+  if (!state.run) return;
+  const runID = state.run.run_id;
+  const result = await api(`${base()}/artifacts`);
+  if (state.run?.run_id === runID) renderArtifacts(result.data.artifacts || {});
 }
 function renderArtifacts(artifacts) {
   $("artifact-items").replaceChildren();
-  $("artifacts").hidden = !artifacts.length;
-  for (const artifact of artifacts.slice(0, 20)) {
+  const records = Object.entries(artifacts).sort(
+    (a, b) => (b[1].provenance?.step || 0) - (a[1].provenance?.step || 0),
+  );
+  $("artifacts").hidden = !records.length;
+  for (const [id, artifact] of records.slice(0, 20)) {
     const li = document.createElement("li");
-    li.textContent = `${artifact.role || "artifact"} · ${artifact.modality || "unspecified"} · ${artifact.media_type || "unknown type"} · ${fmt(artifact.size_bytes)} bytes`; // Never interpret unknown tensors as images or HTML.
+    const info = document.createElement("div");
+    const heading = document.createElement("strong");
+    heading.textContent = `${artifact.role || "Artifact"} · ${artifact.modality || "unspecified"}`;
+    const details = document.createElement("span");
+    const shape = artifact.shape || artifact.metadata?.shape;
+    details.textContent = [
+      artifact.media_type || "unknown type",
+      `Step ${fmt(artifact.provenance?.step)}`,
+      Array.isArray(shape) ? `Shape ${shape.join(" × ")}` : null,
+      artifact.bytes !== undefined ? `${fmt(artifact.bytes)} bytes` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    info.append(heading, details);
+    li.append(info);
+    if (artifact.status === "unavailable") {
+      const reason = document.createElement("p");
+      reason.textContent = artifact.reason || "Artifact unavailable";
+      li.append(reason);
+    } else {
+      const path = `/api/v1${base()}/artifacts/${encodeURIComponent(id)}`;
+      const controls = document.createElement("div");
+      controls.className = "artifact-controls";
+      const download = document.createElement("a");
+      download.href = path;
+      download.download = "artifact";
+      download.className = "text-link";
+      download.textContent = "Download";
+      controls.append(download);
+      if (
+        artifact.modality === "tensor" &&
+        artifact.media_type === "application/json" &&
+        Number.isSafeInteger(artifact.bytes) &&
+        artifact.bytes <= 65536 &&
+        Array.isArray(shape) &&
+        shape.length > 0 &&
+        shape.length <= 8 &&
+        shape.every((n) => Number.isSafeInteger(n) && n > 0) &&
+        shape.reduce((a, b) => a * b, 1) <= 4096
+      ) {
+        const button = document.createElement("button");
+        button.className = "secondary";
+        button.textContent = "Preview numbers";
+        const preview = document.createElement("pre");
+        preview.className = "numeric-preview";
+        preview.hidden = true;
+        button.onclick = async () => {
+          if (!preview.hidden) {
+            preview.hidden = true;
+            button.textContent = "Preview numbers";
+            return;
+          }
+          button.disabled = true;
+          try {
+            preview.textContent = await numericalPreview(path, shape);
+            preview.hidden = false;
+            button.textContent = "Hide numbers";
+          } catch (error) {
+            preview.textContent = error.message;
+            preview.hidden = false;
+          } finally {
+            button.disabled = false;
+          }
+        };
+        controls.append(button);
+        li.append(preview);
+      }
+      li.append(controls);
+    }
     $("artifact-items").append(li);
   }
+}
+async function numericalPreview(path, shape) {
+  const response = await fetch(path, { credentials: "same-origin" });
+  if (!response.ok)
+    throw new Error(`Artifact unavailable (${response.status})`);
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.length;
+    if (bytes > 65536) {
+      await reader.cancel();
+      throw new Error("Preview exceeds 64 KiB; use Download.");
+    }
+    chunks.push(value);
+  }
+  const buffer = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset);
+    offset += chunk.length;
+  }
+  const payload = JSON.parse(
+    new TextDecoder("utf-8", { fatal: true }).decode(buffer),
+  );
+  if (
+    !Array.isArray(payload.shape) ||
+    JSON.stringify(payload.shape) !== JSON.stringify(shape)
+  )
+    throw new Error("Artifact shape differs from its descriptor.");
+  const flat = [];
+  function visit(value, depth) {
+    if (depth > 8 || flat.length > 4096)
+      throw new Error("Numerical preview exceeds its shape limit.");
+    if (depth < shape.length) {
+      if (!Array.isArray(value) || value.length !== shape[depth])
+        throw new Error("Artifact values differ from its shape.");
+      for (const item of value) visit(item, depth + 1);
+    } else if (typeof value === "number" && Number.isFinite(value))
+      flat.push(value);
+    else
+      throw new Error(
+        "Artifact contains unsupported numerical values; use Download.",
+      );
+  }
+  visit(payload.samples, 0);
+  if (flat.length !== shape.reduce((a, b) => a * b, 1))
+    throw new Error("Artifact values differ from its shape.");
+  return `${flat.slice(0, 128).map(String).join(", ")}${flat.length > 128 ? `\nShowing 128 of ${flat.length} values.` : ""}`;
 }
 function defaults() {
   const preferred = [
@@ -221,6 +348,7 @@ async function metadata(expectedEpoch = state.epoch) {
     [...state.selected].filter((id) => id in state.catalog.metrics),
   );
   renderCatalog();
+  await refreshArtifacts();
 }
 async function connect() {
   connection("Connecting…");
@@ -297,7 +425,7 @@ async function reconfigure({ coarser = false } = {}) {
   connection("Loading history…");
   if (!state.selected.size) {
     $("coverage").textContent = "No metrics selected";
-    connection("No selection");
+    openStream(epoch);
     return;
   }
   openStream(epoch);
@@ -383,9 +511,11 @@ function openStream(epoch) {
   const query = new URLSearchParams({ stream_id: `projection:${state.map}` });
   if (state.cursor) query.set("cursor", state.cursor);
   const stream = new EventSource(`/api/v1${base()}/stream?${query}`);
+  const controlsOnly = state.selected.size === 0;
   state.stream = stream;
   stream.onopen = () => {
-    if (epoch === state.epoch && state.ready) connection("Live stream", "live");
+    if (epoch === state.epoch && (state.ready || controlsOnly))
+      connection("Live stream", "live");
   };
   stream.onerror = () => {
     stream.close();
@@ -398,18 +528,22 @@ function openStream(epoch) {
       try {
         const data = parse(event);
         if (data.run) updateRun(data.run);
-        if (state.ready) connection("Live stream", "live");
+        if (state.ready || controlsOnly) connection("Live stream", "live");
         else if (name === "ready") loadBootstrap(epoch);
       } catch (error) {
         notice(error.message);
       }
     });
   stream.addEventListener("bootstrap_ready", () => {
-    if (state.ready) return;
+    if (state.ready || controlsOnly) return;
     if (state.pending) state.bootstrapSignal = true;
     else loadBootstrap(epoch);
   });
   stream.addEventListener("metadata", () => refreshMetadata(epoch));
+  stream.addEventListener("artifacts", () => {
+    if (epoch === state.epoch)
+      refreshArtifacts().catch((error) => notice(error.message));
+  });
   for (const name of ["reset_required", "gap"])
     stream.addEventListener(name, (event) => {
       if (epoch !== state.epoch) return;

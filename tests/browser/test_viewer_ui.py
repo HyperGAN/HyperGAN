@@ -59,6 +59,7 @@ def viewer():
             if path=='/api/v1/capabilities':return self.send(200,{'run_id':None if control.get('waiting') else RUN,'reducer':reducer.spec})
             if path==f'/api/v1/runs/{RUN}':return self.send(200,{'run_id':RUN,'status':'training','steps':control['step'],'last_durable_step':1,'total_steps':100,'config':{'name':'Color / reference study'}})
             if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
+            if path.endswith('/artifacts'):return self.send(200,{'schema_version':1,'artifacts':{}})
             if path.endswith('/views'):return self.send(200,{'map_revision':MAP})
             if path.endswith('/bootstrap'):
                 if control['pending'] and not control['release']:return self.send(202,{'status':'pending'})

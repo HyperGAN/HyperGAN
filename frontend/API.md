@@ -9,6 +9,8 @@ The token never enters a URL, storage, telemetry, or browser logs.
 - `GET /runs/r` -> run manifest, including status, steps, last_durable_step,
   total_steps, metrics_catalog and current attempt_id; optional name/config.name.
 - `GET /runs/r/metrics/catalog` -> the immutable metric catalog shape.
+- `GET /runs/r/artifacts` -> `{ "schema_version":1, "artifacts":{ "id":{ "role":"sample", "modality":"tensor", "media_type":"application/json", "bytes":54, "shape":[2,2], "provenance":{ "step":2 } } } }`.
+  `GET /runs/r/artifacts/{id}` downloads a bounded, digest-checked indexed artifact.
 - `GET /runs/r/views` -> `{ "map_revision":"..." }` for the built-in scalar map.
 - `GET /runs/r/views/{map_revision}/bootstrap?series=loss%2Fd_total,...&bucket_steps=8`
   returns the following object, or 202 while background historical reduction runs.
@@ -41,6 +43,8 @@ bucket; different definitions/attempts are separate chart series.
 
 - `frame`: `{ "stream_id":"projection:...", "cursor":"...", "frame":{ "map_revision":"...", "projection_sequence":2, "source":{"run_id":"r","attempt_id":"a",...}, "emissions":[{"id":"emission digest","key":["loss/d_total","a",2],"definition_hash":"definition digest","value":1.2}] } }`
 - `ready`, `heartbeat`: liveness only; optional `run` provides latest manifest.
+- `artifacts`: refresh the indexed artifact shelf; sampling remains independent
+  of selected metrics.
 - `metadata`: run/catalog/lineage changed; refresh metadata and request a bootstrap.
 - `bootstrap_ready`: refetch the pending bootstrap once. No HTTP polling.
 - `reset_required`, `gap`: visible interruption; discard/rebootstrap incompatible

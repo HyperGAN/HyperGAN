@@ -175,3 +175,41 @@ def test_real_waiting_server_discovers_new_run_without_polling(real_viewer):
     experiment.create(2)
     page.locator('#g-loss').filter(has_text='2').wait_for(timeout=15000)
     assert not errors
+
+
+def test_artifact_shelf_streams_while_metrics_are_unselected(real_viewer):
+    import hashlib
+    experiment,session,token,page,context,errors,requests=real_viewer
+    experiment.create(2)
+    sign_in(page,session,token)
+    page.locator('#g-loss').filter(has_text='2').wait_for()
+    page.get_by_role('button',name='Clear',exact=True).click()
+    page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
+    payload=json.dumps({'shape':[2,2],'samples':[[1.,2.],[3.,4.]]}).encode()
+    (experiment.root/'samples.json').write_bytes(payload)
+    audio=b'RIFF fixture audio bytes'
+    (experiment.root/'audio.bin').write_bytes(audio)
+    records={
+        'numbers':dict(path='samples.json',bytes=len(payload),sha256=hashlib.sha256(payload).hexdigest(),
+                       role='sample',modality='tensor',media_type='application/json',shape=[2,2],provenance={'step':2}),
+        'audio':dict(path='audio.bin',bytes=len(audio),sha256=hashlib.sha256(audio).hexdigest(),
+                     role='sample',modality='audio',media_type='audio/wav',provenance={'step':2}),
+    }
+    atomic_json(experiment.root/'artifacts/index.json',{'schema_version':1,'artifacts':records})
+    page.get_by_role('button',name='Preview numbers').wait_for(timeout=10000)
+    assert 'sample · audio' in page.locator('#artifact-items').inner_text().lower()
+    assert page.locator('#artifact-items img, #artifact-items audio, #artifact-items video').count()==0
+    page.get_by_role('button',name='Preview numbers').click()
+    page.locator('.numeric-preview').filter(has_text='1, 2, 3, 4').wait_for()
+    assert 'Shape 2 × 2' in page.locator('#artifact-items').inner_text()
+    with page.expect_download() as download:
+        page.locator('a[href$="/artifacts/audio"]').click()
+    assert Path(download.value.path()).read_bytes()==audio
+    bad = json.dumps({'shape':[2,2], 'samples':[[1,2,3],[4]]}).encode()
+    (experiment.root/'bad.json').write_bytes(bad)
+    records['bad'] = dict(records['numbers'], path='bad.json', bytes=len(bad), sha256=hashlib.sha256(bad).hexdigest())
+    atomic_json(experiment.root/'artifacts/index.json',{'schema_version':1,'artifacts':records})
+    bad_item = page.locator('#artifact-items li').filter(has=page.locator('a[href$="/artifacts/bad"]'))
+    bad_item.get_by_role('button',name='Preview numbers').click()
+    bad_item.locator('.numeric-preview').filter(has_text='differ from its shape').wait_for()
+    assert not errors

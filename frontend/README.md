@@ -8,8 +8,11 @@ historical bootstrap state and forwards live contributions unchanged.
 No CDN, remote fonts, runtime npm installation, React, or alternate numerical
 implementation is required. The shipped module is a modular ECharts build with
 line charts, axes, rich-text tooltips and Canvas rendering. No artifact is
-interpreted as an image merely because its payload is a tensor. Artifact display
-is a modality/role/size descriptor until supported renderers are added.
+interpreted as an image merely because its payload is a tensor. The artifact shelf uses the indexed artifact API and stream notifications,
+with role, modality, media type, shape, step and safe downloads. An explicitly
+requested JSON tensor preview is limited to 64 KiB, eight axes and 4,096 finite
+values; it validates the declared shape and shows at most 128 numbers. Unknown
+media remain downloadable without decoding or executing them.
 
 ## Rebuild
 

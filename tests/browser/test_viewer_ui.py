@@ -92,6 +92,8 @@ def viewer():
                         if control['release'] and not sent_ready:emit('bootstrap_ready',{});sent_ready=True
                         if control['step']>=next_step:
                             emit('frame',frame(next_step));next_step+=1
+                        if control.get('gap_at') and next_step > control['gap_at']:
+                            control.pop('gap_at');emit('gap',{'reason':'replay_budget_exceeded'});return
                         if control.get('disconnect') and cursor!='cursor:0':control['disconnect']=False;return
                 except (BrokenPipeError,ConnectionResetError):pass
                 return
@@ -204,4 +206,19 @@ def test_worker_stages_whole_frame_and_ignores_replay(viewer):
     assert result['duplicate']['ok']['replay'] is True
     assert result['duplicate']['ok']['groups']==[]
     assert 'Coverage gap' in result['gap']['error']
+    assert not errors
+
+
+def test_delivery_gap_keeps_reduced_state_and_resumes_acknowledged_cursor(viewer):
+    page, control, condition, errors = viewer
+    login(page)
+    page.locator('#stream-position[data-projection="2"]').wait_for()
+    initial_requests = sum('/bootstrap?' in path for path in control['paths'])
+    control['gap_at'] = 4
+    control['step'] = 7
+    with condition:
+        condition.notify_all()
+    page.locator('#stream-position[data-projection="7"]').wait_for()
+    assert 'cursor:4' in control['streams']
+    assert sum('/bootstrap?' in path for path in control['paths']) == initial_requests
     assert not errors

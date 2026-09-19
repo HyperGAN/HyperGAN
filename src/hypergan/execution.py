@@ -50,6 +50,8 @@ def _execution(profile):
 
 
 def _policy(profile, service_policy):
+    if service_policy is not None and not isinstance(service_policy, dict):
+        raise ValueError('service_policy must be a dictionary of replicated deadlines')
     if _execution(profile) is None:
         if service_policy:
             raise ValueError('Service timeout options require a replicated execution profile')
@@ -67,6 +69,8 @@ def _checkpoint(run_dir, checkpoint, manifest, execution):
     root = (run_dir / ('distributed-checkpoints' if execution else 'checkpoints')).resolve()
     pointer = None
     if checkpoint is None:
+        if not (root / 'latest.json').exists():
+            raise ValueError('No full training checkpoint exists; an inference model is not resumable')
         pointer = _read_metadata(root / 'latest.json')
         if type(pointer.get('schema_version')) is not int or pointer['schema_version'] != 1:
             raise ValueError('Unsupported training checkpoint pointer schema')

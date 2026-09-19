@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>HyperGAN · Experiments</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script type="module" src="/assets/app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#workspace">Skip to metrics</a>
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="HyperGAN home"
+        ><span class="brand-mark">H</span>HYPERGAN<span class="brand-separator"
+          >/</span
+        ><span class="brand-detail">EXPERIMENTS</span></a
+      ><span id="connection" class="connection" role="status"
+        ><i></i>Not connected</span
+      >
+    </header>
+    <section id="login" class="login" hidden>
+      <span class="eyebrow">LOCAL WORKSPACE</span>
+      <h1>Your experiments,<br />in focus.</h1>
+      <p>
+        Connect to this training server with the session token printed in your
+        terminal or saved in its private session file.
+      </p>
+      <form id="login-form">
+        <label for="token">Session token</label
+        ><input
+          id="token"
+          type="password"
+          autocomplete="off"
+          required
+          spellcheck="false"
+        /><button class="primary" type="submit">
+          Open workspace <span aria-hidden="true">↗</span>
+        </button>
+        <p id="login-error" role="alert"></p>
+      </form>
+      <p class="quiet">
+        The connection stays local. Your token is used only to create a session.
+      </p>
+    </section>
+    <main id="workspace" hidden tabindex="-1">
+      <section class="run-heading">
+        <div>
+          <span class="eyebrow">TRAINING OBSERVATORY</span>
+          <h1 id="run-name">Experiment</h1>
+          <p class="run-subtitle">
+            <code id="run-id"></code
+            ><span id="run-status" class="badge">Loading</span>
+          </p>
+        </div>
+        <div class="heading-actions">
+          <button id="reconnect" class="secondary">Reconnect</button
+          ><a id="raw-events" class="text-link" target="_blank" rel="noopener"
+            >Raw events ↗</a
+          >
+        </div>
+      </section>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <section class="stats" aria-label="Run summary">
+        <article>
+          <span>Completed step</span><strong id="step">—</strong
+          ><small id="total-steps">Waiting for run state</small>
+        </article>
+        <article>
+          <span>Durable checkpoint</span><strong id="durable">—</strong
+          ><small>Last saved training state</small>
+        </article>
+        <article>
+          <span>Generator loss</span><strong id="g-loss">—</strong
+          ><small id="g-step">No published value</small>
+        </article>
+        <article>
+          <span>Discriminator loss</span><strong id="d-loss">—</strong
+          ><small id="d-step">No published value</small>
+        </article>
+      </section>
+      <div class="workspace-grid">
+        <aside class="catalog">
+          <div class="section-title">
+            <h2>Metrics</h2>
+            <span id="metric-count" class="count">0</span>
+          </div>
+          <label class="search"
+            ><span class="sr-only">Search metrics</span
+            ><input
+              id="search"
+              type="search"
+              placeholder="Find a metric…"
+              autocomplete="off"
+          /></label>
+          <div class="catalog-actions">
+            <button id="select-defaults" class="text-button">Defaults</button
+            ><button id="select-none" class="text-button">Clear</button>
+          </div>
+          <div id="metric-list"></div>
+          <p class="catalog-hint">
+            Select up to 8 metrics. Definitions remain separate across attempts.
+          </p>
+        </aside>
+        <section class="visuals" aria-label="Metric visualizations">
+          <div class="toolbar">
+            <div>
+              <h2>Learning curves</h2>
+              <p id="coverage">Loading history…</p>
+            </div>
+            <div class="chart-controls">
+              <label
+                >Scale<select id="scale">
+                  <option value="linear">Linear</option>
+                  <option value="log">Logarithmic</option>
+                </select></label
+              ><label
+                >Smoothing<select id="smoothing">
+                  <option value="0">Off · raw values</option>
+                  <option value="0.2">EMA · α 0.2</option>
+                  <option value="0.5">EMA · α 0.5</option>
+                </select></label
+              >
+            </div>
+          </div>
+          <div class="range-controls">
+            <label
+              >Step from<input
+                id="step-from"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="Start" /></label
+            ><label
+              >Step to<input
+                id="step-to"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="Live" /></label
+            ><button id="apply-range" class="secondary">Apply range</button
+            ><span id="bucket-label">1 step / bucket</span>
+          </div>
+          <div id="charts" class="charts"></div>
+          <div id="empty" class="empty" hidden>
+            <span aria-hidden="true">∿</span>
+            <h3>No measurements to show</h3>
+            <p>
+              Select a metric, or wait for the next published training update.
+            </p>
+          </div>
+          <details class="data-table">
+            <summary>
+              Accessible data table <span>Latest values · exact precision</span>
+            </summary>
+            <div class="table-scroll" tabindex="0">
+              <table>
+                <caption class="sr-only">
+                  Latest published values by metric definition and attempt
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Metric</th>
+                    <th scope="col">Step</th>
+                    <th scope="col">Value</th>
+                    <th scope="col">Attempt</th>
+                  </tr>
+                </thead>
+                <tbody id="values-table"></tbody>
+              </table>
+            </div>
+          </details>
+          <section id="artifacts" class="artifact-list" hidden>
+            <h2>Samples & artifacts</h2>
+            <p>Artifacts are separate from metric measurements.</p>
+            <ul id="artifact-items"></ul>
+          </section>
+        </section>
+      </div>
+      <footer>
+        <span>HyperGAN · Local experiment workspace</span
+        ><span id="stream-position">Waiting for stream</span>
+      </footer>
+    </main>
+  </body>
+</html>

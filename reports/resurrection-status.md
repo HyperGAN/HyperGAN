@@ -2,6 +2,8 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-18 (America/Denver).
 
+Current cutpoint: complete two-process CPU updates, worker supervision and fixed-topology recovery are implemented. The next core work is memory-bounded global-objective accumulation and integration with the shared run service; GPU and real cluster qualification remain ahead.
+
 ## First checkpoint
 
 The clean CPU foundation is merged in PRs [#301](https://github.com/HyperGAN/HyperGAN/pull/301) and [#300](https://github.com/HyperGAN/HyperGAN/pull/300). The integrated baseline is `86c7a3cf360a8975d48f53589b018d48719cad49`; its [Foundation CI](https://github.com/HyperGAN/HyperGAN/actions/runs/35419513982) and [Repository integrity](https://github.com/HyperGAN/HyperGAN/actions/runs/35419513976) both passed. Continue from the current develop and the next checkpoint below; do not restart the historical audit.
@@ -73,16 +75,25 @@ No GPU execution, paid compute, dataset downloads, upstream copying or release o
 
 ## Complete replicated CPU update checkpoint
 
-The [core distributed report](core-distributed-2026-09-18.md) records the next internal execution path: fixed-world-size CPU Gloo training with explicit post-backward gradient averaging, complete D/G/prior/auxiliary/Adam/EMA updates, differentiable global RA, global unique VICReg, exact lazy penalties and deterministic global-data rank slicing. A bounded [worker supervisor](../docs/cpu-workers.md) stops and reaps the group on failure. [Numerical contracts](../docs/distributed.md) describe custom-objective, buffer and floating-point limits. The public train/resume service remains single-process.
+[PR #308](https://github.com/HyperGAN/HyperGAN/pull/308) merged at `79573c5e10647fcea674c03660dd245d4be63457`. The [core distributed report](core-distributed-2026-09-18.md) records the internal execution path: fixed-world-size CPU Gloo training with explicit post-backward gradient averaging, complete D/G/prior/auxiliary/Adam/EMA updates, differentiable global RA, global unique VICReg, exact lazy penalties and deterministic global-data rank slicing. A bounded [worker supervisor](../docs/cpu-workers.md) stops and reaps the group on failure. [Numerical contracts](../docs/distributed.md) describe custom-objective, buffer and floating-point limits. The public train/resume service remains single-process.
 
-The sdist-built wheel at implementation head `9e7c4732` passed **162 installed-package tests in 67.36 seconds** outside the checkout; a separate base-only installation passed **59 tests in 1.40 seconds**. Three subagents supplied implementation and independent review. Required PR CI remains the integration gate. No GPU or paid compute occurred.
+The sdist-built wheel at implementation head `9e7c4732` passed **162 installed-package tests in 67.36 seconds** outside the checkout; a separate base-only installation passed **59 tests in 1.40 seconds**. Three subagents supplied implementation and independent review. An initial CI failure exposed a degenerate zero-gradient penalty fixture; it was corrected without widening tolerances. Final [Foundation CI](https://github.com/HyperGAN/HyperGAN/actions/runs/35424327926) and [Repository integrity](https://github.com/HyperGAN/HyperGAN/actions/runs/35424327931) passed. The merged tree equals the reviewed head. No GPU or paid compute occurred.
 
-## Next bounded checkpoint: coordinated CPU recovery and accumulation
+## Fixed-topology CPU recovery checkpoint
 
-1. Add coordinated fixed-topology recovery: complete per-rank named/global RNG/data state, strict sampler ownership, rank agreement on complete checkpoints, failure timeouts and fresh whole-job restart. A missing rank must never publish an incomplete global checkpoint. The internal update boundary is implemented; distributed checkpoint publication is the next integration.
-2. Implement memory-bounded global-objective accumulation. The current strategy explicitly supports accumulation one; independent microbatch RA means or VICReg covariance cannot be averaged without changing the objective. Then connect distributed launch/resume and designated-writer events/previews/requests to the shared run service.
-3. Resolve upstream explicit licensing before copying the selected image graph. Freeze preprocessing/augmentation/held-out evaluation, pretrained weight identity and the actual direct-GAN update contract. Use CPU shape/gradient/recovery fixtures, then qualify image quality in the bounded GPU stage. Keep custom components runnable but unqualified.
-4. After numerical and recovery gates pass, test actual two-GPU NCCL locally. Only then prepare a concrete, separately budgeted real two-node allocation/provider profile using the reserved Modal credit or another suitable provider.
-5. The optional standalone viewer W2/W3 can follow the implemented W1 read contract alongside distributed work. Keep it a separate process with the planned local access controls; ONNX/container deployment and release promotion remain later gates.
+[PR #309](https://github.com/HyperGAN/HyperGAN/pull/309) adds complete rank snapshots, strict runtime/source/data/topology agreement, staged all-rank readiness before atomic rank-zero publication, and fresh-group restore of each rank's own state. The [recovery guide](../docs/distributed-recovery.md) defines the distinct checkpoint format and caller-owned locking/lifecycle. A crash after a complete commit may leave a valid checkpoint even if the job reports failure; a missing payload or readiness agreement cannot publish an incomplete checkpoint.
 
-Continue from current `develop`; do not restart branch or issue audits. Keep master historical until a separately qualified release and keep paid compute out of the next CPU core slice.
+The sdist-built combined wheel at `a9716764` passed **185 installed-package tests in 140.10 seconds** outside the checkout, including all 21 checkpoint cases and the production supervisor/lock/train/save/restart workflow. A separate base-only installation passed **59 tests in 1.36 seconds**, with all optional numerical/image dependencies absent. Three subagents implemented and cross-reviewed the code. Tests compare full state exactly across fresh worker groups with shuffled image-folder data, labels and stochastic components; failures cover half-updates, missing ranks before/after payload transfer, corrupt/incompatible state, custom load-hook mutation and partial live restore. Required PR CI remains the merge gate.
+
+This is an internal CPU execution/recovery contract. Public `train`/`resume`, live events, previews and checkpoint requests still use the single-process run service. Accumulation remains explicitly one; no DDP hooks, GPU/NCCL or actual cluster is qualified. No GPU training, paid compute, dataset download, upstream architecture copy or release occurred. The five tracked issues remain open, and the optional browser server remains planned. See the report for exact source/test evidence and the durable receipt location.
+
+## Next bounded checkpoint: accumulation and distributed run service
+
+- [x] Complete fixed-global-batch two-process CPU D/G/prior/auxiliary/Adam/EMA updates and worker cleanup.
+- [x] Implement coordinated fixed-topology snapshots and exact fresh-group continuation, including shuffled image data and rank failure.
+- [ ] Add memory-bounded accumulation that preserves full-global-batch RA means and VICReg population/covariance. Compare complete updates at accumulation greater than one; do not substitute independent microbatch objectives or scale learning rates silently.
+- [ ] Connect the strategy to one shared run lifecycle: profile preflight, launch/resume, persisted job/attempt state, designated-writer events/previews/save requests and whole-job failure/restart. Preserve headless cluster behavior and keep observers outside collectives.
+- [ ] Resolve upstream explicit licensing and freeze the selected image experiment's architecture, preprocessing/augmentation/evaluation and pretrained-weight identity. A synthetic image recovery fixture is not image-quality qualification.
+- [ ] After CPU gates pass, qualify actual two-GPU NCCL locally; then prepare a concrete, separately agreed real two-node allocation using the reserved Modal credit or another provider.
+
+The optional standalone viewer W2/W3 can follow the implemented W1 read contract alongside core work. ONNX/container deployment and release promotion remain later gates. Continue from current `develop`; do not restart branch or issue audits. Keep master historical and paid compute out of the next CPU slice.

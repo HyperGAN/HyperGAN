@@ -6,6 +6,11 @@ supervised local trainer through public `train` and `resume` commands. [PR
 including cleanup when the consumer is slow, closed or unread. The [execution
 guide](../docs/execution.md) documents the usable interface.
 
+PR #328 merged into `develop` at
+`ddebd5a33ce5ff5395f4cbe8d79bdccebd6068ff` after all eighteen exact-head checks
+passed. PR #327 includes that merged base; its final required checks and protected
+merge identity are recorded in the integration receipts described below.
+
 New projects continue to target native CUDA. A named `cuda-replicated-nccl`
 profile selects two visible GPUs; `cpu-single` and `cpu-replicated-gloo` provide
 explicit CPU fixtures. Separate TOML profiles select fixed world size and

@@ -141,6 +141,27 @@ def test_public_cpu_profile_observation_and_earlier_resume_are_exact(tmp_path):
     recover_public_job(tmp_path)
 
 
+def test_installed_module_entrypoint_named_profile_and_inference_commands(tmp_path):
+    from hypergan.config import write_default
+    config = write_default(tmp_path / 'project', device='cpu')
+    run = tmp_path / 'run'
+    def invoke(*args):
+        process = subprocess.run([sys.executable, '-I', '-m', 'hypergan', *map(str, args)],
+                                 cwd=tmp_path, capture_output=True, text=True, timeout=90)
+        assert process.returncode == 0, process.stdout + process.stderr
+        return process.stdout
+    trained = json.loads(invoke('train', config, '--run-dir', run, '--steps', 1,
+                                '--profile', 'cpu-replicated-gloo', '--no-server'))
+    assert trained['status'] == 'complete' and trained['steps'] == 1
+    assert trained['execution']['world_size'] == 2
+    assert json.loads(invoke('inspect', run)) == trained
+    output = Path(invoke('sample', run, '--count', 3).strip())
+    sampled = json.loads(output.read_text())
+    assert sampled['shape'] == [3, 2] and sampled['step'] == 1
+    events = json.loads(invoke('events', run))
+    assert any(event['event'] == 'train' for event in events['events'])
+
+
 def test_public_profile_conflicts_reject_before_viewer_and_attempt_creation(tmp_path):
     config, profile = setup(tmp_path)
     run = tmp_path / 'run'

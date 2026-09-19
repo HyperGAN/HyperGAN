@@ -274,6 +274,10 @@ def _frame_unchecked(row, revision, previous):
     for name in ('run_id', 'stream_id', 'stream_generation', 'attempt_id'):
         _text(source.get(name), name)
     _integer(source.get('sequence'), 'source sequence', 1, 2 ** 63 - 1)
+    saved_source = _load(base64.b64decode(row['source_cursor'].encode('ascii'), altchars=b'-_', validate=True))
+    if not isinstance(saved_source, dict) or saved_source.get('last') != {
+            key: source[key] for key in ('run_id', 'attempt_id', 'sequence')} :
+        raise ValueError('Source cursor does not match projection document identity')
     if previous == 0 and source['sequence'] != 1:
         raise ValueError('Projection must begin at the first source event')
     emissions = row.get('emissions')

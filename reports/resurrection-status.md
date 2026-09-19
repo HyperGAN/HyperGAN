@@ -2,7 +2,7 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-19 (America/Denver).
 
-Current cutpoint: the shared run controller and single-process execution adapter are extracted, with exact old/new behavior checks and 214 installed-package tests passing. A Windows lock initialization race found in the preceding post-merge CI run is fixed. Next, add the CPU execution profile and structural/runtime preflight, then connect supervised distributed launch/resume. GPU and real cluster qualification remain ahead.
+Current cutpoint: separate CPU execution profiles and structural/runtime preflight are implemented. Preflight validates batch/accumulation policy without training dependencies, then optionally constructs the recipe in supervised workers and reports strict source/runtime/data identity and recovery capability. Next, connect the replicated execution adapter to the shared run controller, with parent-only checkpoint publication and proven parent-death cleanup before public distributed train/resume. GPU and real cluster qualification remain ahead.
 
 ## First checkpoint
 
@@ -103,19 +103,29 @@ The [shared run-service design](distributed-run-service-design-2026-09-19.md) is
 
 Three subagents handled extraction, independent acceptance and the Windows CI failure. Review fixed warning handlers escaping RNG isolation and stale cleanup diagnostics across attempts. Both run and request-queue locks now acquire their OS lock without an unsafe initialization write. Regressions cover actual process contention and release, including empty lock files; required platform CI confirms native Windows behavior before integration.
 
-The sdist-built wheel at source/test head `4a8c1703` passed **214 installed-package tests in 188.23 seconds** outside the checkout, plus **74 tests in 1.62 seconds** in a separate base-only installation. Default, paired and stochastic old/new runs also matched full checkpoint state and normalized lifecycle results exactly through stop/resume, previews and a manual save. Source hashes now include the extracted files, deliberately rejecting old-source native and internal distributed checkpoints; those runs require their original installation. Required PR CI and the final merge are recorded in the durable session receipt.
+The sdist-built wheel at source/test head `4a8c1703` passed **214 installed-package tests in 188.23 seconds** outside the checkout, plus **74 tests in 1.62 seconds** in a separate base-only installation. Default, paired and stochastic old/new runs also matched full checkpoint state and normalized lifecycle results exactly through stop/resume, previews and a manual save. Source hashes now include the extracted files, deliberately rejecting old-source native and internal distributed checkpoints; those runs require their original installation. PR #311 merged at `e615afabd62d2cf3ba9e57a1b22e184add118b83`. Required PR CI and both post-merge workflows passed: [Foundation CI](https://github.com/HyperGAN/HyperGAN/actions/runs/35427372368) and [Repository integrity](https://github.com/HyperGAN/HyperGAN/actions/runs/35427372272). The durable session receipt preserves the reviewed head, merge and branch attribution.
 
 No distributed CLI, server, GPU execution, paid compute, dataset download, upstream architecture copy or release was added. All five tracked issues remain open. Durable evidence is under `/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-lifecycle/`.
 
-## Next bounded checkpoint: CPU execution profile and preflight
+## CPU execution profile and preflight checkpoint
+
+The [preflight report](core-preflight-2026-09-19.md) records separate CPU profile TOML, torch-free structural checks and construction-only runtime checks in bounded workers. `hypergan preflight CONFIG --profile FILE` validates execution settings; `--runtime` additionally checks CPU state, actual runtime/source/data identity, initialized replicas and recovery declarations. Global batch remains recipe-owned, and preflight timeouts stay outside numerical identity. Public `train`/`resume` remain single-process.
+
+Three subagents implemented the profile and runtime and independently tested rank failures, data-identity disagreement, hung startup, strict comparisons and worker cleanup. Review corrected single-process preflight inadvertently initializing a Gloo group; it now matches native single-process construction. Worker output stays on stderr while the CLI emits JSON. Unsupported recovery declarations are reported with reasons rather than mistaken for a failed construction or proven restore.
+
+The sdist-built wheel at source/test head `8dc0a42e` passed **286 installed-package tests in 225.67 seconds**, plus **126 base-only tests in 1.83 seconds** with optional numerical/image dependencies absent. The installed CLI walkthrough passed both profiles without creating a run. Existing numerical training, lifecycle, checkpoint, recipe and data implementations are unchanged. See the [profile guide](../docs/execution-profiles.md) for report limits and the checks preflight does not perform. Required CI, final merge and preserved branch attribution are recorded in the durable integration receipt.
+
+No GPU execution, paid compute, dataset download, copied upstream architecture, server or release occurred. All five tracked issues remain open. Evidence: `/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-preflight/`.
+
+## Next bounded checkpoint: supervised distributed run service
 
 
 - [x] Complete fixed-global-batch two-process CPU D/G/prior/auxiliary/Adam/EMA updates and worker cleanup.
 - [x] Implement coordinated fixed-topology snapshots and exact fresh-group continuation, including shuffled image data and rank failure.
 - [x] Add CPU activation-memory-bounded accumulation preserving full-global-batch RA and VICReg, complete updates and exact fixed-strategy recovery. See the accumulation checkpoint above.
 - [x] Extract the common lifecycle controller and single-process adapter from `training.py`; preserve current commands, attempts, checkpoints, previews and request semantics under installed-package and old/new behavior comparisons.
-- [ ] **First next-session cutpoint:** add the CPU execution profile and structural/runtime preflight, with strict numerical identity and actionable rank errors. Keep recipe architecture separate from execution policy; validate structure without training dependencies and runtime behavior in bounded workers.
-- [ ] Connect supervised worker commands, distributed train/resume and checkpoint prepare/commit; prove parent-death cleanup and safe takeover before exposing the distributed CLI.
+- [x] Add the CPU execution profile and structural/runtime preflight, with strict numerical identity and actionable rank errors. Keep recipe architecture separate from execution policy; validate structure without training dependencies and runtime behavior in bounded workers. See the [preflight checkpoint](core-preflight-2026-09-19.md).
+- [ ] **Next core cutpoint:** connect supervised worker commands and a replicated execution adapter to the shared controller. Keep workers idle outside Gloo between commands; separate checkpoint preparation from parent-only canonical commit. Prove abrupt parent-death cleanup, stale-attempt fencing and safe takeover before exposing distributed train/resume.
 - [ ] Reuse one event/request/counter service and add bounded snapshot preview execution outside training collectives.
 - [ ] Complete installed-package whole-job acceptance with accumulated shuffled data, fresh-group recovery and fault injection; preserve headless behavior.
 - [ ] Resolve upstream explicit licensing and freeze the selected image experiment's architecture, preprocessing/augmentation/evaluation and pretrained-weight identity. A synthetic image recovery fixture is not image-quality qualification.

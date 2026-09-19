@@ -57,7 +57,7 @@ hypergan preflight demo --profile examples/execution/cpu-replicated.toml
 hypergan preflight demo --profile examples/execution/cpu-replicated.toml --runtime
 ```
 
-The first command checks structure without training dependencies. `--runtime` constructs the recipe in supervised local CPU workers with a deadline and reports runtime, source, data and recovery compatibility. It performs no training updates. See [execution profiles and preflight](docs/execution-profiles.md) for the checks and limits; profile selection for `train` and `resume` is a later integration step.
+The first command checks structure without training dependencies. `--runtime` constructs the recipe in supervised local CPU workers with a deadline and reports runtime/source/data identity and declared recovery capability. It performs no training updates. See [execution profiles and preflight](docs/execution-profiles.md) for the checks and limits; profile selection for `train` and `resume` is a later integration step.
 
 ## Configure the recipe
 

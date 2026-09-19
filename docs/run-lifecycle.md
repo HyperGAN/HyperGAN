@@ -22,7 +22,7 @@ Behavioral parity is measured by independently running the old and new implement
 
 ## Distributed integration still ahead
 
-The next work adds a resolved CPU execution profile and preflight, then supervised worker commands and distributed train/resume. Workers must wait outside training collectives between operations. The controller must hold sole canonical checkpoint commit authority, and abrupt parent death must be tested for worker cleanup and safe takeover before exposing a distributed CLI.
+The [CPU execution profile and preflight](execution-profiles.md) are implemented. The next work connects supervised worker commands and distributed train/resume. Workers must wait outside training collectives between operations. The controller must hold sole canonical checkpoint commit authority, and abrupt parent death must be tested for worker cleanup and safe takeover before exposing a distributed CLI.
 
 The current adapter treats an ordinary manual-save serialization failure as an observer error. A replicated adapter must distinguish that rejection from a failed collective or poisoned worker group, which must fail the entire attempt. Runtime/RNG descriptions must also come from the resolved execution profile before multi-process use.
 

@@ -183,8 +183,6 @@ def test_artifact_shelf_streams_while_metrics_are_unselected(real_viewer):
     experiment.create(2)
     sign_in(page,session,token)
     page.locator('#g-loss').filter(has_text='2').wait_for()
-    page.get_by_role('button',name='Clear',exact=True).click()
-    page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
     payload=json.dumps({'shape':[2,2],'samples':[[1.,2.],[3.,4.]]}).encode()
     (experiment.root/'samples.json').write_bytes(payload)
     audio=b'RIFF fixture audio bytes'
@@ -195,7 +193,15 @@ def test_artifact_shelf_streams_while_metrics_are_unselected(real_viewer):
         'audio':dict(path='audio.bin',bytes=len(audio),sha256=hashlib.sha256(audio).hexdigest(),
                      role='sample',modality='audio',media_type='audio/wav',provenance={'step':2}),
     }
-    atomic_json(experiment.root/'artifacts/index.json',{'schema_version':1,'artifacts':records})
+    # Publish in the interval after the old SSE closes and before its
+    # replacement subscribes. Ready must refresh inventory to cover that gap.
+    def during_reconnect(route):
+        atomic_json(experiment.root/'artifacts/index.json',{'schema_version':1,'artifacts':records})
+        time.sleep(.15)
+        route.continue_()
+    page.route('**/stream?**', during_reconnect, times=1)
+    page.get_by_role('button',name='Clear',exact=True).click()
+    page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
     page.get_by_role('button',name='Preview numbers').wait_for(timeout=10000)
     assert 'sample · audio' in page.locator('#artifact-items').inner_text().lower()
     assert page.locator('#artifact-items img, #artifact-items audio, #artifact-items video').count()==0
@@ -221,3 +227,80 @@ def test_artifact_shelf_streams_while_metrics_are_unselected(real_viewer):
     bad_item.get_by_role('button',name='Preview numbers').click()
     bad_item.locator('.numeric-preview').filter(has_text='differ from its shape').wait_for()
     assert not errors
+
+
+def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=False):
+    # Exact terminal M4 source protocol, including a catalog absent from the
+    # active training manifest. Publish registration last, as the evaluator does.
+    definition = dict(kind=kind, source='custom:quality', scope='snapshot',
+                      label='Snapshot quality', unit='distance', evaluation_protocol={'seed': 42})
+    definition['definition_hash'] = digest(definition)
+    catalog = {'schema_version': 1, 'metrics': {'quality': definition}}
+    revision = digest(catalog)
+    atomic_json(experiment.root / 'metrics' / f'catalog-{revision}.json', catalog)
+    event = dict(schema_version=2, event='evaluation', run_id=experiment.manifest['run_id'],
+                 stream_id='evaluation:' + evaluation_id, stream_generation=evaluation_id,
+                 attempt_id=evaluation_id if failed else 'saved-attempt', step=0 if failed else 1,
+                 sequence=1, catalog=revision, evaluation_id=evaluation_id,
+                 source_position_known=not failed, status='failed' if failed else 'complete',
+                 metrics={}, measurement_status={}, snapshot_sha256='b'*64,
+                 snapshot_identity={} if failed else {'attempt_id': 'saved-attempt'},
+                 protocol_sha256='c'*64, evaluation_protocol={'sample_count': 7, 'seed': 42})
+    if failed:
+        event['measurement_status']['quality'] = {'status': 'failed', 'reason': 'Evaluation fixture timeout'}
+    else:
+        event.setdefault('metrics' if kind == 'scalar' else 'distributions', {})['quality'] = value
+    directory = experiment.root / 'metrics/evaluations' / evaluation_id
+    directory.mkdir(parents=True)
+    (directory / 'events.jsonl').write_text(json.dumps(event) + '\n')
+    atomic_json(directory / 'stream.json', dict(schema_version=1, stream_id=event['stream_id'],
+                stream_generation=evaluation_id, run_id=event['run_id'],
+                path=f'metrics/evaluations/{evaluation_id}/events.jsonl', role='measurement', modality=kind))
+    return event
+
+
+def test_snapshot_scalar_histogram_failure_discovery_and_export(real_viewer, monkeypatch):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(2)
+    experiment.manifest['status'] = 'complete'; experiment.publish()
+    scalar = publish_evaluation(experiment, '1'*32, 'scalar', .25)
+    sign_in(page, session, token)
+    page.locator('#g-loss').filter(has_text='2').wait_for()
+    page.locator('#evaluation-items li').filter(has_text='0.25 distance').wait_for()
+    assert 'quality' not in page.locator('#metric-list').inner_text().lower()
+    page.get_by_role('button', name='Clear', exact=True).click()
+    page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
+    monkeypatch.setattr(Reducer, 'add', lambda *a, **k: pytest.fail('Evaluation ran a server reduction'))
+    histogram = publish_evaluation(experiment, '2'*32, 'histogram', {'edges':[0.,.5,1.], 'counts':[.25,.75]})
+    publish_evaluation(experiment, '3'*32, 'scalar', failed=True)
+    hist = page.locator('#evaluation-items li').filter(has_text='2 histogram bins')
+    hist.wait_for(timeout=10000)
+    failure = page.locator('#evaluation-items li').filter(has_text='Evaluation fixture timeout')
+    failure.wait_for(timeout=10000)
+    assert 'Source position unknown' in failure.inner_text()
+    assert 'Source step 0' not in failure.inner_text()
+    assert failure.locator('svg').count() == 0
+    hist.get_by_text('Plot and accessible values', exact=True).click()
+    hist.locator('svg rect').first.wait_for()
+    assert hist.locator('svg rect').count() == 2
+    assert hist.locator('table tbody tr').count() == 2
+    assert '0.75' in hist.locator('table').inner_text()
+    hist.get_by_text('Definition and evaluation protocol', exact=True).click()
+    assert 'sample_count' in hist.locator('pre').inner_text()
+    assert histogram['catalog'] in hist.locator('pre').inner_text()
+    scalar_card = page.locator('#evaluation-items li').filter(has_text='0.25 distance')
+    scalar_card.get_by_text('Plot and accessible values', exact=True).click()
+    scalar_card.locator('svg circle').wait_for()
+    assert 'Source step 1' in scalar_card.inner_text() and 'saved-attempt' in scalar_card.inner_text()
+    export = scalar_card.get_by_role('link', name='Export raw evaluation').get_attribute('href')
+    exported = context.request.get(session.origin + export).json()
+    assert exported['events'] == [scalar]
+    schema = context.request.get(session.origin + '/api/v1/openapi.json').json()
+    assert 'distributions' in schema['components']['schemas']['Event']['properties']
+    # Reconnect/reload discovers existing immutable sources without polling.
+    page.reload()
+    page.locator('#evaluation-items li').filter(has_text='2 histogram bins').wait_for(timeout=10000)
+    page.locator('#evaluation-items li').filter(has_text='Evaluation fixture timeout').wait_for()
+    assert page.locator('#evaluation-items li').count() == 3
+    assert not errors
+    assert not any(token in url for url in requests)

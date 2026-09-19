@@ -8,10 +8,15 @@ The token never enters a URL, storage, telemetry, or browser logs.
 - `GET /capabilities` -> `{ "run_id":"r", "reducer":{"sha256":"..."} }`.
 - `GET /runs/r` -> run manifest, including status, steps, last_durable_step,
   total_steps, metrics_catalog and current attempt_id; optional name/config.name.
-- `GET /runs/r/metrics/catalog` -> the immutable metric catalog shape.
+- `GET /runs/r/metrics/catalog[?revision=<sha256>]` -> the immutable metric catalog shape.
+  Omit revision for the active training catalog; independent evaluation documents
+  always supply their own catalog revision.
 - `GET /runs/r/artifacts` -> `{ "schema_version":1, "artifacts":{ "id":{ "role":"sample", "modality":"tensor", "media_type":"application/json", "bytes":54, "shape":[2,2], "provenance":{ "step":2 } } } }`.
   `GET /runs/r/artifacts/{id}` downloads a bounded, digest-checked indexed artifact.
-- `GET /runs/r/views` -> `{ "map_revision":"..." }` for the built-in scalar map.
+- `GET /runs/r/views` -> `{ "map_revision":"...", "streams":[{"stream_id":"evaluation:<id>", "cursor":"...", "caught_up":true, "error":null}], "discovery_error":null }`.
+  Training, projection and independent evaluation sources share this inventory.
+  At most 64 streams are registered. Inventory overflow is visible without
+  stopping existing streams or run metadata updates.
 - `GET /runs/r/views/{map_revision}/bootstrap?series=loss%2Fd_total,...&bucket_steps=8`
   returns the following object, or 202 while background historical reduction runs.
   Optional `step_from` / `step_to` apply inclusive integer step bounds.
@@ -56,3 +61,33 @@ from the last fully acknowledged cursor. The worker applies the same bundled
 WASM kernel served at `/reducers/host.js`, `/reducers/reducer.wasm` and
 `/reducers/reducer.json`. No live server re-reduction is needed. The frontend
 request timeout terminates a stuck worker; failed state is never acknowledged.
+
+
+Snapshot evaluations are independent immutable measurement streams. On load,
+after reconnect, and on `stream_added`, the browser reads the stream inventory.
+For each evaluation it reads `GET /runs/r/events?stream_id=evaluation:<id>&limit=2`
+and the event's explicit `catalog` revision. The current protocol is exactly one
+terminal document per evaluation. No live/history reducer runs for these reads.
+The browser serializes result loads, retains at most the 64 registered streams,
+and allocates plots/tables only on expansion. There is no recurring HTTP poll.
+
+A complete evaluation has `event="evaluation"`, `status="complete"`,
+`source_position_known=true`, and the evaluated source `attempt_id` and `step`.
+Finite scalar values appear in `metrics`; histograms appear in `distributions`
+as `{edges:[...],counts:[...]}` with at most 512 ordered bins. Each result remains
+separate by evaluation ID and definition hash, with snapshot/protocol digests and
+full recorded protocol available for inspection and raw export. Snapshot metrics
+are excluded from the training curve selector. Failed evaluations expose their
+`measurement_status` reason; `source_position_known=false` must never be plotted
+as a step-zero observation. Sampling artifacts keep their separate shelf.
+
+`discovery_error` is a control event with a visible `reason`; unlike a cursor
+reset it does not invalidate current training coverage. Existing sources continue
+when optional stream discovery reaches its bounded capacity or finds corruption.
+
+Public source cursors identify run, stream and generation plus a byte offset,
+consumed-boundary hash and last event identity. They carry no local inode/path
+identity and replay after faithfully copying a run. Readers validate the first
+source document's generation and consumed boundary on every page; changed
+sources require restarting without a cursor. Private projector file cursors
+remain local. Projection cursors already use portable logical source identity.

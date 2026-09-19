@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 
 from .run_state import atomic_json
+from .metric_plugins import validate_custom, enabled_custom
 
 PRESET_VERSION = 'standard/v1'
 DEFAULT_METRICS = {'preset': 'standard', 'disable': [], 'every_steps': 1, 'overrides': {}, 'custom': {}}
@@ -52,11 +53,11 @@ def validate_metrics(config):
         raise ValueError('metrics.preset must be standard or none')
     if type(spec['every_steps']) is not int or spec['every_steps'] < 1:
         raise ValueError('metrics.every_steps must be a positive integer')
-    if not isinstance(spec['custom'], dict):
-        raise ValueError('metrics.custom must be a table')
-    if spec['custom']:
-        raise ValueError('Custom metric factories and snapshot evaluation are not supported yet; use built-in scalar metrics')
+    validate_custom(spec['custom'])
     available = _available(config)
+    if set(available) & set(spec['custom']):
+        raise ValueError('Custom metric IDs cannot replace built-in definitions')
+    available.update({name: None for name in spec['custom']})
     if not isinstance(spec['disable'], list) or any(not isinstance(name, str) or name not in available for name in spec['disable']):
         raise ValueError('metrics.disable must list known metric IDs')
     if len(set(spec['disable'])) != len(spec['disable']):
@@ -102,6 +103,15 @@ def metric_catalog(config):
             definition['coefficient'] = term['weight']
             definition['raw_available'] = False
         metrics[name] = dict(definition, definition_hash=digest(definition))
+    for name, custom in enabled_custom(config).items():
+        runtime = config.get('_metric_runtime', {}).get(name)
+        if runtime is None:
+            raise ValueError('Custom metric catalogs require bounded runtime preflight')
+        definition = dict(runtime['descriptor'], source='custom:' + name, factory=custom['factory'],
+                          factory_sources=runtime['factory_sources'], protocol=runtime['protocol'],
+                          specification=deepcopy(custom), numerical_sha256=fingerprint(config),
+                          scope='snapshot' if custom['mode'] == 'snapshot' else 'complete_update')
+        metrics[name] = dict(definition, definition_hash=digest(definition))
     catalog = {'schema_version': 1, 'preset_version': PRESET_VERSION,
                'observation': deepcopy(spec), 'metrics': metrics}
     if len(json.dumps(catalog).encode()) > MAX_CATALOG_BYTES:
@@ -142,7 +152,7 @@ def read_catalog(run_dir, revision=None, *, _open_file=None):
         raise ValueError('Invalid metric catalog definitions')
     for name, descriptor in catalog['metrics'].items():
         if (not isinstance(name, str) or not name or not isinstance(descriptor, dict)
-                or descriptor.get('kind') != 'scalar' or not isinstance(descriptor.get('source'), str)
+                or descriptor.get('kind') not in ('scalar', 'histogram') or not isinstance(descriptor.get('source'), str)
                 or descriptor.get('definition_hash') != digest({k: v for k, v in descriptor.items() if k != 'definition_hash'})):
             raise ValueError('Invalid metric catalog definition or hash')
     return catalog
@@ -160,6 +170,8 @@ def select_metrics(config, catalog, row, step, step_seconds):
     metrics, statuses = {}, {}
     for name, definition in catalog['metrics'].items():
         source = definition['source']
+        if source.startswith('custom:'):
+            continue
         if source not in values:
             statuses[name] = {'status': 'unavailable', 'reason': 'Execution did not provide this scalar'}
             continue
@@ -172,7 +184,7 @@ def select_metrics(config, catalog, row, step, step_seconds):
             applied = penalty['arm'] != 'f_none' and step % penalty['lazy_k'] == 0
             statuses[name] = {'status': 'available', 'applied': applied,
                               'effective_coefficient': penalty['coeff'] * penalty['lazy_k'] if applied else 0.0}
-    return metrics, statuses, 'sampled' if catalog['metrics'] else 'disabled'
+    return metrics, statuses, 'sampled' if metrics or statuses else 'disabled'
 
 
 def validate_update_scalars(row, objective_count):

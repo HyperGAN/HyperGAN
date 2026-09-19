@@ -1,3 +1,4 @@
+import { evaluationShelf } from "./evaluations.js";
 import { init, use } from "echarts/core";
 import { LineChart } from "echarts/charts";
 import {
@@ -140,6 +141,7 @@ async function api(path, options = {}) {
   return { status: response.status, data: await response.json() };
 }
 const base = () => `/runs/${encodeURIComponent(state.run.run_id)}`;
+const evaluations = evaluationShelf(api, base);
 const fmt = (value) =>
   value === null || value === undefined
     ? "—"
@@ -311,9 +313,10 @@ function defaults() {
 }
 function renderCatalog() {
   const search = $("search").value.toLowerCase();
-  $("metric-count").textContent = Object.keys(state.catalog.metrics).length;
+  $("metric-count").textContent = Object.values(state.catalog.metrics).filter(d => d.scope !== "snapshot" && d.kind === "scalar").length;
   $("metric-list").replaceChildren();
   for (const [id, definition] of Object.entries(state.catalog.metrics)) {
+    if (definition.scope === "snapshot" || definition.kind !== "scalar") continue;
     if (!`${id} ${definition.label}`.toLowerCase().includes(search)) continue;
     const label = document.createElement("label");
     label.className = "metric-option";
@@ -350,8 +353,10 @@ async function metadata(expectedEpoch = state.epoch) {
   updateRun(run.data);
   state.catalog = catalog.data;
   state.map = views.data.map_revision;
+  evaluations.refresh(views.data.streams || []).catch(error => notice(error.message));
+  if (views.data.discovery_error) notice(views.data.discovery_error);
   state.selected = new Set(
-    [...state.selected].filter((id) => id in state.catalog.metrics),
+    [...state.selected].filter((id) => state.catalog.metrics[id]?.kind === "scalar" && state.catalog.metrics[id]?.scope !== "snapshot"),
   );
   renderCatalog();
   await refreshArtifacts();
@@ -535,9 +540,10 @@ function openStream(epoch) {
       try {
         const data = parse(event);
         if (data.run) updateRun(data.run);
+        if (name === "ready") api(`${base()}/views`).then(result => evaluations.refresh(result.data.streams || [])).catch(error => notice(error.message));
         if (name === "ready") {
           state.retries = 0;
-          refreshArtifacts().catch((error) => notice(error.message));
+          refreshArtifacts().catch(error => notice(error.message));
         }
         if (state.ready || controlsOnly) connection("Live stream", "live");
         else if (name === "ready") loadBootstrap(epoch);
@@ -551,6 +557,12 @@ function openStream(epoch) {
     else loadBootstrap(epoch);
   });
   stream.addEventListener("metadata", () => refreshMetadata(epoch));
+  stream.addEventListener("stream_added", () => {
+    if (epoch === state.epoch) api(`${base()}/views`).then(result => evaluations.refresh(result.data.streams || [])).catch(error => notice(error.message));
+  });
+  stream.addEventListener("discovery_error", event => {
+    if (epoch === state.epoch) { try { notice(parse(event).reason); } catch (error) { notice(error.message); } }
+  });
   stream.addEventListener("artifacts", () => {
     if (epoch === state.epoch)
       refreshArtifacts().catch((error) => notice(error.message));

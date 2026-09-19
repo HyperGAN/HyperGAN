@@ -1,0 +1,13 @@
+{
+  "abi": 1,
+  "sha256": "727faa849990730404dd6ca1f898526d380b56bd4ad9384f9186a2bc4d7b275d",
+  "bytes": 153189,
+  "rust": "1.90.0",
+  "max_memory_bytes": 16777216,
+  "max_request_bytes": 262144,
+  "max_batch_values": 1024,
+  "reducers": [
+    "mean/v1",
+    "envelope/v1"
+  ]
+}

@@ -62,11 +62,12 @@ class FakeService:
         self.aborted = True
 
 
+@pytest.mark.parametrize('metrics_preset', ['standard', 'none'])
 @pytest.mark.parametrize('failure', ['step', 'readiness', 'metrics-disagree', 'nonfinite', 'batch-bool'])
-def test_malformed_complete_update_poisons_execution(failure):
-    execution = ReplicatedExecution(resolve_config({}), PROFILE)
+def test_malformed_complete_update_poisons_execution(failure, metrics_preset):
+    execution = ReplicatedExecution(resolve_config({'metrics': {'preset': metrics_preset}}), PROFILE)
     metrics = {'event': 'train', 'step': 1, 'global_batch_size': 16, 'local_batch_size': 8,
-        'world_size': 2, 'd_loss': 0.2, 'g_loss': 0.3, 'g_adversarial': 0.1,
+        'world_size': 2, 'd_loss': 0.2, 'g_loss': 0.3, 'd_adversarial': 0.2, 'd_adversarial_weighted': 0.2, 'g_adversarial_weighted': 0.1, 'g_adversarial': 0.1,
         'prior_loss': 0.2, 'gradient_penalty': 0.0, 'lr_scale': 1.0, 'objectives': []}
     row = {'ready': True, 'step': 1, 'inference_available': True, 'metrics': metrics}
     results = [copy.deepcopy(row), copy.deepcopy(row)]

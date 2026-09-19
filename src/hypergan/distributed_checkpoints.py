@@ -26,7 +26,7 @@ import torch
 import torch.distributed as dist
 
 from .checkpoints import capture_rng, file_sha256, restore_rng, restore_trainer, trainer_state
-from .config import config_values, fingerprint
+from .config import config_values, fingerprint, numerical_values
 from .recipes import move_tensors
 from .run_state import atomic_json, sync_directory
 from .training import _implementation, _recovery_contract, runtime_info
@@ -196,7 +196,7 @@ def _distributed_checkpoint_identity(trainer):
                  'preview_snapshot', 'snapshot_renderer', 'previews', 'bounded_observer'):
         implementation['hypergan.' + name] = file_sha256(Path(__file__).with_name(name + '.py'))
     runtime = distributed_runtime_info(trainer)
-    return _json({'config': config_values(trainer.config), 'config_sha256': fingerprint(trainer.config),
+    return _json({'config': numerical_values(trainer.config), 'config_sha256': fingerprint(trainer.config),
                   'runtime': runtime, 'implementation': implementation, 'data_contract': contract,
                   'topology': strategy})
 

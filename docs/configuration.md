@@ -42,3 +42,45 @@ Changing objective or regularizer settings may change batch/distributed semantic
 The built-in configuration is labelled reference-only, with its runtime recorded as not certified. It does not receive an application approval stamp. Future qualification must apply to an exact resolved configuration, component versions and tested execution profile. Custom values or implementations receive an unqualified warning and may run when compatible. Numerical-reference qualification does not establish image quality or application readiness. Review the recorded qualification and configuration in the run manifest rather than relying on a recipe's name.
 
 Sample artifacts preserve inference state. Separate [complete training checkpoints](recovery.md) restore optimizer/RNG/data-position state with exact configuration and runtime compatibility. Changing a seed or loading an inference artifact is not exact training resume. [Image-folder data](image-data.md) provides content and preprocessing identity for custom image components; it does not change the reference model into an image GAN.
+
+## Scalar metrics
+
+Metrics publish completed update values to `events.jsonl`, with immutable definitions
+in `metrics/catalog-<sha256>.json`. No optional training dependencies are needed to
+validate these settings or read a catalog.
+
+```toml
+[metrics]
+preset = "standard" # "none" starts with no published values
+# Every ID is independently removable. Unknown IDs fail validation.
+disable = ["loss/d_adversarial_raw", "loss/g_adversarial_raw"]
+every_steps = 1     # sample this boundary, not an average of skipped steps
+
+[metrics.overrides."loss/total"]
+enabled = false
+```
+
+The standard preset includes D/G totals, their combined diagnostic sum, weighted
+adversarial, gradient penalty, prior regularizer and additional objective
+contributions, raw D/G adversarial values, learning-rate multiplier and update
+seconds. The combined sum is **not** a GAN quality score or a joint optimization
+objective. Catalogs include formula, coefficient, units, phase owner and immutable
+definition hashes. Gradient penalties report whether the lazy schedule applied
+and its effective coefficient. Upstream gradient/prior regularizers expose their
+weighted contribution only: raw values are explicitly unavailable and never
+recovered by dividing by a coefficient.
+
+`preset = "none"` emits no metric values, while lifecycle events and mandatory
+finite/update validation remain active. `overrides` can explicitly enable one
+built-in ID with the empty preset. Disabling D or G publication does not prevent
+the combined sum from using those already computed internal values. Metrics
+settings may change during resume without changing numerical identity; the new
+attempt references a new catalog and retains the previous revision. Changing
+objectives, weights or the training schedule still invalidates numerical resume.
+
+Give additional objectives a stable `id`, for example `id = "reconstruction"`,
+to publish `loss/objectives/reconstruction`. Without an explicit ID, a deterministic
+content hash names the term. Repeated identical terms require distinct explicit
+IDs. Custom scalar factories, snapshot evaluation and expensive metrics such as
+FID are not implemented by this scalar slice; explicitly configuring them fails
+validation instead of silently ignoring the request.

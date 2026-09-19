@@ -117,3 +117,41 @@ It generates and removes a synthetic run, measures shared source/projection
 indexing, historical bootstrap, warm query serialization and five-viewer live
 continuation, and asserts no live reducer calls. It measures standalone serving,
 not training overhead or image quality.
+
+## Automatic viewer during CLI training
+
+With the `web` extra installed, `hypergan train` and `hypergan resume` automatically
+reserve an available loopback port and launch a supervised local viewer. Startup
+runs concurrently with training; there is no browser launch or readiness wait by
+default. Without the extra, these commands remain silently headless. The Python
+`train()` and `resume()` APIs never start a viewer.
+
+```sh
+hypergan train project/config.toml --run-dir runs/example --open
+hypergan resume runs/example --server --server-port 8123
+hypergan train project/config.toml --run-dir runs/headless --no-server
+```
+
+`--server` requires dependencies, an available port and an authenticated ready
+server before numerical imports or training begin. `--server-port` and `--open`
+also imply that requirement. Only `--open` launches a browser. `--no-server`
+performs no web imports or socket setup and conflicts with those two options.
+Viewer diagnostics go to stderr; stdout and `--progress-json` remain machine
+readable. Read the private credential file reported on stderr to sign in.
+
+The supervised HTTP server and built-in scalar projection producer run in
+separate spawned processes. The producer reads at most 100 documents per page;
+HTTP requests never run Python maps. Custom maps and expensive metric evaluators
+remain explicit independent commands. The viewer can wait for a run manifest
+without creating the trainer's run directory. Once a manifest exists, a nonsecret
+`observations/viewer-<instance>.json` receipt records launch mode, process IDs and
+health, independently of numerical configuration/checkpoint identity.
+
+Optional startup errors and failures after startup produce warnings without
+failing training. Required startup failure prevents numerical work. The broker
+monitors trainer death, and both children monitor the broker. Completion, errors
+and interruption close the server, remove private credentials and join children
+within bounded cleanup deadlines; the projection producer gets a bounded final
+drain. A large backlog may therefore remain incomplete, visibly resumable with
+`hypergan project RUN`. The automatically started viewer ends with its training
+command; use `hypergan serve RUN` afterward for inspection.

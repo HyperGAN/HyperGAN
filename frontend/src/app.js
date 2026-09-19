@@ -433,9 +433,9 @@ async function reconfigure({ coarser = false } = {}) {
     openStream(epoch);
     return;
   }
+  // Wait for ready before loading history so completion notifications cannot
+  // race subscription registration, and startup performs a single request.
   openStream(epoch);
-  // Wait for SSE ready before bootstrap: register notifications first and
-  // avoid racing an initial request with the ready callback.
 }
 async function loadBootstrap(epoch) {
   if (epoch !== state.epoch || state.pending || state.ready) return;

@@ -29,3 +29,7 @@ For process managers, `--progress-json` writes flushed JSONL events to stdout, f
 For bounded event pages, periodic previews and acknowledged manual checkpoint requests, see [run observation](observation.md). Periodic preview retention never deletes complete checkpoints or final attempt inference bundles. A submitted save request is pending until the trainer acknowledges a durable checkpoint at a safe boundary.
 
 The manifest and event stream are versioned for future observers. A run has one writer; concurrent resume attempts are rejected by a process lock. On restart, a partial trailing event is handled without treating it as a complete update. Checkpoints load tensor/basic-value state with `weights_only=True`, but configured Python factories still execute trusted code. Use artifacts and implementations you trust.
+
+## Internal distributed recovery
+
+The public commands above remain single-process. Developers can exercise separate [fixed-topology CPU checkpoint APIs](distributed-recovery.md) with the replicated trainer and bounded worker supervisor. Distributed CLI lifecycle and observer integration remain planned.

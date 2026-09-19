@@ -1,6 +1,6 @@
 # Core distributed execution checkpoint — 2026-09-18
 
-This checkpoint advances the CPU correctness gate on `develop`. It does not qualify a GPU, cluster provider or image recipe. The implementation remains an internal Python execution path; the existing `train`, `resume` and observer commands still use the single-process run service.
+PRs [#308](https://github.com/HyperGAN/HyperGAN/pull/308) and [#309](https://github.com/HyperGAN/HyperGAN/pull/309) advance the CPU correctness gate on `develop`. It does not qualify a GPU, cluster provider or image recipe. The implementation remains an internal Python execution path; the existing `train`, `resume` and observer commands still use the single-process run service.
 
 ## Complete replicated updates
 
@@ -18,6 +18,14 @@ The independent global oracle uses a bias-free critic and explicit matched draws
 
 `launch_cpu_workers` starts a fresh local spawn/Gloo group with finite collective and whole-job deadlines. A worker exception, abrupt exit, stall, partial spawn failure or parent interruption terminates and reaps the remaining direct children. Every worker must finish its callback and the final barrier before success. Restart is explicit; there are no automatic paid retries or external resource allocations. See [the worker guide](../docs/cpu-workers.md) and [numerical contracts](../docs/distributed.md).
 
+## Coordinated recovery
+
+A separate distributed checkpoint format stores complete per-rank snapshots and publishes one latest pointer after all-rank readiness. Strict identity includes the configured recipe/schedule, runtime and actual thread settings, source modules, data/class map and fixed topology. Both named and global RNG, sampler ownership, last local batches, optimizers and all registered numerical state survive a fresh worker-group restart. The [recovery guide](../docs/distributed-recovery.md) defines caller locking, compatibility and atomic-publication limits.
+
+The recovery implementation is `3f55dcb0` (integrated as `54f5a958`), independent RNG/metadata acceptance is `7a21918b` (integrated as `0b9e3d69`), and coordinator integration is `831e2d52`. Review fixed RNG-consuming identity hooks, metadata bounds, latest-pointer consistency, Pillow module handling during validation copies, load-hook mutation of expected state, and poisoning after partial live restore. A staged generation cannot be published merely because all payloads arrived: a worker death before final readiness leaves the prior latest pointer intact.
+
+The image recovery fixture uses seven generated grayscale images, labels, shuffled global data and an original tiny stochastic generator. It is shape/recovery evidence, with no copied upstream image architecture, external dataset or image-quality claim. A separate custom sampler checks rank ownership explicitly. The coordinator's integration test exercises the actual spawn supervisor, designated writer lock, updates, complete publication and fresh-group resume together.
+
 ## Validation and review
 
 The numerical implementation is `70091f6b` (integrated as `9e7c4732`), the independent acceptance suite is `67c4d6fa` (integrated as `8e8153a6`), and the coordinator's worker lifecycle is `5310e641` plus `1d517f7d`. Three subagents split numerical implementation, recovery implementation and independent adversarial review; the coordinator reviewed and integrated the pieces.
@@ -34,10 +42,16 @@ uv pip install --python /tmp/hypergan-distributed-core-verify/bin/python --no-de
 
 The three trainer tests include 12 adversarial combinations over complete updates; five independent acceptance tests cover the global oracle and failure boundaries. Fourteen worker tests cover controls, successful collectives, abrupt exit, exceptions, stalls, parent interruption and failure while starting the second process. Review added replica extra-state/optimizer checks, mixed automatic/explicit input rejection, explicit operation-order agreement and the Gaussian full-row regularizer guard. Remaining limitations are stated above; no failures were skipped.
 
+The combined recovery wheel built through the source distribution at `a9716764` passed **185 installed-package tests in 140.10 seconds**, including all 21 checkpoint cases, the independent checkpoint acceptance test and the production supervisor/lock/restart integration. A separate base-only wheel installation passed **59 tests in 1.36 seconds**, with torch, ParticleGAN, NumPy and Pillow absent. Build output: `/tmp/hypergan-cpu-recovery-build`; verification environments remain the two separate environments above. The subsequent merge of current develop (`40f87d3f`) changes no source, tests, package configuration or CI files from this tested implementation.
+
+Initial PR #308 CI exposed a degenerate nonlinear penalty fixture: identical real/fake inputs produced a zero adversarial D gradient, making Adam sensitive to reduction roundoff. Fix `167f6107` (integrated as `d3b79732` and `a9716764`) uses distinct real data, retains `rtol=3e-5`/`atol=3e-6`, verifies active/skipped lazy steps and improves assertion context. The original failure did not reproduce locally under default/AVX2 probes; the corrected fixture passed both probes and the complete [Foundation CI](https://github.com/HyperGAN/HyperGAN/actions/runs/35424327926) plus [Repository integrity](https://github.com/HyperGAN/HyperGAN/actions/runs/35424327931). PR #308 merged at `79573c5e10647fcea674c03660dd245d4be63457`; its merged tree equals the reviewed head. PR #309 must pass its required CI before integration.
+
+Durable local build/test logs, the initial CI failure and integration receipts are under `/home/martyn/dev/hypergan/resurrection-backups/2026-09-18-distributed-core/`. The final receipt records reviewed heads, CI results, tree equality and branch preservation/cleanup.
+
 ## Session cutpoint and remaining gates
 
-- [x] Implement and locally validate complete fixed-batch CPU updates and bounded worker lifecycle. Required PR CI remains the integration gate.
-- [ ] Integrate coordinated fixed-topology checkpoint publication and fresh whole-group recovery with per-rank RNG/data state and failure coverage.
+- [x] Implement, validate and merge complete fixed-batch CPU updates and bounded worker lifecycle: PR #308.
+- [x] Implement and validate coordinated fixed-topology checkpoint publication and fresh whole-group recovery with per-rank RNG/data state and failure coverage: PR #309, with required CI as its merge gate.
 - [ ] Implement memory-bounded accumulation while preserving full-global-batch RA and VICReg semantics. `accumulation_steps=1` is the only current strategy; other values fail explicitly.
 - [ ] Connect distributed execution to the shared run/attempt/event/preview/request service and a usable launch/resume workflow with one designated writer.
 - [ ] Resolve image extraction licensing and freeze the direct image experiment, data/evaluation protocol and pretrained-weight identity.

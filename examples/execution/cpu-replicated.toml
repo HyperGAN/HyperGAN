@@ -1,0 +1,11 @@
+# Preflight for two local CPU workers. Public train/resume integration is pending.
+schema_version = 1
+
+[execution]
+name = "cpu-replicated-gloo"
+world_size = 2
+accumulation_steps = 2
+
+[preflight]
+timeout = 60
+collective_timeout = 15

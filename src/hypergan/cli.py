@@ -54,6 +54,12 @@ def _parser():
     new.add_argument("path", type=Path)
     validate = commands.add_parser("validate", help="Validate a project without loading training dependencies")
     validate.add_argument("path", type=Path)
+    preflight = commands.add_parser("preflight", help="Check a CPU execution profile before training")
+    preflight.add_argument("config", type=Path)
+    preflight.add_argument("--profile", type=Path, required=True,
+                           help="separate execution-profile TOML file")
+    preflight.add_argument("--runtime", action="store_true",
+                           help="also construct the recipe in bounded CPU workers (requires train extra)")
     data_check = commands.add_parser("data-check", help="Validate an image_folder inventory and preprocessing")
     data_check.add_argument("config", type=Path)
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
@@ -166,6 +172,20 @@ def main(argv=None):
                     json.dump(manifest, stream, indent=2, allow_nan=False)
                     stream.write("\n")
             _print_json(manifest)
+        elif args.command == "preflight":
+            from .config import load_config
+            from .execution_profiles import load_execution_profile
+
+            config = load_config(args.config)
+            _warnings(config)
+            profile = load_execution_profile(args.profile, config)
+            if args.runtime:
+                from .execution_preflight import preflight
+
+                _print_json(preflight(config, profile))
+            else:
+                _print_json({"schema_version": 1, "stage": "structural", "profile": profile,
+                             "runtime_checked": False})
         elif args.command in {"new", "validate", "recipes"}:
             from . import config
 

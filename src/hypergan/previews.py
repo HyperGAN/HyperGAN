@@ -1,5 +1,6 @@
 """Bounded immutable EMA previews, separate from deployable inference bundles."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -140,6 +141,7 @@ def _publish_preview(run_dir, identity, step, render, keep):
         size = _write_bounded(temporary / 'preview.json', payload)
         record = {'schema_version': 1, 'kind': 'ema-preview', 'identity': dict(identity),
                   'step': step, 'path': str(target / 'preview.json'), 'bytes': size,
+                  'sha256': hashlib.sha256((temporary / 'preview.json').read_bytes()).hexdigest(),
                   'count': payload['count'], 'shape': payload['shape']}
         atomic_json(temporary / 'manifest.json', record)
         sync_directory(temporary)

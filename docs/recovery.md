@@ -34,4 +34,4 @@ The manifest and event stream are versioned for future observers. A run has one 
 
 ## Internal distributed recovery
 
-The public commands above remain single-process. Developers can exercise separate [fixed-topology CPU checkpoint APIs](distributed-recovery.md) with the replicated trainer and bounded worker supervisor. Distributed CLI lifecycle and observer integration remain planned.
+The same public commands select native or fixed-topology replicated execution through [execution profiles](execution.md). Resume infers the saved profile; world size and accumulation must match, while operational deadlines can change. The [distributed checkpoint API](distributed-recovery.md) documents the complete rank-state format and parent-owned publication protocol.

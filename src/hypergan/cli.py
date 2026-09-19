@@ -160,7 +160,7 @@ def main(argv=None):
         print("error: interrupted", file=sys.stderr)
         return 130
     except ModuleNotFoundError as exc:
-        if exc.name and exc.name.split(".")[0] in {"torch", "particlegan"}:
+        if exc.name and exc.name.split(".")[0] in {"torch", "particlegan", "numpy"}:
             print("error: training dependencies are missing; install 'hypergan[train]' in this environment", file=sys.stderr)
         else:
             print(f"error: {exc}", file=sys.stderr)

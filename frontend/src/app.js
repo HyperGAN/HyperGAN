@@ -529,7 +529,10 @@ function openStream(epoch) {
       try {
         const data = parse(event);
         if (data.run) updateRun(data.run);
-        if (name === "ready") state.retries = 0;
+        if (name === "ready") {
+          state.retries = 0;
+          refreshArtifacts().catch((error) => notice(error.message));
+        }
         if (state.ready || controlsOnly) connection("Live stream", "live");
         else if (name === "ready") loadBootstrap(epoch);
       } catch (error) {

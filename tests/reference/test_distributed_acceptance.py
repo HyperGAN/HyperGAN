@@ -210,7 +210,7 @@ def _worker(mode, rank, rendezvous, result):
         elif mode == 'accumulation':
             from hypergan.distributed_training import ReplicatedCPUTrainer
             with pytest.raises(ValueError, match='accumulation'):
-                ReplicatedCPUTrainer(_config(), world_size=2, accumulation_steps=2)
+                ReplicatedCPUTrainer(_config(), world_size=2, accumulation_steps=3)
             outcome = {'rejected': True}
         else:
             raise AssertionError(mode)
@@ -249,7 +249,7 @@ def test_rank_local_gradient_or_buffer_failure_never_commits_complete_step(tmp_p
     assert all(not result['checkpoint_ready'] and result['error'] for result in results)
 
 
-def test_accumulation_is_explicitly_rejected_until_qualified(tmp_path):
+def test_accumulation_rejects_nondividing_microbatch_count(tmp_path):
     assert _launch(tmp_path, 'accumulation') == [{'rejected': True}, {'rejected': True}]
 
 

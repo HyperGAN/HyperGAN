@@ -21,12 +21,9 @@ import threading
 from pathlib import Path
 
 from .cpu_worker_service import CPUWorkerService, _json
+from .run_controller import ObserverError
 
 MAX_EVENT_BYTES = 65536
-
-
-class ObserverError(RuntimeError):
-    """Optional callback failed; this observer is now explicitly disabled."""
 
 
 def callback_reference(callback):

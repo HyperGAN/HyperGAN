@@ -38,6 +38,10 @@ class FatalExecutionError(RuntimeError):
     """The execution group is unusable; optional observation must not swallow it."""
 
 
+class ObserverError(RuntimeError):
+    """Optional delivery failed while the execution adapter remains usable."""
+
+
 @dataclass(frozen=True)
 class Restored:
     checkpoint_path: Path
@@ -288,7 +292,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 execution.observe(notify, dict(row))
             except FatalExecutionError:
                 raise
-            except Exception as exc:
+            except ObserverError as exc:
                 # A supervised adapter delivers its configured callback outside
                 # this process. Its failure must remain observable without
                 # recursively invoking that same failed observer.

@@ -122,7 +122,9 @@ def _runtime_worker(rank, world_size, config, profile, directory):
                 implementation.update(_source_hashes(['hypergan.distributed_training', 'hypergan.distributed',
                                                        'hypergan.distributed_checkpoints', 'hypergan.distributed_commit',
                                                        'hypergan.replicated_execution', 'hypergan.replicated_worker',
-                                                       'hypergan.cpu_worker_service']))
+                                                       'hypergan.cpu_worker_service', 'hypergan.preview_snapshot',
+                                                       'hypergan.snapshot_renderer', 'hypergan.previews',
+                                                       'hypergan.bounded_observer']))
             # Snapshot only numerical state: data is described by its contract;
             # sampling it or simulating checkpoint publication would exceed scope.
             from .distributed_checkpoints import _digest

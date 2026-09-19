@@ -75,8 +75,24 @@ def _event(line, previous):
         raise ValueError(f"nonfinite JSON constant {value}")
     try:
         row = json.loads(line, parse_constant=reject_constant)
-        if not isinstance(row, dict) or type(row.get('schema_version')) is not int or row['schema_version'] != 1:
+        # allow_nan also rejects a finite-looking exponent parsed as infinity.
+        json.dumps(row, allow_nan=False)
+        if not isinstance(row, dict) or type(row.get('schema_version')) is not int or row['schema_version'] not in (1, 2):
             raise ValueError('unsupported event schema')
+        if row['schema_version'] == 2:
+            for key in ('stream_id', 'stream_generation'):
+                if not isinstance(row.get(key), str) or not 1 <= len(row[key]) <= 128:
+                    raise ValueError(f'event {key} must be a nonempty string of at most 128 characters')
+            if not isinstance(row.get('catalog'), str) or not _HEX.fullmatch(row['catalog']):
+                raise ValueError('event catalog must be a lowercase SHA256 digest')
+            if 'metrics' in row:
+                if not isinstance(row['metrics'], dict) or any(
+                    not isinstance(key, str) or not 1 <= len(key) <= 256 or type(value) not in (int, float)
+                    for key, value in row['metrics'].items()
+                ):
+                    raise ValueError('event metrics must map IDs to finite scalar numbers')
+            if 'measurement_status' in row and not isinstance(row['measurement_status'], dict):
+                raise ValueError('measurement_status must be an object')
         _event_identity(row)
         _integer(row.get('step'), 'event step', 0, 2 ** 63 - 1)
         if not isinstance(row.get('event'), str) or not row['event']:
@@ -96,7 +112,7 @@ def _event(line, previous):
         raise ValueError(f'Corrupt complete event row: {exc}') from exc
 
 
-def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576):
+def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576, include_cursors=False):
     """Read forward from a cursor (or the beginning), preserving incomplete tails.
 
     Returns events, cursor, has_more and partial_tail. A page reads at most
@@ -107,6 +123,8 @@ def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576):
     """
     _integer(limit, 'limit', 1, 10000)
     _integer(max_bytes, 'max_bytes', 1, _MAX_BYTES)
+    if type(include_cursors) is not bool:
+        raise ValueError('include_cursors must be a boolean')
     root = Path(run_dir).resolve()
     if not root.is_dir():
         raise ValueError(f'Run directory does not exist: {root}')
@@ -121,7 +139,10 @@ def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576):
     except FileNotFoundError:
         if state['file'] is not None:
             raise ValueError('Stale event cursor: the log was removed; restart without a cursor')
-        return {'events': [], 'cursor': _encode_cursor(state), 'has_more': False, 'partial_tail': False}
+        result = {'events': [], 'cursor': _encode_cursor(state), 'has_more': False, 'partial_tail': False}
+        if include_cursors:
+            result['event_cursors'] = []
+        return result
     with handle:
         stat = os.fstat(handle.fileno())
         identity = _identity(stat)
@@ -137,7 +158,7 @@ def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576):
         handle.seek(offset)
         data = handle.read(max_bytes)
         read_end = offset + len(data)
-        rows, consumed, last = [], 0, state['last']
+        rows, consumed, last, event_cursors = [], 0, state['last'], []
         for _ in range(limit):
             end = data.find(b'\n', consumed)
             if end == -1:
@@ -146,6 +167,10 @@ def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576):
             rows.append(row)
             last = {key: row[key] for key in ('run_id', 'attempt_id', 'sequence')}
             consumed = end + 1
+            if include_cursors:
+                boundary = (anchor + data[:consumed])[-256:] if consumed < 256 else data[consumed - 256:consumed]
+                event_cursors.append(_encode_cursor(dict(state, file=identity,
+                    offset=offset + consumed, anchor=_hash(boundary), last=last)))
         if not rows and len(data) == max_bytes and read_end < stat.st_size:
             raise ValueError('Next event exceeds max_bytes; increase the byte limit (maximum 16777216)')
         next_offset = offset + consumed
@@ -161,4 +186,7 @@ def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576):
             raise ValueError('Stale event cursor: the log was removed while reading; retry without a cursor') from exc
         if current_identity != identity:
             raise ValueError('Stale event cursor: the log was replaced while reading; retry without a cursor')
-        return {'events': rows, 'cursor': _encode_cursor(updated), 'has_more': has_more, 'partial_tail': partial_tail}
+        result = {'events': rows, 'cursor': _encode_cursor(updated), 'has_more': has_more, 'partial_tail': partial_tail}
+        if include_cursors:
+            result['event_cursors'] = event_cursors
+        return result

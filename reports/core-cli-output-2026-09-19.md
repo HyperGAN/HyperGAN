@@ -79,3 +79,53 @@ three additional cases; final installed/platform results are recorded in the PR.
 results are recorded in the PR and coordinator's integration receipt. The next
 slice routes public `train`/`resume` through this context and qualifies actual
 CPU and two-GPU stop/resume with disconnected output. No paid compute or release.
+
+## Viewer process cleanup failure found during integration
+
+On PR #328 head `146460014b1b777f1622c96aadc11b6a2a6017bd`, every output/platform
+foundation case passed, but the macOS viewer job reached **20 passed** and then
+hung until its ten-minute deadline. The failed job log is preserved in the
+coordinator's `2026-09-19-public-execution/bounded-output/` evidence directory.
+The existing pytest timer had already been removed before interpreter teardown.
+
+A deterministic whole-Viewer fault fixture confirmed a product defect: a server
+killed while owning the shared `multiprocessing.Event` condition lock poisoned
+that stop signal. The broker blocked while setting it, and the projector's
+parent-death watchdog blocked on the same lock. `Viewer.close()` killed the
+broker but the projector survived, holding the resource-tracker pipe open. The
+parent then hung during interpreter cleanup. The installed pre-fix fixture
+failed after **18.09 seconds**; its independent traceback identified
+`multiprocessing.resource_tracker._stop_locked` from `__del__`, with five leaked
+semaphores. Exact logs and the completed-close receipt are retained as
+`stop-owner-before*.log` and `stop-owner-before-closed.json`.
+
+The viewer now uses a one-way, lock-free shared byte: one broker writes 0→1 and
+children only read it. Cooperative waits poll at bounded intervals. Independent
+parent-death watchdogs remain active during shutdown; broker death forcibly exits
+a child even if its main thread cannot handle a Python signal. Cooperative server
+shutdown still uses SIGTERM. No Event lock can be poisoned by an abrupt child
+exit. The same whole-Viewer fixture passed in **0.24 seconds**, checking every
+owned process and credential cleanup; the full 21-case web suite passed in
+**8.51 seconds**. This proves the injected failure is fixed; final macOS CI remains
+the gate for the original platform symptom.
+
+Viewer CI now runs pytest through a guarded diagnostic wrapper. After pytest
+returns it prints child/thread state and arms repeating traceback diagnostics
+for normal interpreter cleanup. It preserves pytest's exit code, the ten-minute
+job deadline, every test and ordinary process shutdown; there is no forced-success
+exit or suppressed failure. Final combined/local and installed receipts accompany
+the PR. This cleanup fix is independent of separate WASM resource-lifetime work.
+
+Final stop-fix validation rebuilt the wheel through the source distribution and
+installed it in separate base-only and optional-web environments. Outside the
+checkout, **358 foundation tests passed in 17.46 seconds** and **21 web tests
+passed in 8.30 seconds** through the diagnostic runner. The runner reported no
+active children and only the main thread, then exited normally. The earlier
+combined checkout probe had 378 passing assertions plus the expected
+installed-distribution guard failure; it is preserved as a source probe, not an
+installed proof. An initial diagnostic smoke used a stale viewer environment;
+its two compatibility failures are retained separately and were superseded by
+the fresh installed wheel. Final logs are `stopfix-installed-base.log`,
+`stopfix-installed-web.log` and `stopfix-build.log` in the durable evidence
+subdirectory. Required exact-head platform CI and integrated GPU/live-viewer
+qualification remain coordinator gates.

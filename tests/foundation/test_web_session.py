@@ -23,6 +23,7 @@ def test_credentials_are_private_new_and_rotate(tmp_path):
 
 def test_host_origin_and_login_validation():
     session = LocalSession(8123)
+    assert session.cookie_name != LocalSession(8124).cookie_name
     assert session.permits_request("127.0.0.1:8123")
     assert session.permits_request("127.0.0.1:8123", "http://127.0.0.1:8123")
     for host, origin in [("localhost:8123", None), ("evil.test:8123", None),

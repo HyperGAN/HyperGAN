@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import socket
+import signal
 import sys
 import tempfile
 
@@ -44,6 +45,13 @@ def serve(run_dir, *, port=0, session_file=None, open_browser=False):
         with bind_loopback(port) as listener:
             session = LocalSession(listener.getsockname()[1])
             session.write_credentials(credential_path)
+            # Uvicorn restores and re-raises SIGTERM after its graceful shutdown.
+            # Translate that second delivery into Python unwinding so private
+            # credential cleanup runs instead of the OS immediately terminating.
+            previous_term = signal.getsignal(signal.SIGTERM)
+            def terminate(signum, frame):
+                raise SystemExit(128 + signum)
+            signal.signal(signal.SIGTERM, terminate)
             try:
                 print(json.dumps({'origin': session.origin, 'session_file': str(credential_path),
                                   'server_instance_id': session.instance_id}), flush=True)
@@ -55,3 +63,4 @@ def serve(run_dir, *, port=0, session_file=None, open_browser=False):
                 run_socket(root, listener, session)
             finally:
                 credential_path.unlink(missing_ok=True)
+                signal.signal(signal.SIGTERM, previous_term)

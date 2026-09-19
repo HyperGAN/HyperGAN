@@ -25,6 +25,9 @@ class LocalSession:
             raise ValueError("session lifetime must be between 1 and 86400 seconds")
         self.origin = f"http://127.0.0.1:{port}"
         self.host = f"127.0.0.1:{port}"
+        # Cookies are scoped by host/path, not TCP port. Multiple experiment
+        # servers on loopback must not overwrite each other's browser session.
+        self.cookie_name = f"hypergan_session_{port}"
         self.instance_id = secrets.token_hex(16)
         self._token = secrets.token_urlsafe(32)
         self._cookie = secrets.token_urlsafe(32)

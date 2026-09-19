@@ -10,7 +10,7 @@ The controller receives completed steps and metrics from the execution adapter. 
 
 The single-process adapter performs construction and strict recovery, numerical updates, checkpoint serialization, preview rendering and inference export. It also isolates callback RNG and restores the caller's CPU thread setting. The replicated adapter keeps numerical state and thread settings in its supervised workers. The controller does not access model tensors, optimizers or batches and can be imported without the optional training dependencies.
 
-Successful adapter shutdown precedes terminal success. Failure cleanup occurs before the terminal failure event while the controller still owns the run lock. Required persistence or shutdown failures fail the attempt; an observer failure remains isolated only where the existing observation contract allows it.
+Successful adapter shutdown precedes terminal success. Failure cleanup occurs before the terminal failure event while the controller still owns the run lock. Required persistence, shutdown or training RNG/thread-restoration failures fail the attempt; an observer failure remains isolated only where the existing observation contract allows it.
 
 The public signatures, event and artifact formats, checkpoint intervals, request receipts and preview counters are unchanged. See [recovery](recovery.md) and [observation](observation.md) for the supported user workflow.
 

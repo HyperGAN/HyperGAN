@@ -160,8 +160,14 @@ function updateRun(run) {
 async function refreshArtifacts() {
   if (!state.run) return;
   const runID = state.run.run_id;
+  const request = state.artifactRequest = (state.artifactRequest || 0) + 1;
   const result = await api(`${base()}/artifacts`);
-  if (state.run?.run_id === runID) renderArtifacts(result.data.artifacts || {});
+  if (state.run?.run_id !== runID || request !== state.artifactRequest) return;
+  const artifacts = result.data.artifacts || {};
+  const signature = JSON.stringify([runID, artifacts]);
+  if (signature === state.artifactSignature) return;
+  state.artifactSignature = signature;
+  renderArtifacts(artifacts);
 }
 function renderArtifacts(artifacts) {
   $("artifact-items").replaceChildren();

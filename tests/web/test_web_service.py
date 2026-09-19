@@ -301,14 +301,15 @@ def test_preview_index_final_sample_and_safe_reader_paths(tmp_path):
             await service.refresh_artifacts()
             assert len(service.artifacts) == 2
             # Event source paths reject symlinks rather than serving outside data.
-            outside = tmp_path / 'renamed-events.jsonl'
-            (tmp_path / 'events.jsonl').rename(outside)
+            linked = ObservationService(tmp_path / 'linked')
+            linked.root.mkdir()
+            linked.run_id = 'run'
             try:
-                (tmp_path / 'events.jsonl').symlink_to(outside)
+                (linked.root / 'events.jsonl').symlink_to(tmp_path / 'events.jsonl')
             except OSError:
                 return  # Windows account may lack symlink privilege; other cases still ran.
             with pytest.raises(ValueError, match='unavailable|traverse links'):
-                service.page('training', None)
+                linked.page('training', None)
         finally:
             await service.close()
     asyncio.run(scenario())

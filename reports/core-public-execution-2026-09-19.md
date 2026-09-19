@@ -103,6 +103,33 @@ ten-minute viewer-job bound and test diagnostics; it does not claim to identify
 or fix the original exit cause. Required CI and any follow-up results are
 recorded in the durable integration receipt.
 
+A later deterministic fault test reproduced a concrete viewer shutdown hazard:
+killing a child while it owned the shared multiprocessing Event lock could
+strand the broker and surviving watcher. The old whole-viewer reproduction
+timed out after **18.09 seconds**, with a resource-tracker teardown stack and
+five leaked semaphore diagnostics. Follow-up `69490b53` replaces that stop
+primitive with a shared byte, keeps parent-death monitoring independent of
+cooperative stopping, and exits orphaned server processes directly. The fixed
+fault fixture passed in **0.24 seconds**, checking processes and credentials.
+Its fresh sdist-built installation passed **358 lightweight tests in 17.46
+seconds** and **21 viewer tests in 8.30 seconds**. The output report links the
+original and corrected evidence; this confirms the reproduced failure mechanism,
+without asserting that it explains every earlier macOS stall. A guarded CI
+launcher now reports process trees and Python/native stacks if pytest has not
+exited after its diagnostic deadline.
+
+The `b50f0942` Linux browser CI job failed one artifact reconnect assertion:
+`test_artifact_shelf_streams_while_metrics_are_unselected` did not find the numeric
+preview within ten seconds; fourteen other browser tests passed. The failure log
+is preserved as `routing-browser-ci-failure.log`. On a fresh installed wheel with
+the identical bundled browser hash, that test passed ten separate subprocess
+repeats, and the complete browser suite passed **15 tests in 23.27 seconds**.
+`browser-reconnect-repeat.log` and `routing-current-browser.log` retain those
+results. An initial local probe used an older installed browser bundle and failed
+a different, previously fixed preview-retention assertion; that probe was
+excluded from current-source evidence. No browser code was changed or test
+skipped in response; a passing final exact-head CI run remains required.
+
 Evidence is under
 `/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-public-execution/`.
 `final-public-acceptance.json` records the exact tested source tree, commands,

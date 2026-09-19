@@ -1,2 +1,0 @@
-# Configurable Generator
-

@@ -1,15 +1,7 @@
-## Description
+Describe the concrete problem and resulting behavior.
 
-Add a description of the feature or bug this solves.
+Validation: list relevant commands/checks and results, including installation or numerical evidence where applicable.
 
-## Related issues
+Limitations: identify any unqualified execution profiles, migration implications or follow-up work.
 
-Link to any existing issues that this closes.
-
-## Changes
-
-A list of changes. Note if they break current models, saves, or configurations.
-
-## Notes
-
-Anything additional you'd like to add.
+Target `develop` for the next release. Link the execution-ledger task when applicable.

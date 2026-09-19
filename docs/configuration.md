@@ -28,6 +28,6 @@ Changing objective or regularizer settings may change batch/distributed semantic
 
 `hypergan validate demo` checks the configuration without importing torch or executing custom Python factories. Training constructs components and validates their actual interfaces. Configuration errors, unavailable bindings and runtime failures return a nonzero exit status.
 
-Qualification applies to an exact resolved reference configuration and tested runtime profile. Custom values or implementations receive an unqualified warning and may run when compatible. Numerical-reference qualification does not establish image quality or application readiness. Review the recorded qualification and configuration in the run manifest rather than relying on a recipe's name.
+The built-in configuration is labelled reference-only, with its runtime recorded as not certified. It does not receive an application approval stamp. Future qualification must apply to an exact resolved configuration, component versions and tested execution profile. Custom values or implementations receive an unqualified warning and may run when compatible. Numerical-reference qualification does not establish image quality or application readiness. Review the recorded qualification and configuration in the run manifest rather than relying on a recipe's name.
 
 Sample artifacts preserve inference state. Complete optimizer/RNG/data-position checkpoint recovery belongs to the next milestone; changing a seed or loading an inference artifact is not exact training resume.

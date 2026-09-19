@@ -49,10 +49,8 @@ def _queue_lock(control):
     if path.is_symlink():
         raise ValueError('Checkpoint request lock must not be a symlink')
     with path.open('a+b') as handle:
-        handle.seek(0, 2)
-        if handle.tell() == 0:
-            handle.write(b'0')
-            handle.flush()
+        # msvcrt permits locking beyond EOF. An initialization write before
+        # acquisition can race a Windows contender's mandatory byte-range lock.
         handle.seek(0)
         try:
             if os.name == 'nt':

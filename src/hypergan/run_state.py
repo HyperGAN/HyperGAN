@@ -37,10 +37,8 @@ def run_lock(run_dir):
     """An OS-owned lock releases on process death; the file itself may remain."""
     path = Path(run_dir) / '.run.lock'
     with path.open('a+b') as handle:
-        handle.seek(0, 2)
-        if handle.tell() == 0:
-            handle.write(b'0')
-            handle.flush()
+        # msvcrt permits locking beyond EOF. Do not write an initialization byte
+        # that another Windows handle may have locked since the file was opened.
         handle.seek(0)
         try:
             if os.name == 'nt':

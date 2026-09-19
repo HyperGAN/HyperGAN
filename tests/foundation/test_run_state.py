@@ -333,6 +333,75 @@ def test_concurrent_same_id_submission_preserves_one_request(tmp_path):
     assert list((tmp_path / 'checkpoint_requests' / 'pending').glob('request-*.json')) == [tmp_path / 'checkpoint_requests' / 'pending' / 'request-request-one.json']
 
 
+@pytest.mark.parametrize('kind', ['queue', 'run'])
+def test_lock_acquisition_needs_no_unprotected_initialization_write(tmp_path, monkeypatch, kind):
+    """A contender's initialization write may hit another Windows handle's lock."""
+    from pathlib import Path
+    from hypergan.run_requests import _queue_lock
+    from hypergan.run_state import run_lock
+    acquire = _queue_lock if kind == 'queue' else run_lock
+    lock_path = tmp_path / ('queue.lock' if kind == 'queue' else '.run.lock')
+    original_open = Path.open
+
+    class WriteDenied:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.handle.__exit__(*args)
+
+        def __getattr__(self, name):
+            return getattr(self.handle, name)
+
+        def write(self, value):
+            raise PermissionError('Another handle owns this byte range')
+
+    def guarded_open(path, *args, **kwargs):
+        handle = original_open(path, *args, **kwargs)
+        return WriteDenied(handle) if path == lock_path else handle
+
+    monkeypatch.setattr(Path, 'open', guarded_open)
+    with acquire(tmp_path):
+        with pytest.raises(RuntimeError, match='busy|locked'):
+            with acquire(tmp_path):
+                pytest.fail('Contender entered a held lock')
+    with acquire(tmp_path):
+        pass
+
+
+@pytest.mark.parametrize('kind', ['queue', 'run'])
+@pytest.mark.parametrize('contents', [b'', b'0'])
+def test_empty_and_existing_locks_exclude_other_processes_and_release_on_exit(tmp_path, kind, contents):
+    from hypergan.run_requests import _queue_lock
+    from hypergan.run_state import run_lock
+    acquire = _queue_lock if kind == 'queue' else run_lock
+    lock_path = tmp_path / ('queue.lock' if kind == 'queue' else '.run.lock')
+    lock_path.write_bytes(contents)
+    code = """
+import os, sys
+from hypergan.run_requests import _queue_lock
+from hypergan.run_state import run_lock
+acquire = _queue_lock if sys.argv[2] == 'queue' else run_lock
+from pathlib import Path
+try:
+    with acquire(Path(sys.argv[1])):
+        # Deliberately bypass the context manager; the OS must release the lock.
+        os._exit(0)
+except RuntimeError:
+    sys.exit(23)
+"""
+    args = [sys.executable, '-c', code, str(tmp_path), kind]
+    with acquire(tmp_path):
+        assert subprocess.run(args, cwd=tmp_path, timeout=15).returncode == 23
+    assert subprocess.run(args, cwd=tmp_path, timeout=15).returncode == 0
+    with acquire(tmp_path):
+        pass
+    assert lock_path.read_bytes() == contents
+
+
 def test_status_retries_receipt_lookup_when_pending_disappears(tmp_path, monkeypatch):
     from hypergan import run_requests
     submit(tmp_path)

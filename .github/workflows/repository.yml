@@ -21,6 +21,13 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: git diff --check "$BASE_SHA...$HEAD_SHA" -- . ':!worktrees'
+          LEGACY_BASELINE: 291ddccda847e4f4ccb273bb26121a0a0d738164
+        run: |
+          # Bootstrap imports already-published master history. Check new
+          # contributions after that fixed baseline, not historical whitespace.
+          if git merge-base --is-ancestor "$BASE_SHA" "$LEGACY_BASELINE"; then
+            BASE_SHA="$LEGACY_BASELINE"
+          fi
+          git diff --check "$BASE_SHA...$HEAD_SHA" -- . ':!worktrees' 
       - name: Verify project attribution
         run: test -s LICENSE

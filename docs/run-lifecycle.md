@@ -2,13 +2,13 @@
 
 The public `hypergan train` and `hypergan resume` commands use one internal run controller. The controller owns the run lock, attempts, manifests, events, stop budgets, checkpoint requests, sample reservations and terminal status. A single-process execution adapter owns the numerical trainer and its last completed batch.
 
-This separation prepares the same lifecycle for distributed execution. The public commands still run the CPU reference in one process. Internal replicated training and recovery remain available through their [developer APIs](distributed.md).
+The internal [replicated run service](replicated-run-service.md) now uses that controller with persistent CPU workers and parent checkpoint publication. The public commands still run the CPU reference in one process; bounded distributed observation and public integration remain ahead.
 
 ## Ownership and completion
 
 The controller receives completed steps and metrics from the execution adapter. It makes checkpoint, preview and stop decisions only between complete logical updates. A failed update can leave numerical state partially changed; failure handling does not save that state.
 
-The adapter performs construction and strict recovery, numerical updates, checkpoint serialization, preview rendering and inference export. It also isolates callback RNG and restores the caller's CPU thread setting. The controller does not access model tensors, optimizers or batches and can be imported without the optional training dependencies.
+The single-process adapter performs construction and strict recovery, numerical updates, checkpoint serialization, preview rendering and inference export. It also isolates callback RNG and restores the caller's CPU thread setting. The replicated adapter keeps numerical state and thread settings in its supervised workers. The controller does not access model tensors, optimizers or batches and can be imported without the optional training dependencies.
 
 Successful adapter shutdown precedes terminal success. Failure cleanup occurs before the terminal failure event while the controller still owns the run lock. Required persistence or shutdown failures fail the attempt; an observer failure remains isolated only where the existing observation contract allows it.
 
@@ -20,10 +20,12 @@ Full recovery compares implementation source hashes, including the extracted con
 
 Behavioral parity is measured by independently running the old and new implementations and comparing complete numerical state and lifecycle results. It does not imply cross-version checkpoint compatibility.
 
-## Distributed integration still ahead
+## Internal replicated integration
 
 The [CPU execution profile and preflight](execution-profiles.md), [persistent worker command service](cpu-worker-service.md) and [parent checkpoint publication](distributed-recovery.md) are implemented as internal prerequisites. The command broker monitors and reaps numerical workers independently of the coordinator. A parent commit authority validates staged state after successful all-rank command completion and a fresh health check; the caller still owns the run lock.
 
-The replicated adapter is the next integration step. It must receive a fenced worker-session identity during strict restore, which currently happens before a new attempt is persisted, then bind the reserved attempt without accepting stale results. Persist numerical execution identity separately from mutable attempt policy. Failed collective groups must remain fatal even during optional saves. Bounded previews, progress delivery, final artifacts and whole-job lifecycle acceptance remain gates before public distributed train/resume.
+The controller creates an immutable candidate attempt identity in memory before strict restore and persists it only after restore succeeds. Numerical execution identity is recorded separately from mutable service deadlines. Native manifests without an explicit profile retain their native route; changing to a different execution strategy cannot bypass strict checkpoint validation.
 
-See the [shared-service design](../reports/distributed-run-service-design-2026-09-19.md) and [current checkpoint](../reports/core-worker-service-2026-09-19.md). GPU/NCCL and actual multi-node execution remain separate qualifications.
+The replicated adapter validates agreed complete steps and global metrics, prepares checkpoints in workers, and publishes through the parent authority. Group and publication failures remain fatal during optional saves. It reuses filesystem events, checkpoint receipts and sample reservations; final artifacts when a completed/restored batch is available and worker shutdown precede terminal success. Replicated preview and callback options are explicitly rejected until bounded execution is implemented.
+
+See the [shared-service design](../reports/distributed-run-service-design-2026-09-19.md) and [current checkpoint](../reports/core-replicated-service-2026-09-19.md). GPU/NCCL and actual multi-node execution remain separate qualifications.

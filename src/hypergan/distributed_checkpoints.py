@@ -133,6 +133,10 @@ def _distributed_checkpoint_identity(trainer):
     implementation['hypergan.distributed'] = file_sha256(hypergan.distributed.__file__)
     import hypergan.distributed_commit
     implementation['hypergan.distributed_commit'] = file_sha256(hypergan.distributed_commit.__file__)
+    # Worker execution and parent publication policy affect continuation too.
+    # Hash files without importing the numerical worker in a parent process.
+    for name in ('replicated_execution', 'replicated_worker', 'cpu_worker_service'):
+        implementation['hypergan.' + name] = file_sha256(Path(__file__).with_name(name + '.py'))
     runtime = runtime_info()
     runtime.update(world_size=world_size, backend='gloo', threads=torch.get_num_threads(),
                    interop_threads=torch.get_num_interop_threads())

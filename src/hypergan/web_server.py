@@ -77,7 +77,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         import asyncio
         revision = request.query_params.get('revision') or service.manifest.get('metrics_catalog')
         result = await asyncio.to_thread(read_catalog, service.root, revision,
-            _open_file=lambda path: _open(service.root, str(path.relative_to(service.root))))
+            _open_file=lambda path: _open(service.root, path.relative_to(service.root).as_posix()))
         return JSONResponse(result)
 
     async def events(request):

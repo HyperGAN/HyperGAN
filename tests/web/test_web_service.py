@@ -307,7 +307,7 @@ def test_preview_index_final_sample_and_safe_reader_paths(tmp_path):
                 (tmp_path / 'events.jsonl').symlink_to(outside)
             except OSError:
                 return  # Windows account may lack symlink privilege; other cases still ran.
-            with pytest.raises(ValueError, match='unavailable'):
+            with pytest.raises(ValueError, match='unavailable|traverse links'):
                 service.page('training', None)
         finally:
             await service.close()

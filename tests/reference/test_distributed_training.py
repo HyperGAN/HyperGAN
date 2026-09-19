@@ -39,19 +39,20 @@ def _config(mode='rp', kernel='logistic', nonlinear=False):
         'training': {'steps': 3, 'batch_size': 8}, 'sampling': {'count': 4}})
 
 
-def _close(left, right):
+def _close(left, right, path='state'):
     if isinstance(left, torch.Tensor):
-        torch.testing.assert_close(left, right, rtol=3e-5, atol=3e-6)
+        torch.testing.assert_close(left, right, rtol=3e-5, atol=3e-6,
+                                   msg=lambda message: f'{path}: {message}')
     elif isinstance(left, dict):
-        assert left.keys() == right.keys()
+        assert left.keys() == right.keys(), path
         for key in left:
-            _close(left[key], right[key])
+            _close(left[key], right[key], f'{path}.{key}')
     elif isinstance(left, (list, tuple)):
-        assert len(left) == len(right)
-        for a, b in zip(left, right):
-            _close(a, b)
+        assert len(left) == len(right), path
+        for index, (a, b) in enumerate(zip(left, right)):
+            _close(a, b, f'{path}[{index}]')
     else:
-        assert left == right
+        assert left == right, path
 
 
 def _state(trainer):
@@ -74,23 +75,29 @@ def _parity(rank):
                 row, _ = replicated.update({'real': data.chunk(2)[rank]},
                                             (replicated.prior.z[local_ids], local_ids))
                 expected, _ = reference.update({'real': data}, (reference.prior.z[ids], ids))
-                _close(_state(replicated), _state(reference))
+                context = f'rank={rank} {mode}/{kernel} step={step + 1}'
+                _close(_state(replicated), _state(reference), context)
                 for key in ('d_loss', 'g_loss', 'prior_loss', 'gradient_penalty'):
-                    assert row[key] == pytest.approx(expected[key], rel=3e-5, abs=3e-6)
+                    assert row[key] == pytest.approx(expected[key], rel=3e-5, abs=3e-6), f'{context}.{key}'
                 assert row['step'] == step + 1 and replicated.checkpoint_ready
-    # Nonlinear active b-cap, controlling interpolation by real==fake at D time.
+    # b-cap differentiates real/fake endpoints; it draws no interpolates.
+    # Distinct real inputs avoid a mathematically zero adversarial D gradient,
+    # where batch-size reduction roundoff can be amplified by Adam's epsilon.
     config = _config(nonlinear=True)
     replicated, reference = ReplicatedCPUTrainer(config), ReferenceTrainer(config)
     for step in range(3):
-        with torch.no_grad():
-            real = reference.graph.generate(reference.prior.z[ids], {})['generated'].detach()
+        real = data
         local_ids = ids.chunk(2)[rank]
         row, _ = replicated.update({'real': real.chunk(2)[rank]}, (replicated.prior.z[local_ids], local_ids))
         expected, _ = reference.update({'real': real}, (reference.prior.z[ids], ids))
-        _close(_state(replicated), _state(reference))
-        assert row['gradient_penalty'] == pytest.approx(expected['gradient_penalty'], rel=3e-5, abs=3e-6)
+        context = f'rank={rank} nonlinear rp/logistic step={step + 1}'
+        _close(_state(replicated), _state(reference), context)
+        for key in ('d_loss', 'g_loss', 'prior_loss', 'gradient_penalty'):
+            assert row[key] == pytest.approx(expected[key], rel=3e-5, abs=3e-6), f'{context}.{key}'
         if step == 1:
             assert row['gradient_penalty'] > 0
+        else:
+            assert row['gradient_penalty'] == 0
 
 
 def _data_and_none_gradients(rank):

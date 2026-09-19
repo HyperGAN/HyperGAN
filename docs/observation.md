@@ -43,8 +43,8 @@ No HTTP server, browser startup or GPU execution is part of this interface. The 
 
 ### Bounded training command output
 
-The internal output transport below is available for public command integration;
-`train`/`resume` routing follows in the next slice.
+Public `train` and `resume` use the bounded output transport below for native and
+replicated execution.
 
 Training CLI output is best effort: unread, slow or closed stdout/stderr does not
 hold training or terminal process cleanup. Independent drain processes preserve

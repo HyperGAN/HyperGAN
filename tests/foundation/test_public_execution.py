@@ -1,7 +1,7 @@
 """Public routing rejects numerical/option conflicts before viewer or run writes."""
 from copy import deepcopy
 import json
-import sys
+import builtins
 
 import pytest
 
@@ -137,11 +137,15 @@ def test_cli_conflicts_precede_viewer_and_numerical_imports(tmp_path, monkeypatc
     def viewer(_):
         pytest.fail('viewer must not start on conflicting options')
     monkeypatch.setattr(cli, '_training_viewer', viewer)
+    original_import = builtins.__import__
+    def guarded(name, *args, **kwargs):
+        assert name.split('.')[0] not in {'torch', 'particlegan'}
+        return original_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', guarded)
     assert cli.main(['train', str(path), '--run-dir', str(tmp_path / 'run'),
                      '--profile', 'cuda-replicated-nccl', '--server']) == 1
     assert 'training.device=cuda' in capsys.readouterr().err
     assert not (tmp_path / 'run').exists()
-    assert 'torch' not in sys.modules
 
 
 @pytest.mark.parametrize('value', [True, 2.0])

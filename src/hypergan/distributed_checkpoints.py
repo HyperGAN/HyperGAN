@@ -1,6 +1,6 @@
-"""Complete fixed-topology CPU/Gloo checkpoints with separate preparation.
+"""Complete fixed-topology Gloo/NCCL checkpoints with separate preparation.
 
-All ranks call each API in the same order, on a finite-timeout default Gloo group.
+All ranks call each API in the same order, on a finite-timeout default group.
 New services hold the lock in the parent, prepare on workers and publish through
 a parent-only authority. The compatibility save API retains rank-zero publication
 under its caller-owned lock. This format is distinct from single-process checkpoints.
@@ -27,6 +27,7 @@ import torch.distributed as dist
 
 from .checkpoints import capture_rng, file_sha256, restore_rng, restore_trainer, trainer_state
 from .config import config_values, fingerprint
+from .recipes import move_tensors
 from .run_state import atomic_json, sync_directory
 from .training import _implementation, _recovery_contract, runtime_info
 from .distributed_commit import (make_prepared_receipt, preparation_directory, validate_fence,
@@ -43,10 +44,62 @@ _ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z')
 
 def _group():
     if not dist.is_available() or not dist.is_initialized():
-        raise RuntimeError('Initialize a default Gloo group with a finite timeout before distributed checkpointing')
-    if dist.get_backend() != 'gloo' or dist.get_world_size() < 2:
-        raise ValueError('Distributed checkpoints require a fixed Gloo group with at least two CPU ranks')
+        raise RuntimeError('Initialize a default Gloo or NCCL group with a finite timeout before distributed checkpointing')
+    if dist.get_backend() not in ('gloo', 'nccl') or dist.get_world_size() < 2:
+        raise ValueError('Distributed checkpoints require a fixed Gloo or NCCL group with at least two ranks')
     return dist.get_rank(), dist.get_world_size()
+
+
+def distributed_runtime_info(trainer):
+    """Common local fixed-topology identity, without introducing collectives.
+
+    Every rank sees the same ordered visible devices. The CUDA mapping is
+    rank -> visible index; record the entire mapping rather than comparing
+    different rank-local UUIDs as though they should be equal.
+    """
+    backend = dist.get_backend()
+    device = getattr(trainer, 'device', torch.device('cpu'))
+    if backend == 'nccl':
+        if (device != torch.device('cuda', trainer.rank)
+                or torch.cuda.current_device() != trainer.rank
+                or torch.cuda.device_count() < trainer.world_size):
+            raise ValueError('NCCL runtime requires rank-owned visible CUDA devices')
+        runtime = runtime_info('cuda:0')
+        runtime['device'] = 'cuda'
+        cuda = runtime['cuda']
+        for key in ('name', 'capability', 'uuid'):
+            cuda.pop(key)
+        cuda['nccl'] = list(torch.cuda.nccl.version())
+        cuda['rank_devices'] = [
+            {'rank': rank, 'device': f'cuda:{rank}',
+             'uuid': str(getattr(torch.cuda.get_device_properties(rank), 'uuid', 'unavailable')),
+             'name': torch.cuda.get_device_properties(rank).name,
+             'capability': list(torch.cuda.get_device_capability(rank))}
+            for rank in range(trainer.world_size)]
+    else:
+        if backend != 'gloo' or device.type != 'cpu':
+            raise ValueError('Gloo runtime requires CPU training state')
+        runtime = runtime_info()
+    runtime.update(world_size=trainer.world_size, backend=backend,
+                   threads=torch.get_num_threads(), interop_threads=torch.get_num_interop_threads())
+    return runtime
+
+
+def _rank_state(trainer, last_batch):
+    # Keep wire payloads device-independent; CUDA tensors never travel through
+    # pickle with a rank-local device ordinal. Host copies complete pending work.
+    if trainer.device.type == 'cuda':
+        if torch.cuda.current_device() != trainer.rank:
+            raise ValueError('CUDA checkpoint requires the rank-owned current device')
+        torch.cuda.synchronize(trainer.device)
+    return move_tensors(trainer_state(trainer, last_batch), 'cpu')
+
+
+def _validate_rank_rng(trainer, state):
+    if trainer.device.type == 'cuda':
+        rng = state.get('rng')
+        if not isinstance(rng, dict) or type(rng.get('cuda_device')) is not int or rng['cuda_device'] != trainer.rank:
+            raise ValueError('Checkpoint CUDA RNG current device differs from the owning rank')
 
 
 def _json(value):
@@ -60,6 +113,10 @@ def _same_json(left, right):
 
 
 def _agree(operation, value=None, error=None):
+    # Custom hooks may change the ambient device before failing. Agree on that
+    # failure using this rank's device, never another rank's NCCL communicator.
+    if dist.get_backend() == 'nccl':
+        torch.cuda.set_device(dist.get_rank())
     peers = [None] * dist.get_world_size()
     dist.all_gather_object(peers, {'operation': operation, 'value': value, 'error': error})
     if any(peer['operation'] != operation for peer in peers):
@@ -138,9 +195,7 @@ def _distributed_checkpoint_identity(trainer):
     for name in ('replicated_execution', 'replicated_worker', 'cpu_worker_service',
                  'preview_snapshot', 'snapshot_renderer', 'previews', 'bounded_observer'):
         implementation['hypergan.' + name] = file_sha256(Path(__file__).with_name(name + '.py'))
-    runtime = runtime_info()
-    runtime.update(world_size=world_size, backend='gloo', threads=torch.get_num_threads(),
-                   interop_threads=torch.get_num_interop_threads())
+    runtime = distributed_runtime_info(trainer)
     return _json({'config': config_values(trainer.config), 'config_sha256': fingerprint(trainer.config),
                   'runtime': runtime, 'implementation': implementation, 'data_contract': contract,
                   'topology': strategy})
@@ -178,7 +233,7 @@ def _serialize(state):
     stream = io.BytesIO()
     torch.save(state, stream)
     if stream.tell() > MAX_RANK_BYTES:
-        raise ValueError(f'CPU checkpoint rank payload exceeds {MAX_RANK_BYTES} bytes')
+        raise ValueError(f'Checkpoint rank payload exceeds {MAX_RANK_BYTES} bytes')
     return stream.getvalue()
 
 
@@ -235,8 +290,9 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
     """Stage every complete rank state without publishing a generation or latest pointer.
 
     Each payload is capped at 256 MiB; rank zero holds O(world_size * rank_bytes)
-    memory. Trusted-worker object collectives are used for this CPU correctness
-    path, not a scalable/sharded checkpoint transport. The parent owns run_lock.
+    memory. Trusted-worker object collectives carry CPU-serialized state (NCCL
+    stages these bytes through the rank GPU). This is not a scalable/sharded
+    checkpoint transport. The parent owns run_lock.
     Return only a bounded receipt; its presence is not proof that a supervised
     command completed on every worker. A parent authority publishes separately.
     """
@@ -249,14 +305,14 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
             root = _root(run_dir)
             validate_fence(controller_id, command_sequence)
             if world_size > 64:
-                raise ValueError('Prepared CPU checkpoints support at most 64 ranks')
+                raise ValueError('Prepared checkpoints support at most 64 ranks')
             if getattr(trainer, 'checkpoint_ready', False) is not True:
                 raise ValueError('Trainer is not at a complete update boundary; half/failed updates cannot be checkpointed')
             lineage = _metadata(metadata)
             identity = distributed_checkpoint_identity(trainer)
             if type(trainer.step) is not int or not 0 <= trainer.step <= trainer.config['training']['steps']:
                 raise ValueError('Checkpoint step is outside the configured schedule')
-            state = trainer_state(trainer, last_batch)
+            state = _rank_state(trainer, last_batch)
             _digest(state)  # All rank-local tensors must follow the CPU state contract too.
             payload = _serialize(state)
             descriptor = {'root': str(root), 'lineage': lineage, 'identity': identity,
@@ -422,13 +478,14 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
     error, state = None, None
     try:
         state = _deserialize(local[0])
+        _validate_rank_rng(trainer, state)
         expected_digest = _digest(state)
         # Imported Python modules are singleton dependencies, not mutable owned
         # trainer state (ImageFolder keeps Pillow modules for lazy decoding).
         memo = {id(module): module for module in list(sys.modules.values()) if isinstance(module, types.ModuleType)}
         candidate = copy.deepcopy(trainer, memo)
         candidate_last_batch = restore_trainer(candidate, copy.deepcopy(state))
-        if _digest(trainer_state(candidate, candidate_last_batch)) != expected_digest:
+        if _digest(_rank_state(candidate, candidate_last_batch)) != expected_digest:
             raise ValueError('Restored candidate rank state differs from checkpoint')
     except Exception as exc:
         error = f'{type(exc).__name__}: {exc}'
@@ -442,7 +499,7 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
             # Load hooks may mutate their input. Never pass the canonical state or
             # compare against an expected digest computed after invoking a hook.
             last_batch = restore_trainer(trainer, _deserialize(local[0]))
-            if _digest(trainer_state(trainer, last_batch)) != expected_digest:
+            if _digest(_rank_state(trainer, last_batch)) != expected_digest:
                 raise ValueError('Live restored rank state differs from checkpoint')
         except Exception as exc:
             error = f'{type(exc).__name__}: {exc}'

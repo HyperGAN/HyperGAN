@@ -69,6 +69,11 @@ class ReplicatedExecutionFactory:
     def __init__(self, profile, *, service_policy=None):
         self.profile, self.service_policy = profile, service_policy
 
+    def __call__(self, config):
+        return ReplicatedExecution(config, self.profile, service_policy=self.service_policy)
+
+
+class ReplicatedExecution:
     @staticmethod
     def environment():
         # Actual installed runtime/source is supplied by supervised workers in
@@ -76,11 +81,6 @@ class ReplicatedExecutionFactory:
         return {'runtime': {'device': 'cpu', 'backend': 'gloo', 'runtime_checked': False},
                 'source': {'runtime_checked': False}}
 
-    def __call__(self, config):
-        return ReplicatedExecution(config, self.profile, service_policy=self.service_policy)
-
-
-class ReplicatedExecution:
     def __init__(self, config, profile, *, service_policy=None):
         self.config = config
         if config['sampling']['count'] > MAX_SAMPLE_COUNT:

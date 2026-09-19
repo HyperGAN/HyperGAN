@@ -79,7 +79,7 @@ if __name__ == '__main__':
     try:
         if mode in ('success', 'single'):
             from hypergan.cli import main
-            config_path = write_default(root / 'project')
+            config_path = write_default(root / 'project', device="cpu")
             content = config_path.read_text()
             content = content.replace('factory = "mlp"', 'factory = "acceptance_factories:Generator"', 1)
             content = content.replace('[components.generator.args]', '[components.generator.args]\\nroot = ' + json.dumps(str(root)) + '\\nmode = ' + json.dumps(mode))

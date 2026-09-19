@@ -7,3 +7,4 @@ prune worktrees
 prune tests
 recursive-include tests/foundation *.py
 recursive-include tests/reference *.py
+recursive-include tests/cuda *.py

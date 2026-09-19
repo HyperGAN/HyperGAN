@@ -16,7 +16,7 @@ from hypergan.replicated_execution import run_resume, run_train
 
 
 if __name__ == "__main__":
-    config = write_default(Path("replicated-project"))
+    config = write_default(Path("replicated-project"), device="cpu")
     profile = {
         "schema_version": 1,
         "execution": {

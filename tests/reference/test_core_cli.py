@@ -21,7 +21,7 @@ def cli(tmp_path, *args):
 
 
 def test_cli_stop_resume_and_json_progress(tmp_path):
-    config = write_default(tmp_path / "project")
+    config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
     first = cli(tmp_path, "train", config, "--run-dir", run, "--stop-after-steps", 2,
                 "--checkpoint-every", 1, "--preview-every", 1, "--preview-keep", 2, "--progress-json")
@@ -51,7 +51,7 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
 
 
 def test_sampling_preserves_global_rng_and_existing_outputs(tmp_path):
-    config = write_default(tmp_path / "project")
+    config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
     result = cli(tmp_path, "train", config, "--run-dir", run)
     assert result.returncode == 0, result.stderr
@@ -99,7 +99,7 @@ def test_inference_restores_nonpersistent_registered_buffers(tmp_path):
 
 
 def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
-    config = write_default(tmp_path / "project")
+    config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
     # Submit from another process as soon as the start event arrives, before the
     # bounded attempt finishes. The reader keeps draining progress throughout.

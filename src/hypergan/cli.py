@@ -52,6 +52,7 @@ def _parser():
     commands.add_parser("recipes", help="List available recipes and qualification status")
     new = commands.add_parser("new", help="Create a reference project configuration")
     new.add_argument("path", type=Path)
+    new.add_argument("--device", default="cuda", help="training device: cuda (default), cuda:N, or explicit cpu")
     validate = commands.add_parser("validate", help="Validate a project without loading training dependencies")
     validate.add_argument("path", type=Path)
     preflight = commands.add_parser("preflight", help="Check a CPU execution profile before training")
@@ -76,12 +77,12 @@ def _parser():
     operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
     checkpoint.add_argument("--attempt-id", help="target this attempt (default: current manifest attempt)")
-    train = commands.add_parser("train", help="Run a bounded CPU numerical reference (requires the train extra)")
+    train = commands.add_parser("train", help="Train a numerical reference on its configured device (requires the train extra)")
     train.add_argument("config", type=Path)
     train.add_argument("--run-dir", type=Path, required=True)
     train.add_argument("--steps", type=_positive_int)
     _run_options(train)
-    resume = commands.add_parser("resume", help="Continue a complete CPU training checkpoint")
+    resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")
     resume.add_argument("run_dir", type=Path)
     resume.add_argument("--checkpoint", type=Path, help="choose an older checkpoint within this run")
     resume.add_argument("--config", type=Path, help="verify exact compatibility with this configuration")
@@ -190,7 +191,7 @@ def main(argv=None):
             from . import config
 
             if args.command == "new":
-                print(config.write_default(args.path))
+                print(config.write_default(args.path, device=args.device))
             elif args.command == "recipes":
                 _print_json(config.list_recipes())
             else:

@@ -2,7 +2,7 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-19 (America/Denver).
 
-Current cutpoint: the internal replicated CPU service now supports isolated bounded previews and progress callbacks alongside fenced attempts, strict recovery, save requests, final artifacts and coordinated shutdown. Next, finish the remaining whole-job persistence/partial-update fault gates and expose CPU profiles through public distributed train/resume. GPU and real cluster qualification remain ahead.
+Current cutpoint: GPU-first project creation and native CUDA training/recovery are implemented, real two-GPU NCCL diagnostics pass, and the remaining whole-job persistence/partial-update fault gates are covered. The owner authorizes both local RTX A6000 GPUs. Full replicated CUDA training, public distributed profiles and actual multi-host qualification remain ahead; CPU correctness fixtures stay in CI. See the current session checkpoint below for validation and integration state.
 
 ## First checkpoint
 
@@ -11,6 +11,8 @@ The clean CPU foundation is merged in PRs [#301](https://github.com/HyperGAN/Hyp
 The next release integrates on `develop`. The coordinator reviews and merges passing PRs; bounded subagent work uses external worktrees. Master remains the historical stable line until a separately qualified release.
 
 ## Accepted decisions
+
+- GPU execution is the product default (owner direction, 2026-09-19). `new` targets CUDA; explicit CPU runs remain available for small correctness fixtures. This box has two RTX A6000 48 GB GPUs authorized for local validation. Native CUDA and real two-GPU work proceed alongside public distributed integration; no paid allocation is implied.
 
 - Older-checkpoint compatibility is not required (owner clarification, 2026-09-19). Checkpoint formats and source identities may break across implementations without migration or compatibility work. Reliable save/resume, corruption checks and recovery from earlier snapshots within supported current runs remain requirements. Historical compatibility notes below record behavior, not a commitment to maintain old runtimes.
 - Recipe configuration supports custom generator/discriminator/encoder/auxiliary components, explicit I/O, losses and regularizers. Warn on unqualified combinations; reject actual incompatibilities. Default b-cap and VICReg follow the pinned upstream reference.
@@ -142,7 +144,13 @@ The sdist-built wheel at source/test head `f1f6c550` passed **392 installed-pack
 
 Three subagents implemented and cross-reviewed the renderer, callback service and independent whole-job acceptance. The source-distribution-built wheel at source/test head `39611e2c` passed **434 installed-package tests in 465.60 seconds**, plus **239 base-only tests in 7.89 seconds**. Final review narrowed optional progress handling to an explicit error type so native RNG/thread-restoration failures remain fatal; that correction at `cda591d7` passed 55 focused tests before the final package/CI gates. The report records strict observation-on/off recovery, bounded faults, coordinator-death takeover and the installed walkthrough; the durable receipt records the final rebuilt package results, PR checks, integration and preserved branches. Current-run recovery and corruption checks remain required; PR [#315](https://github.com/HyperGAN/HyperGAN/pull/315) records that older-checkpoint compatibility and migrations are outside scope. No GPU execution or paid compute is part of this slice.
 
-## Next bounded checkpoint: public replicated CPU integration
+## GPU-first native execution and remaining fault gates
+
+[PR #317](https://github.com/HyperGAN/HyperGAN/pull/317) and the [GPU core report](core-gpu-2026-09-19.md) record GPU-first project creation, one-device native CUDA training and complete recovery, plus all six remaining shared-controller persistence/partial-update fault cases. Three subagents implemented and independently reviewed the changes. Actual two-GPU communication, autograd and linear Adam parity passed; the separate [NCCL readiness report](gpu-readiness-2026-09-19.md) records the timeout-diagnostic delay and verified worker cleanup. This is not yet full replicated CUDA GAN training.
+
+Focused acceptance passed 37 CPU tests, 9 CUDA tests and the required two-GPU diagnostic. Final installed-package/PR integration results and exact source identity are recorded in the GPU core report's durable receipt directory. New projects select `cuda`; `--device cuda:1` and `--device cpu` are explicit alternatives. Existing lightweight and CPU CI remain required. No paid compute, dataset download, upstream architecture copy or release occurred.
+
+## Next bounded checkpoint: GPU execution and public distributed integration
 
 
 - [x] Complete fixed-global-batch two-process CPU D/G/prior/auxiliary/Adam/EMA updates and worker cleanup.
@@ -154,8 +162,11 @@ Three subagents implemented and cross-reviewed the renderer, callback service an
 - [x] Connect an internal replicated execution adapter to the shared controller: fenced pre-attempt restore, separate numerical identity and timeout policy, fatal save/group errors, shared requests and final artifacts. See the [replicated service checkpoint](core-replicated-service-2026-09-19.md).
 - [x] Reuse one event/request/counter service for the internal replicated lifecycle; require final inference artifacts when a batch is available and successful group shutdown before terminal success.
 - [x] Add isolated snapshot preview execution without a training process group and bound parent progress delivery. Keep worker health monitoring independent of slow or hung observers; compare complete state with observation on/off. See the [bounded observation checkpoint](core-bounded-observation-2026-09-19.md).
-- [ ] **Next core cutpoint:** finish whole-job staging/publication/partial-update fault acceptance, then expose CPU profiles through public `train`/`resume`. Cover disk failure before checkpoint selection, failure after a complete commit, and incomplete D/G/EMA updates; preserve strict fresh-group recovery, headless operation and installed CLI acceptance. Bounded observer faults and coordinator death during rendering are covered by the observation checkpoint.
+- [x] Finish whole-job staging/publication/partial-update fault acceptance: staging disk failure, rename/pointer failure before selection, exception after a complete selected commit, second G microbatch backward failure and EMA failure after the G optimizer. Fresh groups recover complete state exactly; failed attempts do not acknowledge partial updates or successful saves. See the GPU core checkpoint below.
+- [x] Add GPU-first project defaults and native CUDA training/recovery, with separate installed-package CPU and explicit local CUDA acceptance gates. Two-GPU NCCL diagnostics are infrastructure evidence; they do not close full replicated GPU training.
+- [ ] **Next core cutpoint:** port the supervised replicated strategy to rank-owned CUDA devices and NCCL-aware numerical/control paths. Qualify complete two-GPU updates, accumulated replay, CUDA RNG and coordinated recovery against controlled single-process results, including rank failure and independent cleanup.
+- [ ] Expose execution profiles through public `train`/`resume`, with GPU-first user workflows and explicit CPU fixtures. Preserve headless operation, persisted numerical identity, mutable deadlines, early conflict rejection and bounded progress/result stream behavior. Existing CLI closures/stdout writes cannot be routed unchanged through isolated callbacks; prove slow/closed-output handling and installed end-to-end recovery.
 - [ ] Resolve upstream explicit licensing and freeze the selected image experiment's architecture, preprocessing/augmentation/evaluation and pretrained-weight identity. A synthetic image recovery fixture is not image-quality qualification.
-- [ ] After CPU gates pass, qualify actual two-GPU NCCL locally; then prepare a concrete, separately agreed real two-node allocation using the reserved Modal credit or another provider.
+- [ ] After full local two-GPU training/recovery gates pass, prepare a concrete, separately agreed real two-node allocation using the reserved Modal credit or another provider. Communication-only diagnostics do not authorize this transition.
 
-The optional standalone viewer W2/W3 can follow the implemented W1 read contract alongside core work. ONNX/container deployment and release promotion remain later gates. Continue from current `develop`; do not restart branch or issue audits. Keep master historical and paid compute out of the next CPU slice.
+The optional standalone viewer W2/W3 can follow the implemented W1 read contract alongside core work. ONNX/container deployment and release promotion remain later gates. Continue from current `develop`; do not restart branch or issue audits. Keep master historical. Use the authorized local GPUs; paid compute still requires a concrete agreed allocation.

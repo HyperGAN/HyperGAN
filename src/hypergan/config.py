@@ -6,6 +6,7 @@ from copy import deepcopy
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 
 try:
@@ -177,8 +178,8 @@ def resolve_config(raw):
         raise ValueError("prior.kind must be particles, mog, or gaussian")
     if not isinstance(result["prior"]["args"], dict):
         raise ValueError("prior.args must be a table")
-    if result["prior"]["args"].get("device", "cpu") != "cpu" or "dtype" in result["prior"]["args"]:
-        raise ValueError("The CPU float32 execution profile owns prior device/dtype; omit dtype and use device='cpu'")
+    if "dtype" in result["prior"]["args"] or ("device" in result["prior"]["args"] and result["prior"]["args"]["device"] != result["training"]["device"]):
+        raise ValueError("Training owns prior device and float32 dtype; omit prior.args.device/dtype or match training.device")
     _positive(result["prior"]["args"].get("z_dim"), "prior.args.z_dim", integer=True)
     if result["adversarial"]["mode"] not in {"vanilla", "rp", "ra"} or result["adversarial"]["loss_type"] not in {"hinge", "logistic", "wasserstein", "lsgan"}:
         raise ValueError("Unsupported adversarial loss_type or mode")
@@ -220,8 +221,7 @@ def resolve_config(raw):
         v = result["training"][key]
         if type(v) not in (int, float) or not 0 <= v <= 1 or (key == "ema" and v == 1):
             raise ValueError(f"Invalid training.{key}")
-    if result["training"]["device"] != "cpu":
-        raise ValueError("This reference runtime currently executes on CPU; GPU qualification is pending")
+    validate_device(result["training"]["device"])
     for section in ("training", "sampling"):
         _positive(result[section]["seed"], f"{section}.seed", integer=True, zero=True)
     _positive(result["sampling"]["count"], "sampling.count", integer=True)
@@ -290,13 +290,22 @@ def load_config(path):
         return resolve_config(tomllib.load(stream))
 
 
-def write_default(path):
+def validate_device(device):
+    """Check a device request without importing Torch or probing hardware."""
+    if not isinstance(device, str) or re.fullmatch(r"cpu|cuda(?::(?:0|[1-9][0-9]*))?", device) is None:
+        raise ValueError("training.device must be cpu, cuda, or cuda:N (a nonnegative visible GPU index)")
+    return device
+
+
+def write_default(path, *, device="cuda"):
+    """Create a GPU-first project; CPU numerical fixtures opt in explicitly."""
+    validate_device(device)
     path = Path(path)
     if path.suffix != ".toml":
         path = path / "config.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x") as stream:
-        stream.write(DEFAULT_TOML)
+        stream.write(DEFAULT_TOML.replace('device = "cpu"', f'device = "{device}"'))
     return path
 
 

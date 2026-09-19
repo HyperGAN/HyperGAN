@@ -25,7 +25,7 @@ def test_native_rng_restore_failure_stops_without_saving_changed_state(tmp_path,
             raise RuntimeError('injected native RNG restoration failure')
         return restore_rng(state)
     monkeypatch.setattr(native, 'restore_rng', broken_restore)
-    config = write_default(tmp_path / 'project')
+    config = write_default(tmp_path / 'project', device="cpu")
     try:
         with pytest.raises(RuntimeError, match='native RNG restoration failure'):
             train(config, tmp_path / 'run', steps=3, on_event=callback)

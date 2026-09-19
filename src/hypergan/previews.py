@@ -55,8 +55,10 @@ def render_preview(trainer, batch, identity):
             raise ValueError(f'One preview sample exceeds the {MAX_ELEMENTS}-element output/input budget')
         normalized = {key: value[torch.arange(count) % len(value)].detach().clone() for key, value in inputs.items()}
         recorded_inputs = {key: value.clone() for key, value in normalized.items()}
-        graph = copy.deepcopy(trainer.ema_graph).eval().requires_grad_(False)
-        prior = copy.deepcopy(trainer.ema_prior).eval().requires_grad_(False)
+        graph = copy.deepcopy(trainer.ema_graph).cpu().eval().requires_grad_(False)
+        prior = copy.deepcopy(trainer.ema_prior).cpu().eval().requires_grad_(False)
+        normalized = {key: value.cpu() for key, value in normalized.items()}
+        recorded_inputs = {key: value.cpu() for key, value in recorded_inputs.items()}
         with torch.inference_mode():
             latent, ids = prior.sample(count, generator=torch.Generator().manual_seed(seed))
             values = graph.generate(latent, normalized)['generated']

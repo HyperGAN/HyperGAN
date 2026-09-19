@@ -13,7 +13,7 @@ def test_extracted_source_bytes_are_strict_recovery_identity(tmp_path, monkeypat
     from hypergan.checkpoints import read_checkpoint
     from hypergan.training import resume, train
     module = importlib.import_module(name)
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     root = tmp_path / 'run'
     train(config, root, stop_after_steps=1)
     _, metadata, _ = read_checkpoint(root)
@@ -41,7 +41,7 @@ def test_failed_native_restore_cleans_up_before_releasing_lock_without_new_attem
     from hypergan.single_execution import SingleProcessExecution
     from hypergan.training import resume, train
 
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     root = tmp_path / 'run'
     initial_threads = torch.get_num_threads()
     cleanups = []
@@ -105,7 +105,7 @@ def test_failing_observer_warning_handler_cannot_change_numerics_or_threads(tmp_
         else:
             assert left == right
 
-    config = write_default(tmp_path / 'config')
+    config = write_default(tmp_path / 'config', device="cpu")
     initial_threads = torch.get_num_threads()
     delivered = []
 

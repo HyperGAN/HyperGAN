@@ -15,14 +15,41 @@ import threading
 import time
 
 
+class _StopFlag:
+    """One-way cooperative stop with no cross-process lock to poison on death."""
+
+    def __init__(self, context):
+        # One broker writes this one byte once (0 -> 1); children only read it.
+        # Unlike generic RawValue read/modify/write operations, these aligned
+        # single-byte loads/stores need no shared lock on our supported hosts.
+        self._value = context.RawValue('b', 0)
+
+    def set(self):
+        self._value.value = 1
+
+    def is_set(self):
+        return bool(self._value.value)
+
+    def wait(self, seconds):
+        deadline = time.monotonic() + seconds
+        while not self.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.05, remaining))
+        return True
+
+
 def _parent_alive():
     parent = mp.parent_process()
     return parent is None or parent.is_alive()
 
 
-def _watch_parent(stop):
-    # A child must also exit if its broker is killed before it can clean up.
-    while not stop.wait(0.2):
+def _watch_parent():
+    # Keep monitoring even after cooperative stop: the broker can die during
+    # shutdown, before it has reaped a child stuck in other work.
+    while True:
+        time.sleep(0.2)
         if not _parent_alive():
             os._exit(1)
 
@@ -34,10 +61,16 @@ def _server(root, listener, session, stop):
         raise SystemExit(128 + signum)
     signal.signal(signal.SIGTERM, terminate)
     def watch():
-        while not stop.wait(0.2):
+        requested = False
+        while True:
+            time.sleep(0.2)
             if not _parent_alive():
-                break
-        os.kill(os.getpid(), signal.SIGTERM)
+                # Parent death must also interrupt a main thread stuck in native
+                # code, where a Python SIGTERM handler cannot execute promptly.
+                os._exit(1)
+            if stop.is_set() and not requested:
+                requested = True
+                os.kill(os.getpid(), signal.SIGTERM)
     threading.Thread(target=watch, daemon=True).start()
     run_socket(root, listener, session)
 
@@ -45,7 +78,7 @@ def _server(root, listener, session, stop):
 def _project(root, stop):
     from .event_views import Projector
 
-    threading.Thread(target=_watch_parent, args=(stop,), daemon=True).start()
+    threading.Thread(target=_watch_parent, daemon=True).start()
     while not (root / 'manifest.json').is_file():
         if stop.wait(0.1):
             return
@@ -102,7 +135,7 @@ def _receipt(root, session, mode, status, children):
 
 def _broker(root, listener, session, credential_path, connection, mode):
     context = mp.get_context('spawn')
-    stop = context.Event()
+    stop = _StopFlag(context)
     children = {}
     status = 'starting'
     receipt_status = None

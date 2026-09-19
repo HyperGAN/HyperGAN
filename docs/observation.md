@@ -40,3 +40,31 @@ Sampling uses a copied EMA graph and prior, copied conditioning inputs, evaluati
 Previews cap sample count at 16 and combined output/conditioning tensors at 65,536 elements, with a 2 MiB serialized artifact limit. Large samples can reduce the effective count or fail preview publication. Rendering and preview-artifact errors are reported separately and do not stop optimization while mandatory run manifest/event writes remain available. Failure of those core writes can still fail the run. Forward execution and model copying still cost time and memory; these bounds are not a sandbox or a hard latency deadline for custom code.
 
 No HTTP server, browser startup or GPU execution is part of this interface. The [viewer plan](../reports/local-web-view-plan-2026-09-18.md) builds on these records after their core contracts settle.
+
+### Bounded training command output
+
+The internal output transport below is available for public command integration;
+`train`/`resume` routing follows in the next slice.
+
+Training CLI output is best effort: unread, slow or closed stdout/stderr does not
+hold training or terminal process cleanup. Independent drain processes preserve
+Python and native diagnostics with a healthy consumer. Each stream has at most
+16 queued lines per stage (parent and drain), capped at 64 KiB per line; full
+queues drop oldest lines and oversized progress/diagnostic lines are omitted.
+Shutdown allows one second for delivery before killing and reaping blocked
+drains. Reconnect through `hypergan events RUN` or `hypergan inspect RUN` for the
+durable result and complete event history.
+
+A normal command result is compact single-line JSON. With `--progress-json`, the
+final envelope remains `{"event":"result","manifest":...}`. Results over 64 KiB
+produce a small `output_omitted` record with reason `result_exceeds_output_limit`
+and a durable manifest location, plus a warning. Backpressure can drop even the
+final record; the run manifest remains authoritative. This transport changes no
+checkpoint or numerical completion semantics.
+
+Cached Python standard streams and the owning C runtime's stdout/stderr are
+flushed through the active drains before descriptor restoration, so buffered
+stdio cannot hold interpreter exit against a full destination. This covers libc
+on Linux/macOS and UCRT on Windows. Arbitrary custom streams, separate CRTs,
+separately cached OS handles and externally held native stream locks remain
+outside the descriptor transport.

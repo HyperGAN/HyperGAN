@@ -62,17 +62,18 @@ This first adapter treats preparation and publication errors as fatal, including
 
 ## Observation and completion limits
 
-Use the filesystem events and manifest to observe this internal service. Periodic previews and in-process progress callbacks are rejected before starting a run or persisting a resumed attempt. An isolated renderer and bounded callback delivery remain prerequisites for public distributed commands.
+Use filesystem events and the manifest for durable progress. Periodic previews and importable progress callbacks now run through [bounded isolated observation](replicated-observation.md). The renderer has no training process group; callback failures disable further delivery for the attempt while filesystem events continue. Public distributed commands remain gated on the remaining whole-job fault and CLI acceptance cases.
 
 When a completed or restored batch is available, rank zero produces required inference artifacts after the final checkpoint from a copied EMA/config/batch snapshot under the command deadline. A cooperative stop at initial step zero has no batch and can succeed without inference artifacts. Other ranks return to their idle control channels outside collectives. Terminal success requires the artifact result and coordinated successful worker exit. No successful terminal status is written while the group is still running.
 
-The artifact command still runs in a numerical worker with a process group. A custom inference component that requires peer collectives can fail or time out the whole job. This is not the planned renderer without a training process group. The worker deadline bounds supervised execution; message caps and post-write file checks do not bound arbitrary custom allocations or filesystem latency.
+The artifact command still runs in a numerical worker with a process group. A custom inference component that requires peer collectives can fail or time out the whole job. Final inference does not use the isolated preview renderer. The worker deadline bounds supervised execution; message caps and post-write file checks do not bound arbitrary custom allocations or filesystem latency.
 
 | Internal bound | Behavior |
 | --- | --- |
 | 2–64 fixed CPU ranks | Two ranks are qualified by the current tests |
 | 40 KiB execution information | Rejects an oversized runtime/source/data description explicitly |
 | 64 KiB command frame, including aggregate results | Only rank zero returns full information or a checkpoint receipt; peers return compact acknowledgements |
+| Default 60-second preview / 5-second callback deadline | Separate operational policy; supervisor cleanup grace is additional |
 | 1,024 final samples | Larger configured counts are rejected before creating a run; no truncation |
 | 256 MiB inference bundle; 2 MiB sample JSON | Checked after writing; oversized output fails the attempt |
 

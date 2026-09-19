@@ -2,7 +2,7 @@
 
 The public `hypergan train` and `hypergan resume` commands use one internal run controller. The controller owns the run lock, attempts, manifests, events, stop budgets, checkpoint requests, sample reservations and terminal status. A single-process execution adapter owns the numerical trainer and its last completed batch.
 
-The internal [replicated run service](replicated-run-service.md) now uses that controller with persistent CPU workers and parent checkpoint publication. The public commands still run the CPU reference in one process; bounded distributed observation and public integration remain ahead.
+The internal [replicated run service](replicated-run-service.md) now uses that controller with persistent CPU workers and parent checkpoint publication. The public commands still run the CPU reference in one process; bounded distributed observation is implemented internally and public integration remains ahead.
 
 ## Ownership and completion
 
@@ -16,7 +16,7 @@ The public signatures, event and artifact formats, checkpoint intervals, request
 
 ## Source compatibility
 
-Full recovery compares implementation source hashes, including the extracted controller and execution adapter. Checkpoints from before this source change cannot resume under this implementation. This applies to both native single-process checkpoints and the internal distributed format, which shares implementation identity. Use the original installation for those runs; this refactor does not provide checkpoint migration or weaken strict validation.
+Full recovery compares implementation source hashes, including the extracted controller and execution adapter. Checkpoints from before this source change cannot resume under this implementation. This applies to both native single-process checkpoints and the internal distributed format, which shares implementation identity. Older-checkpoint compatibility and migration are outside resurrection scope; strict validation remains required for current runs.
 
 Behavioral parity is measured by independently running the old and new implementations and comparing complete numerical state and lifecycle results. It does not imply cross-version checkpoint compatibility.
 
@@ -26,6 +26,6 @@ The [CPU execution profile and preflight](execution-profiles.md), [persistent wo
 
 The controller creates an immutable candidate attempt identity in memory before strict restore and persists it only after restore succeeds. Numerical execution identity is recorded separately from mutable service deadlines. Native manifests without an explicit profile retain their native route; changing to a different execution strategy cannot bypass strict checkpoint validation.
 
-The replicated adapter validates agreed complete steps and global metrics, prepares checkpoints in workers, and publishes through the parent authority. Group and publication failures remain fatal during optional saves. It reuses filesystem events, checkpoint receipts and sample reservations; final artifacts when a completed/restored batch is available and worker shutdown precede terminal success. Replicated preview and callback options are explicitly rejected until bounded execution is implemented.
+The replicated adapter validates agreed complete steps and global metrics, prepares checkpoints in workers, and publishes through the parent authority. Group and publication failures remain fatal during optional saves. It reuses filesystem events, checkpoint receipts and sample reservations; final artifacts when a completed/restored batch is available and worker shutdown precede terminal success. Replicated previews render copied snapshots in a supervised process without a training process group. Progress callbacks run in fresh bounded processes; failures are recorded without recursive delivery. See the [bounded observation contract](replicated-observation.md).
 
 See the [shared-service design](../reports/distributed-run-service-design-2026-09-19.md) and [current checkpoint](../reports/core-replicated-service-2026-09-19.md). GPU/NCCL and actual multi-node execution remain separate qualifications.

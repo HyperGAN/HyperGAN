@@ -2,7 +2,7 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-19 (America/Denver).
 
-Current cutpoint: the internal replicated CPU adapter now connects persistent workers and parent checkpoint publication to the shared controller. It supports fenced attempts, strict fresh-group resume, save requests, final artifacts and coordinated shutdown. Next, add isolated bounded previews and bounded progress delivery, finish the remaining whole-job fault gates, then expose distributed train/resume. GPU and real cluster qualification remain ahead.
+Current cutpoint: the internal replicated CPU service now supports isolated bounded previews and progress callbacks alongside fenced attempts, strict recovery, save requests, final artifacts and coordinated shutdown. Next, finish the remaining whole-job persistence/partial-update fault gates and expose CPU profiles through public distributed train/resume. GPU and real cluster qualification remain ahead.
 
 ## First checkpoint
 
@@ -136,7 +136,13 @@ Filesystem events, coalesced save requests, lost-acknowledgement reconciliation 
 
 The sdist-built wheel at source/test head `f1f6c550` passed **392 installed-package tests in 337.14 seconds**, plus **205 base-only tests in 2.12 seconds**. Three subagents implemented and cross-reviewed the controller, adapter and independent acceptance. Complete accumulated state matches across shuffled synthetic/image data recovery; tests cover older zero-update selection, strict mismatches, lost save acknowledgements, fatal save/export failures and actual coordinator death/takeover. Native default and paired workflows also match the prior installed version exactly. PR/merge checks and verified branch preservation are recorded in the report and durable receipt at `/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-replicated-service/`. This controller source change deliberately rejects older-source native and distributed checkpoints; their original installation remains required. Numerical update code is unchanged. No GPU or paid compute was used; all five tracked issues remain open.
 
-## Next bounded checkpoint: bounded distributed observation and public integration
+## Bounded replicated observation checkpoint
+
+The [bounded observation report](core-bounded-observation-2026-09-19.md) and [developer guide](../docs/replicated-observation.md) record copied-state preview capture, rendering without a training process group, shared parent preview publication and bounded progress delivery. The existing independent broker now has an explicit one-worker group-free mode; parent orchestration remains Torch-free. Preview execution is synchronous with at most one pending render. Callback delivery uses a fresh process for every event and disables itself after a runtime failure while filesystem progress continues.
+
+Three subagents implemented and cross-reviewed the renderer, callback service and independent whole-job acceptance. The source-distribution-built wheel at source/test head `39611e2c` passed **434 installed-package tests in 465.60 seconds**, plus **239 base-only tests in 7.89 seconds**. The report records strict observation-on/off recovery, bounded faults, coordinator-death takeover, cross-review fixes and the installed walkthrough; the durable receipt records PR checks, integration and preserved branches. Current-run recovery and corruption checks remain required; PR [#315](https://github.com/HyperGAN/HyperGAN/pull/315) records that older-checkpoint compatibility and migrations are outside scope. No GPU execution or paid compute is part of this slice.
+
+## Next bounded checkpoint: public replicated CPU integration
 
 
 - [x] Complete fixed-global-batch two-process CPU D/G/prior/auxiliary/Adam/EMA updates and worker cleanup.
@@ -147,8 +153,8 @@ The sdist-built wheel at source/test head `f1f6c550` passed **392 installed-pack
 - [x] Implement persistent supervised CPU worker commands, idle outside Gloo, with abrupt coordinator-death cleanup. Split checkpoint preparation from parent-controlled publication, reject stale receipts, and test fresh-group recovery and takeover at the internal protocol boundary. See the [worker-service checkpoint](core-worker-service-2026-09-19.md).
 - [x] Connect an internal replicated execution adapter to the shared controller: fenced pre-attempt restore, separate numerical identity and timeout policy, fatal save/group errors, shared requests and final artifacts. See the [replicated service checkpoint](core-replicated-service-2026-09-19.md).
 - [x] Reuse one event/request/counter service for the internal replicated lifecycle; require final inference artifacts when a batch is available and successful group shutdown before terminal success.
-- [ ] **Next core cutpoint:** add isolated snapshot preview execution without a training process group and bound parent progress delivery. Keep worker health monitoring independent of slow or hung observers; compare complete state with observation on/off.
-- [ ] Finish whole-job fault acceptance before public distributed train/resume: extend the accumulated shuffled-data, fresh-group recovery and coordinator-takeover cases with bounded observer faults and remaining staging/publication/partial-update integration failures. Preserve headless operation and exercise the public installed CLI workflow.
+- [x] Add isolated snapshot preview execution without a training process group and bound parent progress delivery. Keep worker health monitoring independent of slow or hung observers; compare complete state with observation on/off. See the [bounded observation checkpoint](core-bounded-observation-2026-09-19.md).
+- [ ] **Next core cutpoint:** finish whole-job staging/publication/partial-update fault acceptance, then expose CPU profiles through public `train`/`resume`. Cover disk failure before checkpoint selection, failure after a complete commit, and incomplete D/G/EMA updates; preserve strict fresh-group recovery, headless operation and installed CLI acceptance. Bounded observer faults and coordinator death during rendering are covered by the observation checkpoint.
 - [ ] Resolve upstream explicit licensing and freeze the selected image experiment's architecture, preprocessing/augmentation/evaluation and pretrained-weight identity. A synthetic image recovery fixture is not image-quality qualification.
 - [ ] After CPU gates pass, qualify actual two-GPU NCCL locally; then prepare a concrete, separately agreed real two-node allocation using the reserved Modal credit or another provider.
 

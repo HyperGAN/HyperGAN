@@ -181,7 +181,11 @@ class ReferenceTrainer:
             raise ValueError(f"Nonfinite {name} gradient; run stopped")
 
 
-def _controls(checkpoint_every, max_seconds, stop_after_steps):
+def _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every=0, preview_keep=3):
+    if type(preview_every) is not int or preview_every < 0:
+        raise ValueError("preview_every must be a nonnegative integer; zero disables previews")
+    if type(preview_keep) is not int or not 1 <= preview_keep <= 100:
+        raise ValueError("preview_keep must be between 1 and 100")
     if type(checkpoint_every) is not int or checkpoint_every < 1:
         raise ValueError('checkpoint_every must be a positive integer')
     if max_seconds is not None and (type(max_seconds) not in (int, float) or not np.isfinite(max_seconds) or max_seconds <= 0):
@@ -237,9 +241,9 @@ def _new_attempt(run_dir):
 
 
 def train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
-          stop_after_steps=None, on_event=None):
+          stop_after_steps=None, on_event=None, preview_every=0, preview_keep=3):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
-    _controls(checkpoint_every, max_seconds, stop_after_steps)
+    _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
     config = load_config(config_path)
     if steps is not None:
         raw = config_values(config)
@@ -256,6 +260,7 @@ def train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds
                 'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
                 'global_batch_size': config['training']['batch_size'], 'resume_supported': False,
                 'last_durable_step': None, 'checkpoint_path': None, 'next_sample_sequence': 1,
+                'preview_every': preview_every, 'preview_keep': preview_keep, 'previews': [], 'observation_errors': [],
                 'rng_streams': {name: config['training']['seed'] + offset for name, offset in [('data', 1), ('prior', 2), ('penalty', 3)]}}
     manifest['rng_streams']['sampling'] = config['sampling']['seed']
     with run_lock(run_dir):
@@ -263,7 +268,7 @@ def train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds
 
 
 def resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
-           max_seconds=None, stop_after_steps=None, on_event=None):
+           max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None, preview_keep=None):
     """Resume a full checkpoint from this run, retaining the original schedule."""
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
@@ -274,7 +279,9 @@ def resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
         if not isinstance(manifest, dict) or not required.issubset(manifest) or manifest['schema_version'] != 1:
             raise ValueError('Run manifest has no supported full recovery contract')
         checkpoint_every = manifest.get('checkpoint_every', 100) if checkpoint_every is None else checkpoint_every
-        _controls(checkpoint_every, max_seconds, stop_after_steps)
+        preview_every = manifest.get('preview_every', 0) if preview_every is None else preview_every
+        preview_keep = manifest.get('preview_keep', 3) if preview_keep is None else preview_keep
+        _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
         config = load_config(config_path) if config_path is not None else resolve_config(manifest['config'])
         target, info, state = read_checkpoint(run_dir, checkpoint)
         if info['run_id'] != manifest['run_id']:
@@ -295,7 +302,8 @@ def resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
             if _implementation(trainer) != info['implementation']:
                 raise ValueError('Resume implementation differs from checkpoint')
             batch = restore_trainer(trainer, state)
-            manifest.update(checkpoint_path=str(target), last_durable_step=trainer.step,
+            manifest.update(preview_every=preview_every, preview_keep=preview_keep,
+                            checkpoint_path=str(target), last_durable_step=trainer.step,
                             resumed_from=str(target), steps=trainer.step)
             return _execute(config, run_dir, manifest, checkpoint_every, max_seconds,
                             stop_after_steps, on_event, trainer=trainer, last_batch=batch)
@@ -362,21 +370,107 @@ def _execute(config, run_dir, manifest, checkpoint_every, max_seconds, stop_afte
                     'implementation': _implementation(trainer),
                     'next_sample_sequence': manifest['next_sample_sequence']}
 
-        def checkpoint_now():
+        def checkpoint_now(request_ids=None, observer=False):
             if not manifest['resume_supported']:
                 return
-            path = write_checkpoint(run_dir, trainer, last_batch, metadata)
+            metadata['next_sample_sequence'] = manifest['next_sample_sequence']
+            metadata['request_ids'] = list(request_ids or [])
+            try:
+                path = write_checkpoint(run_dir, trainer, last_batch, metadata)
+            except Exception as exc:
+                if observer:
+                    return None, exc
+                raise
             manifest.update(checkpoint_path=str(path), last_durable_step=trainer.step,
                             possible_lost_steps=0)
             publish()
-            emit('checkpoint', checkpoint_path=str(path))
+            emit('checkpoint', checkpoint_path=str(path), request_ids=list(request_ids or []))
+            return path, None
 
+        def observer_error(source, error):
+            record = {'source': source, 'step': trainer.step, 'attempt_id': attempt_id,
+                      'error': f'{type(error).__name__}: {error}'[:1000]}
+            manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
+            publish()
+            emit('observer_error', **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
+
+        def preview_now():
+            from .previews import publish_preview
+            identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
+                        'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence']}
+            manifest['next_sample_sequence'] += 1
+            publish()  # Reserve before rendering: failed or killed attempts never reuse a sequence.
+            try:
+                record, preview_index, errors = publish_preview(run_dir, trainer, last_batch, identity,
+                                                                keep=manifest['preview_keep'])
+            except Exception as exc:
+                observer_error('preview', exc)
+                return
+            manifest['previews'] = preview_index['previews']
+            manifest['preview_path'] = record['path']
+            publish()
+            emit('preview', preview=record)
+            for error in errors:
+                observer_error('preview_retention', RuntimeError(error))
+
+        def poll_requests():
+            from .run_requests import pending_requests, acknowledge_request
+            try:
+                pending = pending_requests(run_dir)
+            except RuntimeError:
+                return  # A producer holds the short queue lock; retry next boundary.
+            except Exception as exc:
+                observer_error('checkpoint_requests', exc)
+                return
+            matching = []
+            def acknowledge(request, status, path=None, error=None, saved_step=None):
+                try:
+                    receipt = acknowledge_request(run_dir, request['request_id'], status=status,
+                                                  attempt_id=attempt_id, checkpoint_path=str(path) if path else None,
+                                                  step=(trainer.step if saved_step is None else saved_step) if path else None, error=error)
+                except Exception as exc:
+                    observer_error('checkpoint_acknowledgement', exc)
+                    return
+                emit('checkpoint_request', receipt=receipt)
+            for request in pending:
+                if request['run_id'] != manifest['run_id'] or request['attempt_id'] != attempt_id:
+                    acknowledge(request, 'rejected', error='Request targets a different run or attempt; it cannot be applied after resume')
+                elif not manifest['resume_supported']:
+                    acknowledge(request, 'rejected', error='Full training checkpoints are unsupported for this configuration')
+                else:
+                    matching.append(request)
+            if matching and manifest.get('checkpoint_path'):
+                # A lost acknowledgement must not repeat a still-identifiable save.
+                try:
+                    saved_path = Path(manifest['checkpoint_path'])
+                    saved = json.loads((saved_path / 'manifest.json').read_text(encoding='utf-8'))
+                    completed_ids = set(saved.get('request_ids', [])) if saved.get('attempt_id') == attempt_id else set()
+                except Exception as exc:
+                    observer_error('checkpoint_request_reconciliation', exc)
+                    return
+                remaining = []
+                for request in matching:
+                    if request['request_id'] in completed_ids:
+                        acknowledge(request, 'succeeded', path=saved_path, saved_step=saved['step'])
+                    else:
+                        remaining.append(request)
+                matching = remaining
+            if matching:
+                path, error = checkpoint_now([request['request_id'] for request in matching], observer=True)
+                for request in matching:
+                    acknowledge(request, 'succeeded' if path else 'rejected', path=path,
+                                error=f'{type(error).__name__}: {error}'[:1000] if error else None)
+                if error:
+                    observer_error('manual_checkpoint', error)
+
+        publish()  # A start/resume observer can immediately submit an attempt-bound request.
         emit('resume' if manifest.get('resumed_from') else 'start', config_sha256=fingerprint(config))
         if manifest['last_durable_step'] is None or manifest.get('resumed_from'):
             # Accepting an older recovery point must also move the default pointer,
             # even if this attempt stops before another update.
             checkpoint_now()
         publish()
+        poll_requests()
         attempt_steps = 0
         while trainer.step < config['training']['steps']:
             if max_seconds is not None and time.monotonic() - started >= max_seconds:
@@ -393,6 +487,9 @@ def _execute(config, run_dir, manifest, checkpoint_every, max_seconds, stop_afte
             emit('train', **{key: value for key, value in row.items() if key not in ('event', 'step')})
             if trainer.step % checkpoint_every == 0:
                 checkpoint_now()
+            poll_requests()
+            if manifest['preview_every'] and trainer.step % manifest['preview_every'] == 0:
+                preview_now()
             publish()
         if manifest['last_durable_step'] != trainer.step:
             checkpoint_now()

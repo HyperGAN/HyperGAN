@@ -2,6 +2,7 @@ prune hypergan
 prune docs
 prune examples
 include examples/paired-linear.toml
+include examples/execution/*.toml
 prune worktrees
 prune tests
 recursive-include tests/foundation *.py

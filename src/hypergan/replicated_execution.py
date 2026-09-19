@@ -294,8 +294,12 @@ class ReplicatedExecution:
         # child. Configure validated the original importable callback once.
         if self.observer is None or self.observer.disabled:
             return
+        primary = None
         try:
             self.observer.deliver(event)
+        except BaseException as error:
+            primary = error
+            raise
         finally:
             # Terminal callbacks run after numerical shutdown. During training,
             # even a failed optional callback must not hide a failed rank.
@@ -303,7 +307,7 @@ class ReplicatedExecution:
                 try:
                     self.service.assert_healthy()
                 except BaseException as error:
-                    self._fail(error)
+                    self._fail(primary if isinstance(primary, (KeyboardInterrupt, SystemExit, FatalExecutionError)) else error)
 
     def shutdown(self):
         if self._closed:

@@ -99,7 +99,7 @@ The [shared run-service design](distributed-run-service-design-2026-09-19.md) is
 
 ## Shared lifecycle and Windows lock checkpoint
 
-The [lifecycle report](core-lifecycle-2026-09-19.md) and [developer guide](../docs/run-lifecycle.md) record the extraction. One torch-free controller owns locks, attempts, stop policy, events, checkpoint requests and sample counters. The single-process adapter owns trainer/batch state, strict restore, numerical updates, snapshots, inference and callback RNG/thread isolation. Successful shutdown precedes terminal success; failure cleanup retains the run lock and never snapshots a partial update. Public command signatures and numerical code remain unchanged.
+[PR #311](https://github.com/HyperGAN/HyperGAN/pull/311), the [lifecycle report](core-lifecycle-2026-09-19.md) and [developer guide](../docs/run-lifecycle.md) record the extraction. One torch-free controller owns locks, attempts, stop policy, events, checkpoint requests and sample counters. The single-process adapter owns trainer/batch state, strict restore, numerical updates, snapshots, inference and callback RNG/thread isolation. Successful shutdown precedes terminal success; failure cleanup retains the run lock and never snapshots a partial update. Public command signatures and numerical code remain unchanged.
 
 Three subagents handled extraction, independent acceptance and the Windows CI failure. Review fixed warning handlers escaping RNG isolation and stale cleanup diagnostics across attempts. Both run and request-queue locks now acquire their OS lock without an unsafe initialization write. Regressions cover actual process contention and release, including empty lock files; required platform CI confirms native Windows behavior before integration.
 

@@ -1,6 +1,6 @@
 # Shared run lifecycle checkpoint — 2026-09-19
 
-This milestone separates run policy from numerical execution so distributed training can reuse the current recovery and observation workflow. Public `train` and `resume` continue to execute the single-process CPU reference. The [lifecycle guide](../docs/run-lifecycle.md) describes ownership and remaining distributed gates.
+[PR #311](https://github.com/HyperGAN/HyperGAN/pull/311) separates run policy from numerical execution so distributed training can reuse the current recovery and observation workflow. Public `train` and `resume` continue to execute the single-process CPU reference. The [lifecycle guide](../docs/run-lifecycle.md) describes ownership and remaining distributed gates.
 
 ## Implementation and review
 

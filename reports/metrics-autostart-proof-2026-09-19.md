@@ -45,8 +45,15 @@ kill training, numerical errors clean up, and forcibly killing the trainer still
 removes the private credential and closes the server socket. Foundation checks
 reject unexpected imports on the no-server path and qualify missing extras.
 
-This is Linux CPU execution evidence. Cross-platform lifecycle CI and the
-coordinator's GPU acceptance remain separate gates. Cleanup is bounded: very
+The coordinator also qualified a fresh installed CUDA wheel at `e0cfd44b` on
+local GPU 1 with torch 2.14.0+cu130. Headless five-step training and viewer-enabled
+two-step stop/resume matched all 14 checkpoint state sections: **71 tensors and
+1,370 values**, including CUDA RNG, plus samples and numerical metrics. JSON
+stdout remained valid; both server/projector pairs were reaped and private
+credentials removed. The complete command script, checkpoints, wheel hash and
+receipt are retained under the durable metrics implementation directory's
+`m5-native-cuda-e0cfd44b/`. No external GPU process was stopped. Cross-platform
+lifecycle CI remains a separate merge gate. Cleanup is bounded: very
 large projection backlogs can remain unfinished when training ends. The automatic
 viewer ends with its CLI command; standalone `serve` remains the persistent
 inspection command. No distributed rank startup or remote binding is added.

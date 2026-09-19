@@ -77,7 +77,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         import asyncio
         revision = request.query_params.get('revision') or service.manifest.get('metrics_catalog')
         result = await asyncio.to_thread(read_catalog, service.root, revision,
-            _open_file=lambda path: _open(service.root, str(path.relative_to(service.root))))
+            _open_file=lambda path: _open(service.root, path.relative_to(service.root).as_posix()))
         return JSONResponse(result)
 
     async def events(request):
@@ -98,7 +98,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         available = ['projection:' + mapping.revision in service.streams]
         return JSONResponse({'schema_version': 1, 'map_revision': mapping.revision,
                              'view_revision': view.revision, 'status': 'available' if available[0] else 'missing',
-                             'descriptor': view.descriptor(),
+                             'descriptor': view.descriptor(), 'discovery_error': service.discovery_error,
                              'streams': [{'stream_id': s.stream_id, 'cursor': s.cursor,
                                           'caught_up': s.caught_up, 'error': s.error} for s in service.streams.values()]})
 

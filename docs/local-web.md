@@ -76,8 +76,10 @@ The limit can be set explicitly when constructing the server. A slow subscriber 
 visible gap and disconnects instead of delaying training. A five-second ASGI send
 deadline also closes a socket consumer that stops reading before it can receive
 the gap; cleanup removes its subscription. Increase bucket size or
-narrow step bounds if a requested view exceeds its state budget. Excessive replay
-requires a refreshed bootstrap or explicit raw-page reads. These finite limits are
+narrow step bounds if a requested view exceeds its state budget. Replay-budget gaps preserve the browser reducer and its acknowledged cursor.
+The browser drains queued work and reconnects promptly, making progress through
+bounded replay segments even when cold history has a large live suffix. Changed
+stream generation or history still requires a fresh bootstrap. These finite limits are
 v1 policy, not claims of arbitrary experiment scale.
 
 Current selected lineage includes ancestor attempts only through the checkpoint

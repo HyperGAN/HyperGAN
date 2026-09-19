@@ -14,17 +14,17 @@ This checkpoint advances the CPU core: deterministic image-folder input, complet
 
 ## Validation and review
 
-Implementation through `f49d52357594340bbb882aa93abf5e92eb929fbc` passed **79 installed-package tests** outside the source checkout. The wheel was built through the sdist in a fresh verification environment: Python 3.12.13, torch 2.14.0+cpu, ParticleGAN 0.5.0, NumPy 2.5.3, Pillow 12.3.0.
+Implementation through `6f33d64e06e9dfd45385ef5b59d69427f4649940` passed **81 installed-package tests** outside the source checkout. The wheel was built through the sdist in a fresh verification environment: Python 3.12.13, torch 2.14.0+cpu, ParticleGAN 0.5.0, NumPy 2.5.3, Pillow 12.3.0.
 
 ```sh
 python -m build /path/to/core-integration --outdir /tmp/hypergan-core-build
 python -I -m pytest /path/to/core-integration/tests --import-mode=importlib -q
-# 79 passed
+# 81 passed
 ```
 
 The coordinator installed the built wheel before the isolated test command. Controlled tests compare the entire numerical checkpoint, including optimizer moments and subsequent RNG/data position, rather than losses alone. A fresh subprocess resumes the synthetic reference; a stochastic image fixture crosses shuffled epoch boundaries. Failure fixtures cover interruption after D but before G, incomplete checkpoint writes, malformed state/metadata, changed runtime/config/data, and replaying an older checkpoint without taking another step. Live JSONL is observed before process completion.
 
-Independent review exposed and fixed missing optimizer cardinality validation, incomplete numerical/factory source hashes, nonpersistent buffers and trainability flags, parent-directory durability, and an older-checkpoint lineage bug. Inference now also preserves nonpersistent buffers and isolates global randomness. Source hashes cover recorded modules, not every transitive dependency or hidden external state; custom authors still own those contracts. Required CI is a merge gate in addition to these local results.
+Independent review exposed and fixed missing optimizer cardinality validation, incomplete numerical/factory source hashes, nonpersistent buffers and trainability flags, parent-directory durability, and an older-checkpoint lineage bug. Inference now also preserves nonpersistent buffers and isolates global randomness. Source hashes cover recorded modules, not every transitive dependency or hidden external state; custom authors still own those contracts. Initial lightweight CI exposed missing NumPy installation guidance, which the fully provisioned training environment had masked. The CLI now gives the training-extra remedy for each missing numerical dependency, with three independent regression cases. A separate base-only installation passed all **20 lightweight tests**, with torch, ParticleGAN, NumPy and Pillow absent. Required CI is a merge gate in addition to these local results.
 
 ## Next core checklist
 

@@ -13,6 +13,7 @@ import tempfile
 
 from .bounded_observer import BoundedObserver
 from .config import config_values, fingerprint
+from .metrics import validate_update_scalars
 from .cpu_worker_service import CPUWorkerService
 from .distributed_commit import CheckpointCommitAuthority
 from .execution_preflight import _resolve_profile
@@ -199,11 +200,7 @@ class ReplicatedExecution:
                 expected.update({key: self.profile['execution'][key] for key in ('accumulation_steps', 'microbatch_size')})
             if any(type(metrics.get(key)) is not type(value) or metrics[key] != value for key, value in expected.items()):
                 raise ValueError('Training metrics differ from completed step/global batch profile')
-            for key in ('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'lr_scale'):
-                if type(metrics.get(key)) not in (float, int) or not math.isfinite(metrics[key]):
-                    raise ValueError(f'Invalid finite global metric: {key}')
-            if type(metrics.get('objectives')) is not list or any(type(value) not in (float, int) or not math.isfinite(value) for value in metrics['objectives']):
-                raise ValueError('Invalid global objective metrics')
+            validate_update_scalars(metrics, len(self.config['objectives']))
             self.step += 1
             self._inference_available = results[0]['inference_available']
             return CompletedUpdate(step=self.step, metrics=metrics)

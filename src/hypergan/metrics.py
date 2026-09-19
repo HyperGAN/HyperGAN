@@ -155,10 +155,6 @@ def select_metrics(config, catalog, row, step, step_seconds):
     values = dict(row, step_seconds=step_seconds)
     if 'd_loss' in row and 'g_loss' in row:
         values['combined'] = row['d_loss'] + row['g_loss']
-    for side in ('d', 'g'):
-        key = side + '_adversarial'
-        if key in row:
-            values[key + '_weighted'] = row[key] * config['adversarial']['weight']
     for term, value in zip(config['objectives'], row.get('objectives', [])):
         values['objective:' + objective_id(term)] = value
     metrics, statuses = {}, {}
@@ -181,7 +177,7 @@ def select_metrics(config, catalog, row, step, step_seconds):
 
 def validate_update_scalars(row, objective_count):
     """Mandatory adapter completion validation, independent of publication settings."""
-    for name in ('d_loss', 'g_loss', 'd_adversarial', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'lr_scale'):
+    for name in ('d_loss', 'g_loss', 'd_adversarial', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'lr_scale', 'd_adversarial_weighted', 'g_adversarial_weighted'):
         if type(row.get(name)) not in (int, float) or not math.isfinite(row[name]):
             raise ValueError(f'Invalid finite global metric: {name}')
     objectives = row.get('objectives')

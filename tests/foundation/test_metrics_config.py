@@ -58,7 +58,7 @@ def test_none_can_explicitly_select_one_and_total_is_independent_of_published_so
 
 def test_zero_coefficients_and_lazy_schedule_do_not_fabricate_raw_values():
     config = resolve_config({'gradient_penalty': {'lazy_k': 2, 'coeff': 0}, 'adversarial': {'weight': 0}})
-    row = {'d_adversarial': 3., 'g_adversarial': 4., 'gradient_penalty': 0.}
+    row = {'d_adversarial_weighted': 0., 'g_adversarial_weighted': 0., 'd_adversarial': 3., 'g_adversarial': 4., 'gradient_penalty': 0.}
     catalog = metric_catalog(config)
     values, statuses, _ = select_metrics(config, catalog, row, 1, .1)
     assert values['loss/d_adversarial'] == 0

@@ -185,9 +185,11 @@ class _Stream:
                 return len(text)
             for piece in text.splitlines(keepends=True):
                 if not self.oversize:
-                    # The character bound prevents an unbounded partial line;
-                    # the exact UTF-8 byte bound is checked before enqueueing.
-                    if len(self.partial) + len(piece) <= MAX_LINE_BYTES:
+                    # Reject oversized character strings before encoding, then
+                    # bound the partial line by its actual UTF-8 size too.
+                    if (len(self.partial) + len(piece) <= MAX_LINE_BYTES and
+                            len(self.partial.encode('utf-8', errors='replace')) +
+                            len(piece.encode('utf-8', errors='replace')) <= MAX_LINE_BYTES):
                         self.partial += piece
                     else:
                         self.partial = ''

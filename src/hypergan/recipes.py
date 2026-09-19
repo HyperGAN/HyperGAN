@@ -2,6 +2,7 @@
 import importlib
 import torch
 from torch import nn
+from .data import ImageFolder
 
 
 class MLP(nn.Module):
@@ -41,7 +42,7 @@ class PairedLinear:
         return {"condition": condition, "real": condition * self.scale + self.offset}
 
 
-BUILTINS = {"mlp": MLP, "linear": nn.Linear, "identity": nn.Identity, "mse": nn.MSELoss, "l1": nn.L1Loss, "gaussian_grid": GaussianGrid, "paired_linear": PairedLinear}
+BUILTINS = {"mlp": MLP, "linear": nn.Linear, "identity": nn.Identity, "mse": nn.MSELoss, "l1": nn.L1Loss, "gaussian_grid": GaussianGrid, "paired_linear": PairedLinear, "image_folder": ImageFolder}
 
 
 def make_prior(spec):

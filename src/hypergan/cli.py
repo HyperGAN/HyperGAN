@@ -27,6 +27,9 @@ def _parser():
     new.add_argument("path", type=Path)
     validate = commands.add_parser("validate", help="Validate a project without loading training dependencies")
     validate.add_argument("path", type=Path)
+    data_check = commands.add_parser("data-check", help="Validate an image_folder inventory and preprocessing")
+    data_check.add_argument("config", type=Path)
+    data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
     inspect = commands.add_parser("inspect", help="Read a run manifest without loading model weights")
     inspect.add_argument("path", type=Path)
     train = commands.add_parser("train", help="Run a bounded CPU numerical reference (requires the train extra)")
@@ -61,6 +64,20 @@ def main(argv=None):
                 manifest = json.load(stream)
             if not isinstance(manifest, dict):
                 raise ValueError("run manifest must contain a JSON object")
+            _print_json(manifest)
+        elif args.command == "data-check":
+            from .config import load_config
+            from .data import ImageFolder
+
+            config = load_config(args.config)
+            if config["data"]["factory"] != "image_folder":
+                raise ValueError("data-check currently supports data.factory='image_folder'")
+            data = ImageFolder(**config["data"]["args"])
+            manifest = {"schema_version": 1, "data": data.resume_identity(), "inventory": data.inventory}
+            if args.output is not None:
+                with args.output.open("x", encoding="utf-8") as stream:
+                    json.dump(manifest, stream, indent=2, allow_nan=False)
+                    stream.write("\n")
             _print_json(manifest)
         elif args.command in {"new", "validate", "recipes"}:
             from . import config

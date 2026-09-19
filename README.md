@@ -50,6 +50,15 @@ Use `--preview-every N` for bounded periodic EMA previews. `hypergan events RUN_
 
 Developers can also exercise the internal [replicated CPU strategy](docs/distributed.md) and [bounded worker supervisor](docs/cpu-workers.md). The public training commands remain single-process; multi-GPU and cluster qualification are still ahead.
 
+Check a proposed CPU execution profile separately from the recipe:
+
+```sh
+hypergan preflight demo --profile examples/execution/cpu-replicated.toml
+hypergan preflight demo --profile examples/execution/cpu-replicated.toml --runtime
+```
+
+The first command checks structure without training dependencies. `--runtime` constructs the recipe in supervised local CPU workers with a deadline and reports runtime, source, data and recovery compatibility. It performs no training updates. See [execution profiles and preflight](docs/execution-profiles.md) for the checks and limits; profile selection for `train` and `resume` is a later integration step.
+
 ## Configure the recipe
 
 `hypergan new` writes `config.toml`. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.

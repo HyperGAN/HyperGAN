@@ -1,0 +1,10 @@
+schema_version = 1
+
+[execution]
+name = "cpu-single"
+world_size = 1
+accumulation_steps = 1
+
+[preflight]
+timeout = 60
+collective_timeout = 15

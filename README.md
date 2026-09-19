@@ -1,273 +1,52 @@
-# README
+# HyperGAN
 
-## HyperGAN 1.0
+HyperGAN is being rebuilt to make proven GANs configurable and practical: prepare data, train, inspect samples, recover runs, and build generators for applications. The next release integrates on `develop`, using [ParticleGAN](https://github.com/255BITS/ParticleGAN) primitives inside a HyperGAN-owned training loop.
 
-[![docs](https://img.shields.io/badge/gitbook-docs-yellowgreen)](https://hypergan.gitbook.io/hypergan/) [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF) [![Twitter](https://img.shields.io/badge/twitter-follow-blue.svg)](https://twitter.com/hypergan)
+The current foundation is a **CPU numerical reference**, with flexible component configuration and reloadable inference artifacts. It is not yet a qualified image-training product. Image recipes, complete training resume, multi-GPU and real cluster training remain release gates. Custom visual generators are the first product direction; conditional input/output contracts also support development of colorization and super-resolution recipes.
 
-A composable GAN built for developers, researchers, and artists.
+## Install the development foundation
 
-HyperGAN is in pre-release and open beta.
+Use Python 3.12 for the tested CPU training profile. Lightweight package checks cover Python 3.10–3.12 on Linux, macOS and Windows; the CPU reference profile is tested on Linux.
 
-![Colorizer 0.9 1](https://s3.amazonaws.com/hypergan-apidocs/0.9.0-images/colorizer-2.gif)
-
-_Logos generated with_ [_examples/colorizer_](./examples/colorizer.py)
-
-See more on the [hypergan youtube](https://www.youtube.com/channel/UCU33XvBbMnS8002_NB7JSvA)
-
-## Table of contents
-
-* [About](#about)
-* [Documentation](https://hypergan.gitbook.io/hypergan/)
-* [Changelog](./changelog.md)
-* [Quick start](#quick-start)
-  * [Requirements](#requirements)
-  * [Install](#install)
-  * [Train](#train)
-* [API](#api)
-  * [Using a trained hypergan model](#using-a-trained-hypergan-model)
-  * [Training a gan](#training-a-gan)
-  * [Examples](#examples)
-  * [Tutorials](#tutorials)
-* [The pip package hypergan](#the-pip-package-hypergan)
-  * [Training](#training)
-  * [Sampling](#sampling)
-  * [Additional Arguments](#additional-arguments)
-  * [Running on CPU](#running-on-cpu)
-  * [Troubleshooting](#troubleshooting)
-  * [Development Mode](#development-mode)
-* [Datasets](#datasets)
-  * [Creating a Dataset](#creating-a-dataset)
-  * [Downloadable Datasets](#downloadable-datasets)
-  * [Cleaning up data](#cleaning-up-data)
-* [Features](#features)
-* [Showcase](#showcase)
-* [Sponsors](#sponsors)
-* [Contributing](./#contributing.md)
-* [Versioning](#Versioning)
-* [Citation](#citation)
-
-## About
-
-HyperGAN builds generative adversarial networks in pytorch and makes them easy to train and share.
-
-For a general introduction to GANs see [http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/](http://blog.aylien.com/introduction-generative-adversarial-networks-code-tensorflow/)
-
-Join the community [discord](https://discord.gg/t4WWBPF).
-
-## Documentation
-
-* [Gitbook documentation](https://hypergan.gitbook.io/)
-
-## Changelog
-
-See the full changelog here: [Changelog.md](changelog.md)
-
-## Quick start
-
-### Requirements
-
-OS: Windows, OSX, Linux
-
-For training:
-
-GPU: Nvidia, GTX 1080+ recommended
-
-### Install
-
-1. Install HyperGAN
-  For users: `pip3 install hypergan`
-
-  For developers: Download this repo and run `python3 setup.py develop`
-
-2. Test it out
-  * `hypergan train preset:celeba -s 128x128x3`
-
-3. Join the community
-  * Once you've made something cool, be sure to share it on the Discord \([https://discord.gg/t4WWBPF](https://discord.gg/t4WWBPF)\).
-
-### Create a new model
-
-```bash
-  hypergan new mymodel
+```sh
+git clone --branch develop https://github.com/HyperGAN/HyperGAN.git
+cd HyperGAN
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install .
+hypergan --help
+python -m hypergan --version
+hypergan recipes
+hypergan new demo
+hypergan validate demo
 ```
 
-This will create a mymodel.json based off the default configuration. You can change configuration templates with the `-c` flag.
+On Windows, activate with `.venv\Scripts\Activate.ps1`. Lightweight commands do not need PyTorch or ParticleGAN. The development package version is `2.0.0a1`; these instructions install this checkout, not a promised published release.
 
-### List configuration templates
+For the Linux CPU reference, install the tested runtime and training extra:
 
-```bash
-  hypergan new mymodel -l
+```sh
+python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+python -m pip install '.[train]'
+hypergan train demo --steps 5 --run-dir runs/demo
+hypergan inspect runs/demo
+hypergan sample runs/demo --count 16 --seed 42 --output samples.json
 ```
 
-See all configuration templates with `--list-templates` or `-l`.
+A five-step run checks the integration; it is not a convergence benchmark. The run records its resolved configuration, runtime, counters and events, and saves a generator/prior inference artifact. Inference artifacts are not resumable training checkpoints. Use a new run directory for a new experiment.
 
-### Train
+## Configure the recipe
 
-```bash
-  hypergan train folder/ -s 32x32x3 -c mymodel --resize
-```
+`hypergan new` writes `config.toml`. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.
 
-## API
+The reference defaults to ParticleGAN's relativistic-paired objective, b-cap discriminator regularization and VICReg prior regularization. Custom configurations remain runnable with an explicit qualification warning. An unknown combination is different from an invalid binding or incompatible tensor shape: actual incompatibilities fail with an error. No custom configuration inherits quality, distributed or deployment approval merely by completing a run.
 
-```python
-import hypergan as hg
-```
+See [configuration and component contracts](docs/configuration.md) and the [paired synthetic example](examples/paired-linear.toml). Custom factories execute Python code from your environment; use implementations you trust. Lightweight validation checks configuration structure without importing those factories; training validates runtime bindings and tensors.
 
-Note this API is currently under work in 1.0. If you are reading this before 1.0 is released check the examples.
+## Development and migration
 
-See the [gitbook documentation](https://hypergan.gitbook.io/) for more details.
+Install `.[dev,train]` in the tested runtime environment, then run `python -m pytest`. [Foundation CI](.github/workflows/ci.yml) additionally builds wheel/sdist artifacts, checks clean installations outside the checkout and tests lightweight commands without the training stack.
 
-### Using a trained hypergan model
+Historical HyperGAN code and experiments are preserved in archive tags. Legacy configurations and checkpoints require their archived runtime; see [migration notes](docs/migration.md) and [preservation evidence](reports/resurrection-preservation-2026-09-18.md).
 
-```python
-my_gan = hg.GAN('model.hypergan')
-batch_sample = my_gan.sample()
-```
-
-### Training a gan
-
-```python
-gan = hg.GAN("default.json", inputs=hg.inputs.ImageLoader(...))
-trainable_gan = hg.TrainableGAN(gan)
-for step in trainable_gan.train():
-    print("I'm on step ", step)
-```
-
-### Examples
-
-See the examples [https://github.com/hypergan/HyperGAN/tree/master/examples](https://github.com/hypergan/HyperGAN/tree/master/examples)
-
-### Tutorials
-
-See the tutorials [https://hypergan.gitbook.io/hypergan/tutorials](https://hypergan.gitbook.io/hypergan/tutorials)
-
-## The pip package hypergan
-
-```bash
-pip install hypergan
-```
-
-### Training
-
-```bash
-  # Train a 32x32 gan with batch size 32 on a folder of pngs
-  hypergan train [folder] -s 32x32x3 -b 32 --config [name]
-```
-
-### Sampling
-
-```bash
-  hypergan sample [folder] -s 32x32x3 -b 32 --config [name] --sampler batch_walk --save_samples
-```
-
-By default hypergan will not save training samples to disk. To change this, use `--save_samples`.
-
-### Additional Arguments
-
-To see a detailed list, run
-
-```bash
-  hypergan -h
-```
-
-### Running on CPU
-
-You can switch the backend with:
-
-```bash
-  hypergan [...] -B cpu
-```
-
-Don't train on CPU! It's too slow.
-
-### Troubleshooting
-
-Make sure that your cuda, nvidia drivers, pillow, pytorch, and pytorch vision are the latest version.
-
-Check the discord for help.
-
-### Development mode
-
-If you wish to modify hypergan
-
-```bash
-git clone https://github.com/hypergan/hypergan
-cd hypergan
-python3 setup.py develop
-```
-
-Make sure to `pip3 uninstall hypergan` to avoid version conflicts.
-
-## Datasets
-
-To build a new network you need a dataset.
-
-### Creating a Dataset
-
-Datasets in HyperGAN are meant to be simple to create. Just use a folder of images. Nested folders work too.
-
-### Cleaning up data
-
-HyperGAN is built to be resilient to all types of unclean data. By default images are resized then cropped if necessary.
-
-See `--nocrop`, `--random_crop` and `--resize` for additional image scaling options.
-
-## Features
-
-A list of features in the 1.0 release:
-
-* API
-* CLI
-* Viewer - an electron app to explore and create models
-* Cross platform - Windows, OSX, Linux
-* Inference - Add AI content generation to your project
-* Training - Train custom models using accelerated parallel training backends
-* Sharing - Share built models with each other. Use them in python projects as hypergan models, or in any project as onxx models
-* Customizable - Define custom architectures in the json, or replace any component with your own pytorch creation
-* Data - Built to work on unclean data and multiple data types
-* Unsupervised learning
-* Unsupervised alignment - Align one distribution to another or discover new novel distributions.
-* Transfer learning
-* Online learning
-
-## Showcase
-
-### 1.0 models are still training
-
-Submit your showcase with a pull request!
-
-For more, see the \#showcase room in [![Discord](https://img.shields.io/badge/discord-join%20chat-brightgreen.svg)](https://discord.gg/t4WWBPF)
-
-## Sponsors
-
-We are now accepting financial sponsors. Sponsor to (optionally) be listed here.
-
-https://github.com/sponsors/hypergan
-
-## Contributing
-
-Contributions are welcome and appreciated! We have many open issues in the _Issues_ tab. Join the discord.
-
-See [how to contribute.](./)
-
-## Versioning
-
-HyperGAN uses semantic versioning. [http://semver.org/](http://semver.org/)
-
-TLDR: _x.y.z_
-
-* _x_ is incremented on stable public releases.
-* _y_ is incremented on API breaking changes.  This includes configuration file changes and graph construction changes.
-* _z_ is incremented on non-API breaking changes.  _z_ changes will be able to reload a saved graph.
-
-## Citation
-
-```text
-  HyperGAN Community
-  HyperGAN, (2016-2020+), 
-  GitHub repository, 
-  https://github.com/HyperGAN/HyperGAN
-```
-
-HyperGAN comes with no warranty or support.
-
+Work is coordinated through [the execution ledger](reports/resurrection-status.md), [resurrection plan](reports/resurrecting-hypergan-plan-2026-09-18.md), and PRs targeting `develop`. No paid compute is needed for the foundation checkpoint.

@@ -1,78 +1,11 @@
-# Thank you for contributing!
+# Contributing
 
+The next HyperGAN release integrates on `develop`. Read [the execution ledger](reports/resurrection-status.md) and [AGENTS.md](AGENTS.md) before starting work. Create a short-lived branch from current develop and target your pull request at develop.
 
-First, join our discord to connect with the hypergan community.
+Keep PRs focused on a working user outcome or a bounded correctness improvement. Describe the behavior changed, relevant validation and remaining limits. Passing required CI and coordinator review are required before integration. Use separate worktrees outside the repository for parallel agent work.
 
-There are many opportunities to help:
+Recipe configuration supports custom Python components. Document each component's inputs, outputs, parameters and numerical assumptions. Unknown configurations should receive an honest qualification warning; invalid inputs and unsupported capabilities must fail clearly. Do not silently ignore parameters, replace components, or imply a successful run demonstrates image quality or distributed correctness.
 
-* Share a trained model/json configuration
-* Suggest improvements
-* Answer an issue
-* Help out in the support channel
-* Become a developer
-* Implement a paper.  There is a huge list of GANs left to implement: https://github.com/GKalliatakis/Delving-deep-into-GANs
-* Create an API example.  Warning: this can be fun.
-* Contribute a screenshot, _gif_ or video of your trained network and share it in the discord
-* Search for and _share_ good GAN configurations (examples are searchable)
-* Do your own custom research.  Warning: this is addictive.
-* Become a community manager
+Research enters the qualified catalog only after reproducible evidence and product validation. See the research-admission criteria in the plan. Historical implementations remain accessible through archive tags; avoid reintroducing the legacy catalog or its dependencies wholesale.
 
-GANs are very interesting and we welcome and encourage anyone wanting to explore them.
-
-## Requesting a feature
-
-Open an issue describing the feature and a little bit about why you want it.  Include a link to a paper if applicable.
-
-## Adding a feature
-
-Wow you rock - simply send a pull request!  Any work contributed will be under the MIT license so everyone can share in the results.
-
-## Filing a bug
-
-Create a new issue.  Please try to keep your titles short and describe how to reproduce the problem if applicable.
-
-## Answering an issue
-
-We have a lot of issues open if anyone can help answer them.
-Send a note to hypergan in the discord if you are able to help close any issue.
-
-## Sharing a network or samples
-
-Create a pull request.  Warning: there is a file size github limit on gifs. 
-
-## Adding documentation
-
-Thank you!  Issue a pull request
-
-## Project vision
-
-HyperGAN is a community project and it's utility is determined by the community
-
-### Developer goals:
-
-We foresee developers training models on bleeding edge consumer hardware, then deploying a generator or discriminator to various platforms(phones, tablets, servers, smart toasters).  
-
-HyperGAN hopes to make that *easy* and *highly configurable* to do with the API, CLI, and UI.
-
-### Artist goals:
-
-Artists may use GANs to generate paintings, align datasets, or things we cant think of (they are very creative people).  
-
-HyperGAN can help artists by being *simple* to use through the command line and providing a ui.
-
-### Researcher goals:
-
-Researchers may find it useful to compose various parts of different papers to test concepts or add new composable types.  
-
-HyperGAN can help researchers by being *sharable* (and reproducible) using `json` configurations.
-
-## Current state
-
-HyperGAN is in open beta and available to everyone under the MIT license.
-
-GANs are an active area of research and things will likely shift to best accomodate the state of the art.
-
-
-## Contact
-
-Email can be sent to hypergan@protonmail.com
+Use a fresh environment and run the installation, configuration and reference tests specified by the current CI workflow. Lightweight commands must work without the training dependencies. CPU tests precede local GPU qualification; paid cluster checks are deliberately scheduled and are not automatic PR jobs.

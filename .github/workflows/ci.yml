@@ -118,6 +118,11 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Verify reproducible offline chart bundle
+        if: runner.os == 'Linux'
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run check
       - name: Build and install optional viewer
         run: |
           python -m pip install "build>=1,<2" "httpx>=0.28,<0.29"

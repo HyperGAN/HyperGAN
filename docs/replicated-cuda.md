@@ -1,8 +1,10 @@
 # Internal replicated CUDA training
 
+The [public execution guide](execution.md) documents `train --profile cuda-replicated-nccl` and profile-inferred `resume`. The internal adapter APIs and numerical evidence below also support these commands.
+
 The internal replicated run service supports fixed local CUDA ranks with NCCL. Each rank owns one visible GPU: rank zero uses `cuda:0`, rank one uses `cuda:1`, and so on. The recipe must use `training.device="cuda"`; an indexed device is a native single-GPU choice and is rejected for this profile. `CUDA_VISIBLE_DEVICES` may select and order the devices before launch. The fixed mapping and GPU UUIDs become part of strict recovery identity.
 
-Public `hypergan train` and `hypergan resume` still use native single-process execution. Use this internal API from an importable Python script with a guarded entry point:
+Public `hypergan train` selects this strategy with `--profile cuda-replicated-nccl`; `hypergan resume` infers its saved execution identity. The lower-level internal API remains available from an importable Python script with a guarded entry point:
 
 ```python
 from pathlib import Path
@@ -46,4 +48,4 @@ Checkpoints stage complete rank state as CPU tensors, including models, Adam, EM
 
 Checkpoint transport still gathers bounded serialized payloads at rank zero. NCCL stages those bytes through GPUs; the 256 MiB per-rank and metadata caps are rejection limits, not reserved memory. This is not a sharded checkpoint system or a multi-host storage protocol. Preview snapshots are copied to CPU and rendered without a process group; supported inference bundles remain CPU-loadable. Custom CUDA-only operators need their own compatible inference path.
 
-The explicit `tests/cuda` gate requires two GPUs and never substitutes CPU or skips missing hardware. See the [execution ledger](../reports/resurrection-status.md) for the exact qualified fixtures and validation results. Successful synthetic GAN updates and recovery do not establish image quality, throughput, arbitrary component determinism, real clusters or release readiness. Public profile routing and bounded CLI output are the next integration gate; actual two-host testing requires a concrete agreed allocation.
+The explicit `tests/cuda` gate requires two GPUs and never substitutes CPU or skips missing hardware. See the [execution ledger](../reports/resurrection-status.md) for the exact qualified fixtures and validation results. Successful synthetic GAN updates and recovery do not establish image quality, throughput, arbitrary component determinism, real clusters or release readiness. Actual two-host testing requires a concrete agreed allocation.

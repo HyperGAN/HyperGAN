@@ -35,7 +35,7 @@ hypergan inspect runs/demo
 hypergan sample runs/demo --count 16 --seed 42 --output samples.json
 ```
 
-`hypergan new demo` writes `training.device="cuda"`. Select another visible GPU with `hypergan new demo-gpu1 --device cuda:1`. Training requires that device and fails with installation/device guidance if it is unavailable; it does not silently fall back to CPU. The native CLI path uses one GPU per run. Developers can use the [internal replicated CUDA service](docs/replicated-cuda.md) for fixed local GPU training and recovery; public distributed commands and real clusters remain upcoming gates.
+`hypergan new demo` writes `training.device="cuda"`. Select another visible GPU with `hypergan new demo-gpu1 --device cuda:1`. Training requires that device and fails with installation/device guidance if it is unavailable; it does not silently fall back to CPU. The native CLI path uses one GPU per run. Use `--profile cuda-replicated-nccl` for supervised training on the two visible local GPUs; `resume` infers that saved profile. See [public execution profiles](docs/execution.md) for accumulation, mutable service deadlines and explicit CPU fixtures. Actual multi-host qualification remains a separate gate.
 
 For a CPU correctness fixture, install the CPU PyTorch wheel instead (`--index-url https://download.pytorch.org/whl/cpu`) and create the project with `hypergan new cpu-demo --device cpu`.
 

@@ -767,7 +767,8 @@ function render() {
       series.push({
         name,
         type: "line",
-        showSymbol: false,
+        showSymbol: raw.filter(point => point[1] !== null).length === 1,
+        symbolSize: 6,
         connectNulls: false,
         data: raw,
         lineStyle: { width: alpha ? 1 : 1.7, opacity: alpha ? 0.35 : 1 },
@@ -778,7 +779,8 @@ function render() {
         series.push({
           name: `${name} · EMA`,
           type: "line",
-          showSymbol: false,
+          showSymbol: smooth.filter(point => point[1] !== null).length === 1,
+          symbolSize: 6,
           data: smooth,
           lineStyle: { width: 2 },
           itemStyle: { color: colors[index % colors.length] },

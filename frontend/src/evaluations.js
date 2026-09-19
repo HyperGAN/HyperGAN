@@ -64,7 +64,11 @@ function showResult(card, event, catalog, path) {
   link.href = `/api/v1${path}`; link.target = '_blank'; link.rel = 'noopener';
   card.append(link);
   if (failed) {
-    card.append(node('p', event.measurement_status?.[id]?.reason || 'Evaluation failed', 'evaluation-failure'));
+    card.append(node('p', 'The evaluator did not complete.', 'evaluation-failure'));
+    const failure = node('details');
+    failure.append(node('summary', 'Failure details'));
+    failure.append(node('pre', event.measurement_status?.[id]?.reason || 'Evaluation failed', 'numeric-preview'));
+    card.append(failure);
   } else {
     if (!known || !Number.isSafeInteger(event.step) || event.step < 0) throw new Error('Complete evaluation needs a known source step');
     const value = definition.kind === 'histogram' ? event.distributions?.[id] : event.metrics?.[id];

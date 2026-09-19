@@ -24,14 +24,19 @@ MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
 
 class _BoundedWriter:
     def __init__(self, stream):
-        self.stream, self.size = stream, 0
+        self.stream, self.size, self.error = stream, 0, None
 
     def write(self, data):
-        if self.size + len(data) > MAX_SNAPSHOT_BYTES:
-            raise ValueError(f'Preview snapshot exceeds {MAX_SNAPSHOT_BYTES} bytes')
-        count = self.stream.write(data)
-        self.size += count
-        return count
+        try:
+            if self.size + (data.nbytes if isinstance(data, memoryview) else len(data)) > MAX_SNAPSHOT_BYTES:
+                raise ValueError(f'Preview snapshot exceeds {MAX_SNAPSHOT_BYTES} bytes')
+            count = self.stream.write(data)
+            self.size += count
+            return count
+        except BaseException as error:
+            if self.error is None:
+                self.error = error
+            raise
 
     def flush(self):
         self.stream.flush()
@@ -79,7 +84,15 @@ def capture_snapshot(trainer, batch, identity, path):
         _portable(state)
         path = Path(path)
         with path.open('xb') as output:
-            torch.save(state, _BoundedWriter(output))
+            writer = _BoundedWriter(output)
+            try:
+                torch.save(state, writer)
+            except BaseException as error:
+                # Torch's ZIP finalizer can replace an original failed write
+                # with an unrelated offset error; retain the actual byte/I/O cause.
+                if writer.error is not None:
+                    raise writer.error from error
+                raise
             output.flush()
             os.fsync(output.fileno())
         return {'bytes': path.stat().st_size, 'sha256': _sha256(path)}

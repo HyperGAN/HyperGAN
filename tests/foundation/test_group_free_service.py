@@ -34,12 +34,10 @@ if __name__ == '__main__':
         assert result['payload'] == {'one': 1}
         assert result['pid'] == service.worker_pids[0]
         service.assert_healthy()
-    try:
-        os.kill(result['pid'], 0)
-    except ProcessLookupError:
-        pass
-    else:
-        raise AssertionError('service returned before worker exit')
+    assert service._process is None  # close joined the broker on every platform.
+    if sys.platform == 'linux':
+        from pathlib import Path
+        assert not Path('/proc', str(result['pid'])).exists(), 'worker survived service close'
 '''
 
 

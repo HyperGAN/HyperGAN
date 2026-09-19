@@ -1,0 +1,88 @@
+name: Foundation CI
+
+on:
+  push:
+    branches: [develop, master, "resurrection/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foundation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lightweight:
+    name: Lightweight (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install "build>=1,<2"
+          python -m build
+      - name: Install the wheel with only test dependencies
+        run: python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[test]'])"
+      - name: Verify clean lightweight environment
+        working-directory: ${{ runner.temp }}
+        run: python -I -c "import importlib.util; assert importlib.util.find_spec('torch') is None; assert importlib.util.find_spec('particlegan') is None"
+      - name: Test installed package outside checkout
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pytest "${{ github.workspace }}/tests/foundation" --import-mode=importlib
+      - name: Verify source distribution rebuild
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib
+          import tarfile
+          with tarfile.open(next(pathlib.Path('dist').glob('*.tar.gz'))) as archive:
+              for name in archive.getnames():
+                  parts = pathlib.PurePosixPath(name).parts[1:]
+                  assert not any(part in {'needs_pytorch', 'worktrees'} for part in parts), name
+                  assert not parts or parts[0] not in {'hypergan', 'docs'}, name
+                  if parts and parts[0] == 'tests' and len(parts) > 1:
+                      assert parts[1] in {'foundation', 'reference'}, name
+          PY
+          python -c "import pathlib, subprocess, sys; source = next(pathlib.Path('dist').glob('*.tar.gz')); subprocess.check_call([sys.executable, '-m', 'pip', 'wheel', '--no-deps', '--wheel-dir', 'rebuilt', str(source)])"
+
+  reference:
+    name: CPU reference (Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install tested CPU runtime and build
+        run: |
+          python -m pip install "build>=1,<2"
+          python -m pip install "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
+          python -m build
+          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,test]'])"
+      - name: Test numerical reference outside checkout
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pytest "${{ github.workspace }}/tests/reference" --import-mode=importlib
+
+  foundation:
+    name: Foundation CI
+    if: always()
+    needs: [lightweight, reference]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every foundation job
+        env:
+          LIGHTWEIGHT_RESULT: ${{ needs.lightweight.result }}
+          REFERENCE_RESULT: ${{ needs.reference.result }}
+        run: |
+          test "$LIGHTWEIGHT_RESULT" = success
+          test "$REFERENCE_RESULT" = success

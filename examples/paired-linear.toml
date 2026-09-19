@@ -1,0 +1,57 @@
+# Synthetic paired-input contract test, not a qualified image recipe.
+schema_version = 1
+name = "custom/paired-linear"
+
+[data]
+factory = "paired_linear"
+[data.args]
+dimensions = 2
+scale = 2.0
+offset = 0.25
+
+# Optional encoder and any other named auxiliaries are ordinary modules.
+# Trainable auxiliaries belong to the generator optimizer and matched EMA.
+[components.encoder]
+factory = "linear"
+inputs = { input = "batch.condition" }
+[components.encoder.args]
+in_features = 2
+out_features = 2
+
+[components.generator]
+factory = "mlp"
+inputs = { x = "latent", condition = "components.encoder" }
+[components.generator.args]
+input_dim = 6
+output_dim = 2
+hidden = [16, 16]
+
+[components.discriminator]
+factory = "mlp"
+inputs = { x = "candidate", condition = "batch.condition" }
+[components.discriminator.args]
+input_dim = 4
+output_dim = 1
+hidden = [16, 16]
+
+[[objectives]]
+factory = "mse"
+inputs = { input = "generated", target = "batch.real" }
+weight = 1.0
+detach = ["target"]
+
+[prior]
+kind = "particles"
+[prior.args]
+num_particles = 64
+z_dim = 4
+
+[training]
+steps = 5
+batch_size = 8
+seed = 42
+device = "cpu"
+
+[sampling]
+count = 8
+seed = 123

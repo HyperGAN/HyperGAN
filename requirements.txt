@@ -1,9 +1,0 @@
-hyperchamber==0.3.1
-inflection
-numpy
-pillow
-psutil
-pyparsing
-torch
-torchvision
-semantic_version

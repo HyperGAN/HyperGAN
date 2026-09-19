@@ -1,1 +1,8 @@
-recursive-include hypergan/configurations *.json
+prune hypergan
+prune docs
+prune examples
+include examples/paired-linear.toml
+prune worktrees
+prune tests
+recursive-include tests/foundation *.py
+recursive-include tests/reference *.py

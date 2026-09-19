@@ -24,7 +24,7 @@ from particlegan import GANLoss, GradientPenalty, ParticleRegularizer, learning_
 from .config import config_values, fingerprint, load_config, resolve_config
 from .recipes import ComponentGraph, construct, detach, make_prior
 from .checkpoints import capture_rng, restore_rng, data_contract, read_checkpoint, restore_trainer, write_checkpoint
-from .run_state import atomic_json, repair_event_tail, run_lock
+from .run_state import atomic_json, repair_event_tail, run_lock, sync_directory
 
 
 @torch.no_grad()
@@ -232,6 +232,7 @@ def _new_attempt(run_dir):
     identity = f'{index:04d}-{uuid.uuid4().hex}'
     path = root / identity
     path.mkdir()
+    sync_directory(root)
     return index, identity, path
 
 
@@ -399,6 +400,7 @@ def _execute(config, run_dir, manifest, checkpoint_every, max_seconds, stop_afte
             from .artifacts import save_bundle, sample
             bundle_dir = attempt_dir / 'inference'
             bundle_dir.mkdir()
+            sync_directory(attempt_dir)
             trainer.artifact_identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
                                          'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence']}
             manifest['next_sample_sequence'] += 1

@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 import torch
 
-from hypergan.artifacts import sample
-from hypergan.config import write_default
+from hypergan.artifacts import sample, save_bundle
+from hypergan.config import resolve_config, write_default
 
 
 def cli(tmp_path, *args):
@@ -68,6 +68,31 @@ def test_sampling_preserves_global_rng_and_existing_outputs(tmp_path):
     assert not list(run.glob(".sample-*.tmp"))
 
 
+class BufferedGenerator(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = torch.nn.Linear(4, 2)
+        self.register_buffer("offset", torch.zeros(2), persistent=False)
+
+    def forward(self, x):
+        return self.linear(x) + self.offset
+
+
+def test_inference_restores_nonpersistent_registered_buffers(tmp_path):
+    from hypergan.training import ReferenceTrainer
+    config = resolve_config({})
+    config["components"]["generator"].update(factory=f"{__name__}:BufferedGenerator", args={})
+    trainer = ReferenceTrainer(config)
+    trainer.ema_graph.models["generator"].offset.copy_(torch.tensor([5., 7.]))
+    save_bundle(tmp_path, trainer, {"real": torch.zeros(16, 2)})
+    with torch.inference_mode():
+        z, _ = trainer.ema_prior.sample(3, generator=torch.Generator().manual_seed(42))
+        expected = trainer.ema_graph.generate(z, {})["generated"]
+    output = sample(tmp_path, count=3, seed=42)
+    actual = torch.tensor(json.loads(output.read_text())["samples"])
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
 def test_progress_is_observable_before_process_completion(tmp_path):
     config = write_default(tmp_path / "project")
     run = tmp_path / "run"
@@ -101,4 +126,3 @@ def test_progress_is_observable_before_process_completion(tmp_path):
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=10)
-

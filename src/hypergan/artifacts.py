@@ -12,6 +12,7 @@ import torch
 
 from .config import config_values, resolve_config
 from .recipes import ComponentGraph, make_prior
+from .run_state import sync_directory
 
 
 def save_bundle(run_dir, trainer, batch):
@@ -31,11 +32,24 @@ def save_bundle(run_dir, trainer, batch):
     needed = {path.split(".")[1] for spec in specs.values() for path in spec["inputs"].values() if path.startswith("batch.")}
     state = {"schema_version": 1, "kind": "ema-inference", "resume_supported": False, "step": trainer.step, "config": config_values(trainer.config), "components": specs, "model_states": {name: trainer.ema_graph.models[name].state_dict() for name in specs}, "prior": trainer.ema_prior.state_dict(), "example_inputs": {k: v for k, v in batch.items() if k in needed}}
     state["identity"] = getattr(trainer, "artifact_identity", {})
+    # state_dict deliberately omits nonpersistent buffers; custom inference
+    # modules can still use these values in their forward pass.
+    state["model_buffers"] = {name: dict(trainer.ema_graph.models[name].named_buffers()) for name in specs}
+    state["prior_buffers"] = dict(trainer.ema_prior.named_buffers())
     temporary = run_dir / "model.pt.tmp"
-    torch.save(state, temporary)
+    with temporary.open("wb") as stream:
+        torch.save(state, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
     temporary.replace(run_dir / "model.pt")
     digest = hashlib.sha256((run_dir / "model.pt").read_bytes()).hexdigest()
-    (run_dir / "model.sha256").write_text(digest + "\n")
+    checksum = run_dir / "model.sha256.tmp"
+    with checksum.open("w", encoding="utf-8") as stream:
+        stream.write(digest + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    checksum.replace(run_dir / "model.sha256")
+    sync_directory(run_dir)
 
 
 def sample(run_dir, count=16, seed=42, output=None, *, inputs=None):
@@ -85,8 +99,12 @@ def _sample(run_dir, count, seed, output, *, inputs):
     graph = ComponentGraph(state["components"]).float().eval().requires_grad_(False)
     for name, weights in state["model_states"].items():
         graph.models[name].load_state_dict(weights)
+        if "model_buffers" in state:
+            _restore_buffers(graph.models[name], state["model_buffers"].get(name))
     prior = make_prior(config["prior"]).float().eval().requires_grad_(False)
     prior.load_state_dict(state["prior"])
+    if "prior_buffers" in state:
+        _restore_buffers(prior, state["prior_buffers"])
     supplied = inputs is not None
     batch = state["example_inputs"] if inputs is None else inputs
     if not isinstance(batch, dict):
@@ -121,6 +139,19 @@ def _sample(run_dir, count, seed, output, *, inputs):
             os.fsync(stream.fileno())
         # Hard-link publication is atomic and refuses an existing destination.
         os.link(temporary, output)
+        sync_directory(output.parent)
     finally:
         os.unlink(temporary)
     return output
+
+
+def _restore_buffers(module, saved):
+    buffers = dict(module.named_buffers())
+    if not isinstance(saved, dict) or set(saved) != set(buffers):
+        raise ValueError("Inference buffer inventory differs from the saved component")
+    with torch.no_grad():
+        for name, target in buffers.items():
+            value = saved[name]
+            if not isinstance(value, torch.Tensor) or value.shape != target.shape or value.dtype != target.dtype:
+                raise ValueError(f"Incompatible inference buffer: {name}")
+            target.copy_(value)

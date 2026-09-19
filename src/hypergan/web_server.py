@@ -18,6 +18,13 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         from starlette.routing import Route
     except ImportError as exc:
         raise RuntimeError('Local serving requires hypergan[web]') from exc
+    class ClosingStream(StreamingResponse):
+        async def __call__(self, scope, receive, send):
+            try:
+                return await super().__call__(scope, receive, send)
+            finally:
+                await self.body_iterator.aclose()
+
     service = ObservationService(run_dir, poll_seconds=poll_seconds, history_timeout=history_timeout)
 
     @asynccontextmanager
@@ -124,7 +131,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         if cursor is not None:
             from .web_service import cursor_offset
             cursor_offset(cursor)
-        return StreamingResponse(service.events(stream_id, cursor), media_type='text/event-stream',
+        return ClosingStream(service.events(stream_id, cursor), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
     async def artifacts(request):
@@ -206,7 +213,14 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
                                     (b'content-security-policy', b"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; frame-ancestors 'none'"),
                                     (b'cache-control', b'no-store')])
                     message = dict(message, headers=headers)
-                await send(message)
+                if message['type'] == 'http.response.body' and scope['path'].endswith('/stream'):
+                    import asyncio
+                    try:
+                        await asyncio.wait_for(send(message), timeout=5)
+                    except asyncio.TimeoutError as exc:
+                        raise OSError('Stream client exceeded the send deadline') from exc
+                else:
+                    await send(message)
             return await app(scope, receive, secure_send)
     return AuthenticatedApp()
 

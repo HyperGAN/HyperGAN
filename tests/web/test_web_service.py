@@ -418,3 +418,32 @@ def test_bootstrap_request_driven_freshness_and_pending_coalescing(tmp_path):
         finally:
             await service.close()
     asyncio.run(scenario())
+
+
+def test_blocked_asgi_send_closes_subscription(tmp_path):
+    fixture_run(tmp_path, 1)
+    async def scenario():
+        from starlette.requests import ClientDisconnect
+        session = LocalSession(8123)
+        session.write_credentials(tmp_path / 'session.json')
+        token = json.loads((tmp_path / 'session.json').read_bytes())['token']
+        app = create_app(tmp_path, session, poll_seconds=.01)
+        await app.state.observations.start()
+        scope = {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'},
+                 'http_version': '1.1', 'method': 'GET', 'scheme': 'http',
+                 'path': '/api/v1/stream', 'raw_path': b'/api/v1/stream', 'query_string': b'',
+                 'headers': [(b'host', session.host.encode()), (b'authorization', ('Bearer ' + token).encode())],
+                 'server': ('127.0.0.1', 8123), 'client': ('127.0.0.1', 9999), 'root_path': ''}
+        async def receive():
+            await asyncio.sleep(60)
+            return {'type': 'http.disconnect'}
+        async def send(message):
+            if message['type'] == 'http.response.body':
+                await asyncio.sleep(60)
+        try:
+            with pytest.raises(ClientDisconnect):
+                await asyncio.wait_for(app(scope, receive, send), 10)
+            assert not app.state.observations.subscribers
+        finally:
+            await app.state.observations.close()
+    asyncio.run(scenario())

@@ -73,7 +73,9 @@ attempts, eight cached/pending history jobs with one reducer job active, 32 sele
 metrics and 2048 grouped states per bootstrap. Responses cap bootstrap state at
 1 MiB; history jobs have a 180-second runtime budget, reported in capabilities.
 The limit can be set explicitly when constructing the server. A slow subscriber receives a
-visible gap and disconnects instead of delaying training. Increase bucket size or
+visible gap and disconnects instead of delaying training. A five-second ASGI send
+deadline also closes a socket consumer that stops reading before it can receive
+the gap; cleanup removes its subscription. Increase bucket size or
 narrow step bounds if a requested view exceeds its state budget. Excessive replay
 requires a refreshed bootstrap or explicit raw-page reads. These finite limits are
 v1 policy, not claims of arbitrary experiment scale.

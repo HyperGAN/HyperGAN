@@ -32,11 +32,11 @@ stale covered history. No update-driven reduction occurs on the server.
 The local test suite covers authenticated API/catalog/pages, Host/Origin rejection,
 private credentials, actual CLI process startup/SIGTERM cleanup, real uvicorn SSE
 continuation, fixed historical H followed by live frames, two identical viewers,
-slow-consumer bounds, corruption, old-checkpoint lineage, future projection and
+slow-consumer queue and blocked-network-send bounds, corruption, old-checkpoint lineage, future projection and
 evaluation stream discovery, pending-run activation, safe artifact access and
 request-driven cache freshness. Custom map execution is monkeypatched to fail in
 HTTP tests; live reduction is likewise forbidden after bootstrap in the fanout
-fixture. At this checkpoint **12 web tests pass**, plus the five preview publication
+fixture. At this checkpoint **13 web tests pass**, plus the five preview publication
 fault fixtures and 70 combined web/projection/source-reader cases at the prior
 intermediate checkpoint. Final installed-package and platform CI results belong
 in the coordinator integration receipt.

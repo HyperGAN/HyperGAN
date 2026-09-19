@@ -46,6 +46,22 @@ PYTHONPATH=src /tmp/hypergan-public-coordinator-cpu/bin/python -m pytest \
   tests/foundation/test_bounded_cli_output.py -q
 ```
 
+The nine focused tests passed in 6.11 seconds. A fresh wheel rebuilt through
+its source distribution at `e55677ec6463686c906bf3e25cff827532cdd437` passed the
+complete installed foundation suite: **355 passed in 17.49 seconds**, with no
+skips and no numerical extras installed:
+
+```sh
+/tmp/hypergan-public-output-verify/bin/python -I -m pytest \
+  /home/martyn/dev/hypergan/public-bounded-output/tests/foundation \
+  --import-mode=importlib -q
+```
+
+[PR #328](https://github.com/HyperGAN/HyperGAN/pull/328) targets `develop`.
+Build/test logs are `/tmp/hypergan-public-output-build.log` and
+`/tmp/hypergan-public-output-installed-tests.log`; the coordinator retains the
+integrated durable receipt and exact-head required CI results.
+
 Nine lightweight tests cover actual unread, closed and slowly read stdout/stderr
 pipes; native and inherited subprocess diagnostic forwarding; complete normal
 JSON/JSONL results; oversized result fallback; parent-death cleanup; memory

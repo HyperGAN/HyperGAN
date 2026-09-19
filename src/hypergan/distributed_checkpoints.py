@@ -1,9 +1,10 @@
-"""Complete fixed-topology CPU/Gloo checkpoints, with rank-zero publication.
+"""Complete fixed-topology CPU/Gloo checkpoints with separate preparation.
 
 All ranks call each API in the same order, on a finite-timeout default Gloo group.
-The caller owns worker supervision and a rank-zero run lock for the job lifetime.
-This format is distinct from single-process checkpoints. All rank state is staged
-before a final readiness collective permits publication. A disconnect after commit
+New services hold the lock in the parent, prepare on workers and publish through
+a parent-only authority. The compatibility save API retains rank-zero publication
+under its caller-owned lock. This format is distinct from single-process checkpoints.
+All rank state is staged before a final readiness collective. A disconnect after commit
 can report failure while leaving a valid complete generation; no protocol can make
 filesystem commit and continued worker liveness one atomic operation.
 """
@@ -28,6 +29,8 @@ from .checkpoints import capture_rng, file_sha256, restore_rng, restore_trainer,
 from .config import config_values, fingerprint
 from .run_state import atomic_json, sync_directory
 from .training import _implementation, _recovery_contract, runtime_info
+from .distributed_commit import (make_prepared_receipt, preparation_directory, validate_fence,
+                                 _validate_prepared, _publish)
 
 SCHEMA = 1
 KIND = 'hypergan-distributed-training-checkpoint'
@@ -48,6 +51,12 @@ def _group():
 
 def _json(value):
     return json.loads(json.dumps(value, sort_keys=True, allow_nan=False))
+
+
+def _same_json(left, right):
+    # Python container equality aliases True/1 and 1/1.0. Recovery identity and
+    # all-rank descriptors require exact JSON value types as well as values.
+    return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(right, sort_keys=True, allow_nan=False)
 
 
 def _agree(operation, value=None, error=None):
@@ -122,6 +131,8 @@ def _distributed_checkpoint_identity(trainer):
         implementation[module.__name__] = file_sha256(path)
     import hypergan.distributed
     implementation['hypergan.distributed'] = file_sha256(hypergan.distributed.__file__)
+    import hypergan.distributed_commit
+    implementation['hypergan.distributed_commit'] = file_sha256(hypergan.distributed_commit.__file__)
     runtime = runtime_info()
     runtime.update(world_size=world_size, backend='gloo', threads=torch.get_num_threads(),
                    interop_threads=torch.get_num_interop_threads())
@@ -187,11 +198,42 @@ def _root(run_dir):
 
 
 def save_distributed_checkpoint(run_dir, trainer, last_batch, metadata):
-    """Collect every complete rank state, then publish one immutable generation.
+    """Compatibility API: prepare on every rank, then publish from rank zero.
+
+    This standalone path still requires the legacy rank-zero run lock. New parent
+    services must call prepare_distributed_checkpoint and use their parent-owned
+    CheckpointCommitAuthority instead; this API is not a worker service command.
+    """
+    rank, _ = _group()
+    controller = [uuid.uuid4().hex if rank == 0 else None]
+    dist.broadcast_object_list(controller, src=0)
+    receipt = prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata,
+                                            command_sequence=1, controller_id=controller[0])
+    result = [None]
+    if rank == 0:
+        try:
+            staging, target, info = _validate_prepared(run_dir, receipt,
+                run_id=metadata['run_id'], attempt_id=metadata['attempt_id'],
+                controller_id=controller[0], command_sequence=1,
+                identity=distributed_checkpoint_identity(trainer))
+            path = _publish(staging, target, info)
+            result[0] = {'path': str(path), 'error': None}
+        except Exception as exc:
+            result[0] = {'path': None, 'error': f'{type(exc).__name__}: {exc}'}
+    dist.broadcast_object_list(result, src=0)
+    if result[0]['error']:
+        raise ValueError('Distributed checkpoint publication failed: ' + result[0]['error'])
+    return Path(result[0]['path'])
+
+
+def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, command_sequence, controller_id):
+    """Stage every complete rank state without publishing a generation or latest pointer.
 
     Each payload is capped at 256 MiB; rank zero holds O(world_size * rank_bytes)
     memory. Trusted-worker object collectives are used for this CPU correctness
-    path, not a scalable/sharded checkpoint transport. Caller owns the run lock.
+    path, not a scalable/sharded checkpoint transport. The parent owns run_lock.
+    Return only a bounded receipt; its presence is not proof that a supervised
+    command completed on every worker. A parent authority publishes separately.
     """
     rank, world_size = _group()
     rng = capture_rng()
@@ -200,6 +242,9 @@ def save_distributed_checkpoint(run_dir, trainer, last_batch, metadata):
         error, descriptor, payload = None, None, None
         try:
             root = _root(run_dir)
+            validate_fence(controller_id, command_sequence)
+            if world_size > 64:
+                raise ValueError('Prepared CPU checkpoints support at most 64 ranks')
             if getattr(trainer, 'checkpoint_ready', False) is not True:
                 raise ValueError('Trainer is not at a complete update boundary; half/failed updates cannot be checkpointed')
             lineage = _metadata(metadata)
@@ -210,24 +255,23 @@ def save_distributed_checkpoint(run_dir, trainer, last_batch, metadata):
             _digest(state)  # All rank-local tensors must follow the CPU state contract too.
             payload = _serialize(state)
             descriptor = {'root': str(root), 'lineage': lineage, 'identity': identity,
+                          'controller_id': controller_id, 'command_sequence': command_sequence,
                           'step': trainer.step, 'replicated_sha256': _shared_digest(state)}
             if len(json.dumps(descriptor, allow_nan=False).encode()) > MAX_METADATA_BYTES:
                 raise ValueError('Distributed checkpoint metadata exceeds its byte bound')
         except Exception as exc:
             error = f'{type(exc).__name__}: {exc}'
-        peers = _agree('save:prepare', descriptor, error)
-        if any(peer != peers[0] for peer in peers):
+        peers = _agree('prepare:collect', descriptor, error)
+        if any(not _same_json(peer, peers[0]) for peer in peers):
             raise ValueError('Ranks disagree on checkpoint step, lineage, config/runtime/source/data/topology or replicated numerical state')
         payloads = [None] * world_size if rank == 0 else None
         dist.gather_object(payload, object_gather_list=payloads, dst=0)
-        error, target = None, None
+        error, receipt = None, None
         if rank == 0:
             try:
-                root.mkdir(exist_ok=True)
-                sync_directory(root.parent)
-                name = f"{lineage['attempt_id']}-step-{trainer.step:08d}-{uuid.uuid4().hex[:12]}"
-                temporary, target = root / ('.pending-' + name), root / name
-                temporary.mkdir()
+                nonce = uuid.uuid4().hex[:12]
+                temporary = preparation_directory(run_dir, lineage['attempt_id'], controller_id,
+                                                  command_sequence, nonce, create=True)
                 records = []
                 for index, rank_payload in enumerate(payloads):
                     if not isinstance(rank_payload, bytes) or len(rank_payload) > MAX_RANK_BYTES:
@@ -248,25 +292,17 @@ def save_distributed_checkpoint(run_dir, trainer, last_batch, metadata):
                     raise ValueError('Distributed checkpoint metadata exceeds its byte bound')
                 atomic_json(temporary / 'manifest.json', info)
                 sync_directory(temporary)
+                receipt = make_prepared_receipt(run_dir, temporary, info, controller_id=controller_id,
+                                                command_sequence=command_sequence, nonce=nonce)
             except Exception as exc:
                 error = f'{type(exc).__name__}: {exc}'
-        # Rank loss during snapshot transfer/staging must prevent latest publication.
-        _agree('save:staged', error=error)
-        result = [None]
-        if rank == 0:
-            try:
-                temporary.rename(target)
-                temporary = None
-                sync_directory(root)
-                atomic_json(root / 'latest.json', {'schema_version': SCHEMA, 'kind': KIND,
-                                                   'checkpoint': target.name, 'step': trainer.step})
-                result[0] = {'path': str(target), 'error': None}
-            except Exception as exc:
-                result[0] = {'path': None, 'error': f'{type(exc).__name__}: {exc}'}
+        # Missing ranks must prevent the receipt from becoming a successful
+        # all-rank command result. No worker in this API publishes canonical state.
+        _agree('prepare:staged', error=error)
+        result = [receipt]
         dist.broadcast_object_list(result, src=0)
-        if result[0]['error']:
-            raise ValueError('Distributed checkpoint publication failed: ' + result[0]['error'])
-        return Path(result[0]['path'])
+        temporary = None  # Owned managed staging remains for parent validation.
+        return result[0]
     finally:
         restore_rng(rng)
         if rank == 0 and temporary is not None and temporary.exists():
@@ -306,7 +342,7 @@ def _read(root, checkpoint, expected_identity, expected_run):
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
     if not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids'} or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
         raise ValueError('Invalid distributed checkpoint metadata/schema')
-    if info['run_id'] != expected_run or info['identity'] != expected_identity:
+    if info['run_id'] != expected_run or not _same_json(info['identity'], expected_identity):
         raise ValueError('Distributed checkpoint config/runtime/source/data/topology or run identity differs')
     lineage = {key: info[key] for key in ('run_id', 'attempt_id', 'next_sample_sequence')}
     if 'request_ids' in info:
@@ -364,7 +400,7 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
         error = f'{type(exc).__name__}: {exc}'
     restore_rng(initial_rng)
     peers = _agree('restore:prepare', descriptor, error)
-    if any(peer != peers[0] for peer in peers):
+    if any(not _same_json(peer, peers[0]) for peer in peers):
         raise ValueError('Ranks disagree on distributed checkpoint selection or expected identity')
     payloads, response = None, [None]
     if rank == 0:

@@ -48,7 +48,7 @@ Resume creates a new attempt and preserves existing samples. `--max-seconds` pro
 
 Use `--preview-every N` for bounded periodic EMA previews. `hypergan events RUN_DIR` reads reconnectable event pages, and `hypergan checkpoint RUN_DIR` requests a save at the next complete update boundary. These commands share the [run observation contract](docs/observation.md); the optional browser server is still planned.
 
-Developers can also exercise the internal [replicated CPU strategy](docs/distributed.md) and [bounded worker supervisor](docs/cpu-workers.md). The public training commands remain single-process; multi-GPU and cluster qualification are still ahead.
+Developers can also exercise the internal [replicated CPU strategy](docs/distributed.md) and [persistent CPU worker commands](docs/cpu-worker-service.md), including parent-controlled checkpoint publication and cleanup after coordinator death. The [blocking worker supervisor](docs/cpu-workers.md) remains available for finite callbacks. The public training commands remain single-process; multi-GPU and cluster qualification are still ahead.
 
 Check a proposed CPU execution profile separately from the recipe:
 

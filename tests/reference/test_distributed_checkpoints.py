@@ -201,6 +201,8 @@ def worker(mode, rank, rendezvous, root, run, output):
                 def fail_state():
                     raise RuntimeError('injected rank snapshot failure')
                 trainer.data.state_dict = fail_state
+            elif mode == 'identity-type':
+                trainer.data.resume_identity = lambda: {'marker': True if rank else 1}
             elif mode == 'stage-failure' and rank == 0:
                 actual = checkpoints.atomic_json
                 def fail_manifest(path, value):
@@ -293,7 +295,7 @@ def test_fresh_group_resume_preserves_every_rank_rng_sampler_and_optimizer(tmp_p
     assert all((path / 'rank-00000.pt').is_file() and (path / 'rank-00001.pt').is_file() for path in generations)
 
 
-@pytest.mark.parametrize('mode', ['half', 'divergent', 'state-failure', 'stage-failure', 'metadata-bound', 'missing', 'missing-after-gather'])
+@pytest.mark.parametrize('mode', ['half', 'divergent', 'state-failure', 'identity-type', 'stage-failure', 'metadata-bound', 'missing', 'missing-after-gather'])
 def test_failed_rank_or_staging_never_advances_last_complete_checkpoint(tmp_path, mode):
     results = launch(tmp_path / 'fixture', tmp_path / 'run', mode)
     assert results and all(result['error'] for result in results)
@@ -302,6 +304,7 @@ def test_failed_rank_or_staging_never_advances_last_complete_checkpoint(tmp_path
     else:
         assert len(results) == 1 and results[0]['elapsed'] < 8
     assert not list((tmp_path / 'run' / 'distributed-checkpoints').glob('.pending-*'))
+    assert not list((tmp_path / 'run' / 'distributed-checkpoints' / '.prepared').rglob('command-*'))
 
 
 @pytest.mark.parametrize('mode', ['restore-config', 'restore-topology', 'restore-runtime', 'restore-threads', 'restore-poisoned', 'restore-not-ready', 'restore-data', 'restore-missing-rank', 'restore-pointer', 'restore-mutating-hook', 'restore-live-failure'])

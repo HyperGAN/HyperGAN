@@ -22,10 +22,8 @@ Behavioral parity is measured by independently running the old and new implement
 
 ## Distributed integration still ahead
 
-The [CPU execution profile and preflight](execution-profiles.md) are implemented. The next work connects supervised worker commands and distributed train/resume. Workers must wait outside training collectives between operations. The controller must hold sole canonical checkpoint commit authority, and abrupt parent death must be tested for worker cleanup and safe takeover before exposing a distributed CLI.
+The [CPU execution profile and preflight](execution-profiles.md), [persistent worker command service](cpu-worker-service.md) and [parent checkpoint publication](distributed-recovery.md) are implemented as internal prerequisites. The command broker monitors and reaps numerical workers independently of the coordinator. A parent commit authority validates staged state after successful all-rank command completion and a fresh health check; the caller still owns the run lock.
 
-The current adapter treats an ordinary manual-save serialization failure as an observer error. A replicated adapter must distinguish that rejection from a failed collective or poisoned worker group, which must fail the entire attempt. Runtime/RNG descriptions must also come from the resolved execution profile before multi-process use.
+The replicated adapter is the next integration step. It must receive a fenced worker-session identity during strict restore, which currently happens before a new attempt is persisted, then bind the reserved attempt without accepting stale results. Persist numerical execution identity separately from mutable attempt policy. Failed collective groups must remain fatal even during optional saves. Bounded previews, progress delivery, final artifacts and whole-job lifecycle acceptance remain gates before public distributed train/resume.
 
-Preview rendering and Python observers are still synchronous in the single-process adapter. Copying model state and isolating RNG do not impose a deadline on custom Python. A bounded snapshot renderer and supervised progress delivery remain gates for distributed integration. `max_seconds` remains a cooperative stop budget.
-
-The [integration design](../reports/distributed-run-service-design-2026-09-19.md) records the remaining sequence. GPU/NCCL, real clusters, the optional browser server and deployment require their own acceptance.
+See the [shared-service design](../reports/distributed-run-service-design-2026-09-19.md) and [current checkpoint](../reports/core-worker-service-2026-09-19.md). GPU/NCCL and actual multi-node execution remain separate qualifications.

@@ -332,7 +332,9 @@ def _second_micro_failure(root):
         dist.barrier()
         assert pointer.read_bytes() == pointer_before
         assert json.loads((saved / 'manifest.json').read_text())['step'] == 0
-        assert [path for path in (run / 'distributed-checkpoints').iterdir() if path.is_dir()] == [saved]
+        checkpoint_root = run / 'distributed-checkpoints'
+        assert [path for path in checkpoint_root.iterdir() if path.is_dir() and not path.name.startswith('.')] == [saved]
+        assert not list((checkpoint_root / '.prepared').rglob('command-*'))
 
 
 def _worker(mode, rank, root):

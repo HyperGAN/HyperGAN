@@ -12,6 +12,7 @@ The next release integrates on `develop`. The coordinator reviews and merges pas
 
 ## Accepted decisions
 
+- Older-checkpoint compatibility is not required (owner clarification, 2026-09-19). Checkpoint formats and source identities may break across implementations without migration or compatibility work. Reliable save/resume, corruption checks and recovery from earlier snapshots within supported current runs remain requirements. Historical compatibility notes below record behavior, not a commitment to maintain old runtimes.
 - Recipe configuration supports custom generator/discriminator/encoder/auxiliary components, explicit I/O, losses and regularizers. Warn on unqualified combinations; reject actual incompatibilities. Default b-cap and VICReg follow the pinned upstream reference.
 - Colorization and super-resolution influence the implemented conditional I/O contract. The paired example is a synthetic fixture, not a qualified image recipe.
 - Development version: 2.0.0a1. ParticleGAN dependency: 0.5.0. Tested CPU tuple: Python 3.12.13, torch 2.14.0+cpu, ParticleGAN 0.5.0, NumPy 2.5.3. The package records actual runtime/source identity and does not certify arbitrary installations.

@@ -72,4 +72,4 @@ sys.meta_path.insert(0,NoRuntime())
 from hypergan.cpu_worker_service import CPUWorkerService
 CPUWorkerService(str,str,run_id='run',attempt_id='attempt').close()
 '''
-    subprocess.run([sys.executable,'-c',script],cwd=tmp_path,check=True,timeout=10)
+    subprocess.run([sys.executable,*(['-I'] if sys.flags.isolated else []),'-c',script],cwd=tmp_path,check=True,timeout=10)

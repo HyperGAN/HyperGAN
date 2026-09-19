@@ -114,7 +114,7 @@ if __name__ == '__main__':
 def test_persistent_commands_and_cleanup(tmp_path, mode):
     script = tmp_path / 'service_driver.py'
     script.write_text(DRIVER, encoding='utf-8')
-    result = subprocess.run([sys.executable, str(script), str(tmp_path), mode],
+    result = subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), str(script), str(tmp_path), mode],
                             cwd=tmp_path, capture_output=True, text=True, timeout=40)
     assert result.returncode == 0, result.stdout + result.stderr
     assert isinstance(json.loads(result.stdout)['broker_pid'], int)
@@ -129,7 +129,7 @@ def test_coordinator_death_during_native_startup_reaps_ranks(tmp_path):
     assert libc.prctl(36, 1, 0, 0, 0) == 0
     script = tmp_path / 'service_driver.py'
     script.write_text(DRIVER, encoding='utf-8')
-    process = subprocess.Popen([sys.executable, str(script), str(tmp_path), 'startup-hang'],
+    process = subprocess.Popen([sys.executable, *(['-I'] if sys.flags.isolated else []), str(script), str(tmp_path), 'startup-hang'],
                                cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     broker = None
     ranks = []

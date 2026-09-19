@@ -1,5 +1,7 @@
 # Internal persistent CPU worker commands
 
+The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](../reports/resurrection-status.md) for the current combined scope.
+
 `hypergan.cpu_worker_service.CPUWorkerService` keeps one fixed CPU Gloo group alive across sequential commands. It is an internal prerequisite for the distributed run service. It does not connect profiles to `train`/`resume`, own a run lock, publish checkpoints, schedule previews or launch remote hosts.
 
 Put the factory and handler at module scope in an importable Python file and guard the coordinator entrypoint:

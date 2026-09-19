@@ -1,4 +1,4 @@
-"""Internal torch-free parent adapter for fixed-topology CPU worker execution.
+"""Internal torch-free parent adapter for fixed-topology CPU or CUDA worker execution.
 
 Use from a Python main guard. These wrappers are not public train/resume CLI
 profiles. The shared controller owns the run lock and every visible lifecycle
@@ -38,8 +38,8 @@ def _handle_command(*args):
 
 def _profile(value, config):
     resolved = load_execution_profile(value, config) if isinstance(value, (str, Path)) else _resolve_profile(value, config)
-    if resolved['execution']['name'] != 'cpu-replicated-gloo':
-        raise ValueError('Replicated execution requires the cpu-replicated-gloo profile')
+    if resolved['execution']['name'] not in ('cpu-replicated-gloo', 'cuda-replicated-nccl'):
+        raise ValueError('Replicated execution requires cpu-replicated-gloo or cuda-replicated-nccl')
     return resolved
 
 
@@ -74,11 +74,11 @@ class ReplicatedExecutionFactory:
 
 
 class ReplicatedExecution:
-    @staticmethod
-    def environment():
+    def environment(self):
         # Actual installed runtime/source is supplied by supervised workers in
         # ExecutionInfo, never inferred from a torch-free parent's environment.
-        return {'runtime': {'device': 'cpu', 'backend': 'gloo', 'runtime_checked': False},
+        cuda = self.profile['execution']['name'] == 'cuda-replicated-nccl'
+        return {'runtime': {'device': 'cuda' if cuda else 'cpu', 'backend': 'nccl' if cuda else 'gloo', 'runtime_checked': False},
                 'source': {'runtime_checked': False}}
 
     def __init__(self, config, profile, *, service_policy=None):
@@ -146,6 +146,7 @@ class ReplicatedExecution:
                 args=(config_values(self.config), self.profile['execution'], self.context),
                 run_id=self.context['run_id'], attempt_id=self.context['attempt_id'],
                 world_size=self.profile['execution']['world_size'],
+                backend='nccl' if self.profile['execution']['name'] == 'cuda-replicated-nccl' else 'gloo',
                 **{key: self.policy[key] for key in ('startup_timeout', 'command_timeout', 'collective_timeout', 'total_timeout')})
             self.service.start()
             results = self._results(self._command('describe'), expected_step=0)
@@ -343,8 +344,8 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, serv
     if profile is None:
         manifest = json.loads((Path(run_dir) / 'manifest.json').read_text())
         execution = manifest.get('execution', {})
-        if execution.get('name') != 'cpu-replicated-gloo':
-            raise ValueError('Run has no cpu-replicated-gloo execution identity')
+        if execution.get('name') not in ('cpu-replicated-gloo', 'cuda-replicated-nccl'):
+            raise ValueError('Run has no supported replicated execution identity')
         profile = {'schema_version': 1, 'execution': {key: execution[key] for key in ('name', 'world_size', 'accumulation_steps')}}
     return controller_resume(run_dir, checkpoint, config_path, checkpoint_every=checkpoint_every,
         max_seconds=max_seconds, stop_after_steps=stop_after_steps, on_event=on_event,

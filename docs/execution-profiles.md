@@ -1,8 +1,8 @@
-# CPU execution profiles and preflight
+# Execution profiles and preflight
 
 An execution profile describes how to run a recipe. Keep it in a separate TOML file so changing worker count or accumulation does not rewrite the model, objective or learning rate. This slice provides structural and runtime preflight; public `train` and `resume` still use the single-process service and do not accept a profile flag.
 
-For the current single-process execution:
+For explicit CPU single-process preflight:
 
 ```toml
 schema_version = 1
@@ -32,22 +32,24 @@ timeout = 60
 collective_timeout = 15
 ```
 
-Save either as `execution.toml`, then check it against a recipe:
+For the internal CUDA strategy, use `name="cuda-replicated-nccl"` with recipe `training.device="cuda"`; the remaining fields are the same as the replicated CPU example. Each rank owns its corresponding visible GPU index. See the [CUDA contract](replicated-cuda.md).
+
+Save a profile as `execution.toml`, then check it against a recipe:
 
 ```sh
 hypergan preflight config.toml --profile execution.toml
 hypergan preflight config.toml --profile execution.toml --runtime
 ```
 
-The first command validates structure and prints the resolved profile without importing torch, constructing custom factories, starting workers or reading a dataset. The runtime command constructs the configured components in bounded workers and checks actual compatibility. Runtime preflight executes trusted Python factories; structural success does not imply those factories will load or agree. Neither command trains or certifies recipe quality, image quality, GPU operation or real clusters. Full distributed lifecycle and safe whole-job takeover remain separate gates.
+The first command validates structure and prints the resolved profile without importing torch, constructing custom factories, starting workers or reading a dataset. The runtime command constructs the configured components in bounded workers and checks actual compatibility. Runtime preflight executes trusted Python factories; structural success does not imply those factories will load or agree. Neither command trains or certifies recipe quality, image quality, numerical GPU updates or real clusters. Construction is a separate gate from full training and recovery.
 
 ## Fields and numerical identity
 
-`schema_version=1` and `[execution].name` are required. Unknown fields are errors, including misspellings and attempts to provide derived batch sizes. Omitted `world_size` defaults to one for `cpu-single` and two for `cpu-replicated-gloo`; accumulation defaults to one. `[preflight]` is optional with the defaults above. Files are UTF-8 TOML, at most 65,536 bytes.
+`schema_version=1` and `[execution].name` are required. Unknown fields are errors, including misspellings and attempts to provide derived batch sizes. Omitted `world_size` defaults to one for `cpu-single` and two for either replicated profile; accumulation defaults to one. `[preflight]` is optional with the defaults above. Files are UTF-8 TOML, at most 65,536 bytes.
 
 | Input | Contract |
 | --- | --- |
-| `execution.name` | `cpu-single` or `cpu-replicated-gloo`; both require recipe `training.device="cpu"` |
+| `execution.name` | `cpu-single` or `cpu-replicated-gloo` require `training.device="cpu"`; `cuda-replicated-nccl` requires exactly `training.device="cuda"` |
 | `execution.world_size` | Integer 1–64; single requires exactly 1, replicated requires at least 2 |
 | `execution.accumulation_steps` | Positive integer; single requires exactly 1; must divide the per-rank batch evenly |
 | `preflight.timeout` | Finite positive seconds until cleanup is triggered, including startup and construction |
@@ -72,11 +74,11 @@ print(profile["execution"])
 
 `resolve_execution_profile(values, config)` accepts the same raw input dictionary and returns a fresh JSON-compatible result. Neither function mutates the recipe or imports component factories. Derived output fields are not valid raw input. Runtime consumers must validate a resolved descriptor against the recipe before trusting it.
 
-The pure `validate_checkpoint_kind(kind, profile)` helper accepts `hypergan-training-checkpoint` for `cpu-single`, and `hypergan-distributed-training-checkpoint` for `cpu-replicated-gloo`. It rejects `ema-inference` bundles for training resume, unknown kinds and mismatched formats. It does not open a checkpoint, validate its schema/content, restore state or convert formats. A successful standalone preflight report cannot authorize or bypass resume checks. Actual checkpoint loading remains with the native or distributed recovery implementation.
+The pure `validate_checkpoint_kind(kind, profile)` helper accepts `hypergan-training-checkpoint` for `cpu-single`, and `hypergan-distributed-training-checkpoint` for either replicated profile. It rejects `ema-inference` bundles for training resume, unknown kinds and mismatched formats. It does not open a checkpoint, validate its schema/content, restore state or convert formats. A successful standalone preflight report cannot authorize or bypass resume checks. Actual checkpoint loading remains with the native or distributed recovery implementation.
 
 ## Runtime report and limits
 
-Install the CPU training runtime described in the [quickstart](../README.md), then add `--runtime`. Single-process preflight constructs in a disposable worker without a process group. Replicated preflight starts a real fixed-size Gloo group and constructs the existing replicated trainer. Both use supervised startup deadlines; timeout cleanup can add about four seconds of join grace plus scheduling and I/O overhead. Every worker must exit successfully before preflight returns success. A failed or stalled worker causes group cleanup and a rank diagnostic or timeout error.
+Install the matching CPU or CUDA training runtime described in the [quickstart](../README.md), then add `--runtime`. Single-process preflight constructs in a disposable worker without a process group. CPU replicated preflight starts a fixed-size Gloo group. CUDA replicated preflight uses the independent broker and a fixed-size NCCL group with one visible GPU per rank. Both construct the replicated trainer and use supervised startup deadlines; timeout cleanup can add about four seconds of join grace plus scheduling and I/O overhead. Every worker must exit successfully before preflight returns success. A failed or stalled worker causes group cleanup and a rank diagnostic or timeout error.
 
 The JSON report has `stage="runtime"`, `runtime_checked=true` and `scope="construction-only"`. It records resolved execution settings, actual runtime and numerical source hashes, data/recovery contracts, the initialized numerical-state digest, and each rank's result. The replicated strategy reports explicit post-backward gradient averaging and its batch/buffer policy. Rank identity differences identify the affected field paths. Preflight implementation hashes appear separately under `checker`; startup timeouts remain in `profile.preflight`.
 
@@ -84,6 +86,6 @@ The internal Python API `hypergan.execution_preflight.preflight(config, profile,
 
 Recovery support is reported separately from construction success. Missing custom recovery declarations produce `identity.recovery.supported=false` with reasons and warnings. This does not prohibit an otherwise constructible custom recipe. Declaring recovery support does not prove serialization or restore; those operations retain their own strict validation.
 
-The report explicitly lists checks that were not performed: data batches and model forward I/O, optimizer updates and numerical parity, checkpoint publication/restore, and GPU/cluster execution. Module parameters and buffers must be dense CPU tensors; floating state must use float32, complex state is rejected, and integer/bool buffers are permitted. Known incompatible tensor state, rank-local BatchNorm in the replicated strategy, or unsupported accumulation behavior fails at startup. Arbitrary custom code can still fail later during training. Constructors and identity/state hooks execute trusted Python and may have their own side effects; preflight does not sandbox them.
+The report explicitly lists checks that were not performed: data batches and model forward I/O, optimizer updates and numerical parity, checkpoint publication/restore, and real cluster execution. Module parameters and buffers must be dense tensors on the profile-owned device; floating state must use float32, complex state is rejected, and integer/bool buffers are permitted. Known incompatible tensor state, rank-local BatchNorm in the replicated strategy, or unsupported accumulation behavior fails at startup. Arbitrary custom code can still fail later during training. Constructors and identity/state hooks execute trusted Python and may have their own side effects; preflight does not sandbox them.
 
-Each rank report and the final JSON report are limited to 1 MiB; an oversized report fails explicitly. Worker Python and native stdout go to stderr so stdout contains one JSON result. Preflight creates temporary worker reports, then removes them; it creates no HyperGAN run, checkpoint or inference artifacts. The supervisor manages direct children, with no automatic retry. Abrupt parent death and safe run takeover remain gates for the forthcoming distributed run service.
+Each rank report and the final JSON report are limited to 1 MiB; an oversized report fails explicitly. Worker Python and native stdout go to stderr so stdout contains one JSON result. Preflight creates temporary worker reports, then removes them; it creates no HyperGAN run, checkpoint or inference artifacts. The supervisor manages direct children, with no automatic retry. The GPU preflight broker also monitors coordinator death. The blocking CPU preflight launcher retains its documented direct-child supervision limits; full run takeover is handled by the separate run service.

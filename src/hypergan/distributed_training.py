@@ -1,8 +1,9 @@
-"""Bounded fixed-world-size CPU GAN updates with explicit gradient reduction.
+"""Bounded fixed-world-size CPU/CUDA GAN updates with explicit gradient reduction.
 
 This is an internal replicated strategy, not DDP, a launcher or a run service.
-The caller owns the default Gloo group, finite timeouts and whole-job lifecycle.
+The caller owns the default Gloo or NCCL group, finite timeouts and whole-job lifecycle.
 """
+import copy
 import hashlib
 import random
 import warnings
@@ -13,12 +14,12 @@ import torch.distributed as dist
 from particlegan import learning_rate_scale
 
 from .config import config_values, fingerprint, resolve_config
-from .distributed import GlooCollectives
-from .recipes import detach
+from .distributed import Collectives
+from .recipes import detach, move_tensors
 from .training import ReferenceTrainer, update_ema
 
 
-class ReplicatedCPUTrainer(ReferenceTrainer):
+class ReplicatedTrainer(ReferenceTrainer):
     """One complete D/G/prior/auxiliary/EMA update per global batch.
 
     ``training.batch_size`` is global; explicit batches and latent draws are local
@@ -28,18 +29,24 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
     """
 
     def __init__(self, config, *, world_size=2, accumulation_steps=1):
-        self.collectives = GlooCollectives(world_size)
+        self.collectives = Collectives(world_size)
+        self.device = self.collectives.device
         self.world_size, self.rank = world_size, dist.get_rank()
         self.checkpoint_ready = False
         self._poisoned = False
         config = self._phase('configuration', lambda: resolve_config(config_values(config)))
         self._agree('configuration', {'fingerprint': fingerprint(config), 'accumulation_steps': accumulation_steps})
         if world_size < 2:
-            raise ValueError('Replicated CPU training requires at least two ranks')
+            raise ValueError('Replicated training requires at least two ranks')
         def validate_accumulation_control():
             if type(accumulation_steps) is not int or accumulation_steps < 1:
                 raise ValueError('accumulation_steps must be a positive integer')
         self._phase('accumulation control', validate_accumulation_control)
+        def validate_device():
+            expected = 'cuda' if self.device.type == 'cuda' else 'cpu'
+            if config['training']['device'] != expected:
+                raise ValueError(f"Replicated {self.collectives.backend} training requires training.device={expected!r}; CUDA indices are rank-owned")
+        self._phase('execution device', validate_device)
         self.global_batch_size = config['training']['batch_size']
         if self.global_batch_size % world_size:
             raise ValueError('Global training.batch_size must divide evenly across world_size')
@@ -48,14 +55,23 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
             raise ValueError('accumulation_steps must divide local_batch_size evenly')
         self.accumulation_steps = accumulation_steps
         self.microbatch_size = self.local_batch_size // accumulation_steps
-        self.strategy_info = {'name': 'cpu-replicated-gloo', 'world_size': world_size,
+        self.strategy_info = {'name': 'cuda-replicated-nccl' if self.device.type == 'cuda' else 'cpu-replicated-gloo', 'world_size': world_size,
                               'global_batch_size': self.global_batch_size, 'local_batch_size': self.local_batch_size,
                               'accumulation_steps': accumulation_steps, 'microbatch_size': self.microbatch_size,
                               'accumulation_algorithm': 'detached-logit-vjp-replay-v1' if accumulation_steps > 1 else 'retained-local-graph-v1',
                               'gradient_reduction': 'post-backward-mean',
                               'buffers': 'require-replica-equality', 'data': 'replicated-global-draw-rank-slice', 'qualification': 'unqualified'}
         torch.set_num_threads(1)
-        self._phase('initialization', lambda: super(ReplicatedCPUTrainer, self).__init__(config))
+        def initialize():
+            # Keep the shared recipe identity unchanged across ranks. Only native
+            # construction receives the concrete rank-owned device selection.
+            local_config = copy.deepcopy(config)
+            local_config['training']['device'] = str(self.device)
+            if 'device' in local_config['prior']['args']:
+                local_config['prior']['args']['device'] = str(self.device)
+            super(ReplicatedTrainer, self).__init__(local_config)
+            self.config = config
+        self._phase('initialization', initialize)
         self._phase('module compatibility', self._check_modules)
         if accumulation_steps > 1:
             self._phase('accumulation compatibility', self._check_accumulation)
@@ -68,9 +84,16 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
         np.random.seed(rank_seed % (2 ** 32))
         for offset, name in enumerate(('data', 'prior', 'penalty'), 1):
             self.streams[name].manual_seed(((config['training']['seed'] if name == 'data' else rank_seed) + offset) % (2 ** 63))
+        self._phase('initial CUDA completion', self._synchronize)
         self.checkpoint_ready = True
 
+    def _synchronize(self):
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize(self.device)
+
     def _exchange(self, operation, value):
+        if self.device.type == 'cuda':
+            torch.cuda.set_device(self.device)
         payload = {'operation': operation, 'value': value}
         peers = [None] * self.world_size
         dist.all_gather_object(peers, payload)
@@ -100,10 +123,10 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
             if isinstance(module, torch.nn.modules.batchnorm._BatchNorm) and module.training:
                 raise ValueError(f'Training-mode BatchNorm ({name}) has rank-local statistics; this global-batch strategy requires a qualified alternative or frozen evaluation mode')
         for module in (self.graph, self.prior, self.ema_graph, self.ema_prior):
-            if any(value.device.type != 'cpu' or value.layout != torch.strided for value in (*module.parameters(), *module.buffers())):
-                raise ValueError('Replicated CPU modules must own dense CPU parameters and buffers')
+            if any(value.device != self.device or value.layout != torch.strided for value in (*module.parameters(), *module.buffers())):
+                raise ValueError('Replicated modules must own dense parameters and buffers on the rank device')
             if any(not torch.isfinite(value).all() for value in module.parameters()):
-                raise ValueError('Replicated CPU parameters must be finite')
+                raise ValueError('Replicated parameters must be finite')
 
     @staticmethod
     def _digest(value):
@@ -166,7 +189,7 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
             if isinstance(value, (tuple, list)):
                 return type(value)(shard(item) for item in value)
             return value
-        batch = self._phase('global data slicing', lambda: shard(full))
+        batch = self._phase('global data slicing', lambda: move_tensors(shard(full), self.device))
         self._phase('local data validation', lambda: self._validate_batch(batch))
         return batch
 
@@ -174,8 +197,8 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
         if not isinstance(batch, dict) or not isinstance(batch.get('real'), torch.Tensor):
             raise ValueError("Data must return a dictionary containing tensor 'real'")
         real = batch['real']
-        if real.device.type != 'cpu' or not real.is_floating_point() or real.ndim < 1 or len(real) != self.local_batch_size:
-            raise ValueError('Real data must be floating CPU tensors of local_batch_size')
+        if real.device != self.device or not real.is_floating_point() or real.ndim < 1 or len(real) != self.local_batch_size:
+            raise ValueError('Real data must be floating tensors on the rank device of local_batch_size')
         if not torch.isfinite(real).all():
             raise ValueError('Nonfinite real data')
 
@@ -190,7 +213,7 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
                 if parameter.grad is not None and (parameter.grad.layout != torch.strided or not torch.isfinite(parameter.grad).all()):
                     raise ValueError('Nonfinite or sparse gradient; optimizer step refused')
         self._phase(name + ' gradients', validate)
-        presence = torch.tensor([p.grad is not None for p in parameters], dtype=torch.int64)
+        presence = torch.tensor([p.grad is not None for p in parameters], dtype=torch.int64, device=self.device)
         dist.all_reduce(presence)
         for count, parameter in zip(presence.tolist(), parameters):
             if count:
@@ -231,6 +254,7 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
             raise ValueError('Configured total update schedule is complete')
         self.checkpoint_ready = False
         try:
+            batch, latent_draw = self._phase('input device transfer', lambda: (move_tensors(batch, self.device), move_tensors(latent_draw, self.device)))
             return self._update(batch, latent_draw)
         except BaseException:
             self._poisoned = True
@@ -254,8 +278,8 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
             local_batch = batch
             self._validate_batch(local_batch)
             z, ids = self.prior.sample(self.local_batch_size, generator=self.streams['prior']) if latent_draw is None else latent_draw
-            if not isinstance(z, torch.Tensor) or z.device.type != 'cpu' or z.ndim < 1 or len(z) != self.local_batch_size or not torch.isfinite(z).all():
-                raise ValueError('Latent draw must contain finite CPU local-batch values')
+            if not isinstance(z, torch.Tensor) or z.device != self.device or z.ndim < 1 or len(z) != self.local_batch_size or not torch.isfinite(z).all():
+                raise ValueError('Latent draw must contain finite local-batch values on the rank device')
             if ids is not None and (not isinstance(ids, torch.Tensor) or ids.dtype != torch.int64 or ids.ndim != 1 or len(ids) != self.local_batch_size):
                 raise ValueError('Prior IDs must be an int64 vector of local_batch_size')
             context = self.graph.generate(z, local_batch)
@@ -315,9 +339,10 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
         self._assert_replicas('complete replicated state')
-        values = torch.tensor([float(value.detach()) for value in [d_loss, g_loss, g_adversarial, prior_loss, d_penalty, *objective_losses]], dtype=torch.float64)
+        values = torch.tensor([float(value.detach()) for value in [d_loss, g_loss, g_adversarial, prior_loss, d_penalty, *objective_losses]], dtype=torch.float64, device=self.device)
         dist.all_reduce(values)
         values /= self.world_size
+        self._phase('complete CUDA update', self._synchronize)
         self.step = step
         self.checkpoint_ready = True
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty'), values[:5].tolist()))
@@ -397,8 +422,8 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
     def _micro_logits(self, *values):
         for value in values:
             if (not isinstance(value, torch.Tensor) or value.ndim < 1 or len(value) != self.microbatch_size
-                    or not value.is_floating_point() or value.device.type != 'cpu' or not torch.isfinite(value).all()):
-                raise ValueError('Accumulation critic logits must be finite floating CPU tensors with a microbatch leading dimension')
+                    or not value.is_floating_point() or value.device != self.device or not torch.isfinite(value).all()):
+                raise ValueError('Accumulation critic logits must be finite floating tensors on the rank device with a microbatch leading dimension')
 
     def _accumulated_update(self, batch, latent_draw):
         """Replay one micro graph at a time using a full-logit loss cotangent.
@@ -419,8 +444,8 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
         self._phase('accumulation batch', lambda: self._validate_batch(batch))
         def prepare():
             z, ids = self.prior.sample(self.local_batch_size, generator=self.streams['prior']) if latent_draw is None else latent_draw
-            if not isinstance(z, torch.Tensor) or z.device.type != 'cpu' or z.ndim < 1 or len(z) != self.local_batch_size or not torch.isfinite(z).all():
-                raise ValueError('Latent draw must contain finite CPU local-batch values')
+            if not isinstance(z, torch.Tensor) or z.device != self.device or z.ndim < 1 or len(z) != self.local_batch_size or not torch.isfinite(z).all():
+                raise ValueError('Latent draw must contain finite local-batch values on the rank device')
             if ids is not None and (not isinstance(ids, torch.Tensor) or ids.dtype != torch.int64 or ids.ndim != 1 or len(ids) != self.local_batch_size):
                 raise ValueError('Prior IDs must be an int64 vector of local_batch_size')
             # Validate nested batch slicing before any model state changes.
@@ -574,9 +599,10 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
         self._assert_replicas('complete replicated state')
-        values = torch.tensor([float(value.detach()) for value in [d_loss, g_loss, g_adversarial, prior_loss, d_penalty, *objective_losses]], dtype=torch.float64)
+        values = torch.tensor([float(value.detach()) for value in [d_loss, g_loss, g_adversarial, prior_loss, d_penalty, *objective_losses]], dtype=torch.float64, device=self.device)
         dist.all_reduce(values)
         values /= self.world_size
+        self._phase('complete CUDA update', self._synchronize)
         self.step, self.checkpoint_ready = step, True
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty'), values[:5].tolist()))
         row.update(event='train', step=step, objectives=values[5:].tolist(), lr_scale=scale,
@@ -588,3 +614,12 @@ class ReplicatedCPUTrainer(ReferenceTrainer):
     def _finite_loss(value):
         if not torch.isfinite(value).all():
             raise ValueError('Nonfinite loss; optimizer step refused')
+
+
+class ReplicatedCPUTrainer(ReplicatedTrainer):
+    """Existing CPU/Gloo entry point; CUDA callers use ReplicatedTrainer."""
+
+    def __init__(self, config, *, world_size=2, accumulation_steps=1):
+        if dist.is_initialized() and dist.get_backend() != 'gloo':
+            raise ValueError('ReplicatedCPUTrainer requires the default Gloo group')
+        super().__init__(config, world_size=world_size, accumulation_steps=accumulation_steps)

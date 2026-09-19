@@ -99,3 +99,15 @@ from hypergan.cpu_worker_service import CPUWorkerService
 CPUWorkerService(str,str,run_id='run',attempt_id='attempt').close()
 '''
     subprocess.run([sys.executable,*(['-I'] if sys.flags.isolated else []),'-c',script],cwd=tmp_path,check=True,timeout=10)
+
+
+def test_nccl_service_backend_is_explicit_and_cannot_be_group_free():
+    service = CPUWorkerService(str, str, run_id='run', attempt_id='attempt', backend='nccl')
+    assert service.backend == 'nccl' and service.world_size == 2
+    service.close()  # Structural construction never probes hardware or spawns.
+    for backend in ('mpi', '', None, True):
+        with pytest.raises(ValueError, match='backend must'):
+            CPUWorkerService(str, str, run_id='run', attempt_id='attempt', backend=backend)
+    with pytest.raises(ValueError, match='requires an initialized'):
+        CPUWorkerService(str, str, run_id='run', attempt_id='attempt', backend='nccl',
+                         initialize_process_group=False, world_size=1)

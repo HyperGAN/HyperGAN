@@ -17,7 +17,7 @@ import torch.distributed as dist
 from .artifacts import _restore_buffers
 from .checkpoints import _portable, capture_rng, restore_rng
 from .previews import MAX_COUNT, MAX_ELEMENTS, _inputs, _write_bounded, render_preview
-from .recipes import ComponentGraph, make_prior
+from .recipes import ComponentGraph, make_prior, move_tensors
 
 MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
 
@@ -82,6 +82,7 @@ def capture_snapshot(trainer, batch, identity, path):
                  'model_buffers': {name: dict(model.named_buffers()) for name, model in models.items()},
                  'prior': prior.state_dict(), 'prior_buffers': dict(prior.named_buffers()), 'batch': normalized}
         _portable(state)
+        state = move_tensors(state, 'cpu')
         path = Path(path)
         with path.open('xb') as output:
             writer = _BoundedWriter(output)
@@ -142,7 +143,7 @@ def renderer_command(state, operation, payload):
     for name, model in graph.models.items():
         model.load_state_dict(saved['model_states'][name])
         _restore_buffers(model, saved['model_buffers'][name])
-    prior = make_prior(saved['config']['prior']).float()
+    prior = make_prior(saved['config']['prior'], device='cpu').float()
     prior.load_state_dict(saved['prior'])
     _restore_buffers(prior, saved['prior_buffers'])
     trainer = SimpleNamespace(config=saved['config'], step=step, ema_graph=graph, ema_prior=prior)

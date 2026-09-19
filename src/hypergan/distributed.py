@@ -1,35 +1,44 @@
-"""Internal CPU collective primitives; not a distributed training strategy.
+"""Internal fixed-membership Gloo/CPU and NCCL/CUDA collective primitives.
 
 All ranks must call the same operations and differentiated backward passes in the
 same order. The caller owns process-group initialization, finite timeouts and
-worker cleanup. Only the default Gloo group is supported in this first fixture.
+worker cleanup. The default group owns the backend; NCCL ranks own one visible CUDA device each.
 """
 import torch
 import torch.distributed as dist
 from torch.distributed.nn.functional import all_gather
 
 
-class GlooCollectives:
-    """Fixed-membership, CPU numerical groundwork with collective validation."""
+class Collectives:
+    """Fixed-membership differentiable collectives with device-aware validation."""
 
-    def __init__(self, world_size):
+    def __init__(self, world_size, *, device=None):
         if type(world_size) is not int or world_size < 1:
             raise ValueError("world_size must be a positive integer")
         if not dist.is_available() or not dist.is_initialized():
-            raise RuntimeError("Initialize the default Gloo process group with a finite timeout first")
-        if dist.get_backend() != "gloo":
-            raise ValueError("This numerical fixture supports only the default Gloo process group")
+            raise RuntimeError("Initialize the default process group with a finite timeout first")
+        self.backend = dist.get_backend()
+        if self.backend not in ('gloo', 'nccl'):
+            raise ValueError("Only default Gloo/CPU and NCCL/CUDA groups are supported")
+        expected = torch.device('cuda', dist.get_rank()) if self.backend == 'nccl' else torch.device('cpu')
+        self.device = expected if device is None else torch.device(device)
+        if self.device != expected:
+            raise ValueError('Collective device must be CPU for Gloo or cuda:rank for NCCL')
+        if self.backend == 'nccl':
+            torch.cuda.set_device(self.device)
         if dist.get_world_size() != world_size:
             raise ValueError("Initialized process group differs from fixed world_size")
         self.world_size = world_size
 
     def _agree(self, operation, tensor, *, indices=False, num_rows=None):
         """Exchange metadata before tensor collectives, so rank errors agree."""
+        if self.backend == 'nccl':
+            torch.cuda.set_device(self.device)
         error = None
         if not isinstance(tensor, torch.Tensor):
             error = "input must be a tensor"
-        elif tensor.device.type != "cpu" or tensor.layout != torch.strided:
-            error = "input must be a dense CPU tensor"
+        elif tensor.device != self.device or tensor.layout != torch.strided:
+            error = "input must be a dense tensor on the rank-owned collective device"
         elif indices:
             if tensor.dtype != torch.int64 or tensor.ndim != 1:
                 error = "indices must be a one-dimensional int64 tensor"
@@ -45,7 +54,7 @@ class GlooCollectives:
                     "requires_grad": tensor.requires_grad if error is None else None,
                     "grad_enabled": torch.is_grad_enabled()}
         peers = [None] * self.world_size
-        # These small objects come only from trusted members of this CPU group.
+        # These small objects come only from trusted members of this fixed group.
         dist.all_gather_object(peers, metadata)
         if any(peer["operation"] != operation for peer in peers):
             raise ValueError("Ranks called different collective operations")
@@ -92,3 +101,10 @@ class GlooCollectives:
         gathered = [torch.empty_like(padded) for _ in peers]
         dist.all_gather(gathered, padded)
         return torch.cat([value[:length] for value, length in zip(gathered, lengths)]).unique(sorted=True)
+
+
+class GlooCollectives(Collectives):
+    """Compatibility entry point restricted to the CPU/Gloo strategy."""
+
+    def __init__(self, world_size):
+        super().__init__(world_size, device='cpu')

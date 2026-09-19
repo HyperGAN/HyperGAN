@@ -4,7 +4,7 @@ Only the supervised rank imports this module. No handler publishes a canonical
 training checkpoint; the parent owns that authority and the run lock.
 
 Inference has a command deadline and post-write file size checks, not a sandbox
-or an allocation bound for custom Python. Rank zero retains its Gloo group;
+or an allocation bound for custom Python. Rank zero retains its numerical process group;
 collective-dependent inference fails the job rather than involving idle peers.
 """
 import copy
@@ -18,10 +18,10 @@ import torch
 
 from .checkpoints import capture_rng, restore_rng
 from .config import resolve_config
-from .distributed_checkpoints import (distributed_checkpoint_identity,
+from .distributed_checkpoints import (distributed_checkpoint_identity, distributed_runtime_info,
     prepare_distributed_checkpoint, restore_distributed_checkpoint)
-from .distributed_training import ReplicatedCPUTrainer
-from .training import _recovery_contract, runtime_info, source_info
+from .distributed_training import ReplicatedTrainer
+from .training import _recovery_contract, source_info
 from .replicated_execution import MAX_SAMPLE_COUNT
 
 MAX_INFORMATION_BYTES = 40 * 1024
@@ -39,11 +39,15 @@ def _ready(state):
         raise RuntimeError('Replicated execution is not at a complete update boundary')
     if torch.get_num_threads() != 1 or torch.get_default_dtype() != torch.float32:
         raise ValueError('Replicated execution requires one CPU thread and float32 default dtype')
+    if trainer.device.type == 'cuda':
+        if torch.cuda.current_device() != trainer.rank:
+            raise ValueError('Replicated CUDA worker no longer owns its assigned current device')
+        torch.cuda.synchronize(trainer.device)
     return {'step': trainer.step, 'ready': True, 'inference_available': state['batch'] is not None}
 
 
 def create_worker(rank, world_size, config, execution, context):
-    trainer = ReplicatedCPUTrainer(resolve_config(config), world_size=world_size,
+    trainer = ReplicatedTrainer(resolve_config(config), world_size=world_size,
                                     accumulation_steps=execution['accumulation_steps'])
     if any(trainer.strategy_info.get(key) != value for key, value in execution.items()):
         raise ValueError('Actual replicated strategy differs from resolved execution profile')
@@ -57,9 +61,7 @@ def _information(state):
     try:
         contract, reasons = _recovery_contract(trainer)
         identity = distributed_checkpoint_identity(trainer) if not reasons else None
-        runtime = runtime_info()
-        runtime.update(world_size=trainer.world_size, backend='gloo', threads=torch.get_num_threads(),
-                       interop_threads=torch.get_num_interop_threads())
+        runtime = distributed_runtime_info(trainer)
         info = {'data_identity': contract['identity'], 'recovery_reasons': reasons,
                 'identity': identity, 'environment': {'runtime': runtime, 'source': source_info()}}
         if len(_encoded(info)) > MAX_INFORMATION_BYTES:

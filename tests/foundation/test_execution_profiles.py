@@ -149,3 +149,47 @@ profile = resolve_execution_profile({'schema_version': 1, 'execution': {'name': 
 assert profile['execution']['global_batch_size'] == 16
 '''
     subprocess.run([sys.executable, '-c', code], cwd=tmp_path, check=True, timeout=15)
+
+
+def test_cuda_replicated_identity_and_explicit_device_ownership():
+    config = resolve_config({'training': {'device': 'cuda', 'batch_size': 32}})
+    profile = resolve_execution_profile(raw('cuda-replicated-nccl', accumulation_steps=4), config)
+    assert profile['execution'] == {
+        'name': 'cuda-replicated-nccl', 'world_size': 2, 'accumulation_steps': 4,
+        'global_batch_size': 32, 'local_batch_size': 16, 'microbatch_size': 4,
+        'accumulation_algorithm': 'detached-logit-vjp-replay-v1'}
+    assert validate_checkpoint_kind('hypergan-distributed-training-checkpoint', profile)
+    for device in ('cpu', 'cuda:0', 'cuda:1'):
+        with pytest.raises(ValueError, match='training.device=cuda'):
+            resolve_execution_profile(raw('cuda-replicated-nccl'),
+                resolve_config({'training': {'device': device}}))
+    with pytest.raises(ValueError, match='training.device=cpu'):
+        resolve_execution_profile(raw('cpu-replicated-gloo'), config)
+    with pytest.raises(ValueError, match='between 2 and 64'):
+        resolve_execution_profile(raw('cuda-replicated-nccl', world_size=1), config)
+    with pytest.raises(ValueError, match='local_batch_size'):
+        resolve_execution_profile(raw('cuda-replicated-nccl', accumulation_steps=3), config)
+
+
+def test_cuda_structural_profile_and_adapter_import_no_torch(tmp_path):
+    code = '''
+import importlib.abc, sys
+class NoRuntime(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'torch', 'numpy', 'PIL', 'particlegan'}:
+            raise AssertionError('Unexpected import: ' + fullname)
+sys.meta_path.insert(0, NoRuntime())
+from hypergan.config import resolve_config
+from hypergan.execution_profiles import resolve_execution_profile
+from hypergan.execution_preflight import _resolve_profile
+from hypergan.replicated_execution import ReplicatedExecutionFactory
+config = resolve_config({'training': {'device': 'cuda'}})
+profile = resolve_execution_profile({'schema_version': 1, 'execution': {'name': 'cuda-replicated-nccl'}}, config)
+assert _resolve_profile(profile, config) == profile
+adapter = ReplicatedExecutionFactory(profile)(config)
+assert adapter.environment()['runtime'] == {'device': 'cuda', 'backend': 'nccl', 'runtime_checked': False}
+adapter.shutdown()
+assert 'torch' not in sys.modules
+'''
+    subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), '-c', code],
+                   cwd=tmp_path, check=True, timeout=15)

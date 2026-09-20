@@ -343,14 +343,17 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
         self._assert_replicas('complete replicated state')
-        values = torch.tensor([float(value.detach()) for value in [d_loss, g_loss, g_adversarial, prior_loss, d_penalty, d_adversarial, d_adversarial_weighted, g_adversarial_weighted, *objective_losses]], dtype=torch.float64, device=self.device)
+        values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
+            d_penalty, d_adversarial, d_adversarial_weighted, g_adversarial_weighted,
+            *objective_losses]), dtype=torch.float64, device=self.device)
         dist.all_reduce(values)
         values /= self.world_size
         self._phase('complete CUDA update', self._synchronize)
         self.step = step
         self.checkpoint_ready = True
-        row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8].tolist()))
-        row.update(event='train', step=step, objectives=values[8:].tolist(), lr_scale=scale,
+        values = values.tolist()
+        row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
+        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size, world_size=self.world_size)
         return row, detach(batch)
 
@@ -604,13 +607,16 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
         self._assert_replicas('complete replicated state')
-        values = torch.tensor([float(value.detach()) for value in [d_loss, g_loss, g_adversarial, prior_loss, d_penalty, d_adversarial_raw, d_adversarial, weighted_adversarial, *objective_losses]], dtype=torch.float64, device=self.device)
+        values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
+            d_penalty, d_adversarial_raw, d_adversarial, weighted_adversarial,
+            *objective_losses]), dtype=torch.float64, device=self.device)
         dist.all_reduce(values)
         values /= self.world_size
         self._phase('complete CUDA update', self._synchronize)
         self.step, self.checkpoint_ready = step, True
-        row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8].tolist()))
-        row.update(event='train', step=step, objectives=values[8:].tolist(), lr_scale=scale,
+        values = values.tolist()
+        row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
+        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size,
                    world_size=self.world_size, accumulation_steps=self.accumulation_steps, microbatch_size=self.microbatch_size)
         return row, detach(batch)

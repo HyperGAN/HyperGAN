@@ -23,6 +23,48 @@ from .checkpoints import data_contract
 from .numerical_policy import apply_backend_policy
 
 
+class _MetricScalarTransfer:
+    """Stage scalar observations with one CUDA stream fence and no GPU kernels.
+
+    Reusable pinned buffers are local to this trainer and grouped by source dtype
+    so mixed objectives retain their exact Python-float conversion. Copies remain
+    one per scalar; only the redundant host waits are removed. CPU fixtures use
+    the direct conversion without initializing CUDA or allocating pinned memory.
+    """
+    def __init__(self, device):
+        self.device = device
+        self._signature = None
+        self._groups = []
+
+    def __call__(self, values):
+        if self.device.type != 'cuda':
+            return [float(value.detach()) for value in values]
+        signature = tuple(value.dtype for value in values)
+        if signature != self._signature:
+            positions = {}
+            for index, dtype in enumerate(signature):
+                positions.setdefault(dtype, []).append(index)
+            self._groups = []
+            for dtype, indexes in positions.items():
+                buffer = torch.empty(len(indexes), dtype=dtype, device='cpu', pin_memory=True)
+                self._groups.append((indexes, buffer, buffer.unbind()))
+            self._signature = signature
+        for indexes, buffer, destinations in self._groups:
+            for index, destination in zip(indexes, destinations):
+                value = values[index].detach()
+                if value.device.type == 'cuda' and value.device != self.device:
+                    raise ValueError('Metric scalar is on a different CUDA device from its trainer')
+                if value.ndim:
+                    value = value.reshape(())
+                destination.copy_(value, non_blocking=True)
+        torch.cuda.current_stream(self.device).synchronize()
+        result = [None] * len(values)
+        for indexes, buffer, _ in self._groups:
+            for index, value in zip(indexes, buffer.tolist()):
+                result[index] = float(value)
+        return result
+
+
 @torch.no_grad()
 def update_ema(average, current, decay):
     for target, source in zip(average.parameters(), current.parameters()):
@@ -139,6 +181,7 @@ class ReferenceTrainer:
         data_device = self.device if settings['data_rng_device'] == 'execution' else 'cpu'
         self.streams = {"data": torch.Generator(device=data_device).manual_seed(settings["seed"] + settings['data_seed_offset']), "prior": torch.Generator(device=self.device).manual_seed(settings["seed"] + settings['prior_seed_offset']), "penalty": torch.Generator(device=self.device).manual_seed(settings["seed"] + 3)}
         self.step = 0
+        self._metric_transfer = _MetricScalarTransfer(self.device)
 
     def batch(self):
         batch = self.data(self.config["training"]["batch_size"], generator=self.streams["data"])
@@ -235,7 +278,14 @@ class ReferenceTrainer:
         update_ema(self.ema_graph, self.graph, settings["ema"])
         update_ema(self.ema_prior, self.prior, settings["ema"])
         self.step = step
-        return {"event": "train", "step": step, "d_loss": float(d_loss.detach()), "d_adversarial": float(d_adversarial.detach()), "d_adversarial_weighted": float(d_adversarial_weighted.detach()), "g_adversarial_weighted": float(g_adversarial_weighted.detach()), "g_loss": float(g_loss.detach()), "g_adversarial": float(g_adversarial.detach()), "prior_loss": float(prior_loss.detach()), "gradient_penalty": float(d_penalty.detach()), "objectives": [float(x.detach()) for x in objective_losses], "lr_scale": scale}, detach(batch)
+        values = self._metric_transfer([d_loss, d_adversarial, d_adversarial_weighted,
+            g_adversarial_weighted, g_loss, g_adversarial, prior_loss, d_penalty,
+            *objective_losses])
+        row = dict(zip(('d_loss', 'd_adversarial', 'd_adversarial_weighted',
+                        'g_adversarial_weighted', 'g_loss', 'g_adversarial',
+                        'prior_loss', 'gradient_penalty'), values[:8]))
+        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale)
+        return row, detach(batch)
 
     @staticmethod
     def _check_gradients(parameters, name):

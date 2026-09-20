@@ -378,3 +378,44 @@ def test_final_delayed_metrics_keep_source_step_and_current_checkpoint_frontier(
     measured = [event for event in events if event['event'] == 'metric']
     assert len(measured) == 1 and measured[0]['step'] == 1
     assert [event['sequence'] for event in events] == list(range(1, len(events) + 1))
+
+
+def test_checkpoint_request_scan_does_not_stall_updates_and_terminal_scan_is_fresh(tmp_path, monkeypatch):
+    from threading import Event, current_thread, main_thread
+    import time
+    import hypergan.run_requests as requests
+    entered, release = Event(), Event()
+    original_read = requests.pending_requests
+    def slow_read(run_dir):
+        if current_thread() is not main_thread():
+            entered.set()
+            assert release.wait(5)
+        return original_read(run_dir)
+    monkeypatch.setattr(requests, 'pending_requests', slow_read)
+    path, root, factory, _, _, instances = setup(tmp_path)
+    original_factory = factory
+    def execution_factory(config):
+        execution = original_factory(config)
+        update = execution.update
+        def advance():
+            if execution.step == 0:
+                time.sleep(.26)  # Reach the actual public 250 ms read cadence.
+            if execution.step == 1:
+                assert entered.wait(5)
+            value = update()
+            if value.step == 3:
+                submit_checkpoint_request(root, run_id=execution.context.run_id,
+                                          attempt_id=execution.context.attempt_id, request_id='late')
+            if value.step == 6:
+                release.set()
+            return value
+        execution.update = advance
+        return execution
+    execution_factory.environment = original_factory.environment
+    try:
+        result = run_train(path, root, steps=6, execution_factory=execution_factory)
+    finally:
+        release.set()
+    assert instances[0].step == 6 and result['status'] == 'complete'
+    receipt = checkpoint_request_status(root, 'late')
+    assert receipt['status'] == 'succeeded' and receipt['step'] == 6

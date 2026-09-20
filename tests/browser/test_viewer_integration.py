@@ -452,8 +452,14 @@ def test_ui_console_interval_changes_active_sink_and_persists(real_viewer):
     page.get_by_label('CLI progress every N steps').fill('4')
     page.get_by_role('button', name='Save CLI interval').click()
     page.locator('#console-status').filter(has_text='Saved: every 4 steps.').wait_for()
-    output.policy.next_check = 0.
+    import time
+    deadline = time.monotonic() + 5
+    while output.policy.every != 4:
+        output.policy.refresh(output.stderr)
+        assert time.monotonic() < deadline
+        time.sleep(.01)
     output.progress({'event': 'train', 'step': 4})
+    output.policy.close()
     assert output.stderr.getvalue() == 'step 4\n'
     page.reload()
     from playwright.sync_api import expect

@@ -89,15 +89,25 @@ one active row (each row is limited to 1 MiB and bounded nesting/node count).
 When storage cannot keep up, optional observation events are omitted rather than
 stalling updates. The next accepted event carries `observation_gap` with the omitted
 counts by event kind and first/last step, and the run manifest records cumulative
-`dropped_observation_events` and `dropped_train_events`. Accepted events retain contiguous sequence numbers;
+`dropped_observation_events` and `dropped_train_events`. Accepted events retain
+contiguous sequence numbers;
 missing measurements are never fabricated or averaged. Checkpoint boundaries
 record any outstanding gap before committing the event prefix.
 
 Live manifests coalesce to the newest snapshot and are scheduled at most four
-times per second. Checkpoint requests are polled at most four times per second,
-plus startup, periodic checkpoint and terminal boundaries. A slow update can
+times per second. Live console settings and checkpoint request discovery use a
+single background
+read slot each, at most four reads per second. Ordinary updates only consume
+cached results. Startup, periodic checkpoint and terminal control boundaries
+may perform fresh synchronous scans; terminal processing retries one lost
+acknowledgement against the saved request IDs without repeating the checkpoint.
+A slow update can
 extend request latency until its next safe boundary. Initial status, checkpoint
 publication, artifact identity reservation and final status still wait for
 durable metadata; checkpoint commits drain all accepted events before fsync.
-These explicit recovery boundaries can wait for storage. Background storage
-failures fail the run visibly rather than publishing an invalid durable frontier.
+These explicit recovery boundaries can wait for storage. Optional live read
+workers are daemons and their cancellation does not wait for a stalled OS read;
+they exit when that read returns. The terminal checkpoint-request scan waits for
+its in-flight scan before checking the latest requests. Initial console policy
+and CLI override persistence happen at the start/resume boundary. Background
+storage failures fail the run visibly rather than publishing an invalid durable frontier.

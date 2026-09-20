@@ -27,15 +27,49 @@ Where this lives today:
 
 Owner: "on snapshot evaluations FID should be a graph like the metrics, different x tho ofc. right now it's a wall of text. it may be a graph eventually, maybe it's just a graph with one point atm."
 
-- [ ] Plot each scalar snapshot metric (FID and friends) as a line chart with source step on the x axis, one point per completed evaluation, using the same chart look as the training metrics.
-- [ ] A single result is a chart with one point, not a text card; failed/cancelled evaluations show as status, not as text walls.
-- [ ] Keep the per-result details (duration, device, sample count, status) reachable but collapsed.
-- [ ] Tests for the chart with one point and with several points across steps.
+**Status:** Implemented on branch `worktree-agent-a945d3598e3c5017c` (frontend only,
+no API change). The **Snapshot evaluations** panel now groups results by metric
+instead of by stream: one echarts line chart per scalar metric, evaluated source
+step on the x axis, one visible point per evaluation. Failed and cancelled
+evaluations are single status lines under their metric's chart, and every
+per-result field moved into one collapsed list per metric.
 
-Where this lives today:
-- `frontend/src/evaluations.js` renders one card per evaluation stream, with an SVG single-point `plot` and a text list of fields.
-- Results come from `metrics/evaluations/<id>/stream.json` streams, one metric per evaluation, surfaced by `src/hypergan/web_service.py`.
-- The training metrics chart uses echarts in `frontend/src/app.js`.
+- [x] Plot each scalar snapshot metric (FID and friends) as a line chart with source step on the x axis, one point per completed evaluation, using the same chart look as the training metrics.
+- [x] A single result is a chart with one point, not a text card; failed/cancelled evaluations show as status, not as text walls.
+- [x] Keep the per-result details (duration, device, sample count, status) reachable but collapsed.
+- [x] Tests for the chart with one point and with several points across steps.
+
+Where this lives now:
+- `frontend/src/chart.js` holds the one echarts registration, the shared colour
+  palette and `chartStyle()` (grid, axes, tooltip). `frontend/src/app.js` and
+  `frontend/src/evaluations.js` both draw with it, so the evaluation charts and
+  the training curves are read the same way. That is the only change to
+  `app.js`: its chart option literal became `chartStyle(log)`.
+- `frontend/src/evaluations.js` groups completed results by metric ID across
+  streams, keeps one persistent card, chart instance and results list per metric,
+  and redraws a chart only when that metric gained a result. Series stay separate
+  per definition hash and protocol digest, markers are always drawn (one result is
+  one visible point), and a new stream extends the chart in place without
+  reducing or reordering history. Histogram metrics keep their SVG bar plot and
+  bin table, now inside the same per-metric card.
+- Failed/cancelled results render as one `.evaluation-status` line each (source
+  step or "Source position unknown", status, recorded reason clamped to one line).
+  Streams that fail to load keep their own "Evaluation unavailable" entry.
+- The collapsed `details.evaluation-results` per metric holds the results table
+  (source step, value, status, seconds, device, samples, attempt, evaluation) plus
+  one `details.evaluation-result` per result with its raw export link, histogram
+  plot and, behind one more expansion, its protocol document.
+- The 64-stream bound is unchanged and deliberate: the server admits at most
+  `MAX_STREAMS = 64` observation streams (`src/hypergan/web_service.py`), so
+  raising the client slice would not show more results.
+- Tests: `tests/browser/test_viewer_integration.py`
+  `test_snapshot_chart_draws_one_point_and_extends_across_steps` (one point, its
+  painted marker, then three steps plus a cancellation arriving live) and the
+  updated `test_snapshot_scalar_histogram_failure_discovery_and_export`,
+  `test_evaluation_metrics_sort_snapshots_preserve_repeats_and_protocols` and
+  `test_cancelled_evaluation_retains_source_and_export_without_failure_or_value`.
+- Docs: [local web viewer](../docs/local-web.md), [image FID](../docs/image-fid.md)
+  and `frontend/API.md`.
 
 ### 10. Clarify or remove the "sample - tensor" artifact (raised 2026-09-20)
 

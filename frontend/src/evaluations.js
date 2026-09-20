@@ -59,6 +59,9 @@ function showResult(card, event, catalog, path) {
   const status = node('span', failed ? 'Failed' : 'Complete', 'badge');
   card.replaceChildren(heading, status, node('p', id, 'quiet'));
   const known = event.source_position_known === true;
+  card.dataset.step = known ? String(event.step) : '';
+  card.dataset.evaluation = event.evaluation_id;
+  if (finite(event.seconds)) card.append(node('p', `Evaluation duration: ${event.seconds} seconds`, 'quiet'));
   card.append(node('p', known ? `Source step ${event.step} · Attempt ${event.attempt_id}` : 'Source position unknown'));
   const link = node('a', 'Export raw evaluation ↗', 'text-link');
   link.href = `/api/v1${path}`; link.target = '_blank'; link.rel = 'noopener';
@@ -103,7 +106,8 @@ function showResult(card, event, catalog, path) {
     evaluation_protocol: event.evaluation_protocol}, null, 2), 'numeric-preview'));
   card.append(provenance);
 }
-export function evaluationShelf(api, base) {
+export function evaluationShelf(api, base, changed = () => {}) {
+  const results = new Map();
   const records = new Map();
   let pending = false, again = false, runPath = null, inventory = [];
   async function refresh(streams) {
@@ -114,7 +118,7 @@ export function evaluationShelf(api, base) {
       do {
         again = false;
         const path = base();
-        if (runPath !== path) { records.clear(); document.getElementById('evaluation-items').replaceChildren(); runPath = path; }
+        if (runPath !== path) { records.clear(); results.clear(); changed([]); document.getElementById('evaluation-items').replaceChildren(); runPath = path; }
         const selected = (inventory || []).filter(s => /^evaluation:[0-9a-f]{32}$/.test(s.stream_id)).slice(0, 64);
         document.getElementById('evaluations').hidden = selected.length === 0;
         for (const stream of selected) {
@@ -122,7 +126,7 @@ export function evaluationShelf(api, base) {
           if (card && !card.dataset.retry) continue;
           if (!card) {
             card = node('li', 'Loading evaluation…'); records.set(stream.stream_id, card);
-            document.getElementById('evaluation-items').prepend(card);
+            document.getElementById('evaluation-items').append(card);
           }
           delete card.dataset.retry;
           const eventsPath = `${path}/events?${new URLSearchParams({stream_id: stream.stream_id, limit: '2'})}`;
@@ -135,6 +139,13 @@ export function evaluationShelf(api, base) {
             const catalog = (await api(`${path}/metrics/catalog?${new URLSearchParams({revision: event.catalog})}`, {signal: AbortSignal.timeout(15000)})).data;
             if (path !== base()) { again = true; break; }
             showResult(card, event, catalog, eventsPath);
+            results.set(stream.stream_id, {event, catalog});
+            const ordered = [...records.values()].sort((a, b) =>
+              (a.dataset.step === '' || a.dataset.step === undefined ? Infinity : Number(a.dataset.step)) -
+              (b.dataset.step === '' || b.dataset.step === undefined ? Infinity : Number(b.dataset.step)) ||
+              (a.dataset.evaluation || '').localeCompare(b.dataset.evaluation || ''));
+            document.getElementById('evaluation-items').replaceChildren(...ordered);
+            changed([...results.values()]);
           } catch (error) { card.dataset.retry = 'true'; card.replaceChildren(node('h3', 'Evaluation unavailable'), node('p', error.message)); }
         }
       } while (again);

@@ -96,6 +96,8 @@ fsync in this implementation. See [recovery](../docs/recovery.md).
   passed** after the final focused rebuild. Fault stages include event sync,
   payload writes, directory rename, reference publication and postcommit manifest
   failure, plus native/replicated signals and forced process death.
+- A final combined CUDA pass exercised native and public two-GPU execution:
+  **9 passed in 53.69 seconds** at integrated head `1997b7e9`.
 - Final archive/wheel hashes, integrated installed foundation/reference/web/
   reducer/browser results, focused settings/lifecycle corrections and exact-head
   protected CI results are retained with the acceptance and merge receipts.
@@ -104,7 +106,11 @@ Review and testing caught additional integration defects: browser preview bounds
 excluded normal CIFAR tensors; the HTTP download filename overrode the HTML name;
 Windows needed exclusive port reservation; an old CLI test assumed viewers die
 with training; terminal-group signals could kill console output drains; and a
-nonregular console settings file could block an update callback. Each received a
+nonregular console settings file could block an update callback. Windows CI also
+exposed credentials surviving an HTTP-child failure: cleanup now runs even if
+final metadata publication fails, and registry/credential readers share a lock
+with replacement/deletion. Deterministic publication-failure and held-open-reader
+regressions cover those cleanup paths. Each received a
 specific fix or corrected lifecycle assertion, without hiding failures or widening
 numerical tolerances.
 

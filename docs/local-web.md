@@ -33,6 +33,7 @@ bootstrap state and SSE envelopes. The browser uses this same public interface:
 
 - `/api/v1/capabilities`: server incarnation, selected run, reducer digest and limits.
 - `/api/v1/runs/{run_id}`: public observed/durable progress summary.
+- `/api/v1/runs/{run_id}/console`: GET/PUT the persisted `progress_every` interval; the browser control changes terminal output at complete update boundaries without changing stored metrics.
 - `/api/v1/runs/{run_id}/metrics/catalog?revision=...`: current or historical catalog.
 - `/api/v1/runs/{run_id}/events?stream_id=...&cursor=...&limit=100`: bounded raw pages.
 - `/api/v1/runs/{run_id}/views`: built-in view and registered streams.

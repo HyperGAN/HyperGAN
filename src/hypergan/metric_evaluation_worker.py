@@ -85,7 +85,7 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                 raise ValueError('Evaluation input batch exceeds element budget')
             batch = move_tensors(batch, device)
             z, _ = prior.sample(size, generator=prior_rng)
-            generated = graph.generate(z, batch)['generated']
+            generated = graph.generate(z, batch, prior=prior)['generated']
             if (not isinstance(generated, torch.Tensor) or generated.ndim < 1 or len(generated) != size
                     or generated.numel() > MAX_BATCH_ELEMENTS or not torch.isfinite(generated).all()
                     or not torch.isfinite(batch['real']).all()):

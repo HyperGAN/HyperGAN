@@ -62,7 +62,7 @@ def render_preview(trainer, batch, identity):
         recorded_inputs = {key: value.cpu() for key, value in recorded_inputs.items()}
         with torch.inference_mode():
             latent, ids = prior.sample(count, generator=torch.Generator().manual_seed(seed))
-            values = graph.generate(latent, normalized)['generated']
+            values = graph.generate(latent, normalized, prior=prior)['generated']
         if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
             raise ValueError('Preview generator must return a tensor with the requested batch size')
         if values.numel() + sum(value.numel() for value in recorded_inputs.values()) > MAX_ELEMENTS:

@@ -135,11 +135,19 @@ data instance and generator and does not advance training data state. The
 standard metrics preset records training scalars; Inception FID is a separately
 configured, pinned-weight snapshot evaluator. The example schedules
 `fid50k_train` every 10,000 completed training steps using `trigger="interval"`,
-`every_steps=10000` and `on_busy="skip"`; `fid_smoke` remains manual. Each accepted
-FID evaluation runs asynchronously from an immutable EMA snapshot and reports
-its original training step. Busy intervals are recorded as skipped. The example's
-explicit `evaluation.device="cuda"` shares the default visible GPU with training;
-set another available visible device such as `"cuda:1"` when appropriate. See
+`every_steps=10000` and `on_busy="skip"` — the snapshot defaults, written out so
+the cadence is visible. A snapshot metric that omits `trigger` gets the same
+schedule, so a copied recipe evaluates FID without extra fields; `fid_smoke`
+opts out explicitly with `trigger="manual"` because it is a 128-sample protocol
+check. A configuration whose snapshot metrics are all manual records an empty
+evaluation schedule, never publishes FID, and is reported as a startup warning.
+Each accepted FID evaluation runs asynchronously from an immutable EMA snapshot
+and reports its original training step. Busy intervals are recorded as skipped.
+The example's explicit `evaluation.device="cuda"` shares the default visible GPU
+with training, which costs training throughput and peak memory during each
+evaluation and is reported as a warning; set another available visible device
+such as `"cuda:1"` when appropriate. Interval evaluation never falls back to CPU
+or to an implicit device: `evaluation.device` must be named. See
 [snapshot scheduling](configuration.md#custom-metrics-and-explicit-snapshot-evaluation)
 for timeout, failure, shutdown and resume behavior.
 

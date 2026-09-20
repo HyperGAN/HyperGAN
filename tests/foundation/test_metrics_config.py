@@ -102,3 +102,47 @@ def test_objective_names_survive_order_and_repeated_terms_require_ids():
     config = resolve_config({'objectives': [first, second]})
     assert 'loss/objectives/reconstruction' in metric_catalog(config)['metrics']
     assert config_values(config)['objectives'][0]['id'] == 'reconstruction'
+
+
+def evaluation_metric(**changes):
+    spec = {'factory': 'uninstalled.metrics:Color', 'mode': 'snapshot',
+            'inputs': {'generated': 'evaluation.generated', 'reference': 'evaluation.reference'},
+            'evaluation': {'data': {'factory': 'gaussian_grid', 'args': {}}, 'sample_count': 8,
+                           'batch_size': 4, 'seed': 5, 'device': 'cuda:1'}}
+    spec['evaluation'].update(changes.pop('evaluation', {}))
+    spec.update(changes)
+    return spec
+
+
+def test_manual_only_snapshot_metrics_warn_that_nothing_is_scheduled():
+    config = resolve_config({'metrics': {'custom': {
+        'fid_smoke': evaluation_metric(trigger='manual'),
+        'fid50k_train': evaluation_metric(trigger='manual')}}})
+    notice = [w for w in config['warnings'] if 'No automatic evaluation is scheduled' in w]
+    assert len(notice) == 1 and 'fid50k_train, fid_smoke' in notice[0]
+    assert 'hypergan evaluate' in notice[0] and '10000' in notice[0]
+    # One scheduled metric means the run does publish evaluations; no notice.
+    mixed = resolve_config({'metrics': {'custom': {
+        'fid_smoke': evaluation_metric(trigger='manual'), 'fid50k_train': evaluation_metric()}}})
+    assert not [w for w in mixed['warnings'] if 'No automatic evaluation' in w]
+    # Disabling the only scheduled metric restores the notice.
+    disabled = resolve_config({'metrics': {'disable': ['fid50k_train'], 'custom': {
+        'fid_smoke': evaluation_metric(trigger='manual'), 'fid50k_train': evaluation_metric()}}})
+    assert [w for w in disabled['warnings'] if 'No automatic evaluation' in w]
+    assert not [w for w in resolve_config({})['warnings'] if 'No automatic evaluation' in w]
+
+
+@pytest.mark.parametrize('training, evaluation, contends', [
+    ('cuda', 'cuda', True), ('cuda:0', 'cuda', True), ('cuda', 'cuda:1', True),
+    ('cuda:0', 'cuda:1', False), ('cuda', 'cpu', False), ('cpu', 'cuda:1', False),
+    ('cpu', 'cpu', False)])
+def test_interval_evaluation_warns_about_a_shared_training_device(training, evaluation, contends):
+    config = resolve_config({'training': {'device': training},
+                             'metrics': {'custom': {'fid': evaluation_metric(evaluation={'device': evaluation})}}})
+    notice = [w for w in config['warnings'] if 'contention' in w]
+    assert bool(notice) is contends
+    if contends:
+        assert 'fid' in notice[0] and training in notice[0]
+    manual = resolve_config({'training': {'device': training}, 'metrics': {'custom': {
+        'fid': evaluation_metric(trigger='manual', evaluation={'device': evaluation})}}})
+    assert not [w for w in manual['warnings'] if 'contention' in w]

@@ -9,16 +9,6 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
-### 6. FID should evaluate on an interval by default (raised 2026-09-20)
-
-Owner ran `training-runs/start.sh` and saw no FID because both FID metrics in the run's `cifar10.toml` are `trigger = "manual"`, so the manifest records an empty evaluation schedule and nothing ever fires.
-
-- [ ] Make snapshot metrics such as FID default to `trigger = "interval"` with a sensible `every_steps` (the public example uses 10,000 for FID50k) and `on_busy = "skip"`, so a recipe that declares an FID metric gets periodic results without extra fields. `trigger = "manual"` stays available as an explicit opt-out.
-- [ ] Decide the default cadence and evaluation device behavior when a metric omits them; document contention when the evaluation device is the training GPU.
-- [ ] Update the CIFAR example, the generated/pretrained recipe used by the owner's run, and the docs to reflect the new default.
-- [ ] Have the viewer and CLI progress output make it obvious when a configured FID metric has no schedule, so a manual-only setup is not silent.
-- [ ] Add tests for the default schedule and for explicit manual opt-out.
-
 ### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
 
 Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."
@@ -36,6 +26,50 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 - [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
 
 ## Done
+
+### 6. FID should evaluate on an interval by default (raised 2026-09-20)
+
+Owner ran `training-runs/start.sh` and saw no FID because both FID metrics in the run's `cifar10.toml` are `trigger = "manual"`, so the manifest records an empty evaluation schedule and nothing ever fires.
+
+- [x] Make snapshot metrics such as FID default to `trigger = "interval"` with a sensible `every_steps` (the public example uses 10,000 for FID50k) and `on_busy = "skip"`, so a recipe that declares an FID metric gets periodic results without extra fields. `trigger = "manual"` stays available as an explicit opt-out.
+- [x] Decide the default cadence and evaluation device behavior when a metric omits them; document contention when the evaluation device is the training GPU.
+- [x] Update the CIFAR example, the generated/pretrained recipe used by the owner's run, and the docs to reflect the new default.
+- [x] Have the viewer and CLI progress output make it obvious when a configured FID metric has no schedule, so a manual-only setup is not silent.
+- [x] Add tests for the default schedule and for explicit manual opt-out.
+
+**Status:** Implemented in commit 7d937f94, merged to develop.
+
+- `src/hypergan/metric_plugins.py` defines `DEFAULT_SNAPSHOT_TRIGGER = "interval"`
+  and `DEFAULT_EVALUATION_EVERY_STEPS = 10000` in one place. A snapshot metric that
+  omits `trigger` resolves to interval evaluation, and an explicit
+  `trigger = "interval"` without `every_steps` takes the same default; both resolve
+  `on_busy = "skip"`. Manual metrics keep no cadence fields, so a run recorded before
+  this change resolves to exactly the specification it already stored.
+- Interval evaluation still has no device fallback. A metric that resolves to
+  interval and names no `evaluation.device` is rejected during configuration
+  resolution, with a message naming the metric and both remedies (an explicit
+  device, or `trigger = "manual"`). Failing is the right side of the
+  "warn on unqualified, fail on incompatible" rule here: a silent fallback to
+  manual would reproduce exactly the bug this item reports.
+- `hypergan.metrics.evaluation_warnings` adds two warnings, printed by
+  `hypergan train`, `resume`, `validate` and `preflight` through the existing
+  `_warnings` path and recorded in the run manifest: one when every enabled
+  snapshot metric is manual (naming them, and the empty schedule that results),
+  and one when an interval metric's evaluation device may be the training device.
+- Resume is unaffected for existing runs, which store their resolved trigger in
+  the manifest. Adding a schedule to an existing run is refused by
+  `hypergan train` with a message naming `metrics` as the differing section and
+  pointing at `hypergan resume RUN --config CONFIG`, which accepts it.
+- `examples/cifar-pretrained-sagan.toml`, [configuration](../docs/configuration.md),
+  [image FID](../docs/image-fid.md) and the [CIFAR recipe](../docs/cifar-recipe.md)
+  document the default, the device rule and the GPU contention cost.
+- The viewer already labels a manual snapshot metric `manual` with no next step
+  from the catalog specification, so no frontend change was needed.
+- No recipe generator in this repository emits `fid_smoke`/`fid50k_train`;
+  `hypergan new` writes only the numerical reference recipe. The owner's
+  `cifar10.toml` lives outside the repository and still needs its two
+  `trigger = "manual"` lines removed (and a separate `evaluation.device`, e.g.
+  `cuda:1`, to avoid sharing the training GPU) on a new run directory.
 
 ### 1. Named samples with history slider (raised 2026-09-20)
 

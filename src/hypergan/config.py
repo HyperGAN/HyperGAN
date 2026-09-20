@@ -9,7 +9,7 @@ import math
 import re
 from pathlib import Path
 
-from .metrics import DEFAULT_METRICS, objective_id, validate_metrics
+from .metrics import DEFAULT_METRICS, evaluation_warnings, objective_id, validate_metrics
 
 try:
     import tomllib
@@ -323,6 +323,7 @@ def resolve_config(raw):
         warnings.append("The prior table is frozen: prior optimizer settings do not apply and its regularizer contributes no trainable gradient.")
     if result['metrics']['custom']:
         warnings.append("Custom metrics execute trusted Python in bounded workers; input/output and deadlines are bounded, arbitrary allocations or descendants are not sandboxed.")
+    warnings.extend(evaluation_warnings(result))
     match = {k: v for k, v in result.items() if k != "metrics"} == {k: v for k, v in DEFAULT.items() if k != "metrics"}
     if not match:
         warnings.append("Custom resolved recipe: runnable combinations are unqualified until separately evaluated.")

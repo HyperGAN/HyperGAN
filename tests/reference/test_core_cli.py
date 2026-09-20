@@ -67,6 +67,57 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     assert json.loads(Path(result.stdout.strip()).read_text())["step"] == 5
 
 
+SNAPSHOT_METRIC = '''
+[metrics.custom.fid]
+factory = "hypergan.metric_examples:ColorMomentDistance"
+mode = "snapshot"
+{trigger}inputs = {{ generated = "evaluation.generated", reference = "evaluation.reference" }}
+[metrics.custom.fid.evaluation]
+device = "cpu"
+sample_count = 8
+batch_size = 4
+seed = 5
+[metrics.custom.fid.evaluation.data]
+factory = "gaussian_grid"
+args = {{ side = 4 }}
+'''
+
+
+def test_cli_reports_snapshot_metrics_that_have_no_schedule(tmp_path):
+    config = write_default(tmp_path / "project", device="cpu")
+    config.write_text(config.read_text() + SNAPSHOT_METRIC.format(trigger='trigger = "manual"\n'))
+    checked = cli(tmp_path, "validate", config)
+    assert checked.returncode == 0, checked.stderr
+    assert "No automatic evaluation is scheduled" in checked.stderr and "fid" in checked.stderr
+    assert json.loads(checked.stdout)["metrics"]["custom"]["fid"]["trigger"] == "manual"
+
+    run = tmp_path / "run"
+    trained = cli(tmp_path, "train", config, "--run-dir", run, "--no-server", "--stop-after-steps", 1)
+    assert trained.returncode == 0, trained.stderr
+    # The notice precedes training, and the run records the empty schedule it warns about.
+    assert "No automatic evaluation is scheduled" in trained.stderr
+    manifest = json.loads((run / "manifest.json").read_text())
+    assert manifest["evaluation_schedule"] == {}
+    assert any("No automatic evaluation is scheduled" in warning for warning in manifest["warnings"])
+
+    # Omitting the trigger schedules the same metric, and the notice disappears.
+    scheduled = tmp_path / "scheduled.toml"
+    scheduled.write_text(config.read_text().replace('trigger = "manual"\n', ""))
+    checked = cli(tmp_path, "validate", scheduled)
+    assert checked.returncode == 0, checked.stderr
+    assert "No automatic evaluation is scheduled" not in checked.stderr
+    resolved = json.loads(checked.stdout)["metrics"]["custom"]["fid"]
+    assert resolved["trigger"] == "interval" and resolved["every_steps"] == 10000
+    assert resolved["on_busy"] == "skip"
+
+    # Interval evaluation has no device fallback; the error names both remedies.
+    without_device = tmp_path / "no-device.toml"
+    without_device.write_text(scheduled.read_text().replace('device = "cpu"\nsample_count', "sample_count"))
+    rejected = cli(tmp_path, "validate", without_device)
+    assert rejected.returncode == 1
+    assert "fid.evaluation.device" in rejected.stderr and 'trigger = "manual"' in rejected.stderr
+
+
 def test_sampling_preserves_global_rng_and_existing_outputs(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"

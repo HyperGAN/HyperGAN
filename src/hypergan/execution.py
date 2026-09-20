@@ -33,6 +33,12 @@ def _same(left, right):
     return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(right, sort_keys=True, allow_nan=False)
 
 
+def _differences(current, original):
+    """Name the resolved top-level sections that differ, including defaulted fields."""
+    keys = sorted(set(current) | set(original))
+    return [key for key in keys if not _same(current.get(key), original.get(key))]
+
+
 def _training_config(config_path, steps=None):
     config = load_config(config_path)
     if steps is not None:
@@ -216,8 +222,17 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     config = _training_config(config_path, steps) if config_path is not None else resolve_config(manifest['config'])
     if config_path is None and steps is not None:
         raise ValueError('A training step override requires an explicit configuration')
-    if _repeat_train and not _same(config_values(config), config_values(resolve_config(manifest['config']))):
-        raise ValueError('Training configuration differs from the original run; use a new run directory for a different configuration')
+    if _repeat_train:
+        original = config_values(resolve_config(manifest['config']))
+        changed = _differences(config_values(config), original)
+        if changed:
+            # Resolved defaults are part of the recorded configuration, so a default
+            # that changed between releases surfaces here instead of silently applying.
+            remedy = ('`hypergan resume RUN --config CONFIG` continues this run with changed '
+                      'observation settings' if changed == ['metrics'] else
+                      'use a new run directory for a different numerical configuration')
+            raise ValueError('Training configuration differs from the original run in '
+                             + ', '.join(changed) + '; ' + remedy)
     if fingerprint(config) != manifest['config_sha256']:
         raise ValueError('Resume configuration differs from the original run; total training schedule cannot change')
     saved = manifest.get('execution')

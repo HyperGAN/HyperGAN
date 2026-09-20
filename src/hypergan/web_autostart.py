@@ -4,7 +4,7 @@ The broker, HTTP server, and bounded built-in projection producer are separate
 spawned processes. Their supervisor is detached from training and reused per run.
 No HTTP request executes a Python event map.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import json
 import multiprocessing as mp
 import os
@@ -116,11 +116,14 @@ def _registry(root):
     return private
 
 
-def _read_state(private):
-    try:
-        return json.loads((private / 'state.json').read_text(encoding='utf-8'))
-    except FileNotFoundError:
-        return None
+def _read_state(private, *, locked=False):
+    # Windows readers can temporarily deny replacement of an open file. Use
+    # the launch lock for our readers and writers, not timing-dependent retries.
+    with nullcontext() if locked else _launch_lock(private):
+        try:
+            return json.loads((private / 'state.json').read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            return None
 
 
 def _session(state):
@@ -219,16 +222,21 @@ def _broker(root, private, launch_id):
         # cancel an unstarted broker without waiting on a reservation timeout.
         with _launch_lock(private):
             ownership.enter_context(run_lock(private / 'service'))
-            state = _read_state(private)
+            state = _read_state(private, locked=True)
             if state['launch_id'] != launch_id or state['status'] == 'stopped':
                 return
+        # Metadata publication can fail after children are already reaped.
+        # Credential cleanup must run regardless, before the lifetime lock exits.
+        ownership.callback(credential_path.unlink, missing_ok=True)
+        ownership.callback((private / ('stop-' + launch_id)).unlink, missing_ok=True)
         def publish(status, error=None):
             state.update(status=status, error=error, supervisor_pid=os.getpid(),
                          processes={name: child.pid for name, child in children.items()})
             if session is not None:
                 state.update(origin=session.origin, server_instance_id=session.instance_id,
                              session_file=str(credential_path))
-            atomic_json(private / 'state.json', state)
+            with _launch_lock(private):
+                atomic_json(private / 'state.json', state)
             if session is not None:
                 try:
                     _receipt(root, session, state['mode'], status, children)
@@ -278,8 +286,6 @@ def _broker(root, private, launch_id):
             if listener is not None:
                 listener.close()
             publish('stopped' if state['status'] != 'failed' else 'failed', state.get('error'))
-            credential_path.unlink(missing_ok=True)
-            (private / ('stop-' + launch_id)).unlink(missing_ok=True)
 
 
 def stop_viewer(root, *, launch_id=None, timeout=8):
@@ -287,7 +293,7 @@ def stop_viewer(root, *, launch_id=None, timeout=8):
     from .run_state import atomic_json
     private = _registry(root)
     with _launch_lock(private):
-        state = _read_state(private)
+        state = _read_state(private, locked=True)
         if not state or (launch_id is not None and state['launch_id'] != launch_id):
             return {'status': 'not_running'}
         if not _running(private, state):
@@ -338,7 +344,7 @@ class Viewer:
         self._closing = threading.Event()
         self._open_browser = open_browser
         with _launch_lock(self.private):
-            state = _read_state(self.private)
+            state = _read_state(self.private, locked=True)
             if _running(self.private, state):
                 if ((host is not None and host != state['host']) or
                     (auth is not None and auth != state['auth']) or

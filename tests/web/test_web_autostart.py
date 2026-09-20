@@ -111,6 +111,12 @@ def test_numerical_failure_keeps_viewer_and_viewer_failure_does_not_fail_trainin
             # This remains an observation failure, independent of numerical work.
             assert not _probe(reused.session)
         until(lambda: not viewer.credential_path.exists())
+    except BaseException:
+        from hypergan.web_autostart import _registry
+        log = _registry(root) / 'viewer.log'
+        if log.exists():
+            print(log.read_text(errors='replace'), file=sys.stderr)
+        raise
     finally:
         stop_viewer(root)
 
@@ -278,3 +284,48 @@ def test_short_optional_attempt_prints_discovery_and_startup_can_be_cancelled(tm
     started = time.monotonic()
     assert stop_viewer(tmp_path / 'unstarted')['status'] == 'stopped'
     assert time.monotonic() - started < 1
+
+
+def test_failed_terminal_state_publication_still_reaps_and_removes_credentials(tmp_path):
+    from hypergan.web_autostart import _read_state, _registry, _locked
+    root = tmp_path / 'pending'
+    private = _registry(root)
+    launch_id = 'terminal-write-fault'
+    atomic_json(private / 'state.json', dict(schema_version=1, launch_id=launch_id, root=str(root),
+        host='127.0.0.1', auth='token', port=0, mode='explicit', status='starting', started_at=time.time()))
+    script = tmp_path / 'broker.py'
+    script.write_text('''from pathlib import Path
+import sys
+from hypergan import run_state, web_autostart
+if __name__ == '__main__':
+    original = run_state.atomic_json
+    failures = [0]
+    def fail_terminal(path, value):
+        if Path(path).name == 'state.json' and value.get('status') == 'failed':
+            failures[0] += 1
+            if failures[0] == 2:
+                raise PermissionError('injected terminal registry replace failure')
+        return original(path, value)
+    run_state.atomic_json = fail_terminal
+    web_autostart._broker(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
+''')
+    with (tmp_path / 'broker.log').open('wb') as output:
+        process = subprocess.Popen([sys.executable, str(script), str(root), str(private), launch_id],
+                                   stdout=output, stderr=output)
+        record = None
+        try:
+            record = until(lambda: (state if (state := _read_state(private))['status'] == 'ready' else None))
+            os.kill(record['processes']['server'], signal.SIGTERM)
+            assert process.wait(timeout=8) != 0
+            assert 'injected terminal registry replace failure' in (tmp_path / 'broker.log').read_text()
+            assert not Path(record['session_file']).exists()
+            assert not _locked(private)
+            until(lambda: not any(_process_running(pid) for pid in record['processes'].values()))
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            if record is not None:
+                until(lambda: not any(_process_running(pid) for pid in record['processes'].values()))
+            credential = private / ('session-' + launch_id + '.json')
+            credential.unlink(missing_ok=True)

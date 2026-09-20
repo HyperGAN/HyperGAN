@@ -55,6 +55,16 @@ Where this lives today:
 - [ ] Add a web test that exercises requests carrying a proxied HTTPS origin.
 - [ ] Document the `tailscale serve` setup once it works end to end.
 
+### 6. FID should evaluate on an interval by default (raised 2026-09-20)
+
+Owner ran `training-runs/start.sh` and saw no FID because both FID metrics in the run's `cifar10.toml` are `trigger = "manual"`, so the manifest records an empty evaluation schedule and nothing ever fires.
+
+- [ ] Make snapshot metrics such as FID default to `trigger = "interval"` with a sensible `every_steps` (the public example uses 10,000 for FID50k) and `on_busy = "skip"`, so a recipe that declares an FID metric gets periodic results without extra fields. `trigger = "manual"` stays available as an explicit opt-out.
+- [ ] Decide the default cadence and evaluation device behavior when a metric omits them; document contention when the evaluation device is the training GPU.
+- [ ] Update the CIFAR example, the generated/pretrained recipe used by the owner's run, and the docs to reflect the new default.
+- [ ] Have the viewer and CLI progress output make it obvious when a configured FID metric has no schedule, so a manual-only setup is not silent.
+- [ ] Add tests for the default schedule and for explicit manual opt-out.
+
 ## Done
 
 ### 3. Viewer fails over Tailscale: "Cannot read properties of undefined (reading 'digest')" (raised 2026-09-20)

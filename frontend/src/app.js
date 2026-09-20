@@ -212,7 +212,9 @@ async function refreshArtifacts() {
   renderArtifacts(artifacts);
 }
 const MAX_SAMPLE_GROUPS = 20;
-const MAX_SAMPLE_VERSIONS = 100;
+// Preview retention keeps the whole run by default, so a name's history spans
+// every published sample. This matches the service's bound on the index.
+const MAX_SAMPLE_VERSIONS = 4096;
 const provenanceStep = (artifact) => {
   const step = artifact.provenance?.step;
   return Number.isFinite(step) ? step : -1;
@@ -221,6 +223,11 @@ const provenanceSequence = (artifact) => {
   const sequence = artifact.provenance?.sample_sequence;
   return Number.isFinite(sequence) ? sequence : -1;
 };
+// A slider position is not an identity: samples arrive and old ones can be
+// pruned, so every position shifts. Pin the sample itself by the step it was
+// taken at (with its sequence to break ties within one step).
+const versionKey = ({ artifact }) =>
+  `${provenanceStep(artifact)}\u0000${provenanceSequence(artifact)}`;
 function sampleGroups(artifacts) {
   // Samples are indexed by a short stable name ('g' generated, 'x' real) and
   // grouped per modality so an image name shows one picture at a time.
@@ -273,7 +280,13 @@ function renderSampleGroup(group) {
   body.className = "sample-body";
   li.append(body);
   const pinned = state.sampleVersions.get(group.key);
-  const pinnedIndex = group.versions.findIndex((v) => v.id === pinned);
+  // No pin means "follow the latest", so a newly published sample is shown.
+  // A pin holds that exact sample; if it is gone, fall back to the latest.
+  const pinnedIndex =
+    pinned === undefined
+      ? -1
+      : group.versions.findIndex((version) => versionKey(version) === pinned);
+  if (pinned !== undefined && pinnedIndex < 0) state.sampleVersions.delete(group.key);
   let index = pinnedIndex < 0 ? group.versions.length - 1 : pinnedIndex;
   let history = null;
   let position = null;
@@ -303,7 +316,7 @@ function renderSampleGroup(group) {
       const chosen = Number(slider.value);
       if (chosen === group.versions.length - 1)
         state.sampleVersions.delete(group.key);
-      else state.sampleVersions.set(group.key, group.versions[chosen].id);
+      else state.sampleVersions.set(group.key, versionKey(group.versions[chosen]));
       show(chosen);
     };
     history.append(slider, position, latestButton);

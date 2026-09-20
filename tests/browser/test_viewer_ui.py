@@ -24,7 +24,7 @@ METRICS = {'loss/g_total': 'Generator total', 'loss/d_total': 'Discriminator tot
 def viewer():
     reducer = Reducer()
     control = {'paths': [], 'streams': [], 'step': 2, 'pending': False, 'release': False,
-               'artifacts': {}, 'assets': {}}
+               'artifacts': {}, 'assets': {}, 'artifact_revision': 0}
     condition = threading.Condition()
     def frame(step):
         values = {'loss/g_total': 1 / step, 'loss/d_total': -.5 if step == 2 else 2 / step,
@@ -88,11 +88,14 @@ def viewer():
                     next_step=int(cursor.split(':')[-1])+1
                     deadline=time.monotonic()+15
                     sent_ready=False
+                    published=control['artifact_revision']
                     while time.monotonic()<deadline:
                         with condition:condition.wait(.03)
                         if path=='/api/v1/stream':
                             if not control.get('waiting'):emit('metadata',{'run_id':RUN});return
                             continue
+                        if control['artifact_revision']!=published:
+                            published=control['artifact_revision'];emit('artifacts',{'revision':f'{published:064x}'})
                         if control['release'] and not sent_ready:emit('bootstrap_ready',{});sent_ready=True
                         if control['step']>=next_step:
                             emit('frame',frame(next_step));next_step+=1
@@ -281,4 +284,55 @@ def test_named_samples_group_with_latest_image_and_history_slider(viewer):
     assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-30')
     page.wait_for_function(
         "() => [...document.querySelectorAll('#artifact-items img')].every(i => i.naturalWidth === 1)")
+    assert not errors
+
+
+def test_sample_slider_follows_latest_and_holds_an_earlier_pick(viewer):
+    """A new sample advances the slider only when it already showed the latest."""
+    from hypergan.image_grids import encode_png
+    page, control, condition, errors = viewer
+    def image(step):
+        identifier = f'g-{step}'
+        control['assets'][identifier] = encode_png(bytes([step, 0, 0]), 1, 1, 3, {'step': step})
+        control['artifacts'][identifier] = {
+            'role': 'sample', 'modality': 'image', 'media_type': 'image/png', 'name': 'g',
+            'bytes': len(control['assets'][identifier]), 'width': 1, 'height': 1,
+            'provenance': {'step': step, 'sample_sequence': step // 10, 'name': 'g'}}
+    def published():
+        with condition:
+            control['artifact_revision'] += 1
+            condition.notify_all()
+    for step in (10, 20, 30):
+        image(step)
+    login(page)
+    generated = page.locator('#artifact-items li[data-sample="g"][data-modality="image"]')
+    position = generated.locator('.sample-position')
+    slider = generated.locator('input[type="range"]')
+    position.filter(has_text='Version 3 of 3 \u00b7 step 30 \u00b7 latest').wait_for()
+    # Showing the latest: a new sample advances to it and the range grows.
+    image(40)
+    published()
+    position.filter(has_text='Version 4 of 4 \u00b7 step 40 \u00b7 latest').wait_for()
+    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-40')
+    assert slider.get_attribute('max') == '3'
+    # Scrub back to an earlier sample.
+    slider.focus()
+    page.keyboard.press('Home')
+    page.keyboard.press('ArrowRight')
+    position.filter(has_text='Version 2 of 4 \u00b7 step 20').wait_for()
+    # Slider positions shift when the oldest sample ages out and newer ones
+    # arrive. The viewer holds the sample that was picked, not that position.
+    control['artifacts'].pop('g-10')
+    image(50)
+    published()
+    position.filter(has_text='Version 1 of 4 \u00b7 step 20').wait_for()
+    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-20')
+    assert (slider.get_attribute('min'), slider.get_attribute('max')) == ('0', '3')
+    # Latest resumes following, so the next sample advances the slider again.
+    generated.get_by_role('button', name='Latest').click()
+    position.filter(has_text='Version 4 of 4 \u00b7 step 50 \u00b7 latest').wait_for()
+    image(60)
+    published()
+    position.filter(has_text='Version 5 of 5 \u00b7 step 60 \u00b7 latest').wait_for()
+    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-60')
     assert not errors

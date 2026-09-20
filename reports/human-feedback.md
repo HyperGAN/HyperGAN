@@ -13,15 +13,58 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 Owner: "the viewer shows the last N images but it should really show all of them. if it's on the last one and a new sample comes in it can update and stay on the last one. but i want someone to be able to slide from the beginning of their training to the end."
 
-- [ ] Stop pruning image history by default: keep every published preview (or at least every image grid) for the life of the run, so the slider reaches back to step 0. Keep a bound only for disk-heavy tensor payloads if one is needed, and make any retention an explicit opt-in.
-- [ ] Lift the viewer/API caps that assume a small preview count (`previews/index.json` is currently rejected above 100 entries; the artifact list is rebuilt from it) so a long run with thousands of samples still loads quickly.
-- [ ] Slider behavior: when positioned on the latest sample and a new one arrives, advance to the new one; when positioned on an earlier sample, stay put and do not jump.
-- [ ] Tests for retention-off, index size, and the follow-latest / stay-put slider behavior.
+- [x] Stop pruning image history by default: keep every published preview (or at least every image grid) for the life of the run, so the slider reaches back to step 0. Keep a bound only for disk-heavy tensor payloads if one is needed, and make any retention an explicit opt-in.
+- [x] Lift the viewer/API caps that assume a small preview count (`previews/index.json` is currently rejected above 100 entries; the artifact list is rebuilt from it) so a long run with thousands of samples still loads quickly.
+- [x] Slider behavior: when positioned on the latest sample and a new one arrives, advance to the new one; when positioned on an earlier sample, stay put and do not jump.
+- [x] Tests for retention-off, index size, and the follow-latest / stay-put slider behavior.
 
-Where this lives today:
-- `src/hypergan/previews.py` `DEFAULT_KEEP = 20`, `MAX_KEEP = 100`; `_publish_preview` deletes expired generations on every publish.
-- `src/hypergan/cli.py` `--preview-keep`; `src/hypergan/web_service.py` rejects a preview index longer than 100.
-- `frontend/src/app.js` groups artifacts by name and renders the slider.
+**Status:** Implemented on `worktree-agent-afd0478ab5a7ac2f3`, pending merge to develop.
+
+Retention is now opt-in. `hypergan.previews.KEEP_ALL = 0` is the default `keep`,
+so a run accumulates every published generation (tensor payload and both PNG
+grids together) for its whole life, and the viewer's slider spans the run from
+its first sample to its latest. `--preview-keep N` still deletes the oldest
+generations when a disk is small, and `--preview-keep all` returns a run to
+keeping everything; resume inherits whichever value the run recorded, so a run
+started before this change keeps its stored bound until a resume overrides it.
+The tensor payload was kept under the same rule as the grids rather than pruned
+separately: a generation is published as one atomic directory whose index entry
+points at a readable `preview.json`, and splitting that would have given
+"retained" two meanings for no gain the owner asked for. Each generation is
+bounded at 2 MiB of JSON plus its PNGs, which a bound can still cap.
+
+Nothing assumes a short history any more. `previews/index.json` is rebuilt from
+the records it already publishes and only reads a manifest for a generation the
+index does not name, so a publication costs one directory listing instead of one
+manifest read per retained sample. The run manifest, which is rewritten and
+fsynced on every publication, now repeats only the most recent 16 records plus a
+`preview_count`; the index remains the whole history. The service accepts an
+index of up to `web_service.MAX_PREVIEWS = 4096` generations (was 100) read under
+a 16 MiB budget, and the viewer's per-group version cap matches it. A 100k-step
+run at `--preview-every 100` publishes 1,000 generations, well inside that.
+
+The slider now pins a sample by the step it was taken at, not by its slider
+position or its artifact ID. With no pin it follows the latest, so a new sample
+advances it; once moved to an earlier sample it holds that sample even as newer
+ones arrive and pruning shifts every position, and **Latest** resumes following.
+
+Where this lives now:
+- `src/hypergan/previews.py` `KEEP_ALL`/`DEFAULT_KEEP`, `_indexed_generations`
+  and the retention branch in `_publish_preview`.
+- `src/hypergan/cli.py` `_preview_keep` (a count or `all`);
+  `src/hypergan/run_controller.py` `MANIFEST_PREVIEWS` and `_controls`;
+  `src/hypergan/web_service.py` `MAX_PREVIEWS` / `PREVIEW_INDEX_BYTES`.
+- `frontend/src/app.js` `versionKey` and the pin lookup in `renderSampleGroup`.
+- Tests: `tests/reference/test_image_previews.py`
+  (`test_retention_keeps_every_generation_until_a_bound_is_requested`,
+  `test_index_reuses_published_records_instead_of_rereading_manifests`),
+  `tests/web/test_web_service.py` (long index accepted, bounded above
+  `MAX_PREVIEWS`), `tests/browser/test_viewer_ui.py`
+  (`test_sample_slider_follows_latest_and_holds_an_earlier_pick`),
+  `tests/reference/test_core_cli.py`
+  (`test_preview_keep_accepts_a_count_or_the_whole_run`).
+- Docs: [image previews](../docs/image-previews.md), [observation](../docs/observation.md),
+  [replicated observation](../docs/replicated-observation.md), README.
 
 ### 9. FID (snapshot evaluations) should be a chart, not a wall of text (raised 2026-09-20)
 

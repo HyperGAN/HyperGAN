@@ -3,7 +3,7 @@
 Event reads and checkpoint requests work from a base installation without importing PyTorch or loading model weights. Native CUDA and local replicated runs share these records. Periodic previews are opt-in; the [optional local viewer](local-web.md) can start with training or reconnect independently.
 
 ```sh
-hypergan train demo --run-dir runs/demo --preview-every 10 --preview-keep 20
+hypergan train demo --run-dir runs/demo --preview-every 10
 hypergan events runs/demo --limit 20
 hypergan checkpoint runs/demo --request-id my-save
 hypergan checkpoint runs/demo --status my-save
@@ -31,7 +31,7 @@ This is a local filesystem protocol for a trusted run directory, not a remote au
 
 ## Periodic previews
 
-`--preview-every N` requests an isolated EMA snapshot after every N complete updates when the preview worker is available. `--preview-keep N` (1–100, default 20) bounds the retained periodic history across attempts; the browser's per-sample history slider can only reach retained versions. `--preview-name NAME` sets the short stable name indexing this run's generated samples (default `g`; the comparable real batch is published as `x`). Resume inherits those settings; `--no-previews` explicitly disables periodic previews. These controls are operational settings and do not change the numerical recipe or total schedule.
+`--preview-every N` requests an isolated EMA snapshot after every N complete updates when the preview worker is available. `--preview-keep N` opts into bounding the retained periodic history across attempts; the default keeps every published preview for the life of the run, so the browser's per-sample history slider spans the whole run, and `--preview-keep all` restores that default for a run that recorded a bound. `--preview-name NAME` sets the short stable name indexing this run's generated samples (default `g`; the comparable real batch is published as `x`). Resume inherits those settings; `--no-previews` explicitly disables periodic previews. These controls are operational settings and do not change the numerical recipe or total schedule.
 
 Previews are immutable numeric JSON artifacts with bounded PNG grids for image output, carrying run, attempt, update and monotonic sample identities plus their sample name. They are separate from training checkpoints. Their run-wide counter never rewinds when an older checkpoint is replayed; gaps are allowed after failed publication. Retention runs after successful publication and applies only to periodic preview artifacts. Cleanup errors are visible and may leave extra files until a later successful cleanup; the retention setting is not a disk quota. Complete checkpoints and final attempt inference bundles remain separate.
 

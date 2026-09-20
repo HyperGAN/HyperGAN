@@ -24,6 +24,12 @@ MAX_GROUPS = 2048
 MAX_STREAMS = 64
 MAX_ATTEMPTS = 4096
 MAX_BOOTSTRAPS = 8
+# Preview retention defaults to the whole run, so the sample history a viewer
+# scrubs through is long: a 100k-step run at --preview-every 100 publishes a
+# thousand generations. The index stays bounded and validated, with room for
+# several times that before a run must opt into --preview-keep.
+MAX_PREVIEWS = 4096
+PREVIEW_INDEX_BYTES = 16 * 1048576
 _HEX = re.compile('[0-9a-f]{64}\\Z')
 
 
@@ -229,10 +235,11 @@ class ObservationService:
                         path = path.relative_to(self.root)
                     return path.as_posix()
                 if signature[1] is not None:
-                    index = read_json(self.root, 'previews/index.json')
+                    index = read_json(self.root, 'previews/index.json',
+                                      max_bytes=PREVIEW_INDEX_BYTES)
                     previews = index.get('previews')
                     if (index.get('schema_version') != 1 or index.get('run_id') != self.run_id
-                            or not isinstance(previews, list) or len(previews) > 100):
+                            or not isinstance(previews, list) or len(previews) > MAX_PREVIEWS):
                         raise ValueError('Invalid bounded preview index')
                     for preview in previews:
                         identity = preview['identity']

@@ -14,12 +14,16 @@ import warnings
 
 from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics
-from .previews import DEFAULT_KEEP, DEFAULT_NAME, MAX_KEEP, sample_name
+from .previews import DEFAULT_KEEP, DEFAULT_NAME, KEEP_ALL, sample_name
 from .metric_plugins import prepare_custom, ScalarMetrics
 from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
 from .observation_io import ObservationIO
 from .background_poll import BackgroundPoll
 from .run_signals import GracefulStop
+
+# How many published preview records the run manifest repeats. Preview
+# retention itself is unbounded by default; the manifest stays small.
+MANIFEST_PREVIEWS = 16
 
 
 @dataclass(frozen=True)
@@ -91,8 +95,9 @@ def _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every=0,
               preview_keep=DEFAULT_KEEP, preview_name=DEFAULT_NAME):
     if type(preview_every) is not int or preview_every < 0:
         raise ValueError("preview_every must be a nonnegative integer; zero disables previews")
-    if type(preview_keep) is not int or not 1 <= preview_keep <= MAX_KEEP:
-        raise ValueError(f"preview_keep must be between 1 and {MAX_KEEP}")
+    if type(preview_keep) is not int or preview_keep < KEEP_ALL:
+        raise ValueError("preview_keep must be a positive integer, "
+                         f"or {KEEP_ALL} to keep every preview")
     sample_name(preview_name)
     if type(checkpoint_every) is not int or checkpoint_every < 1:
         raise ValueError('checkpoint_every must be a positive integer')
@@ -554,7 +559,10 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if preview is None:
                 return
             record, preview_index, errors = preview.record, preview.index, preview.errors
-            manifest['previews'] = preview_index['previews']
+            # The manifest is rewritten and fsynced on every publication, so it
+            # carries a recent tail; previews/index.json is the whole history.
+            manifest['previews'] = preview_index['previews'][-MANIFEST_PREVIEWS:]
+            manifest['preview_count'] = len(preview_index['previews'])
             manifest['preview_path'] = record['path']
             preview_publications += 1
             publish(wait=False)

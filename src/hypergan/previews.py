@@ -13,8 +13,12 @@ from .run_state import atomic_json, sync_directory
 MAX_COUNT = 16
 MAX_ELEMENTS = 65536
 MAX_BYTES = 2 * 1024 * 1024
-MAX_KEEP = 100
-DEFAULT_KEEP = 20
+# Image history is what a reader scrubs through, so retention is opt-in: the
+# default keeps every published generation for the life of the run and the
+# viewer's slider spans it from the first sample to the last. A caller under
+# disk pressure passes a positive `keep` to prune the oldest generations.
+KEEP_ALL = 0
+DEFAULT_KEEP = KEEP_ALL
 # Short stable sample names: the EMA generator output is 'g' and the real batch
 # it is compared against is 'x'. Names index a source across steps; they are not
 # unique artifact identities.
@@ -190,14 +194,43 @@ def _publish_grids(temporary, target, payload):
     return payload, records
 
 
-def _publish_preview(run_dir, identity, step, render, keep):
-    """Publish a complete directory, update its bounded index, then prune old previews.
+def _indexed_generations(root, run_id):
+    """Map generation directory name to the record the published index holds.
 
-    The trainer's run lock serializes producers. Only this managed preview directory
-    is pruned; final inference bundles and recovery checkpoints are never removed.
+    The index is this producer's own output under the run lock. It is still
+    validated before reuse: anything unreadable or malformed simply falls back
+    to rereading the generation manifests.
     """
-    if type(keep) is not int or not 1 <= keep <= MAX_KEEP:
-        raise ValueError(f'preview_keep must be between 1 and {MAX_KEEP}')
+    try:
+        published = json.loads((root / 'index.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    if (not isinstance(published, dict) or published.get('schema_version') != 1
+            or published.get('kind') != 'ema-preview-index'
+            or published.get('run_id') != run_id
+            or not isinstance(published.get('previews'), list)):
+        return {}
+    generations = {}
+    for saved in published['previews']:
+        identity = saved.get('identity') if isinstance(saved, dict) else None
+        if (not isinstance(identity, dict) or type(identity.get('sample_sequence')) is not int
+                or not isinstance(saved.get('path'), str) or type(saved.get('step')) is not int):
+            return {}
+        generations[Path(saved['path']).parent.name] = saved
+    return generations
+
+
+def _publish_preview(run_dir, identity, step, render, keep):
+    """Publish a complete directory, update its index, then prune opted-in retention.
+
+    The trainer's run lock serializes producers. `keep` is KEEP_ALL by default, so
+    a run accumulates its whole image history; a positive `keep` prunes the oldest
+    generations. Only this managed preview directory is pruned; final inference
+    bundles and recovery checkpoints are never removed.
+    """
+    if type(keep) is not int or keep < KEEP_ALL:
+        raise ValueError('preview_keep must be a positive integer, '
+                         f'or {KEEP_ALL} to keep every preview')
     root = Path(run_dir) / 'previews'
     if root.is_symlink():
         raise ValueError('Managed preview directory must not be a symlink')
@@ -225,23 +258,36 @@ def _publish_preview(run_dir, identity, step, render, keep):
         sync_directory(temporary)
         temporary.rename(target)
         sync_directory(root)
-        # Scan only managed generation directories. This also recovers publication
-        # interrupted after rename but before index update in a prior attempt.
+        # Scan only managed generation directories. A kept-forever history holds
+        # thousands of them, so reuse the records the published index already
+        # carries and read a manifest only for a directory the index does not
+        # name. That also recovers a publication interrupted after rename but
+        # before the index update in a prior attempt.
+        published = _indexed_generations(root, identity['run_id'])
         records = []
         for entry in root.iterdir():
-            if entry.is_dir() and not entry.is_symlink() and _GENERATION.fullmatch(entry.name) and (entry / 'manifest.json').is_file():
+            if not (entry.is_dir() and not entry.is_symlink() and _GENERATION.fullmatch(entry.name)):
+                continue
+            saved = published.get(entry.name)
+            if saved is None:
+                if not (entry / 'manifest.json').is_file():
+                    continue
                 saved = json.loads((entry / 'manifest.json').read_text(encoding='utf-8'))
-                if saved.get('kind') == 'ema-preview' and saved.get('identity', {}).get('run_id') == identity['run_id']:
-                    saved['path'] = str(entry / 'preview.json')
-                    saved['name'] = sample_name(saved.get('name'))
-                    for field, filename in GRIDS:
-                        if field in saved:
-                            saved[field]['path'] = str(entry / filename)
-                    records.append((saved, entry))
+                if (saved.get('kind') != 'ema-preview'
+                        or saved.get('identity', {}).get('run_id') != identity['run_id']):
+                    continue
+            # Paths are rewritten from the directory that holds them, so a run
+            # copied to another location reindexes without rereading manifests.
+            saved['path'] = str(entry / 'preview.json')
+            saved['name'] = sample_name(saved.get('name'))
+            for field, filename in GRIDS:
+                if field in saved:
+                    saved[field]['path'] = str(entry / filename)
+            records.append((saved, entry))
         records.sort(key=lambda pair: pair[0]['identity']['sample_sequence'])
-        retained, expired = records[-keep:], records[:-keep]
+        retained, expired = (records, []) if keep == KEEP_ALL else (records[-keep:], records[:-keep])
         index = {'schema_version': 1, 'kind': 'ema-preview-index', 'run_id': identity['run_id'],
-                 'keep': keep,
+                 'keep': keep, 'retention': 'all' if keep == KEEP_ALL else 'bounded',
                  'names': sorted({saved.get('name', DEFAULT_NAME) for saved, _ in retained}),
                  'previews': [saved for saved, _ in retained]}
         try:

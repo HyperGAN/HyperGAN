@@ -6,7 +6,7 @@ The browser displays them through the authenticated artifact API. No viewer is
 needed to save or inspect the files; metrics can be disabled.
 
 ```sh
-hypergan train project/config.toml --run-dir runs/images --preview-every 100 --preview-keep 24
+hypergan train project/config.toml --run-dir runs/images --preview-every 100
 hypergan resume runs/images --no-server
 hypergan sample runs/images --count 16 --seed 42 --output samples.png
 hypergan sample runs/images --count 16 --seed 73 --output fresh-samples.png
@@ -23,10 +23,10 @@ requests for non-image tensors fail with an actionable shape error.
 
 Each periodic image generation contains `preview.json`, `grid.png`,
 `manifest.json` and, for image recipes, `real.png`. The directory is published
-atomically, then indexed, and retention removes the whole generation. Numeric
-JSON retains samples and gains a PNG descriptor recording size, SHA256 and
-dimensions. The same digest-checked
-file is shown in the browser. Final inference bundles, final JSON samples and
+atomically and then indexed. Every generation is kept for the life of the run
+unless a retention bound is requested, and a bound removes the whole generation.
+Numeric JSON retains samples and gains a PNG descriptor recording size, SHA256
+and dimensions. The same digest-checked file is shown in the browser. Final inference bundles, final JSON samples and
 explicitly requested sample files are not pruned by preview retention. Preview
 filenames retain run/attempt/sequence identity across resume.
 
@@ -69,11 +69,25 @@ is the comparable real batch actually used at that boundary, not regenerated or
 rescaled data, and it is skipped when the batch is not a finite RGB/grayscale
 image tensor.
 
-`--preview-keep N` (1-100, default **20**) bounds the retained history per run
-and therefore how far the browser slider can scrub back. Retention is a bounded
-count, not a disk quota: a retained generation is bounded by 2 MiB of JSON plus
-its PNGs, and the periodic element budget below keeps ordinary grids far smaller.
-Choose a smaller value for large grids or small disks.
+By default a run keeps **every** published preview, so the browser slider scrubs
+from the first sample of the run to the latest. `--preview-keep N` is an explicit
+opt-in that retains only the most recent N generations and deletes the rest,
+tensor payload and PNGs together; `--preview-keep all` restores the default.
+Resume inherits whichever setting the run recorded, so a run created with an
+older release keeps its stored bound until a resume passes `--preview-keep all`.
+
+Retention is a count, not a disk quota: a retained generation is bounded by 2 MiB
+of JSON plus its PNGs, and the periodic element budget below keeps ordinary grids
+far smaller. A 100,000-step run at `--preview-every 500` publishes 200
+generations; at `--preview-every 100` it publishes 1,000. Ask for a bound when
+grids are large or the disk is small.
+
+`previews/index.json` lists every retained generation, records the requested
+`keep` (`0` meaning every preview) and a `retention` of `all` or `bounded`, and
+is rewritten on each publication from the records it already holds, so a long
+history does not reread every generation manifest. The run manifest repeats only
+the most recent 16 records plus a `preview_count`; the index is the whole
+history. The viewer accepts an index of up to 4,096 generations.
 
 The browser reads only indexed artifact IDs. PNG framing, dimensions, byte count
 and digest are checked before inline delivery; authentication, path/link checks,
@@ -81,5 +95,9 @@ same-origin policy and `nosniff` remain in force. SVG/HTML and other media are
 never rendered as images. The shelf renders at most 20 named groups, one image per
 group, and loads images lazily. Each name shows its most recent version; earlier
 retained versions are reached with that group's history slider (keyboard
-supported), which shows the step of the version being viewed. Unknown modalities
-remain downloads. There is no arbitrary file/image URL input.
+supported), which shows the step of the version being viewed. The slider spans
+the whole retained history, from the earliest sample to the latest. While it
+shows the latest sample it follows new publications; once it is moved to an
+earlier sample it holds that exact sample, matched by its step, even as newer
+samples arrive and shift every slider position. The **Latest** button resumes
+following. Unknown modalities remain downloads. There is no arbitrary file/image URL input.

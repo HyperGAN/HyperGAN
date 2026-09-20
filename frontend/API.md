@@ -32,7 +32,11 @@ The token never enters a URL, storage, telemetry, or browser logs.
   `preview-<digest>-grid` (generated PNG) and `preview-<digest>-real-grid`
   (real PNG). Explicit `artifacts/index.json` entries may carry their own
   `name`; otherwise the artifact ID is its own name. Consumers group versions of
-  one source by `(name, modality)` and order them by `provenance.step`.
+  one source by `(name, modality)` and order them by `provenance.step`. Previews
+  are retained for the whole run by default, so one source can hold thousands of
+  versions; the index is accepted up to 4,096 previews. A consumer showing one
+  version at a time identifies the selected one by `provenance.step`, not by its
+  position, because positions shift as versions arrive or are pruned.
 - `GET /runs/r/views` -> `{ "map_revision":"...", "streams":[{"stream_id":"evaluation:<id>", "cursor":"...", "caught_up":true, "error":null}], "discovery_error":null }`.
   Training, projection and independent evaluation sources share this inventory.
   At most 64 streams are registered. Inventory overflow is visible without

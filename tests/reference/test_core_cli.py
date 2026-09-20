@@ -20,6 +20,24 @@ def cli(tmp_path, *args):
                           cwd=tmp_path, capture_output=True, text=True, timeout=45)
 
 
+def test_preview_keep_accepts_a_count_or_the_whole_run():
+    """Retention is opt-in: the flag takes a positive count, or 'all'."""
+    from hypergan.cli import _parser
+    from hypergan.previews import DEFAULT_KEEP, KEEP_ALL
+
+    def parsed(*extra):
+        return _parser().parse_args(['resume', 'run', *extra]).preview_keep
+
+    assert DEFAULT_KEEP == KEEP_ALL
+    # Omitted inherits whatever the run recorded; the run default keeps everything.
+    assert parsed() is None
+    assert parsed('--preview-keep', '5') == 5
+    assert parsed('--preview-keep', 'all') == KEEP_ALL
+    for invalid in ('0', '-1', 'every', ''):
+        with pytest.raises(SystemExit):
+            parsed('--preview-keep', invalid)
+
+
 def test_cli_stop_resume_and_json_progress(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"

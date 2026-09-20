@@ -254,8 +254,9 @@ def test_train_control_defaults_distinguish_omission_from_disable(tmp_path):
     prepared = prepare_train(project(tmp_path), tmp_path / 'run')
     assert prepared.controls['checkpoint_every'] == 100
     assert prepared.controls['preview_every'] == 0
-    # A history slider needs more than a handful of retained previews.
-    assert prepared.controls['preview_keep'] == 20
+    # The history slider spans the whole run, so nothing is pruned by default.
+    from hypergan.previews import KEEP_ALL
+    assert prepared.controls['preview_keep'] == KEEP_ALL
     assert prepared.controls['preview_name'] == 'g'
 
 

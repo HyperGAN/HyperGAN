@@ -20,6 +20,10 @@ import time
 
 MAX_PLUGIN_BYTES = 65536
 MAX_CUSTOM_METRICS = 32
+# A declared snapshot metric is an observation the recipe asked for, so it runs
+# on a schedule unless the recipe explicitly opts out with trigger = "manual".
+DEFAULT_SNAPSHOT_TRIGGER = 'interval'
+DEFAULT_EVALUATION_EVERY_STEPS = 10000
 SCALAR_INPUTS = {'update.d_loss', 'update.g_loss', 'update.d_adversarial',
     'update.g_adversarial', 'update.d_adversarial_weighted', 'update.g_adversarial_weighted',
     'update.gradient_penalty', 'update.prior_loss', 'update.lr_scale', 'update.step', 'update.step_seconds'}
@@ -69,10 +73,14 @@ def validate_custom(specs):
             if {'trigger', 'evaluation', 'on_busy'} & set(spec):
                 raise ValueError(f'{name}: scalar metrics do not accept snapshot options')
         else:
-            if spec.get('trigger') not in ('manual', 'interval'):
+            # An omitted trigger resolves to interval evaluation and is recorded
+            # in the resolved configuration, so provenance stays explicit.
+            spec.setdefault('trigger', DEFAULT_SNAPSHOT_TRIGGER)
+            if spec['trigger'] not in ('manual', 'interval'):
                 raise ValueError(f'{name}: snapshot metrics require trigger="manual" or "interval"')
             if spec['trigger'] == 'interval':
-                if type(spec.get('every_steps')) is not int or spec['every_steps'] <= 0:
+                spec.setdefault('every_steps', DEFAULT_EVALUATION_EVERY_STEPS)
+                if type(spec['every_steps']) is not int or spec['every_steps'] <= 0:
                     raise ValueError(f'{name}.every_steps must be a positive integer for interval evaluation')
                 spec.setdefault('on_busy', 'skip')
                 if spec['on_busy'] != 'skip':
@@ -86,7 +94,11 @@ def validate_custom(specs):
             if not isinstance(evaluation, dict) or not required <= set(evaluation) or set(evaluation) - required - {'device'}:
                 raise ValueError(f'{name}.evaluation requires explicit data, sample_count, batch_size and seed')
             if spec['trigger'] == 'interval' and 'device' not in evaluation:
-                raise ValueError(f'{name}.evaluation.device is required for interval evaluation')
+                raise ValueError(
+                    f'{name}.evaluation.device is required for interval evaluation, which snapshot '
+                    f'metrics use by default: name the evaluation device explicitly (for example '
+                    f'device = "cuda:0", or device = "cpu" for a small correctness fixture), or set '
+                    f'trigger = "manual" to evaluate {name} only on request')
             evaluation.setdefault('device', 'cuda')
             if not isinstance(evaluation['device'], str) or re.fullmatch(r'cpu|cuda(?::(?:0|[1-9][0-9]*))?', evaluation['device']) is None:
                 raise ValueError(f'{name}.evaluation.device requires cpu or cuda[:N]')

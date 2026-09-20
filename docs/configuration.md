@@ -143,14 +143,19 @@ are not sandboxed. Instances and global RNG state are isolated from training,
 but persistent evaluator state across calls is not supported.
 
 Snapshot metrics use a separate evaluation dataset/iterator and RNG, and an
-immutable copied EMA inference bundle. Choose `trigger = "manual"` for standalone
-evaluation or `trigger = "interval"` for asynchronous evaluation during training.
+immutable copied EMA inference bundle. A declared snapshot metric is scheduled by
+default: an omitted `trigger` resolves to `trigger = "interval"` with
+`every_steps = 10000` and `on_busy = "skip"`, and an explicit `trigger =
+"interval"` without `every_steps` takes the same 10,000-step default. Choose
+`trigger = "manual"` to opt out and evaluate that metric only on request. The
+resolved defaults are recorded in the resolved configuration, the metric catalog
+and the run manifest, so a run's cadence is always explicit in its provenance.
 
 ```toml
 [metrics.custom.color_mean]
 factory = "hypergan.metric_examples:ColorMomentDistance"
 mode = "snapshot"
-trigger = "manual"
+trigger = "manual" # explicit opt-out; omitting this schedules it every 10,000 steps
 inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
 timeout = 120
 on_error = "fail"
@@ -184,8 +189,9 @@ requires a terminal run. It can also explicitly evaluate an interval-configured
 metric. GPU remains the default. The source inference bundle must have saved
 run/attempt/step provenance and a matching SHA256; no old-format migration is provided.
 
-For automatic evaluation, change the metric's scheduling fields and explicitly
-select its device; keep its factory, inputs, arguments and evaluation protocol:
+To restore automatic evaluation after that opt-out, or to choose a different
+cadence, write the scheduling fields out and explicitly select the evaluation
+device; keep the factory, inputs, arguments and evaluation protocol:
 
 ```toml
 # Fields in [metrics.custom.color_mean]
@@ -195,6 +201,27 @@ on_busy = "skip"
 # Field in [metrics.custom.color_mean.evaluation]
 device = "cuda:1"
 ```
+
+Interval evaluation has no device fallback. A snapshot metric that resolves to
+`trigger = "interval"` and names no `evaluation.device` is rejected during
+configuration resolution, before training starts; the error names the metric and
+both remedies (an explicit device, or `trigger = "manual"`). A manual metric may
+still omit the device and resolve to the `cuda` default, because nothing runs it
+until an explicit `hypergan evaluate` on a stopped run.
+
+When every enabled snapshot metric is manual, the run's `evaluation_schedule` is
+empty and no evaluation ever fires. `hypergan train`, `resume`, `validate` and
+`preflight` print a warning naming those metrics so the absent schedule is not
+silent, and the viewer shows each of them as `manual` with no next step.
+
+An existing run resumes under its own recorded settings: the manifest stores the
+resolved configuration, including the resolved trigger, so a run created with
+`trigger = "manual"` keeps that schedule and is unaffected by the default. Adding
+a schedule to an existing run is an observation change, not a numerical one:
+`hypergan train CONFIG --run-dir RUN` on an existing directory still requires the
+whole configuration to match and refuses with a message naming `metrics` as the
+differing section, while `hypergan resume RUN --config CONFIG` accepts the new
+schedule and continues the same run.
 
 The scheduler evaluates at completed global training steps divisible by
 `every_steps`, independently of checkpoint and scalar-metric cadence. Resume
@@ -207,7 +234,10 @@ An accepted evaluation uses an immutable inference snapshot taken at its source
 step and runs in a separate worker while training continues. Its result is
 plotted at that source step even if several more updates have completed. Capturing
 the snapshot still has a copy/I/O cost. An evaluation using the training GPU
-shares its memory and compute; choose a separate available GPU to avoid that
+shares its memory and compute: training steps slow down and peak memory rises
+while that evaluation runs, which is most visible for large sample counts.
+Resolution warns when an interval metric's device may be the training device;
+choose a separate available GPU to avoid that
 contention. Device indices refer to the process's visible CUDA devices, including
 any `CUDA_VISIBLE_DEVICES` mapping. CPU evaluation must be selected explicitly
 for small correctness fixtures.

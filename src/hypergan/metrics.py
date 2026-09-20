@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 from .run_state import atomic_json
-from .metric_plugins import validate_custom, enabled_custom
+from .metric_plugins import DEFAULT_EVALUATION_EVERY_STEPS, validate_custom, enabled_custom
 
 PRESET_VERSION = 'standard/v1'
 DEFAULT_METRICS = {'preset': 'standard', 'disable': [], 'every_steps': 1, 'overrides': {}, 'custom': {}}
@@ -71,6 +71,45 @@ def validate_metrics(config):
             raise ValueError(f'metrics.overrides.{name} requires only enabled = true/false')
         if name in spec['disable'] and override['enabled']:
             raise ValueError(f'Conflicting metric enable and disable: {name}')
+
+
+def snapshot_metrics(config, trigger=None):
+    """Enabled snapshot metric IDs, optionally restricted to a single trigger."""
+    return sorted(name for name, spec in enabled_custom(config).items()
+                  if spec['mode'] == 'snapshot' and (trigger is None or spec['trigger'] == trigger))
+
+
+def same_gpu(left, right):
+    """Whether two requests may name the same GPU; bare 'cuda' matches any index."""
+    if not left.startswith('cuda') or not right.startswith('cuda'):
+        return False
+    return left == right or 'cuda' in (left, right)
+
+
+def evaluation_warnings(config):
+    """Notice when declared snapshot metrics never run, or share the training GPU."""
+    messages = []
+    manual = snapshot_metrics(config, 'manual')
+    interval = snapshot_metrics(config, 'interval')
+    if manual and not interval:
+        messages.append(
+            'No automatic evaluation is scheduled: snapshot '
+            + ('metrics ' if len(manual) > 1 else 'metric ') + ', '.join(manual)
+            + ' set trigger = "manual", so this run records an empty evaluation schedule and '
+            'publishes no result until `hypergan evaluate` is run explicitly. Omit trigger '
+            '(or set trigger = "interval") and name an evaluation device to evaluate every '
+            f'{DEFAULT_EVALUATION_EVERY_STEPS} steps by default.')
+    custom = config['metrics']['custom']
+    shared = [name for name in interval
+              if same_gpu(custom[name]['evaluation']['device'], config['training']['device'])]
+    if shared:
+        devices = sorted({custom[name]['evaluation']['device'] for name in shared})
+        messages.append(
+            'Interval evaluation of ' + ', '.join(shared) + ' uses evaluation device '
+            + ', '.join(devices) + f", which may be the training device {config['training']['device']}: "
+            'the evaluator then shares that GPU with training and slows it down. Name a separate '
+            'visible GPU to avoid that contention.')
+    return messages
 
 
 def metric_catalog(config):

@@ -324,6 +324,47 @@ def test_repeated_train_metrics_are_strict_but_explicit_resume_can_change_them(t
     assert prepared.config['metrics']['preset'] == 'none'
 
 
+SNAPSHOT_METRIC = '''
+[metrics.custom.fid]
+factory = "hypergan.metric_examples:ColorMomentDistance"
+mode = "snapshot"
+{trigger}inputs = {{ generated = "evaluation.generated", reference = "evaluation.reference" }}
+[metrics.custom.fid.evaluation]
+device = "cpu"
+sample_count = 8
+batch_size = 4
+seed = 5
+[metrics.custom.fid.evaluation.data]
+factory = "gaussian_grid"
+args = {{ side = 4 }}
+'''
+
+
+def test_manual_run_keeps_its_recorded_schedule_when_the_default_changes(tmp_path):
+    """A run recorded with trigger="manual" resumes under its own resolved config."""
+    path, run, checkpoint, _ = stopped(tmp_path, replicated=False)
+    path.write_text(path.read_text() + SNAPSHOT_METRIC.format(trigger='trigger = "manual"\n'))
+    manifest = json.loads((run / 'manifest.json').read_text())
+    config = load_config(path)
+    assert config['metrics']['custom']['fid']['trigger'] == 'manual'
+    manifest['config'] = config_values(config)
+    manifest['config_sha256'] = fingerprint(config)
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    info = json.loads((checkpoint / 'manifest.json').read_text())
+    info['config_sha256'] = manifest['config_sha256']
+    (checkpoint / 'manifest.json').write_text(json.dumps(info))
+    prepared = prepare_train(path, run)
+    assert prepared.operation == 'resume'
+    assert prepared.config['metrics']['custom']['fid']['trigger'] == 'manual'
+    # Dropping the explicit opt-out is a real schedule change, refused by name.
+    path.write_text(path.read_text().replace('trigger = "manual"\n', ''))
+    with pytest.raises(ValueError, match='differs from the original run in metrics'):
+        prepare_train(path, run)
+    prepared = prepare_resume(run, config_path=path)
+    assert prepared.config['metrics']['custom']['fid']['trigger'] == 'interval'
+    assert prepared.config['metrics']['custom']['fid']['every_steps'] == 10000
+
+
 def test_repeated_train_accepts_equivalent_config_from_another_filename(tmp_path):
     path, run, checkpoint, _ = stopped(tmp_path, replicated=False)
     copied = tmp_path / 'renamed.toml'

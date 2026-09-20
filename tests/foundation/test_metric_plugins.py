@@ -8,6 +8,7 @@ import time
 import pytest
 
 from hypergan.config import fingerprint, observation_fingerprint, resolve_config
+from hypergan.metric_plugins import DEFAULT_EVALUATION_EVERY_STEPS, DEFAULT_SNAPSHOT_TRIGGER
 
 
 def scalar():
@@ -214,15 +215,57 @@ def test_interval_snapshot_rejects_invalid_cadence_and_busy_policy(changes, mess
         resolve_config({'metrics': {'custom': {'fid': spec}}})
 
 
-@pytest.mark.parametrize('field', ['every_steps', 'device'])
-def test_interval_snapshot_requires_cadence_and_explicit_device(field):
+def test_interval_snapshot_requires_an_explicit_device():
     spec = interval_snapshot()
-    if field == 'device':
-        del spec['evaluation']['device']
-    else:
-        del spec[field]
-    with pytest.raises(ValueError, match=field):
+    del spec['evaluation']['device']
+    with pytest.raises(ValueError, match='device'):
         resolve_config({'metrics': {'custom': {'fid': spec}}})
+
+
+def test_snapshot_metrics_default_to_interval_evaluation():
+    spec = snapshot()
+    del spec['trigger']
+    spec['evaluation']['device'] = 'cuda:1'
+    supplied = deepcopy(spec)
+    config = resolve_config({'metrics': {'custom': {'fid': spec}}})
+    resolved = config['metrics']['custom']['fid']
+    assert resolved['trigger'] == DEFAULT_SNAPSHOT_TRIGGER == 'interval'
+    assert resolved['every_steps'] == DEFAULT_EVALUATION_EVERY_STEPS == 10000
+    assert resolved['on_busy'] == 'skip'
+    assert spec == supplied
+    # A resolved default is recorded, not implied, so provenance stays explicit.
+    written = resolve_config({'metrics': {'custom': {'fid': deepcopy(resolved)}}})
+    assert written['metrics']['custom']['fid'] == resolved
+    assert observation_fingerprint(written) == observation_fingerprint(config)
+    assert fingerprint(config) == fingerprint(resolve_config({}))
+
+
+def test_explicit_interval_without_cadence_takes_the_same_default():
+    spec = interval_snapshot()
+    del spec['every_steps']
+    config = resolve_config({'metrics': {'custom': {'fid': spec}}})
+    assert config['metrics']['custom']['fid']['every_steps'] == DEFAULT_EVALUATION_EVERY_STEPS
+    assert config['metrics']['custom']['fid']['on_busy'] == 'skip'
+
+
+def test_manual_remains_an_explicit_opt_out_without_schedule_fields():
+    config = resolve_config({'metrics': {'custom': {'fid': snapshot()}}})
+    resolved = config['metrics']['custom']['fid']
+    assert resolved['trigger'] == 'manual'
+    # Manual metrics keep no cadence fields, so a run recorded before the default
+    # existed resolves to exactly the same specification.
+    assert 'every_steps' not in resolved and 'on_busy' not in resolved
+    assert resolved['evaluation']['device'] == 'cuda'
+
+
+def test_default_interval_without_device_fails_with_both_remedies():
+    spec = snapshot()
+    del spec['trigger']
+    with pytest.raises(ValueError) as error:
+        resolve_config({'metrics': {'custom': {'fid': spec}}})
+    message = str(error.value)
+    assert 'fid.evaluation.device' in message
+    assert 'trigger = "manual"' in message and 'device = "cuda:0"' in message
 
 
 @pytest.mark.parametrize('changes', [{'every_steps': 10000}, {'on_busy': 'skip'}])

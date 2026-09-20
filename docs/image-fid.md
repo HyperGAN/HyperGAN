@@ -8,13 +8,21 @@ snapshot metric. It never downloads weights: provide the local
 Missing or incorrect files fail metric preflight before training starts.
 
 Bind `generated = "evaluation.generated"` and
-`reference = "evaluation.reference"`, use `mode = "snapshot"` and
-`trigger = "manual"`, and pass the local weight file in `args.weights_path`.
-The evaluation configuration must explicitly name the data factory and its
-arguments, sample count, batch size, seed and device. The data factory owns
-reference ordering and preprocessing; use unaugmented references for CIFAR FID.
+`reference = "evaluation.reference"`, use `mode = "snapshot"` and pass the local
+weight file in `args.weights_path`. The evaluation configuration must explicitly
+name the data factory and its arguments, sample count, batch size, seed and
+device. The data factory owns reference ordering and preprocessing; use
+unaugmented references for CIFAR FID.
 
-After a bounded training segment has stopped, run:
+A snapshot metric that omits `trigger` is evaluated on an interval: the resolved
+recipe records `trigger = "interval"`, `every_steps = 10000` and `on_busy =
+"skip"`, so a declared FID metric produces periodic values without extra fields.
+Interval evaluation has no device fallback, so `evaluation.device` must be named
+explicitly; omitting it fails validation with that instruction. Set `trigger =
+"manual"` to opt a metric out and evaluate it only on request, as `fid_smoke`
+does in the CIFAR example.
+
+After a bounded training segment has stopped, run a manual metric with:
 
 ```sh
 hypergan evaluate /path/to/run --metric fid_smoke
@@ -28,7 +36,8 @@ snapshot hash, update, reference identity, factory sources and complete settings
 `--bundle` selects an earlier immutable snapshot explicitly. Evaluation settings
 can be supplied with `--config` without changing the numerical recipe.
 
-To evaluate during training, set these fields on the configured snapshot metric:
+To change the cadence of an interval metric, or to restore it after an explicit
+`trigger = "manual"`, write the scheduling fields out:
 
 ```toml
 trigger = "interval"
@@ -43,8 +52,18 @@ Native snapshot storage also runs in the background; replicated rank-zero file
 handoff is synchronous. Snapshot capture/device transfer remains a boundary cost.
 One shared evaluator slot bounds resource use; busy intervals are recorded as
 skipped, and simultaneous metrics rotate priority. A shared training/evaluation
-GPU can contend for memory and compute; select an available separate device when
-appropriate. Device indices refer to `CUDA_VISIBLE_DEVICES`.
+GPU can contend for memory and compute: a 50,000-sample Inception pass holds its
+own weights, activations and reference features on that device while training
+continues, so a single-GPU run sees slower steps and higher peak memory around
+each interval. `hypergan train`, `resume`, `preflight` and `validate` print a
+warning when an interval metric's `evaluation.device` may be the training device;
+select an available separate device such as `cuda:1` when one exists. Device
+indices refer to `CUDA_VISIBLE_DEVICES`.
+
+When every configured snapshot metric sets `trigger = "manual"`, the run records
+an empty `evaluation_schedule` and no FID is ever published. That is reported as
+a startup warning on stderr, and the viewer labels each such metric `manual` with
+no next evaluation step.
 
 Normal completion and step/time budget stops drain accepted evaluations within
 their timeout. Signals and training failures cancel and reap the evaluator;

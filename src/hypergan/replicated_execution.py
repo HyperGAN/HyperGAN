@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 import tempfile
 
-from .bounded_observer import BoundedObserver
+from .bounded_observer import AsyncBoundedObserver
 from .config import config_values, fingerprint
 from .metrics import validate_update_scalars
 from .cpu_worker_service import CPUWorkerService
@@ -102,8 +102,10 @@ class ReplicatedExecution:
             # Only the concrete CLI sink performs bounded parent delivery.
             # Ordinary user callbacks retain their isolated worker contract.
             self.observer = (on_event if type(on_event) is CLIProgress else
-                BoundedObserver(on_event, timeout=self.policy['observer_timeout'],
+                AsyncBoundedObserver(on_event, timeout=self.policy['observer_timeout'],
                     run_id=context.run_id, attempt_id=context.attempt_id))
+            if isinstance(self.observer, AsyncBoundedObserver):
+                self.observer.start()
         self.context = {key: str(value) if isinstance(value, Path) else value for key, value in asdict(context).items()}
         return {'execution': self.profile['execution'], 'service_policy': self.policy}
 
@@ -296,7 +298,15 @@ class ReplicatedExecution:
     def observe(self, callback, event):
         # The controller's local warning wrapper is intentionally not sent to a
         # child. Configure validated the original importable callback once.
-        if self.observer is None or self.observer.disabled:
+        if self.observer is None:
+            return
+        if isinstance(self.observer, AsyncBoundedObserver):
+            # Numerical commands already detect rank failure. A background
+            # observer does not justify another synchronous health roundtrip.
+            if event['event'] in ('complete', 'stopped', 'failed', 'interrupted'):
+                self.observer.finish(event)
+            else:
+                self.observer.deliver(event)
             return
         primary = None
         try:
@@ -312,6 +322,14 @@ class ReplicatedExecution:
                     self.service.assert_healthy()
                 except BaseException as error:
                     self._fail(primary if isinstance(primary, (KeyboardInterrupt, SystemExit, FatalExecutionError)) else error)
+
+    def observation_status(self):
+        if isinstance(self.observer, AsyncBoundedObserver):
+            return self.observer.statistics()
+
+    def close_observers(self):
+        if isinstance(self.observer, AsyncBoundedObserver):
+            self.observer.close()
 
     def shutdown(self):
         if self._closed:

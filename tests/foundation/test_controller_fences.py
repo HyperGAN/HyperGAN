@@ -378,3 +378,20 @@ def test_final_delayed_metrics_keep_source_step_and_current_checkpoint_frontier(
     measured = [event for event in events if event['event'] == 'metric']
     assert len(measured) == 1 and measured[0]['step'] == 1
     assert [event['sequence'] for event in events] == list(range(1, len(events) + 1))
+
+
+def test_controller_cleans_background_observer_when_terminal_publication_fails(monkeypatch):
+    import hypergan.run_controller as controller
+    actions = []
+    class Execution:
+        def shutdown(self):
+            actions.append('shutdown')
+        def close_observers(self):
+            actions.append('close_observers')
+            raise RuntimeError('secondary cleanup failure')
+    def fail(*args, **kwargs):
+        raise OSError('primary journal failure')
+    monkeypatch.setattr(controller, '_execute_run', fail)
+    with pytest.raises(OSError, match='primary journal failure'):
+        controller.execute_run({}, None, {}, 100, None, None, None, execution=Execution())
+    assert actions == ['shutdown', 'close_observers']

@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from hypergan.bounded_observer import BoundedObserver, ObserverError, callback_reference
+from hypergan.bounded_observer import AsyncBoundedObserver, BoundedObserver, ObserverError, callback_reference
 
 
 @pytest.fixture
@@ -29,6 +29,8 @@ def callbacks(tmp_path, monkeypatch):
 
 _CALLBACK_SOURCE = """
 def record(event):
+    assert os.environ['CUDA_VISIBLE_DEVICES'] == ''
+    assert os.environ['OMP_NUM_THREADS'] == '1'
     Path(event['path']).write_text(json.dumps({'event': event, 'pid': os.getpid(),
                                              'torch_imported': 'torch' in sys.modules}))
     event['mutated'] = True
@@ -255,3 +257,48 @@ if __name__ == '__main__':
     subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), str(driver)],
                    check=True, timeout=40, capture_output=True, text=True)
     assert Path(str(driver) + '.done').read_text() == 'reaped'
+
+
+def test_async_observer_drops_busy_events_without_waiting_and_cancels(tmp_path, callbacks):
+    observer = AsyncBoundedObserver(callbacks.hang, timeout=30)
+    observer.start()
+    marker = tmp_path/'pid'
+    assert observer.deliver({'path': str(marker), 'step': 1})
+    deadline = time.monotonic()+5
+    while not marker.exists() and time.monotonic()<deadline:
+        time.sleep(.01)
+    assert marker.exists()
+    started = time.monotonic()
+    for step in range(2, 1002):
+        assert not observer.deliver({'step': step})
+    assert time.monotonic()-started < 1
+    assert observer.statistics()['dropped'] == 1000
+    assert observer.statistics()['accepted'] == 1
+    observer.close()
+    assert not observer._thread.is_alive()
+    assert_gone([int(marker.read_text()), observer._observer.broker_pid])
+    assert not observer.statistics()['pending']
+
+
+def test_async_terminal_delivery_is_reaped_and_reports_completed_work(tmp_path, callbacks):
+    observer = AsyncBoundedObserver(callbacks.record, timeout=10)
+    observer.start()
+    observer.deliver({'path': str(tmp_path/'first'), 'step': 3})
+    observer.finish({'path': str(tmp_path/'terminal'), 'step': 7})
+    assert json.loads((tmp_path/'first').read_text())['event']['step'] == 3
+    assert json.loads((tmp_path/'terminal').read_text())['event']['step'] == 7
+    assert observer.statistics() == {'accepted': 2, 'completed': 2, 'failed': 0,
+        'dropped': 0, 'pending': False, 'last_completed_step': 7}
+    assert_gone([observer._observer.broker_pid, *observer._observer.worker_pids])
+
+
+def test_async_failure_keeps_source_step_and_is_reported_once(callbacks):
+    observer = AsyncBoundedObserver(callbacks.fail, timeout=10)
+    observer.start()
+    observer.deliver({'step': 2})
+    with pytest.raises(ObserverError, match='deliberate callback failure') as failure:
+        observer.finish({'step': 100})
+    assert failure.value.observation_step == 2
+    assert observer.statistics()['failed'] == 1
+    assert not observer._thread.is_alive()
+    assert_gone([observer._observer.broker_pid, *observer._observer.worker_pids])

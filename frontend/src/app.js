@@ -850,6 +850,9 @@ function render() {
         });
       for (const last of evaluation ? points : points.slice(-1)) {
         const row = document.createElement("tr");
+        row.dataset.metric = metric;
+        row.dataset.step = String(last.position[0]);
+        if (evaluation) row.dataset.evaluation = last.event.evaluation_id;
         for (const text of [
           metricDefinitions()[metric]?.metricID || metric,
           String(last.position[0]),
@@ -912,6 +915,12 @@ function render() {
       true,
     );
   }
+  const metricOrder = [...state.selected];
+  const rows = [...$("values-table").children].sort((a, b) =>
+    metricOrder.indexOf(a.dataset.metric) - metricOrder.indexOf(b.dataset.metric) ||
+    Number(a.dataset.step) - Number(b.dataset.step) ||
+    (a.dataset.evaluation || '').localeCompare(b.dataset.evaluation || ''));
+  $("values-table").replaceChildren(...rows);
   for (const [metric, card] of state.charts)
     if (!active.has(metric)) {
       card.chart.dispose();

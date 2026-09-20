@@ -74,6 +74,7 @@ function showResult(card, event, catalog, path) {
     card.append(failure);
   } else {
     if (!known || !Number.isSafeInteger(event.step) || event.step < 0) throw new Error('Complete evaluation needs a known source step');
+    if (!/^[0-9a-f]{64}$/.test(definition.definition_hash || '') || !/^[0-9a-f]{64}$/.test(event.protocol_sha256 || '')) throw new Error('Invalid evaluation definition or protocol identity');
     const value = definition.kind === 'histogram' ? event.distributions?.[id] : event.metrics?.[id];
     validateValue(value, definition.kind);
     card.append(node('p', finite(value) ? `${value} ${definition.unit || ''}` : `${value.counts.length} histogram bins`, 'evaluation-value'));

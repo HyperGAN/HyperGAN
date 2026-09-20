@@ -90,11 +90,13 @@ def test_callback_error_disables_once_and_reaps(callbacks):
 
 
 def test_hang_bounded_and_reaped(tmp_path, callbacks):
-    observer = BoundedObserver(callbacks.hang, timeout=2)
+    # The total deadline includes two Windows spawn operations. Leave enough
+    # time to enter the callback before testing its deliberate hang.
+    observer = BoundedObserver(callbacks.hang, timeout=10)
     started = time.monotonic()
     with pytest.raises(ObserverError, match='deadline'):
         observer.deliver({'path': str(tmp_path / 'pid')})
-    assert time.monotonic() - started < 10
+    assert time.monotonic() - started < 18
     assert observer.disabled
     assert_gone([observer.broker_pid, *observer.worker_pids])
     assert int((tmp_path / 'pid').read_text()) in observer.worker_pids
@@ -163,7 +165,8 @@ def noisy(event):
         os.write(2, b'x' * 65536)
 
 if __name__ == '__main__':
-    observer = BoundedObserver(noisy, timeout=2)
+    # Includes broker/worker startup, which can exceed two seconds on Windows CI.
+    observer = BoundedObserver(noisy, timeout=10)
     try:
         observer.deliver({'pid': __file__ + '.pid'})
     except ObserverError as error:
@@ -176,7 +179,7 @@ if __name__ == '__main__':
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         # Deliberately do not drain the worker's inherited stderr pipe.
-        assert process.wait(timeout=12) == 0
+        assert process.wait(timeout=20) == 0
     finally:
         if process.poll() is None:
             process.kill()

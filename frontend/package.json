@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
     "check": "node build.mjs --check"
   },
   "dependencies": {

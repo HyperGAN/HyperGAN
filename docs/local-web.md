@@ -216,3 +216,45 @@ particular browser has rendered the frames. Projection progress is independent
 of the training event tail, and uses byte offsets so restoring an earlier step
 does not accidentally look caught up. Projection-only changes emit a heartbeat
 even after training and its manifest have stopped changing.
+
+## Viewer development mode
+
+Changing the browser UI never requires stopping and resuming training. Enable
+viewer development mode and the server reads every browser asset from disk on
+each request, so a plain refresh shows the current files:
+
+```sh
+hypergan train config.toml --run-dir runs/example --viewer-dev
+hypergan serve runs/example --dev
+HYPERGAN_VIEWER_DEV=1 hypergan resume runs/example
+```
+
+`HYPERGAN_VIEWER_DEV` is the switch. Both flags only set it, because the
+automatic viewer runs in a detached supervised subprocess that inherits the
+environment; exporting the variable therefore works for every launch path,
+including one started earlier in a shell. Accepted values are `1/0`,
+`true/false`, `yes/no` and `on/off`; anything else is rejected rather than
+silently treated as off. `--viewer-dev` selects where assets come from and does
+not require a viewer, so it cannot be combined with `--no-server`.
+
+In development mode:
+
+- Static and reducer responses carry `Cache-Control: no-store` and no `ETag` or
+  `Last-Modified`, so no refresh can be answered from cache or with a 304.
+- The resolved asset directories are printed once at startup.
+- Assets are served from the checkout containing `frontend/build.mjs`, found
+  from the working directory, in preference to the installed package. This
+  matters when an editable install points at a different checkout or worktree.
+  `HYPERGAN_VIEWER_ASSETS` names an explicit directory instead.
+- `/dev/version` reports the identity of the served assets and `/dev/reload.js`
+  is a small same-origin module, injected into `index.html`, that polls it once
+  a second and reloads the page when they change. Neither route is registered
+  outside development mode.
+
+Normal mode is unchanged: assets come from the installed package and the
+existing server-wide `no-store` policy applies.
+
+`app.js` is bundled from `frontend/src`; `index.html`, `style.css` and
+`view-worker.js` are served as they are. Rebuild the bundle on every edit with
+`npm run --prefix frontend watch`, described in the
+[viewer source README](../frontend/README.md).

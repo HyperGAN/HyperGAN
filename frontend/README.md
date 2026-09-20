@@ -29,6 +29,36 @@ esbuild 0.28.2 and transitive dependencies. `build.mjs` produces the bundled
 `--check` compares bytes without changing them. Browser runtime has no npm
 requirement. HTML, CSS and the small worker remain readable static resources.
 
+## Develop the UI while training runs
+
+Editing the UI never requires stopping or resuming training. Start the run once
+with viewer development mode, leave the watcher running, and refresh the browser:
+
+```sh
+hypergan train config.toml --run-dir runs/example --viewer-dev
+# In another terminal, rebuild on every change under frontend/src:
+npm run --prefix frontend watch
+```
+
+`npm run watch` uses esbuild's context/watch API and writes exactly the bytes
+`npm run build` writes, so `npm run check` still passes afterwards. It rebuilds
+`src/hypergan/web_assets/app.js` and the license notices, printing the bundle
+size on each rebuild.
+
+In development mode the server reads every browser asset from disk per request
+and answers with `Cache-Control: no-store` and no cache validator, so a plain
+refresh always shows the current files. It also prints the resolved asset
+directory once at startup, and serves the checkout containing `frontend/` in
+preference to the installed package, which matters when an editable install
+points at a different checkout or worktree. `index.html`, `style.css` and
+`view-worker.js` are served directly from `src/hypergan/web_assets` and need no
+build step at all; only `app.js` comes from `frontend/src`.
+
+A small same-origin `/dev/reload.js` module polls `/dev/version` once a second
+and reloads the page when the served assets change. Both routes exist only in
+development mode. See [the viewer documentation](../docs/local-web.md#viewer-development-mode)
+for the flags and environment variables.
+
 The [public API contract](API.md) describes paths and envelopes. Data selection,
 lineage changes and step ranges request a new bootstrap. Pending history waits
 for an SSE notification, with no HTTP polling. Source events and mapped

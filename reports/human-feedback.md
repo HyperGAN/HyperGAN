@@ -51,7 +51,7 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 
 ### 5. HTTPS fronting of the viewer (e.g. `tailscale serve`) is rejected by the origin check (found 2026-09-20 while fixing item 3)
 
-**Status:** Implemented on branch `worktree-agent-a15ae33d775f6c342`, not yet merged to develop. `train`, `resume` and `serve` take `--public-origin URL`; it is the only thing that makes a non-local origin acceptable, and it neither widens nor weakens the direct `http://<host>:<port>` check.
+**Status:** Implemented in commit 3acfd240, merged to develop (fast-forward). Not yet verified against a live `tailscale serve`; the design accepts both a preserved and a rewritten Host. `train`, `resume` and `serve` take `--public-origin URL`; it is the only thing that makes a non-local origin acceptable, and it neither widens nor weakens the direct `http://<host>:<port>` check.
 
 - [x] Accept an `https://` origin (and a configurable public origin, e.g. `--public-origin https://mlserver.tailnet.ts.net`) so a TLS proxy can front the viewer.
 - [x] Mark the session cookie `Secure` when the public origin is HTTPS.

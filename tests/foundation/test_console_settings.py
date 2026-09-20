@@ -1,5 +1,6 @@
 import io
 import json
+import os
 
 import pytest
 
@@ -58,3 +59,52 @@ def test_invalid_interval_cannot_replace_last_setting(tmp_path, value):
     with pytest.raises(ValueError):
         write_settings(tmp_path, {'progress_every': value})
     assert read_settings(tmp_path) == {'progress_every': 7}
+
+
+def test_console_policy_accepts_only_bounded_regular_files(tmp_path):
+    assert read_settings(tmp_path) == {'progress_every': 100}
+    write_settings(tmp_path, {'progress_every': 12})
+    assert read_settings(tmp_path) == {'progress_every': 12}
+    path = tmp_path / 'console.json'
+    path.write_bytes(b' ' * 4097)
+    with pytest.raises(ValueError, match='4096 bytes'):
+        read_settings(tmp_path)
+    path.unlink()
+    path.mkdir()
+    with pytest.raises(ValueError, match='regular file'):
+        read_settings(tmp_path)
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX FIFO and nonblocking descriptor semantics')
+@pytest.mark.parametrize('replace_during_open', [False, True])
+def test_console_fifo_cannot_block_training_progress(tmp_path, replace_during_open):
+    import os
+    import subprocess
+    import sys
+    script = '''
+import io, os, sys
+from pathlib import Path
+from hypergan.bounded_cli_output import TrainingOutput
+root = Path(sys.argv[1])
+path = root / 'console.json'
+if sys.argv[2] == 'True':
+    path.write_text('{"progress_every":1}')
+    original_open = os.open
+    def replace(candidate, flags, *args, **kwargs):
+        if Path(candidate) == path:
+            path.unlink()
+            os.mkfifo(path)
+        return original_open(candidate, flags, *args, **kwargs)
+    os.open = replace
+else:
+    os.mkfifo(path)
+output = TrainingOutput(io.StringIO(), io.StringIO(), False)
+output.configure(root)
+output.progress({'event':'train', 'step':100})
+assert 'regular file' in output.stderr.getvalue()
+assert output.stderr.getvalue().endswith('step 100\\n')
+'''
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(value for value in sys.path if value))
+    result = subprocess.run([sys.executable, '-c', script, str(tmp_path), str(replace_during_open)],
+                            env=env, capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stdout + result.stderr

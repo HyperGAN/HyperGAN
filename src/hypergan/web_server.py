@@ -276,7 +276,7 @@ def openapi_schema(*, cookie_name=LocalSession.cookie_name):
                           '400': {'description': 'Invalid query or cursor'}, '401': {'description': 'Credential required'},
                           '404': {'description': 'Run, projection or artifact not available'}}}}
     paths['/api/v1/runs/{run_id}/console']['put'] = {
-        'description': 'Set progress_every for this run; active CLI reads within 250ms at an update boundary',
+        'description': 'Set progress_every for this run; active CLI checks at update boundaries at most four times per second; long updates delay changes',
         'parameters': [{'name': 'run_id', 'in': 'path', 'required': True, 'schema': {'type': 'string'}}],
         'security': [{'bearerAuth': []}, {'cookieAuth': []}],
         'requestBody': {'required': True, 'content': {'application/json': {'schema': {

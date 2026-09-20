@@ -21,6 +21,12 @@ import traceback
 
 
 MAX_FRAME_BYTES = 65536
+
+
+class CPUServiceCancelled(RuntimeError):
+    """The caller explicitly cancelled a supervised command."""
+
+
 _ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z')
 _OPERATIONS = re.compile(r'[A-Za-z][A-Za-z0-9_-]{0,63}\Z')
 
@@ -120,8 +126,6 @@ def _validate(row, identity, sequence, operation=None):
 def _receive(channel, timeout=None, cancellation_event=None):
     deadline = None if timeout is None else time.monotonic() + timeout
     while True:
-        if cancellation_event is not None and cancellation_event.is_set():
-            raise RuntimeError('CPU service command cancelled')
         rows = channel.pump()
         if rows:
             if len(rows) != 1:
@@ -129,6 +133,10 @@ def _receive(channel, timeout=None, cancellation_event=None):
             return rows[0]
         if channel.closed:
             raise EOFError('CPU service channel closed')
+        # Already-received worker failures/results take precedence over a late
+        # cancellation request; cancellation must not disguise actual failures.
+        if cancellation_event is not None and cancellation_event.is_set():
+            raise CPUServiceCancelled('CPU service command cancelled')
         if deadline is not None and time.monotonic() >= deadline:
             raise TimeoutError('CPU service response deadline exceeded')
         time.sleep(0.01)

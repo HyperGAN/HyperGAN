@@ -145,3 +145,34 @@ def test_queue_wait_is_included_in_metric_deadline(monkeypatch):
     first, second = metrics.close()
     assert first['metrics'] == {'ratio0': 1}
     assert 'expired while queued' in second['measurement_status']['ratio1']['reason']
+
+
+def test_shutdown_cancellation_does_not_relabel_an_actual_worker_failure(monkeypatch):
+    def invoke(spec, operation, *, cancellation_event, **kwargs):
+        assert cancellation_event.wait(5)
+        raise ValueError('actual worker failure during cancellation')
+    metrics = _async_metrics(monkeypatch, invoke)
+    metrics.evaluate({'g_loss': 6, 'd_loss': 2}, {'step': 1})
+    # Give the dispatcher ownership before requesting cancellation, so this
+    # exercises an actual in-flight error rather than a cancelled queued job.
+    deadline=time.monotonic()+2
+    while metrics._jobs.qsize() and time.monotonic()<deadline:
+        time.sleep(.001)
+    outcome, = metrics.close(stop_requested=lambda: True)
+    assert outcome['measurement_status']['ratio0']['status']=='disabled'
+    assert 'actual worker failure' in outcome['measurement_status']['ratio0']['reason']
+
+
+def test_cancellation_does_not_discard_received_worker_failure():
+    from hypergan.cpu_worker_service import CPUServiceCancelled, _receive
+    cancel=threading.Event()
+    cancel.set()
+    class Channel:
+        closed=False
+        def pump(self):
+            return [{'kind':'error','error':'actual worker failure'}]
+    assert _receive(Channel(), cancellation_event=cancel)['error']=='actual worker failure'
+    channel=Channel()
+    channel.pump=lambda: []
+    with pytest.raises(CPUServiceCancelled):
+        _receive(channel, cancellation_event=cancel)

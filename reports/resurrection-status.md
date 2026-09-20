@@ -2,7 +2,7 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
-Current cutpoint: PRs #330–334 are merged through develop `261ff9f3d34aa74475c57b79fadb53554680c84c`. PR [#334](https://github.com/HyperGAN/HyperGAN/pull/334) publishes the MIT-authorized CIFAR recipe and walkthrough; all 18 checks passed, including 269 CPU reference tests. The [image execution report](image-training-execution-2026-09-20.md) records installed CUDA CLI acceptance, exact supported-run recovery and the completed 40k GPU-1 allocation: final EMA FID50k/train **19.37753221446735**. Source permission and public recipe integration are complete. **Next:** follow the [five-step continuation plan](image-next-steps-2026-09-20.md) and [hands-on feedback](feedback-2026-09-20.md): complete the reference trajectory, publish evidence and improve the user workflow, then qualify two-GPU image training and external benchmarking. The owner is testing resume/UI; recheck live state before launching work and do not disturb an owner-started run. Full quality reproduction, real multi-host execution and release remain open gates.
+Current cutpoint: the [feedback implementation report](feedback-implementation-2026-09-20.md) records all seven workflow fixes in PRs #336–#342 and their combined acceptance. The coordinator integrates the reviewed branch heads through `feat/feedback-integration`; consult its protected PR and receipts for final merge state. Planning PR #335 merged at `17a3cb307c8ff7b12a47600e855ca2d0c52409eb`. The actual run was stopped at step 41,000 on inspection, and its frozen environment remains untouched. Native CUDA and two-GPU generic runtime recovery passed; the reference's historical 40k EMA FID50k/train remains **19.37753221446735**. **Next:** finish protected feedback integration if still open, then continue the [five-step plan](image-next-steps-2026-09-20.md): owner workflow testing, the preserved 200k reference continuation and evidence, actual two-GPU image qualification, and external benchmarking. Check live processes before training; paid compute, real multi-host execution and release remain separate gates.
 
 Metrics implementation checkpoint: the [implementation report](metrics-implementation-2026-09-19.md) links the file-backed metrics, shared WASM reducers, public streaming API/browser, ordinary Python factories, manual snapshot evaluation and supervised CLI startup slices. Native CUDA, full two-GPU numerical/recovery checks, actual browser and installed-package proofs accompany the protected PRs. Samples remain separate modality-neutral artifacts. The performance report records measured costs and explicitly unestablished throughput targets; no database, federation or paid compute was introduced. Final integrated checks and merge receipts are retained in the durable metrics evidence directory. The separate numerical/distributed core cutpoint above remains unchanged.
 
@@ -394,3 +394,41 @@ branch `docs/image-feedback-next-steps`. Verification includes `git diff --check
 relative Markdown-link checks and document review. Its protected PR/check state
 is available on GitHub by branch. No runtime changes, GPU jobs, paid compute or
 release publication are part of this handoff.
+
+
+## Feedback implementation and integrated acceptance (2026-09-20)
+
+Owner authorized subagents to fix every `reports/feedback*` item in PRs and merge
+into develop. Three agents implemented bounded slices; the coordinator supplied
+projection/durable-boundary visibility, cross-reviewed the code and resolved
+shared API/CLI/documentation changes. The [implementation report](feedback-implementation-2026-09-20.md)
+links PRs #336–#342 and defines the resulting user flow and durability limits.
+The integration branch retains every reviewed branch head so the combined tree
+can pass strict required checks without bypassing branch protection.
+
+Planning PR #335 passed all required checks and merged at
+`17a3cb307c8ff7b12a47600e855ca2d0c52409eb`. Its previously untracked feedback draft
+was verified byte-identical and backed up before updating the main checkout.
+The owner run was stopped at observed/durable step 41,000. No owner processes,
+training files or frozen package environment were changed.
+
+Installed acceptance exercised the actual CLI/UI, default and live console
+cadence, persistent viewer reuse/explicit stop, read-only real tensor and FID
+artifacts, event durability and failure injection. Native CUDA passed eight
+checks; actual two-GPU public CLI/NCCL recovery passed seven, including exact
+state, rank failure and coordinator death. Full installed package and protected
+CI receipts record the final accepted source; initial failed assertions and their
+fixes remain in the evidence. This is generic runtime qualification, not closure
+of the actual two-GPU image-recipe gate.
+
+Commands include source → sdist → wheel builds, isolated installed pytest,
+`hypergan new/train/resume/server-status/stop-server`, actual Chromium interaction,
+Git/GitHub state checks and exact-head protected merges. Evidence lives under
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-feedback/`, with additional
+publication/signal tests under sibling `2026-09-20-feedback-recovery/`.
+No older-checkpoint migration, paid compute or release was added.
+
+Next concrete action: verify the integration PR is merged, then have the owner
+exercise these changes in a new run under the updated installation while retaining
+the existing reference run's original environment. Continue the five-step plan;
+do not silently reinstall or restart the preserved reference experiment.

@@ -20,14 +20,14 @@ hypergan sample runs/demo --count 16
 
 On the main thread, the first **SIGINT** (Ctrl-C) or **SIGTERM** requests a graceful
 stop. The controller finishes the current complete update, records its metrics,
-commits a checkpoint and shuts down numerical workers. It skips optional final
-inference export and previews after the stop request. The manifest records
+commits a checkpoint and shuts down numerical workers. It does not start further
+optional inference export or previews after observing the stop request. The manifest records
 `stop_reason: SIGINT` or `SIGTERM`. A second signal forces process exit; a
 30-second watchdog also forces exit if the update or shutdown cannot finish.
 SIGKILL and forced exits cannot save partial updates: resume selects the last
 published complete checkpoint. Native calls in embedded non-main threads retain
 the host application's signal policy. A custom native extension that holds the
-Python interpreter lock can delay Python's first signal handler; a supervisor
+Python interpreter lock can delay signal handlers and the Python watchdog; a supervisor
 requiring an absolute external deadline should send SIGKILL after its grace
 period. POSIX worker brokers use independent sessions so terminal group signals
 reach the controller without interrupting a rank halfway through an update.

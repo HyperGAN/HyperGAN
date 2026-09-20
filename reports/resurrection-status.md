@@ -2,6 +2,24 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Metric optimization in progress (2026-09-20): the owner requested a training-priority
+metric audit and fixes with subagents, report
+[metric optimization](metric-optimization-2026-09-20.md), and protected merges to
+`develop`. Feedback integration PR #343 is verified merged at `74aab6c6`.
+Scalar transfer PR [#344](https://github.com/HyperGAN/HyperGAN/pull/344), background
+observation I/O PR [#345](https://github.com/HyperGAN/HyperGAN/pull/345), and async
+custom metrics PR [#346](https://github.com/HyperGAN/HyperGAN/pull/346) are in CI;
+async previews, replicated callbacks and control polling are under validation.
+Only physical GPU 0 is authorized for this task; all CUDA experiments mask its
+UUID so GPU 1 and the owner's running experiment remain untouched. Sixteen
+baseline CUDA trials preserve complete state; corrected authentication and
+bounded SSE reconnect handling are recorded with the original failed receipts.
+Evidence: `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-metric-optimization/`.
+Next: review/qualify the integrated workers and current-run recovery, complete
+before/after plus bare-update measurements, merge passing small PRs, and replace
+this in-progress note with exact acceptance/merge receipts. No paid compute or
+release is part of this task.
+
 Current cutpoint: the [feedback implementation report](feedback-implementation-2026-09-20.md) records all seven workflow fixes in PRs #336–#342 and their combined acceptance. The coordinator integrates the reviewed branch heads through `feat/feedback-integration`; consult its protected PR and receipts for final merge state. Planning PR #335 merged at `17a3cb307c8ff7b12a47600e855ca2d0c52409eb`. The actual run was stopped at step 41,000 on inspection, and its frozen environment remains untouched. Native CUDA and two-GPU generic runtime recovery passed; the reference's historical 40k EMA FID50k/train remains **19.37753221446735**. **Next:** finish protected feedback integration if still open, then continue the [five-step plan](image-next-steps-2026-09-20.md): owner workflow testing, the preserved 200k reference continuation and evidence, actual two-GPU image qualification, and external benchmarking. Check live processes before training; paid compute, real multi-host execution and release remain separate gates.
 
 Metrics implementation checkpoint: the [implementation report](metrics-implementation-2026-09-19.md) links the file-backed metrics, shared WASM reducers, public streaming API/browser, ordinary Python factories, manual snapshot evaluation and supervised CLI startup slices. Native CUDA, full two-GPU numerical/recovery checks, actual browser and installed-package proofs accompany the protected PRs. Samples remain separate modality-neutral artifacts. The performance report records measured costs and explicitly unestablished throughput targets; no database, federation or paid compute was introduced. Final integrated checks and merge receipts are retained in the durable metrics evidence directory. The separate numerical/distributed core cutpoint above remains unchanged.

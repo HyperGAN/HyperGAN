@@ -270,7 +270,7 @@ def test_artifact_shelf_streams_while_metrics_are_unselected(real_viewer):
     assert not errors
 
 
-def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=False):
+def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=False, step=1, protocol="c" * 64, attempt="saved-attempt"):
     # Exact terminal M4 source protocol, including a catalog absent from the
     # active training manifest. Publish registration last, as the evaluator does.
     definition = dict(kind=kind, source='custom:quality', scope='snapshot',
@@ -281,12 +281,12 @@ def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=Fa
     atomic_json(experiment.root / 'metrics' / f'catalog-{revision}.json', catalog)
     event = dict(schema_version=2, event='evaluation', run_id=experiment.manifest['run_id'],
                  stream_id='evaluation:' + evaluation_id, stream_generation=evaluation_id,
-                 attempt_id=evaluation_id if failed else 'saved-attempt', step=0 if failed else 1,
+                 attempt_id=evaluation_id if failed else attempt, step=0 if failed else step, seconds=12.5,
                  sequence=1, catalog=revision, evaluation_id=evaluation_id,
                  source_position_known=not failed, status='failed' if failed else 'complete',
                  metrics={}, measurement_status={}, snapshot_sha256='b'*64,
-                 snapshot_identity={} if failed else {'attempt_id': 'saved-attempt'},
-                 protocol_sha256='c'*64, evaluation_protocol={'sample_count': 7, 'seed': 42})
+                 snapshot_identity={} if failed else {'attempt_id': attempt},
+                 protocol_sha256=protocol, evaluation_protocol={'sample_count': 7, 'seed': 42})
     if failed:
         event['measurement_status']['quality'] = {'status': 'failed', 'reason': 'Evaluation fixture timeout'}
     else:
@@ -308,7 +308,7 @@ def test_snapshot_scalar_histogram_failure_discovery_and_export(real_viewer, mon
     sign_in(page, session, token)
     page.locator('#g-loss').filter(has_text='2').wait_for()
     page.locator('#evaluation-items li').filter(has_text='0.25 distance').wait_for()
-    assert 'quality' not in page.locator('#metric-list').inner_text().lower()
+    assert 'Snapshot quality · Evaluation' in page.locator('#metric-list').inner_text()
     page.get_by_role('button', name='Clear', exact=True).click()
     page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
     monkeypatch.setattr(Reducer, 'add', lambda *a, **k: pytest.fail('Evaluation ran a server reduction'))
@@ -394,4 +394,54 @@ def test_cifar_final_tensor_preview_and_oversize_explanation(real_viewer):
         item.get_by_role('link', name='Download').click()
     assert Path(download.value.path()).read_bytes() == payload
     assert download.value.suggested_filename == "samples.json"
+    assert not errors
+
+
+def test_evaluation_metrics_sort_snapshots_preserve_repeats_and_protocols(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(2)
+    for index, step in enumerate([10000, 30000, 40000, 20000, 20000], 1):
+        publish_evaluation(experiment, f'{index:032x}', 'scalar', 50 - step / 1000 + index / 10, step=step, attempt=f'saved-{index}')
+    publish_evaluation(experiment, '6'*32, 'scalar', 9.0, step=20000, protocol='d'*64)
+    publish_evaluation(experiment, '7'*32, 'scalar', 8.0, step=20000, attempt='recovered-attempt')
+    sign_in(page, session, token)
+    page.locator('#evaluation-items li[data-step]').nth(6).wait_for()
+    assert page.locator('#evaluation-items li').evaluate_all('items => items.map(x => Number(x.dataset.step))') == [10000, 20000, 20000, 20000, 20000, 30000, 40000]
+    assert page.locator('#metric-count').inner_text() == '3'
+    assert page.get_by_role('checkbox', name='Snapshot quality · Evaluation', exact=True).count() == 2
+    cards = page.locator('.chart-card').filter(has_text='Snapshot quality · Evaluation')
+    assert cards.count() == 2
+    assert cards.locator('canvas').count() == 2
+    page.locator('.data-table summary').click()
+    rows = page.locator('#values-table tr').filter(has_text='quality')
+    assert rows.count() == 7
+    assert rows.evaluate_all('rows => rows.filter(r => r.dataset.metric.endsWith("c".repeat(64))).map(r => Number(r.dataset.step))') == [10000, 20000, 20000, 20000, 30000, 40000]
+    # The same-step repeated measurements remain individual exact observations.
+    assert rows.filter(has_text='00000000000000000000000000000004').count() == 1
+    assert rows.filter(has_text='00000000000000000000000000000005').count() == 1
+    assert rows.filter(has_text='recovered-attempt').count() == 1
+    page.locator('#smoothing').select_option('0.5')
+    assert cards.filter(has_text='EMA uses').count() == 0
+    assert cards.filter(has_text='discrete snapshot measurements').count() == 2
+    # Evaluation-only selection works without a training bootstrap request.
+    page.get_by_role('checkbox', name='Generator total', exact=True).uncheck()
+    page.locator('#coverage').filter(has_text='Evaluation snapshots').wait_for()
+    page.locator('#step-from').fill('20000'); page.locator('#step-to').fill('20000')
+    page.get_by_role('button', name='Apply range').click()
+    assert page.locator('#values-table tr').count() == 4
+    # A new result arrives after the charts were first displayed.
+    publish_evaluation(experiment, '8'*32, 'scalar', 7.0, step=20000)
+    page.locator('#values-table tr').filter(has_text='88888888888888888888888888888888').wait_for(timeout=10000)
+    assert page.locator('#values-table tr').count() == 5
+    assert 'Evaluation duration: 12.5 seconds' in page.locator('#evaluation-items').inner_text()
+    assert not errors
+
+
+def test_evaluation_rejects_missing_protocol_identity(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(2)
+    publish_evaluation(experiment, '9'*32, 'scalar', 1.0, protocol=None)
+    sign_in(page, session, token)
+    page.locator('#evaluation-items').filter(has_text='Invalid evaluation definition or protocol identity').wait_for()
+    assert page.get_by_role('checkbox', name='Snapshot quality · Evaluation', exact=True).count() == 0
     assert not errors

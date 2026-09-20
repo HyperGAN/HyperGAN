@@ -27,6 +27,8 @@ const colors = [
 const state = {
   run: null,
   catalog: null,
+  evaluationMetrics: {},
+  evaluationResults: [],
   map: null,
   selected: new Set(),
   groups: new Map(),
@@ -141,7 +143,27 @@ async function api(path, options = {}) {
   return { status: response.status, data: await response.json() };
 }
 const base = () => `/runs/${encodeURIComponent(state.run.run_id)}`;
-const evaluations = evaluationShelf(api, base);
+const evaluations = evaluationShelf(api, base, (results) => {
+  const definitions = {};
+  state.evaluationResults = [];
+  for (const {event, catalog} of results) {
+    if (event.status !== 'complete' || !event.source_position_known) continue;
+    for (const [id, value] of Object.entries(event.metrics || {})) {
+      const definition = catalog.metrics[id];
+      if (definition?.kind !== 'scalar') continue;
+      // Protocol and definition are separate selectable series, never averaged.
+      const key = `evaluation:${id}:${definition.definition_hash}:${event.protocol_sha256}`;
+      definitions[key] = {...definition, label: `${definition.label || id} · Evaluation`,
+        metricID: id, evaluation: true, protocol: event.protocol_sha256};
+      state.evaluationResults.push({key, value, event});
+      if (!state.evaluationMetrics[key] && state.selected.size < 8) state.selected.add(key);
+    }
+  }
+  state.evaluationMetrics = definitions;
+  if (state.catalog) { renderCatalog(); render(); }
+});
+function metricDefinitions() { return {...(state.catalog?.metrics || {}), ...state.evaluationMetrics}; }
+function trainingSelection() { return [...state.selected].filter(id => !state.evaluationMetrics[id]); }
 const fmt = (value) =>
   value === null || value === undefined
     ? "—"
@@ -337,14 +359,14 @@ function defaults() {
     "loss/gradient_penalty",
     "loss/prior_regularizer",
   ];
-  return preferred.filter((id) => id in state.catalog.metrics).slice(0, 8);
+  return [...preferred.filter((id) => id in state.catalog.metrics), ...Object.keys(state.evaluationMetrics)].slice(0, 8);
 }
 function renderCatalog() {
   const search = $("search").value.toLowerCase();
-  $("metric-count").textContent = Object.values(state.catalog.metrics).filter(d => d.scope !== "snapshot" && d.kind === "scalar").length;
+  $("metric-count").textContent = Object.values(metricDefinitions()).filter(d => (d.evaluation || d.scope !== "snapshot") && d.kind === "scalar").length;
   $("metric-list").replaceChildren();
-  for (const [id, definition] of Object.entries(state.catalog.metrics)) {
-    if (definition.scope === "snapshot" || definition.kind !== "scalar") continue;
+  for (const [id, definition] of Object.entries(metricDefinitions())) {
+    if ((!definition.evaluation && definition.scope === "snapshot") || definition.kind !== "scalar") continue;
     if (!`${id} ${definition.label}`.toLowerCase().includes(search)) continue;
     const label = document.createElement("label");
     label.className = "metric-option";
@@ -365,7 +387,7 @@ function renderCatalog() {
     const text = document.createElement("span");
     text.textContent = definition.label || id;
     const small = document.createElement("small");
-    small.textContent = id;
+    small.textContent = definition.evaluation ? `${definition.metricID} · protocol ${definition.protocol.slice(0, 8)}` : id;
     text.append(small);
     label.append(input, text);
     $("metric-list").append(label);
@@ -384,7 +406,7 @@ async function metadata(expectedEpoch = state.epoch) {
   evaluations.refresh(views.data.streams || []).catch(error => notice(error.message));
   if (views.data.discovery_error) notice(views.data.discovery_error);
   state.selected = new Set(
-    [...state.selected].filter((id) => state.catalog.metrics[id]?.kind === "scalar" && state.catalog.metrics[id]?.scope !== "snapshot"),
+    [...state.selected].filter((id) => metricDefinitions()[id]?.kind === "scalar" && (metricDefinitions()[id]?.evaluation || metricDefinitions()[id]?.scope !== "snapshot")),
   );
   renderCatalog();
   await refreshArtifacts();
@@ -432,7 +454,7 @@ function waitForRun() {
 }
 function requestPath() {
   const params = new URLSearchParams({
-    series: [...state.selected].sort().join(","),
+    series: trainingSelection().sort().join(","),
     bucket_steps: String(state.bucket),
   });
   if (state.stepFrom !== null) params.set("step_from", state.stepFrom);
@@ -462,8 +484,8 @@ async function reconfigure({ coarser = false } = {}) {
   render();
   $("coverage").textContent = "Preparing bounded history…";
   connection("Loading history…");
-  if (!state.selected.size) {
-    $("coverage").textContent = "No metrics selected";
+  if (!trainingSelection().length) {
+    $("coverage").textContent = state.selected.size ? "Evaluation snapshots · no training series selected" : "No metrics selected";
     openStream(epoch);
     return;
   }
@@ -486,7 +508,7 @@ async function loadBootstrap(epoch) {
     const result = await state.worker.call({
       op: "bootstrap",
       bootstrap,
-      selected: [...state.selected],
+      selected: trainingSelection(),
       stepFrom: state.stepFrom,
       stepTo: state.stepTo,
     });
@@ -551,7 +573,7 @@ function openStream(epoch) {
   const query = new URLSearchParams({ stream_id: `projection:${state.map}` });
   if (state.cursor) query.set("cursor", state.cursor);
   const stream = new EventSource(`/api/v1${base()}/stream?${query}`);
-  const controlsOnly = state.selected.size === 0;
+  const controlsOnly = trainingSelection().length === 0;
   state.stream = stream;
   stream.onopen = () => {
     if (epoch === state.epoch && (state.ready || controlsOnly))
@@ -726,6 +748,16 @@ function partitions() {
             ? 1
             : 0),
     );
+  for (const {key, value, event} of state.evaluationResults) {
+    if (!state.selected.has(key) || (state.stepFrom !== null && event.step < state.stepFrom) ||
+        (state.stepTo !== null && event.step > state.stepTo)) continue;
+    const id = JSON.stringify([key, event.attempt_id]);
+    if (!result.has(id)) result.set(id, {metric: key, definition: metricDefinitions()[key].definition_hash,
+      attempt: event.attempt_id, evaluation: true, points: []});
+    result.get(id).points.push({value, position: [event.step, event.evaluation_id], event});
+  }
+  for (const part of result.values()) if (part.evaluation)
+    part.points.sort((a, b) => a.position[0] - b.position[0] || a.position[1].localeCompare(b.position[1]));
   return [...result.values()];
 }
 function render() {
@@ -743,13 +775,14 @@ function render() {
       const heading = document.createElement("div");
       heading.className = "chart-heading";
       const title = document.createElement("h3");
-      title.textContent = state.catalog.metrics[metric]?.label || metric;
+      title.textContent = metricDefinitions()[metric]?.label || metric;
       const value = document.createElement("span");
       value.className = "value";
       heading.append(title, value);
       const description = document.createElement("p");
       description.className = "chart-description";
-      description.textContent = metric;
+      description.textContent = metricDefinitions()[metric]?.evaluation
+        ? `${metricDefinitions()[metric].metricID} · protocol ${metricDefinitions()[metric].protocol.slice(0, 8)}` : metric;
       const canvas = document.createElement("div");
       canvas.className = "chart-canvas";
       canvas.setAttribute("role", "img");
@@ -765,7 +798,8 @@ function render() {
       card = { element, chart, value, note };
       state.charts.set(metric, card);
     }
-    const alpha = Number($("smoothing").value),
+    const evaluation = !!metricDefinitions()[metric]?.evaluation;
+    const alpha = evaluation ? 0 : Number($("smoothing").value),
       log = $("scale").value === "log";
     let omitted = 0;
     const series = [];
@@ -795,11 +829,11 @@ function render() {
       series.push({
         name,
         type: "line",
-        showSymbol: raw.filter(point => point[1] !== null).length === 1,
+        showSymbol: evaluation || raw.filter(point => point[1] !== null).length === 1,
         symbolSize: 6,
         connectNulls: false,
         data: raw,
-        lineStyle: { width: alpha ? 1 : 1.7, opacity: alpha ? 0.35 : 1 },
+        lineStyle: { width: alpha ? 1 : 1.7, opacity: evaluation ? 0 : alpha ? 0.35 : 1 },
         itemStyle: { color: colors[index % colors.length] },
         animation: false,
       });
@@ -814,14 +848,16 @@ function render() {
           itemStyle: { color: colors[index % colors.length] },
           animation: false,
         });
-      const last = points.at(-1);
-      if (last) {
+      for (const last of evaluation ? points : points.slice(-1)) {
         const row = document.createElement("tr");
+        row.dataset.metric = metric;
+        row.dataset.step = String(last.position[0]);
+        if (evaluation) row.dataset.evaluation = last.event.evaluation_id;
         for (const text of [
-          metric,
+          metricDefinitions()[metric]?.metricID || metric,
           String(last.position[0]),
           String(last.value),
-          part.attempt,
+          evaluation ? `${part.attempt} · evaluation ${last.event.evaluation_id} · ${last.event.seconds ?? "unknown"} seconds` : part.attempt,
         ]) {
           const cell = document.createElement("td");
           cell.textContent = text;
@@ -832,6 +868,7 @@ function render() {
     });
     card.value.textContent = latest ? fmt(latest.value) : "—";
     card.note.textContent = [
+      evaluation ? "Evaluation metric · discrete snapshot measurements; every evaluation is retained. Duration and provenance appear below." : "",
       omitted ? `${omitted} nonpositive points excluded from log scale.` : "",
       alpha
         ? "EMA uses visible envelope points; raw values remain visible."
@@ -878,6 +915,12 @@ function render() {
       true,
     );
   }
+  const metricOrder = [...state.selected];
+  const rows = [...$("values-table").children].sort((a, b) =>
+    metricOrder.indexOf(a.dataset.metric) - metricOrder.indexOf(b.dataset.metric) ||
+    Number(a.dataset.step) - Number(b.dataset.step) ||
+    (a.dataset.evaluation || '').localeCompare(b.dataset.evaluation || ''));
+  $("values-table").replaceChildren(...rows);
   for (const [metric, card] of state.charts)
     if (!active.has(metric)) {
       card.chart.dispose();

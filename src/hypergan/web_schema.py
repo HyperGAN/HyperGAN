@@ -33,7 +33,7 @@ def schemas():
         'measurement_status': {'type': 'object'},
         'distributions': {'type': 'object', 'additionalProperties': ref('Histogram')},
         'evaluation_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'},
-        'status': {'enum': ['complete', 'failed']},
+        'status': {'enum': ['complete', 'failed', 'cancelled']},
         'source_position_known': {'type': 'boolean', 'description': 'False on failures before snapshot load; step is not a measurement position.'},
         'snapshot_sha256': HASH, 'snapshot_identity': {'type': 'object'}, 'protocol_sha256': HASH,
         'evaluation_protocol': {'type': 'object', 'description': 'Immutable numerical, data, factory, RNG, sample count and runtime protocol.'}}, (*source['required'], 'schema_version', 'event', 'step', 'catalog'))
@@ -73,7 +73,7 @@ def schemas():
         'status': {'type': 'string'}, 'steps': SAFE_INTEGER, 'total_steps': SAFE_INTEGER,
         'last_durable_step': {'oneOf': [SAFE_INTEGER, {'type': 'null'}]}, 'metrics_catalog': HASH,
         'evaluation_schedule': {'type': 'object', 'additionalProperties': object_schema({
-            'status': {'enum': ['running', 'complete', 'failed', 'skipped', 'cancelled', 'pending']},
+            'status': {'enum': ['running', 'complete', 'failed', 'skipped', 'cancelled', 'pending', 'disabled']},
             'source_step': SAFE_INTEGER, 'next_step': SAFE_INTEGER,
             'skipped_busy': SAFE_INTEGER, 'last_skipped_step': SAFE_INTEGER,
             'reason': {'type': 'string'}, 'evaluation_id': {'type': 'string'}}, ('status',))},

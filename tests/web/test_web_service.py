@@ -609,5 +609,6 @@ def test_snapshot_evaluation_schedule_is_public_and_documented(tmp_path):
         assert response.json()['evaluation_schedule'] == manifest['evaluation_schedule']
         schema = client.get('/api/v1/openapi.json').json()['components']['schemas']
         schedule = schema['Run']['properties']['evaluation_schedule']['additionalProperties']['properties']
-        assert 'skipped' in schedule['status']['enum']
+        assert {'skipped', 'cancelled', 'disabled'} <= set(schedule['status']['enum'])
+        assert 'cancelled' in schema['Event']['properties']['status']['enum']
         assert {'source_step', 'next_step', 'skipped_busy', 'last_skipped_step'} <= schedule.keys()

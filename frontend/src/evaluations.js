@@ -53,10 +53,10 @@ function showResult(card, event, catalog, path) {
   if (ids.length !== 1) throw new Error('Expected one metric per evaluation');
   const id = ids[0], definition = catalog.metrics[id];
   if (!definition) throw new Error('Evaluation definition is missing from its source catalog');
-  const failed = event.status === 'failed';
-  if (!failed && event.status !== 'complete') throw new Error('Evaluation is not terminal');
+  const failed = event.status === 'failed', cancelled = event.status === 'cancelled';
+  if (!failed && !cancelled && event.status !== 'complete') throw new Error('Evaluation is not terminal');
   const heading = node('h3', definition.label || id);
-  const status = node('span', failed ? 'Failed' : 'Complete', 'badge');
+  const status = node('span', cancelled ? 'Cancelled' : failed ? 'Failed' : 'Complete', 'badge');
   card.replaceChildren(heading, status, node('p', id, 'quiet'));
   const known = event.source_position_known === true;
   card.dataset.step = known ? String(event.step) : '';
@@ -66,11 +66,11 @@ function showResult(card, event, catalog, path) {
   const link = node('a', 'Export raw evaluation ↗', 'text-link');
   link.href = `/api/v1${path}`; link.target = '_blank'; link.rel = 'noopener';
   card.append(link);
-  if (failed) {
-    card.append(node('p', 'The evaluator did not complete.', 'evaluation-failure'));
+  if (failed || cancelled) {
+    card.append(node('p', cancelled ? 'The evaluation was cancelled.' : 'The evaluator did not complete.', cancelled ? 'evaluation-cancelled' : 'evaluation-failure'));
     const failure = node('details');
-    failure.append(node('summary', 'Failure details'));
-    failure.append(node('pre', event.measurement_status?.[id]?.reason || 'Evaluation failed', 'numeric-preview'));
+    failure.append(node('summary', cancelled ? 'Cancellation details' : 'Failure details'));
+    failure.append(node('pre', event.measurement_status?.[id]?.reason || (cancelled ? 'Evaluation cancelled' : 'Evaluation failed'), 'numeric-preview'));
     card.append(failure);
   } else {
     if (!known || !Number.isSafeInteger(event.step) || event.step < 0) throw new Error('Complete evaluation needs a known source step');
@@ -118,12 +118,12 @@ export function evaluationShelf(api, base, changed = () => {}) {
       const interval = spec.trigger === 'interval';
       const card = node('li'); card.dataset.metric = id;
       card.append(node('h3', definition.label || id), node('p', id, 'quiet'));
-      const states = {running: 'Running', complete: 'Complete', failed: 'Failed', skipped: 'Skipped', cancelled: 'Cancelled', pending: 'Pending'};
+      const states = {running: 'Running', complete: 'Complete', failed: 'Failed', skipped: 'Skipped', cancelled: 'Cancelled', pending: 'Pending', disabled: 'Disabled'};
       const evaluated = [...results.values()].some(({event}) => event.status === 'complete' && (Object.hasOwn(event.metrics || {}, id) || Object.hasOwn(event.distributions || {}, id)));
       const status = states[schedule.status] || (evaluated ? 'Evaluated' : 'Not evaluated');
       card.append(node('p', `${status} · ${interval ? `every ${spec.every_steps} steps` : 'manual'}`, 'evaluation-schedule-status'));
       if (Number.isSafeInteger(schedule.source_step)) card.append(node('p', `Source step ${schedule.source_step}`, 'quiet'));
-      if (interval) {
+      if (interval && schedule.status !== 'disabled') {
         const next = Number.isSafeInteger(schedule.next_step) ? schedule.next_step :
           Number.isSafeInteger(spec.every_steps) && spec.every_steps > 0 ? (Math.floor((run.steps || 0) / spec.every_steps) + 1) * spec.every_steps : null;
         if (Number.isSafeInteger(next)) card.append(node('p', `Next evaluation at step ${next}${['running', 'training'].includes(run.status) ? '' : ' when training continues'}`, 'evaluation-next-step'));

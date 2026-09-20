@@ -270,7 +270,7 @@ def test_artifact_shelf_streams_while_metrics_are_unselected(real_viewer):
     assert not errors
 
 
-def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=False, step=1, protocol="c" * 64, attempt="saved-attempt"):
+def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=False, cancelled=False, step=1, protocol="c" * 64, attempt="saved-attempt"):
     # Exact terminal M4 source protocol, including a catalog absent from the
     # active training manifest. Publish registration last, as the evaluator does.
     definition = dict(kind=kind, source='custom:quality', scope='snapshot',
@@ -283,11 +283,13 @@ def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=Fa
                  stream_id='evaluation:' + evaluation_id, stream_generation=evaluation_id,
                  attempt_id=evaluation_id if failed else attempt, step=0 if failed else step, seconds=12.5,
                  sequence=1, catalog=revision, evaluation_id=evaluation_id,
-                 source_position_known=not failed, status='failed' if failed else 'complete',
+                 source_position_known=not failed, status='cancelled' if cancelled else 'failed' if failed else 'complete',
                  metrics={}, measurement_status={}, snapshot_sha256='b'*64,
                  snapshot_identity={} if failed else {'attempt_id': attempt},
                  protocol_sha256=protocol, evaluation_protocol={'sample_count': 7, 'seed': 42})
-    if failed:
+    if cancelled:
+        event['measurement_status']['quality'] = {'status': 'cancelled', 'reason': 'Training stopped before evaluation finished'}
+    elif failed:
         event['measurement_status']['quality'] = {'status': 'failed', 'reason': 'Evaluation fixture timeout'}
     else:
         event.setdefault('metrics' if kind == 'scalar' else 'distributions', {})['quality'] = value
@@ -522,5 +524,29 @@ def test_configured_snapshot_metrics_visible_before_results_and_live_schedule(re
     interval.filter(has_text='when training continues').wait_for()
     page.reload()
     interval.filter(has_text='Failed · every 10000 steps').wait_for()
+    experiment.manifest['evaluation_schedule']['fid50k_train'].update(status='disabled', reason='Interval evaluations are disabled')
+    experiment.publish()
+    interval.filter(has_text='Disabled · every 10000 steps').wait_for()
+    assert interval.locator('.evaluation-next-step').count() == 0
     assert 'Not evaluated · manual' in manual.inner_text()
+    assert not errors
+
+
+def test_cancelled_evaluation_retains_source_and_export_without_failure_or_value(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create()
+    publish_evaluation(experiment, 'c' * 32, 'scalar', cancelled=True, step=10000)
+    sign_in(page, session, token)
+    card = page.locator('#evaluation-items li')
+    card.filter(has_text='The evaluation was cancelled.').wait_for()
+    assert card.locator('.badge').inner_text() == 'CANCELLED'
+    assert 'Source step 10000' in card.inner_text()
+    card.get_by_text('Cancellation details', exact=True).click()
+    assert 'Training stopped before evaluation finished' in card.inner_text()
+    assert card.locator('.evaluation-failure, .evaluation-value').count() == 0
+    assert page.locator('#charts').get_by_text('Snapshot quality', exact=True).count() == 0
+    export = card.get_by_role('link', name='Export raw evaluation').get_attribute('href')
+    response = context.request.get(session.origin + export)
+    assert response.ok
+    assert response.json()['events'][0]['status'] == 'cancelled'
     assert not errors

@@ -20,6 +20,10 @@ def bind_server(port=0, host="0.0.0.0"):
         raise ValueError('port must be in 0..65535; zero selects an available port')
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
+        # Windows otherwise permits overlapping wildcard/specific listeners,
+        # defeating occupied-port preflight and making request routing ambiguous.
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         listener.bind((host, port))
         listener.listen(128)
         return listener

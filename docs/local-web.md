@@ -155,10 +155,29 @@ without creating the trainer's run directory. Once a manifest exists, a nonsecre
 health, independently of numerical configuration/checkpoint identity.
 
 Optional startup errors and failures after startup produce warnings without
-failing training. Required startup failure prevents numerical work. The broker
-monitors trainer death, and both children monitor the broker. Completion, errors
-and interruption close the server, remove private credentials and join children
-within bounded cleanup deadlines; the projection producer gets a bounded final
-drain. A large backlog may therefore remain incomplete, visibly resumable with
-`hypergan project RUN`. The automatically started viewer ends with its training
-command; use `hypergan serve RUN` afterward for inspection.
+failing training. Required startup failure prevents numerical work. The detached
+supervisor keeps the server and projection producer running after completion,
+bounded stops, numerical failures, SIGINT, SIGTERM and even abrupt training-process
+death. You can continue inspecting the same URL and existing browser session.
+
+`resume` reconnects to the same per-run viewer, without starting another server
+or projection writer. Private registry state lives outside the experiment under
+the operating system's temporary directory. An OS lifetime lock and a checked
+server incarnation identify the running service; recorded PIDs are diagnostic,
+never used to signal a process. Omitted bind/auth options inherit the active
+server settings. Explicit conflicting options fail with an instruction to stop
+the existing viewer before choosing new settings.
+
+Stop an automatic viewer explicitly:
+
+```sh
+hypergan stop-server runs/example
+```
+
+This command can run from another terminal and is safe to repeat. It stops only
+the registered incarnation, removes its private credentials, drains one final
+bounded projection page and joins children within bounded deadlines. A large
+backlog may remain resumable with `hypergan project RUN`. If the supervisor itself
+dies, its children exit independently; the next launch safely replaces stale
+registry state and rotates credentials. Standalone `serve` remains a foreground
+command; stop that command with Ctrl-C.

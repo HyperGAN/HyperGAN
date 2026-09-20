@@ -104,6 +104,8 @@ def _parser():
     serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     serve.add_argument("--session-file", type=Path, help="new private credential file outside the run")
     serve.add_argument("--open", action="store_true", help="open the local viewer in a browser")
+    stop_server = commands.add_parser("stop-server", help="Stop the persistent automatic viewer for a run")
+    stop_server.add_argument("run_dir", type=Path)
     from .evaluation_cli import add_evaluate_parser
     add_evaluate_parser(commands)
     checkpoint = commands.add_parser("checkpoint", help="Request a checkpoint at the trainer's next safe boundary")
@@ -187,6 +189,10 @@ def _dispatch(args, *, output=None):
 
             serve(args.run_dir, port=args.port, host=args.host, auth=args.auth,
                   session_file=args.session_file, open_browser=args.open)
+        elif args.command == "stop-server":
+            from .web_autostart import stop_viewer
+
+            _print_json(stop_viewer(args.run_dir))
         elif args.command == "contributions":
             from .event_views import MapSpec, read_projection_page
 

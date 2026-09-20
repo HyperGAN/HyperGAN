@@ -2,6 +2,8 @@
 from concurrent.futures import Future
 from pathlib import Path
 from threading import Event, Thread
+import tempfile
+import time
 
 from .snapshot_renderer import render_snapshot
 
@@ -23,20 +25,40 @@ class PreviewWorker:
     def busy(self):
         return self._future is not None
 
-    def submit(self, temporary, descriptor, identity, step, run_dir, keep):
+    def submit(self, temporary, descriptor, identity, step, run_dir, keep, *, snapshot_state=None):
         if self.busy:
             raise RuntimeError('Preview worker already has an outstanding snapshot')
         future = Future()
         self._future = future
+        self._deadline = time.monotonic() + self.timeout
+        self._source = {'step': step, 'identity': dict(identity)}
 
         def render():
+            nonlocal snapshot_state
             try:
-                with temporary:
-                    directory = Path(temporary.name)
-                    result = render_snapshot(directory / 'snapshot.pt', descriptor, identity, step,
-                        directory / 'preview.json', timeout=self.timeout, publish_run_dir=run_dir,
+                owned_temporary = temporary
+                if snapshot_state is not None:
+                    owned_temporary = tempfile.TemporaryDirectory(prefix='.preview-', dir=run_dir)
+                with owned_temporary:
+                    directory = Path(owned_temporary.name)
+                    frozen_descriptor = descriptor
+                    if snapshot_state is not None:
+                        from .preview_snapshot import write_snapshot
+                        if self._cancel.is_set():
+                            raise RuntimeError('Preview cancelled before snapshot persistence')
+                        frozen_descriptor = write_snapshot(snapshot_state, directory / 'snapshot.pt',
+                            cancellation_event=self._cancel, deadline=self._deadline)
+                        snapshot_state = None  # Release captured tensors before the renderer loads its copy.
+                    if self._cancel.is_set():
+                        raise RuntimeError('Preview cancelled before rendering')
+                    remaining = self._deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError('Preview snapshot persistence deadline exceeded')
+                    result = render_snapshot(directory / 'snapshot.pt', frozen_descriptor, identity, step,
+                        directory / 'preview.json', timeout=remaining, publish_run_dir=run_dir,
                         keep=keep, cancellation_event=self._cancel)
             except BaseException as error:
+                error.preview_context = {'step': step, 'identity': dict(identity)}
                 future.set_exception(error)
             else:
                 future.set_result(result)
@@ -55,7 +77,14 @@ class PreviewWorker:
         try:
             # Waiting is reserved for terminal cleanup. CPUWorkerService owns
             # finite startup/command/total deadlines and worker reaping.
-            return future.result()
+            return future.result(timeout=max(0, self._deadline + 8 - time.monotonic()) if wait else 0)
+        except TimeoutError as error:
+            if not future.done():
+                self._cancel.set()
+                failure = TimeoutError('Preview persistence/rendering exceeded its deadline and cleanup grace')
+                failure.preview_context = dict(self._source)
+                raise failure from error
+            raise
         finally:
             if future.done():
                 self._future = None

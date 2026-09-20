@@ -55,6 +55,23 @@ Python scripts that enable periodic previews must use the usual
 `if __name__ == '__main__':` guard for process creation and importable component
 factories; the CLI already supplies that guard.
 
+For native training, the update boundary freezes owned CPU tensors and plain
+containers under the training RNG fence. Snapshot directory creation,
+serialization, fsync and content hashing run on the preview supervisor thread;
+that thread never reads a live trainer or executes custom serialization hooks.
+Only one snapshot is retained, capped at 256 MiB of captured payload and 256 MiB
+on disk. The same preview deadline covers persistence and CPU rendering, with
+bounded cleanup grace. Cancellation is checked between storage operations;
+uninterruptible OS writes cannot be force-cancelled inside a thread and surface
+a cleanup failure if they outlive that grace. Device transfer, copying and
+custom state hooks still run at the safe numerical boundary.
+
+Replicated training retains its rank-zero snapshot file handoff: that capture
+command copies, serializes, fsyncs and hashes the snapshot before ranks resume.
+Rendering and final preview publication are asynchronous. Removing this remaining
+transport barrier requires a separate rank/coordinator handoff protocol; native
+training does not require it.
+
 Previews cap sample count at 16 and combined output/conditioning tensors at 65,536 elements, with a 2 MiB serialized artifact limit. Large samples can reduce the effective count or fail preview publication. Rendering and preview-artifact errors are reported separately and do not stop optimization while mandatory run manifest/event writes remain available. Failure of those core writes can still fail the run. Forward execution and model copying still cost time and memory; these bounds are not a sandbox or a hard latency deadline for custom code.
 
 The [local viewer](local-web.md) serves these records through the public API and browser. Use `--no-server` for headless training. [Execution profiles](execution.md) select native CUDA or supervised local CUDA/NCCL and explicit CPU fixtures; observation does not change their numerical identity.

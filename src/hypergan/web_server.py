@@ -62,7 +62,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         from .metrics_reducer import descriptor
         return JSONResponse({'schema_version': 1, 'api_version': 'v1', 'run_id': service.run_id,
                              'status': service.manifest.get('status'), 'server_instance_id': session.instance_id,
-                             'transports': ['sse'], 'reducer': descriptor(),
+                             'auth_mode': session.auth_mode, 'transports': ['sse'], 'reducer': descriptor(),
                              'limits': {'subscribers': 32, 'queue_bytes': 1048576, 'groups': 2048,
                                         'bootstrap_bytes': 1048576, 'stream_count': 64,
                                         'history_seconds': service.history_timeout}})
@@ -179,7 +179,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         return Response(assets().joinpath(asset).read_bytes(), media_type=media)
 
     async def openapi(request):
-        return JSONResponse(openapi_schema(cookie_name=session.cookie_name))
+        return JSONResponse(openapi_schema(cookie_name=session.cookie_name, auth_mode=session.auth_mode))
 
     async def error_handler(request, exc):
         code = 404 if isinstance(exc, FileNotFoundError) else 400
@@ -233,7 +233,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
     return AuthenticatedApp()
 
 
-def openapi_schema(*, cookie_name=LocalSession.cookie_name):
+def openapi_schema(*, auth_mode='token', cookie_name=LocalSession.cookie_name):
     """Versioned machine-readable route contract; rich event schemas are separate."""
     paths = {}
     descriptions = {
@@ -260,6 +260,10 @@ def openapi_schema(*, cookie_name=LocalSession.cookie_name):
         'requestBody': {'required': True, 'content': {'application/json': {'schema': {'type': 'object', 'required': ['token'],
                         'additionalProperties': False, 'properties': {'token': {'type': 'string'}}}}}},
         'responses': {'200': {'description': 'Authenticated'}, '401': {'description': 'Invalid credential'}}}}
+    if auth_mode == 'none':
+        for path in paths.values():
+            for operation in path.values():
+                operation.pop('security', None)
     from .web_schema import enrich
     return enrich({'openapi': '3.1.0', 'info': {'title': 'HyperGAN local observation API', 'version': '1.0.0'},
             'paths': paths, 'components': {'securitySchemes': {
@@ -271,6 +275,6 @@ def run_socket(run_dir, bound_socket, session, *, history_seconds=180):
     """Serve a prebound loopback socket; the caller owns credentials/lifecycle."""
     import uvicorn
     app = create_app(run_dir, session, history_timeout=history_seconds)
-    server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=bound_socket.getsockname()[1],
+    server = uvicorn.Server(uvicorn.Config(app, host=session.bind_host, port=bound_socket.getsockname()[1],
                                         access_log=False, log_level='warning'))
     server.run(sockets=[bound_socket])

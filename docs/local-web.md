@@ -8,20 +8,26 @@ hypergan project runs/example --follow
 hypergan serve runs/example --open
 ```
 
-`serve` binds `127.0.0.1` on an available port. Its startup JSON identifies the
-origin and a new private credential file outside the run. Paste that file's token
-into the browser login. Tokens never enter URLs or run artifacts. An agent can
-send `Authorization: Bearer <token>` instead of using the browser session cookie.
-Cookies are scoped by local port so multiple experiments do not overwrite each
-other's credentials. The first UI is read-only; these APIs neither start training
-nor execute custom Python maps or numerical metric factories.
+`serve` listens on `0.0.0.0` on an available port by default. Select another
+address with `--host 127.0.0.1` and a fixed port with `--port 8123`. The printed
+browser URL uses `127.0.0.1` for a wildcard bind; remote browsers use this machine's
+address with that same port. Browser requests remain same-origin.
+
+Authentication defaults to `none`. Select `--auth token` to require a private
+bearer token. Startup JSON identifies the browser origin, server incarnation and
+private session file outside the run. In token mode, paste that file's token into
+the browser login, or send `Authorization: Bearer <token>` from an external client.
+Tokens never enter URLs or run artifacts. Credentials last for that server
+incarnation and rotate on restart. Browser cookies are scoped by port so multiple
+experiments do not overwrite each other's credentials. These APIs neither start
+training nor execute custom Python maps or numerical metric factories.
 
 `hypergan metrics RUN` reads the current catalog. `hypergan contributions RUN`
 reads bounded mapped frames without installing the web or reducer runtime. A
 missing projection is visible: run `project`, rather than expecting an HTTP
 request to create it. Custom maps use the [event-view contract](event-views.md).
 
-The authenticated `/api/v1/openapi.json` contains OpenAPI 3.1 routes, query
+The `/api/v1/openapi.json` endpoint contains OpenAPI 3.1 routes, query
 parameters and JSON schemas for source events, projection frames, catalogs,
 bootstrap state and SSE envelopes. The browser uses this same public interface:
 
@@ -121,7 +127,7 @@ not training overhead or image quality.
 ## Automatic viewer during CLI training
 
 With the `web` extra installed, `hypergan train` and `hypergan resume` automatically
-reserve an available loopback port and launch a supervised local viewer. Startup
+reserve an available port on `0.0.0.0` and launch a supervised local viewer. Startup
 runs concurrently with training; there is no browser launch or readiness wait by
 default. Without the extra, these commands remain silently headless. The Python
 `train()` and `resume()` APIs never start a viewer.
@@ -132,12 +138,13 @@ hypergan resume runs/example --server --server-port 8123
 hypergan train project/config.toml --run-dir runs/headless --no-server
 ```
 
-`--server` requires dependencies, an available port and an authenticated ready
-server before numerical imports or training begin. `--server-port` and `--open`
-also imply that requirement. Only `--open` launches a browser. `--no-server`
-performs no web imports or socket setup and conflicts with those two options.
+`--server` requires dependencies, an available port and a ready
+server before numerical imports or training begin. `--server-port`, `--server-host`, `--auth` and `--open`
+also imply that requirement. `--server-host` selects the bind address; `--auth token`
+enables token authentication with the same behavior as standalone `serve`. Only `--open` launches a browser. `--no-server`
+performs no web imports or socket setup and conflicts with these explicit viewer options.
 Viewer diagnostics go to stderr; stdout and `--progress-json` remain machine
-readable. Read the private credential file reported on stderr to sign in.
+readable. Token mode prints the private credential path on stderr for signing in.
 
 The supervised HTTP server and built-in scalar projection producer run in
 separate spawned processes. The producer reads at most 100 documents per page;

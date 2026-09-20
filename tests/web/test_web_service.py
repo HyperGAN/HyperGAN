@@ -68,7 +68,7 @@ def test_auth_api_schema_artifact_and_no_mapper(tmp_path, monkeypatch):
     fixture_run(tmp_path)
     import hypergan.event_views as maps
     monkeypatch.setattr(maps.Projector, '__enter__', lambda self: pytest.fail('HTTP executed mapper'))
-    session = LocalSession(8123)
+    session = LocalSession(8123, auth="token")
     session.write_credentials(tmp_path / 'session.json')
     token = json.loads((tmp_path / 'session.json').read_text())['token']
     app = create_app(tmp_path, session, poll_seconds=.01)
@@ -241,7 +241,7 @@ def test_real_asgi_stream_reconnect(tmp_path):
         import uvicorn
         sock = socket.socket()
         sock.bind(('127.0.0.1', 0))
-        session = LocalSession(sock.getsockname()[1])
+        session = LocalSession(sock.getsockname()[1], auth="token")
         session.write_credentials(tmp_path / 'session.json')
         token = json.loads((tmp_path / 'session.json').read_bytes())['token']
         app = create_app(tmp_path, session, poll_seconds=.01)
@@ -327,7 +327,7 @@ def test_png_preview_is_authenticated_bounded_digest_checked_and_inline(tmp_path
                'image_grid': {'width': 1, 'height': 1, 'channels': 3,
                               'png_base64': base64.b64encode(png).decode('ascii')}}
     published = publish_preview_payload(tmp_path, payload, identity, 1)[0]
-    session = LocalSession(8123)
+    session = LocalSession(8123, auth="token")
     session.write_credentials(tmp_path / 'session.json')
     token = json.loads((tmp_path / 'session.json').read_text())['token']
     app = create_app(tmp_path, session, poll_seconds=.01)
@@ -392,7 +392,7 @@ def test_real_cli_server_private_credentials_and_shutdown(tmp_path):
     fixture_run(tmp_path / 'run', 1)
     credential = tmp_path / 'credential.json'
     process = subprocess.Popen([sys.executable, '-I', '-m', 'hypergan', 'serve', str(tmp_path / 'run'),
-                                '--port', '0', '--session-file', str(credential)],
+                                '--port', '0', '--auth', 'token', '--session-file', str(credential)],
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         for _ in range(500):
@@ -464,7 +464,7 @@ def test_blocked_asgi_send_closes_subscription(tmp_path):
     fixture_run(tmp_path, 1)
     async def scenario():
         from starlette.requests import ClientDisconnect
-        session = LocalSession(8123)
+        session = LocalSession(8123, auth="token")
         session.write_credentials(tmp_path / 'session.json')
         token = json.loads((tmp_path / 'session.json').read_bytes())['token']
         app = create_app(tmp_path, session, poll_seconds=.01)
@@ -494,7 +494,7 @@ def test_public_source_cursor_copy_generation_and_boundary(tmp_path):
     import shutil
     original = tmp_path / 'original'
     fixture_run(original, 3)
-    session = LocalSession(8123)
+    session = LocalSession(8123, auth="token")
     session.write_credentials(tmp_path / 'credentials.json')
     token = json.loads((tmp_path / 'credentials.json').read_bytes())['token']
     headers = {'authorization': 'Bearer ' + token}
@@ -551,3 +551,21 @@ def test_discovery_overflow_keeps_metadata_live(tmp_path):
         finally:
             await service.close()
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('auth', ['none', 'token'])
+def test_remote_binding_auth_mode_and_same_origin(tmp_path, auth):
+    fixture_run(tmp_path)
+    session = LocalSession(8123, host='0.0.0.0', auth=auth)
+    with TestClient(create_app(tmp_path, session), base_url='http://training.example:8123') as client:
+        response = client.get('/api/v1/capabilities')
+        if auth == 'token':
+            assert response.status_code == 401
+            assert client.post('/api/v1/session', json={'token': session._token},
+                               headers={'origin': 'http://training.example:8123'}).status_code == 200
+        assert client.get('/api/v1/capabilities').json()['auth_mode'] == auth
+        assert client.get('/api/v1/runs/run').status_code == 200
+        assert client.get('/api/v1/capabilities', headers={'origin': 'http://other.example:8123'}).status_code == 403
+        schema = client.get('/api/v1/openapi.json').json()
+        if auth == 'none':
+            assert not any(operation.get('security') for path in schema['paths'].values() for operation in path.values())

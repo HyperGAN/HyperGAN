@@ -34,3 +34,14 @@ def test_missing_web_extra_auto_continues_explicit_fails(monkeypatch, tmp_path, 
     with pytest.raises(RuntimeError, match=r'hypergan\[web\]'):
         with training_viewer(tmp_path, required=True):
             pytest.fail('training started')
+
+
+def test_bind_and_auth_cli_options():
+    parser = _parser()
+    serve = parser.parse_args(['serve', 'run'])
+    assert (serve.host, serve.auth) == ('0.0.0.0', 'none')
+    serve = parser.parse_args(['serve', 'run', '--host', '127.0.0.1', '--auth', 'token'])
+    assert (serve.host, serve.auth) == ('127.0.0.1', 'token')
+    for command in [['train', 'config', '--run-dir', 'run'], ['resume', 'run']]:
+        args = parser.parse_args([*command, '--server-host', '192.0.2.1', '--auth', 'token'])
+        assert (args.server_host, args.auth) == ('192.0.2.1', 'token')

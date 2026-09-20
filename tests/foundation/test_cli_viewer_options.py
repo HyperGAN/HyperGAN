@@ -17,7 +17,7 @@ def test_no_server_never_imports_serving_or_opens_sockets(monkeypatch, tmp_path)
         assert viewer is None
 
 
-@pytest.mark.parametrize('extra', [['--open'], ['--server-port', '8000'], ['--viewer-dev']])
+@pytest.mark.parametrize('extra', [['--open'], ['--server-port', '8000'], ['--viewer-dev'], ['--dev']])
 def test_headless_conflicts_are_clear(extra, tmp_path):
     args = _parser().parse_args(['resume', str(tmp_path), '--no-server', *extra])
     with pytest.raises(ValueError, match='cannot be combined'):
@@ -56,6 +56,7 @@ def test_viewer_dev_reaches_the_detached_supervisor_through_the_environment(monk
     assert parser.parse_args(['serve', 'run']).dev is False
     assert parser.parse_args(['serve', 'run', '--dev']).dev is True
     assert parser.parse_args(['resume', 'run']).viewer_dev is False
+    assert parser.parse_args(['resume', 'run', '--dev']).viewer_dev is True
 
     started = {}
     monkeypatch.setattr(web_autostart, 'training_viewer',

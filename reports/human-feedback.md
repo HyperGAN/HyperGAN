@@ -33,19 +33,6 @@ Where this lives today:
 - `src/hypergan/web_launch.py` `bind_server` binds exactly one port and raises on conflict.
 - `src/hypergan/web_autostart.py` reuses a recorded port when resuming an existing run's viewer.
 
-### 4. Live UI development without restarting the training server (raised 2026-09-20)
-
-Owner: "it'd be cool if refreshing the UI changed in development mode without having to update the running server, because it makes me have to stop and resume training to work on the UI."
-
-Where this lives today:
-- `src/hypergan/web_server.py` `static` route reads `web_assets/*` from the installed package on every request (the package is installed editable), but sends no `Cache-Control`, so browsers may keep a stale `app.js`.
-- Frontend source is `frontend/src/*.js`; `frontend/build.mjs` bundles it once with esbuild into `src/hypergan/web_assets/app.js`. There is no watch mode, so source edits need a manual `npm run build`.
-
-- [ ] Add a development mode for the viewer (flag or env var) in which static assets are served with `Cache-Control: no-store` so a browser refresh always picks up the current files.
-- [ ] Add an esbuild watch (`npm run watch` or similar) that rebuilds `web_assets/app.js` on every `frontend/src` change, so refresh reflects source edits without touching the running server.
-- [ ] Optionally auto-reload the page when the bundle changes.
-- [ ] Document the dev workflow: start training once, run the watcher, edit, refresh.
-
 ### 5. HTTPS fronting of the viewer (e.g. `tailscale serve`) is rejected by the origin check (found 2026-09-20 while fixing item 3)
 
 `web_session.permits_request` requires `Origin` to equal `http://<host>` and the Host port to match the bound port. A TLS reverse proxy in front of the viewer sends an `https://` origin and usually a different port, so token login and the console `PUT` are rejected. Plain HTTP remote viewing works after item 3; HTTPS remote viewing does not yet.
@@ -66,6 +53,21 @@ Owner ran `training-runs/start.sh` and saw no FID because both FID metrics in th
 - [ ] Add tests for the default schedule and for explicit manual opt-out.
 
 ## Done
+
+### 4. Live UI development without restarting the training server (raised 2026-09-20)
+
+**Status:** Implemented in merge 32bfa04e. Enable with `--dev` on `train`/`resume` (alias `--viewer-dev`), `--dev` on `serve`, or `HYPERGAN_VIEWER_DEV=1`. Run `npm run --prefix frontend watch` to rebuild on source edits; the page auto-reloads in dev mode. Note: static responses already sent `Cache-Control: no-store`; the real causes were no watch mode and assets resolving through the editable install rather than the working checkout.
+
+Owner: "it'd be cool if refreshing the UI changed in development mode without having to update the running server, because it makes me have to stop and resume training to work on the UI."
+
+Where this lives today:
+- `src/hypergan/web_server.py` `static` route reads `web_assets/*` from the installed package on every request (the package is installed editable), but sends no `Cache-Control`, so browsers may keep a stale `app.js`.
+- Frontend source is `frontend/src/*.js`; `frontend/build.mjs` bundles it once with esbuild into `src/hypergan/web_assets/app.js`. There is no watch mode, so source edits need a manual `npm run build`.
+
+- [x] Add a development mode for the viewer (flag or env var) in which static assets are served with `Cache-Control: no-store` so a browser refresh always picks up the current files.
+- [x] Add an esbuild watch (`npm run watch` or similar) that rebuilds `web_assets/app.js` on every `frontend/src` change, so refresh reflects source edits without touching the running server.
+- [x] Optionally auto-reload the page when the bundle changes.
+- [x] Document the dev workflow: start training once, run the watcher, edit, refresh.
 
 ### 3. Viewer fails over Tailscale: "Cannot read properties of undefined (reading 'digest')" (raised 2026-09-20)
 

@@ -35,7 +35,7 @@ Editing the UI never requires stopping or resuming training. Start the run once
 with viewer development mode, leave the watcher running, and refresh the browser:
 
 ```sh
-hypergan train config.toml --run-dir runs/example --viewer-dev
+hypergan train config.toml --run-dir runs/example --dev
 # In another terminal, rebuild on every change under frontend/src:
 npm run --prefix frontend watch
 ```

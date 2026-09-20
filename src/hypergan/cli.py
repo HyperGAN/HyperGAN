@@ -36,7 +36,7 @@ def _run_options(parser):
     parser.add_argument("--server-host", help="listen address (default: 0.0.0.0)")
     parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--open", action="store_true", help="require the viewer and open its sign-in page")
-    parser.add_argument("--viewer-dev", action="store_true",
+    parser.add_argument("--dev", "--viewer-dev", dest="viewer_dev", action="store_true",
                         help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
     parser.add_argument("--checkpoint-every", type=_positive_int,
                         help="save a complete checkpoint every N updates (default: 100; existing runs inherit)")
@@ -153,7 +153,7 @@ def _training_viewer(args):
     if args.no_server:
         if (args.open or args.server_port is not None or args.server_host is not None
                 or args.auth is not None or args.viewer_dev):
-            raise ValueError("--no-server cannot be combined with --open, --server-port, --server-host, --auth or --viewer-dev")
+            raise ValueError("--no-server cannot be combined with --open, --server-port, --server-host, --auth or --dev")
         from contextlib import nullcontext
         return nullcontext()
     # The supervisor is a detached subprocess; the environment is what reaches it.

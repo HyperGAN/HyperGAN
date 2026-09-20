@@ -224,7 +224,7 @@ viewer development mode and the server reads every browser asset from disk on
 each request, so a plain refresh shows the current files:
 
 ```sh
-hypergan train config.toml --run-dir runs/example --viewer-dev
+hypergan train config.toml --run-dir runs/example --dev
 hypergan serve runs/example --dev
 HYPERGAN_VIEWER_DEV=1 hypergan resume runs/example
 ```
@@ -234,7 +234,7 @@ automatic viewer runs in a detached supervised subprocess that inherits the
 environment; exporting the variable therefore works for every launch path,
 including one started earlier in a shell. Accepted values are `1/0`,
 `true/false`, `yes/no` and `on/off`; anything else is rejected rather than
-silently treated as off. `--viewer-dev` selects where assets come from and does
+silently treated as off. `--dev` (alias `--viewer-dev`) selects where assets come from and does
 not require a viewer, so it cannot be combined with `--no-server`.
 
 In development mode:

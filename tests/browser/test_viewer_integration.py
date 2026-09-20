@@ -364,3 +364,33 @@ def test_single_measurement_has_a_visible_chart_mark(real_viewer):
       return marks > 3;
     }""")
     assert not errors
+
+
+def test_cifar_final_tensor_preview_and_oversize_explanation(real_viewer):
+    import hashlib
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(2)
+    # The final CIFAR sample has 64 RGB 32x32 tensors: larger than both old
+    # browser limits (4,096 values/64KiB) and the periodic-preview producer cap.
+    shape = [64, 3, 32, 32]
+    samples = [[[[.125 for _ in range(32)] for _ in range(32)] for _ in range(3)] for _ in range(64)]
+    payload = json.dumps({'shape': shape, 'samples': samples}).encode()
+    (experiment.root / 'samples.json').write_bytes(payload)
+    record = dict(path='samples.json', bytes=len(payload), sha256=hashlib.sha256(payload).hexdigest(),
+                  role='sample', modality='tensor', media_type='application/json', shape=shape, provenance={'step': 2})
+    records = {'cifar': record, 'oversize': dict(record, shape=[65, 3, 64, 64])}
+    atomic_json(experiment.root / 'artifacts/index.json', {'schema_version': 1, 'artifacts': records})
+    sign_in(page, session, token)
+    item = page.locator('#artifact-items li').filter(has=page.locator('a[href$="/artifacts/cifar"]'))
+    item.get_by_role('button', name='Preview numbers').click()
+    item.locator('.numeric-preview').filter(has_text='Showing 128 of 196608 values.').wait_for()
+    assert item.locator('.numeric-preview').inner_text().count('0.125') == 128
+    item.get_by_role('button', name='Hide numbers').click()
+    assert item.locator('.numeric-preview').is_hidden()
+    oversized = page.locator('#artifact-items li').filter(has=page.locator('a[href$="/artifacts/oversize"]'))
+    assert oversized.get_by_role('button', name='Preview numbers').count() == 0
+    assert 'Download this tensor to inspect it.' in oversized.inner_text()
+    with page.expect_download() as download:
+        item.get_by_role('link', name='Download').click()
+    assert Path(download.value.path()).read_bytes() == payload
+    assert not errors

@@ -205,7 +205,7 @@ function renderArtifacts(artifacts) {
       controls.className = "artifact-controls";
       const download = document.createElement("a");
       download.href = path;
-      download.download = "artifact";
+      download.download = artifact.media_type === "application/json" ? "samples.json" : "artifact";
       download.className = "text-link";
       download.textContent = "Download";
       controls.append(download);
@@ -235,12 +235,12 @@ function renderArtifacts(artifacts) {
         artifact.modality === "tensor" &&
         artifact.media_type === "application/json" &&
         Number.isSafeInteger(artifact.bytes) &&
-        artifact.bytes <= 65536 &&
+        artifact.bytes <= 8388608 &&
         Array.isArray(shape) &&
         shape.length > 0 &&
         shape.length <= 8 &&
         shape.every((n) => Number.isSafeInteger(n) && n > 0) &&
-        shape.reduce((a, b) => a * b, 1) <= 4096
+        shape.reduce((a, b) => a * b, 1) <= 262144
       ) {
         const button = document.createElement("button");
         button.className = "secondary";
@@ -269,6 +269,11 @@ function renderArtifacts(artifacts) {
         controls.append(button);
         li.append(preview);
       }
+      if (artifact.modality === "tensor" && controls.children.length === 1) {
+        const hint = document.createElement("p");
+        hint.textContent = "Numeric preview supports JSON tensors up to 8 MiB and 262,144 values. Download this tensor to inspect it.";
+        li.append(hint);
+      }
       li.append(controls);
     }
     $("artifact-items").append(li);
@@ -285,9 +290,9 @@ async function numericalPreview(path, shape) {
     const { done, value } = await reader.read();
     if (done) break;
     bytes += value.length;
-    if (bytes > 65536) {
+    if (bytes > 8388608) {
       await reader.cancel();
-      throw new Error("Preview exceeds 64 KiB; use Download.");
+      throw new Error("Preview exceeds 8 MiB; use Download.");
     }
     chunks.push(value);
   }
@@ -307,7 +312,7 @@ async function numericalPreview(path, shape) {
     throw new Error("Artifact shape differs from its descriptor.");
   const flat = [];
   function visit(value, depth) {
-    if (depth > 8 || flat.length > 4096)
+    if (depth > 8 || flat.length > 262144)
       throw new Error("Numerical preview exceeds its shape limit.");
     if (depth < shape.length) {
       if (!Array.isArray(value) || value.length !== shape[depth])

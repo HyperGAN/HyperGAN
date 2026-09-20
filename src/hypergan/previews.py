@@ -1,5 +1,6 @@
 """Bounded immutable EMA previews, separate from deployable inference bundles."""
 import json
+import base64
 import hashlib
 import os
 from pathlib import Path
@@ -69,7 +70,7 @@ def render_preview(trainer, batch, identity):
             raise ValueError(f'Preview exceeds the {MAX_ELEMENTS}-element output/input budget')
         if not torch.isfinite(values).all():
             raise ValueError('Preview contains nonfinite values')
-        return {'schema_version': 1, 'kind': 'ema-preview', 'identity': dict(identity),
+        payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': dict(identity),
                 'step': trainer.step, 'seed': seed, 'count': count,
                 'requested_count': trainer.config['sampling']['count'],
                 'count_limited_by': [name for name, limit in [('count-cap', MAX_COUNT), ('element-budget', MAX_ELEMENTS // max(1, per_sample))] if count < trainer.config['sampling']['count'] and count == limit],
@@ -78,6 +79,12 @@ def render_preview(trainer, batch, identity):
                 'inputs': {key: value.tolist() for key, value in recorded_inputs.items()},
                 'conditioning': 'last-completed-batch-cycled' if normalized else 'unconditional',
                 'resume_supported': False}
+        if values.ndim == 4 and values.shape[1] in (1, 3):
+            from .image_grids import tensor_grid
+            encoded, grid = tensor_grid(values, {key: payload[key] for key in (
+                'identity', 'step', 'seed', 'count', 'shape', 'particle_ids', 'conditioning')})
+            payload['image_grid'] = dict(grid, png_base64=base64.b64encode(encoded).decode('ascii'))
+        return payload
     finally:
         restore_rng(rng)
 
@@ -115,6 +122,29 @@ def publish_preview_payload(run_dir, payload, identity, step, keep=3):
     return _publish_preview(run_dir, identity, step, lambda: payload, keep)
 
 
+def _publish_grid(temporary, target, payload):
+    """Materialize renderer bytes inside the same atomic generation directory."""
+    grid = payload.get('image_grid')
+    if grid is None:
+        return payload, None
+    from .image_grids import MAX_BYTES as PNG_MAX_BYTES, inspect_png
+    if (not isinstance(grid, dict) or not isinstance(grid.get('png_base64'), str)
+            or len(grid['png_base64']) > 4 * ((PNG_MAX_BYTES + 2) // 3)):
+        raise ValueError('Invalid bounded preview PNG payload')
+    encoded = base64.b64decode(grid['png_base64'], validate=True)
+    header = inspect_png(encoded)
+    if any(grid.get(key) != value for key, value in header.items()):
+        raise ValueError('Preview PNG dimensions differ from renderer metadata')
+    metadata = {key: value for key, value in grid.items() if key != 'png_base64'}
+    record = dict(metadata, path=str(target / 'grid.png'), bytes=len(encoded),
+                  sha256=hashlib.sha256(encoded).hexdigest(), media_type='image/png')
+    with (temporary / 'grid.png').open('xb') as output:
+        output.write(encoded)
+        output.flush()
+        os.fsync(output.fileno())
+    return dict(payload, image_grid=record), record
+
+
 def _publish_preview(run_dir, identity, step, render, keep):
     """Publish a complete directory, update its bounded index, then prune old previews.
 
@@ -138,11 +168,14 @@ def _publish_preview(run_dir, identity, step, render, keep):
     completed = False
     try:
         payload = render()
+        payload, grid = _publish_grid(temporary, target, payload)
         size = _write_bounded(temporary / 'preview.json', payload)
         record = {'schema_version': 1, 'kind': 'ema-preview', 'identity': dict(identity),
                   'step': step, 'path': str(target / 'preview.json'), 'bytes': size,
                   'sha256': hashlib.sha256((temporary / 'preview.json').read_bytes()).hexdigest(),
                   'count': payload['count'], 'shape': payload['shape']}
+        if grid is not None:
+            record['image_grid'] = grid
         atomic_json(temporary / 'manifest.json', record)
         sync_directory(temporary)
         temporary.rename(target)
@@ -155,6 +188,8 @@ def _publish_preview(run_dir, identity, step, render, keep):
                 saved = json.loads((entry / 'manifest.json').read_text(encoding='utf-8'))
                 if saved.get('kind') == 'ema-preview' and saved.get('identity', {}).get('run_id') == identity['run_id']:
                     saved['path'] = str(entry / 'preview.json')
+                    if 'image_grid' in saved:
+                        saved['image_grid']['path'] = str(entry / 'grid.png')
                     records.append((saved, entry))
         records.sort(key=lambda pair: pair[0]['identity']['sample_sequence'])
         retained, expired = records[-keep:], records[:-keep]

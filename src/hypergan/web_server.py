@@ -147,6 +147,11 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         if record.get('status') == 'unavailable':
             raise ValueError(record['reason'])
         data = await asyncio.to_thread(read_artifact, service.root, record)
+        if record.get('media_type') == 'image/png' and record.get('modality') == 'image':
+            from .image_grids import inspect_png
+            await asyncio.to_thread(inspect_png, data)
+            return Response(data, media_type='image/png',
+                            headers={'Content-Disposition': 'inline; filename="grid.png"'})
         return Response(data, media_type='application/octet-stream',
                         headers={'Content-Disposition': 'attachment; filename="artifact.bin"'})
 

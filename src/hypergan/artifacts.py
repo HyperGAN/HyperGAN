@@ -20,21 +20,26 @@ def save_bundle(run_dir, trainer, batch):
     # Keep exactly the generator dependency graph, omitting objective-only encoders
     # and discriminator conditioners from the inference environment.
     needed_components = set()
+    called_components = set()
     def include(name):
-        if name in needed_components:
+        if name in called_components:
             return
+        called_components.add(name)
         needed_components.add(name)
+        if 'reuse' in trainer.config['components'][name]:
+            needed_components.add(trainer.config['components'][name]['reuse'])
         for path in trainer.config["components"][name]["inputs"].values():
             if path.startswith("components."):
                 include(path.split(".")[1])
     include("generator")
     specs = {name: spec for name, spec in trainer.config["components"].items() if name in needed_components}
-    needed = {path.split(".")[1] for spec in specs.values() for path in spec["inputs"].values() if path.startswith("batch.")}
-    state = {"schema_version": 1, "kind": "ema-inference", "resume_supported": False, "step": trainer.step, "config": config_values(trainer.config), "components": specs, "model_states": {name: trainer.ema_graph.models[name].state_dict() for name in specs}, "prior": trainer.ema_prior.state_dict(), "example_inputs": {k: v for k, v in batch.items() if k in needed}}
+    needed = {path.split(".")[1] for name in called_components for path in specs[name]["inputs"].values() if path.startswith("batch.")}
+    models = {name: trainer.ema_graph.models[name] for name, spec in specs.items() if 'reuse' not in spec}
+    state = {"schema_version": 1, "kind": "ema-inference", "resume_supported": False, "step": trainer.step, "config": config_values(trainer.config), "components": specs, "model_states": {name: model.state_dict() for name, model in models.items()}, "prior": trainer.ema_prior.state_dict(), "example_inputs": {k: v for k, v in batch.items() if k in needed}}
     state["identity"] = getattr(trainer, "artifact_identity", {})
     # state_dict deliberately omits nonpersistent buffers; custom inference
     # modules can still use these values in their forward pass.
-    state["model_buffers"] = {name: dict(trainer.ema_graph.models[name].named_buffers()) for name in specs}
+    state["model_buffers"] = {name: dict(model.named_buffers()) for name, model in models.items()}
     state["prior_buffers"] = dict(trainer.ema_prior.named_buffers())
     temporary = run_dir / "model.pt.tmp"
     with temporary.open("wb") as stream:
@@ -96,7 +101,7 @@ def _sample(run_dir, count, seed, output, *, inputs):
     for key in ("config", "components", "model_states", "prior", "example_inputs"):
         if not isinstance(state.get(key), dict):
             raise ValueError(f"Invalid inference artifact: missing or invalid {key}")
-    if "generator" not in state["components"] or set(state["model_states"]) != set(state["components"]):
+    if "generator" not in state["components"] or set(state["model_states"]) != {name for name, spec in state["components"].items() if 'reuse' not in spec}:
         raise ValueError("Invalid inference artifact: component states must exactly match the generator graph")
     config = resolve_config(state["config"])
     graph = ComponentGraph(state["components"]).float().eval().requires_grad_(False)
@@ -124,7 +129,7 @@ def _sample(run_dir, count, seed, output, *, inputs):
     rng = torch.Generator().manual_seed(seed)
     with torch.inference_mode():
         z, ids = prior.sample(count, generator=rng)
-        values = graph.generate(z, normalized)["generated"]
+        values = graph.generate(z, normalized, prior=prior)["generated"]
     if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
         raise ValueError(f"Generator must return a tensor with {count} samples")
     if not torch.isfinite(values).all():

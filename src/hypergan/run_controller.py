@@ -181,7 +181,9 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
                 'global_batch_size': config['training']['batch_size'], 'resume_supported': False,
                 'last_durable_step': None, 'checkpoint_path': None, 'next_sample_sequence': 1,
                 'preview_every': preview_every, 'preview_keep': preview_keep, 'previews': [], 'observation_errors': [],
-                'rng_streams': {name: config['training']['seed'] + offset for name, offset in [('data', 1), ('prior', 2), ('penalty', 3)]}}
+                'rng_streams': {name: config['training']['seed'] + offset for name, offset in [
+                    ('data', config['training']['data_seed_offset']),
+                    ('prior', config['training']['prior_seed_offset']), ('penalty', 3)]}}
         manifest['rng_streams']['sampling'] = config['sampling']['seed']
         _apply_execution(manifest, descriptor)
         with run_lock(run_dir):

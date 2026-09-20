@@ -67,8 +67,8 @@ def _parser():
     validate.add_argument("path", type=Path)
     preflight = commands.add_parser("preflight", help="Check an execution profile before training")
     preflight.add_argument("config", type=Path)
-    preflight.add_argument("--profile", type=Path, required=True,
-                           help="separate execution-profile TOML file")
+    preflight.add_argument("--profile", type=Path,
+                           help="execution-profile TOML file; omitted uses the configured native device")
     preflight.add_argument("--runtime", action="store_true",
                            help="also construct the recipe in bounded CPU/CUDA workers (requires train extra)")
     data_check = commands.add_parser("data-check", help="Validate an image_folder inventory and preprocessing")
@@ -252,7 +252,9 @@ def _dispatch(args, *, output=None):
 
             config = load_config(args.config)
             _warnings(config)
-            profile = load_execution_profile(args.profile, config)
+            from .execution_preflight import _resolve_profile
+            profile = (load_execution_profile(args.profile, config) if args.profile is not None
+                       else _resolve_profile(None, config))
             if args.runtime:
                 from .execution_preflight import preflight
 

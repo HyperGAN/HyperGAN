@@ -52,6 +52,22 @@ def _differences(expected, actual, path='identity'):
 
 
 def _resolve_profile(profile, config):
+    if profile is None:
+        training = config['training']
+        batch = training['batch_size']
+        return {'schema_version': 1,
+                'execution': {'name': 'native-single', 'device': training['device'],
+                              'world_size': 1, 'accumulation_steps': 1,
+                              'global_batch_size': batch, 'local_batch_size': batch,
+                              'microbatch_size': batch,
+                              'accumulation_algorithm': 'retained-local-graph-v1'},
+                'preflight': {'timeout': 60.0, 'collective_timeout': 15.0}}
+    if isinstance(profile, dict) and isinstance(profile.get('execution'), dict) and profile['execution'].get('name') == 'native-single':
+        resolved = _resolve_profile(None, config)
+        differences = _differences(resolved, profile, 'profile')
+        if differences:
+            raise ValueError('Resolved native profile differs from configuration: ' + ', '.join(differences))
+        return resolved
     if isinstance(profile, dict) and isinstance(profile.get('execution'), dict):
         derived = {'global_batch_size', 'local_batch_size', 'microbatch_size', 'accumulation_algorithm'}
         if derived & profile['execution'].keys():
@@ -87,7 +103,7 @@ def _runtime_worker(rank, world_size, config, profile, directory):
     requested = profile['execution']
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter('always')
-        if requested['name'] == 'cpu-single':
+        if requested['name'] in ('cpu-single', 'native-single'):
             trainer = ReferenceTrainer(config)
         else:
             from .distributed_training import ReplicatedTrainer
@@ -110,7 +126,7 @@ def _runtime_worker(rank, world_size, config, profile, directory):
                         raise ValueError(f'{field} must use float32')
                     if not torch.isfinite(value).all():
                         raise ValueError(f'{field} contains nonfinite values')
-        if requested['name'] != 'cpu-single':
+        if requested['name'] not in ('cpu-single', 'native-single'):
             observed = {key: trainer.strategy_info.get(key) for key in requested}
             differences = _differences(requested, observed, 'execution')
             if differences:
@@ -119,7 +135,7 @@ def _runtime_worker(rank, world_size, config, profile, directory):
         try:
             contract, reasons = _recovery_contract(trainer)
             implementation = _implementation(trainer)
-            if requested['name'] != 'cpu-single':
+            if requested['name'] not in ('cpu-single', 'native-single'):
                 implementation.update(_source_hashes(['hypergan.distributed_training', 'hypergan.distributed',
                                                        'hypergan.distributed_checkpoints', 'hypergan.distributed_commit',
                                                        'hypergan.replicated_execution', 'hypergan.replicated_worker',
@@ -147,18 +163,18 @@ def _runtime_worker(rank, world_size, config, profile, directory):
             raise ValueError('Identity/state inspection changed ' + ('CPU ' if trainer.device.type == 'cpu' else 'CUDA ') + 'runtime threads or default_dtype')
         if trainer.device.type == 'cuda':
             torch.cuda.synchronize(trainer.device)
-        if requested['name'] != 'cpu-single':
+        if requested['name'] not in ('cpu-single', 'native-single'):
             from .distributed_checkpoints import distributed_runtime_info
             runtime = distributed_runtime_info(trainer)
         else:
-            runtime = runtime_info()
+            runtime = runtime_info(trainer.device)
             runtime.update(world_size=world_size, threads=torch.get_num_threads(),
                            interop_threads=torch.get_num_interop_threads(), backend='none')
         identity = {'config_sha256': fingerprint(config), 'execution': requested,
                     'runtime': runtime, 'implementation': implementation, 'data_contract': contract,
                     'recovery': {'supported': not reasons, 'reasons': reasons},
                     'initial_state_sha256': initial_state,
-                    'strategy': trainer.strategy_info if requested['name'] != 'cpu-single' else {
+                    'strategy': trainer.strategy_info if requested['name'] not in ('cpu-single', 'native-single') else {
                         **requested, 'gradient_reduction': 'none', 'data': 'single-process-draw',
                         'buffers': 'native-module-state', 'qualification': 'unqualified'}}
         warning_messages = list(dict.fromkeys([*config['warnings'], *reasons,
@@ -178,12 +194,13 @@ def _preflight_command(state, operation, payload):
     return None
 
 
-def preflight(config, profile, *, expected_identity=None):
+def preflight(config, profile=None, *, expected_identity=None):
     """Return a JSON report after every construction worker exits successfully.
 
     ``config`` may be a resolved or raw recipe dictionary. ``profile`` may be
-    raw or resolved profile values. ``expected_identity`` compares the complete
-    previous numerical identity strictly; timeout policy and checker source are
+    raw or resolved profile values, or omitted for native configured-device
+    execution. ``expected_identity`` compares the complete previous numerical
+    identity strictly; timeout policy and checker source are
     reported separately. This API must be called from an importable Python file
     under a main guard, following the existing spawn supervisor contract.
     """
@@ -216,7 +233,7 @@ def preflight(config, profile, *, expected_identity=None):
                                timeout=profile['preflight']['timeout'],
                                collective_timeout=profile['preflight']['collective_timeout'],
                                stdout_to_stderr=True,
-                               initialize_process_group=profile['execution']['name'] != 'cpu-single')
+                               initialize_process_group=profile['execution']['name'] not in ('cpu-single', 'native-single'))
         workers = []
         for rank in range(profile['execution']['world_size']):
             path = Path(directory, f'rank-{rank}.json')
@@ -242,6 +259,6 @@ def preflight(config, profile, *, expected_identity=None):
               'ranks': [{key: value for key, value in worker.items() if key != 'identity'} for worker in workers],
               'warnings': list(dict.fromkeys(message for worker in workers for message in worker['warnings'])),
               'not_validated': ['data batches and model forward I/O', 'optimizer updates and numerical parity',
-                                'checkpoint publication or restore', 'complete GPU training' if profile['execution']['name'] == 'cuda-replicated-nccl' else 'GPU execution', 'cluster execution']}
+                                'checkpoint publication or restore', 'complete GPU training' if config['training']['device'].startswith('cuda') else 'GPU execution', 'cluster execution']}
     _encode(report)
     return report

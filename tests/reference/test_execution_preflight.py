@@ -164,3 +164,41 @@ def test_forged_resolved_profile_is_rejected_before_launch(monkeypatch):
     monkeypatch.setattr(runtime, 'launch_cpu_workers', forbidden)
     with pytest.raises(ValueError, match='profile.execution.microbatch_size'):
         runtime.preflight(config, profile)
+
+
+def test_native_cli_runtime_constructs_cpu_without_forward_or_data_draw(tmp_path):
+    from hypergan.config import write_default
+    config = write_default(tmp_path / 'project', device='cpu')
+    config.write_text(config.read_text().replace('factory = "mlp"', 'factory = "native_fixture:Generator"', 1).replace('factory = "gaussian_grid"', 'factory = "native_fixture:Data"'))
+    (tmp_path / 'native_fixture.py').write_text('''
+import torch
+from hypergan.recipes import MLP
+class Generator(MLP):
+    def forward(self, *args, **kwargs):
+        raise AssertionError('native preflight must never forward')
+class Data:
+    resume_stateless = True
+    def __init__(self, **kwargs):
+        pass
+    def __call__(self, *args, **kwargs):
+        raise AssertionError('native preflight must never draw data')
+''')
+    driver = tmp_path / 'native_driver.py'
+    driver.write_text('''
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+from hypergan.cli import main
+if __name__ == '__main__':
+    raise SystemExit(main(['preflight', sys.argv[1], '--runtime']))
+''')
+    result = subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), str(driver), str(config)],
+                            capture_output=True, text=True, timeout=70)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report['scope'] == 'construction-only'
+    assert report['identity']['runtime']['device'] == 'cpu'
+    assert report['identity']['runtime']['backend'] == 'none'
+    assert report['identity']['execution']['name'] == 'native-single'
+    assert report['ranks'][0]['step'] == 0
+    assert not list(tmp_path.rglob('checkpoints'))

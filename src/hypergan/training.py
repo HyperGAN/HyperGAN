@@ -20,6 +20,7 @@ from particlegan import GANLoss, GradientPenalty, ParticleRegularizer, learning_
 
 from .recipes import ComponentGraph, construct, detach, make_prior, execution_device, move_tensors
 from .checkpoints import data_contract
+from .numerical_policy import apply_backend_policy
 
 
 @torch.no_grad()
@@ -93,6 +94,7 @@ class DeviceAdam(torch.optim.Adam):
 class ReferenceTrainer:
     """Small inspectable state machine; future distributed strategies wrap this contract."""
     def __init__(self, config):
+        apply_backend_policy(config)
         self.device = execution_device(config['training']['device'])
         if self.device.type == 'cuda':
             with torch.cuda.device(self.device):
@@ -128,12 +130,14 @@ class ReferenceTrainer:
         d_parameters = [p for p in self.graph.models["discriminator"].parameters() if p.requires_grad]
         if not groups[0]["params"] or not d_parameters:
             raise ValueError("The reference adversarial loop requires trainable generator and discriminator parameters")
-        self.opt_g = DeviceAdam(groups, betas=tuple(opt["betas"]))
-        self.opt_d = DeviceAdam(d_parameters, lr=opt["lr"] * opt["d_lr_mult"], betas=tuple(opt["betas"]))
+        optimizer_options = {'fused': True} if opt['implementation'] == 'torch_fused_adam' else {}
+        self.opt_g = DeviceAdam(groups, betas=tuple(opt["betas"]), **optimizer_options)
+        self.opt_d = DeviceAdam(d_parameters, lr=opt["lr"] * opt["d_lr_mult"], betas=tuple(opt["betas"]), **optimizer_options)
         self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in (self.opt_g, self.opt_d)]
         self.ema_graph = copy.deepcopy(self.graph).eval().requires_grad_(False)
         self.ema_prior = copy.deepcopy(self.prior).eval().requires_grad_(False)
-        self.streams = {"data": torch.Generator().manual_seed(settings["seed"] + 1), "prior": torch.Generator(device=self.device).manual_seed(settings["seed"] + 2), "penalty": torch.Generator(device=self.device).manual_seed(settings["seed"] + 3)}
+        data_device = self.device if settings['data_rng_device'] == 'execution' else 'cpu'
+        self.streams = {"data": torch.Generator(device=data_device).manual_seed(settings["seed"] + settings['data_seed_offset']), "prior": torch.Generator(device=self.device).manual_seed(settings["seed"] + settings['prior_seed_offset']), "penalty": torch.Generator(device=self.device).manual_seed(settings["seed"] + 3)}
         self.step = 0
 
     def batch(self):
@@ -144,34 +148,45 @@ class ReferenceTrainer:
             raise ValueError("Reference real data must be floating-point tensors")
         return move_tensors(batch, self.device)
 
-    def update(self, batch=None, latent_draw=None):
+    def update(self, batch=None, latent_draw=None, *, generator_batch=None, generator_latent_draw=None):
         if self.device.type == 'cuda':
             with torch.cuda.device(self.device):
-                result = self._update(batch, latent_draw)
+                result = self._update(batch, latent_draw, generator_batch=generator_batch, generator_latent_draw=generator_latent_draw)
                 torch.cuda.synchronize(self.device)
                 return result
-        return self._update(batch, latent_draw)
+        return self._update(batch, latent_draw, generator_batch=generator_batch, generator_latent_draw=generator_latent_draw)
 
-    def _update(self, batch=None, latent_draw=None):
+    def _draw(self, batch, latent_draw):
+        batch = self.batch() if batch is None else move_tensors(batch, self.device)
+        if len(batch['real']) != self.config['training']['batch_size']:
+            raise ValueError('Data batch length must match training.batch_size')
+        z, ids = self.prior.sample(len(batch['real']), generator=self.streams['prior']) if latent_draw is None else move_tensors(latent_draw, self.device)
+        context = self.graph.generate(z, batch, prior=self.prior)
+        if not isinstance(context['generated'], torch.Tensor) or context['generated'].shape != batch['real'].shape:
+            raise ValueError(f"Generator output must match real data shape {tuple(batch['real'].shape)}")
+        return batch, ids, context
+
+    def _update(self, batch=None, latent_draw=None, *, generator_batch=None, generator_latent_draw=None):
         """Execute one D update followed by G/prior/aux update and matched EMA.
 
         Explicit batch and (latent, indices) enable controlled numerical comparisons.
         """
         cfg = self.config
         settings = cfg["training"]
+        independent = settings['phase_draws'] == 'independent'
+        if not independent and (generator_batch is not None or generator_latent_draw is not None):
+            raise ValueError('Explicit generator phase draws require training.phase_draws=independent')
         step = self.step + 1
         scale = learning_rate_scale(step - 1, settings["steps"], start=settings["lr_anneal_start"], floor=settings["lr_floor"])
         for optimizer, rates in zip((self.opt_g, self.opt_d), self.base_lrs):
             for group, rate in zip(optimizer.param_groups, rates):
                 group["lr"] = rate * scale
-        batch = self.batch() if batch is None else move_tensors(batch, self.device)
-        if len(batch["real"]) != settings["batch_size"]:
-            raise ValueError("Data batch length must match training.batch_size")
-        z, ids = self.prior.sample(len(batch["real"]), generator=self.streams["prior"]) if latent_draw is None else move_tensors(latent_draw, self.device)
-        context = self.graph.generate(z, batch)
+        if independent:
+            with torch.no_grad():
+                batch, ids, context = self._draw(batch, latent_draw)
+        else:
+            batch, ids, context = self._draw(batch, latent_draw)
         fake, real = context["generated"], batch["real"]
-        if not isinstance(fake, torch.Tensor) or fake.shape != real.shape:
-            raise ValueError(f"Generator output must match real data shape {tuple(real.shape)}")
         critic = lambda x: self.graph.critic(x, context)
         self.opt_d.zero_grad(set_to_none=True)
         d_adversarial = self.gan.d_loss(critic(real), critic(fake.detach()))
@@ -187,6 +202,9 @@ class ReferenceTrainer:
         flags = [p.requires_grad for p in discriminator.parameters()]
         discriminator.requires_grad_(False)
         try:
+            if independent:
+                batch, ids, context = self._draw(generator_batch, generator_latent_draw)
+                fake, real = context['generated'], batch['real']
             self.opt_g.zero_grad(set_to_none=True)
             g_adversarial = self.gan.g_loss(critic(fake), critic(real).detach())
             if ids is None:
@@ -233,8 +251,9 @@ def _implementation(trainer):
     import hypergan.recipes
     import hypergan.run_controller
     import hypergan.single_execution
+    import hypergan.numerical_policy
     objects = [hypergan.checkpoints, hypergan.config, hypergan.metrics, hypergan.recipes,
-               hypergan.run_controller, hypergan.single_execution, ReferenceTrainer,
+               hypergan.run_controller, hypergan.single_execution, hypergan.numerical_policy, ReferenceTrainer,
                GANLoss, GradientPenalty, ParticleRegularizer, learning_rate_scale,
                type(trainer.data), type(trainer.prior), *[type(x) for x in trainer.graph.modules()],
                *[x if inspect.isfunction(x) else type(x) for x in trainer.objectives]]

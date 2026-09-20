@@ -1,15 +1,17 @@
 """Optional loopback ASGI server; browser and external clients share one API."""
 from contextlib import asynccontextmanager
-from importlib.resources import files
 import json
 from pathlib import Path
 
+from .web_dev import RELOAD_ASSET, RELOAD_SCRIPT, VERSION_ROUTE, dev_assets
 from .web_files import read_artifact, read_json, _open
 from .web_service import ObservationService, MapSpec, ViewSpec
 from .web_session import LocalSession
 
+STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css'}
 
-def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
+
+def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=None):
     """Construct without importing torch, running maps or computing measurements."""
     try:
         from starlette.applications import Starlette
@@ -26,6 +28,11 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
                 await self.body_iterator.aclose()
 
     service = ObservationService(run_dir, poll_seconds=poll_seconds, history_timeout=history_timeout)
+    dev = dev_assets() if dev is None else dev
+    if dev.active:
+        import sys
+        print(f'Viewer development mode: assets read per request from {dev.describe()}',
+              file=sys.stderr, flush=True)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -177,23 +184,32 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
 
     async def static(request):
         asset = request.path_params.get('asset', 'index.html')
-        if asset not in {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css'}:
+        if asset not in STATIC_ASSETS:
             raise FileNotFoundError('Unknown static asset')
-        resource = files('hypergan').joinpath('web_assets', asset)
+        resource = dev.web_asset(asset)
         if not resource.is_file():
             if asset == 'index.html':
                 return Response('HyperGAN viewer assets are not installed.', media_type='text/plain', status_code=503)
             raise FileNotFoundError('Unknown static asset')
         media = 'text/html' if asset.endswith('.html') else 'text/css' if asset.endswith('.css') else 'text/javascript'
-        return Response(resource.read_bytes(), media_type=media)
+        body = resource.read_bytes()
+        if dev.active and asset == 'index.html':
+            body = body.replace(b'</body>', f'<script type="module" src="{RELOAD_ASSET}"></script>\n  </body>'.encode(), 1)
+        return Response(body, media_type=media, headers=dev.headers)
 
     async def reducer_asset(request):
-        from .metrics_reducer import assets
         asset = request.path_params['asset']
         if asset not in {'host.js', 'client.js', 'worker.js', 'reducer.wasm', 'reducer.json'}:
             raise FileNotFoundError('Unknown reducer asset')
         media = 'application/wasm' if asset.endswith('.wasm') else 'application/json' if asset.endswith('.json') else 'text/javascript'
-        return Response(assets().joinpath(asset).read_bytes(), media_type=media)
+        return Response(dev.reducer_asset(asset).read_bytes(), media_type=media, headers=dev.headers)
+
+    async def dev_version(request):
+        """Identity of the served browser assets, so a dev page can reload itself."""
+        return JSONResponse({'version': dev.version(sorted(STATIC_ASSETS))}, headers=dev.headers)
+
+    async def dev_reload(request):
+        return Response(RELOAD_SCRIPT, media_type='text/javascript', headers=dev.headers)
 
     async def openapi(request):
         return JSONResponse(openapi_schema(cookie_name=session.cookie_name, auth_mode=session.auth_mode))
@@ -214,6 +230,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
               Route('/api/v1/runs/{run_id}/stream', stream),
               Route('/api/v1/runs/{run_id}/artifacts', artifacts),
               Route('/api/v1/runs/{run_id}/artifacts/{artifact_id}', artifacts)]
+    if dev.active:
+        routes.extend([Route(VERSION_ROUTE, dev_version), Route(RELOAD_ASSET, dev_reload)])
     app = Starlette(routes=routes, lifespan=lifespan,
                     exception_handlers={ValueError: error_handler, FileNotFoundError: error_handler})
     app.state.observations = service
@@ -227,17 +245,21 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
             if not session.permits_request(request.headers.get('host'), request.headers.get('origin')):
                 return await JSONResponse({'error': 'Invalid local Host or Origin'}, status_code=403)(scope, receive, send)
             path = scope['path']
-            public = path == '/' or path.startswith('/assets/') or path.startswith('/reducers/') or path == '/api/v1/session'
+            public = (path == '/' or path.startswith('/assets/') or path.startswith('/reducers/')
+                      or path == '/api/v1/session' or (dev.active and path.startswith('/dev/')))
             if not public and not session.authenticated(authorization=request.headers.get('authorization'),
                                                        cookie=request.cookies.get(session.cookie_name)):
                 return await JSONResponse({'error': 'Viewer credential required'}, status_code=401)(scope, receive, send)
             async def secure_send(message):
                 if message['type'] == 'http.response.start':
                     headers = list(message.get('headers', []))
+                    present = {name.lower() for name, _ in headers}
                     headers.extend([(b'x-content-type-options', b'nosniff'),
                                     (b'referrer-policy', b'no-referrer'),
-                                    (b'content-security-policy', b"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; frame-ancestors 'none'"),
-                                    (b'cache-control', b'no-store')])
+                                    (b'content-security-policy', b"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; frame-ancestors 'none'")])
+                    # A route that already stated its own policy keeps exactly one value.
+                    if b'cache-control' not in present:
+                        headers.append((b'cache-control', b'no-store'))
                     message = dict(message, headers=headers)
                 if message['type'] == 'http.response.body' and scope['path'].endswith('/stream'):
                     import asyncio

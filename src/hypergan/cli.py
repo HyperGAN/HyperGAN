@@ -36,6 +36,8 @@ def _run_options(parser):
     parser.add_argument("--server-host", help="listen address (default: 0.0.0.0)")
     parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--open", action="store_true", help="require the viewer and open its sign-in page")
+    parser.add_argument("--viewer-dev", action="store_true",
+                        help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
     parser.add_argument("--checkpoint-every", type=_positive_int,
                         help="save a complete checkpoint every N updates (default: 100; existing runs inherit)")
     parser.add_argument("--max-seconds", type=_positive_seconds,
@@ -106,6 +108,8 @@ def _parser():
     serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     serve.add_argument("--session-file", type=Path, help="new private credential file outside the run")
     serve.add_argument("--open", action="store_true", help="open the local viewer in a browser")
+    serve.add_argument("--dev", action="store_true",
+                       help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
     server_status = commands.add_parser("server-status", help="Read the automatic viewer URL, status and log location")
     server_status.add_argument("run_dir", type=Path)
     stop_server = commands.add_parser("stop-server", help="Stop the persistent automatic viewer for a run")
@@ -147,10 +151,16 @@ def _warnings(config):
 
 def _training_viewer(args):
     if args.no_server:
-        if args.open or args.server_port is not None or args.server_host is not None or args.auth is not None:
-            raise ValueError("--no-server cannot be combined with --open, --server-port, --server-host or --auth")
+        if (args.open or args.server_port is not None or args.server_host is not None
+                or args.auth is not None or args.viewer_dev):
+            raise ValueError("--no-server cannot be combined with --open, --server-port, --server-host, --auth or --viewer-dev")
         from contextlib import nullcontext
         return nullcontext()
+    # The supervisor is a detached subprocess; the environment is what reaches it.
+    if args.viewer_dev:
+        from .web_dev import enable
+
+        enable()
     from .web_autostart import training_viewer
     return training_viewer(args.run_dir, required=args.server or args.open or args.server_port is not None or args.server_host is not None or args.auth is not None,
                            port=args.server_port if args.server_port is not None else 0, host=args.server_host, auth=args.auth, open_browser=args.open)
@@ -189,8 +199,11 @@ def _dispatch(args, *, output=None):
 
             _print_json(run_evaluate(args))
         elif args.command == "serve":
+            from .web_dev import enable
             from .web_launch import serve
 
+            if args.dev:
+                enable()
             serve(args.run_dir, port=args.port, host=args.host, auth=args.auth,
                   session_file=args.session_file, open_browser=args.open)
         elif args.command == "server-status":

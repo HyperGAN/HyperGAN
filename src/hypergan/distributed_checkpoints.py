@@ -26,10 +26,12 @@ import torch
 import torch.distributed as dist
 
 from .checkpoints import capture_rng, file_sha256, restore_rng, restore_trainer, trainer_state
+from .checkpoint_compatibility import (CURRENT_VERSION, validate_checkpoint_compatibility,
+                                       validate_implementation, validate_runtime)
 from .config import config_values, fingerprint, numerical_values
 from .recipes import move_tensors
 from .run_state import atomic_json, sync_directory
-from .training import _implementation, _recovery_contract, runtime_info
+from .training import _implementation, _recovery_contract, runtime_info, source_info
 from .distributed_commit import (make_prepared_receipt, preparation_directory, validate_fence,
                                  _validate_prepared, _publish)
 
@@ -165,7 +167,7 @@ def _shared_digest(state):
 
 
 def _distributed_checkpoint_identity(trainer):
-    """Compute actual config/runtime/source/data/strategy compatibility on this rank."""
+    """Record compatibility and build provenance on this rank."""
     rank, world_size = _group()
     if (getattr(trainer, 'rank', None) != rank or getattr(trainer, 'world_size', None) != world_size
             or not isinstance(getattr(trainer, 'strategy_info', None), dict)):
@@ -196,9 +198,10 @@ def _distributed_checkpoint_identity(trainer):
                  'preview_snapshot', 'snapshot_renderer', 'previews', 'bounded_observer'):
         implementation['hypergan.' + name] = file_sha256(Path(__file__).with_name(name + '.py'))
     runtime = distributed_runtime_info(trainer)
-    return _json({'config': numerical_values(trainer.config), 'config_sha256': fingerprint(trainer.config),
+    return _json({'hypergan_checkpoint_version': CURRENT_VERSION,
+                  'config': numerical_values(trainer.config), 'config_sha256': fingerprint(trainer.config),
                   'runtime': runtime, 'implementation': implementation, 'data_contract': contract,
-                  'topology': strategy})
+                  'topology': strategy, 'source': source_info()})
 
 
 def distributed_checkpoint_identity(trainer):
@@ -212,7 +215,8 @@ def distributed_checkpoint_identity(trainer):
 
 def _metadata(value, restore=False):
     required = {'run_id'} if restore else {'run_id', 'attempt_id'}
-    allowed = required if restore else required | {'next_sample_sequence', 'request_ids', 'event_boundary'}
+    allowed = required if restore else required | {'next_sample_sequence', 'request_ids', 'event_boundary',
+                                                 'source', 'initial_source'}
     if not isinstance(value, dict) or not required <= set(value) <= allowed:
         raise ValueError('Invalid distributed checkpoint lineage metadata fields')
     for key in required:
@@ -380,6 +384,21 @@ def _read_json(path):
     return json.loads(content)
 
 
+def _validate_restore_identity(saved, current):
+    """Accept compatible HyperGAN builds without weakening current-rank agreement."""
+    if not isinstance(saved, dict):
+        raise ValueError('Distributed checkpoint identity must be a dictionary')
+    validate_checkpoint_compatibility(saved)
+    validate_runtime(saved.get('runtime'), current['runtime'])
+    validate_implementation(saved.get('implementation'), current['implementation'])
+    # The helpers checked the runtime, external implementations and contract.
+    # Source provenance is recorded but does not decide restore compatibility.
+    excluded = {'hypergan_checkpoint_version', 'runtime', 'implementation', 'source'}
+    if not _same_json({key: value for key, value in saved.items() if key not in excluded},
+                      {key: value for key, value in current.items() if key not in excluded}):
+        raise ValueError('Distributed checkpoint config/data/topology identity differs')
+
+
 def _read(root, checkpoint, expected_identity, expected_run):
     pointer = None
     if checkpoint is None:
@@ -401,12 +420,13 @@ def _read(root, checkpoint, expected_identity, expected_run):
         raise ValueError('Select a completed distributed checkpoint directory inside this run')
     info = _read_json(target / 'manifest.json')
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    if not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids', 'event_boundary'} or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
+    if not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids', 'event_boundary', 'source', 'initial_source'} or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
         raise ValueError('Invalid distributed checkpoint metadata/schema')
     from .run_state import validate_event_boundary
     validate_event_boundary(root.parent, info)
-    if info['run_id'] != expected_run or not _same_json(info['identity'], expected_identity):
-        raise ValueError('Distributed checkpoint config/runtime/source/data/topology or run identity differs')
+    if info['run_id'] != expected_run:
+        raise ValueError('Distributed checkpoint run identity differs')
+    _validate_restore_identity(info['identity'], expected_identity)
     lineage = {key: info[key] for key in ('run_id', 'attempt_id', 'next_sample_sequence')}
     if 'request_ids' in info:
         lineage['request_ids'] = info['request_ids']

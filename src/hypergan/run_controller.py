@@ -123,6 +123,38 @@ def _json_value(value):
         raise ValueError('Execution descriptor must contain finite JSON values') from exc
 
 
+def _preserve_initial_source(run_dir, manifest):
+    if 'initial_source' in manifest:
+        return
+    # Older runs recorded source on each immutable attempt. Check the first
+    # historical attempt; missing/invalid history is explicitly a fallback, never
+    # evidence that the most recently recorded release started the run.
+    root = run_dir / 'attempts'
+    candidates = (path for path in root.iterdir()
+                  if path.is_dir() and not path.is_symlink()
+                  and path.name.split('-')[0].isdigit()) if root.is_dir() else ()
+    first = min(candidates, key=lambda path: (int(path.name.split('-')[0]), path.name), default=None)
+    if first is not None:
+        path = first / 'manifest.json'
+        try:
+            if path.is_symlink():
+                raise ValueError('Attempt manifest must be an ordinary file')
+            with path.open('rb') as stream:
+                payload = stream.read(16 * 1024 * 1024 + 1)
+            if len(payload) > 16 * 1024 * 1024:
+                raise ValueError('Attempt manifest exceeds its byte bound')
+            original = json.loads(payload)
+            if (isinstance(original, dict) and original.get('run_id') == manifest['run_id']
+                    and isinstance(original.get('source'), dict)):
+                manifest['initial_source'] = _json_value(original['source'])
+                manifest['initial_source_origin'] = path.relative_to(run_dir).as_posix()
+                return
+        except (OSError, ValueError, RecursionError):
+            pass
+    manifest['initial_source'] = _json_value(manifest.get('source', {}))
+    manifest['initial_source_origin'] = 'previous-run-manifest; original attempt unavailable'
+
+
 def _configure_attempt(execution, context, preview_every, on_event):
     """Optional lightweight hook: no workers, model construction or writes here."""
     hook = getattr(execution, 'configure_attempt', None)
@@ -258,6 +290,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
                 'checkpoint_sha256': digest(checkpoint_info),
             }
             manifest['config'] = config_values(config)
+            _preserve_initial_source(run_dir, manifest)
             manifest.update(preview_every=preview_every, preview_keep=preview_keep,
                             durable_event_boundary=checkpoint_info.get('event_boundary'),
                             checkpoint_path=str(restored.checkpoint_path), last_durable_step=restored.step,
@@ -310,6 +343,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
              on_event, *, execution, shutdown, context=None, stop=None):
     started = time.monotonic()
     context = context or _candidate_attempt(run_dir, manifest['run_id'])
+    from .provenance import hypergan_source
+    manifest['source'] = dict(hypergan_source(), runtime_checked=False)
     _persist_attempt(context)
     index, attempt_id, attempt_dir = context.attempt_index, context.attempt_id, context.attempt_dir
     custom_metrics = ScalarMetrics(config)
@@ -446,6 +481,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     or any(not isinstance(value, dict) for value in environment.values())):
                 raise ValueError('Execution environment requires runtime and source dictionaries')
             manifest.update(environment)
+        manifest.setdefault('initial_source', _json_value(manifest.get('source', {})))
+        manifest.setdefault('initial_source_origin', 'run-start')
         from .interval_evaluation import IntervalEvaluations
         def evaluation_event(event, **values):
             nonlocal custom_publications
@@ -464,7 +501,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 manifest['warnings'].append(reason)
             warnings.warn(reason, RuntimeWarning)
         metadata = dict(info.checkpoint_metadata, run_id=manifest['run_id'], attempt_id=attempt_id,
-                        next_sample_sequence=manifest['next_sample_sequence'])
+                        next_sample_sequence=manifest['next_sample_sequence'],
+                        source=_json_value(manifest.get('source', {})),
+                        initial_source=_json_value(manifest['initial_source']))
 
         def checkpoint_now(request_ids=None, observer=False):
             nonlocal checkpoint_custom_publications, checkpoint_preview_publications
@@ -720,6 +759,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             manifest['shutdown_error'] = f'{type(cleanup_error).__name__}: {cleanup_error}'[:1000]
         manifest.update(status='interrupted' if isinstance(exc, (KeyboardInterrupt, SystemExit)) else 'failed',
                         error=f'{type(exc).__name__}: {exc}')
+        manifest.setdefault('initial_source', _json_value(manifest.get('source', {})))
+        manifest.setdefault('initial_source_origin', 'run-start')
         try:
             if not journal.failed:
                 publish()

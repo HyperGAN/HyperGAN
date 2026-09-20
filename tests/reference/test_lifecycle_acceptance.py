@@ -1,4 +1,4 @@
-"""Extracted lifecycle source is part of strict full-checkpoint identity."""
+"""HyperGAN source provenance and explicit checkpoint compatibility."""
 import hashlib
 import importlib
 from pathlib import Path
@@ -9,27 +9,25 @@ from hypergan.config import write_default
 
 
 @pytest.mark.parametrize('name', ['hypergan.run_controller', 'hypergan.single_execution'])
-def test_extracted_source_bytes_are_strict_recovery_identity(tmp_path, monkeypatch, name):
+def test_extracted_source_bytes_are_provenance_without_blocking_recovery(tmp_path, monkeypatch, name):
     from hypergan.checkpoints import read_checkpoint
     from hypergan.training import resume, train
     module = importlib.import_module(name)
     config = write_default(tmp_path / 'config', device="cpu")
     root = tmp_path / 'run'
+    train(config, tmp_path / 'baseline')
     train(config, root, stop_after_steps=1)
     _, metadata, _ = read_checkpoint(root)
     source_bytes = Path(module.__file__).read_bytes()
     assert metadata['implementation'][name] == hashlib.sha256(source_bytes).hexdigest()
-    before_manifest = (root / 'manifest.json').read_bytes()
-    before_pointer = (root / 'checkpoints/latest.json').read_bytes()
-    before_attempts = sorted(path.name for path in (root / 'attempts').iterdir())
     changed = tmp_path / (name.rsplit('.', 1)[1] + '.py')
     changed.write_bytes(source_bytes + b'\n# simulated installed source change\n')
     monkeypatch.setattr(module, '__file__', str(changed))
-    with pytest.raises(ValueError, match='implementation differs'):
-        resume(root)
-    assert (root / 'manifest.json').read_bytes() == before_manifest
-    assert (root / 'checkpoints/latest.json').read_bytes() == before_pointer
-    assert sorted(path.name for path in (root / 'attempts').iterdir()) == before_attempts
+    result = resume(root)
+    assert result['status'] == 'complete' and result['attempt_index'] == 2
+    from .test_recovery import equal
+    equal(read_checkpoint(tmp_path / 'baseline')[2], read_checkpoint(root)[2])
+    assert read_checkpoint(root)[1]['implementation'][name] == hashlib.sha256(changed.read_bytes()).hexdigest()
 
 
 @pytest.mark.parametrize('cleanup_failure', [False, True])

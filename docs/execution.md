@@ -61,7 +61,7 @@ cooperative stop budget shared by both paths.
 
 The CLI rejects structural profile, checkpoint selection, numerical configuration
 and control conflicts before starting its optional viewer. Payload integrity and
-actual runtime/data/source compatibility are checked during locked restore before
+actual numerical runtime/data/external-source compatibility are checked during locked restore before
 publishing a new attempt. `--no-server` keeps viewing disabled; automatic viewing
 and explicit `--server` / `--open` keep their existing local startup behavior.
 Progress and final results use the bounded CLI output path; persisted run events

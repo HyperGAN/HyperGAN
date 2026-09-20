@@ -222,6 +222,8 @@ def _read_checkpoint(run_dir, checkpoint=None):
         raise ValueError('Invalid training checkpoint metadata')
     if info.get('schema_version') != SCHEMA or info.get('kind') != 'hypergan-training-checkpoint':
         raise ValueError('Unsupported full training checkpoint schema')
+    from .checkpoint_compatibility import validate_checkpoint_compatibility
+    validate_checkpoint_compatibility(info)
     validate_event_boundary(run_dir, info)
     if file_sha256(target / 'state.pt') != info['state_sha256']:
         raise ValueError('Training checkpoint digest mismatch')

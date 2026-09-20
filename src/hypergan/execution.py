@@ -113,6 +113,8 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
     identity = info.get('identity', {}) if execution else info
     if not isinstance(identity, dict) or identity.get('config_sha256') != manifest['config_sha256']:
         raise ValueError('Resume checkpoint configuration differs from the run manifest')
+    from .checkpoint_compatibility import validate_checkpoint_compatibility
+    validate_checkpoint_compatibility(identity)
     if execution:
         topology = identity.get('topology', {})
         if not isinstance(topology, dict) or any(not _same(topology.get(key), value) for key, value in execution.items()):

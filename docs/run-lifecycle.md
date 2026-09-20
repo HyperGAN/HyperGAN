@@ -16,7 +16,7 @@ The public signatures, event and artifact formats, checkpoint intervals, request
 
 ## Source compatibility
 
-Full recovery compares implementation source hashes, including the extracted controller and execution adapter. Checkpoints from before this source change cannot resume under this implementation. This applies to both native single-process checkpoints and the internal distributed format, which shares implementation identity. Older-checkpoint compatibility and migration are outside resurrection scope; strict validation remains required for current runs.
+Full recovery uses the explicit HyperGAN checkpoint compatibility version described in [recovery](recovery.md). HyperGAN Git SHAs and source hashes remain provenance and do not block resume across compatible releases. External component/dependency sources, configuration, data, numerical runtime and state integrity still receive strict validation. The earlier source-hash rejection policy was replaced on 2026-09-20 at the owner's request.
 
 Behavioral parity is measured by independently running the old and new implementations and comparing complete numerical state and lifecycle results. It does not imply cross-version checkpoint compatibility.
 

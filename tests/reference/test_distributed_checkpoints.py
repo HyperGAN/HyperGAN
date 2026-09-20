@@ -163,6 +163,10 @@ def worker(mode, rank, rendezvous, root, run, output):
             if mode == 'restore-runtime':
                 actual = checkpoints.runtime_info
                 checkpoints.runtime_info = lambda: dict(actual(), torch='different-version')
+            if mode == 'restore-build-disagreement':
+                actual = checkpoints._implementation
+                checkpoints._implementation = lambda value: dict(actual(value),
+                    **{'hypergan.training': str(rank) * 64})
             try:
                 restore_distributed_checkpoint(run, trainer, {'run_id': 'fixture-run'})
             except (ValueError, RuntimeError) as exc:
@@ -203,6 +207,10 @@ def worker(mode, rank, rendezvous, root, run, output):
                 trainer.data.state_dict = fail_state
             elif mode == 'identity-type':
                 trainer.data.resume_identity = lambda: {'marker': True if rank else 1}
+            elif mode == 'build-disagreement':
+                actual = checkpoints._implementation
+                checkpoints._implementation = lambda value: dict(actual(value),
+                    **{'hypergan.training': str(rank) * 64})
             elif mode == 'stage-failure' and rank == 0:
                 actual = checkpoints.atomic_json
                 def fail_manifest(path, value):
@@ -295,7 +303,7 @@ def test_fresh_group_resume_preserves_every_rank_rng_sampler_and_optimizer(tmp_p
     assert all((path / 'rank-00000.pt').is_file() and (path / 'rank-00001.pt').is_file() for path in generations)
 
 
-@pytest.mark.parametrize('mode', ['half', 'divergent', 'state-failure', 'identity-type', 'stage-failure', 'metadata-bound', 'missing', 'missing-after-gather'])
+@pytest.mark.parametrize('mode', ['half', 'divergent', 'state-failure', 'identity-type', 'build-disagreement', 'stage-failure', 'metadata-bound', 'missing', 'missing-after-gather'])
 def test_failed_rank_or_staging_never_advances_last_complete_checkpoint(tmp_path, mode):
     results = launch(tmp_path / 'fixture', tmp_path / 'run', mode)
     assert results and all(result['error'] for result in results)
@@ -307,7 +315,7 @@ def test_failed_rank_or_staging_never_advances_last_complete_checkpoint(tmp_path
     assert not list((tmp_path / 'run' / 'distributed-checkpoints' / '.prepared').rglob('command-*'))
 
 
-@pytest.mark.parametrize('mode', ['restore-config', 'restore-topology', 'restore-runtime', 'restore-threads', 'restore-poisoned', 'restore-not-ready', 'restore-data', 'restore-missing-rank', 'restore-pointer', 'restore-mutating-hook', 'restore-live-failure'])
+@pytest.mark.parametrize('mode', ['restore-config', 'restore-topology', 'restore-runtime', 'restore-threads', 'restore-poisoned', 'restore-not-ready', 'restore-data', 'restore-missing-rank', 'restore-pointer', 'restore-mutating-hook', 'restore-live-failure', 'restore-version', 'restore-custom-implementation', 'restore-third-party-implementation', 'restore-build-disagreement'])
 def test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation(tmp_path, mode):
     root, run = tmp_path / 'fixture', tmp_path / 'run'
     saved = launch(root, run, 'split')
@@ -321,8 +329,53 @@ def test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation(tmp
         value = json.loads(path.read_text())
         value['step'] = 1
         path.write_text(json.dumps(value))
+    if mode in ('restore-version', 'restore-custom-implementation', 'restore-third-party-implementation'):
+        path = generation / 'manifest.json'
+        info = json.loads(path.read_text())
+        if mode == 'restore-version':
+            info['identity']['hypergan_checkpoint_version'] = 2
+        else:
+            prefix = '__main__' if mode == 'restore-custom-implementation' else 'particlegan.'
+            implementations = info['identity']['implementation']
+            name = next(name for name in implementations if name.startswith(prefix))
+            implementations[name] = 'f' * 64
+        path.write_text(json.dumps(info))
     results = launch(root, run, mode)
     assert results[0]['error'] == results[1]['error']
+    if mode == 'restore-version':
+        assert 'version' in results[0]['error'].lower()
+
+
+@pytest.mark.parametrize('legacy', [False, True], ids=['versioned', 'before-contract-version'])
+def test_compatible_hypergan_build_changes_preserve_exact_distributed_continuation(tmp_path, legacy):
+    root, run = tmp_path / 'fixture', tmp_path / 'split'
+    launch(root, tmp_path / 'full', 'full')
+    saved = launch(root, run, 'split')
+    manifest_path = Path(saved[0]['checkpoint']) / 'manifest.json'
+    info = json.loads(manifest_path.read_text())
+    identity = info['identity']
+    assert identity['hypergan_checkpoint_version'] == 1
+    assert 'hypergan_commit' in identity['source']
+    # A previously published compatible build has different HyperGAN bytes and
+    # package metadata. External implementations and every rank payload stay real.
+    identity['runtime']['hypergan'] = '2.0.0a0'
+    implementation = identity['implementation']
+    for name in tuple(implementation):
+        if name == 'hypergan' or name.startswith('hypergan.'):
+            implementation[name] = '0' * 64
+    implementation.pop('hypergan.distributed_checkpoints')
+    implementation['hypergan.former_internal_module'] = '1' * 64
+    identity['source']['hypergan_commit'] = '2' * 40
+    if legacy:
+        identity.pop('hypergan_checkpoint_version')
+        identity.pop('source')
+    manifest_path.write_text(json.dumps(info))
+    launch(root, run, 'resume')
+    for rank in range(2):
+        expected = torch.load(root / f'full-rank{rank}.pt', weights_only=True)
+        actual = torch.load(root / f'resume-rank{rank}.pt', weights_only=True)
+        _assert_equal(actual, expected)
+        assert actual['step'] == 4
 
 
 def test_requires_explicit_initialized_group():

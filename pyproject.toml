@@ -34,7 +34,7 @@ include-package-data = false
 
 [tool.setuptools.package-data]
 "hypergan.metrics_reducer" = ["assets/*.wasm", "assets/*.json", "assets/*.js", "assets/*.html", "assets/*.txt"]
-"hypergan" = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/*.json"]
+"hypergan" = ["_build_provenance.json", "web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

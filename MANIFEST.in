@@ -1,4 +1,6 @@
 prune hypergan
+include setup.py
+include src/hypergan/_build_provenance.json
 prune docs
 prune examples
 include examples/paired-linear.toml

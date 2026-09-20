@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import torch
 
 from .checkpoints import capture_rng, read_checkpoint, restore_rng, restore_trainer, write_checkpoint
+from .checkpoint_compatibility import CURRENT_VERSION, validate_runtime, validate_implementation
 from .config import config_values, fingerprint
 from .metrics import validate_update_scalars
 from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, PreviewResult, Restored
@@ -55,7 +56,8 @@ class SingleProcessExecution:
             contract, reasons = _recovery_contract(self._trainer)
             metadata = {'config': config_values(self._config), 'config_sha256': fingerprint(self._config),
                         'runtime': runtime_info(self._trainer.device), 'data_contract': contract,
-                        'implementation': _implementation(self._trainer)}
+                        'implementation': _implementation(self._trainer),
+                        'hypergan_checkpoint_version': CURRENT_VERSION, 'source': source_info()}
         finally:
             restore_rng(rng)
             for name, state in streams.items():
@@ -71,16 +73,14 @@ class SingleProcessExecution:
         if fingerprint(self._config) != info['config_sha256'] or fingerprint(self._config) != config_sha256:
             raise ValueError('Resume configuration differs from checkpoint; total training schedule cannot change')
         apply_backend_policy(self._config)
-        if runtime_info(self._config['training']['device']) != info['runtime']:
-            raise ValueError('Resume runtime/topology differs from checkpoint')
+        validate_runtime(info['runtime'], runtime_info(self._config['training']['device']))
         self._open()
         contract, reasons = _recovery_contract(self._trainer)
         if reasons:
             raise ValueError('Recovery unsupported: ' + '; '.join(reasons))
         if contract != info['data_contract']:
             raise ValueError('Resume data identity or state protocol differs from checkpoint')
-        if _implementation(self._trainer) != info['implementation']:
-            raise ValueError('Resume implementation differs from checkpoint')
+        validate_implementation(info['implementation'], _implementation(self._trainer))
         self._ready = False
         self._last_batch = restore_trainer(self._trainer, state)
         if self._device.type == 'cuda':

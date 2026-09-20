@@ -8,7 +8,6 @@ import importlib
 import importlib.metadata
 from pathlib import Path
 import platform
-import subprocess
 import random
 import inspect
 import os
@@ -98,9 +97,8 @@ def runtime_info(device='cpu'):
 
 
 def source_info():
-    # The integration reference SHA is not a claim about an installed wheel's source.
-    root = Path(__file__).resolve().parents[2]
-    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "f946b4ed468ff3b3eae5a3bca11411d5725f1181"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, "hypergan_commit": None}
+    from .provenance import hypergan_source
+    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "f946b4ed468ff3b3eae5a3bca11411d5725f1181"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, **hypergan_source()}
     result["distribution_records"] = {}
     for name in ("hypergan", "particlegan"):
         try:
@@ -109,12 +107,6 @@ def source_info():
             result["distribution_records"][name] = {"record_sha256": hashlib.sha256(record.encode()).hexdigest() if record else None}
         except importlib.metadata.PackageNotFoundError:
             result["distribution_records"][name] = None
-    if (root / ".git").exists():
-        try:
-            result["hypergan_commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
-            result["hypergan_dirty"] = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True))
-        except (OSError, subprocess.CalledProcessError):
-            pass
     return result
 
 

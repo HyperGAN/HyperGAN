@@ -2,6 +2,67 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Checkpoint compatibility and release provenance (2026-09-20): the owner
+clarified that HyperGAN release/source SHAs must be recorded, not used as resume
+rejection keys. This supersedes the earlier no-cross-version-compatibility policy
+below; AGENTS.md and recovery guides now carry the updated contract. Work starts
+from local `develop` at `a9a8bebf` (GitHub remains at merged PR #354, `f8f5ae15`).
+The owner's direct-develop authorization remains in effect. Three subagents
+implemented provenance/distributed recovery and independently tested/reviewed the
+combined change in external worktrees.
+
+Native and replicated recovery now use `hypergan_checkpoint_version=1`. Existing
+schema-1 checkpoints without that field use version 1; malformed, unknown or
+known-incompatible versions fail explicitly before CLI viewing and before state
+loading. HyperGAN module hashes and package versions remain provenance; external
+component/dependency hashes, numerical configuration/runtime, data, fixed topology,
+payload integrity and durable event boundaries remain enforced. Ranks within a
+single job must still agree on their complete current build identity. This is
+supported state recovery across HyperGAN releases, not a claim that arbitrary
+algorithm changes reproduce identical learning trajectories.
+
+Git SHA/dirty state is stamped into wheels and source distributions; rebuilt
+wheels retain it without Git. Editable checkouts report their current SHA/dirty
+state; unavailable provenance is explicit. Runs keep original `initial_source`
+and current `source`, with each attempt and new checkpoint retaining provenance.
+Existing runs recover original provenance from their earliest saved attempt when
+available; fallback provenance is labelled. Failed started attempts identify the
+attempted current SHA, never silently inherit the preceding release's identity.
+
+Read-only owner-run diagnosis found stopped/durable step **57,287**, recorded
+source `74aab6c6ba591af30e5d1583cccad5956e75d364`, and changes in three HyperGAN
+module hashes. All saved HyperGAN hashes match that historical commit. The revised
+native adapter successfully restored that actual checkpoint on physical GPU 1
+under the owner's Python 3.14.7 runtime, without executing updates, creating an
+attempt or modifying run/checkpoint metadata. The first diagnostic used `-I`,
+which hid this installation's user-site torch; rerunning with the actual user-site
+runtime resolved that environment setup issue. No package reinstall or run restart
+was performed for the owner.
+
+Validation: source → sdist → wheel builds succeeded; all 60 installed Python
+runtime files byte-match the candidate. Base-only installation passed **536**
+foundation tests (39.73s); integrated installed CPU acceptance passed **608** tests
+(273.09s), including actual fresh-group distributed checkpoints and public CLI.
+After the two provenance review fixes, **124** focused installed checks passed
+(22.61s). Native GPU-0 exact repeated/uninterrupted state acceptance passed. Final
+actual two-GPU CUDA/NCCL public train/stop/resume/earlier-snapshot/observation
+acceptance passed (1 complete workflow, 35.54s), including exact complete-state
+comparisons and worker cleanup. This remains generic-runtime qualification, not
+image-workload or multi-host qualification.
+
+Subagent acceptance additionally passed 29 real Gloo checkpoint tests, 61
+native/foundation compatibility checks and 42 provenance/commit-authority tests.
+Independent final provenance review passed 24 focused checks. Actual clean-Git
+sdist→wheel and isolated installed/editable proofs preserve the SHA and correct
+dirty state; the dirty candidate's sdist/wheel stamps match. No failures/skips were
+hidden. Whitespace and local documentation-link checks passed. The original live
+run and earlier attempt/checkpoint artifacts remain untouched.
+Evidence/build/test logs and exact commands:
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-checkpoint-compatibility/`.
+No paid compute, release, checkpoint rewrite or automatic long-running training.
+Next: rerun the owner's existing `bash start.sh` against updated editable develop,
+then continue the image plan and its distinct multi-host/image-quality gates.
+
 Repeatable training CLI (2026-09-20): owner requested subagent implementation
 and a direct local commit to `develop` for this change, overriding the usual PR
 workflow. Verified clean local/fetched/GitHub `develop` at
@@ -112,7 +173,7 @@ The next release integrates on `develop`. The coordinator reviews and merges pas
 
 - GPU execution is the product default (owner direction, 2026-09-19). `new` targets CUDA; explicit CPU runs remain available for small correctness fixtures. This box has two RTX A6000 48 GB GPUs authorized for local validation. Native CUDA and real two-GPU work proceed alongside public distributed integration; no paid allocation is implied.
 
-- Older-checkpoint compatibility is not required (owner clarification, 2026-09-19). Checkpoint formats and source identities may break across implementations without migration or compatibility work. Reliable save/resume, corruption checks and recovery from earlier snapshots within supported current runs remain requirements. Historical compatibility notes below record behavior, not a commitment to maintain old runtimes.
+- Superseded by the 2026-09-20 explicit compatibility-version policy above: older-checkpoint compatibility was not required (owner clarification, 2026-09-19). Checkpoint formats and source identities may break across implementations without migration or compatibility work. Reliable save/resume, corruption checks and recovery from earlier snapshots within supported current runs remain requirements. Historical compatibility notes below record behavior, not a commitment to maintain old runtimes.
 - Recipe configuration supports custom generator/discriminator/encoder/auxiliary components, explicit I/O, losses and regularizers. Warn on unqualified combinations; reject actual incompatibilities. Default b-cap and VICReg follow the pinned upstream reference.
 - Colorization and super-resolution influence the implemented conditional I/O contract. The paired example is a synthetic fixture, not a qualified image recipe.
 - Development version: 2.0.0a1. ParticleGAN dependency: 0.5.0. Tested CPU tuple: Python 3.12.13, torch 2.14.0+cpu, ParticleGAN 0.5.0, NumPy 2.5.3. The package records actual runtime/source identity and does not certify arbitrary installations.

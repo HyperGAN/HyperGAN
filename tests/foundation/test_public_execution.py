@@ -343,3 +343,41 @@ def test_prepared_new_train_cannot_silently_switch_to_existing_run(tmp_path):
     with pytest.raises((OSError, ValueError)):
         prepared.run()
     assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('replicated', [False, True], ids=['native', 'replicated'])
+@pytest.mark.parametrize('version', [0, 2, -1, True, 1.0, '1', None, {}])
+def test_checkpoint_compatibility_rejects_before_viewer_and_imports(
+        tmp_path, monkeypatch, capsys, version, replicated):
+    from hypergan import cli
+    path, run, checkpoint, _ = stopped(tmp_path, replicated=replicated)
+    metadata_path = checkpoint / 'manifest.json'
+    metadata = json.loads(metadata_path.read_text())
+    identity = metadata['identity'] if replicated else metadata
+    identity['hypergan_checkpoint_version'] = version
+    metadata_path.write_text(json.dumps(metadata))
+    before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+    monkeypatch.setattr(cli, '_training_viewer', lambda _: pytest.fail('viewer started for incompatible checkpoint'))
+    original_import = builtins.__import__
+    def guarded(name, *args, **kwargs):
+        assert name.split('.')[0] not in {'torch', 'particlegan'}
+        return original_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', guarded)
+    for args in (['train', str(path), '--run-dir', str(run)], ['resume', str(run)]):
+        assert cli.main([*args, '--server']) == 1
+        assert 'checkpoint compatibility version' in capsys.readouterr().err
+        assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('replicated', [False, True], ids=['native', 'replicated'])
+@pytest.mark.parametrize('explicit', [False, True], ids=['existing-unversioned', 'current-version'])
+def test_checkpoint_compatibility_accepts_supported_version(tmp_path, explicit, replicated):
+    path, run, checkpoint, _ = stopped(tmp_path, replicated=replicated)
+    metadata_path = checkpoint / 'manifest.json'
+    metadata = json.loads(metadata_path.read_text())
+    if explicit:
+        identity = metadata['identity'] if replicated else metadata
+        identity['hypergan_checkpoint_version'] = 1
+        metadata_path.write_text(json.dumps(metadata))
+    assert prepare_resume(run).checkpoint == checkpoint
+    assert prepare_train(path, run).checkpoint == checkpoint

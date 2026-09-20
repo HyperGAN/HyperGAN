@@ -177,9 +177,11 @@ def _validate_prepared(run_dir, receipt, *, run_id, attempt_id, controller_id, c
     except (ValueError, RecursionError) as exc:
         raise ValueError('Invalid prepared checkpoint manifest JSON') from exc
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    if (not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids', 'event_boundary'}
+    if (not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids', 'event_boundary', 'source', 'initial_source'}
             or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND):
         raise ValueError('Invalid prepared checkpoint manifest schema')
+    if any(key in info and not isinstance(info[key], dict) for key in ('source', 'initial_source')):
+        raise ValueError('Prepared checkpoint source provenance must be a dictionary')
     if (info['run_id'], info['attempt_id']) != (run_id, attempt_id) or type(info['step']) is not int or info['step'] != step:
         raise ValueError('Prepared checkpoint manifest lineage/step differs')
     if _json_bytes(info['identity']) != _json_bytes(identity):

@@ -227,6 +227,11 @@ def _reap(processes):
 
 
 def _broker_main(sock, identity, world_size, limits, bootstrap, started, initialize_process_group, backend='gloo'):
+    # Terminal process-group signals belong to the controller. It completes the
+    # current all-rank command before saving; its independently monitored death
+    # still makes this broker reap every rank. Isolate before spawning ranks.
+    if os.name != 'nt':
+        os.setsid()
     parent = mp.parent_process()
     control = _Channel(sock)
     context = mp.get_context('spawn')

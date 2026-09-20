@@ -1,6 +1,6 @@
-# Recover CPU training runs
+# Recover training runs
 
-The CPU reference loop has separate **training checkpoints** and **EMA inference bundles**. A training checkpoint restores the numerical run. An inference bundle loads the generator and prior for sampling; it cannot resume training. GPU and cluster recovery are still qualification gates.
+Native CPU/CUDA and local replicated execution have separate **training checkpoints** and **EMA inference bundles**. A training checkpoint restores the numerical run. An inference bundle loads the generator and prior for sampling; it cannot resume training. Actual image-recipe multi-GPU and real multi-host recovery remain separate qualification gates.
 
 Create a project and stop after two updates without changing its five-update learning-rate schedule:
 
@@ -16,7 +16,51 @@ hypergan sample runs/demo --count 16
 
 `--checkpoint-every N` saves after every N completed updates, with an initial checkpoint and a final checkpoint on a successful or cooperative stop. Resume inherits the interval unless overridden. A failed update may already have changed the discriminator; the failure handler does not save that partial numerical state. Resume starts from the last complete checkpoint, so work since that checkpoint may be repeated.
 
-`inspect` exposes the latest observed update (`steps`), `last_durable_step`, `checkpoint_path`, `checkpoint_every`, and `possible_lost_steps`. Only a successfully published training checkpoint establishes recoverable numerical progress. A flushed loss event alone does not. Failure status retains the error and last durable checkpoint.
+`inspect` exposes the latest observed update (`steps`), `last_durable_step`, `checkpoint_path`, `checkpoint_every`, `durable_event_boundary`, and `possible_lost_steps`. Only a successfully published training checkpoint establishes recoverable numerical progress. A flushed loss event alone does not. Failure status retains the error and last durable checkpoint.
+
+On the main thread, the first **SIGINT** (Ctrl-C) or **SIGTERM** requests a graceful
+stop. The controller finishes the current complete update, records its metrics,
+commits a checkpoint and shuts down numerical workers. It does not start further
+optional inference export or previews after observing the stop request. The manifest records
+`stop_reason: SIGINT` or `SIGTERM`. A second signal forces process exit; a
+30-second watchdog also forces exit if the update or shutdown cannot finish.
+SIGKILL and forced exits cannot save partial updates: resume selects the last
+published complete checkpoint. Native calls in embedded non-main threads retain
+the host application's signal policy. A custom native extension that holds the
+Python interpreter lock can delay signal handlers and the Python watchdog; a supervisor
+requiring an absolute external deadline should send SIGKILL after its grace
+period. POSIX worker brokers use independent sessions so terminal group signals
+reach the controller without interrupting a rank halfway through an update.
+
+Each controller checkpoint commits a **durable event prefix**. Its
+`event_boundary` records run, attempt, completed step, last event sequence,
+byte offset and SHA256 of `events.jsonl` through that offset. Training events
+respect the configured metric cadence; disabled metrics are not synthesized.
+The controller flushes and fsyncs the event file and run directory, then writes
+and fsyncs checkpoint payloads and their containing directories. Finally it
+atomically replaces the `latest.json` reference and synchronizes its directory.
+The checkpoint manifest contains the event boundary; the run manifest mirrors
+it as `durable_event_boundary`. Checkpoint notifications follow this commit and
+are not required for restoring its numerical state. Projection processing is
+asynchronous and can lag behind the durable event prefix.
+
+On POSIX filesystems supporting these operations, the published reference
+selects both durable payloads and their durable event prefix. Separate files are
+not one filesystem transaction. Windows synchronizes file contents and replaces
+the reference atomically; this implementation cannot fsync directories there,
+so power-loss durability of directory entries depends on the filesystem.
+A failure before reference publication leaves the previous checkpoint selected;
+a failure after replacement may leave the new complete checkpoint selected even
+if the run manifest still reports an earlier step. Resume reads the checkpoint
+reference and validates its payload and event prefix before publishing a new
+attempt. Unselected staging directories are never automatically promoted.
+
+Missing or corrupted **committed** event bytes are an error, not an implicit
+rollback that conceals data loss. Select an earlier intact checkpoint explicitly
+with `--checkpoint` if needed. Newer complete events remain in the log; an
+incomplete trailing row is removed before appending. Resume events record the
+parent attempt/checkpoint and restored step, so abandoned updates remain
+distinguishable from resumed history.
 
 Every resume creates a new attempt with a monotonic index and unique identifier. Existing attempt artifacts are never overwritten. `sample RUN_DIR` uses the bundle selected by the run manifest, and repeated sampling uses unique filenames. Explicit `--output` refuses an existing file. Older checkpoints remain available through `resume RUN_DIR --checkpoint PATH`; replaying one creates a new attempt without replacing earlier samples. Use `inspect` to select the checkpoint's recorded path.
 
@@ -26,7 +70,7 @@ Implementation source is part of that strict identity. The [shared lifecycle ext
 
 Built-in synthetic data is stateless apart from the trainer's RNG. `image_folder` records its content/preprocessing/class-map identity, shuffled order and cursor. Custom data must implement the documented state protocol or explicitly declare itself stateless to support recovery. Custom components must register their tensor state and obey the recovery contract; arbitrary Python caches and external services cannot be inferred from a model's weights. Unsupported recovery does not silently become a successful restore.
 
-For process managers, `--progress-json` writes flushed JSONL events to stdout, followed by a `result` event containing the final manifest. Diagnostics remain on stderr. Without that flag, updates go to stderr and the final manifest goes to stdout. The Python API starts no server, and the optional browser viewer remains unimplemented.
+For process managers, `--progress-json` writes cadence-filtered JSONL progress and immediate lifecycle events to stdout, followed by a `result` event containing the final manifest. Diagnostics remain on stderr. Without that flag, routine updates go to stderr every 100 steps and the final manifest goes to stdout. Change the interval with `--progress-every N` or the browser console setting; collected metrics are unaffected. The Python API starts no server. CLI output is bounded best-effort delivery; the event journal is authoritative. The CLI can launch the optional browser viewer.
 
 For bounded event pages, periodic previews and acknowledged manual checkpoint requests, see [run observation](observation.md). Periodic preview retention never deletes complete checkpoints or final attempt inference bundles. A submitted save request is pending until the trainer acknowledges a durable checkpoint at a safe boundary.
 

@@ -55,7 +55,7 @@ def test_json_format_and_native_diagnostics():
     code = '''
 from hypergan.bounded_cli_output import training_output
 import os,sys,subprocess
-with training_output(progress_json=True) as output:
+with training_output(progress_json=True, progress_every=1) as output:
  output.progress({'event':'train','step':1})
  print('warning: fixture', file=sys.stderr)
  os.write(2,b'native fixture\\n')
@@ -78,7 +78,7 @@ def test_consumer_cannot_hold_terminal_completion(tmp_path, destination):
 from hypergan.bounded_cli_output import training_output
 import json,os,sys
 from pathlib import Path
-with training_output(progress_json=True) as output:
+with training_output(progress_json=True, progress_every=1) as output:
  pids=[output.stdout.process.pid,output.stderr.process.pid]
  for step in range(2000):
   output.progress({'event':'train','step':step,'payload':'x'*32000})
@@ -126,7 +126,7 @@ def test_parent_death_reaps_blocked_drains(tmp_path):
 from hypergan.bounded_cli_output import training_output
 import json,sys,time
 from pathlib import Path
-with training_output(progress_json=True) as output:
+with training_output(progress_json=True, progress_every=1) as output:
  Path(sys.argv[1]).write_text(json.dumps([output.stdout.process.pid,output.stderr.process.pid]))
  for step in range(200):
   output.progress({'event':'train','step':step,'payload':'x'*32000})
@@ -155,7 +155,7 @@ def test_memory_capture_oversize_and_exact_sink(monkeypatch):
     stdout, stderr = io.StringIO(), io.StringIO()
     monkeypatch.setattr(sys, 'stdout', stdout)
     monkeypatch.setattr(sys, 'stderr', stderr)
-    with training_output(progress_json=True) as output:
+    with training_output(progress_json=True, progress_every=1) as output:
         assert type(output.progress) is CLIProgress
         output.stdout.write('x' * (MAX_LINE_BYTES + 1) + '\n')
         output.stdout.write('é' * MAX_LINE_BYTES + '\n')
@@ -190,7 +190,7 @@ with training_output() as output:
 
 
 def test_oversized_result_has_explicit_manifest_fallback(capsys, tmp_path):
-    with training_output(progress_json=True) as output:
+    with training_output(progress_json=True, progress_every=1) as output:
         output.result({'payload': 'x' * MAX_LINE_BYTES}, run_dir=tmp_path)
     captured = capsys.readouterr()
     assert json.loads(captured.out) == {
@@ -209,7 +209,7 @@ runtime.setvbuf.argtypes = [ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.
 for stream in streams:
  assert runtime.setvbuf(stream,None,0,4096) == 0
 sys.__stdout__.write('cached-before')
-with training_output(progress_json=True) as output:
+with training_output(progress_json=True, progress_every=1) as output:
  pids=[output.stdout.process.pid,output.stderr.process.pid]
  if sys.argv[2] == 'unread':
   for step in range(100):
@@ -262,3 +262,37 @@ def test_flush_failure_still_restores_and_reaps(monkeypatch, capfd):
             pids = [output.stdout.process.pid, output.stderr.process.pid]
     assert (sys.stdout, sys.stderr) == originals
     _assert_dead(pids)
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX terminal process-group signals')
+@pytest.mark.parametrize('signum', [2, 15])
+def test_terminal_group_signal_preserves_final_output(tmp_path, signum):
+    import signal
+    ready = tmp_path / 'ready'
+    code = '''
+import signal,time,sys
+from pathlib import Path
+from hypergan.bounded_cli_output import training_output
+stopped=[]
+signal.signal(signal.SIGINT, lambda *args: stopped.append(True))
+signal.signal(signal.SIGTERM, lambda *args: stopped.append(True))
+with training_output(progress_json=True) as output:
+ Path(sys.argv[1]).write_text('ready')
+ while not stopped: time.sleep(.01)
+ output.result({'status':'stopped','steps':7})
+'''
+    process = subprocess.Popen([sys.executable, '-c', code, str(ready)], env=_env(),
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert ready.exists()
+        os.killpg(process.pid, signum)
+        stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode == 0, stderr
+        assert json.loads(stdout) == {'event': 'result', 'manifest': {'status': 'stopped', 'steps': 7}}
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)

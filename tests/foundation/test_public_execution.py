@@ -8,6 +8,7 @@ import pytest
 from hypergan.config import config_values, fingerprint, load_config, write_default
 from hypergan.execution import prepare_resume, prepare_train
 from hypergan.execution_profiles import resolve_execution_profile
+from hypergan.run_state import EventJournal
 
 
 def project(tmp_path, device='cpu'):
@@ -31,7 +32,10 @@ def stopped(tmp_path, *, replicated=True):
     root = run / ('distributed-checkpoints' if replicated else 'checkpoints')
     checkpoint = root / 'snapshot'
     checkpoint.mkdir(parents=True)
-    info = {'schema_version': 1, 'run_id': 'fixture', 'step': 0,
+    journal = EventJournal(run)
+    journal.append({'run_id': 'fixture', 'attempt_id': 'first', 'step': 0, 'sequence': 1, 'event': 'start'})
+    info = {'schema_version': 1, 'run_id': 'fixture', 'attempt_id': 'first', 'step': 0,
+            'event_boundary': journal.commit_boundary(),
             'kind': 'hypergan-distributed-training-checkpoint' if replicated else 'hypergan-training-checkpoint'}
     info.update({'identity': identity} if replicated else identity)
     (checkpoint / 'manifest.json').write_text(json.dumps(info))

@@ -70,7 +70,14 @@ def schemas():
                             'status': {'type': 'string'}, 'job_id': HASH})
     run = object_schema({'run_id': {'type': 'string'}, 'attempt_id': {'type': 'string'}, 'name': {'type': 'string'},
         'status': {'type': 'string'}, 'steps': SAFE_INTEGER, 'total_steps': SAFE_INTEGER,
-        'last_durable_step': {'oneOf': [SAFE_INTEGER, {'type': 'null'}]}, 'metrics_catalog': HASH}, ('status',))
+        'last_durable_step': {'oneOf': [SAFE_INTEGER, {'type': 'null'}]}, 'metrics_catalog': HASH,
+        'durable_event_boundary': object_schema({'schema_version': {'const': 1},
+            'run_id': {'type': 'string'}, 'attempt_id': {'type': 'string'}, 'step': SAFE_INTEGER,
+            'sequence': SAFE_INTEGER, 'offset': SAFE_INTEGER, 'sha256': HASH}),
+        'metric_consistency': object_schema({'status': {'enum': ['pending', 'caught_up', 'unavailable']},
+            **{key: {'oneOf': [SAFE_INTEGER, {'type': 'null'}]}
+               for key in ('committed_step', 'committed_offset', 'projected_offset')}},
+            ('status', 'committed_step', 'committed_offset', 'projected_offset'))}, ('status',))
     return {'Histogram': histogram, 'SourceIdentity': source, 'Emission': emission, 'ProjectionFrame': frame, 'Event': event,
             'Point': point, 'EnvelopeState': envelope, 'Group': group, 'Bootstrap': bootstrap,
             'Page': page, 'Catalog': catalog, 'StreamFrame': stream_frame, 'StreamControl': control,

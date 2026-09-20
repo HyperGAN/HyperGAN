@@ -62,7 +62,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         from .metrics_reducer import descriptor
         return JSONResponse({'schema_version': 1, 'api_version': 'v1', 'run_id': service.run_id,
                              'status': service.manifest.get('status'), 'server_instance_id': session.instance_id,
-                             'transports': ['sse'], 'reducer': descriptor(),
+                             'auth_mode': session.auth_mode, 'transports': ['sse'], 'controls': ['console'], 'reducer': descriptor(),
                              'limits': {'subscribers': 32, 'queue_bytes': 1048576, 'groups': 2048,
                                         'bootstrap_bytes': 1048576, 'stream_count': 64,
                                         'history_seconds': service.history_timeout}})
@@ -70,6 +70,23 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
     async def run(request):
         check_run(request)
         return JSONResponse(service.public_manifest())
+
+    async def console_settings(request):
+        check_run(request)
+        import asyncio
+        from .console_settings import read_settings, write_settings
+        if request.method == 'GET':
+            return JSONResponse(await asyncio.to_thread(read_settings, service.root))
+        if request.headers.get('content-type', '').split(';')[0] != 'application/json':
+            return JSONResponse({'error': 'Expected application/json'}, status_code=415)
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw.extend(chunk)
+            if len(raw) > 4096:
+                return JSONResponse({'error': 'Console settings body exceeds 4096 bytes'}, status_code=413)
+        value = json.loads(raw)
+        result = await asyncio.to_thread(write_settings, service.root, value)
+        return JSONResponse(result)
 
     async def catalog(request):
         check_run(request)
@@ -152,6 +169,9 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
             await asyncio.to_thread(inspect_png, data)
             return Response(data, media_type='image/png',
                             headers={'Content-Disposition': 'inline; filename="grid.png"'})
+        if record.get('media_type') == 'application/json':
+            return Response(data, media_type='application/json',
+                            headers={'Content-Disposition': 'attachment; filename="samples.json"'})
         return Response(data, media_type='application/octet-stream',
                         headers={'Content-Disposition': 'attachment; filename="artifact.bin"'})
 
@@ -176,7 +196,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
         return Response(assets().joinpath(asset).read_bytes(), media_type=media)
 
     async def openapi(request):
-        return JSONResponse(openapi_schema(cookie_name=session.cookie_name))
+        return JSONResponse(openapi_schema(cookie_name=session.cookie_name, auth_mode=session.auth_mode))
 
     async def error_handler(request, exc):
         code = 404 if isinstance(exc, FileNotFoundError) else 400
@@ -186,6 +206,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
               Route('/api/v1/session', session_exchange, methods=['POST']),
               Route('/api/v1/capabilities', capabilities), Route('/api/v1/openapi.json', openapi),
               Route('/api/v1/stream', stream), Route('/api/v1/runs/{run_id}', run),
+              Route('/api/v1/runs/{run_id}/console', console_settings, methods=['GET', 'PUT']),
               Route('/api/v1/runs/{run_id}/metrics/catalog', catalog),
               Route('/api/v1/runs/{run_id}/events', events),
               Route('/api/v1/runs/{run_id}/views', views),
@@ -230,12 +251,13 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
     return AuthenticatedApp()
 
 
-def openapi_schema(*, cookie_name=LocalSession.cookie_name):
+def openapi_schema(*, auth_mode='token', cookie_name=LocalSession.cookie_name):
     """Versioned machine-readable route contract; rich event schemas are separate."""
     paths = {}
     descriptions = {
         '/capabilities': 'Authenticated server identity and resource limits',
         '/runs/{run_id}': 'Current run manifest',
+        '/runs/{run_id}/console': 'Persisted CLI progress cadence, independent from collected metrics',
         '/runs/{run_id}/metrics/catalog': 'Immutable metric definition catalog',
         '/runs/{run_id}/events': 'Bounded raw source or projection frame page',
         '/runs/{run_id}/views': 'Available view descriptors and stream watermarks',
@@ -253,10 +275,23 @@ def openapi_schema(*, cookie_name=LocalSession.cookie_name):
             'responses': {'200': {'description': 'Success'}, '202': {'description': 'Background indexing or reduction'},
                           '400': {'description': 'Invalid query or cursor'}, '401': {'description': 'Credential required'},
                           '404': {'description': 'Run, projection or artifact not available'}}}}
+    paths['/api/v1/runs/{run_id}/console']['put'] = {
+        'description': 'Set progress_every for this run; active CLI checks at update boundaries at most four times per second; long updates delay changes',
+        'parameters': [{'name': 'run_id', 'in': 'path', 'required': True, 'schema': {'type': 'string'}}],
+        'security': [{'bearerAuth': []}, {'cookieAuth': []}],
+        'requestBody': {'required': True, 'content': {'application/json': {'schema': {
+            'type': 'object', 'additionalProperties': False, 'required': ['progress_every'],
+            'properties': {'progress_every': {'type': 'integer', 'minimum': 1, 'maximum': 1000000000}}}}}},
+        'responses': {'200': {'description': 'Saved console setting'}, '400': {'description': 'Invalid interval'},
+                      '413': {'description': 'Body exceeds 4096 bytes'}, '415': {'description': 'Expected JSON'}}}
     paths['/api/v1/session'] = {'post': {'description': 'Exchange local bearer for HttpOnly SameSite session cookie',
         'requestBody': {'required': True, 'content': {'application/json': {'schema': {'type': 'object', 'required': ['token'],
                         'additionalProperties': False, 'properties': {'token': {'type': 'string'}}}}}},
         'responses': {'200': {'description': 'Authenticated'}, '401': {'description': 'Invalid credential'}}}}
+    if auth_mode == 'none':
+        for path in paths.values():
+            for operation in path.values():
+                operation.pop('security', None)
     from .web_schema import enrich
     return enrich({'openapi': '3.1.0', 'info': {'title': 'HyperGAN local observation API', 'version': '1.0.0'},
             'paths': paths, 'components': {'securitySchemes': {
@@ -268,6 +303,6 @@ def run_socket(run_dir, bound_socket, session, *, history_seconds=180):
     """Serve a prebound loopback socket; the caller owns credentials/lifecycle."""
     import uvicorn
     app = create_app(run_dir, session, history_timeout=history_seconds)
-    server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=bound_socket.getsockname()[1],
+    server = uvicorn.Server(uvicorn.Config(app, host=session.bind_host, port=bound_socket.getsockname()[1],
                                         access_log=False, log_level='warning'))
     server.run(sockets=[bound_socket])

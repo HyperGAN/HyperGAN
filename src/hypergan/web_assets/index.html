@@ -68,7 +68,7 @@
         </article>
         <article>
           <span>Durable checkpoint</span><strong id="durable">—</strong
-          ><small>Last saved training state</small>
+          ><small>Last saved training state</small><small id="metric-consistency"></small>
         </article>
         <article>
           <span>Generator loss</span><strong id="g-loss">—</strong
@@ -79,6 +79,12 @@
           ><small id="d-step">No published value</small>
         </article>
       </section>
+      <form id="console-settings" class="range-controls" hidden>
+        <label for="progress-every">CLI progress every N steps</label>
+        <input id="progress-every" type="number" min="1" max="1000000000" step="1" value="100" required />
+        <button class="secondary" type="submit">Save CLI interval</button>
+        <span id="console-status" role="status">Metrics are collected independently.</span>
+      </form>
       <div class="workspace-grid">
         <aside class="catalog">
           <div class="section-title">
@@ -151,12 +157,12 @@
           </div>
           <details class="data-table">
             <summary>
-              Accessible data table <span>Latest values · exact precision</span>
+              Accessible data table <span>Training latest · all evaluation values</span>
             </summary>
             <div class="table-scroll" tabindex="0">
               <table>
                 <caption class="sr-only">
-                  Latest published values by metric definition and attempt
+                  Latest training values and all evaluations by definition and attempt
                 </caption>
                 <thead>
                   <tr>

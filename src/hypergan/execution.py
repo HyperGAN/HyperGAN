@@ -108,6 +108,10 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
         topology = identity.get('topology', {})
         if not isinstance(topology, dict) or any(not _same(topology.get(key), value) for key, value in execution.items()):
             raise ValueError('Resume checkpoint numerical execution identity differs from the run manifest')
+    if info.get('event_boundary') is None:
+        raise ValueError('Controller checkpoint requires a durable event boundary')
+    from .run_state import validate_event_boundary
+    validate_event_boundary(run_dir, info)
     return target
 
 

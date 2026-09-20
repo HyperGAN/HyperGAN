@@ -44,86 +44,120 @@ def make_run(root):
                                           steps=250, status='running', metrics_catalog=revision))
 
 
-def test_pending_start_does_not_create_run_then_separate_producer_catches_up(tmp_path):
+def test_pending_start_survives_context_exit_then_reuses_and_stops(tmp_path):
+    from hypergan.web_autostart import _probe, stop_viewer
     root = tmp_path / 'run'
-    with training_viewer(root, required=True) as viewer:
-        assert not root.exists()
-        assert viewer.info['processes']['server'] != viewer.info['processes']['projector']
-        assert len({os.getpid(), viewer.process.pid, *viewer.info['processes'].values()}) == 4
-        credentials = json.loads(viewer.credential_path.read_text())
-        assert credentials['origin'] == viewer.session.origin
-        make_run(root)
-        def projected():
-            try:
-                page = read_projection_page(root, MapSpec().revision, limit=1000)
-                return page if len(page['frames']) == 251 else None
-            except (OSError, ValueError):
-                return None
-        page = until(projected)
-        assert page['frames'][-1]['projection_sequence'] == 251
-        until(lambda: list((root / 'observations').glob('viewer-*.json')))
-    assert not viewer.process.is_alive()
-    assert not viewer.credential_path.exists()
-    receipt = json.loads(next((root / 'observations').glob('viewer-*.json')).read_text())
-    assert receipt['status'] == 'stopped'
-    assert credentials['token'] not in json.dumps(receipt)
-    with socket.socket() as client:
-        assert client.connect_ex(('127.0.0.1', int(viewer.session.host.rsplit(':', 1)[1]))) != 0
+    try:
+        with training_viewer(root, required=True, auth="token") as viewer:
+            assert not root.exists()
+            assert viewer.info['processes']['server'] != viewer.info['processes']['projector']
+            assert len({os.getpid(), viewer.info['supervisor_pid'], *viewer.info['processes'].values()}) == 4
+            credentials = json.loads(viewer.credential_path.read_text())
+            make_run(root)
+            def projected():
+                try:
+                    page = read_projection_page(root, MapSpec().revision, limit=1000)
+                    return page if len(page['frames']) == 251 else None
+                except (OSError, ValueError):
+                    return None
+            assert until(projected)['frames'][-1]['projection_sequence'] == 251
+            until(lambda: list((root / 'observations').glob('viewer-*.json')))
+        assert _probe(viewer.session)
+        with training_viewer(root, required=True) as resumed:
+            assert resumed.info['server_instance_id'] == viewer.info['server_instance_id']
+            assert resumed.info['supervisor_pid'] == viewer.info['supervisor_pid']
+            assert resumed.session.auth_mode == 'token'
+        assert stop_viewer(root)['status'] == 'stopped'
+        assert stop_viewer(root)['status'] == 'not_running'
+        assert not viewer.credential_path.exists()
+        receipt = json.loads(next((root / 'observations').glob('viewer-*.json')).read_text())
+        assert receipt['status'] == 'stopped'
+        assert credentials['token'] not in json.dumps(receipt)
+        assert not _probe(viewer.session)
+    finally:
+        stop_viewer(root)
 
 
 def test_default_does_not_wait_and_optional_bind_failure_is_independent(tmp_path, monkeypatch, capsys):
+    from hypergan.web_autostart import stop_viewer
     monkeypatch.setattr(Viewer, 'wait_ready', lambda *args: pytest.fail('automatic startup waited'))
-    with training_viewer(tmp_path / 'pending'):
-        pass
+    root = tmp_path / 'pending'
+    try:
+        with training_viewer(root):
+            pass
+    finally:
+        stop_viewer(root)
     with bind_loopback() as occupied:
         port = occupied.getsockname()[1]
-        with training_viewer(tmp_path / 'pending', port=port) as viewer:
+        with training_viewer(root, port=port) as viewer:
             assert viewer is None
         with pytest.raises(OSError):
-            with training_viewer(tmp_path / 'pending', required=True, port=port):
+            with training_viewer(root, required=True, port=port):
                 pytest.fail('numerical work started after failed preflight')
     assert 'training continues headless' in capsys.readouterr().err
 
 
-def test_viewer_crash_does_not_fail_training_and_exception_cleans_up(tmp_path):
-    with pytest.raises(ValueError, match='numerical failure'):
-        with training_viewer(tmp_path / 'pending', required=True) as viewer:
-            os.kill(viewer.info['processes']['server'], signal.SIGTERM)
-            until(lambda: not __import__('hypergan.web_autostart', fromlist=['_probe'])._probe(viewer.session))
-            assert viewer.process.is_alive()
-            raise ValueError('numerical failure')
-    assert not viewer.process.is_alive()
-    assert not viewer.credential_path.exists()
+def test_numerical_failure_keeps_viewer_and_viewer_failure_does_not_fail_training(tmp_path):
+    from hypergan.web_autostart import _probe, stop_viewer
+    root = tmp_path / 'pending'
+    try:
+        with pytest.raises(ValueError, match='numerical failure'):
+            with training_viewer(root, required=True) as viewer:
+                raise ValueError('numerical failure')
+        assert _probe(viewer.session)
+        with training_viewer(root, required=True) as reused:
+            os.kill(reused.info['processes']['server'], signal.SIGTERM)
+            until(lambda: reused.failed.is_set())
+            # This remains an observation failure, independent of numerical work.
+            assert not _probe(reused.session)
+        until(lambda: not viewer.credential_path.exists())
+    except BaseException:
+        from hypergan.web_autostart import _registry
+        log = _registry(root) / 'viewer.log'
+        if log.exists():
+            print(log.read_text(errors='replace'), file=sys.stderr)
+        raise
+    finally:
+        stop_viewer(root)
 
 
-def test_killed_parent_cleans_up_server_and_credentials(tmp_path):
+@pytest.mark.parametrize('ending', ['normal', 'term', 'kill'])
+def test_parent_exit_or_signal_leaves_server_available(tmp_path, ending):
+    from hypergan.web_autostart import _probe, _session, stop_viewer
     script = tmp_path / 'parent.py'
     info = tmp_path / 'info.json'
-    script.write_text('''from hypergan.web_autostart import training_viewer
-import json, time
+    root = tmp_path / 'pending'
+    script.write_text("""from hypergan.web_autostart import training_viewer
+import json, time, sys
 from pathlib import Path
 if __name__ == '__main__':
     with training_viewer(Path(__file__).parent / 'pending', required=True) as viewer:
         Path(__file__).with_name('info.json').write_text(json.dumps(viewer.info))
-        time.sleep(60)
-''')
-    process = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if sys.argv[1] != 'normal':
+            time.sleep(60)
+""")
+    process = subprocess.Popen([sys.executable, str(script), ending], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
         until(info.exists)
         record = json.loads(info.read_text())
-        process.kill()
+        if ending == 'term':
+            process.terminate()
+        elif ending == 'kill':
+            process.kill()
         process.wait(5)
-        until(lambda: not Path(record['session_file']).exists())
-        port = int(record['origin'].rsplit(':', 1)[1])
-        def disconnected():
-            with socket.socket() as client:
-                return client.connect_ex(('127.0.0.1', port)) != 0
-        until(disconnected)
+        assert _probe(_session(record))
+        # A fresh CLI owns shutdown; no launcher process needs to remain alive.
+        result = subprocess.run([sys.executable, '-m', 'hypergan', 'stop-server', str(root)],
+                                capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)['status'] == 'stopped'
+        assert not Path(record['session_file']).exists()
     finally:
         if process.poll() is None:
             process.kill()
             process.wait(5)
         process.stderr.close()
+        stop_viewer(root)
 
 
 def test_cli_explicit_bind_preflight_before_numerical_import_or_run_creation(tmp_path, monkeypatch, capsys):
@@ -142,51 +176,6 @@ def test_cli_explicit_bind_preflight_before_numerical_import_or_run_creation(tmp
                      str(occupied.getsockname()[1])]) == 1
     assert not root.exists()
     assert capsys.readouterr().out == ''
-
-
-_STOP_OWNER_DEATH = '''
-from hypergan import web_autostart as web
-from pathlib import Path
-import faulthandler,json,os,signal,sys,time
-
-real_broker,real_project=web._broker,web._project
-
-def interrupted_server(root,listener,session,stop):
-    # Kill inside the old Event's condition critical section. Lock-free stop
-    # flags have no cross-process critical section to interrupt.
-    condition=getattr(stop,'_cond',None)
-    if condition is not None:
-        condition.acquire()
-    (root.parent/'server.pid').write_text(str(os.getpid()))
-    time.sleep(60)
-
-def recorded_project(root,stop):
-    (root.parent/'projector.pid').write_text(str(os.getpid()))
-    real_project(root,stop)
-
-def fault_broker(*args):
-    web._server,web._project=interrupted_server,recorded_project
-    real_broker(*args)
-
-if __name__ == '__main__':
-    faulthandler.enable()
-    faulthandler.dump_traceback_later(10,repeat=True)
-    web._broker=fault_broker
-    directory=Path(sys.argv[1])
-    viewer=web.Viewer(directory/'pending')
-    (directory/'credential-path.json').write_text(json.dumps(str(viewer.credential_path)))
-    deadline=time.monotonic()+10
-    while not all((directory/name).exists() for name in ('server.pid','projector.pid')):
-        if time.monotonic()>deadline:
-            raise RuntimeError('worker PID receipt timed out')
-        time.sleep(.02)
-    pids=[viewer.process.pid,*[int((directory/name).read_text()) for name in ('server.pid','projector.pid')]]
-    (directory/'pids.json').write_text(json.dumps(pids))
-    os.kill(pids[1],signal.SIGTERM)
-    started=time.monotonic()
-    viewer.close()
-    (directory/'closed.json').write_text(json.dumps({'seconds':time.monotonic()-started}))
-'''
 
 
 def _process_running(pid):
@@ -211,37 +200,183 @@ def _process_running(pid):
     return not (stat.exists() and stat.read_text().split()[2] == 'Z')
 
 
-def test_killed_stop_owner_cannot_strand_broker_or_projector(tmp_path):
-    script = tmp_path / 'stop_owner.py'
-    script.write_text(_STOP_OWNER_DEATH)
-    with (tmp_path / 'parent.log').open('wb') as log:
-        process = subprocess.Popen([sys.executable, str(script), str(tmp_path)], stdout=log, stderr=log)
-        passed = False
+def test_broker_death_cleans_children_and_stale_registry_can_restart(tmp_path):
+    from hypergan.web_autostart import _probe, stop_viewer
+    root = tmp_path / 'pending'
+    viewer = Viewer(root)
+    try:
+        viewer.wait_ready()
+        children = list(viewer.info['processes'].values())
+        viewer.process.kill()
+        viewer.process.wait(3)
+        until(lambda: not any(_process_running(pid) for pid in children))
+        assert not _probe(viewer.session)
+        with training_viewer(root, required=True) as restarted:
+            assert restarted.info['server_instance_id'] != viewer.info['server_instance_id']
+            assert _probe(restarted.session)
+    finally:
+        viewer.detach()
+        stop_viewer(root)
+
+
+def test_reuse_checks_explicit_settings_and_concurrent_attach(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from hypergan.web_autostart import stop_viewer
+    root = tmp_path / 'pending'
+    viewers = []
+    try:
+        def attach(_):
+            viewer = Viewer(root, host='127.0.0.1', auth='token')
+            viewer.wait_ready()
+            return viewer
+        with ThreadPoolExecutor(max_workers=3) as workers:
+            viewers = list(workers.map(attach, range(3)))
+        assert len({viewer.info['server_instance_id'] for viewer in viewers}) == 1
+        assert len({viewer.info['supervisor_pid'] for viewer in viewers}) == 1
+        for options in [dict(auth='none'), dict(host='0.0.0.0'), dict(port=1)]:
+            with pytest.raises(ValueError, match='different bind/auth'):
+                Viewer(root, **options)
+    finally:
+        for viewer in viewers:
+            viewer.detach()
+        stop_viewer(root)
+
+
+def test_stop_is_bounded_when_child_cannot_cooperate(tmp_path):
+    from hypergan.web_autostart import stop_viewer
+    viewer = Viewer(tmp_path / 'pending')
+    try:
+        viewer.wait_ready()
+        children = list(viewer.info['processes'].values())
+        # Windows has no SIGSTOP; a killed child exercises the failed-service
+        # cleanup path there, while POSIX forces escalation of a stuck child.
+        os.kill(viewer.info['processes']['projector'],
+                signal.SIGTERM if os.name == 'nt' else signal.SIGSTOP)
+        started = time.monotonic()
+        viewer.close()
+        assert time.monotonic() - started < 7
+        until(lambda: not any(_process_running(pid) for pid in children))
+    finally:
+        viewer.detach()
+        stop_viewer(tmp_path / 'pending')
+
+
+def test_short_optional_attempt_prints_discovery_and_startup_can_be_cancelled(tmp_path, capsys):
+    from hypergan.web_autostart import _registry, stop_viewer, viewer_status
+    root = tmp_path / 'pending'
+    try:
+        with training_viewer(root):
+            pass
+        assert 'hypergan server-status' in capsys.readouterr().err
+        until(lambda: viewer_status(root)['status'] == 'ready')
+        result = subprocess.run([sys.executable, '-m', 'hypergan', 'server-status', str(root)],
+                                capture_output=True, text=True, timeout=5)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)['origin'].startswith('http://127.0.0.1:')
+        assert 'token' not in json.loads(result.stdout)
+    finally:
+        stop_viewer(root)
+    # A reservation whose launcher died before broker lock acquisition has no
+    # service to stop. Cancel it immediately, with no 15-second startup wait.
+    private = _registry(tmp_path / 'unstarted')
+    atomic_json(private / 'state.json', dict(launch_id='unstarted', status='starting',
+                                           started_at=time.time()))
+    started = time.monotonic()
+    assert stop_viewer(tmp_path / 'unstarted')['status'] == 'stopped'
+    assert time.monotonic() - started < 1
+
+
+def test_failed_terminal_state_publication_still_reaps_and_removes_credentials(tmp_path):
+    from hypergan.web_autostart import _read_state, _registry, _locked
+    root = tmp_path / 'pending'
+    private = _registry(root)
+    launch_id = 'terminal-write-fault'
+    atomic_json(private / 'state.json', dict(schema_version=1, launch_id=launch_id, root=str(root),
+        host='127.0.0.1', auth='token', port=0, mode='explicit', status='starting', started_at=time.time()))
+    script = tmp_path / 'broker.py'
+    script.write_text('''from pathlib import Path
+import sys
+from hypergan import run_state, web_autostart
+if __name__ == '__main__':
+    original = run_state.atomic_json
+    failures = [0]
+    def fail_terminal(path, value):
+        if Path(path).name == 'state.json' and value.get('status') == 'failed':
+            failures[0] += 1
+            if failures[0] == 2:
+                raise PermissionError('injected terminal registry replace failure')
+        return original(path, value)
+    run_state.atomic_json = fail_terminal
+    web_autostart._broker(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
+''')
+    with (tmp_path / 'broker.log').open('wb') as output:
+        process = subprocess.Popen([sys.executable, str(script), str(root), str(private), launch_id],
+                                   stdout=output, stderr=output)
+        record = None
         try:
-            assert process.wait(timeout=18) == 0
-            pids = json.loads((tmp_path / 'pids.json').read_text())
-            until(lambda: not any(_process_running(pid) for pid in pids), timeout=3)
-            assert json.loads((tmp_path / 'closed.json').read_text())['seconds'] < 5
-            credential = json.loads((tmp_path / 'credential-path.json').read_text())
-            assert not Path(credential).exists()
-            passed = True
+            record = until(lambda: (state if (state := _read_state(private))['status'] == 'ready' else None))
+            os.kill(record['processes']['server'], signal.SIGTERM)
+            assert process.wait(timeout=8) != 0
+            assert 'injected terminal registry replace failure' in (tmp_path / 'broker.log').read_text()
+            assert not Path(record['session_file']).exists()
+            assert not _locked(private)
+            until(lambda: not any(_process_running(pid) for pid in record['processes'].values()))
         finally:
             if process.poll() is None:
                 process.kill()
-                process.wait(5)
-            # Preserve failed assertions while cleaning deliberate pre-fix leaks.
-            receipt = tmp_path / 'pids.json'
-            if receipt.exists():
-                for pid in json.loads(receipt.read_text()):
-                    if _process_running(pid):
-                        os.kill(pid, signal.SIGTERM if sys.platform == 'win32' else signal.SIGKILL)
-            credentials = tmp_path / 'credential-path.json'
-            if credentials.exists():
-                path = Path(json.loads(credentials.read_text()))
-                path.unlink(missing_ok=True)
-                try:
-                    path.parent.rmdir()
-                except OSError:
-                    pass
-            if not passed:
-                print((tmp_path / 'parent.log').read_text(), file=sys.stderr)
+                process.wait(timeout=5)
+            if record is not None:
+                until(lambda: not any(_process_running(pid) for pid in record['processes'].values()))
+            credential = private / ('session-' + launch_id + '.json')
+            credential.unlink(missing_ok=True)
+
+
+def test_credential_cleanup_waits_for_own_active_reader(tmp_path, monkeypatch):
+    import threading
+    from hypergan.web_autostart import _cleanup_session, _registry, _session
+    from hypergan.web_session import LocalSession
+    private = _registry(tmp_path / 'pending')
+    launch_id = 'credential-read-race'
+    session = LocalSession(8123, auth='token')
+    credential = session.write_credentials(private / ('session-' + launch_id + '.json'))
+    state = dict(session_file=str(credential), server_instance_id=session.instance_id)
+    opened, release, cleanup_started, cleaned = [threading.Event() for _ in range(4)]
+    failures = []
+    read_text = Path.read_text
+    def held_read(path, *args, **kwargs):
+        if path != credential:
+            return read_text(path, *args, **kwargs)
+        with path.open(encoding='utf-8') as stream:
+            opened.set()
+            assert release.wait(3), 'test did not release credential reader'
+            return stream.read()
+    monkeypatch.setattr(Path, 'read_text', held_read)
+    def read():
+        try:
+            assert _session(state).instance_id == session.instance_id
+        except BaseException as exc:
+            failures.append(exc)
+    def cleanup():
+        cleanup_started.set()
+        try:
+            _cleanup_session(private, launch_id)
+            cleaned.set()
+        except BaseException as exc:
+            failures.append(exc)
+    reader, remover = threading.Thread(target=read), threading.Thread(target=cleanup)
+    reader.start()
+    try:
+        assert opened.wait(3)
+        remover.start()
+        assert cleanup_started.wait(3)
+        assert not cleaned.wait(.1), 'cleanup passed an active credential reader'
+        assert credential.exists()
+    finally:
+        release.set()
+        reader.join(3)
+        if remover.ident is not None:
+            remover.join(3)
+        credential.unlink(missing_ok=True)
+    assert not reader.is_alive() and not remover.is_alive()
+    assert not failures, failures
+    assert cleaned.is_set()

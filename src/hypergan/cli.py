@@ -32,7 +32,9 @@ def _run_options(parser, *, resume=False):
     server = parser.add_mutually_exclusive_group()
     server.add_argument("--server", action="store_true", help="require the local viewer before training starts")
     server.add_argument("--no-server", action="store_true", help="train without web imports or listening sockets")
-    parser.add_argument("--server-port", type=int, help="require a specific loopback port (default: automatic)")
+    parser.add_argument("--server-port", type=int, help="require a specific port (default: automatic)")
+    parser.add_argument("--server-host", help="listen address (default: 0.0.0.0)")
+    parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--open", action="store_true", help="require the viewer and open its sign-in page")
     parser.add_argument("--checkpoint-every", type=_positive_int, default=None if resume else 100,
                         help="save a complete checkpoint every N updates (default: 100; resume inherits)")
@@ -40,8 +42,10 @@ def _run_options(parser, *, resume=False):
                         help="stop at an update boundary after this attempt's wall-time budget")
     parser.add_argument("--stop-after-steps", type=_positive_int,
                         help="stop this attempt after N updates, preserving the total learning-rate schedule")
+    parser.add_argument("--progress-every", type=_positive_int,
+                        help="print routine progress every N updates (default: 100; saved UI setting inherits)")
     parser.add_argument("--progress-json", action="store_true",
-                        help="stream flushed JSONL events and a final result to stdout")
+                        help="stream cadence-filtered JSONL progress, lifecycle events and a final result to stdout")
     previews = parser.add_mutually_exclusive_group()
     previews.add_argument("--preview-every", type=_positive_int,
                           help="publish an isolated EMA preview every N complete updates")
@@ -97,9 +101,15 @@ def _parser():
     contributions.add_argument("--max-bytes", type=_positive_int, default=1048576)
     serve = commands.add_parser("serve", help="Serve an existing run over the local API and browser UI (web extra)")
     serve.add_argument("run_dir", type=Path)
-    serve.add_argument("--port", type=int, default=0, help="loopback port; default chooses an available port")
+    serve.add_argument("--port", type=int, default=0, help="listen port; default chooses an available port")
+    serve.add_argument("--host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
+    serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     serve.add_argument("--session-file", type=Path, help="new private credential file outside the run")
     serve.add_argument("--open", action="store_true", help="open the local viewer in a browser")
+    server_status = commands.add_parser("server-status", help="Read the automatic viewer URL, status and log location")
+    server_status.add_argument("run_dir", type=Path)
+    stop_server = commands.add_parser("stop-server", help="Stop the persistent automatic viewer for a run")
+    stop_server.add_argument("run_dir", type=Path)
     from .evaluation_cli import add_evaluate_parser
     add_evaluate_parser(commands)
     checkpoint = commands.add_parser("checkpoint", help="Request a checkpoint at the trainer's next safe boundary")
@@ -137,13 +147,13 @@ def _warnings(config):
 
 def _training_viewer(args):
     if args.no_server:
-        if args.open or args.server_port is not None:
-            raise ValueError("--no-server cannot be combined with --open or --server-port")
+        if args.open or args.server_port is not None or args.server_host is not None or args.auth is not None:
+            raise ValueError("--no-server cannot be combined with --open, --server-port, --server-host or --auth")
         from contextlib import nullcontext
         return nullcontext()
     from .web_autostart import training_viewer
-    return training_viewer(args.run_dir, required=args.server or args.open or args.server_port is not None,
-                           port=args.server_port if args.server_port is not None else 0, open_browser=args.open)
+    return training_viewer(args.run_dir, required=args.server or args.open or args.server_port is not None or args.server_host is not None or args.auth is not None,
+                           port=args.server_port if args.server_port is not None else 0, host=args.server_host, auth=args.auth, open_browser=args.open)
 
 
 def main(argv=None):
@@ -181,7 +191,16 @@ def _dispatch(args, *, output=None):
         elif args.command == "serve":
             from .web_launch import serve
 
-            serve(args.run_dir, port=args.port, session_file=args.session_file, open_browser=args.open)
+            serve(args.run_dir, port=args.port, host=args.host, auth=args.auth,
+                  session_file=args.session_file, open_browser=args.open)
+        elif args.command == "server-status":
+            from .web_autostart import viewer_status
+
+            _print_json(viewer_status(args.run_dir))
+        elif args.command == "stop-server":
+            from .web_autostart import stop_viewer
+
+            _print_json(stop_viewer(args.run_dir))
         elif args.command == "contributions":
             from .event_views import MapSpec, read_projection_page
 
@@ -287,6 +306,7 @@ def _dispatch(args, *, output=None):
             else:
                 prepared = prepare_resume(args.run_dir, args.checkpoint, args.config, **options)
             _warnings(prepared.config)
+            output.configure(args.run_dir, progress_every=args.progress_every)
             with _training_viewer(args):
                 output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
         elif args.command == "sample":

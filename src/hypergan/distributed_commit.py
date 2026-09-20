@@ -177,7 +177,7 @@ def _validate_prepared(run_dir, receipt, *, run_id, attempt_id, controller_id, c
     except (ValueError, RecursionError) as exc:
         raise ValueError('Invalid prepared checkpoint manifest JSON') from exc
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    if (not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids'}
+    if (not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids', 'event_boundary'}
             or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND):
         raise ValueError('Invalid prepared checkpoint manifest schema')
     if (info['run_id'], info['attempt_id']) != (run_id, attempt_id) or type(info['step']) is not int or info['step'] != step:
@@ -269,7 +269,7 @@ class CheckpointCommitAuthority:
         if os.getpid() != self._pid or self._closed:
             raise RuntimeError('Checkpoint commit authority belongs to another process or is closed')
 
-    def commit(self, receipt, *, expected_command_sequence):
+    def commit(self, receipt, *, expected_command_sequence, expected_event_boundary=None):
         self._active()
         validate_fence(self._controller_id, expected_command_sequence)
         if expected_command_sequence <= self._consumed_sequence:
@@ -277,6 +277,8 @@ class CheckpointCommitAuthority:
         staging, target, info = _validate_prepared(self._root.parent, receipt,
             run_id=self._run_id, attempt_id=self._attempt_id, controller_id=self._controller_id,
             command_sequence=expected_command_sequence, identity=self._identity)
+        if expected_event_boundary is not None and _json_bytes(info.get('event_boundary')) != _json_bytes(expected_event_boundary):
+            raise ValueError('Prepared checkpoint event boundary differs from the controller durable prefix')
         self._consumed_sequence = expected_command_sequence
         return _publish(staging, target, info)
 

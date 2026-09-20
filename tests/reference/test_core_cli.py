@@ -23,8 +23,8 @@ def cli(tmp_path, *args):
 def test_cli_stop_resume_and_json_progress(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
-    first = cli(tmp_path, "train", config, "--run-dir", run, "--stop-after-steps", 2,
-                "--checkpoint-every", 1, "--preview-every", 1, "--preview-keep", 2, "--progress-json")
+    first = cli(tmp_path, "train", config, "--run-dir", run, "--no-server", "--stop-after-steps", 2,
+                "--checkpoint-every", 1, "--preview-every", 1, "--preview-keep", 2, "--progress-json", "--progress-every", 1)
     assert first.returncode == 0, first.stderr
     rows = [json.loads(line) for line in first.stdout.splitlines()]
     assert [row["step"] for row in rows if row["event"] == "train"] == [1, 2]
@@ -34,7 +34,7 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     assert [record["step"] for record in previews["previews"]] == [1, 2]
     old_sample = Path(before["sample_path"])
     saved = old_sample.read_bytes()
-    second = cli(tmp_path, "resume", run)
+    second = cli(tmp_path, "resume", run, "--no-server")
     assert second.returncode == 0, second.stderr
     after = json.loads(second.stdout)
     assert after["status"] == "complete" and after["steps"] == 5
@@ -53,7 +53,7 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
 def test_sampling_preserves_global_rng_and_existing_outputs(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
-    result = cli(tmp_path, "train", config, "--run-dir", run)
+    result = cli(tmp_path, "train", config, "--run-dir", run, "--no-server")
     assert result.returncode == 0, result.stderr
     torch_state = torch.get_rng_state().clone()
     python_state = random.getstate()
@@ -105,7 +105,7 @@ def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
     # bounded attempt finishes. The reader keeps draining progress throughout.
     process = subprocess.Popen(
         [sys.executable, "-I", "-m", "hypergan", "train", str(config), "--run-dir", str(run),
-         "--steps", "1000", "--stop-after-steps", "100", "--progress-json"],
+         "--steps", "1000", "--stop-after-steps", "100", "--progress-json", "--no-server"],
         cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     try:
@@ -153,45 +153,66 @@ def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path):
     config = write_default(tmp_path / 'project', device='cpu')
     headless = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server')
     assert headless.returncode == 0, headless.stderr
-    first = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'viewed', '--server',
-                '--stop-after-steps', 2, '--progress-json')
-    assert first.returncode == 0, first.stderr
-    assert 'Viewer:' in first.stderr
-    rows = [json.loads(line) for line in first.stdout.splitlines()]
-    assert rows[-1]['manifest']['steps'] == 2
-    resumed = cli(tmp_path, 'resume', tmp_path / 'viewed', '--server')
-    assert resumed.returncode == 0, resumed.stderr
-    expected, actual = json.loads(headless.stdout), json.loads(resumed.stdout)
-    assert expected['steps'] == actual['steps'] == 5
-    expected_sample = json.loads(Path(expected['sample_path']).read_text())
-    actual_sample = json.loads(Path(actual['sample_path']).read_text())
-    for sample_record in (expected_sample, actual_sample):
-        sample_record.pop('identity')
-        sample_record.pop('bundle_sha256')
-    assert expected_sample == actual_sample
-    def same_state(left, right):
-        if isinstance(left, torch.Tensor):
-            assert torch.equal(left, right)
-        elif isinstance(left, dict):
-            assert left.keys() == right.keys()
-            for key in left:
-                same_state(left[key], right[key])
-        elif isinstance(left, (list, tuple)):
-            assert len(left) == len(right)
-            for a, b in zip(left, right):
-                same_state(a, b)
-        else:
-            assert left == right
-    same_state(torch.load(Path(expected['checkpoint_path']) / 'state.pt', weights_only=True),
-               torch.load(Path(actual['checkpoint_path']) / 'state.pt', weights_only=True))
-    for root in [tmp_path / 'headless', tmp_path / 'viewed']:
-        events = [json.loads(line) for line in (root / 'events.jsonl').read_text().splitlines()]
-        losses = [{key: value for key, value in event['metrics'].items() if not key.startswith('timing/')}
-                  for event in events if event['event'] == 'train']
-        if root.name == 'headless':
-            expected_losses = losses
-        else:
-            assert losses == expected_losses
-    receipts = list((tmp_path / 'viewed' / 'observations').glob('viewer-*.json'))
-    assert len(receipts) == 2
-    assert all(json.loads(path.read_text())['status'] == 'stopped' for path in receipts)
+    viewed = tmp_path / 'viewed'
+    try:
+        first = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'viewed', '--server',
+                    '--stop-after-steps', 2, '--progress-json')
+        assert first.returncode == 0, first.stderr
+        assert 'Viewer:' in first.stderr
+        rows = [json.loads(line) for line in first.stdout.splitlines()]
+        assert rows[-1]['manifest']['steps'] == 2
+        initial_status = cli(tmp_path, 'server-status', viewed)
+        assert initial_status.returncode == 0, initial_status.stderr
+        initial_viewer = json.loads(initial_status.stdout)
+        assert initial_viewer['status'] == 'ready'
+        resumed = cli(tmp_path, 'resume', viewed, '--server')
+        assert resumed.returncode == 0, resumed.stderr
+        expected, actual = json.loads(headless.stdout), json.loads(resumed.stdout)
+        assert expected['steps'] == actual['steps'] == 5
+        expected_sample = json.loads(Path(expected['sample_path']).read_text())
+        actual_sample = json.loads(Path(actual['sample_path']).read_text())
+        for sample_record in (expected_sample, actual_sample):
+            sample_record.pop('identity')
+            sample_record.pop('bundle_sha256')
+        assert expected_sample == actual_sample
+        def same_state(left, right):
+            if isinstance(left, torch.Tensor):
+                assert torch.equal(left, right)
+            elif isinstance(left, dict):
+                assert left.keys() == right.keys()
+                for key in left:
+                    same_state(left[key], right[key])
+            elif isinstance(left, (list, tuple)):
+                assert len(left) == len(right)
+                for a, b in zip(left, right):
+                    same_state(a, b)
+            else:
+                assert left == right
+        same_state(torch.load(Path(expected['checkpoint_path']) / 'state.pt', weights_only=True),
+                   torch.load(Path(actual['checkpoint_path']) / 'state.pt', weights_only=True))
+        for root in [tmp_path / 'headless', tmp_path / 'viewed']:
+            events = [json.loads(line) for line in (root / 'events.jsonl').read_text().splitlines()]
+            losses = [{key: value for key, value in event['metrics'].items() if not key.startswith('timing/')}
+                      for event in events if event['event'] == 'train']
+            if root.name == 'headless':
+                expected_losses = losses
+            else:
+                assert losses == expected_losses
+        current_status = cli(tmp_path, 'server-status', viewed)
+        assert current_status.returncode == 0, current_status.stderr
+        current_viewer = json.loads(current_status.stdout)
+        assert current_viewer['status'] == 'ready'
+        assert current_viewer['server_instance_id'] == initial_viewer['server_instance_id']
+        assert current_viewer['supervisor_pid'] == initial_viewer['supervisor_pid']
+        assert current_viewer['processes'] == initial_viewer['processes']
+        receipts = list((viewed / 'observations').glob('viewer-*.json'))
+        assert len(receipts) == 1
+        assert json.loads(receipts[0].read_text())['status'] == 'ready'
+        stopped = cli(tmp_path, 'stop-server', viewed)
+        assert stopped.returncode == 0, stopped.stderr
+        assert json.loads(stopped.stdout)['status'] == 'stopped'
+        assert json.loads(receipts[0].read_text())['status'] == 'stopped'
+        assert not Path(current_viewer['session_file']).exists()
+    finally:
+        # Test failures must not leave the now-persistent viewer or projector.
+        cli(tmp_path, 'stop-server', viewed)

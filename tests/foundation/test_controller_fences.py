@@ -205,7 +205,9 @@ def test_manual_save_is_optional_only_while_execution_remains_usable(tmp_path, f
     assert receipt['status'] == ('pending' if fatal else 'rejected')
     assert instances[0].closed
     if fatal:
-        assert manifest['steps'] == 1 and manifest['last_durable_step'] == 0
+        # Fast updates may finish before the 250 ms request poll. The forced
+        # terminal poll still executes the request before final checkpointing.
+        assert 1 <= manifest['steps'] <= 2 and manifest['last_durable_step'] == 0
         assert not manifest['observation_errors']
 
 
@@ -273,3 +275,51 @@ def test_unclassified_observer_execution_failure_remains_fatal(tmp_path):
     assert manifest['steps'] == 1 and manifest['last_durable_step'] == 0
     assert manifest['possible_lost_steps'] == 1 and not manifest['observation_errors']
     assert instances[0].closed
+
+
+def test_training_continues_while_event_disk_is_stalled_and_reports_queue_loss(tmp_path, monkeypatch):
+    from threading import Event
+    import hypergan.run_controller as controller
+    from hypergan.observation_io import ObservationIO
+    from hypergan.run_events import read_event_page
+    from hypergan.run_state import EventJournal, validate_event_boundary
+
+    entered, release = Event(), Event()
+    append = EventJournal.append
+    def slow_append(self, event):
+        if event['event'] == 'train':
+            entered.set()
+            assert release.wait(5)
+        return append(self, event)
+    class SmallQueue(ObservationIO):
+        def __init__(self, run_dir, attempt_dir):
+            super().__init__(run_dir, attempt_dir, capacity=2)
+    monkeypatch.setattr(EventJournal, 'append', slow_append)
+    monkeypatch.setattr(controller, 'ObservationIO', SmallQueue)
+    path, root, factory, _, _, instances = setup(tmp_path)
+    original = factory
+    def execution_factory(config):
+        execution = original(config)
+        update = execution.update
+        def advance():
+            if execution.step == 1:
+                assert entered.wait(5)
+            value = update()
+            if value.step == 10:
+                release.set()
+            return value
+        execution.update = advance
+        return execution
+    execution_factory.environment = original.environment
+    try:
+        result = run_train(path, root, steps=10, execution_factory=execution_factory)
+    finally:
+        release.set()
+    assert instances[0].step == 10
+    assert result['dropped_train_events'] >= 1
+    events = read_event_page(root)['events']
+    assert [event['sequence'] for event in events] == list(range(1, len(events) + 1))
+    assert sum(event.get('observation_gap', {}).get('dropped_train_events', 0) for event in events) == result['dropped_train_events']
+    checkpoint = json.loads((__import__('pathlib').Path(result['checkpoint_path']) / 'manifest.json').read_text())
+    assert checkpoint['step'] == checkpoint['event_boundary']['step'] == 10
+    validate_event_boundary(root, checkpoint)

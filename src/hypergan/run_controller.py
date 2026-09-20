@@ -306,7 +306,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     manifest.update(attempt_id=attempt_id, attempt_index=index, attempt_dir=str(attempt_dir),
                     status='initializing', checkpoint_every=checkpoint_every, stop_reason=None,
                     possible_lost_steps=0)
-    for key in ('error', 'shutdown_error', 'sample_path', 'bundle_path'):
+    for key in ('error', 'shutdown_error', 'metric_shutdown_error', 'progress_observation',
+                'sample_path', 'bundle_path'):
         manifest.pop(key, None)
     atomic_json(run_dir / 'manifest.json', manifest)
     journal = ObservationIO(run_dir, attempt_dir)

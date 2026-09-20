@@ -35,6 +35,7 @@ class PreviewWorker:
     def submit(self, temporary, descriptor, identity, step, run_dir, keep, *, snapshot_state=None):
         if self.busy:
             raise RuntimeError('Preview worker already has an outstanding snapshot')
+        self._cancel.clear()
         future = Future()
         self._future = future
         self._deadline = time.monotonic() + self.timeout
@@ -78,7 +79,14 @@ class PreviewWorker:
 
     def poll(self, *, wait=False):
         future = self._future
-        if future is None or (not wait and not future.done()):
+        if future is None:
+            return None
+        if not future.done() and time.monotonic() >= self._deadline + 8:
+            self._cancel.set()
+            failure = TimeoutError('Preview persistence/rendering exceeded its deadline and cleanup grace')
+            failure.preview_context = dict(self._source)
+            raise failure
+        if not wait and not future.done():
             return None
         try:
             # Waiting is reserved for terminal cleanup. CPUWorkerService owns

@@ -194,7 +194,8 @@ def test_blocked_snapshot_storage_allows_updates_and_preserves_complete_state(tm
     assert not list((tmp_path / 'viewed').glob('.preview-*'))
 
 
-def test_stalled_snapshot_storage_has_terminal_deadline_and_source_context(tmp_path, monkeypatch):
+@pytest.mark.parametrize('wait', [False, True])
+def test_stalled_snapshot_storage_has_terminal_deadline_and_source_context(tmp_path, monkeypatch, wait):
     import hypergan.preview_snapshot as snapshots
     entered, release = Event(), Event()
     def stalled(*args, **kwargs):
@@ -209,7 +210,7 @@ def test_stalled_snapshot_storage_has_terminal_deadline_and_source_context(tmp_p
         assert entered.wait(5)
         worker._deadline = time.monotonic() - 9
         with pytest.raises(TimeoutError, match='deadline and cleanup grace') as failure:
-            worker.poll(wait=True)
+            worker.poll(wait=wait)
         assert failure.value.preview_context == {'step': 3, 'identity': identity}
         assert worker._cancel.is_set()
     finally:
@@ -259,3 +260,38 @@ def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path
     assert time.monotonic() - started < 3
     assert result['stop_reason'] == 'SIGTERM' and result['cancelled_previews'] == 1
     assert not result['observation_errors']
+
+
+def test_controller_terminal_poll_enforces_stalled_snapshot_storage_deadline(tmp_path, monkeypatch):
+    import hypergan.preview_snapshot as snapshots
+    from hypergan.config import write_default
+    from hypergan.single_execution import SingleProcessExecution
+    from hypergan.training import train
+
+    entered = Event()
+    instances = []
+    original_preview = SingleProcessExecution.preview
+    def preview(execution, *args, **kwargs):
+        result = original_preview(execution, *args, **kwargs)
+        instances.append(execution._previews)
+        return result
+    def stalled(state, path, *, cancellation_event, **kwargs):
+        entered.set()
+        assert cancellation_event.wait(5), 'Controller terminal poll ignored snapshot deadline'
+        raise RuntimeError('Cancelled stalled snapshot storage')
+    def observe(row):
+        if row['event'] == 'train' and row['step'] == 5:
+            assert entered.wait(5)
+            instances[0]._deadline = time.monotonic() - 9
+    monkeypatch.setattr(SingleProcessExecution, 'preview', preview)
+    monkeypatch.setattr(snapshots, 'write_snapshot', stalled)
+    config = write_default(tmp_path / 'config', device='cpu')
+    started = time.monotonic()
+    result = train(config, tmp_path / 'run', preview_every=1, on_event=observe)
+    assert time.monotonic() - started < 3
+    assert result['steps'] == 5 and result['status'] == 'complete'
+    errors = result['observation_errors']
+    assert len(errors) == 1 and errors[0]['source'] == 'preview' and errors[0]['step'] == 1
+    assert 'deadline and cleanup grace' in errors[0]['error']
+    assert not instances[0]._thread.is_alive()
+    assert not list((tmp_path / 'run').glob('.preview-*'))

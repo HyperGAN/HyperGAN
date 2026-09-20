@@ -112,17 +112,26 @@ They remain available when the corresponding built-in published metric is
 removed. Factory construction/description changes create a different definition
 hash on resume, independently of numerical recipe identity.
 
-A selected custom call starts a fresh process and has visible startup cost;
-choose a cadence suited to that cost. Built-in scalars require no worker. The
-per-metric timeout includes worker startup, evaluation and shutdown, with the
-broker's cleanup grace additional. There is one synchronous call at a time and
-no unbounded queue or implicit retries. `on_error = "disable"` records a visible
-reason and disables that metric for the remainder of the attempt; a new attempt
-preflights it again. `on_error = "fail"` fails the attempt. Because transforms
-run after a complete numerical update, a required failure may leave a completed
-but unpublished update beyond the last durable checkpoint; resume replays from
-the selected complete checkpoint. Disabling optional publication never disables
-mandatory numerical validation.
+A selected custom call queues a snapshot of primitive scalars without waiting
+for the factory. A background dispatcher runs one fresh CPU worker at a time,
+with one outstanding observation per metric (at most 32 total, including
+completed results). A busy metric drops new observations with an explicit
+`dropped` status; accepted observations record `queued`. Results arrive in
+`metric` events at their original training step. Choose a cadence suited to
+worker startup cost; built-in scalars require no plugin worker.
+
+The per-metric timeout includes queue time, worker startup, evaluation and
+shutdown, with broker cleanup grace additional. Scalar workers hide CUDA
+devices, cap numerical-library CPU threads and lower process priority where
+supported. These defaults apply only to the disposable worker. There are no
+implicit retries. `on_error = "disable"` records a visible reason and disables
+that metric for the remainder of the attempt; a new attempt preflights it again.
+`on_error = "fail"` fails the attempt when its asynchronous result is collected.
+Final completion drains accepted observations before its final checkpoint;
+exceptional shutdown cancels outstanding observations and reaps their workers.
+A required failure can therefore arrive after subsequent completed updates;
+resume replays from the selected complete checkpoint. Disabling optional
+publication never disables mandatory numerical validation.
 
 Factories are trusted Python. Input/output bytes and deadlines are bounded;
 arbitrary allocations, external state and subprocesses created by plugin code

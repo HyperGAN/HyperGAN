@@ -204,6 +204,7 @@ def _broker(root, private, launch_id):
     from .web_launch import bind_server
     from .web_session import LocalSession
 
+    from contextlib import ExitStack
     context = mp.get_context('spawn')
     stop = _StopFlag(context)
     children = {}
@@ -213,10 +214,14 @@ def _broker(root, private, launch_id):
         stop.set()
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGINT, terminate)
-    with run_lock(private / 'service'):
-        state = _read_state(private)
-        if state['launch_id'] != launch_id:
-            return
+    with ExitStack() as ownership:
+        # Serialize the startup handoff with cancellation. A stop command can
+        # cancel an unstarted broker without waiting on a reservation timeout.
+        with _launch_lock(private):
+            ownership.enter_context(run_lock(private / 'service'))
+            state = _read_state(private)
+            if state['launch_id'] != launch_id or state['status'] == 'stopped':
+                return
         def publish(status, error=None):
             state.update(status=status, error=error, supervisor_pid=os.getpid(),
                          processes={name: child.pid for name, child in children.items()})
@@ -279,7 +284,7 @@ def _broker(root, private, launch_id):
 
 def stop_viewer(root, *, launch_id=None, timeout=8):
     """Stop only the registered incarnation; never signal a PID from a file."""
-    from .run_state import run_lock
+    from .run_state import atomic_json
     private = _registry(root)
     with _launch_lock(private):
         state = _read_state(private)
@@ -289,6 +294,10 @@ def stop_viewer(root, *, launch_id=None, timeout=8):
             (private / ('session-' + state['launch_id'] + '.json')).unlink(missing_ok=True)
             return {'status': 'not_running'}
         launch_id = state['launch_id']
+        if not _locked(private):
+            state['status'] = 'stopped'
+            atomic_json(private / 'state.json', state)
+            return {'status': 'stopped', 'server_instance_id': state.get('server_instance_id')}
         (private / ('stop-' + launch_id)).touch(mode=0o600)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -297,6 +306,18 @@ def stop_viewer(root, *, launch_id=None, timeout=8):
             return {'status': 'stopped', 'server_instance_id': state.get('server_instance_id')}
         time.sleep(.05)
     raise RuntimeError('Viewer shutdown timed out; inspect ' + str(private / 'viewer.log'))
+
+
+def viewer_status(root):
+    """Read launch/connection information without starting a viewer or training."""
+    private = _registry(root)
+    state = _read_state(private)
+    if state is None:
+        return {'status': 'not_running'}
+    result = dict(state, log_file=str(private / 'viewer.log'))
+    if not _running(private, state) and state['status'] not in {'stopped', 'failed'}:
+        result['status'] = 'not_running'
+    return result
 
 
 class Viewer:
@@ -353,6 +374,8 @@ class Viewer:
                         raise
         self.launch_id = state['launch_id']
         self.credential_path = self.private / ('session-' + self.launch_id + '.json')
+        print(f'Viewer status: hypergan server-status {str(self.root)!r}\n'
+              f'Stop viewer: hypergan stop-server {str(self.root)!r}', file=sys.stderr, flush=True)
         self.monitor = threading.Thread(target=self._monitor, daemon=True)
         self.monitor.start()
 
@@ -374,7 +397,6 @@ class Viewer:
                         if session.auth_mode == 'token':
                             print(f'Credentials: {self.credential_path} (copy its token into the sign-in form)',
                                   file=sys.stderr, flush=True)
-                        print(f'Stop viewer: hypergan stop-server {str(self.root)!r}', file=sys.stderr, flush=True)
                         if self._open_browser:
                             import webbrowser
                             threading.Thread(target=webbrowser.open, args=(session.origin,), daemon=True).start()

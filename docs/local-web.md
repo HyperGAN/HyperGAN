@@ -168,9 +168,12 @@ never used to signal a process. Omitted bind/auth options inherit the active
 server settings. Explicit conflicting options fail with an instruction to stop
 the existing viewer before choosing new settings.
 
-Stop an automatic viewer explicitly:
+Startup immediately prints a discovery command even when a short training
+attempt ends before optional HTTP startup has finished. Read the connection URL,
+private session path, health and log location, or stop the automatic viewer:
 
 ```sh
+hypergan server-status runs/example
 hypergan stop-server runs/example
 ```
 

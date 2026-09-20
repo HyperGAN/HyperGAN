@@ -401,7 +401,7 @@ def test_evaluation_metrics_sort_snapshots_preserve_repeats_and_protocols(real_v
     experiment, session, token, page, context, errors, requests = real_viewer
     experiment.create(2)
     for index, step in enumerate([10000, 30000, 40000, 20000, 20000], 1):
-        publish_evaluation(experiment, f'{index:032x}', 'scalar', 50 - step / 1000 + index / 10, step=step)
+        publish_evaluation(experiment, f'{index:032x}', 'scalar', 50 - step / 1000 + index / 10, step=step, attempt=f'saved-{index}')
     publish_evaluation(experiment, '6'*32, 'scalar', 9.0, step=20000, protocol='d'*64)
     publish_evaluation(experiment, '7'*32, 'scalar', 8.0, step=20000, attempt='recovered-attempt')
     sign_in(page, session, token)
@@ -415,6 +415,7 @@ def test_evaluation_metrics_sort_snapshots_preserve_repeats_and_protocols(real_v
     page.locator('.data-table summary').click()
     rows = page.locator('#values-table tr').filter(has_text='quality')
     assert rows.count() == 7
+    assert rows.evaluate_all('rows => rows.filter(r => r.dataset.metric.endsWith("c".repeat(64))).map(r => Number(r.dataset.step))') == [10000, 20000, 20000, 20000, 30000, 40000]
     # The same-step repeated measurements remain individual exact observations.
     assert rows.filter(has_text='00000000000000000000000000000004').count() == 1
     assert rows.filter(has_text='00000000000000000000000000000005').count() == 1
@@ -459,4 +460,14 @@ def test_ui_console_interval_changes_active_sink_and_persists(real_viewer):
     expect(page.get_by_label('CLI progress every N steps')).to_have_value('4')
     # Console policy writes do not touch the event history or trainer identity.
     assert len((experiment.root / 'events.jsonl').read_text().splitlines()) == 3
+    assert not errors
+
+
+def test_evaluation_rejects_missing_protocol_identity(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(2)
+    publish_evaluation(experiment, '9'*32, 'scalar', 1.0, protocol=None)
+    sign_in(page, session, token)
+    page.locator('#evaluation-items').filter(has_text='Invalid evaluation definition or protocol identity').wait_for()
+    assert page.get_by_role('checkbox', name='Snapshot quality · Evaluation', exact=True).count() == 0
     assert not errors

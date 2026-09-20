@@ -392,7 +392,7 @@ def test_real_cli_server_private_credentials_and_shutdown(tmp_path):
     fixture_run(tmp_path / 'run', 1)
     credential = tmp_path / 'credential.json'
     process = subprocess.Popen([sys.executable, '-I', '-m', 'hypergan', 'serve', str(tmp_path / 'run'),
-                                '--port', '0', '--session-file', str(credential)],
+                                '--port', '0', '--auth', 'token', '--session-file', str(credential)],
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         for _ in range(500):

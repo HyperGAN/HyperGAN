@@ -454,14 +454,19 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if hook is None:
                 return
             try:
-                if final and stop is not None and stop.reason:
-                    abort = getattr(execution, 'abort_previews', None)
-                    if abort is not None:
+                if final and hasattr(execution, 'preview_busy'):
+                    while execution.preview_busy:
                         publish_preview_result(execution.poll_preview())
-                        if abort():
-                            manifest['cancelled_previews'] = manifest.get('cancelled_previews', 0) + 1
-                            emit('preview_cancelled', reason=stop.reason)
-                        return
+                        if stop is not None and stop.reason:
+                            if execution.abort_previews():
+                                manifest['cancelled_previews'] = manifest.get('cancelled_previews', 0) + 1
+                                emit('preview_cancelled', reason=stop.reason)
+                            return
+                        if execution.preview_busy:
+                            # Only terminal draining waits. Poll so a signal
+                            # received during that wait can cancel immediately.
+                            time.sleep(.01)
+                    return
                 publish_preview_result(hook())
             except FatalExecutionError:
                 raise

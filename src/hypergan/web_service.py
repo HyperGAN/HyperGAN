@@ -203,6 +203,12 @@ class ObservationService:
                             shape=preview['shape'])
                         if not isinstance(records[key]['sha256'], str):
                             records[key].update(status='unavailable', reason='Preview predates indexed content digests')
+                        if 'image_grid' in preview:
+                            grid = preview['image_grid']
+                            records[key + '-grid'] = dict(path=relative_path(grid['path']), bytes=grid['bytes'],
+                                sha256=grid['sha256'], role='sample', modality='image', media_type='image/png',
+                                provenance=dict(identity, step=preview['step']), shape=preview['shape'],
+                                width=grid['width'], height=grid['height'])
                 if signature[2] is not None:
                     index = read_json(self.root, 'artifacts/index.json')
                     indexed = index.get('artifacts')

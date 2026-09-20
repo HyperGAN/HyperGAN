@@ -315,6 +315,45 @@ def test_preview_index_final_sample_and_safe_reader_paths(tmp_path):
     asyncio.run(scenario())
 
 
+def test_png_preview_is_authenticated_bounded_digest_checked_and_inline(tmp_path):
+    import base64
+    from hypergan.image_grids import encode_png
+    from hypergan.previews import publish_preview_payload
+    fixture_run(tmp_path, 1)
+    identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1}
+    png = encode_png(bytes([255, 0, 0]), 1, 1, 3, {'step': 1})
+    payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity, 'step': 1,
+               'count': 1, 'shape': [1, 3, 1, 1], 'samples': [[[[1]], [[-1]], [[-1]]]],
+               'image_grid': {'width': 1, 'height': 1, 'channels': 3,
+                              'png_base64': base64.b64encode(png).decode('ascii')}}
+    published = publish_preview_payload(tmp_path, payload, identity, 1)[0]
+    session = LocalSession(8123)
+    session.write_credentials(tmp_path / 'session.json')
+    token = json.loads((tmp_path / 'session.json').read_text())['token']
+    app = create_app(tmp_path, session, poll_seconds=.01)
+    with TestClient(app, base_url=session.origin) as client:
+        assert client.get('/api/v1/runs/run/artifacts/unknown').status_code == 401
+        client.post('/api/v1/session', json={'token': token})
+        records = client.get('/api/v1/runs/run/artifacts').json()['artifacts']
+        image_id, record = next((key, item) for key, item in records.items() if item['modality'] == 'image')
+        assert record['width'] == record['height'] == 1 and 'path' not in record
+        route = '/api/v1/runs/run/artifacts/' + image_id
+        response = client.get(route)
+        assert response.content == png and response.headers['content-type'] == 'image/png'
+        assert response.headers['content-disposition'].startswith('inline')
+        assert response.headers['x-content-type-options'] == 'nosniff'
+        assert "default-src 'self'" in response.headers['content-security-policy']
+        Path(published['image_grid']['path']).write_bytes(b'changed')
+        assert client.get(route).status_code == 400
+        # Even an indexed and correctly hashed HTML payload cannot claim image/png.
+        bad = b'<svg onload="alert(1)"></svg>'
+        (tmp_path / 'bad.png').write_bytes(bad)
+        atomic_json(tmp_path / 'artifacts/index.json', {'schema_version': 1, 'artifacts': {
+            'bad-png': dict(path='bad.png', bytes=len(bad), sha256=hashlib.sha256(bad).hexdigest(),
+                            modality='image', media_type='image/png', width=1, height=1)}})
+        assert client.get('/api/v1/runs/run/artifacts/bad-png').status_code == 400
+
+
 def test_future_evaluation_stream_registration(tmp_path):
     fixture_run(tmp_path, 1)
     async def scenario():

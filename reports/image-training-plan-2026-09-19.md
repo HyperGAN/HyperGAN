@@ -4,6 +4,11 @@ Accepted owner direction, 2026-09-19. This plan supplies the next image mileston
 within the [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md); the
 [status ledger](resurrection-status.md) remains the implementation record.
 
+The [2026-09-20 execution report](image-training-execution-2026-09-20.md) records
+the passing local CLI smoke, exact supported-run recovery, active GPU-1 training
+and explicit deterministic execution variant. Source distribution permission,
+quality reproduction and image-distributed qualification remain open gates.
+
 ## Product outcome and decisions
 
 Make one small, proven image recipe easy to train, watch, interrupt, resume and

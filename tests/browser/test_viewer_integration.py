@@ -103,6 +103,47 @@ def sign_in(page, session, token):
     page.get_by_role('button', name='Open workspace').click()
 
 
+def test_real_png_grid_loads_and_updates_without_selected_metrics(real_viewer):
+    import base64
+    from hypergan.image_grids import encode_png
+    from hypergan.previews import publish_preview_payload
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(2)
+    def publish(sequence, step, pixels):
+        identity = {'run_id': 'browser-run', 'attempt_id': '0001-' + 'a' * 32,
+                    'sample_sequence': sequence}
+        png = encode_png(pixels, 2, 1, 3, {'step': step})
+        payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity,
+                   'step': step, 'count': 2, 'shape': [2, 3, 1, 1],
+                   'image_grid': {'width': 2, 'height': 1, 'channels': 3,
+                                  'png_base64': base64.b64encode(png).decode('ascii')}}
+        return publish_preview_payload(experiment.root, payload, identity, step, keep=2)
+    publish(1, 1, bytes([255, 0, 0, 0, 255, 0]))
+    sign_in(page, session, token)
+    image = page.get_by_role('img', name='Generated image grid at step 1', exact=True)
+    image.wait_for()
+    image.scroll_into_view_if_needed()
+    page.wait_for_function("() => document.querySelector('img.image-grid')?.naturalWidth === 2")
+    # Decode the actual authenticated image in the browser and inspect its pixels.
+    pixels = image.evaluate('''image => { const canvas = document.createElement('canvas');
+      canvas.width = 2; canvas.height = 1; const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0); return [...ctx.getImageData(0, 0, 2, 1).data]; }''')
+    assert pixels == [255, 0, 0, 255, 0, 255, 0, 255]
+    page.get_by_role('button', name='Clear', exact=True).click()
+    page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
+    latest_record = publish(2, 2, bytes([0, 0, 255, 255, 255, 255]))[0]
+    latest = page.get_by_role('img', name='Generated image grid at step 2', exact=True)
+    latest.wait_for(timeout=10000)
+    latest.scroll_into_view_if_needed()
+    page.wait_for_function("() => [...document.querySelectorAll('img.image-grid')].every(img => img.naturalWidth === 2)")
+    assert page.locator('img.image-grid').count() == 2
+    item = page.locator('#artifact-items li').filter(has=latest)
+    with page.expect_download() as download:
+        item.get_by_role('link', name='Download', exact=True).click()
+    assert Path(download.value.path()).read_bytes() == Path(latest_record['image_grid']['path']).read_bytes()
+    assert not errors
+
+
 def test_actual_bootstrap_live_reconnect_and_recovery_lineage(real_viewer, monkeypatch):
     experiment, session, token, page, context, errors, requests = real_viewer
     experiment.create()

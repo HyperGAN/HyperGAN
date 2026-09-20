@@ -61,10 +61,16 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None):
     """Sample with supplied batched inputs, or explicitly recorded example conditions.
 
     Custom component constructors are executable trusted Python, even though state
-    tensors load with weights_only=True. JSON outputs include conditioning provenance.
+    tensors load with weights_only=True. An explicit .png output selects a bounded
+    RGB/grayscale grid; the default and .json outputs retain generic tensor JSON.
+    PNG stores provenance in its hypergan text chunk, JSON in its usual fields.
     """
     if type(count) is not int or count <= 0 or type(seed) is not int or seed < 0:
         raise ValueError("count must be positive and seed nonnegative integers")
+    if output is not None and Path(output).suffix.lower() == '.png':
+        from .image_grids import MAX_COUNT
+        if count > MAX_COUNT:
+            raise ValueError(f'PNG sampling supports at most {MAX_COUNT} images')
     # Constructors and custom modules may use global RNGs even in eval mode.
     # An observer must neither consume training randomness nor depend on it.
     python_state, numpy_state = random.getstate(), np.random.get_state()
@@ -136,13 +142,19 @@ def _sample(run_dir, count, seed, output, *, inputs):
         raise ValueError("Inference produced nonfinite values")
     output = Path(output) if output is not None else run_dir / f"samples-step{state.get('step', 0):08d}-seed{seed}-n{count}-{uuid.uuid4().hex}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"schema_version": 1, "seed": seed, "count": count, "step": state.get("step"), "bundle_sha256": expected, "shape": list(values.shape), "samples": values.tolist(), "particle_ids": ids.tolist() if ids is not None else None, "conditioning": "supplied" if supplied else ("saved-example-inputs-cycled" if batch else "unconditional"), "inputs": {k: v.tolist() for k, v in normalized.items()}, "resume_supported": False}
+    payload = {"schema_version": 1, "seed": seed, "count": count, "step": state.get("step"), "bundle_sha256": expected, "shape": list(values.shape), "particle_ids": ids.tolist() if ids is not None else None, "conditioning": "supplied" if supplied else ("saved-example-inputs-cycled" if batch else "unconditional"), "resume_supported": False}
     payload["identity"] = state.get("identity", {})
+    if output.suffix.lower() == '.png':
+        from .image_grids import tensor_grid
+        payload['input_shapes'] = {key: list(value.shape) for key, value in normalized.items()}
+        encoded, _ = tensor_grid(values, payload)
+    else:
+        payload.update(samples=values.tolist(), inputs={key: value.tolist() for key, value in normalized.items()})
+        encoded = (json.dumps(payload, allow_nan=False) + '\n').encode('utf-8')
     descriptor, temporary = tempfile.mkstemp(prefix=".sample-", suffix=".tmp", dir=output.parent)
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(payload, stream, allow_nan=False)
-            stream.write("\n")
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
         # Hard-link publication is atomic and refuses an existing destination.

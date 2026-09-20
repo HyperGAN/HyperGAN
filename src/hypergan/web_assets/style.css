@@ -686,6 +686,16 @@ footer {
   gap: 16px;
   align-items: center;
 }
+.image-grid {
+  order: 3;
+  display: block;
+  max-width: 100%;
+  width: min(100%, 512px);
+  height: auto;
+  image-rendering: pixelated;
+  border-radius: 3px;
+  background: #000;
+}
 .numeric-preview {
   order: 3;
   flex-basis: 100%;

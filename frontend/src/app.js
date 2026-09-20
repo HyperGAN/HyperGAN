@@ -174,7 +174,8 @@ async function refreshArtifacts() {
 function renderArtifacts(artifacts) {
   $("artifact-items").replaceChildren();
   const records = Object.entries(artifacts).sort(
-    (a, b) => (b[1].provenance?.step || 0) - (a[1].provenance?.step || 0),
+    (a, b) => (b[1].provenance?.step || 0) - (a[1].provenance?.step || 0)
+      || Number(b[1].modality === "image") - Number(a[1].modality === "image"),
   );
   $("artifacts").hidden = !records.length;
   for (const [id, artifact] of records.slice(0, 20)) {
@@ -208,6 +209,28 @@ function renderArtifacts(artifacts) {
       download.className = "text-link";
       download.textContent = "Download";
       controls.append(download);
+      if (
+        artifact.modality === "image" && artifact.media_type === "image/png" &&
+        Number.isSafeInteger(artifact.bytes) && artifact.bytes > 0 && artifact.bytes <= 8388608 &&
+        [artifact.width, artifact.height].every((n) => Number.isSafeInteger(n) && n > 0 && n <= 4096) &&
+        artifact.width * artifact.height <= 4194304
+      ) {
+        const image = document.createElement("img");
+        image.className = "image-grid";
+        image.alt = `Generated image grid at step ${fmt(artifact.provenance?.step)}`;
+        image.width = artifact.width;
+        image.height = artifact.height;
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.src = path;
+        image.onerror = () => {
+          const error = document.createElement("p");
+          error.textContent = "Image unavailable or removed by preview retention.";
+          image.replaceWith(error);
+        };
+        li.append(image);
+        download.download = "grid.png";
+      }
       if (
         artifact.modality === "tensor" &&
         artifact.media_type === "application/json" &&

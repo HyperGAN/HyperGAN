@@ -8,10 +8,14 @@ hypergan project runs/example --follow
 hypergan serve runs/example --open
 ```
 
-`serve` listens on `0.0.0.0` on an available port by default. Select another
-address with `--host 127.0.0.1` and a fixed port with `--port 8123`. The printed
-browser URL uses `127.0.0.1` for a wildcard bind; remote browsers use this machine's
-address with that same port. Browser requests remain same-origin.
+`serve` listens on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
+working across restarts. If that port is busy, it takes the next free port above it,
+up to 100 ports, and prints the port it actually chose. Select another address with
+`--host 127.0.0.1`, a fixed port with `--port 8123`, or an OS-assigned port with
+`--port 0`. An explicitly requested port that is already in use is an error rather
+than a silent move to another port. The printed browser URL uses `127.0.0.1` for a
+wildcard bind; remote browsers use this machine's address with that same port.
+Browser requests remain same-origin.
 
 ### Remote browsers over plain HTTP
 
@@ -143,20 +147,25 @@ not training overhead or image quality.
 ## Automatic viewer during CLI training
 
 With the `web` extra installed, `hypergan train` and `hypergan resume` automatically
-reserve an available port on `0.0.0.0` and launch a supervised local viewer. Startup
+bind port `8765` on `0.0.0.0` — or the next free port above it, up to 100 ports — and
+launch a supervised local viewer. A restarted run reuses the same port, so the viewer
+URL stays stable instead of changing on every start. Startup
 runs concurrently with training; there is no browser launch or readiness wait by
 default. Without the extra, these commands remain silently headless. The Python
 `train()` and `resume()` APIs never start a viewer.
 
 ```sh
 hypergan train project/config.toml --run-dir runs/example --open
-hypergan resume runs/example --server --server-port 8123
+hypergan resume runs/example --server --port 8123
 hypergan train project/config.toml --run-dir runs/headless --no-server
 ```
 
 `--server` requires dependencies, an available port and a ready
-server before numerical imports or training begin. `--server-port`, `--server-host`, `--auth` and `--open`
-also imply that requirement. `--server-host` selects the bind address; `--auth token`
+server before numerical imports or training begin. `--port`, `--server-host`, `--auth` and `--open`
+also imply that requirement. `--port` names an exact port and fails if it is occupied,
+rather than searching upward as the default does; `--port 0` asks the operating system
+for any free port, and `--server-port` remains accepted as its original spelling.
+`--server-host` selects the bind address; `--auth token`
 enables token authentication with the same behavior as standalone `serve`. Only `--open` launches a browser. `--no-server`
 performs no web imports or socket setup and conflicts with these explicit viewer options.
 Viewer diagnostics go to stderr; stdout and `--progress-json` remain machine

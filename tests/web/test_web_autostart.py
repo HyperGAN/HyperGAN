@@ -97,6 +97,34 @@ def test_default_does_not_wait_and_optional_bind_failure_is_independent(tmp_path
     assert 'training continues headless' in capsys.readouterr().err
 
 
+def test_automatic_viewer_keeps_one_url_and_steps_past_a_busy_port(tmp_path):
+    """The supervised broker, not only the launcher, applies the port policy."""
+    from hypergan.ports import DEFAULT_VIEWER_PORT, PORT_SEARCH_LIMIT
+    from hypergan.web_autostart import stop_viewer
+    first, second = tmp_path / 'first', tmp_path / 'second'
+
+    def port_of(viewer):
+        return int(viewer.session.origin.rsplit(':', 1)[1])
+
+    try:
+        with training_viewer(first, required=True) as viewer:
+            chosen = port_of(viewer)
+        assert DEFAULT_VIEWER_PORT <= chosen < DEFAULT_VIEWER_PORT + PORT_SEARCH_LIMIT
+        assert stop_viewer(first)['status'] == 'stopped'
+        # A restarted run returns to the URL its owner already has open.
+        with training_viewer(first, required=True) as restarted:
+            assert port_of(restarted) == chosen
+            assert restarted.info['origin'].endswith(f':{chosen}')
+        # A concurrent run steps past that busy port rather than failing.
+        with training_viewer(second, required=True) as concurrent:
+            other = port_of(concurrent)
+            assert other != chosen
+            assert DEFAULT_VIEWER_PORT <= other < DEFAULT_VIEWER_PORT + PORT_SEARCH_LIMIT
+    finally:
+        stop_viewer(first)
+        stop_viewer(second)
+
+
 def test_numerical_failure_keeps_viewer_and_viewer_failure_does_not_fail_training(tmp_path):
     from hypergan.web_autostart import _probe, stop_viewer
     root = tmp_path / 'pending'
@@ -172,7 +200,7 @@ def test_cli_explicit_bind_preflight_before_numerical_import_or_run_creation(tmp
         return original(name, *args, **kwargs)
     monkeypatch.setattr(builtins, '__import__', guarded)
     with bind_loopback() as occupied:
-        assert main(['train', str(config), '--run-dir', str(root), '--server-port',
+        assert main(['train', str(config), '--run-dir', str(root), '--port',
                      str(occupied.getsockname()[1])]) == 1
     assert not root.exists()
     assert capsys.readouterr().out == ''

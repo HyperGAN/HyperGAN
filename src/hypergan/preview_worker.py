@@ -6,6 +6,13 @@ from threading import Event, Thread
 from .snapshot_renderer import render_snapshot
 
 
+class PreviewError(RuntimeError):
+    def __init__(self, error, step, identity):
+        super().__init__(f'{type(error).__name__}: {error}'[:1000])
+        self.preview_context = {'step': step, 'identity': dict(identity)}
+        self.__cause__ = error
+
+
 class PreviewWorker:
     """The supervising thread handles no live trainer objects or global RNG.
 
@@ -37,7 +44,7 @@ class PreviewWorker:
                         directory / 'preview.json', timeout=self.timeout, publish_run_dir=run_dir,
                         keep=keep, cancellation_event=self._cancel)
             except BaseException as error:
-                future.set_exception(error)
+                future.set_exception(PreviewError(error, step, identity))
             else:
                 future.set_result(result)
 

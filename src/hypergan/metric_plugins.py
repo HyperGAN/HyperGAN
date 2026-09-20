@@ -10,8 +10,13 @@ import importlib
 import inspect
 import json
 import math
+import os
 from pathlib import Path
+import queue
 import re
+import sys
+import threading
+import time
 
 MAX_PLUGIN_BYTES = 65536
 MAX_CUSTOM_METRICS = 32
@@ -116,6 +121,16 @@ def _factory(reference, args):
 
 
 def _worker_factory(rank, world_size, spec, expected, inputs, context):
+    # This is the disposable observation worker, never the training process.
+    # These are resource defaults for trusted code, not a security sandbox.
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    for name in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
+                 'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
+        os.environ[name] = '1'
+    if hasattr(os, 'nice'):
+        os.nice(10)
+    if 'torch' in sys.modules:
+        sys.modules['torch'].set_num_threads(1)
     instance, description = _factory(spec['factory'], spec['args'])
     if expected is not None and description != expected:
         raise ValueError('Metric factory source or descriptor changed since preflight')
@@ -134,13 +149,14 @@ def _worker_command(state, operation, payload):
     return {'value': result}
 
 
-def invoke(spec, operation, *, expected=None, inputs=None, context=None):
+def invoke(spec, operation, *, expected=None, inputs=None, context=None, cancellation_event=None):
     from .cpu_worker_service import CPUWorkerService
     inputs, context = finite_json(inputs or {}), finite_json(context or {})
     service = CPUWorkerService(_worker_factory, _worker_command,
         args=(spec, expected, inputs, context), run_id='metric', attempt_id='metric',
         world_size=1, initialize_process_group=False, startup_timeout=spec['timeout'],
-        command_timeout=spec['timeout'], collective_timeout=spec['timeout'], total_timeout=spec['timeout'])
+        command_timeout=spec['timeout'], collective_timeout=spec['timeout'], total_timeout=spec['timeout'],
+        cancellation_event=cancellation_event)
     with service:
         return finite_json(service.command(operation)['results'][0])
 
@@ -163,28 +179,120 @@ def prepare_custom(config):
 
 
 class ScalarMetrics:
-    """One serialized delivery at a time, fresh instances and bounded failure state."""
+    """Lossy, bounded submission; factory work never runs on the training thread.
+
+    At most one job per metric is outstanding, including unconsumed results.
+    One background dispatcher serializes disposable CPU workers. Deadlines begin
+    at admission, including queue time, so overload cannot accumulate stale work.
+    Results retain their source context; callers publish them at that step.
+    Only final ``close`` waits for observations or worker cleanup.
+    """
     def __init__(self, config):
         self.specs = {name: spec for name, spec in enabled_custom(config).items() if spec['mode'] == 'scalar'}
         self.descriptions = config.get('_metric_runtime', {})
         self.disabled = {}
+        self._pending = set()
+        self._jobs = queue.Queue(maxsize=MAX_CUSTOM_METRICS)
+        self._results = queue.Queue(maxsize=MAX_CUSTOM_METRICS)
+        self._cancel = threading.Event()
+        self._thread = None
+        self._closed = False
+        self._last_deadline = 0.0
+
+    def start(self):
+        """Start before the update loop; no process is created on this thread."""
+        if self._closed:
+            raise RuntimeError('Scalar metrics are closed')
+        if self.specs and self._thread is None:
+            self._thread = threading.Thread(target=self._dispatch,
+                name='hypergan-scalar-metrics', daemon=True)
+            self._thread.start()
+
+    def _dispatch(self):
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                return
+            name, spec, inputs, context, deadline = job
+            try:
+                if self._cancel.is_set():
+                    raise RuntimeError('Metric observation cancelled at attempt shutdown')
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('Metric deadline expired while queued')
+                result = invoke(dict(spec, timeout=remaining), 'scalar',
+                    expected=self.descriptions[name], inputs=inputs, context=context,
+                    cancellation_event=self._cancel)
+                outcome = {'context': context, 'metrics': {name: result['value']}, 'measurement_status': {}}
+            except BaseException as error:
+                reason = f'{type(error).__name__}: {error}'[:1000]
+                outcome = {'context': context, 'metrics': {},
+                    'measurement_status': {name: {'status': 'failed' if spec['on_error'] == 'fail' else 'disabled',
+                                                  'reason': reason}}}
+            self._results.put_nowait((name, outcome))
 
     def evaluate(self, row, context):
-        metrics, statuses = {}, {}
+        if self._closed:
+            raise RuntimeError('Scalar metrics are closed')
+        if self.specs and self._thread is None:
+            raise RuntimeError('Scalar metrics must be started before training')
+        statuses = {}
         for name, spec in self.specs.items():
             if name in self.disabled:
                 statuses[name] = {'status': 'disabled', 'reason': self.disabled[name]}
                 continue
             if context['step'] % spec['every_steps']:
                 continue
+            if name in self._pending:
+                statuses[name] = {'status': 'dropped', 'reason': 'Previous observation is still outstanding'}
+                continue
+            inputs = {key: row[path.split('.', 1)[1]] for key, path in spec['inputs'].items()}
+            # Copy only primitive, bounded data, never a live trainer/tensor.
+            inputs, source = finite_json(inputs), finite_json(context)
+            deadline = time.monotonic() + spec['timeout']
+            self._jobs.put_nowait((name, spec, inputs, source, deadline))
+            self._pending.add(name)
+            self._last_deadline = max(self._last_deadline, deadline)
+            statuses[name] = {'status': 'queued'}
+        return {}, statuses
+
+    def poll(self):
+        outcomes = []
+        failure = None
+        for _ in range(MAX_CUSTOM_METRICS):
             try:
-                inputs = {key: row[path.split('.', 1)[1]] for key, path in spec['inputs'].items()}
-                result = invoke(spec, 'scalar', expected=self.descriptions[name], inputs=inputs, context=context)
-                metrics[name] = result['value']
-            except Exception as error:
-                reason = f'{type(error).__name__}: {error}'[:1000]
-                if spec['on_error'] == 'fail':
-                    raise RuntimeError(f'Required metric {name} failed: {reason}') from error
-                self.disabled[name] = reason
-                statuses[name] = {'status': 'disabled', 'reason': reason}
-        return metrics, statuses
+                name, outcome = self._results.get_nowait()
+            except queue.Empty:
+                break
+            self._pending.remove(name)
+            status = outcome['measurement_status'].get(name)
+            if status:
+                self.disabled[name] = status['reason']
+                if status['status'] == 'failed':
+                    failure = RuntimeError(f"Required metric {name} failed: {status['reason']}")
+            outcomes.append(outcome)
+        if failure is not None:
+            # Attach evidence so a controller may publish the failure before
+            # propagating it. It must never complete the run successfully.
+            failure.metric_outcomes = outcomes
+            raise failure
+        return outcomes
+
+    def close(self, *, drain=True):
+        if not self._closed:
+            self._closed = True
+            if not drain:
+                self._cancel.set()
+            if self._thread is not None:
+                # All <=32 outstanding observations already have deadlines.
+                # A sentinel may need one slot while the worker consumes its
+                # first job; waiting is confined to terminal cleanup.
+                self._jobs.put(None)
+                timeout = max(0.0, self._last_deadline - time.monotonic()) + 8.0 if drain else 8.0
+                self._thread.join(timeout)
+                if self._thread.is_alive():
+                    self._cancel.set()
+                    self._thread.join(8.0)
+                    if self._thread.is_alive():
+                        raise RuntimeError('Metric dispatcher has not completed worker cleanup')
+        return self.poll() if drain else []

@@ -117,9 +117,11 @@ def _validate(row, identity, sequence, operation=None):
         raise ValueError('Stale or invalid CPU service run/attempt/sequence/operation')
 
 
-def _receive(channel, timeout=None):
+def _receive(channel, timeout=None, cancellation_event=None):
     deadline = None if timeout is None else time.monotonic() + timeout
     while True:
+        if cancellation_event is not None and cancellation_event.is_set():
+            raise RuntimeError('CPU service command cancelled')
         rows = channel.pump()
         if rows:
             if len(rows) != 1:
@@ -360,7 +362,7 @@ class CPUWorkerService:
     """
     def __init__(self, factory, handler, *, args=(), run_id, attempt_id, world_size=2,
                  startup_timeout=60, command_timeout=30, collective_timeout=15, total_timeout=300,
-                 initialize_process_group=True, backend='gloo'):
+                 initialize_process_group=True, backend='gloo', cancellation_event=None):
         if not callable(factory) or not callable(handler) or not isinstance(args, tuple):
             raise ValueError('CPU service requires callable factory/handler and tuple args')
         if any(not isinstance(value, str) or not _ID.fullmatch(value) for value in (run_id, attempt_id)):
@@ -385,6 +387,7 @@ class CPUWorkerService:
         self._identity, self._world_size, self._limits = (run_id, attempt_id), world_size, limits
         self._initialize_process_group = initialize_process_group
         self._backend = backend
+        self._cancellation_event = cancellation_event
         self.factory, self.handler, self.args = factory, handler, args
         self._process = self._channel = None
         self._sequence = 0
@@ -459,7 +462,7 @@ class CPUWorkerService:
             raise
 
     def _reply(self, operation, timeout):
-        result = _receive(self._channel, timeout)
+        result = _receive(self._channel, timeout, self._cancellation_event)
         if isinstance(result, dict) and result.get('kind') == 'error':
             raise RuntimeError(f"CPU service run={self._identity[0]} attempt={self._identity[1]} "
                                f"sequence={result.get('sequence')} operation={result.get('operation')}: {result.get('error')}")

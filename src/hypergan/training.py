@@ -23,6 +23,18 @@ from .checkpoints import data_contract
 from .numerical_policy import apply_backend_policy
 
 
+def _pack_metric_scalars(values, device):
+    """Keep scalar observations on-device until a single host transfer.
+
+    The float64 output preserves the previous Python-float conversion even for
+    mixed-dtype objectives. An explicit output avoids first rounding integer or
+    double objectives through the dtype of the adversarial losses. Flattening
+    accepts any one-element objective shape allowed by the training contract.
+    """
+    scalars = [value.detach().reshape(()).to(device=device) for value in values]
+    return torch.stack(scalars, out=torch.empty(len(scalars), dtype=torch.float64, device=device))
+
+
 @torch.no_grad()
 def update_ema(average, current, decay):
     for target, source in zip(average.parameters(), current.parameters()):
@@ -235,7 +247,14 @@ class ReferenceTrainer:
         update_ema(self.ema_graph, self.graph, settings["ema"])
         update_ema(self.ema_prior, self.prior, settings["ema"])
         self.step = step
-        return {"event": "train", "step": step, "d_loss": float(d_loss.detach()), "d_adversarial": float(d_adversarial.detach()), "d_adversarial_weighted": float(d_adversarial_weighted.detach()), "g_adversarial_weighted": float(g_adversarial_weighted.detach()), "g_loss": float(g_loss.detach()), "g_adversarial": float(g_adversarial.detach()), "prior_loss": float(prior_loss.detach()), "gradient_penalty": float(d_penalty.detach()), "objectives": [float(x.detach()) for x in objective_losses], "lr_scale": scale}, detach(batch)
+        values = _pack_metric_scalars([d_loss, d_adversarial, d_adversarial_weighted,
+            g_adversarial_weighted, g_loss, g_adversarial, prior_loss, d_penalty,
+            *objective_losses], self.device).tolist()
+        row = dict(zip(('d_loss', 'd_adversarial', 'd_adversarial_weighted',
+                        'g_adversarial_weighted', 'g_loss', 'g_adversarial',
+                        'prior_loss', 'gradient_penalty'), values[:8]))
+        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale)
+        return row, detach(batch)
 
     @staticmethod
     def _check_gradients(parameters, name):

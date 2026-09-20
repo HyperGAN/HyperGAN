@@ -271,6 +271,9 @@ def execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_a
             execution.shutdown()
     try:
         with GracefulStop() as stop:
+            observe_stop = getattr(execution, 'set_observation_stop', None)
+            if observe_stop is not None:
+                observe_stop(lambda: bool(stop.reason))
             return _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds,
                             stop_after_steps, on_event, execution=execution, shutdown=shutdown,
                             context=context, stop=stop)
@@ -387,6 +390,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     status = getattr(execution, 'observation_status', lambda: None)()
                     if status is not None:
                         manifest['progress_observation'] = status
+                        if stop is not None and stop.reason:
+                            manifest['stop_reason'] = stop.reason
                         # Terminal callback results must outlive the API return;
                         # the live-status throttle may suppress this final update.
                         publish()

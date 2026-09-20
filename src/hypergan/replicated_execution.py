@@ -92,6 +92,7 @@ class ReplicatedExecution:
         self.step, self._inference_available = 0, False
         self._closed = self._poisoned = False
         self.observer = None
+        self._observation_stop_requested = None
         self._previews = None
 
     def configure_attempt(self, context, *, preview_every, on_event):
@@ -325,6 +326,9 @@ class ReplicatedExecution:
     def abort_previews(self):
         return self._previews.abort() if self._previews is not None else False
 
+    def set_observation_stop(self, stop_requested):
+        self._observation_stop_requested = stop_requested
+
     def observe(self, callback, event):
         # The controller's local warning wrapper is intentionally not sent to a
         # child. Configure validated the original importable callback once.
@@ -340,7 +344,7 @@ class ReplicatedExecution:
             # Numerical commands already detect rank failure. A background
             # observer does not justify another synchronous health roundtrip.
             if event['event'] in ('complete', 'stopped', 'failed', 'interrupted'):
-                self.observer.finish(event)
+                self.observer.finish(event, stop_requested=self._observation_stop_requested)
             else:
                 self.observer.deliver(event)
             return

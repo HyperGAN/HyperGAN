@@ -24,6 +24,8 @@ Events are submitted without waiting for the callback. A background dispatcher d
 
 Training worker shutdown still precedes terminal status. Terminal delivery drains an outstanding callback and, unless disabled, invokes the terminal event's own bounded callback. Each has its own deadline; all managed callback workers are reaped before the Python API returns. Exceptional controller cleanup cancels an outstanding callback. There is no persistent child between deliveries. An abrupt coordinator death causes each independent broker to terminate and reap its managed worker, including a worker stuck in native code. Unmanaged descendants, guardian or host failure, and unkillable kernel operations remain outside that guarantee.
 
+A cooperative stop signal also cancels callbacks during terminal draining, records their original source step and cancellation count, and reaps their workers without waiting for the configured observer timeout. Actual callback failures retain their failure status; an existing numerical failure remains the primary run error.
+
 Native single-process Python `on_event` callbacks remain synchronous control hooks, including closures that intentionally interact with their caller. They retain RNG isolation and can delay the caller; the nonblocking callback guarantee above applies to replicated execution. The concrete CLI progress sink uses its own bounded output path in both adapters.
 
 ## Policy and recovery

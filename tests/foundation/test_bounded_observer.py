@@ -302,3 +302,19 @@ def test_async_failure_keeps_source_step_and_is_reported_once(callbacks):
     assert observer.statistics()['failed'] == 1
     assert not observer._thread.is_alive()
     assert_gone([observer._observer.broker_pid, *observer._observer.worker_pids])
+
+
+def test_terminal_cancellation_preserves_an_actual_callback_failure(callbacks, monkeypatch):
+    observer=AsyncBoundedObserver(callbacks.fail,timeout=3600)
+    def fail_after_cancel(event):
+        assert observer._cancel.wait(5)
+        raise ObserverError('actual callback failure') from ValueError('actual failure')
+    monkeypatch.setattr(observer._observer,'deliver',fail_after_cancel)
+    observer.start()
+    observer.deliver({'step':4})
+    with pytest.raises(ObserverError,match='actual callback failure') as error:
+        observer.finish({'step':5},stop_requested=lambda:True)
+    assert error.value.observation_step==4
+    assert observer.statistics()['failed']==1
+    assert observer.statistics().get('cancelled',0)==0
+    assert not observer._thread.is_alive()

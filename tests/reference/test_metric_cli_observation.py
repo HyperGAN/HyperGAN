@@ -36,3 +36,17 @@ def test_user_callback_still_receives_rng_isolation(tmp_path, monkeypatch):
     rows = []
     train(config, tmp_path / 'run', on_event=rows.append)
     assert len(observed) == len(rows) and len(rows) >= 5
+
+
+def test_replicated_cli_progress_does_not_wait_for_health_roundtrip():
+    from hypergan.replicated_execution import ReplicatedExecution
+    output = TrainingOutput(io.StringIO(), io.StringIO(), True, progress_every=1)
+    adapter = ReplicatedExecution.__new__(ReplicatedExecution)
+    adapter.observer = output.progress
+    adapter._closed = False
+    class Service:
+        def assert_healthy(self):
+            raise AssertionError('CLI output must not wait for a worker health command')
+    adapter.service = Service()
+    adapter.observe(None, {'event': 'train', 'step': 1})
+    assert json.loads(output.stdout.getvalue())['step'] == 1

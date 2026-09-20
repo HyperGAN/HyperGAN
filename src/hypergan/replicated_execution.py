@@ -300,6 +300,12 @@ class ReplicatedExecution:
         # child. Configure validated the original importable callback once.
         if self.observer is None:
             return
+        from .bounded_cli_output import CLIProgress
+        if type(self.observer) is CLIProgress:
+            # Numerical commands already validate worker health. Delivering
+            # bounded text does not require another synchronous broker request.
+            self.observer.deliver(event)
+            return
         if isinstance(self.observer, AsyncBoundedObserver):
             # Numerical commands already detect rank failure. A background
             # observer does not justify another synchronous health roundtrip.

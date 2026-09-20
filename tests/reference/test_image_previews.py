@@ -102,6 +102,35 @@ def test_fixed_grid_publication_retention_and_tampered_payload_cleanup(tmp_path)
     assert not original.exists() and Path(record['image_grid']['path']).exists()
 
 
+def test_isolated_renderer_transports_png_without_touching_parent_state(tmp_path, monkeypatch):
+    import importlib
+    import shutil
+    from hypergan.checkpoints import capture_rng
+    from hypergan.preview_snapshot import capture_snapshot
+    from hypergan.snapshot_renderer import render_snapshot
+    # Spawned workers import this ordinary local factory module independently.
+    shutil.copyfile(__file__, tmp_path / 'png_fixture.py')
+    monkeypatch.syspath_prepend(str(tmp_path))
+    fixture = importlib.import_module('png_fixture')
+    trainer = ReferenceTrainer(fixture.recipe())
+    _, batch = trainer.update()
+    def digest():
+        return _digest({'rng': capture_rng(), 'graph': trainer.graph.state_dict(),
+                        'ema': trainer.ema_graph.state_dict(), 'prior': trainer.prior.state_dict(),
+                        'g_adam': trainer.opt_g.state_dict(), 'd_adam': trainer.opt_d.state_dict(),
+                        'streams': {key: value.get_state() for key, value in trainer.streams.items()}})
+    before = digest()
+    identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1}
+    snapshot = tmp_path / 'snapshot.pt'
+    receipt = capture_snapshot(trainer, batch, identity, snapshot)
+    payload = render_snapshot(snapshot, receipt, identity, trainer.step, tmp_path / 'render.json', timeout=30)
+    assert digest() == before
+    assert payload == render_preview(trainer, batch, identity)
+    record = publish_preview_payload(tmp_path, payload, identity, trainer.step)[0]
+    with Image.open(record['image_grid']['path']) as image:
+        assert image.size == (4, 4)
+
+
 def test_image_previews_metrics_disabled_resume_and_fresh_process_png(tmp_path):
     old_threads = torch.get_num_threads()
     torch.set_num_threads(1)

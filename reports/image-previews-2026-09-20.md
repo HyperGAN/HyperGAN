@@ -40,9 +40,14 @@ function fixed the test without relaxing the product CSP. Source-only setup
 probes also exposed missing fixture resume declarations and uninstalled package
 paths; the final qualification uses an installed package outside the checkout.
 
-Broader installed foundation/preview/recovery/web/browser regression results and
-final PR/CI receipt will be recorded after completion. Durable local evidence is
-under `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-image-previews/`.
+[PR #333](https://github.com/HyperGAN/HyperGAN/pull/333) contains this slice. The
+broader installed suite passed **461 tests in 64.38 seconds**: all foundation,
+new image previews, existing observation/image recovery/preview snapshot/native
+recovery/replicated inference, and every web/Chromium browser test. Runtime source
+was `ea420742`; the completed test/report head was `a44868e4`. Final required CI
+and merge remain coordinator gates. Durable local evidence is under
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-image-previews/`, including
+`installed-regression.log` and the final package receipt.
 The frontend bundle rebuild/check is byte-for-byte reproducible with the pinned
 offline npm dependencies. No GPU, paid compute, downloads of data/weights or
 release publication were used for this slice.

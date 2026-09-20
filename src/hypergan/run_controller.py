@@ -335,7 +335,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     except Warning:
                         pass
             try:
-                execution.observe(notify, dict(row))
+                from .bounded_cli_output import CLIProgress
+                execution.observe(on_event if type(on_event) is CLIProgress else notify, dict(row))
             except FatalExecutionError:
                 raise
             except ObserverError as exc:
@@ -348,6 +349,13 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
                 publish(wait=False)
                 emit('observer_error', _observe=False, source='progress', error=record['error'])
+            except Exception as exc:
+                if type(on_event) is not CLIProgress:
+                    raise
+                try:
+                    warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
+                except Warning:
+                    pass
         return row
 
     def publish(*, wait=True):

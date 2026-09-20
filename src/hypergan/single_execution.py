@@ -129,6 +129,13 @@ class SingleProcessExecution:
         return ArtifactResult(bundle_path=Path(bundle_dir) / 'model.pt', sample_path=sample_path)
 
     def observe(self, callback, event):
+        from .bounded_cli_output import CLIProgress
+        # The internal sink only submits bounded text and refreshes console
+        # policy. It cannot touch numerical state, so avoid copying/restoring
+        # Python, NumPy and every visible CUDA RNG on each progress event.
+        if type(callback) is CLIProgress:
+            callback(event)
+            return
         rng, threads = capture_rng(), torch.get_num_threads()
         device = torch.cuda.current_device() if torch.cuda.is_initialized() else None
         try:

@@ -152,6 +152,9 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180):
             await asyncio.to_thread(inspect_png, data)
             return Response(data, media_type='image/png',
                             headers={'Content-Disposition': 'inline; filename="grid.png"'})
+        if record.get('media_type') == 'application/json':
+            return Response(data, media_type='application/json',
+                            headers={'Content-Disposition': 'attachment; filename="samples.json"'})
         return Response(data, media_type='application/octet-stream',
                         headers={'Content-Disposition': 'attachment; filename="artifact.bin"'})
 

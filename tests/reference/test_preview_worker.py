@@ -59,7 +59,8 @@ def test_failed_renderer_releases_snapshot_and_slot(tmp_path, monkeypatch):
     assert not worker.busy and not directory.exists()
 
 
-def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp_path, monkeypatch):
+@pytest.mark.parametrize('fail', [False, True])
+def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp_path, monkeypatch, fail):
     import hypergan.preview_worker as module
     from hypergan.checkpoints import read_checkpoint
     from hypergan.config import write_default
@@ -74,6 +75,8 @@ def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp
         entered.set()
         if not release.wait(10):
             raise TimeoutError('Training did not advance while preview was pending')
+        if fail:
+            raise RuntimeError('Delayed preview failure')
         return original(*args, **kwargs)
 
     def observe(row):
@@ -86,12 +89,19 @@ def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp
     train(config, tmp_path / 'plain', checkpoint_every=1)
     monkeypatch.setattr(module, 'render_snapshot', delayed)
     result = train(config, tmp_path / 'viewed', checkpoint_every=1, preview_every=1, on_event=observe)
-    assert result['status'] == 'complete' and not result['observation_errors']
+    assert result['status'] == 'complete'
     assert result['skipped_previews_busy'] == 4
     assert [row['step'] for row in events if row['event'] == 'train'] == [1, 2, 3, 4, 5]
     previews = [row for row in events if row['event'] == 'preview']
-    assert len(previews) == 1 and previews[0]['step'] == previews[0]['preview']['step'] == 1
-    assert Path(result['preview_path']).is_file()
+    if fail:
+        assert not previews
+        assert result['observation_errors'][0]['step'] == 1
+        errors = [row for row in events if row['event'] == 'observer_error']
+        assert len(errors) == 1 and errors[0]['step'] == 1
+    else:
+        assert not result['observation_errors']
+        assert len(previews) == 1 and previews[0]['step'] == previews[0]['preview']['step'] == 1
+        assert Path(result['preview_path']).is_file()
     assert _digest(read_checkpoint(tmp_path / 'plain')[2]) == _digest(read_checkpoint(tmp_path / 'viewed')[2])
 
 

@@ -56,10 +56,12 @@ def observe(event):
     with (root / 'delivered.jsonl').open('a') as output:
         output.write(json.dumps(event) + '\\n')
     # Only child code imports the numerical runtime, never the coordinator.
-    if event['event'] == 'train' and event['step'] == 1:
+    if event['event'] == 'start':
         import numpy as np
         import torch
         import torch.distributed as dist
+        assert os.environ['CUDA_VISIBLE_DEVICES'] == ''
+        assert torch.get_num_threads() == 1
         assert not dist.is_initialized(), 'callback inherited the training process group'
         random.random(), np.random.random(), torch.rand(20)
         mode = os.environ.get('HG_ACCEPTANCE_MODE', '')
@@ -175,6 +177,10 @@ def test_observation_preserves_full_state_and_resume_preview_identity(tmp_path):
     _run(driver, config, tmp_path / 'plain', tmp_path / 'plain-pids', 'plain')
     full = _run(driver, config, tmp_path / 'observed', tmp_path / 'observed-pids', 'observed')
     assert not full['observation_errors']
+    assert full['progress_observation']['accepted'] == full['progress_observation']['completed']
+    assert not full['progress_observation']['pending']
+    events = [json.loads(line) for line in (tmp_path/'observed/events.jsonl').read_text().splitlines()]
+    assert [row['delivery'] for row in events if row['event']=='observer_status'] == [full['progress_observation']]
     assert [row['step'] for row in _index(tmp_path / 'observed')] == [3, 4]
     _equal_runs(tmp_path / 'plain', tmp_path / 'observed')
     stopped = _run(driver, config, tmp_path / 'split', tmp_path / 'stop-pids', 'split')
@@ -216,11 +222,13 @@ def test_optional_observer_failures_are_bounded_and_do_not_change_updates(tmp_pa
     else:
         assert (tmp_path / 'fault-pids/callback-fault-entered').read_text() == mode
         errors = [row for row in result['observation_errors'] if row['source'] == 'progress']
-        assert len(errors) == 1 and errors[0]['step'] == 1
+        assert len(errors) == 1 and errors[0]['step'] == 0
         assert len([row for row in events if row['event'] == 'observer_error' and row['source'] == 'progress']) == 1
         delivered = [json.loads(line) for line in (tmp_path / 'fault-pids/delivered.jsonl').read_text().splitlines()]
-        assert any(row['event'] == 'train' and row['step'] == 1 for row in delivered)
-        assert not any(row['event'] == 'train' and row['step'] > 1 for row in delivered)
+        assert any(row['event'] == 'start' and row['step'] == 0 for row in delivered)
+        assert not any(row['event'] == 'train' for row in delivered)
+        assert result['progress_observation']['failed'] == 1
+        assert not result['progress_observation']['pending']
 
 
 DEATH_HARNESS = '''

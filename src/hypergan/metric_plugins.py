@@ -120,7 +120,7 @@ def _factory(reference, args):
     return instance, {'descriptor': descriptor, 'factory_sources': files, 'protocol': 'hypergan-metric/v1'}
 
 
-def _worker_factory(rank, world_size, spec, expected, inputs, context):
+def cpu_observation_resources():
     # This is the disposable observation worker, never the training process.
     # These are resource defaults for trusted code, not a security sandbox.
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -131,6 +131,10 @@ def _worker_factory(rank, world_size, spec, expected, inputs, context):
         os.nice(10)
     if 'torch' in sys.modules:
         sys.modules['torch'].set_num_threads(1)
+
+
+def _worker_factory(rank, world_size, spec, expected, inputs, context):
+    cpu_observation_resources()
     instance, description = _factory(spec['factory'], spec['args'])
     if expected is not None and description != expected:
         raise ValueError('Metric factory source or descriptor changed since preflight')

@@ -148,6 +148,13 @@ def _cleanup_validation_failure(execution):
         execution.shutdown()
     except BaseException:
         pass  # Preserve the validation/restore error; no attempt is published.
+    finally:
+        cleanup = getattr(execution, 'close_observers', None)
+        if cleanup is not None:
+            try:
+                cleanup()
+            except BaseException:
+                pass
 
 
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
@@ -255,6 +262,7 @@ def execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_a
                 on_event, *, execution, context=None):
     """Hold one adapter for an attempt; cleanup also covers early persistence errors."""
     shutdown_attempted = False
+    primary_error = None
     def shutdown():
         nonlocal shutdown_attempted
         if not shutdown_attempted:
@@ -265,12 +273,23 @@ def execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_a
             return _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds,
                             stop_after_steps, on_event, execution=execution, shutdown=shutdown,
                             context=context, stop=stop)
-    except BaseException:
+    except BaseException as error:
+        primary_error = error
         try:
             shutdown()
         except BaseException:
             pass
         raise
+    finally:
+        cleanup = getattr(execution, 'close_observers', None)
+        if cleanup is not None:
+            try:
+                cleanup()
+            except BaseException as error:
+                if primary_error is None:
+                    raise
+                if hasattr(primary_error, 'add_note'):
+                    primary_error.add_note(f'Progress worker cleanup also failed: {error}')
 
 
 def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_after_steps,
@@ -345,12 +364,14 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 # A supervised adapter delivers its configured callback outside
                 # this process. Its failure must remain observable without
                 # recursively invoking that same failed observer.
-                record = {'source': 'progress', 'step': manifest['steps'],
+                source_step = getattr(exc, 'observation_step', manifest['steps'])
+                record = {'source': 'progress', 'step': source_step,
                           'attempt_id': attempt_id,
                           'error': f'{type(exc).__name__}: {exc}'[:1000]}
                 manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
                 publish(wait=False)
-                emit('observer_error', _observe=False, source='progress', error=record['error'])
+                emit('observer_error', _observe=False, _step=source_step,
+                     source='progress', error=record['error'])
             except Exception as exc:
                 if type(on_event) is not CLIProgress:
                     raise
@@ -358,6 +379,13 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
                 except Warning:
                     pass
+            finally:
+                if event in ('complete', 'stopped', 'failed', 'interrupted'):
+                    status = getattr(execution, 'observation_status', lambda: None)()
+                    if status is not None:
+                        manifest['progress_observation'] = status
+                        publish(wait=False)
+                        emit('observer_status', _observe=False, source='progress', delivery=status)
         return row
 
     def publish(*, wait=True):

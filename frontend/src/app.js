@@ -1,29 +1,7 @@
 import { evaluationShelf } from "./evaluations.js";
-import { init, use } from "echarts/core";
-import { LineChart } from "echarts/charts";
-import {
-  GridComponent,
-  TooltipComponent,
-  LegendComponent,
-} from "echarts/components";
-import { CanvasRenderer } from "echarts/renderers";
-use([
-  LineChart,
-  GridComponent,
-  TooltipComponent,
-  LegendComponent,
-  CanvasRenderer,
-]);
+import { chartColors as colors, chartStyle, init } from "./chart.js";
 
 const $ = (id) => document.getElementById(id);
-const colors = [
-  "#d7bb81",
-  "#8fbdaa",
-  "#b3a5d2",
-  "#d69478",
-  "#85b0cb",
-  "#c5b38f",
-];
 const state = {
   run: null,
   catalog: null,
@@ -1006,44 +984,7 @@ function render() {
     ]
       .filter(Boolean)
       .join(" ");
-    card.chart.setOption(
-      {
-        animation: false,
-        color: colors,
-        grid: { left: 54, right: 20, top: 25, bottom: 36 },
-        textStyle: { fontFamily: "system-ui" },
-        tooltip: {
-          trigger: "axis",
-          renderMode: "richText",
-          backgroundColor: "#28352e",
-          borderColor: "#526157",
-          textStyle: { color: "#e8e8df", fontSize: 10 },
-          formatter: (entries) =>
-            entries.length
-              ? `Step ${entries[0].value[0]}\n` +
-                entries
-                  .map((p) => `${p.seriesName}: ${String(p.value[1])}`)
-                  .join("\n")
-              : "",
-        },
-        xAxis: {
-          type: "value",
-          axisLabel: { color: "#85978b", fontSize: 9 },
-          axisLine: { lineStyle: { color: "#38483d" } },
-          splitLine: { show: false },
-          axisTick: { show: false },
-        },
-        yAxis: {
-          type: log ? "log" : "value",
-          scale: true,
-          axisLabel: { color: "#85978b", fontSize: 9 },
-          splitLine: { lineStyle: { color: "#2b3930" } },
-          axisLine: { show: false },
-        },
-        series,
-      },
-      true,
-    );
+    card.chart.setOption({ ...chartStyle(log), series }, true);
   }
   const metricOrder = [...state.selected];
   const rows = [...$("values-table").children].sort((a, b) =>

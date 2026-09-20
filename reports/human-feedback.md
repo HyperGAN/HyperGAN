@@ -46,6 +46,15 @@ Where this lives today:
 - [ ] Optionally auto-reload the page when the bundle changes.
 - [ ] Document the dev workflow: start training once, run the watcher, edit, refresh.
 
+### 5. HTTPS fronting of the viewer (e.g. `tailscale serve`) is rejected by the origin check (found 2026-09-20 while fixing item 3)
+
+`web_session.permits_request` requires `Origin` to equal `http://<host>` and the Host port to match the bound port. A TLS reverse proxy in front of the viewer sends an `https://` origin and usually a different port, so token login and the console `PUT` are rejected. Plain HTTP remote viewing works after item 3; HTTPS remote viewing does not yet.
+
+- [ ] Accept an `https://` origin (and a configurable public origin, e.g. `--public-origin https://mlserver.tailnet.ts.net`) so a TLS proxy can front the viewer.
+- [ ] Mark the session cookie `Secure` when the public origin is HTTPS.
+- [ ] Add a web test that exercises requests carrying a proxied HTTPS origin.
+- [ ] Document the `tailscale serve` setup once it works end to end.
+
 ## Done
 
 ### 3. Viewer fails over Tailscale: "Cannot read properties of undefined (reading 'digest')" (raised 2026-09-20)

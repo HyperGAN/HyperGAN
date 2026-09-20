@@ -10,8 +10,16 @@ implementation is required. The shipped module is a modular ECharts build with
 line charts, axes, rich-text tooltips and Canvas rendering. Explicit bounded PNG
 grids render as images; tensor JSON is not interpreted as an image. The artifact
 shelf uses the indexed artifact API and stream notifications,
-with role, modality, media type, shape, step and safe downloads. An explicitly
-requested JSON tensor preview is limited to 64 KiB, eight axes and 4,096 finite
+with name, role, modality, media type, shape, step and safe downloads. Samples
+are grouped by their short stable `name` (`g` generated, `x` real) and modality:
+each group shows its most recent version and, when earlier versions are
+retained, a range slider (with keyboard support and a `Latest` button) scrubs
+back through them. A scrubbed position is kept while newer versions arrive and
+falls back to the newest version once retention removes it. At most 20 groups
+and 100 versions per group are rendered, and only the selected version of a
+group is in the DOM.
+
+An explicitly requested JSON tensor preview is limited to 64 KiB, eight axes and 4,096 finite
 values; it validates the declared shape and shows at most 128 numbers. Unknown
 media remain downloadable without decoding or executing them.
 

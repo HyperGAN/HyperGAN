@@ -67,6 +67,10 @@ hypergan train cifar.toml --run-dir runs/cifar --stop-after-steps 10000 --checkp
 hypergan resume runs/cifar --stop-after-steps 10000 --checkpoint-every 1000 --preview-every 500
 ```
 
+Periodic previews publish the generated grid as sample `g` and the comparable
+real batch as `x`; the viewer shows each name's newest image with a slider over
+the retained history (`--preview-keep`, default 20).
+
 The example automatically evaluates FID at steps 10,000, 20,000 and so on.
 A stopped run can also be evaluated explicitly with
 `hypergan evaluate runs/cifar --metric fid50k_train`.

@@ -686,6 +686,44 @@ footer {
   gap: 16px;
   align-items: center;
 }
+.artifact-list li strong.sample-name {
+  text-transform: none;
+  font-size: 13px;
+  color: #e2c384;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.sample-history {
+  order: 2;
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.sample-history input[type="range"] {
+  flex: 1 1 180px;
+  min-width: 140px;
+  accent-color: #d7bb81;
+}
+.sample-position {
+  font-size: 10px;
+  color: var(--muted);
+}
+.sample-latest {
+  font-size: 10px;
+  padding: 4px 10px;
+}
+.sample-body > .artifact-controls {
+  order: 4;
+}
+.sample-body {
+  order: 3;
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
 .image-grid {
   order: 3;
   display: block;

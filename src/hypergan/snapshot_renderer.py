@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from .cpu_worker_service import CPUWorkerService
-from .previews import MAX_BYTES
+from .previews import DEFAULT_KEEP, MAX_BYTES
 
 
 def _factory(*args):
@@ -37,7 +37,7 @@ def _handler(*args):
 
 
 def render_snapshot(path, descriptor, identity, step, output, *, timeout=60, publish_run_dir=None,
-                    keep=3, cancellation_event=None):
+                    keep=DEFAULT_KEEP, cancellation_event=None):
     """Finish or reap the isolated renderer before returning bounded JSON.
 
     PreviewWorker runs this blocking operation on its supervising thread.

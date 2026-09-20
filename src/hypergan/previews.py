@@ -14,7 +14,30 @@ MAX_COUNT = 16
 MAX_ELEMENTS = 65536
 MAX_BYTES = 2 * 1024 * 1024
 MAX_KEEP = 100
+DEFAULT_KEEP = 20
+# Short stable sample names: the EMA generator output is 'g' and the real batch
+# it is compared against is 'x'. Names index a source across steps; they are not
+# unique artifact identities.
+DEFAULT_NAME = 'g'
+REAL_NAME = 'x'
+NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,15}')
 _GENERATION = re.compile(r'(?:\.pending-)?\d{12,}-\d{4,}-[0-9a-f]{32}-step\d{8,}-[0-9a-f]{32}')
+
+
+def sample_name(value, default=DEFAULT_NAME):
+    """Validate a short stable sample name, falling back to the default."""
+    if value is None:
+        return default
+    if not isinstance(value, str) or NAME.fullmatch(value) is None:
+        raise ValueError('Sample name must be 1-16 letters, digits, dots, colons, underscores or hyphens')
+    return value
+
+
+def _identity_name(identity, payload=None):
+    named = (payload or {}).get('name')
+    if named is None:
+        named = identity.get('name') if isinstance(identity, dict) else None
+    return sample_name(named)
 
 
 def _inputs(trainer, batch):
@@ -71,6 +94,7 @@ def render_preview(trainer, batch, identity):
         if not torch.isfinite(values).all():
             raise ValueError('Preview contains nonfinite values')
         payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': dict(identity),
+                'name': _identity_name(identity),
                 'step': trainer.step, 'seed': seed, 'count': count,
                 'requested_count': trainer.config['sampling']['count'],
                 'count_limited_by': [name for name, limit in [('count-cap', MAX_COUNT), ('element-budget', MAX_ELEMENTS // max(1, per_sample))] if count < trainer.config['sampling']['count'] and count == limit],
@@ -81,9 +105,20 @@ def render_preview(trainer, batch, identity):
                 'resume_supported': False}
         if values.ndim == 4 and values.shape[1] in (1, 3):
             from .image_grids import tensor_grid
-            encoded, grid = tensor_grid(values, {key: payload[key] for key in (
-                'identity', 'step', 'seed', 'count', 'shape', 'particle_ids', 'conditioning')})
-            payload['image_grid'] = dict(grid, png_base64=base64.b64encode(encoded).decode('ascii'))
+            provenance = {key: payload[key] for key in (
+                'identity', 'step', 'seed', 'count', 'shape', 'particle_ids', 'conditioning')}
+            encoded, grid = tensor_grid(values, dict(provenance, name=payload['name']))
+            payload['image_grid'] = dict(grid, name=payload['name'],
+                                         png_base64=base64.b64encode(encoded).decode('ascii'))
+            # The comparable real batch is published beside it under its own name
+            # so the viewer can index both sources; it is not regenerated data.
+            rows = real[torch.arange(count) % len(real)].detach().cpu()
+            if (rows.ndim == 4 and rows.shape[1] == values.shape[1] and rows.is_floating_point()
+                    and rows.numel() <= MAX_ELEMENTS and torch.isfinite(rows).all()):
+                encoded, grid = tensor_grid(rows, dict(provenance, name=REAL_NAME,
+                                                       shape=list(rows.shape), source='batch.real'))
+                payload['real_image_grid'] = dict(grid, name=REAL_NAME, source='batch.real',
+                                                  png_base64=base64.b64encode(encoded).decode('ascii'))
         return payload
     finally:
         restore_rng(rng)
@@ -104,12 +139,12 @@ def _write_bounded(path, payload):
     return size + 1
 
 
-def publish_preview(run_dir, trainer, batch, identity, keep=3):
+def publish_preview(run_dir, trainer, batch, identity, keep=DEFAULT_KEEP):
     return _publish_preview(run_dir, identity, trainer.step,
                             lambda: render_preview(trainer, batch, identity), keep)
 
 
-def publish_preview_payload(run_dir, payload, identity, step, keep=3):
+def publish_preview_payload(run_dir, payload, identity, step, keep=DEFAULT_KEEP):
     """Publish an already-rendered bounded JSON preview without numerical imports."""
     if (not isinstance(payload, dict) or payload.get('schema_version') != 1
             or payload.get('kind') != 'ema-preview' or type(payload.get('step')) is not int
@@ -117,32 +152,42 @@ def publish_preview_payload(run_dir, payload, identity, step, keep=3):
             or json.dumps(payload.get('identity'), sort_keys=True) != json.dumps(identity, sort_keys=True)
             or type(payload.get('count')) is not int or not 1 <= payload['count'] <= MAX_COUNT
             or type(payload.get('shape')) is not list or not payload['shape']
-            or payload['shape'][0] != payload['count']):
-        raise ValueError('Rendered preview identity, step or shape is invalid')
+            or payload['shape'][0] != payload['count']
+            or sample_name(payload.get('name')) != sample_name((identity or {}).get('name'))):
+        raise ValueError('Rendered preview identity, step, name or shape is invalid')
     return _publish_preview(run_dir, identity, step, lambda: payload, keep)
 
 
-def _publish_grid(temporary, target, payload):
+GRIDS = (('image_grid', 'grid.png'), ('real_image_grid', 'real.png'))
+
+
+def _publish_grids(temporary, target, payload):
     """Materialize renderer bytes inside the same atomic generation directory."""
-    grid = payload.get('image_grid')
-    if grid is None:
-        return payload, None
     from .image_grids import MAX_BYTES as PNG_MAX_BYTES, inspect_png
-    if (not isinstance(grid, dict) or not isinstance(grid.get('png_base64'), str)
-            or len(grid['png_base64']) > 4 * ((PNG_MAX_BYTES + 2) // 3)):
-        raise ValueError('Invalid bounded preview PNG payload')
-    encoded = base64.b64decode(grid['png_base64'], validate=True)
-    header = inspect_png(encoded)
-    if any(grid.get(key) != value for key, value in header.items()):
-        raise ValueError('Preview PNG dimensions differ from renderer metadata')
-    metadata = {key: value for key, value in grid.items() if key != 'png_base64'}
-    record = dict(metadata, path=str(target / 'grid.png'), bytes=len(encoded),
-                  sha256=hashlib.sha256(encoded).hexdigest(), media_type='image/png')
-    with (temporary / 'grid.png').open('xb') as output:
-        output.write(encoded)
-        output.flush()
-        os.fsync(output.fileno())
-    return dict(payload, image_grid=record), record
+    records = {}
+    for field, filename in GRIDS:
+        grid = payload.get(field)
+        if grid is None:
+            continue
+        if (not isinstance(grid, dict) or not isinstance(grid.get('png_base64'), str)
+                or len(grid['png_base64']) > 4 * ((PNG_MAX_BYTES + 2) // 3)):
+            raise ValueError('Invalid bounded preview PNG payload')
+        encoded = base64.b64decode(grid['png_base64'], validate=True)
+        header = inspect_png(encoded)
+        if any(grid.get(key) != value for key, value in header.items()):
+            raise ValueError('Preview PNG dimensions differ from renderer metadata')
+        metadata = {key: value for key, value in grid.items() if key != 'png_base64'}
+        record = dict(metadata, path=str(target / filename), bytes=len(encoded),
+                      sha256=hashlib.sha256(encoded).hexdigest(), media_type='image/png')
+        record['name'] = sample_name(record.get('name'),
+            REAL_NAME if field == 'real_image_grid' else sample_name(payload.get('name')))
+        with (temporary / filename).open('xb') as output:
+            output.write(encoded)
+            output.flush()
+            os.fsync(output.fileno())
+        payload = dict(payload, **{field: record})
+        records[field] = record
+    return payload, records
 
 
 def _publish_preview(run_dir, identity, step, render, keep):
@@ -168,14 +213,14 @@ def _publish_preview(run_dir, identity, step, render, keep):
     completed = False
     try:
         payload = render()
-        payload, grid = _publish_grid(temporary, target, payload)
+        payload, grids = _publish_grids(temporary, target, payload)
         size = _write_bounded(temporary / 'preview.json', payload)
         record = {'schema_version': 1, 'kind': 'ema-preview', 'identity': dict(identity),
+                  'name': _identity_name(identity, payload),
                   'step': step, 'path': str(target / 'preview.json'), 'bytes': size,
                   'sha256': hashlib.sha256((temporary / 'preview.json').read_bytes()).hexdigest(),
                   'count': payload['count'], 'shape': payload['shape']}
-        if grid is not None:
-            record['image_grid'] = grid
+        record.update(grids)
         atomic_json(temporary / 'manifest.json', record)
         sync_directory(temporary)
         temporary.rename(target)
@@ -188,13 +233,17 @@ def _publish_preview(run_dir, identity, step, render, keep):
                 saved = json.loads((entry / 'manifest.json').read_text(encoding='utf-8'))
                 if saved.get('kind') == 'ema-preview' and saved.get('identity', {}).get('run_id') == identity['run_id']:
                     saved['path'] = str(entry / 'preview.json')
-                    if 'image_grid' in saved:
-                        saved['image_grid']['path'] = str(entry / 'grid.png')
+                    saved['name'] = sample_name(saved.get('name'))
+                    for field, filename in GRIDS:
+                        if field in saved:
+                            saved[field]['path'] = str(entry / filename)
                     records.append((saved, entry))
         records.sort(key=lambda pair: pair[0]['identity']['sample_sequence'])
         retained, expired = records[-keep:], records[:-keep]
         index = {'schema_version': 1, 'kind': 'ema-preview-index', 'run_id': identity['run_id'],
-                 'keep': keep, 'previews': [saved for saved, _ in retained]}
+                 'keep': keep,
+                 'names': sorted({saved.get('name', DEFAULT_NAME) for saved, _ in retained}),
+                 'previews': [saved for saved, _ in retained]}
         try:
             atomic_json(root / 'index.json', index)
         except Exception:

@@ -10,6 +10,7 @@ from hypergan.checkpoints import capture_rng
 from hypergan.config import DEFAULT, resolve_config
 from hypergan.distributed_checkpoints import _digest
 from hypergan.preview_snapshot import capture_snapshot, renderer_command, renderer_factory
+from hypergan.previews import MAX_COUNT
 from hypergan.recipes import MLP
 from hypergan.training import ReferenceTrainer
 
@@ -61,7 +62,11 @@ def test_snapshot_serialization_preserves_live_state_rng_and_excludes_discrimina
         saved = torch.load(path, weights_only=True)
         assert set(saved['model_states']) == {'generator'}
         assert saved['model_buffers']['generator']['serialization_calls'].item() == 1
-        assert saved['batch']['real'].shape[0] == 1
+        # Real rows are captured for the comparable 'x' grid, bounded by the
+        # preview sample count rather than the training batch size.
+        count = min(trainer.config['sampling']['count'], MAX_COUNT)
+        assert saved['batch']['real'].shape[0] == count <= len(batch['real'])
+        assert torch.equal(saved['batch']['real'], batch['real'][:count].cpu())
         # Actual reconstruction must work without a training process group.
         assert not torch.distributed.is_initialized()
         renderer = renderer_factory(0, 1, str(path), receipt, identity, trainer.step, str(tmp_path / 'preview.json'))

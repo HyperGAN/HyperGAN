@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 from pathlib import Path
+import re
 import sys
 
 from . import __version__
@@ -23,6 +24,14 @@ def _public_origin(value):
         return normalize_public_origin(value)
     except ValueError as error:
         raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def _sample_name(value):
+    # Validated without importing training dependencies.
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,15}", value) is None:
+        raise argparse.ArgumentTypeError(
+            "must be 1-16 letters, digits, dots, colons, underscores or hyphens")
+    return value
 
 
 def _positive_seconds(value):
@@ -70,7 +79,11 @@ def _run_options(parser):
                           help="disable periodic previews for this attempt")
     parser.set_defaults(preview_every=None)
     parser.add_argument("--preview-keep", type=_positive_int,
-                        help="retain at most N periodic previews (default: 3; existing runs inherit)")
+                        help="retain at most N periodic previews for the history slider "
+                             "(1-100, default: 20; existing runs inherit)")
+    parser.add_argument("--preview-name", type=_sample_name,
+                        help="short stable name indexing this run's generated samples "
+                             "(default: g; the real batch is published as x)")
 
 
 def _parser():
@@ -340,7 +353,8 @@ def _dispatch(args, *, output=None):
                                            if getattr(args, name) is not None},
                            checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
                            stop_after_steps=args.stop_after_steps,
-                           preview_every=args.preview_every, preview_keep=args.preview_keep)
+                           preview_every=args.preview_every, preview_keep=args.preview_keep,
+                           preview_name=args.preview_name)
             if args.command == "train":
                 prepared = prepare_train(args.config, args.run_dir, args.steps, **options)
             else:

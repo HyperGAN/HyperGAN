@@ -23,7 +23,8 @@ METRICS = {'loss/g_total': 'Generator total', 'loss/d_total': 'Discriminator tot
 @pytest.fixture
 def viewer():
     reducer = Reducer()
-    control = {'paths': [], 'streams': [], 'step': 2, 'pending': False, 'release': False}
+    control = {'paths': [], 'streams': [], 'step': 2, 'pending': False, 'release': False,
+               'artifacts': {}, 'assets': {}}
     condition = threading.Condition()
     def frame(step):
         values = {'loss/g_total': 1 / step, 'loss/d_total': -.5 if step == 2 else 2 / step,
@@ -59,7 +60,10 @@ def viewer():
             if path=='/api/v1/capabilities':return self.send(200,{'run_id':None if control.get('waiting') else RUN,'reducer':reducer.spec})
             if path==f'/api/v1/runs/{RUN}':return self.send(200,{'run_id':RUN,'status':'training','steps':control['step'],'last_durable_step':1,'total_steps':100,'config':{'name':'Color / reference study'}})
             if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
-            if path.endswith('/artifacts'):return self.send(200,{'schema_version':1,'artifacts':{}})
+            if '/artifacts/' in path:
+                asset=control['assets'].get(path.rsplit('/',1)[-1])
+                return self.send(404,{'error':'Not found'}) if asset is None else self.send(200,asset,'image/png')
+            if path.endswith('/artifacts'):return self.send(200,{'schema_version':1,'artifacts':control['artifacts']})
             if path.endswith('/views'):return self.send(200,{'map_revision':MAP})
             if path.endswith('/bootstrap'):
                 if control['pending'] and not control['release']:return self.send(202,{'status':'pending'})
@@ -221,4 +225,60 @@ def test_delivery_gap_keeps_reduced_state_and_resumes_acknowledged_cursor(viewer
     page.locator('#stream-position[data-projection="7"]').wait_for()
     assert 'cursor:4' in control['streams']
     assert sum('/bootstrap?' in path for path in control['paths']) == initial_requests
+    assert not errors
+
+
+def test_named_samples_group_with_latest_image_and_history_slider(viewer):
+    """Samples are indexed by name; images show the newest with a scrubber."""
+    from hypergan.image_grids import encode_png
+    page, control, condition, errors = viewer
+    def image(identifier, name, step, pixel):
+        control['assets'][identifier] = encode_png(pixel, 1, 1, 3, {'step': step})
+        control['artifacts'][identifier] = {
+            'role': 'sample', 'modality': 'image', 'media_type': 'image/png', 'name': name,
+            'bytes': len(control['assets'][identifier]), 'width': 1, 'height': 1,
+            'provenance': {'step': step, 'sample_sequence': step // 10, 'name': name}}
+    image('g-10', 'g', 10, bytes([255, 0, 0]))
+    image('g-30', 'g', 30, bytes([0, 0, 255]))
+    image('g-20', 'g', 20, bytes([0, 255, 0]))
+    image('x-30', 'x', 30, bytes([255, 255, 255]))
+    control['artifacts']['numbers-30'] = {
+        'role': 'sample', 'modality': 'tensor', 'media_type': 'application/json', 'name': 'g',
+        'bytes': 32, 'shape': [1, 2], 'provenance': {'step': 30, 'sample_sequence': 3, 'name': 'g'}}
+    login(page)
+    items = page.locator('#artifact-items li')
+    items.first.wait_for()
+    assert items.count() == 3
+    # One card per name and modality, newest first, images before tensors.
+    assert [items.nth(i).get_attribute('data-sample') for i in range(3)] == ['g', 'x', 'g']
+    assert [items.nth(i).get_attribute('data-modality') for i in range(3)] == ['image', 'image', 'tensor']
+    assert page.locator('#artifact-items img.image-grid').count() == 2
+    generated = page.locator('#artifact-items li[data-sample="g"][data-modality="image"]')
+    assert generated.locator('strong.sample-name').inner_text() == 'g'
+    # Only the most recent generated image is shown by default.
+    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-30')
+    assert 'Version 3 of 3' in generated.locator('.sample-position').inner_text()
+    assert 'step 30' in generated.locator('.sample-position').inner_text()
+    assert 'latest' in generated.locator('.sample-position').inner_text()
+    assert generated.get_by_role('button', name='Latest').is_hidden()
+    # A single version needs no history control.
+    assert page.locator('li[data-sample="x"] input[type="range"]').count() == 0
+    slider = generated.locator('input[type="range"]')
+    assert slider.get_attribute('aria-label') == 'g sample history'
+    assert (slider.get_attribute('min'), slider.get_attribute('max')) == ('0', '2')
+    # The slider scrubs back through earlier versions with the keyboard.
+    slider.focus()
+    page.keyboard.press('Home')
+    generated.locator('.sample-position').filter(has_text='Version 1 of 3 · step 10').wait_for()
+    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-10')
+    assert generated.get_by_role('button', name='Latest').is_visible()
+    page.keyboard.press('ArrowRight')
+    generated.locator('.sample-position').filter(has_text='Version 2 of 3 · step 20').wait_for()
+    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-20')
+    assert 'Step 20' in generated.locator('span').first.inner_text()
+    generated.get_by_role('button', name='Latest').click()
+    generated.locator('.sample-position').filter(has_text='Version 3 of 3').wait_for()
+    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-30')
+    page.wait_for_function(
+        "() => [...document.querySelectorAll('#artifact-items img')].every(i => i.naturalWidth === 1)")
     assert not errors

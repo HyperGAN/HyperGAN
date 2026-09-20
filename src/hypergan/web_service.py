@@ -35,6 +35,17 @@ def _digest(value):
     return hashlib.sha256(_json(value).encode()).hexdigest()
 
 
+_SAMPLE_NAME = re.compile('[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}')
+
+
+def _sample_name(*candidates):
+    """Short bounded group name for the viewer; never a path or artifact identity."""
+    for value in candidates:
+        if isinstance(value, str) and _SAMPLE_NAME.fullmatch(value):
+            return value
+    return 'sample'
+
+
 def cursor_offset(cursor):
     if cursor is None:
         return 0
@@ -225,19 +236,29 @@ class ObservationService:
                         raise ValueError('Invalid bounded preview index')
                     for preview in previews:
                         identity = preview['identity']
+                        # Digest keys stay the artifact identity; `name` indexes the
+                        # source across steps so a viewer can group its history.
                         key = 'preview-' + _digest(identity)[:32]
+                        name = _sample_name(preview.get('name'), identity.get('name'))
                         records[key] = dict(path=relative_path(preview['path']), bytes=preview['bytes'],
-                            sha256=preview.get('sha256'), role='sample', modality='tensor',
-                            media_type='application/json', provenance=dict(identity, step=preview['step']),
+                            sha256=preview.get('sha256'), role='sample', modality='tensor', name=name,
+                            media_type='application/json', provenance=dict(identity, step=preview['step'], name=name),
                             shape=preview['shape'])
                         if not isinstance(records[key]['sha256'], str):
                             records[key].update(status='unavailable', reason='Preview predates indexed content digests')
-                        if 'image_grid' in preview:
-                            grid = preview['image_grid']
-                            records[key + '-grid'] = dict(path=relative_path(grid['path']), bytes=grid['bytes'],
+                        for field, suffix in (('image_grid', '-grid'), ('real_image_grid', '-real-grid')):
+                            grid = preview.get(field)
+                            if grid is None:
+                                continue
+                            grid_name = _sample_name(grid.get('name'), name if field == 'image_grid' else 'x')
+                            record = dict(path=relative_path(grid['path']), bytes=grid['bytes'],
                                 sha256=grid['sha256'], role='sample', modality='image', media_type='image/png',
-                                provenance=dict(identity, step=preview['step']), shape=preview['shape'],
+                                name=grid_name,
+                                provenance=dict(identity, step=preview['step'], name=grid_name),
                                 width=grid['width'], height=grid['height'])
+                            if field == 'image_grid':
+                                record['shape'] = preview['shape']
+                            records[key + suffix] = record
                 if signature[2] is not None:
                     index = read_json(self.root, 'artifacts/index.json')
                     indexed = index.get('artifacts')
@@ -246,19 +267,24 @@ class ObservationService:
                     for key, record in indexed.items():
                         if key in records or not isinstance(key, str) or not 1 <= len(key) <= 128:
                             raise ValueError('Invalid/duplicate artifact ID')
-                        records[key] = dict(record, path=relative_path(record['path']))
+                        # Explicit indexes may name their source; otherwise the stable
+                        # artifact ID is its own group name.
+                        records[key] = dict(record, path=relative_path(record['path']),
+                                            name=_sample_name(record.get('name'), key))
                 if signature[0]:
                     path = relative_path(signature[0])
                     key = 'final-sample-' + _digest(path)[:32]
                     try:
                         data = read_bytes(self.root, path, max_bytes=16 * 1048576)
                         payload = json.loads(data)
+                        saved = payload.get('identity') if isinstance(payload.get('identity'), dict) else {}
+                        name = _sample_name(payload.get('name'), saved.get('name'))
                         records[key] = dict(path=path, bytes=len(data), sha256=hashlib.sha256(data).hexdigest(),
-                            role='sample', modality='tensor', media_type='application/json',
-                            provenance=dict(payload.get('identity', {}), step=payload.get('step')),
+                            role='sample', modality='tensor', media_type='application/json', name=name,
+                            provenance=dict(saved, step=payload.get('step'), name=name),
                             shape=payload.get('shape'))
                     except (ValueError, OSError) as exc:
-                        records[key] = dict(status='unavailable', role='sample', reason=str(exc))
+                        records[key] = dict(status='unavailable', role='sample', reason=str(exc), name='final')
                 return signature, records
             result = await asyncio.to_thread(inventory)
             if result is not None:

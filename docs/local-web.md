@@ -162,6 +162,11 @@ production and any additional projection are independent services.
 
 Preview publication records a SHA256 in the existing retained preview index. The
 server exposes these sample descriptors without rereading every sample payload.
+Each descriptor adds a short stable `name` (`g` generated, `x` real, or an
+explicit index entry's own name) beside its unchanged digest artifact ID, and
+the browser groups a name's retained versions behind one history slider showing
+the newest by default. The listing stays bounded: at most 100 indexed previews
+and 256 explicit artifact entries.
 A final JSON sample is indexed once in a background file task, capped at 16 MiB;
 oversized/unavailable samples receive an explicit unavailable descriptor. Model
 checkpoints are never deserialized by serving. Generic explicit

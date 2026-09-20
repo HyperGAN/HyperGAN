@@ -343,7 +343,7 @@ def test_final_delayed_metrics_keep_source_step_and_current_checkpoint_frontier(
             return {}, {}
         def poll(self):
             return []
-        def close(self, *, drain=True):
+        def close(self, *, drain=True, stop_requested=None):
             if not drain:
                 return []
             outcome = {'context': self.source, 'metrics': {'loss/g_total': 1.5},

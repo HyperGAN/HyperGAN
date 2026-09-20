@@ -127,8 +127,12 @@ supported. These defaults apply only to the disposable worker. There are no
 implicit retries. `on_error = "disable"` records a visible reason and disables
 that metric for the remainder of the attempt; a new attempt preflights it again.
 `on_error = "fail"` fails the attempt when its asynchronous result is collected.
-Final completion drains accepted observations before its final checkpoint;
-exceptional shutdown cancels outstanding observations and reaps their workers.
+Normal completion drains accepted observations before its final checkpoint.
+A cooperative signal cancels outstanding observations and reaps their workers,
+including when the signal arrives during terminal draining. Optional observations
+record `cancelled` at their source step; required observations retain `on_error =
+"fail"` and fail the attempt on cancellation. Exceptional shutdown also cancels
+outstanding observations and reaps their workers.
 A required failure can therefore arrive after subsequent completed updates;
 resume replays from the selected complete checkpoint. Disabling optional
 publication never disables mandatory numerical validation.

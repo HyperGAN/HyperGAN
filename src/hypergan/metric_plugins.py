@@ -213,6 +213,7 @@ class ScalarMetrics:
             self._thread.start()
 
     def _dispatch(self):
+        from .cpu_worker_service import CPUServiceCancelled
         while True:
             job = self._jobs.get()
             if job is None:
@@ -220,7 +221,7 @@ class ScalarMetrics:
             name, spec, inputs, context, deadline = job
             try:
                 if self._cancel.is_set():
-                    raise RuntimeError('Metric observation cancelled at attempt shutdown')
+                    raise CPUServiceCancelled('Metric observation cancelled at attempt shutdown')
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError('Metric deadline expired while queued')
@@ -230,9 +231,10 @@ class ScalarMetrics:
                 outcome = {'context': context, 'metrics': {name: result['value']}, 'measurement_status': {}}
             except BaseException as error:
                 reason = f'{type(error).__name__}: {error}'[:1000]
+                status = ('failed' if spec['on_error'] == 'fail' else
+                          'cancelled' if isinstance(error, CPUServiceCancelled) else 'disabled')
                 outcome = {'context': context, 'metrics': {},
-                    'measurement_status': {name: {'status': 'failed' if spec['on_error'] == 'fail' else 'disabled',
-                                                  'reason': reason}}}
+                    'measurement_status': {name: {'status': status, 'reason': reason}}}
             self._results.put_nowait((name, outcome))
 
     def evaluate(self, row, context):
@@ -282,18 +284,26 @@ class ScalarMetrics:
             raise failure
         return outcomes
 
-    def close(self, *, drain=True):
+    def close(self, *, drain=True, stop_requested=None):
         if not self._closed:
             self._closed = True
-            if not drain:
+            if not drain or (stop_requested is not None and stop_requested()):
                 self._cancel.set()
             if self._thread is not None:
                 # All <=32 outstanding observations already have deadlines.
                 # A sentinel may need one slot while the worker consumes its
                 # first job; waiting is confined to terminal cleanup.
                 self._jobs.put(None)
-                timeout = max(0.0, self._last_deadline - time.monotonic()) + 8.0 if drain else 8.0
-                self._thread.join(timeout)
+                deadline = (max(time.monotonic(), self._last_deadline) + 8.0
+                            if drain and not self._cancel.is_set() else time.monotonic() + 8.0)
+                # A signal may arrive after normal terminal draining started.
+                # Poll the cooperative stop flag here, never wait for a metric's
+                # potentially hour-long configured timeout after cancellation.
+                while self._thread.is_alive() and time.monotonic() < deadline:
+                    if stop_requested is not None and stop_requested() and not self._cancel.is_set():
+                        self._cancel.set()
+                        deadline = min(deadline, time.monotonic() + 8.0)
+                    self._thread.join(min(.05, max(0.0, deadline - time.monotonic())))
                 if self._thread.is_alive():
                     self._cancel.set()
                     self._thread.join(8.0)

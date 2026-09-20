@@ -414,7 +414,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
 
     def collect_custom(*, final=False):
         try:
-            outcomes = custom_metrics.close(drain=True) if final else custom_metrics.poll()
+            outcomes = custom_metrics.close(drain=True,
+                stop_requested=lambda: stop is not None and bool(stop.reason)) if final else custom_metrics.poll()
         except Exception as error:
             publish_custom(getattr(error, 'metric_outcomes', []))
             raise
@@ -670,6 +671,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         # Execution may contain a half update: NEVER checkpoint in this handler.
         if request_reader is not None:
             request_reader.close()
+        if stop is not None and stop.reason:
+            manifest['stop_reason'] = stop.reason
         try:
             custom_metrics.close(drain=False)
         except BaseException as cleanup_error:

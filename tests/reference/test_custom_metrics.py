@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -245,3 +246,53 @@ if __name__ == '__main__':
 ''')
     result=run(driver,'cancel')
     assert result.returncode==0,result.stdout+result.stderr
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX cooperative SIGTERM contract')
+@pytest.mark.parametrize('on_error', ['disable', 'fail'])
+def test_signal_during_terminal_metric_drain_cancels_and_reaps_long_timeout(tmp_path, on_error):
+    marker=tmp_path/'worker-pids'
+    driver=setup(tmp_path, args='slow = true\nmarker = '+json.dumps(str(marker)),
+                 timeout=3600, cadence=1, on_error=on_error)
+    plugin=tmp_path/'metric_probe.py'
+    plugin.write_text(plugin.read_text().replace('sleep(30)', 'sleep(120)'))
+    bootstrap = 'import runpy,sys;sys.path.insert(0,sys.argv[1]);sys.argv=sys.argv[2:];runpy.run_path(sys.argv[0],run_name="__main__")'
+    process=subprocess.Popen([sys.executable,'-c',bootstrap,str(tmp_path),str(driver),str(tmp_path),'signal'],
+                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        deadline=time.monotonic()+20
+        while time.monotonic()<deadline:
+            assert process.poll() is None
+            events_path=tmp_path/'custom/events.jsonl'
+            events=[json.loads(line) for line in events_path.read_bytes().split(b'\n')[:-1]] if events_path.exists() else []
+            if marker.exists() and any(row['event']=='train' and row['step']==3 for row in events):
+                break
+            time.sleep(.01)
+        else:
+            raise AssertionError('Training did not reach terminal drain while the scalar worker was blocked')
+        started=time.monotonic()
+        process.send_signal(signal.SIGTERM)
+        stdout,stderr=process.communicate(timeout=12)
+        assert time.monotonic()-started<12
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
+    manifest=json.loads((tmp_path/'custom/manifest.json').read_text())
+    assert manifest['steps']==3 and manifest['stop_reason']=='SIGTERM'
+    if on_error=='disable':
+        assert process.returncode==0,stdout+stderr
+        # All requested numerical updates already finished before the signal;
+        # completion remains honest, with cancellation recorded separately.
+        assert manifest['status']=='complete' and manifest['last_durable_step']==3
+    else:
+        assert process.returncode!=0 and 'Required metric ratio failed' in stderr
+        assert manifest['status']=='failed' and manifest['last_durable_step']==0
+    outcomes=[row for row in rows(tmp_path/'custom') if row['event']=='metric']
+    assert len(outcomes)==1 and outcomes[0]['step']==1
+    status=outcomes[0]['measurement_status']['ratio']
+    assert status['status']==('cancelled' if on_error=='disable' else 'failed')
+    assert 'cancelled' in status['reason']
+    for pid in map(int,marker.read_text().splitlines()):
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid,0)

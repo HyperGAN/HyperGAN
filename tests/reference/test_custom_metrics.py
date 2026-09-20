@@ -200,3 +200,48 @@ def test_missing_factory_or_incompatible_descriptor_fails_before_run_mutation(tm
     result=run(driver,'error')
     assert result.returncode!=0
     assert not (tmp_path/'custom').exists()
+
+
+def test_async_cancel_reaps_native_blocked_scalar_without_waiting_for_timeout(tmp_path):
+    driver=setup(tmp_path, timeout=30)
+    driver.write_text('''
+from pathlib import Path
+import os
+import time
+import sys
+from hypergan.config import load_config
+from hypergan.metric_plugins import ScalarMetrics, prepare_custom
+
+if __name__ == '__main__':
+    root=Path(sys.argv[1])
+    config=load_config(root/'custom.toml')
+    spec=config['metrics']['custom']['ratio']
+    spec['args']={'slow':True,'marker':str(root/'worker-pid')}
+    spec['every_steps']=1
+    prepare_custom(config)
+    metrics=ScalarMetrics(config)
+    metrics.start()
+    started=time.monotonic()
+    metrics.evaluate({'g_loss':2.,'d_loss':1.},{'step':1})
+    for step in range(2,1002):
+        assert metrics.evaluate({'g_loss':2.,'d_loss':1.},{'step':step})[1]['ratio']['status']=='dropped'
+        assert metrics.poll()==[]
+    elapsed=time.monotonic()-started
+    assert elapsed<1, elapsed
+    deadline=time.monotonic()+15
+    while not (root/'worker-pid').exists() and time.monotonic()<deadline:
+        time.sleep(.01)
+    pid=int((root/'worker-pid').read_text())
+    started=time.monotonic()
+    metrics.close(drain=False)
+    elapsed=time.monotonic()-started
+    assert elapsed<8, elapsed
+    try:
+        os.kill(pid,0)
+    except ProcessLookupError:
+        pass
+    else:
+        raise AssertionError('Metric worker survived cancellation')
+''')
+    result=run(driver,'cancel')
+    assert result.returncode==0,result.stdout+result.stderr

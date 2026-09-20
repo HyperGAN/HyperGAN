@@ -200,8 +200,8 @@ if __name__ == '__main__':
         assert result['status'] == 'failed'
         assert not result.get('sample_path') and not result.get('bundle_path')
         if mode == 'fatal':
-            assert result['steps'] == 1 and result['last_durable_step'] == 0
-            assert result['possible_lost_steps'] == 1
+            assert 1 <= result['steps'] <= result['total_steps'] and result['last_durable_step'] == 0
+            assert result['possible_lost_steps'] == result['steps']
             assert (markers / 'injected-rank-1-exit').read_text() == '31'
             assert 'rank ' in str(error) and 'operation=prepare' in str(error)
             assert result['attempt_id'] in str(error)
@@ -218,10 +218,17 @@ if __name__ == '__main__':
     if requests:
         receipts = [checkpoint_request_status(run, identifier) for identifier in requests]
         if mode == 'requests':
-            assert all(row['status'] == 'succeeded' and row['step'] == 1 for row in receipts)
+            # Both requests arrive while update 1 is gated. Polling may serve
+            # them at a later complete boundary, never before their requested
+            # update or beyond the controller's observed numerical progress.
+            assert all(row['status'] == 'succeeded' and 1 <= row['step'] <= result['steps'] for row in receipts)
             assert receipts[0]['checkpoint_path'] == receipts[1]['checkpoint_path']
+            assert receipts[0]['step'] == receipts[1]['step']
             saved = json.loads((Path(receipts[0]['checkpoint_path']) / 'manifest.json').read_text())
+            assert saved['step'] == receipts[0]['step']
+            assert saved['attempt_id'] == result['attempt_id']
             assert set(saved['request_ids']) == set(requests)
+            assert len(calls) == 3  # One lost acknowledgement, two successes.
             events = [json.loads(row) for row in (run / 'events.jsonl').read_text().splitlines()]
             assert len([row for row in events if row['event'] == 'checkpoint' and set(row.get('request_ids', [])) == set(requests)]) == 1
         else:

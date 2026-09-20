@@ -393,6 +393,7 @@ def test_cifar_final_tensor_preview_and_oversize_explanation(real_viewer):
     with page.expect_download() as download:
         item.get_by_role('link', name='Download').click()
     assert Path(download.value.path()).read_bytes() == payload
+    assert download.value.suggested_filename == "samples.json"
     assert not errors
 
 

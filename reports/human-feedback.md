@@ -18,7 +18,7 @@ Owner: "the viewer shows the last N images but it should really show all of them
 - [x] Slider behavior: when positioned on the latest sample and a new one arrives, advance to the new one; when positioned on an earlier sample, stay put and do not jump.
 - [x] Tests for retention-off, index size, and the follow-latest / stay-put slider behavior.
 
-**Status:** Implemented on `worktree-agent-afd0478ab5a7ac2f3`, pending merge to develop.
+**Status:** Implemented in commit 2b601cf1 on `worktree-agent-afd0478ab5a7ac2f3`, pending merge to develop.
 
 Retention is now opt-in. `hypergan.previews.KEEP_ALL = 0` is the default `keep`,
 so a run accumulates every published generation (tensor payload and both PNG

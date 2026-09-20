@@ -17,7 +17,8 @@ def test_no_server_never_imports_serving_or_opens_sockets(monkeypatch, tmp_path)
         assert viewer is None
 
 
-@pytest.mark.parametrize('extra', [['--open'], ['--port', '8000'], ['--server-port', '8000'], ['--viewer-dev'], ['--dev']])
+@pytest.mark.parametrize('extra', [['--open'], ['--port', '8000'], ['--server-port', '8000'], ['--viewer-dev'], ['--dev'],
+                                   ['--public-origin', 'https://box.ts.net']])
 def test_headless_conflicts_are_clear(extra, tmp_path):
     args = _parser().parse_args(['resume', str(tmp_path), '--no-server', *extra])
     with pytest.raises(ValueError, match='cannot be combined'):
@@ -45,6 +46,31 @@ def test_bind_and_auth_cli_options():
     for command in [['train', 'config', '--run-dir', 'run'], ['resume', 'run']]:
         args = parser.parse_args([*command, '--server-host', '192.0.2.1', '--auth', 'token'])
         assert (args.server_host, args.auth) == ('192.0.2.1', 'token')
+
+
+def test_public_origin_reaches_the_automatic_viewer_and_requires_it(monkeypatch, tmp_path):
+    from hypergan import web_autostart
+
+    parser = _parser()
+    assert parser.parse_args(['serve', 'run']).public_origin is None
+    assert parser.parse_args(['resume', 'run']).public_origin is None
+    # The canonical origin is what a browser sends back, so a trailing slash
+    # and a default port are normalised away before anything compares them.
+    for command in [['serve', 'run'], ['train', 'config', '--run-dir', 'run'], ['resume', 'run']]:
+        args = parser.parse_args([*command, '--public-origin', 'https://box.ts.net:443/'])
+        assert args.public_origin == 'https://box.ts.net'
+    for bad in ['box.ts.net', 'https://box.ts.net/viewer', 'ftp://box.ts.net', 'https://u:p@box.ts.net']:
+        with pytest.raises(SystemExit):
+            parser.parse_args(['serve', 'run', '--public-origin', bad])
+
+    started = {}
+    monkeypatch.setattr(web_autostart, 'training_viewer',
+                        lambda root, **kwargs: started.setdefault('kwargs', kwargs))
+    args = parser.parse_args(['resume', str(tmp_path), '--public-origin', 'https://box.ts.net'])
+    _training_viewer(args)
+    assert started['kwargs']['public_origin'] == 'https://box.ts.net'
+    # Naming a proxy is a request for a viewer, like --server-host or --auth.
+    assert started['kwargs']['required'] is True
 
 
 def test_viewer_dev_reaches_the_detached_supervisor_through_the_environment(monkeypatch, tmp_path):

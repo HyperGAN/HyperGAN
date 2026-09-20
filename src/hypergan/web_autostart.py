@@ -132,10 +132,12 @@ def _session(state):
         credentials = json.loads(credential_path.read_text(encoding='utf-8'))
     if credentials['server_instance_id'] != state['server_instance_id']:
         raise ValueError('Viewer credentials do not match the registered incarnation')
+    public_origin = credentials.get('public_origin')
     return SimpleNamespace(host=credentials['origin'].removeprefix('http://'),
                            origin=credentials['origin'], instance_id=credentials['server_instance_id'],
                            _token=credentials.get('token', ''), auth_mode=credentials['auth_mode'],
-                           bind_host=credentials['bind_host'])
+                           bind_host=credentials['bind_host'], public_origin=public_origin,
+                           browser_origin=public_origin or credentials['origin'])
 
 
 def _cleanup_session(private, launch_id):
@@ -208,6 +210,7 @@ def _receipt(root, session, mode, status, children):
     atomic_json(observations / ('viewer-' + session.instance_id + '.json'),
         {'schema_version': 1, 'mode': mode, 'status': status,
          'server_instance_id': session.instance_id, 'origin': session.origin,
+         'public_origin': session.public_origin,
          'auth_mode': session.auth_mode, 'bind_host': session.bind_host,
          'processes': {'supervisor': os.getpid(), **{name: child.pid for name, child in children.items()}}})
 
@@ -242,7 +245,8 @@ def _broker(root, private, launch_id):
             state.update(status=status, error=error, supervisor_pid=os.getpid(),
                          processes={name: child.pid for name, child in children.items()})
             if session is not None:
-                state.update(origin=session.origin, server_instance_id=session.instance_id,
+                state.update(origin=session.origin, public_origin=session.public_origin,
+                             server_instance_id=session.instance_id,
                              session_file=str(credential_path))
             with _launch_lock(private):
                 atomic_json(private / 'state.json', state)
@@ -253,7 +257,8 @@ def _broker(root, private, launch_id):
                     print(f'Viewer receipt unavailable: {exc}', file=sys.stderr, flush=True)
         try:
             listener = bind_available(state['port'], state['host'])
-            session = LocalSession(listener.getsockname()[1], host=state['host'], auth=state['auth'])
+            session = LocalSession(listener.getsockname()[1], host=state['host'], auth=state['auth'],
+                                   public_origin=state.get('public_origin'))
             with _launch_lock(private):
                 session.write_credentials(credential_path)
             for name, target, args in [('server', _server, (root, listener, session, stop)),
@@ -339,12 +344,17 @@ def viewer_status(root):
 class Viewer:
     """Attach to one persistent per-run supervisor; optional startup stays async."""
 
-    def __init__(self, root, *, port=None, host=None, auth=None, mode='auto', open_browser=False):
+    def __init__(self, root, *, port=None, host=None, auth=None, mode='auto', open_browser=False,
+                 public_origin=None):
         from .run_state import atomic_json, run_lock
         from .web_launch import bind_available, require_web
+        from .web_session import normalize_public_origin
         import secrets
 
         require_web()
+        # Refuse an unusable proxy origin here, in the command the owner typed,
+        # rather than inside a detached supervisor whose failure is a log line.
+        public_origin = normalize_public_origin(public_origin)
         self.root = Path(root).resolve()
         self.private = _registry(root)
         self.process = None
@@ -358,6 +368,7 @@ class Viewer:
             if _running(self.private, state):
                 if ((host is not None and host != state['host']) or
                     (auth is not None and auth != state['auth']) or
+                    (public_origin is not None and public_origin != state.get('public_origin')) or
                     (port and port != int(state.get('origin', ':0').rsplit(':', 1)[1]) and port != state['port'])):
                     raise ValueError('Existing viewer has different bind/auth settings; use hypergan stop-server RUN first')
             else:
@@ -377,6 +388,7 @@ class Viewer:
                     raise ValueError("auth must be 'none' or 'token'")
                 state = {'schema_version': 1, 'launch_id': secrets.token_hex(16),
                          'root': str(self.root), 'host': host, 'auth': auth, 'port': port,
+                         'public_origin': public_origin,
                          'mode': mode, 'status': 'starting', 'started_at': time.time()}
                 atomic_json(self.private / 'state.json', state)
                 options = {'start_new_session': True} if os.name != 'nt' else {
@@ -412,12 +424,15 @@ class Viewer:
                         self.session, self.info = session, state
                         self.ready.set()
                         print(f"Viewer: {session.origin} (listening on {session.bind_host})", file=sys.stderr, flush=True)
+                        if session.public_origin:
+                            print(f'Public viewer: {session.public_origin} (through your own TLS proxy)',
+                                  file=sys.stderr, flush=True)
                         if session.auth_mode == 'token':
                             print(f'Credentials: {self.credential_path} (copy its token into the sign-in form)',
                                   file=sys.stderr, flush=True)
                         if self._open_browser:
                             import webbrowser
-                            threading.Thread(target=webbrowser.open, args=(session.origin,), daemon=True).start()
+                            threading.Thread(target=webbrowser.open, args=(session.browser_origin,), daemon=True).start()
                 if not self.ready.is_set() and time.monotonic() >= deadline:
                     raise RuntimeError('Viewer startup timed out; inspect ' + str(self.private / 'viewer.log'))
             except (OSError, ValueError, RuntimeError) as exc:
@@ -447,7 +462,8 @@ class Viewer:
 
 
 @contextmanager
-def training_viewer(root, *, required=False, port=None, host=None, auth=None, open_browser=False):
+def training_viewer(root, *, required=False, port=None, host=None, auth=None, open_browser=False,
+                    public_origin=None):
     if not required:
         from importlib.util import find_spec
         if any(find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):
@@ -456,7 +472,7 @@ def training_viewer(root, *, required=False, port=None, host=None, auth=None, op
     viewer = None
     try:
         try:
-            viewer = Viewer(root, port=port, host=host, auth=auth,
+            viewer = Viewer(root, port=port, host=host, auth=auth, public_origin=public_origin,
                             mode='explicit' if required else 'auto', open_browser=open_browser)
             if required:
                 viewer.wait_ready()

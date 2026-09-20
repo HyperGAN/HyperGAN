@@ -62,14 +62,20 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         except (ValueError, KeyError, TypeError):
             return JSONResponse({'error': 'Invalid or expired viewer credential'}, status_code=401)
         result = JSONResponse({'authenticated': True})
-        result.set_cookie(session.cookie_name, cookie, httponly=True, samesite='strict', max_age=86400, path='/')
+        # Cookies are keyed by host, so the proxied and the direct authority
+        # already hold separate ones. Only the https channel may carry Secure:
+        # a browser discards a Secure cookie offered over plain-HTTP loopback.
+        secure = session.cookie_secure and request.scope.get('state', {}).get('viewer_channel') == 'public'
+        result.set_cookie(session.cookie_name, cookie, httponly=True, samesite='strict',
+                          secure=secure, max_age=86400, path='/')
         return result
 
     async def capabilities(request):
         from .metrics_reducer import descriptor
         return JSONResponse({'schema_version': 1, 'api_version': 'v1', 'run_id': service.run_id,
                              'status': service.manifest.get('status'), 'server_instance_id': session.instance_id,
-                             'auth_mode': session.auth_mode, 'transports': ['sse'], 'controls': ['console'], 'reducer': descriptor(),
+                             'auth_mode': session.auth_mode, 'public_origin': session.public_origin,
+                             'transports': ['sse'], 'controls': ['console'], 'reducer': descriptor(),
                              'limits': {'subscribers': 32, 'queue_bytes': 1048576, 'groups': 2048,
                                         'bootstrap_bytes': 1048576, 'stream_count': 64,
                                         'history_seconds': service.history_timeout}})
@@ -242,8 +248,15 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             if scope['type'] != 'http':
                 return await app(scope, receive, send)
             request = Request(scope, receive=receive)
-            if not session.permits_request(request.headers.get('host'), request.headers.get('origin')):
+            # Forwarded headers are read only when a public origin is configured;
+            # `match_request` ignores them otherwise, so nothing here is trusted
+            # by default. The channel decides the session cookie's Secure flag.
+            channel = session.match_request(request.headers.get('host'), request.headers.get('origin'),
+                                            forwarded_proto=request.headers.get('x-forwarded-proto'),
+                                            forwarded_host=request.headers.get('x-forwarded-host'))
+            if channel is None:
                 return await JSONResponse({'error': 'Invalid local Host or Origin'}, status_code=403)(scope, receive, send)
+            scope.setdefault('state', {})['viewer_channel'] = channel
             path = scope['path']
             public = (path == '/' or path.startswith('/assets/') or path.startswith('/reducers/')
                       or path == '/api/v1/session' or (dev.active and path.startswith('/dev/')))
@@ -256,7 +269,11 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                     present = {name.lower() for name, _ in headers}
                     headers.extend([(b'x-content-type-options', b'nosniff'),
                                     (b'referrer-policy', b'no-referrer'),
-                                    (b'content-security-policy', b"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; frame-ancestors 'none'")])
+                                    # Every directive is 'self' and every URL the page
+                                    # requests is relative, so 'self' resolves to the
+                                    # public origin behind a proxy with no host pinned
+                                    # here and nothing widened for it.
+                                    (b'content-security-policy', b"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'")])
                     # A route that already stated its own policy keeps exactly one value.
                     if b'cache-control' not in present:
                         headers.append((b'cache-control', b'no-store'))

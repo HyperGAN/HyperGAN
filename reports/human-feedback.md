@@ -21,15 +21,6 @@ Where this lives today:
 - `src/hypergan/web_service.py` builds the artifact list with keys `preview-<digest>` and `-grid` suffixes.
 - `frontend/src/app.js` renders every artifact as a flat list under "Samples & artifacts".
 
-### 5. HTTPS fronting of the viewer (e.g. `tailscale serve`) is rejected by the origin check (found 2026-09-20 while fixing item 3)
-
-`web_session.permits_request` requires `Origin` to equal `http://<host>` and the Host port to match the bound port. A TLS reverse proxy in front of the viewer sends an `https://` origin and usually a different port, so token login and the console `PUT` are rejected. Plain HTTP remote viewing works after item 3; HTTPS remote viewing does not yet.
-
-- [ ] Accept an `https://` origin (and a configurable public origin, e.g. `--public-origin https://mlserver.tailnet.ts.net`) so a TLS proxy can front the viewer.
-- [ ] Mark the session cookie `Secure` when the public origin is HTTPS.
-- [ ] Add a web test that exercises requests carrying a proxied HTTPS origin.
-- [ ] Document the `tailscale serve` setup once it works end to end.
-
 ### 6. FID should evaluate on an interval by default (raised 2026-09-20)
 
 Owner ran `training-runs/start.sh` and saw no FID because both FID metrics in the run's `cifar10.toml` are `trigger = "manual"`, so the manifest records an empty evaluation schedule and nothing ever fires.
@@ -57,6 +48,27 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 - [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
 
 ## Done
+
+### 5. HTTPS fronting of the viewer (e.g. `tailscale serve`) is rejected by the origin check (found 2026-09-20 while fixing item 3)
+
+**Status:** Implemented on branch `worktree-agent-a15ae33d775f6c342`, not yet merged to develop. `train`, `resume` and `serve` take `--public-origin URL`; it is the only thing that makes a non-local origin acceptable, and it neither widens nor weakens the direct `http://<host>:<port>` check.
+
+- [x] Accept an `https://` origin (and a configurable public origin, e.g. `--public-origin https://mlserver.tailnet.ts.net`) so a TLS proxy can front the viewer.
+- [x] Mark the session cookie `Secure` when the public origin is HTTPS.
+- [x] Add a web test that exercises requests carrying a proxied HTTPS origin.
+- [x] Document the `tailscale serve` setup once it works end to end.
+
+What the viewer now trusts, and only when `--public-origin` is set:
+- A request whose `Host` is that origin's authority and whose `Origin`, when sent, equals that origin. `tailscale serve --bg 8765` forwards the public `Host` unchanged, so this is the normal path.
+- A proxy that rewrites `Host` to the local authority: its own `Host` must still pass the direct check, `X-Forwarded-Host` must name the public authority, and `X-Forwarded-Proto`, if present, must match the public scheme. Forwarded headers are ignored entirely without a public origin.
+- Nothing else: no wildcard, no other `https` origin, no permissive CORS.
+
+Where this lives now:
+- `src/hypergan/web_session.py` `normalize_public_origin` (strict absolute http/https URL, host and optional port only) and `LocalSession.match_request`, which names the channel `public`, `direct` or `None`; `permits_request` delegates to it.
+- `src/hypergan/web_server.py` reads `X-Forwarded-Proto`/`X-Forwarded-Host`, records the channel on the ASGI scope, and marks the session cookie `Secure` only on the https channel, so the plain-HTTP loopback login keeps working. CSP gained `form-action 'self'`; every directive stays `'self'` and every page URL is relative, so nothing is pinned to `http://`.
+- `src/hypergan/web_launch.py` `serve(..., public_origin=...)` and `src/hypergan/web_autostart.py`, where the value travels in the viewer's private registry state to the detached supervisor, and is reported by `server-status`, the startup JSON, the credential file and the run receipt.
+- `tests/web/test_public_origin_proxy.py` and `tests/foundation/test_cli_viewer_options.py`.
+- [docs/local-web.md](../docs/local-web.md) "HTTPS through your own TLS proxy" and the README viewer paragraph.
 
 ### 2. Stable server port with `--port` and increment-on-conflict (raised 2026-09-20)
 

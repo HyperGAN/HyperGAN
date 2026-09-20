@@ -16,6 +16,15 @@ def _positive_int(value):
     return number
 
 
+def _public_origin(value):
+    """An absolute http(s) origin for a TLS proxy in front of the viewer."""
+    from .web_session import normalize_public_origin
+    try:
+        return normalize_public_origin(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
 def _positive_seconds(value):
     number = float(value)
     if not math.isfinite(number) or number <= 0:
@@ -38,6 +47,9 @@ def _run_options(parser):
                              "or the next free port above it; 0 selects any free port)")
     parser.add_argument("--server-host", help="listen address (default: 0.0.0.0)")
     parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
+    parser.add_argument("--public-origin", type=_public_origin, metavar="URL",
+                        help="absolute origin of a TLS proxy in front of the viewer, "
+                             "e.g. https://machine.tailnet.ts.net (scheme, host and optional port only)")
     parser.add_argument("--open", action="store_true", help="require the viewer and open its sign-in page")
     parser.add_argument("--dev", "--viewer-dev", dest="viewer_dev", action="store_true",
                         help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
@@ -112,6 +124,9 @@ def _parser():
                             "above it; 0 selects any free port)")
     serve.add_argument("--host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
     serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
+    serve.add_argument("--public-origin", type=_public_origin, metavar="URL",
+                       help="absolute origin of a TLS proxy in front of the viewer, "
+                            "e.g. https://machine.tailnet.ts.net (scheme, host and optional port only)")
     serve.add_argument("--session-file", type=Path, help="new private credential file outside the run")
     serve.add_argument("--open", action="store_true", help="open the local viewer in a browser")
     serve.add_argument("--dev", action="store_true",
@@ -158,9 +173,9 @@ def _warnings(config):
 def _training_viewer(args):
     if args.no_server:
         if (args.open or args.server_port is not None or args.server_host is not None
-                or args.auth is not None or args.viewer_dev):
+                or args.auth is not None or args.public_origin is not None or args.viewer_dev):
             raise ValueError("--no-server cannot be combined with --open, --port/--server-port, "
-                             "--server-host, --auth or --dev")
+                             "--server-host, --auth, --public-origin or --dev")
         from contextlib import nullcontext
         return nullcontext()
     # The supervisor is a detached subprocess; the environment is what reaches it.
@@ -169,8 +184,12 @@ def _training_viewer(args):
 
         enable()
     from .web_autostart import training_viewer
-    return training_viewer(args.run_dir, required=args.server or args.open or args.server_port is not None or args.server_host is not None or args.auth is not None,
-                           port=args.server_port, host=args.server_host, auth=args.auth, open_browser=args.open)
+    return training_viewer(args.run_dir,
+                           required=args.server or args.open or args.server_port is not None
+                           or args.server_host is not None or args.auth is not None
+                           or args.public_origin is not None,
+                           port=args.server_port, host=args.server_host, auth=args.auth,
+                           public_origin=args.public_origin, open_browser=args.open)
 
 
 def main(argv=None):
@@ -212,7 +231,8 @@ def _dispatch(args, *, output=None):
             if args.dev:
                 enable()
             serve(args.run_dir, port=args.port, host=args.host, auth=args.auth,
-                  session_file=args.session_file, open_browser=args.open)
+                  session_file=args.session_file, open_browser=args.open,
+                  public_origin=args.public_origin)
         elif args.command == "server-status":
             from .web_autostart import viewer_status
 

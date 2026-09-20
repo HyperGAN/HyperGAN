@@ -64,7 +64,8 @@ def bind_loopback(port=0):
     return bind_server(port, "127.0.0.1")
 
 
-def serve(run_dir, *, port=None, host="0.0.0.0", auth="none", session_file=None, open_browser=False):
+def serve(run_dir, *, port=None, host="0.0.0.0", auth="none", session_file=None,
+          open_browser=False, public_origin=None):
     require_web()
     from .web_files import read_json
     from .web_server import run_socket
@@ -79,7 +80,8 @@ def serve(run_dir, *, port=None, host="0.0.0.0", auth="none", session_file=None,
     with tempfile.TemporaryDirectory(prefix='hypergan-viewer-') as private:
         credential_path = Path(session_file) if session_file is not None else Path(private) / 'session.json'
         with bind_available(port, host) as listener:
-            session = LocalSession(listener.getsockname()[1], host=host, auth=auth)
+            session = LocalSession(listener.getsockname()[1], host=host, auth=auth,
+                                   public_origin=public_origin)
             session.write_credentials(credential_path)
             # Uvicorn restores and re-raises SIGTERM after its graceful shutdown.
             # Translate that second delivery into Python unwinding so private
@@ -90,14 +92,19 @@ def serve(run_dir, *, port=None, host="0.0.0.0", auth="none", session_file=None,
             signal.signal(signal.SIGTERM, terminate)
             try:
                 print(json.dumps({'origin': session.origin, 'session_file': str(credential_path),
-                                  'server_instance_id': session.instance_id}), flush=True)
+                                  'server_instance_id': session.instance_id,
+                                  **({'public_origin': session.public_origin} if session.public_origin else {})}),
+                      flush=True)
                 print(f'Viewer: {session.origin} (listening on {host})', file=sys.stderr, flush=True)
+                if session.public_origin:
+                    print(f'Public viewer: {session.public_origin} (through your own TLS proxy)',
+                          file=sys.stderr, flush=True)
                 if auth == "token":
                     print(f'Credentials: {credential_path} (copy its token into the sign-in form)',
                           file=sys.stderr, flush=True)
                 if open_browser:
                     import webbrowser
-                    webbrowser.open(session.origin)
+                    webbrowser.open(session.browser_origin)
                 run_socket(root, listener, session)
             finally:
                 credential_path.unlink(missing_ok=True)

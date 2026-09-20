@@ -27,10 +27,55 @@ portable SHA-256 otherwise. The integrity check therefore still runs, and still
 refuses a modified module, on the insecure origin a plain-HTTP host other than
 `localhost` receives. The viewer uses no other secure-context-only browser API.
 
-HTTPS remains the recommendation outside a trusted private network; put the port
-behind TLS, for example with `tailscale serve`. Such a proxy must present the
-viewer's own `Host` authority including its port, and a matching `Origin`, because
-the local server rejects a `Host` or `Origin` it does not recognize.
+### HTTPS through your own TLS proxy
+
+HTTPS remains the recommendation outside a trusted private network. The viewer
+does not terminate TLS; put the port behind a proxy you control and tell the
+viewer which public origin that proxy serves:
+
+```sh
+tailscale serve --bg 8765
+hypergan train project/config.toml --run-dir runs/example \
+    --public-origin https://mlserver.tail1234.ts.net
+# or for an existing run:
+hypergan serve runs/example --public-origin https://mlserver.tail1234.ts.net
+```
+
+`tailscale serve --bg 8765` publishes `https://<machine>.<tailnet>.ts.net` on
+port 443 and forwards to the local port. Without `--public-origin` the browser's
+`https://` `Origin` and proxied `Host` are rejected, so token sign-in and the
+console control fail; the option is what makes that one origin acceptable.
+
+`--public-origin` takes an absolute `http://` or `https://` URL with a host and
+an optional port and nothing else. A path, query, fragment, username or password
+is refused with an error naming the value, and `https://host:443/` is the same
+origin as `https://host`. `train`, `resume` and `serve` all accept it, and, like
+`--server-host` and `--auth`, naming it requires the viewer rather than leaving
+it optional. The supervised viewer is a detached subprocess, so the value
+travels in that viewer's private registry state; `hypergan server-status RUN`,
+the startup JSON and the private credential file all report `public_origin`
+beside the direct `origin`.
+
+What the viewer trusts with a public origin configured:
+
+- A request whose `Host` is exactly that origin's authority, and whose `Origin`,
+  when the browser sends one, is exactly that origin. `tailscale serve` forwards
+  the public `Host` unchanged, so this is the normal path.
+- A proxy that rewrites `Host` to the local authority instead: its `Host` must
+  still be one the server would have accepted directly, and `X-Forwarded-Host`
+  must name the public authority. `X-Forwarded-Proto`, when present, must then
+  match the public origin's scheme.
+- The direct `http://<host>:<port>` access above, unchanged and undiminished.
+
+What it does not trust: any other `Origin`, `https` or not; any other `Host`;
+and `X-Forwarded-Host` or `X-Forwarded-Proto` at all unless `--public-origin` is
+set, because any client can send them. There is no wildcard and no permissive
+CORS. The session cookie is marked `Secure` on the https channel, and stays
+HttpOnly and `SameSite=strict` on both; browsers key cookies by host, so the
+proxied and the direct authority hold separate sessions and a plain-HTTP
+loopback login keeps working while the proxy is configured. Every URL the page
+requests is relative, so the `'self'` content-security-policy resolves to
+whichever origin served the page and no host is pinned for the proxy.
 
 Authentication defaults to `none`. Select `--auth token` to require a private
 bearer token. Startup JSON identifies the browser origin, server incarnation and
@@ -126,8 +171,9 @@ verify size/hash. The browser's artifact role does not imply that every modality
 has a built-in renderer.
 
 The local server rejects unexpected Host/Origin, uses no permissive CORS, keeps
-sessions HttpOnly/SameSite, serves its chart/reducer assets offline, and does not
-support remote binding. The API returns a public run summary instead of paths and
+sessions HttpOnly/SameSite (and `Secure` on a configured https public origin),
+serves its chart/reducer assets offline, and accepts exactly one proxied origin,
+only when `--public-origin` names it. The API returns a public run summary instead of paths and
 full recipe arguments. Trusted owner-controlled run files remain the data source;
 this is not a multi-tenant service. A corrupt or replaced stream fails visibly and
 requires restoring/rebuilding valid history and reconnecting the server; the server
@@ -166,7 +212,9 @@ also imply that requirement. `--port` names an exact port and fails if it is occ
 rather than searching upward as the default does; `--port 0` asks the operating system
 for any free port, and `--server-port` remains accepted as its original spelling.
 `--server-host` selects the bind address; `--auth token`
-enables token authentication with the same behavior as standalone `serve`. Only `--open` launches a browser. `--no-server`
+enables token authentication with the same behavior as standalone `serve`;
+`--public-origin` names a TLS proxy in front of the viewer, described under
+[HTTPS through your own TLS proxy](#https-through-your-own-tls-proxy). Only `--open` launches a browser. `--no-server`
 performs no web imports or socket setup and conflicts with these explicit viewer options.
 Viewer diagnostics go to stderr; stdout and `--progress-json` remain machine
 readable. Token mode prints the private credential path on stderr for signing in.

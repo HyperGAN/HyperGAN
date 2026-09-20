@@ -409,6 +409,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         last_published = now
 
     request_reader = None
+    evaluations = None
 
     def publish_custom(outcomes):
         nonlocal custom_publications
@@ -435,8 +436,15 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     or any(not isinstance(value, dict) for value in environment.values())):
                 raise ValueError('Execution environment requires runtime and source dictionaries')
             manifest.update(environment)
-        reasons = info.recovery_reasons
+        from .interval_evaluation import IntervalEvaluations
+        def evaluation_event(event, **values):
+            nonlocal custom_publications
+            custom_publications += 1
+            return emit(event, **values)
         manifest['steps'] = info.step
+        evaluations = IntervalEvaluations(config, run_dir, manifest, execution, evaluation_event)
+        evaluations.start()
+        reasons = info.recovery_reasons
         manifest.update(resume_supported=not reasons, resume_unsupported_reasons=reasons,
                         data_identity=info.data_identity, status='running')
         manifest['qualification']['resume'] = False
@@ -622,6 +630,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 break
             collect_custom()
             collect_preview()
+            evaluations.poll()
             update_started = time.monotonic()
             completed = execution.update()
             step_seconds = time.monotonic() - update_started
@@ -645,9 +654,12 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if periodic_checkpoint:
                 checkpoint_now()
             poll_requests(force=periodic_checkpoint)
+            if not (stop is not None and stop.reason):
+                evaluations.schedule()
             if not (stop is not None and stop.reason) and manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
                 preview_now()
             publish(wait=False)
+        evaluations.close(stop_requested=lambda: stop is not None and bool(stop.reason))
         collect_custom(final=True)
         collect_preview(final=True)
         poll_requests(force=True)
@@ -683,6 +695,11 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             request_reader.close()
         if stop is not None and stop.reason:
             manifest['stop_reason'] = stop.reason
+        try:
+            if evaluations is not None:
+                evaluations.close(cancel=True)
+        except BaseException as cleanup_error:
+            manifest['evaluation_shutdown_error'] = f'{type(cleanup_error).__name__}: {cleanup_error}'[:1000]
         try:
             custom_metrics.close(drain=False)
         except BaseException as cleanup_error:

@@ -114,6 +114,11 @@ class SingleProcessExecution:
         self._previews.submit(None, None, dict(identity), self._trainer.step, run_dir, keep,
                               snapshot_state=snapshot)
 
+    def evaluation_snapshot(self, run_dir, identity):
+        from .evaluation_snapshot import capture_evaluation_state
+        self._boundary()
+        return {'state': capture_evaluation_state(self._trainer, identity)}
+
     @property
     def preview_busy(self):
         return self._previews is not None and self._previews.busy

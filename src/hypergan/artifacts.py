@@ -15,8 +15,8 @@ from .recipes import ComponentGraph, make_prior
 from .run_state import sync_directory
 
 
-def save_bundle(run_dir, trainer, batch):
-    run_dir = Path(run_dir)
+def bundle_state(trainer, batch):
+    """Assemble inference state; callers own copying and RNG isolation."""
     # Keep exactly the generator dependency graph, omitting objective-only encoders
     # and discriminator conditioners from the inference environment.
     needed_components = set()
@@ -41,6 +41,12 @@ def save_bundle(run_dir, trainer, batch):
     # modules can still use these values in their forward pass.
     state["model_buffers"] = {name: dict(model.named_buffers()) for name, model in models.items()}
     state["prior_buffers"] = dict(trainer.ema_prior.named_buffers())
+    return state
+
+
+def save_bundle(run_dir, trainer, batch):
+    run_dir = Path(run_dir)
+    state = bundle_state(trainer, batch)
     temporary = run_dir / "model.pt.tmp"
     with temporary.open("wb") as stream:
         torch.save(state, stream)

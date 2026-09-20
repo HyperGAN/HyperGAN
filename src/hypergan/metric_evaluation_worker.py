@@ -45,6 +45,9 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     owner = saved.get('identity', {})
     if owner.get('run_id') != identity['run_id'] or not isinstance(owner.get('attempt_id'), str) or type(saved.get('step')) is not int:
         raise ValueError('Snapshot lacks validated run/attempt/update provenance')
+    if 'source_step' in identity and (saved['step'] != identity['source_step'] or
+            any(owner.get(key) != identity.get(key) for key in ('attempt_id', 'attempt_index', 'evaluation_id'))):
+        raise ValueError('Interval snapshot differs from the requested source step or attempt identity')
     config = resolve_config(saved['config'])
     apply_backend_policy({'training': {**config['training'], 'device': evaluation['device']}})
     device = execution_device(evaluation['device'])

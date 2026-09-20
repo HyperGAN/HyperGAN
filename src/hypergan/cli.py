@@ -17,6 +17,14 @@ def _positive_int(value):
     return number
 
 
+def _preview_keep(value):
+    """Opt in to bounded preview retention; 'all' keeps every published sample."""
+    from .previews import KEEP_ALL
+    if isinstance(value, str) and value.strip().lower() == "all":
+        return KEEP_ALL
+    return _positive_int(value)
+
+
 def _public_origin(value):
     """An absolute http(s) origin for a TLS proxy in front of the viewer."""
     from .web_session import normalize_public_origin
@@ -78,9 +86,10 @@ def _run_options(parser):
     previews.add_argument("--no-previews", dest="preview_every", action="store_const", const=0,
                           help="disable periodic previews for this attempt")
     parser.set_defaults(preview_every=None)
-    parser.add_argument("--preview-keep", type=_positive_int,
-                        help="retain at most N periodic previews for the history slider "
-                             "(1-100, default: 20; existing runs inherit)")
+    parser.add_argument("--preview-keep", type=_preview_keep, metavar="N",
+                        help="retain at most N periodic previews, discarding older ones "
+                             "(default: all, so the history slider spans the whole run; "
+                             "pass 'all' to restore that; existing runs inherit)")
     parser.add_argument("--preview-name", type=_sample_name,
                         help="short stable name indexing this run's generated samples "
                              "(default: g; the real batch is published as x)")

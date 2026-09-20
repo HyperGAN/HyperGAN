@@ -69,7 +69,7 @@ hypergan resume runs/cifar --stop-after-steps 10000 --checkpoint-every 1000 --pr
 
 Periodic previews publish the generated grid as sample `g` and the comparable
 real batch as `x`; the viewer shows each name's newest image with a slider over
-the retained history (`--preview-keep`, default 20).
+the retained history (`--preview-keep`, default: keep everything).
 
 The example automatically evaluates FID at steps 10,000, 20,000 and so on.
 A stopped run can also be evaluated explicitly with

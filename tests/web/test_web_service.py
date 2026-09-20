@@ -695,12 +695,22 @@ def test_artifact_records_carry_stable_sample_names_within_the_bounded_index(tmp
                 assert key.endswith('-real-grid') == (value['name'] == 'x')
             # An explicit index without a name groups under its own artifact ID.
             assert records['diagnostic']['name'] == 'diagnostic'
-            # Retention is configurable, so the served index stays explicitly bounded.
+            # Retention keeps the whole run, so a long history must load: the
+            # slider reaches back to the first sample, not the last hundred.
+            from hypergan.web_service import MAX_PREVIEWS
+            assert MAX_PREVIEWS >= 4096
             indexed = json.loads((tmp_path / 'previews/index.json').read_text())
             template = indexed['previews'][0]
-            indexed['previews'] = [dict(template, identity=dict(template['identity'], sample_sequence=n))
-                                   for n in range(101)]
-            atomic_json(tmp_path / 'previews/index.json', indexed)
+            def resized(count):
+                return dict(indexed, previews=[
+                    dict(template, identity=dict(template['identity'], sample_sequence=n))
+                    for n in range(count)])
+            atomic_json(tmp_path / 'previews/index.json', resized(MAX_PREVIEWS))
+            await service.refresh_artifacts()
+            served = service.artifact_index()['artifacts']
+            assert sum(key.startswith('preview-') for key in served) == 3 * MAX_PREVIEWS
+            # The served index stays explicitly bounded above that.
+            atomic_json(tmp_path / 'previews/index.json', resized(MAX_PREVIEWS + 1))
             with pytest.raises(ValueError, match='Invalid bounded preview index'):
                 await service.refresh_artifacts()
         finally:

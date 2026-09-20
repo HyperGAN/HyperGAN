@@ -36,7 +36,11 @@ The token never enters a URL, storage, telemetry, or browser logs.
   tensor and the generated grid of one generation share a name and a step: they
   are the same sample as numbers and as a picture, so a viewer offers the tensor
   as a download on the image rather than as a second group. The run's finished
-  sample carries `provenance.final: true`; no other record does.
+  sample carries `provenance.final: true`; no other record does. Previews
+  are retained for the whole run by default, so one source can hold thousands of
+  versions; the index is accepted up to 4,096 previews. A consumer showing one
+  version at a time identifies the selected one by `provenance.step`, not by its
+  position, because positions shift as versions arrive or are pruned.
 - `GET /runs/r/views` -> `{ "map_revision":"...", "streams":[{"stream_id":"evaluation:<id>", "cursor":"...", "caught_up":true, "error":null}], "discovery_error":null }`.
   Training, projection and independent evaluation sources share this inventory.
   At most 64 streams are registered. Inventory overflow is visible without

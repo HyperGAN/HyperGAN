@@ -4,7 +4,7 @@ The internal [replicated run service](replicated-run-service.md) supports period
 
 ## Previews
 
-Pass `preview_every=N`, `preview_keep=K` and `preview_name=NAME` to internal `run_train` or `run_resume`. Zero disables previews; a resume with omitted preview settings reuses the run's stored interval, retention and sample name. Sample sequence reservations, immutable preview generations, the index and pruning use the shared [observation contract](observation.md).
+Pass `preview_every=N`, `preview_keep=K` and `preview_name=NAME` to internal `run_train` or `run_resume`. Zero `preview_every` disables previews and zero `preview_keep` keeps every published preview, which is the default; a resume with omitted preview settings reuses the run's stored interval, retention and sample name. Sample sequence reservations, immutable preview generations, the index and pruning use the shared [observation contract](observation.md).
 
 After a complete update, the controller reserves a sequence and requests a snapshot from the workers. Rank zero copies EMA generator dependencies, the EMA prior and bounded conditioning from the last completed local batch. Snapshot capture preserves training RNG and operates on copied modules before invoking serialization hooks. A separate supervised process reconstructs and renders the snapshot without initializing a training process group. The isolated renderer publishes completed preview JSON and updates the index; the parent consumes its bounded receipt.
 

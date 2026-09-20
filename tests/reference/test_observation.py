@@ -305,8 +305,19 @@ def test_manual_checkpoint_failure_is_rejected_without_changing_training(tmp_pat
 def test_corrupt_old_preview_metadata_does_not_accumulate_new_orphans(tmp_path):
     config = write_default(tmp_path / 'config', device="cpu")
     stopped = train(config, tmp_path / 'run', stop_after_steps=1, preview_every=1)
+    previews = tmp_path / 'run/previews'
+    generations = lambda: sorted(path for path in previews.iterdir() if path.is_dir())
     old = Path(stopped['previews'][0]['path']).parent
     (old / 'manifest.json').write_text('{broken')
+    # The published index already names that generation, so its manifest is not
+    # reread and the corruption no longer stops the run from publishing.
+    result = resume(tmp_path / 'run', stop_after_steps=1)
+    assert not result['observation_errors'] and old in generations()
+    assert old in {Path(record['path']).parent for record in result['previews']}
+    # Without a readable index the scan falls back to rereading every manifest,
+    # so each publication fails - and removes the generation it just published.
+    (previews / 'index.json').write_text('{broken')
+    intact = generations()
     result = resume(tmp_path / 'run')
     assert result['status'] == 'complete' and 1 <= len(result['observation_errors']) <= 4
-    assert [path for path in (tmp_path / 'run/previews').iterdir() if path.is_dir()] == [old]
+    assert generations() == intact

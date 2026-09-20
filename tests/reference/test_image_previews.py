@@ -201,8 +201,8 @@ raise SystemExit(main(["sample", {str(tmp_path / 'viewed')!r}, "--count", "3", "
 
 def test_named_samples_publish_real_grid_and_bounded_retention(tmp_path):
     """Samples carry a short stable name; the real batch publishes beside them."""
-    from hypergan.previews import DEFAULT_KEEP, MAX_KEEP, sample_name
-    assert DEFAULT_KEEP == 20 and MAX_KEEP == 100
+    from hypergan.previews import DEFAULT_KEEP, KEEP_ALL, sample_name
+    assert DEFAULT_KEEP == KEEP_ALL == 0
     trainer = ReferenceTrainer(recipe())
     _, batch = trainer.update()
     identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1, 'name': 'g'}
@@ -247,9 +247,89 @@ def test_named_samples_publish_real_grid_and_bounded_retention(tmp_path):
         render_preview(trainer, batch, dict(identity, name='not a name'))
     with pytest.raises(ValueError, match='identity, step, name or shape'):
         publish_preview_payload(tmp_path, payload, dict(renamed, name='g'), trainer.step, keep=2)
-    for keep in (0, MAX_KEEP + 1):
+    for keep in (-1, 2.0, '2', None):
         with pytest.raises(ValueError, match='preview_keep'):
             publish_preview_payload(tmp_path, payload, renamed, trainer.step, keep=keep)
+
+
+def test_retention_keeps_every_generation_until_a_bound_is_requested(tmp_path):
+    """The default history spans the whole run; a bound is an explicit opt-in."""
+    from hypergan.previews import DEFAULT_KEEP
+    trainer = ReferenceTrainer(recipe())
+    _, batch = trainer.update()
+    identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1, 'name': 'g'}
+
+    def publish(root, sequence, **kwargs):
+        moment = dict(identity, sample_sequence=sequence)
+        payload = render_preview(trainer, batch, moment)
+        return publish_preview_payload(root, payload, moment, trainer.step, **kwargs)
+
+    kept = tmp_path / 'kept'
+    kept.mkdir()
+    for sequence in range(1, 9):
+        record, index, errors = publish(kept, sequence)
+        assert not errors
+    assert index['keep'] == DEFAULT_KEEP and index['retention'] == 'all'
+    assert [item['identity']['sample_sequence'] for item in index['previews']] == list(range(1, 9))
+    generations = [entry for entry in (kept / 'previews').iterdir() if entry.is_dir()]
+    assert len(generations) == 8
+    # Every image grid the slider can reach is still on disk, back to the first.
+    for item in index['previews']:
+        assert Path(item['path']).is_file()
+        assert Path(item['image_grid']['path']).is_file()
+        assert Path(item['real_image_grid']['path']).is_file()
+
+    bounded = tmp_path / 'bounded'
+    bounded.mkdir()
+    for sequence in range(1, 9):
+        record, index, errors = publish(bounded, sequence, keep=3)
+        assert not errors
+    assert index['keep'] == 3 and index['retention'] == 'bounded'
+    assert [item['identity']['sample_sequence'] for item in index['previews']] == [6, 7, 8]
+    generations = [entry for entry in (bounded / 'previews').iterdir() if entry.is_dir()]
+    assert len(generations) == 3
+    # A run that pruned under an earlier bound keeps publishing once it is lifted.
+    record, index, errors = publish(bounded, 9)
+    assert not errors and index['retention'] == 'all'
+    assert [item['identity']['sample_sequence'] for item in index['previews']] == [6, 7, 8, 9]
+
+
+def test_index_reuses_published_records_instead_of_rereading_manifests(tmp_path):
+    """Publishing is O(new generations), not O(history), for a long run."""
+    trainer = ReferenceTrainer(recipe())
+    _, batch = trainer.update()
+    identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1, 'name': 'g'}
+    for sequence in range(1, 6):
+        moment = dict(identity, sample_sequence=sequence)
+        publish_preview_payload(tmp_path, render_preview(trainer, batch, moment), moment, trainer.step)
+    root = tmp_path / 'previews'
+    generations = sorted(entry for entry in root.iterdir() if entry.is_dir())
+    reads = []
+    original = Path.read_text
+
+    def counted(self, *args, **kwargs):
+        if self.name == 'manifest.json':
+            reads.append(self)
+        return original(self, *args, **kwargs)
+
+    moment = dict(identity, sample_sequence=6)
+    payload = render_preview(trainer, batch, moment)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, 'read_text', counted)
+        _, index, _ = publish_preview_payload(tmp_path, payload, moment, trainer.step)
+    assert len(index['previews']) == 6
+    # Only the generation the index does not name yet is read from disk.
+    assert [path.parent.name for path in reads] == [sorted(
+        entry.name for entry in root.iterdir() if entry.is_dir() and entry not in generations)[0]]
+    # A damaged index falls back to rereading every generation manifest.
+    (root / 'index.json').write_text('{"schema_version": 1}')
+    moment = dict(identity, sample_sequence=7)
+    payload = render_preview(trainer, batch, moment)
+    reads.clear()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, 'read_text', counted)
+        _, index, _ = publish_preview_payload(tmp_path, payload, moment, trainer.step)
+    assert len(reads) == 7 and len(index['previews']) == 7
 
 
 def test_named_previews_reach_the_run_manifest_with_a_configurable_history(tmp_path, monkeypatch):

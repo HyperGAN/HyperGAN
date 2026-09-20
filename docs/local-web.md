@@ -195,8 +195,11 @@ server exposes these sample descriptors without rereading every sample payload.
 Each descriptor adds a short stable `name` (`g` generated, `x` real, or an
 explicit index entry's own name) beside its unchanged digest artifact ID, and
 the browser groups a name's retained versions behind one history slider showing
-the newest by default. The listing stays bounded: at most 100 indexed previews
-and 256 explicit artifact entries.
+the newest by default. Previews are retained for the whole run unless a run opts
+into `--preview-keep`, so that slider spans the run; while it shows the newest
+sample it follows new publications, and an earlier pick is held by its step. The
+listing stays bounded: at most 4,096 indexed previews (read under a 16 MiB index
+budget) and 256 explicit artifact entries.
 A final JSON sample is indexed once in a background file task, capped at 16 MiB;
 oversized/unavailable samples receive an explicit unavailable descriptor. Model
 checkpoints are never deserialized by serving. Generic explicit

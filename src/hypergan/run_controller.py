@@ -561,6 +561,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             publish(wait=False)
         collect_custom(final=True)
         poll_requests(force=True)
+        # Reconcile one transient lost acknowledgement before ending the attempt.
+        # Saved request IDs identify the existing checkpoint and avoid a second save.
+        poll_requests(force=True)
         if (manifest['last_durable_step'] != manifest['steps']
                 or custom_publications != checkpoint_custom_publications):
             checkpoint_now()

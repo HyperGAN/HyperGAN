@@ -52,9 +52,12 @@ def test_checkpoint_projection_lag_catches_up_without_manifest_change(tmp_path):
             service.manifest['durable_event_boundary'] = dict(boundary, attempt_id='b', step=1,
                 sequence=1, offset=len(newer), sha256=hashlib.sha256(newer).hexdigest())
             assert service.metric_consistency()['status'] == 'pending'
-            # Invalid projection history must not retain a successful status.
-            stream = service.streams['projection:' + MapSpec().revision]
-            stream.error = 'corrupt complete frame'
+            # Removing an observed projection must not retain successful status.
+            (tmp_path / 'views' / MapSpec().revision / 'contributions.jsonl').unlink()
+            for _ in range(300):
+                if service.metric_consistency()['status'] == 'unavailable':
+                    break
+                await asyncio.sleep(.01)
             assert service.metric_consistency()['status'] == 'unavailable'
         finally:
             await service.close()

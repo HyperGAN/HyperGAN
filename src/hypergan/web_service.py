@@ -423,7 +423,12 @@ class ObservationService:
                     await asyncio.sleep(self.poll_seconds)
                 else:
                     await asyncio.sleep(0)
-            except FileNotFoundError:
+            except FileNotFoundError as exc:
+                if stream.projected_offset is not None:
+                    changed = stream.error != str(exc)
+                    stream.error = str(exc)
+                    if changed and stream.stream_id == 'projection:' + MapSpec().revision:
+                        self.notify('heartbeat', {'run': self.public_manifest()})
                 await asyncio.sleep(self.poll_seconds)
             except (OSError, ValueError, KeyError) as exc:
                 stream.error = str(exc)

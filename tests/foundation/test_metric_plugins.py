@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from hypergan.config import fingerprint, resolve_config
+from hypergan.config import fingerprint, observation_fingerprint, resolve_config
 
 
 def scalar():
@@ -34,7 +34,7 @@ def test_custom_structural_configuration_never_imports_factory():
     {'factory': 'missingcolon'}, {'inputs': {'tensor': 'trainer.latent'}}, {'inputs': {}},
     {'inputs': {'context': 'update.g_loss'}}, {'mode': 'stream-stateful'}, {'every_steps': 0},
     {'timeout': float('inf')}, {'on_error': 'ignore'}, {'args': {'bad': float('nan')}},
-    {'unknown': True}, {'evaluation': {}},
+    {'unknown': True}, {'evaluation': {}}, {'every': 2}, {'on_busy': 'skip'},
 ])
 def test_invalid_scalar_modes_and_bindings_fail(changes):
     value = scalar()
@@ -43,7 +43,7 @@ def test_invalid_scalar_modes_and_bindings_fail(changes):
         resolve_config({'metrics': {'custom': {'ratio': value}}})
 
 
-def test_snapshot_scheduling_is_explicitly_unsupported_and_data_is_required():
+def test_snapshot_rejects_unknown_schedules_and_requires_evaluation_data():
     for changes in ({'trigger': 'scheduled'}, {'every_steps': 2}, {'evaluation': {}}, {'inputs': {'x': 'update.g_loss'}}):
         spec = snapshot()
         spec.update(changes)
@@ -176,3 +176,65 @@ def test_cancellation_does_not_discard_received_worker_failure():
     channel.pump=lambda: []
     with pytest.raises(CPUServiceCancelled):
         _receive(channel, cancellation_event=cancel)
+
+
+def interval_snapshot():
+    spec = snapshot()
+    spec.update(trigger='interval', every_steps=10000)
+    spec['evaluation']['device'] = 'cuda:1'
+    return spec
+
+
+def test_interval_snapshot_configuration_is_explicit_and_observation_only():
+    supplied = interval_snapshot()
+    original = deepcopy(supplied)
+    config = resolve_config({'metrics': {'custom': {'fid': supplied}}})
+    spec = config['metrics']['custom']['fid']
+    assert spec['every_steps'] == 10000 and spec['on_busy'] == 'skip'
+    assert spec['evaluation']['device'] == 'cuda:1'
+    assert supplied == original
+    assert 'uninstalled.metrics' not in sys.modules
+    changed = deepcopy(config)
+    changed['metrics']['custom']['fid']['every_steps'] = 20000
+    assert fingerprint(config) == fingerprint(changed) == fingerprint(resolve_config({}))
+    assert observation_fingerprint(config) != observation_fingerprint(changed)
+
+
+@pytest.mark.parametrize('changes, message', [
+    ({'every_steps': None}, 'every_steps'), ({'every_steps': True}, 'every_steps'),
+    ({'every_steps': 0}, 'every_steps'), ({'every_steps': -1}, 'every_steps'),
+    ({'every_steps': 1.5}, 'every_steps'), ({'every_steps': '10000'}, 'every_steps'),
+    ({'on_busy': 'queue'}, 'on_busy'), ({'on_busy': 'wait'}, 'on_busy'),
+    ({'on_busy': None}, 'on_busy'), ({'every': 10}, 'fields'),
+])
+def test_interval_snapshot_rejects_invalid_cadence_and_busy_policy(changes, message):
+    spec = interval_snapshot()
+    spec.update(changes)
+    with pytest.raises(ValueError, match=message):
+        resolve_config({'metrics': {'custom': {'fid': spec}}})
+
+
+@pytest.mark.parametrize('field', ['every_steps', 'device'])
+def test_interval_snapshot_requires_cadence_and_explicit_device(field):
+    spec = interval_snapshot()
+    if field == 'device':
+        del spec['evaluation']['device']
+    else:
+        del spec[field]
+    with pytest.raises(ValueError, match=field):
+        resolve_config({'metrics': {'custom': {'fid': spec}}})
+
+
+@pytest.mark.parametrize('changes', [{'every_steps': 10000}, {'on_busy': 'skip'}])
+def test_manual_snapshot_rejects_interval_options(changes):
+    spec = snapshot()
+    spec.update(changes)
+    with pytest.raises(ValueError, match='manual snapshot'):
+        resolve_config({'metrics': {'custom': {'fid': spec}}})
+
+
+def test_interval_cpu_fixture_is_explicit():
+    spec = interval_snapshot()
+    spec['evaluation']['device'] = 'cpu'
+    config = resolve_config({'metrics': {'custom': {'fid': spec}}})
+    assert config['metrics']['custom']['fid']['evaluation']['device'] == 'cpu'

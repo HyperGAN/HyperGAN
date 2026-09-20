@@ -33,7 +33,7 @@ def schemas():
         'measurement_status': {'type': 'object'},
         'distributions': {'type': 'object', 'additionalProperties': ref('Histogram')},
         'evaluation_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'},
-        'status': {'enum': ['complete', 'failed']},
+        'status': {'enum': ['complete', 'failed', 'cancelled']},
         'source_position_known': {'type': 'boolean', 'description': 'False on failures before snapshot load; step is not a measurement position.'},
         'snapshot_sha256': HASH, 'snapshot_identity': {'type': 'object'}, 'protocol_sha256': HASH,
         'evaluation_protocol': {'type': 'object', 'description': 'Immutable numerical, data, factory, RNG, sample count and runtime protocol.'}}, (*source['required'], 'schema_version', 'event', 'step', 'catalog'))
@@ -62,7 +62,8 @@ def schemas():
         'frame_cursors': {'type': 'array', 'items': CURSOR}}, ('cursor', 'has_more', 'partial_tail'))
     catalog = object_schema({'schema_version': {'const': 1}, 'metrics': {'type': 'object',
         'additionalProperties': object_schema({'definition_hash': HASH, 'kind': {'enum': ['scalar', 'histogram']},
-            'source': {'type': 'string'}, 'label': {'type': 'string'}, 'unit': {'type': 'string'}},
+            'source': {'type': 'string'}, 'label': {'type': 'string'}, 'unit': {'type': 'string'},
+            'scope': {'type': 'string'}, 'specification': {'type': 'object'}},
             ('definition_hash', 'kind', 'source'))}}, ('schema_version', 'metrics'))
     stream_frame = object_schema({'stream_id': {'type': 'string'}, 'cursor': CURSOR,
         'frame': {'oneOf': [ref('Event'), ref('ProjectionFrame')]}}, ('stream_id', 'cursor', 'frame'))
@@ -71,6 +72,11 @@ def schemas():
     run = object_schema({'run_id': {'type': 'string'}, 'attempt_id': {'type': 'string'}, 'name': {'type': 'string'},
         'status': {'type': 'string'}, 'steps': SAFE_INTEGER, 'total_steps': SAFE_INTEGER,
         'last_durable_step': {'oneOf': [SAFE_INTEGER, {'type': 'null'}]}, 'metrics_catalog': HASH,
+        'evaluation_schedule': {'type': 'object', 'additionalProperties': object_schema({
+            'status': {'enum': ['running', 'complete', 'failed', 'skipped', 'cancelled', 'pending', 'disabled']},
+            'source_step': SAFE_INTEGER, 'next_step': {'oneOf': [SAFE_INTEGER, {'type': 'null'}]},
+            'skipped_busy': SAFE_INTEGER, 'last_skipped_step': SAFE_INTEGER,
+            'reason': {'type': 'string'}, 'evaluation_id': {'type': 'string'}}, ('status',))},
         'durable_event_boundary': object_schema({'schema_version': {'const': 1},
             'run_id': {'type': 'string'}, 'attempt_id': {'type': 'string'}, 'step': SAFE_INTEGER,
             'sequence': SAFE_INTEGER, 'offset': SAFE_INTEGER, 'sha256': HASH}),

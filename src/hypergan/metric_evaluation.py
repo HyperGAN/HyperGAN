@@ -1,6 +1,7 @@
-"""Explicit serialized snapshot evaluation against an immutable EMA bundle.
+"""Manual and interval snapshot evaluation against immutable EMA bundles.
 
-The public host is torch-free. It holds the run lock, pins the selected bytes,
+The public host is torch-free. The standalone command holds the run lock and pins bytes;
+interval evaluation runs under its training coordinator's lock. Both paths
 uses a fresh supervised worker, then atomically registers its independent result
 stream. No trainer state, training sampler, or training event writer is reused.
 """
@@ -52,14 +53,13 @@ def _write_catalog(root, catalog):
 
 
 def evaluate(run_dir, metric_id, *, config_path=None, bundle=None):
-    """Evaluate one configured manual metric; no retries, queued work or downloads.
+    """Manually evaluate one configured snapshot metric; no retries or downloads.
 
     Each invocation starts a new evaluation ID. A failure publishes a failed
     receipt and source event; on_error=fail then raises with that receipt path.
     Training and evaluation cannot own this run simultaneously. The default
     evaluator device is CUDA; CPU correctness fixtures opt in in configuration.
     """
-    from .cpu_worker_service import CPUWorkerService
     root = Path(run_dir).resolve()
     with run_lock(root):
         manifest = json.loads((root / 'manifest.json').read_text())
@@ -71,7 +71,7 @@ def evaluate(run_dir, metric_id, *, config_path=None, bundle=None):
             raise ValueError('Evaluation configuration changes the numerical recipe')
         specs = enabled_custom(config)
         if metric_id not in specs or specs[metric_id]['mode'] != 'snapshot':
-            raise ValueError('Select an enabled custom metric with mode="snapshot" and trigger="manual"')
+            raise ValueError('Select an enabled custom metric with mode="snapshot"')
         # Resolve only this selected factory; unrelated disabled/failed factories
         # cannot be executed as a side effect of a manual evaluation.
         selected = dict(config)
@@ -112,71 +112,83 @@ def evaluate(run_dir, metric_id, *, config_path=None, bundle=None):
                 os.fsync(destination.fileno())
             if snapshot.stat().st_size > MAX_SNAPSHOT_BYTES or _sha256(snapshot) != expected_hash:
                 raise ValueError('EMA bundle bytes do not match their immutable checksum')
-            started = time.monotonic()
-            service = CPUWorkerService(_worker_factory, _worker_command,
-                args=(spec, selected['_metric_runtime'][metric_id], str(snapshot), expected_hash, identity),
-                run_id=manifest['run_id'], attempt_id=evaluation_id, world_size=1, initialize_process_group=False,
-                startup_timeout=spec['timeout'], command_timeout=spec['timeout'],
-                collective_timeout=spec['timeout'], total_timeout=spec['timeout'])
-            failure = None
-            try:
-                with service:
-                    result = finite_json(service.command('evaluate')['results'][0])
-                status = 'complete'
-            except BaseException as error:
-                failure = error
-                status = 'failed'
-                result = {'error': f'{type(error).__name__}: {error}'[:1000]}
-            elapsed = time.monotonic() - started
-            catalog = metric_catalog(selected)
-            descriptor = catalog['metrics'][metric_id]
-            if status == 'complete':
-                descriptor['evaluation_protocol'] = result['protocol']
-                descriptor['definition_hash'] = digest({k: v for k, v in descriptor.items() if k != 'definition_hash'})
-            revision = _write_catalog(root, catalog)
-            # The pinned bundle's owning attempt and update are read by the
-            # numerical worker. Failures before load have explicitly unknown
-            # source position and cannot be mistaken for current-run measures.
-            owner = result.get('snapshot_identity', {})
-            event = {'schema_version': 2, 'event': 'evaluation', 'run_id': manifest['run_id'],
-                     'attempt_id': owner.get('attempt_id', evaluation_id), 'sequence': 1,
-                     'stream_id': 'evaluation:' + evaluation_id, 'stream_generation': evaluation_id,
-                     'step': result.get('step', 0), 'seconds': elapsed, 'catalog': revision,
-                     'metrics': {}, 'measurement_status': {}, 'evaluation_id': evaluation_id,
-                     'snapshot_sha256': expected_hash, 'snapshot_identity': owner, 'status': status,
-                     'source_position_known': status == 'complete'}
-            if status == 'complete':
-                target = 'metrics' if descriptor['kind'] == 'scalar' else 'distributions'
-                event.setdefault(target, {})[metric_id] = result['value']
-                event['evaluation_protocol'] = result['protocol']
-                event['protocol_sha256'] = digest(result['protocol'])
-            else:
-                event['measurement_status'][metric_id] = {'status': 'failed', 'reason': result['error']}
-            encoded = json.dumps(event, allow_nan=False, separators=(',', ':')).encode() + b'\n'
-            if len(encoded) > 65536:
-                raise ValueError('Evaluation event exceeds 64 KiB')
-            with (directory / 'events.jsonl').open('xb') as stream:
-                stream.write(encoded)
-                stream.flush()
-                os.fsync(stream.fileno())
-            receipt = {'schema_version': 1, 'status': status, **identity, 'metric_id': metric_id,
-                       'catalog': revision, 'snapshot_sha256': expected_hash, 'seconds': elapsed,
-                       'result': result, 'event_sha256': hashlib.sha256(encoded).hexdigest()}
-            atomic_json(directory / 'receipt.json', receipt)
-            atomic_json(directory / 'stream.json', {'schema_version': 1,
-                'stream_id': event['stream_id'], 'stream_generation': evaluation_id,
-                'run_id': manifest['run_id'], 'path': (directory / 'events.jsonl').relative_to(root).as_posix(),
-                'role': 'measurement', 'modality': descriptor['kind']})
-            if isinstance(failure, (KeyboardInterrupt, SystemExit)):
-                raise failure
-            if failure is not None and spec['on_error'] == 'fail':
-                raise RuntimeError(f'Metric evaluation failed; receipt: {directory / "receipt.json"}: {result["error"]}') from failure
-            return receipt
+            return _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity)
         finally:
             # Complete/failed results keep the immutable bundle digest/provenance,
             # not an extra copy of large model weights. Original bundle stays put.
             snapshot.unlink(missing_ok=True)
             _recover_abandoned(root, manifest['run_id'])
+
+
+def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, *, cancellation_event=None, timeout=None):
+    """Evaluate and register owned immutable bytes; caller owns run coordination."""
+    from .cpu_worker_service import CPUServiceCancelled, CPUWorkerService
+    spec = selected['metrics']['custom'][metric_id]
+    evaluation_id = identity['evaluation_id']
+    timeout = spec['timeout'] if timeout is None else timeout
+    manifest = {'run_id': identity['run_id']}
+    started = time.monotonic()
+    service = CPUWorkerService(_worker_factory, _worker_command,
+        args=(spec, selected['_metric_runtime'][metric_id], str(snapshot), expected_hash, identity),
+        run_id=manifest['run_id'], attempt_id=evaluation_id, world_size=1, initialize_process_group=False,
+        cancellation_event=cancellation_event,
+        startup_timeout=timeout, command_timeout=timeout,
+        collective_timeout=timeout, total_timeout=timeout)
+    failure = None
+    try:
+        with service:
+            result = finite_json(service.command('evaluate')['results'][0])
+        status = 'complete'
+    except BaseException as error:
+        failure = error
+        status = 'cancelled' if isinstance(error, CPUServiceCancelled) else 'failed'
+        result = {'error': f'{type(error).__name__}: {error}'[:1000]}
+    elapsed = time.monotonic() - started
+    catalog = metric_catalog(selected)
+    descriptor = catalog['metrics'][metric_id]
+    if status == 'complete':
+        descriptor['evaluation_protocol'] = result['protocol']
+        descriptor['definition_hash'] = digest({k: v for k, v in descriptor.items() if k != 'definition_hash'})
+    revision = _write_catalog(root, catalog)
+    # The pinned bundle's owning attempt and update are read by the
+    # numerical worker. Failures before load have explicitly unknown
+    # source position and cannot be mistaken for current-run measures.
+    known_source = type(identity.get('source_step')) is int and identity.get('attempt_id') is not None
+    owner = result.get('snapshot_identity', identity if known_source else {})
+    event = {'schema_version': 2, 'event': 'evaluation', 'run_id': manifest['run_id'],
+             'attempt_id': owner.get('attempt_id', evaluation_id), 'sequence': 1,
+             'stream_id': 'evaluation:' + evaluation_id, 'stream_generation': evaluation_id,
+             'step': result.get('step', identity.get('source_step', 0)), 'seconds': elapsed, 'catalog': revision,
+             'metrics': {}, 'measurement_status': {}, 'evaluation_id': evaluation_id,
+             'snapshot_sha256': expected_hash, 'snapshot_identity': owner, 'status': status,
+             'source_position_known': status == 'complete' or known_source}
+    if status == 'complete':
+        target = 'metrics' if descriptor['kind'] == 'scalar' else 'distributions'
+        event.setdefault(target, {})[metric_id] = result['value']
+        event['evaluation_protocol'] = result['protocol']
+        event['protocol_sha256'] = digest(result['protocol'])
+    else:
+        event['measurement_status'][metric_id] = {'status': status, 'reason': result['error']}
+    encoded = json.dumps(event, allow_nan=False, separators=(',', ':')).encode() + b'\n'
+    if len(encoded) > 65536:
+        raise ValueError('Evaluation event exceeds 64 KiB')
+    with (directory / 'events.jsonl').open('xb') as stream:
+        stream.write(encoded)
+        stream.flush()
+        os.fsync(stream.fileno())
+    receipt = {'schema_version': 1, 'status': status, **identity, 'metric_id': metric_id,
+               'catalog': revision, 'snapshot_sha256': expected_hash, 'seconds': elapsed,
+               'result': result, 'event_sha256': hashlib.sha256(encoded).hexdigest()}
+    atomic_json(directory / 'receipt.json', receipt)
+    atomic_json(directory / 'stream.json', {'schema_version': 1,
+        'stream_id': event['stream_id'], 'stream_generation': evaluation_id,
+        'run_id': manifest['run_id'], 'path': (directory / 'events.jsonl').relative_to(root).as_posix(),
+        'role': 'measurement', 'modality': descriptor['kind']})
+    if isinstance(failure, (KeyboardInterrupt, SystemExit)):
+        raise failure
+    if status == 'failed' and spec['on_error'] == 'fail':
+        raise RuntimeError(f'Metric evaluation failed; receipt: {directory / "receipt.json"}: {result["error"]}') from failure
+    return receipt
 
 
 def _recover_abandoned(root, run_id):
@@ -208,7 +220,7 @@ def _recover_abandoned(root, run_id):
         receipt = json.loads(receipt_path.read_text())
         if receipt.get('run_id') != run_id or receipt.get('evaluation_id') != path.name:
             raise ValueError('Abandoned evaluation identity differs from its run')
-        if receipt.get('status') in ('complete', 'failed'):
+        if receipt.get('status') in ('complete', 'failed', 'cancelled'):
             event_path = path / 'events.jsonl'
             if event_path.is_symlink() or not event_path.is_file() or event_path.stat().st_size > 65536:
                 raise ValueError('Unregistered completed evaluation requires a bounded event file')
@@ -227,10 +239,10 @@ def _recover_abandoned(root, run_id):
             raise ValueError('Unsupported evaluation receipt status')
         reason = 'Evaluation ended before result publication; restart explicitly with a new evaluation ID'
         event = {'schema_version': 2, 'event': 'evaluation', 'run_id': run_id,
-                 'attempt_id': path.name, 'sequence': 1, 'stream_id': 'evaluation:' + path.name,
+                 'attempt_id': receipt.get('attempt_id', path.name), 'sequence': 1, 'stream_id': 'evaluation:' + path.name,
                  'stream_generation': path.name, 'catalog': receipt['catalog'],
-                 'step': 0, 'seconds': 0.0, 'metrics': {}, 'status': 'failed',
-                 'source_position_known': False, 'evaluation_id': path.name,
+                 'step': receipt.get('source_step', 0), 'seconds': 0.0, 'metrics': {}, 'status': 'failed',
+                 'source_position_known': type(receipt.get('source_step')) is int, 'evaluation_id': path.name,
                  'snapshot_sha256': receipt['snapshot_sha256'], 'snapshot_identity': {},
                  'measurement_status': {receipt['metric_id']: {'status': 'failed', 'reason': reason}}}
         # No registry exists: any interrupted pre-registration event is not an

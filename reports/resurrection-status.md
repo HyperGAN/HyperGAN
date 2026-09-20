@@ -2,6 +2,22 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Interval FID implementation (2026-09-20): [PR #354](https://github.com/HyperGAN/HyperGAN/pull/354)
+adds configured step intervals, one asynchronous snapshot evaluator, explicit busy
+skips, current-run recovery and visible schedules/cancellation before any result.
+The [implementation report](interval-evaluation-2026-09-20.md) records the
+configuration, native/replicated execution and UI contract. Final installed
+acceptance passed 48 integration/API checks, 22 browser checks and native CUDA
+complete-state/recovery acceptance. All 58 installed runtime files match source.
+A fresh three-update CIFAR CLI run on GPU 0 completed automatic FID128 at source
+step 2; this is plumbing evidence only. Protected checks and the linked PR/merge
+receipt establish final integration state. Evidence and full CPU logs:
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-interval-evaluation/`.
+The public CIFAR example schedules FID50k every 10,000 steps. The owner's live
+`train-develop` run on GPU 1 and its installation were untouched. Next: test the
+new schedule in an updated installation/new supported run, then continue the
+image plan. No paid compute, release or new two-GPU CUDA qualification occurred.
+
 Metric optimization acceptance (2026-09-20): the owner-requested audit and worker
 fixes are recorded in [metric optimization](metric-optimization-2026-09-20.md).
 Scalar transport [#344](https://github.com/HyperGAN/HyperGAN/pull/344) passed

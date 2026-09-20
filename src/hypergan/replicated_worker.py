@@ -137,6 +137,34 @@ def handle_command(state, operation, payload):
         return {**_ready(state), 'receipt_sha256': digest, **({'receipt': receipt} if state['rank'] == 0 else {})}
     if operation == 'inference':
         return _inference(state, payload)
+    if operation == 'evaluation-snapshot':
+        def validate():
+            identity, path = payload['identity'], Path(payload['path'])
+            if (not isinstance(identity, dict)
+                    or any(type(identity.get(key)) is not type(context[key])
+                           or identity.get(key) != context[key]
+                           for key in ('run_id', 'attempt_id', 'attempt_index'))
+                    or not isinstance(identity.get('evaluation_id'), str) or not identity['evaluation_id']
+                    or not path.is_absolute() or path != path.resolve()
+                    or path.name != 'snapshot.pt' or path.parent.parent != Path(context['attempt_dir'])
+                    or not path.parent.name.startswith('.evaluation-') or not path.parent.is_dir()
+                    or path.parent.is_symlink() or path.exists() or path.is_symlink()):
+                raise ValueError('Evaluation snapshot destination or identity differs from the current attempt')
+
+        def capture():
+            if state['rank']:
+                return None
+            from .evaluation_snapshot import capture_evaluation_state
+            from .preview_snapshot import write_snapshot
+            return write_snapshot(capture_evaluation_state(trainer, payload['identity']), payload['path'])
+        try:
+            trainer._phase('evaluation snapshot validation', validate)
+            descriptor = trainer._phase('evaluation snapshot', capture)
+            return {**_ready(state), **({'snapshot': descriptor} if state['rank'] == 0 else {})}
+        except BaseException:
+            trainer._poisoned = True
+            trainer.checkpoint_ready = False
+            raise
     if operation == 'preview-snapshot':
         identity, path = payload['identity'], Path(payload['path'])
         if (any(identity[key] != context[key] for key in ('run_id', 'attempt_id', 'attempt_index'))

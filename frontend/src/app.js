@@ -171,6 +171,7 @@ const fmt = (value) =>
     : Number(value).toLocaleString(undefined, { maximumSignificantDigits: 6 });
 function updateRun(run) {
   state.run = run;
+  evaluations.update(state.catalog, run);
   $("run-name").textContent =
     run.config?.name || run.name || "Training experiment";
   $("run-id").textContent = run.run_id;
@@ -408,6 +409,7 @@ async function metadata(expectedEpoch = state.epoch) {
   if (expectedEpoch !== state.epoch) return;
   updateRun(run.data);
   state.catalog = catalog.data;
+  evaluations.update(state.catalog, state.run);
   state.map = views.data.map_revision;
   evaluations.refresh(views.data.streams || []).catch(error => notice(error.message));
   if (views.data.discovery_error) notice(views.data.discovery_error);
@@ -681,6 +683,7 @@ function openStream(epoch) {
         markViewUpdated();
         if (result.latestStep !== null && result.latestStep !== undefined) {
           state.run.steps = Math.max(state.run.steps || 0, result.latestStep);
+          evaluations.update(state.catalog, state.run);
           $("step").textContent = fmt(state.run.steps);
         }
         scheduleRender();

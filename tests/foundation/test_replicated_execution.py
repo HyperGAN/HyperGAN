@@ -87,3 +87,75 @@ def test_malformed_complete_update_poisons_execution(failure, metrics_preset):
     with pytest.raises(FatalExecutionError):
         execution.update()
     assert execution._poisoned and execution.service.aborted and execution.step == 0
+
+
+class SnapshotService(FakeService):
+    def __init__(self, failure=None):
+        super().__init__(None)
+        self.failure = failure
+        self.calls = []
+
+    def assert_healthy(self):
+        if self.aborted:
+            raise RuntimeError('worker group was aborted')
+
+    def command(self, operation, payload):
+        import hashlib
+        from pathlib import Path
+        self.calls.append((operation, payload))
+        path = Path(payload['path'])
+        path.write_bytes(b'frozen EMA state')
+        descriptor = {'bytes': path.stat().st_size, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+        results = [{'ready': True, 'step': 3, 'inference_available': True} for _ in range(2)]
+        results[0]['snapshot'] = descriptor
+        if self.failure == 'step':
+            results[1]['step'] = 4
+        elif self.failure == 'descriptor':
+            descriptor['bytes'] = True
+        elif self.failure == 'missing':
+            path.unlink()
+        return {'results': results}
+
+
+def _snapshot_execution(tmp_path, failure=None):
+    execution = ReplicatedExecution(resolve_config({}), PROFILE)
+    directory = tmp_path / 'attempts' / 'attempt'
+    directory.mkdir(parents=True)
+    execution.configure_attempt(AttemptContext('run', 'attempt', 1, tmp_path, directory),
+                                preview_every=0, on_event=None)
+    execution.service = SnapshotService(failure)
+    execution.step = 3
+    return execution, {'run_id': 'run', 'attempt_id': 'attempt', 'attempt_index': 1, 'evaluation_id': 'eval-1'}
+
+
+def test_evaluation_snapshot_hands_directory_ownership_to_scheduler(tmp_path):
+    from pathlib import Path
+    execution, identity = _snapshot_execution(tmp_path)
+    result = execution.evaluation_snapshot(tmp_path, identity)
+    directory = Path(result['temporary'].name)
+    assert directory.parent == tmp_path / 'attempts' / 'attempt'
+    assert directory.name.startswith('.evaluation-')
+    assert result['descriptor']['bytes'] == len(b'frozen EMA state')
+    assert execution.service.calls[0][0] == 'evaluation-snapshot'
+    assert execution.service.calls[0][1]['identity'] == identity
+    result['temporary'].cleanup()
+    assert not directory.exists()
+
+
+@pytest.mark.parametrize('failure', ['step', 'descriptor', 'missing'])
+def test_failed_evaluation_snapshot_cleans_and_poisons_invalid_worker_result(tmp_path, failure):
+    execution, identity = _snapshot_execution(tmp_path, failure)
+    with pytest.raises(FatalExecutionError):
+        execution.evaluation_snapshot(tmp_path, identity)
+    assert execution._poisoned and execution.service.aborted
+    assert not list((tmp_path / 'attempts' / 'attempt').iterdir())
+
+
+@pytest.mark.parametrize('change', [{'run_id': 'other'}, {'attempt_id': 'other'},
+    {'attempt_index': True}, {'evaluation_id': ''}, {'evaluation_id': None}])
+def test_evaluation_snapshot_rejects_wrong_identity_before_worker_command(tmp_path, change):
+    execution, identity = _snapshot_execution(tmp_path)
+    with pytest.raises(ValueError, match='identity'):
+        execution.evaluation_snapshot(tmp_path, {**identity, **change})
+    assert not execution.service.calls and not execution._poisoned
+    assert not list((tmp_path / 'attempts' / 'attempt').iterdir())

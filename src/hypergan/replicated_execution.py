@@ -297,6 +297,57 @@ class ReplicatedExecution:
         if error is not None:
             raise error
 
+    def evaluation_snapshot(self, run_dir, identity):
+        """Capture an immutable rank-zero EMA snapshot at a complete boundary.
+
+        The evaluation scheduler owns the returned temporary directory. Failure
+        before handoff always cleans it; rank failure poisons the training group.
+        """
+        temporary = None
+        try:
+            if (self.context is None or str(Path(run_dir).resolve()) != self.context['run_dir']
+                    or not isinstance(identity, dict)
+                    or any(type(identity.get(key)) is not type(self.context[key])
+                           or identity.get(key) != self.context[key]
+                           for key in ('run_id', 'attempt_id', 'attempt_index'))
+                    or not isinstance(identity.get('evaluation_id'), str) or not identity['evaluation_id']):
+                raise ValueError('Evaluation snapshot run or identity differs from configured attempt')
+            if self._closed or self._poisoned or self.service is None:
+                raise FatalExecutionError('Replicated execution is closed or poisoned')
+            self.service.assert_healthy()
+            temporary = tempfile.TemporaryDirectory(prefix='.evaluation-', dir=self.context['attempt_dir'])
+            path = Path(temporary.name) / 'snapshot.pt'
+            results = self._results(self._command('evaluation-snapshot',
+                {'path': str(path), 'identity': dict(identity)}), expected_step=self.step)
+            try:
+                descriptor = results[0]['snapshot']
+                if (not isinstance(descriptor, dict) or set(descriptor) != {'bytes', 'sha256'}
+                        or type(descriptor['bytes']) is not int or descriptor['bytes'] <= 0
+                        or not isinstance(descriptor['sha256'], str) or len(descriptor['sha256']) != 64
+                        or any(char not in '0123456789abcdef' for char in descriptor['sha256'])
+                        or path.is_symlink() or not path.is_file() or path.stat().st_size != descriptor['bytes']):
+                    raise ValueError('Invalid evaluation snapshot descriptor or file')
+                self.service.assert_healthy()
+            except BaseException as failure:
+                self._fail(failure)
+            result = {'temporary': temporary, 'descriptor': dict(descriptor)}
+            temporary = None
+            return result
+        except BaseException as error:
+            if temporary is not None:
+                try:
+                    temporary.cleanup()
+                except BaseException as cleanup:
+                    if hasattr(error, 'add_note'):
+                        error.add_note(f'Evaluation snapshot cleanup also failed: {cleanup}')
+            # Optional evaluation errors cannot hide a dead numerical group.
+            if self.service is not None and not self._closed:
+                try:
+                    self.service.assert_healthy()
+                except BaseException as health:
+                    self._fail(error if isinstance(error, (FatalExecutionError, KeyboardInterrupt, SystemExit)) else health)
+            raise
+
     @property
     def preview_busy(self):
         return self._previews is not None and self._previews.busy

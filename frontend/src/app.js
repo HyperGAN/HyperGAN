@@ -55,6 +55,15 @@ const state = {
   coarsenAttempts: 0,
 };
 let requestID = 0;
+/* host.js falls back to a portable SHA-256, so a missing Web Crypto API no longer
+   stops the reducer; name the cause anyway instead of relaying a raw TypeError. */
+const WEB_CRYPTO_FAILURE = /crypto|subtle|reading 'digest'|bundled reducer digest/i;
+function viewWorkerError(message) {
+  const text = message || "View worker failed";
+  return WEB_CRYPTO_FAILURE.test(text)
+    ? `${text} — this browser exposed no Web Crypto API (crypto.subtle), which browsers withhold from plain-HTTP origins other than localhost. Open the viewer over HTTPS (for example \`tailscale serve\`) or from the server itself.`
+    : text;
+}
 class ViewWorker {
   constructor() {
     this.worker = new Worker("/assets/view-worker.js", { type: "module" });
@@ -65,10 +74,11 @@ class ViewWorker {
       const p = this.pending;
       this.pending = null;
       clearTimeout(p.timer);
-      data.error ? p.reject(new Error(data.error)) : p.resolve(data.ok);
+      data.error
+        ? p.reject(new Error(viewWorkerError(data.error)))
+        : p.resolve(data.ok);
     };
-    this.worker.onerror = (e) =>
-      this.close(new Error(e.message || "View worker failed"));
+    this.worker.onerror = (e) => this.close(new Error(viewWorkerError(e.message)));
   }
   call(message) {
     if (this.closed) return Promise.reject(new Error("View worker closed"));

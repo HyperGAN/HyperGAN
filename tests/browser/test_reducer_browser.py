@@ -15,6 +15,13 @@ def page(tmp_path_factory):
     for resource in assets().iterdir():
         if resource.is_file():
             (root / resource.name).write_bytes(resource.read_bytes())
+    # A sibling base whose module was modified after its descriptor was written.
+    tampered = root / "tampered"
+    tampered.mkdir()
+    (tampered / "reducer.json").write_bytes((root / "reducer.json").read_bytes())
+    binary = bytearray((root / "reducer.wasm").read_bytes())
+    binary[-1] ^= 0x01
+    (tampered / "reducer.wasm").write_bytes(bytes(binary))
     class QuietHandler(SimpleHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -110,3 +117,42 @@ def test_worker_deadline_terminates_without_blocking_page(page):
     }""")
     assert "deadline" in result["error"]
     assert result["closed"] is True and result["ticks"] > 0
+
+
+def test_portable_sha256_matches_known_vectors(page):
+    result = page.evaluate("""async () => {
+      const {sha256Hex} = await import('./host.js');
+      const encoder = new TextEncoder();
+      return {empty: sha256Hex(new Uint8Array(0)),
+              abc: sha256Hex(encoder.encode('abc')),
+              block: sha256Hex(encoder.encode('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq')),
+              module: sha256Hex(await (await fetch('./reducer.wasm')).arrayBuffer())};
+    }""")
+    assert result["empty"] == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    assert result["abc"] == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    assert result["block"] == "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+    assert result["module"] == Reducer().module_sha256
+
+
+def test_reducer_verifies_module_without_web_crypto(page):
+    """Plain HTTP off localhost is an insecure context: crypto.subtle is undefined."""
+    reducer = Reducer()
+    values = [{"value": 2, "position": [0, "a"]}, {"value": 4, "position": [1, "b"]}]
+    expected = reducer.finalize(reducer.add(reducer.identity("mean/v1"), values))
+    result = page.evaluate("""async values => {
+      Object.defineProperty(crypto, 'subtle', {value: undefined, configurable: true});
+      try {
+        const {Reducer} = await import('./host.js');
+        const loaded = await Reducer.load(new URL('./', location.href));
+        let rejected = 'accepted a modified module';
+        try { await Reducer.load(new URL('./tampered/', location.href)); }
+        catch (error) { rejected = error.message; }
+        return {available: crypto.subtle !== undefined, digest: loaded.spec.sha256, rejected,
+                value: loaded.finalize(loaded.add(loaded.identity('mean/v1'), values))};
+      } finally { delete crypto.subtle; }
+    }""", values)
+    assert result["available"] is False
+    assert result["digest"] == reducer.module_sha256
+    assert result["value"] == expected
+    assert "digest mismatch" in result["rejected"]
+    assert page.evaluate("typeof crypto.subtle?.digest") == "function"

@@ -13,6 +13,21 @@ address with `--host 127.0.0.1` and a fixed port with `--port 8123`. The printed
 browser URL uses `127.0.0.1` for a wildcard bind; remote browsers use this machine's
 address with that same port. Browser requests remain same-origin.
 
+### Remote browsers over plain HTTP
+
+Opening the viewer from another machine, for example `http://mlserver:8123` over a
+Tailscale or LAN address, needs no TLS. Browsers expose the Web Crypto API
+(`crypto.subtle`) only to secure contexts, so the reducer host verifies the bundled
+WebAssembly module with `crypto.subtle` where it exists and with an equivalent
+portable SHA-256 otherwise. The integrity check therefore still runs, and still
+refuses a modified module, on the insecure origin a plain-HTTP host other than
+`localhost` receives. The viewer uses no other secure-context-only browser API.
+
+HTTPS remains the recommendation outside a trusted private network; put the port
+behind TLS, for example with `tailscale serve`. Such a proxy must present the
+viewer's own `Host` authority including its port, and a matching `Origin`, because
+the local server rejects a `Host` or `Origin` it does not recognize.
+
 Authentication defaults to `none`. Select `--auth token` to require a private
 bearer token. Startup JSON identifies the browser origin, server incarnation and
 private session file outside the run. In token mode, paste that file's token into

@@ -421,3 +421,16 @@ def test_fast_terminal_observer_status_and_errors_are_persisted(tmp_path, termin
         assert manifest['observation_errors'] == result['observation_errors']
         if terminal_failure:
             assert manifest['observation_errors'][-1]['step'] == 1
+
+
+def test_resume_without_callback_clears_prior_attempt_worker_status(tmp_path):
+    path, root, factory, _, _, _ = setup(tmp_path)
+    result=run_train(path, root, steps=2, execution_factory=factory)
+    result['progress_observation']={'accepted':1, 'failed':1, 'pending':False}
+    result['metric_shutdown_error']='prior attempt worker cleanup failed'
+    (root/'manifest.json').write_text(json.dumps(result))
+    resumed=run_resume(root, execution_factory=factory)
+    saved=json.loads((root/'manifest.json').read_text())
+    for manifest in (resumed,saved):
+        assert 'progress_observation' not in manifest
+        assert 'metric_shutdown_error' not in manifest

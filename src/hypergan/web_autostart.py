@@ -101,7 +101,7 @@ def _project(root, stop):
 def _probe(session):
     import http.client
 
-    connection = http.client.HTTPConnection('127.0.0.1', int(session.host.rsplit(':', 1)[1]), timeout=0.25)
+    connection = http.client.HTTPConnection(session.host, timeout=0.25)
     try:
         connection.request('GET', '/api/v1/capabilities', headers={'Authorization': 'Bearer ' + session._token})
         response = connection.getresponse()
@@ -208,8 +208,8 @@ def _broker(root, listener, session, credential_path, connection, mode):
 class Viewer:
     """A bounded supervision handle; construction never waits for HTTP startup."""
 
-    def __init__(self, root, *, port=0, mode='auto', open_browser=False):
-        from .web_launch import bind_loopback, require_web
+    def __init__(self, root, *, port=0, host="0.0.0.0", auth="none", mode='auto', open_browser=False):
+        from .web_launch import bind_server, require_web
         from .web_session import LocalSession
 
         require_web()
@@ -220,8 +220,8 @@ class Viewer:
         self.info = None
         self._closing = threading.Event()
         self._open_browser = open_browser
-        with bind_loopback(port) as listener:
-            self.session = LocalSession(listener.getsockname()[1])
+        with bind_server(port, host) as listener:
+            self.session = LocalSession(listener.getsockname()[1], host=host, auth=auth)
             private = Path(tempfile.mkdtemp(prefix='hypergan-viewer-'))
             self.credential_path = private / 'session.json'
             try:
@@ -260,8 +260,10 @@ class Viewer:
             if message['kind'] == 'ready':
                 self.info = message['detail']
                 self.ready.set()
-                print(f"Viewer: {self.info['origin']}\nCredentials: {self.credential_path} (copy its token into the sign-in form)",
-                      file=sys.stderr, flush=True)
+                print(f"Viewer: {self.info['origin']} (listening on {self.session.bind_host})", file=sys.stderr, flush=True)
+                if self.session.auth_mode == 'token':
+                    print(f"Credentials: {self.credential_path} (copy its token into the sign-in form)",
+                          file=sys.stderr, flush=True)
                 if self._open_browser:
                     import webbrowser
                     threading.Thread(target=webbrowser.open, args=(self.info['origin'],), daemon=True).start()
@@ -296,7 +298,7 @@ class Viewer:
 
 
 @contextmanager
-def training_viewer(root, *, required=False, port=0, open_browser=False):
+def training_viewer(root, *, required=False, port=0, host=None, auth=None, open_browser=False):
     if not required:
         from importlib.util import find_spec
         if any(find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):
@@ -306,7 +308,7 @@ def training_viewer(root, *, required=False, port=0, open_browser=False):
     previous = None
     try:
         try:
-            viewer = Viewer(root, port=port, mode='explicit' if required else 'auto', open_browser=open_browser)
+            viewer = Viewer(root, port=port, host=host or '0.0.0.0', auth=auth or 'none', mode='explicit' if required else 'auto', open_browser=open_browser)
             if required:
                 viewer.wait_ready()
         except (OSError, RuntimeError, ImportError) as exc:

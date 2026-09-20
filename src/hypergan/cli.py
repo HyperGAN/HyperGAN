@@ -32,7 +32,9 @@ def _run_options(parser, *, resume=False):
     server = parser.add_mutually_exclusive_group()
     server.add_argument("--server", action="store_true", help="require the local viewer before training starts")
     server.add_argument("--no-server", action="store_true", help="train without web imports or listening sockets")
-    parser.add_argument("--server-port", type=int, help="require a specific loopback port (default: automatic)")
+    parser.add_argument("--server-port", type=int, help="require a specific port (default: automatic)")
+    parser.add_argument("--server-host", help="listen address (default: 0.0.0.0)")
+    parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--open", action="store_true", help="require the viewer and open its sign-in page")
     parser.add_argument("--checkpoint-every", type=_positive_int, default=None if resume else 100,
                         help="save a complete checkpoint every N updates (default: 100; resume inherits)")
@@ -97,7 +99,9 @@ def _parser():
     contributions.add_argument("--max-bytes", type=_positive_int, default=1048576)
     serve = commands.add_parser("serve", help="Serve an existing run over the local API and browser UI (web extra)")
     serve.add_argument("run_dir", type=Path)
-    serve.add_argument("--port", type=int, default=0, help="loopback port; default chooses an available port")
+    serve.add_argument("--port", type=int, default=0, help="listen port; default chooses an available port")
+    serve.add_argument("--host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
+    serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     serve.add_argument("--session-file", type=Path, help="new private credential file outside the run")
     serve.add_argument("--open", action="store_true", help="open the local viewer in a browser")
     from .evaluation_cli import add_evaluate_parser
@@ -137,13 +141,13 @@ def _warnings(config):
 
 def _training_viewer(args):
     if args.no_server:
-        if args.open or args.server_port is not None:
-            raise ValueError("--no-server cannot be combined with --open or --server-port")
+        if args.open or args.server_port is not None or args.server_host is not None or args.auth is not None:
+            raise ValueError("--no-server cannot be combined with --open, --server-port, --server-host or --auth")
         from contextlib import nullcontext
         return nullcontext()
     from .web_autostart import training_viewer
-    return training_viewer(args.run_dir, required=args.server or args.open or args.server_port is not None,
-                           port=args.server_port if args.server_port is not None else 0, open_browser=args.open)
+    return training_viewer(args.run_dir, required=args.server or args.open or args.server_port is not None or args.server_host is not None or args.auth is not None,
+                           port=args.server_port if args.server_port is not None else 0, host=args.server_host, auth=args.auth, open_browser=args.open)
 
 
 def main(argv=None):
@@ -181,7 +185,8 @@ def _dispatch(args, *, output=None):
         elif args.command == "serve":
             from .web_launch import serve
 
-            serve(args.run_dir, port=args.port, session_file=args.session_file, open_browser=args.open)
+            serve(args.run_dir, port=args.port, host=args.host, auth=args.auth,
+                  session_file=args.session_file, open_browser=args.open)
         elif args.command == "contributions":
             from .event_views import MapSpec, read_projection_page
 

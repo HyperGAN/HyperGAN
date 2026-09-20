@@ -46,7 +46,7 @@ def make_run(root):
 
 def test_pending_start_does_not_create_run_then_separate_producer_catches_up(tmp_path):
     root = tmp_path / 'run'
-    with training_viewer(root, required=True) as viewer:
+    with training_viewer(root, required=True, auth="token") as viewer:
         assert not root.exists()
         assert viewer.info['processes']['server'] != viewer.info['processes']['projector']
         assert len({os.getpid(), viewer.process.pid, *viewer.info['processes'].values()}) == 4

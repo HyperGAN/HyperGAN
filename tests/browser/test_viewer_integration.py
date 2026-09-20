@@ -67,7 +67,7 @@ class Experiment:
 def real_viewer(tmp_path):
     experiment = Experiment(tmp_path / 'run')
     listener = bind_loopback()
-    session = LocalSession(listener.getsockname()[1])
+    session = LocalSession(listener.getsockname()[1], auth="token")
     session.write_credentials(tmp_path / 'session.json')
     token = json.loads((tmp_path / 'session.json').read_text())['token']
     app = create_app(experiment.root, session, poll_seconds=.02)

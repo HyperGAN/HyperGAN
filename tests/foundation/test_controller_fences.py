@@ -395,3 +395,29 @@ def test_controller_cleans_background_observer_when_terminal_publication_fails(m
     with pytest.raises(OSError, match='primary journal failure'):
         controller.execute_run({}, None, {}, 100, None, None, None, execution=Execution())
     assert actions == ['shutdown', 'close_observers']
+
+
+@pytest.mark.parametrize('terminal_failure', [False, True])
+def test_fast_terminal_observer_status_and_errors_are_persisted(tmp_path, terminal_failure):
+    path, root, factory, _, _, _ = setup(tmp_path)
+    status = {'accepted': 2, 'completed': 1 if terminal_failure else 2,
+              'dropped': 3, 'failed': int(terminal_failure), 'pending': False}
+    def execution_factory(config):
+        execution = factory(config)
+        execution.observation_status = lambda: status
+        def observe(callback, event):
+            if terminal_failure and event['event'] == 'complete':
+                error = ObserverError('terminal callback failed')
+                error.observation_step = 1
+                raise error
+        execution.observe = observe
+        return execution
+    result = run_train(path, root, steps=2, on_event=lambda event: None,
+                       execution_factory=execution_factory)
+    saved = json.loads((root/'manifest.json').read_text())
+    attempt = json.loads((__import__('pathlib').Path(result['attempt_dir'])/'manifest.json').read_text())
+    for manifest in (saved, attempt):
+        assert manifest['progress_observation'] == result['progress_observation'] == status
+        assert manifest['observation_errors'] == result['observation_errors']
+        if terminal_failure:
+            assert manifest['observation_errors'][-1]['step'] == 1

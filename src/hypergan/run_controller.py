@@ -376,7 +376,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     status = getattr(execution, 'observation_status', lambda: None)()
                     if status is not None:
                         manifest['progress_observation'] = status
-                        publish(wait=False)
+                        # Terminal callback results must outlive the API return;
+                        # the live-status throttle may suppress this final update.
+                        publish()
                         emit('observer_status', _observe=False, source='progress', delivery=status)
         return row
 

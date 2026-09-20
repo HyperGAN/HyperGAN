@@ -21,18 +21,6 @@ Where this lives today:
 - `src/hypergan/web_service.py` builds the artifact list with keys `preview-<digest>` and `-grid` suffixes.
 - `frontend/src/app.js` renders every artifact as a flat list under "Samples & artifacts".
 
-### 2. Stable server port with `--port` and increment-on-conflict (raised 2026-09-20)
-
-- [ ] The viewer port changes on every start because the default is an OS-assigned port (0). Add a `--port` option to `train` with a fixed default port.
-- [ ] If the default port is in use, increment and retry until a free port is found, and report the port actually chosen.
-- [ ] Keep an explicit `--port N` strict: if the user names a port and it is busy, fail rather than silently move.
-- [ ] Apply the same default and increment behavior to `hypergan serve`, whose `--port` also defaults to 0.
-
-Where this lives today:
-- `src/hypergan/cli.py` defines `--server-port` on `train` (default automatic) and `--port` on `serve` (default 0).
-- `src/hypergan/web_launch.py` `bind_server` binds exactly one port and raises on conflict.
-- `src/hypergan/web_autostart.py` reuses a recorded port when resuming an existing run's viewer.
-
 ### 5. HTTPS fronting of the viewer (e.g. `tailscale serve`) is rejected by the origin check (found 2026-09-20 while fixing item 3)
 
 `web_session.permits_request` requires `Origin` to equal `http://<host>` and the Host port to match the bound port. A TLS reverse proxy in front of the viewer sends an `https://` origin and usually a different port, so token login and the console `PUT` are rejected. Plain HTTP remote viewing works after item 3; HTTPS remote viewing does not yet.
@@ -69,6 +57,20 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 - [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
 
 ## Done
+
+### 2. Stable server port with `--port` and increment-on-conflict (raised 2026-09-20)
+
+**Status:** Implemented in commit 7ff6d719, merged to develop. `train`/`resume`/`serve` take `--port` (alias `--server-port`) with default 8765; when the default is busy the viewer steps upward through 100 ports and reports the bound URL. An explicit port stays strict, and `--port 0` still asks the OS for any free port. The default lives once in `src/hypergan/ports.py`.
+
+- [x] The viewer port changes on every start because the default is an OS-assigned port (0). Add a `--port` option to `train` with a fixed default port.
+- [x] If the default port is in use, increment and retry until a free port is found, and report the port actually chosen.
+- [x] Keep an explicit `--port N` strict: if the user names a port and it is busy, fail rather than silently move.
+- [x] Apply the same default and increment behavior to `hypergan serve`, whose `--port` also defaults to 0.
+
+Where this lives today:
+- `src/hypergan/cli.py` defines `--server-port` on `train` (default automatic) and `--port` on `serve` (default 0).
+- `src/hypergan/web_launch.py` `bind_server` binds exactly one port and raises on conflict.
+- `src/hypergan/web_autostart.py` reuses a recorded port when resuming an existing run's viewer.
 
 ### 4. Live UI development without restarting the training server (raised 2026-09-20)
 

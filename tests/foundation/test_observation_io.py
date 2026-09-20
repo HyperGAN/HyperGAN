@@ -100,7 +100,7 @@ def test_event_queue_byte_and_structure_bounds(tmp_path, monkeypatch):
     try:
         assert writer.append(row(0))
         assert entered.wait(5)
-        large = dict(row(1), detail='x' * 100000)
+        large = dict(row(1), detail='x' * 50000)
         assert writer.append(large)
         assert not writer.append(large)
         with pytest.raises(ValueError, match='byte bound'):
@@ -110,3 +110,10 @@ def test_event_queue_byte_and_structure_bounds(tmp_path, monkeypatch):
     finally:
         release.set()
         writer.close()
+
+
+def test_event_size_estimate_bounds_unicode_escapes_and_large_integers():
+    from hypergan.observation_io import _event_snapshot
+    value = dict(row(0), unicode='😀' * 1000, integer=10 ** 4000)
+    copied, estimated = _event_snapshot(value)
+    assert len(json.dumps(copied).encode()) <= estimated

@@ -22,11 +22,12 @@ def _event_snapshot(value, *, max_bytes=1024 * 1024):
         if item is None or type(item) in (bool, int, float):
             if type(item) is float and not math.isfinite(item):
                 raise ValueError('Observation events require finite values')
-            budget[0] -= 32
+            # bit_length / 3 conservatively bounds decimal integer digits.
+            budget[0] -= max(32, item.bit_length() // 3 + 3) if type(item) is int else 32
             result = item
         elif type(item) is str:
-            # Six bytes per character bounds JSON ASCII escaping conservatively.
-            budget[0] -= len(item) * 6 + 2
+            # Non-BMP characters require two six-byte UTF-16 escapes.
+            budget[0] -= len(item) * 12 + 2
             result = item
         elif type(item) in (list, tuple):
             budget[0] -= 2 + len(item)

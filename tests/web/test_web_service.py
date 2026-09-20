@@ -324,11 +324,17 @@ def test_preview_index_final_sample_and_safe_reader_paths(tmp_path):
             assert len(index['artifacts']) == 1
             item = next(iter(index['artifacts'].values()))
             assert item['role'] == 'sample' and 'path' not in item
+            # A periodic preview is not the finished sample.
+            assert 'final' not in item['provenance']
             final = tmp_path / 'final.json'
             final.write_text(json.dumps({'shape': [1, 2], 'step': 1, 'identity': {'attempt_id': 'a'}}))
             service.manifest['sample_path'] = str(final)
             await service.refresh_artifacts()
             assert len(service.artifacts) == 2
+            # The run's finished sample says so, so a viewer can name it.
+            saved = next(value for key, value in service.artifacts.items()
+                         if key.startswith('final-sample-'))
+            assert saved['provenance']['final'] is True and saved['modality'] == 'tensor'
             # Event source paths reject symlinks rather than serving outside data.
             linked = ObservationService(tmp_path / 'linked')
             linked.root.mkdir()

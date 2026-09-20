@@ -32,7 +32,11 @@ The token never enters a URL, storage, telemetry, or browser logs.
   `preview-<digest>-grid` (generated PNG) and `preview-<digest>-real-grid`
   (real PNG). Explicit `artifacts/index.json` entries may carry their own
   `name`; otherwise the artifact ID is its own name. Consumers group versions of
-  one source by `(name, modality)` and order them by `provenance.step`.
+  one source by `(name, modality)` and order them by `provenance.step`. The
+  tensor and the generated grid of one generation share a name and a step: they
+  are the same sample as numbers and as a picture, so a viewer offers the tensor
+  as a download on the image rather than as a second group. The run's finished
+  sample carries `provenance.final: true`; no other record does.
 - `GET /runs/r/views` -> `{ "map_revision":"...", "streams":[{"stream_id":"evaluation:<id>", "cursor":"...", "caught_up":true, "error":null}], "discovery_error":null }`.
   Training, projection and independent evaluation sources share this inventory.
   At most 64 streams are registered. Inventory overflow is visible without

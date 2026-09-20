@@ -148,6 +148,13 @@ def test_real_png_grid_loads_and_updates_without_selected_metrics(real_viewer):
     with page.expect_download() as download:
         generated.get_by_role('link', name='Download', exact=True).click()
     assert Path(download.value.path()).read_bytes() == Path(latest_record['image_grid']['path']).read_bytes()
+    # The numbers the grid was drawn from ride along as a download on the same
+    # card; they are not a second, unexplained group beside the picture.
+    assert page.locator('#artifact-items li[data-modality="tensor"]').count() == 0
+    with page.expect_download() as tensor:
+        generated.get_by_role('link', name='Download raw tensor (JSON, shape 2 × 3 × 1 × 1)',
+                              exact=True).click()
+    assert json.loads(Path(tensor.value.path()).read_text())['step'] == 2
     generated.locator('input[type="range"]').focus()
     page.keyboard.press('Home')
     older = page.get_by_role('img', name='Sample g image grid at step 1', exact=True)

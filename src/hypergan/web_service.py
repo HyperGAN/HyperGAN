@@ -281,7 +281,9 @@ class ObservationService:
                         name = _sample_name(payload.get('name'), saved.get('name'))
                         records[key] = dict(path=path, bytes=len(data), sha256=hashlib.sha256(data).hexdigest(),
                             role='sample', modality='tensor', media_type='application/json', name=name,
-                            provenance=dict(saved, step=payload.get('step'), name=name),
+                            # `final` marks the run's finished sample so a viewer can
+                            # name it rather than showing another anonymous tensor.
+                            provenance=dict(saved, step=payload.get('step'), name=name, final=True),
                             shape=payload.get('shape'))
                     except (ValueError, OSError) as exc:
                         records[key] = dict(status='unavailable', role='sample', reason=str(exc), name='final')

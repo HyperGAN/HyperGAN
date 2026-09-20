@@ -41,13 +41,27 @@ Where this lives today:
 
 Owner: "theres a 'sample - tensor' that i'm not sure what it's supposed to be or how to use it. lets clarify or remove it."
 
-- [ ] Decide whether the raw tensor preview (the JSON payload behind every image grid, plus the final sample) earns a place in the viewer. If kept, label it by what it is (for example "g raw tensor, step N") and say what it is for; if not, hide it from the artifact list by default and keep only the download.
-- [ ] Make sure the image grid, not the tensor, is what a user sees first under each sample name.
-- [ ] Update docs/image-previews.md and the viewer test that covers the artifact list.
+- [x] Decide whether the raw tensor preview (the JSON payload behind every image grid, plus the final sample) earns a place in the viewer. If kept, label it by what it is (for example "g raw tensor, step N") and say what it is for; if not, hide it from the artifact list by default and keep only the download.
+- [x] Make sure the image grid, not the tensor, is what a user sees first under each sample name.
+- [x] Update docs/image-previews.md and the viewer test that covers the artifact list.
 
-Where this lives today:
-- `src/hypergan/web_service.py` emits `role='sample', modality='tensor'` records for every preview payload (`preview-<digest>`) and for the final sample.
-- `frontend/src/app.js` renders it with a "Preview numbers" button and a size hint.
+**Status:** Kept, renamed and folded into the picture it belongs to. The API is
+unchanged apart from one additive marker: the run's finished sample now carries
+`provenance.final: true`, so the viewer can name it instead of showing one more
+anonymous tensor. When a grid exists for the same name and step, its tensor is no
+longer a card of its own: it is a secondary **Download raw tensor (JSON, shape
+...)** action on the image card with one line saying it is the same sample as
+numbers. A recipe with no images (the numerical path) keeps its tensor card,
+labelled "Raw generator output (JSON numbers) · Step N" and explaining that
+"Preview numbers" shows the first values; the final sample reads "Final sample ·
+raw generator output (JSON numbers)". The generic "sample · tensor" wording is
+gone from sample cards.
+
+Where this lives now:
+- `src/hypergan/web_service.py` marks the final sample with `provenance.final`; preview and grid records are otherwise untouched.
+- `frontend/src/app.js` `foldRawTensors` attaches a generation's tensor to the image version of the same name and step, `sampleKind` names each card, and `rawTensorLink`/`note` render the download and its explanation.
+- Copy lives in `src/hypergan/web_assets/index.html` (shelf intro) and `docs/image-previews.md` ("The raw tensor behind a picture"); `frontend/API.md` documents the pairing and the `final` marker.
+- Tests: `tests/browser/test_viewer_ui.py` (image run folds the tensor; numerical run names its tensors and final sample), `tests/browser/test_viewer_integration.py` (real published generation, tensor downloads from the image card), `tests/web/test_web_service.py` (`provenance.final`).
 
 ### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
 

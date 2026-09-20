@@ -221,6 +221,30 @@ const provenanceSequence = (artifact) => {
   const sequence = artifact.provenance?.sample_sequence;
   return Number.isFinite(sequence) ? sequence : -1;
 };
+const isFinalSample = (artifact) => artifact.provenance?.final === true;
+function foldRawTensors(groups) {
+  // The JSON tensor published with an image grid is the same sample as numbers.
+  // It belongs on that image's card as a download, not in a second group; a
+  // tensor with no picture (numerical recipes) and the final sample keep theirs.
+  for (const [key, group] of [...groups]) {
+    if (group.modality !== "tensor") continue;
+    const images = groups.get(`${group.name}\u0000image`);
+    if (!images) continue;
+    const byStep = new Map(
+      images.versions.map((version) => [provenanceStep(version.artifact), version]),
+    );
+    const remaining = [];
+    for (const version of group.versions) {
+      const image = isFinalSample(version.artifact)
+        ? undefined
+        : byStep.get(provenanceStep(version.artifact));
+      if (image && !image.tensor) image.tensor = version;
+      else remaining.push(version);
+    }
+    if (remaining.length) group.versions = remaining;
+    else groups.delete(key);
+  }
+}
 function sampleGroups(artifacts) {
   // Samples are indexed by a short stable name ('g' generated, 'x' real) and
   // grouped per modality so an image name shows one picture at a time.
@@ -233,13 +257,17 @@ function sampleGroups(artifacts) {
     if (!groups.has(key)) groups.set(key, { key, name, modality, versions: [] });
     groups.get(key).versions.push({ id, artifact });
   }
-  for (const group of groups.values()) {
+  for (const group of groups.values())
     group.versions.sort(
       (a, b) =>
         provenanceStep(a.artifact) - provenanceStep(b.artifact) ||
+        // The run's finished sample is the newest version of its step.
+        Number(isFinalSample(a.artifact)) - Number(isFinalSample(b.artifact)) ||
         provenanceSequence(a.artifact) - provenanceSequence(b.artifact) ||
         (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
     );
+  foldRawTensors(groups);
+  for (const group of groups.values()) {
     if (group.versions.length > MAX_SAMPLE_VERSIONS)
       group.versions = group.versions.slice(-MAX_SAMPLE_VERSIONS);
     group.latest = group.versions[group.versions.length - 1];
@@ -311,13 +339,12 @@ function renderSampleGroup(group) {
   }
   function show(chosen) {
     index = chosen;
-    const { id, artifact } = group.versions[index];
+    const version = group.versions[index];
+    const { artifact } = version;
     const step = artifact.provenance?.step;
     const shape = artifact.shape || artifact.metadata?.shape;
     details.textContent = [
-      artifact.role || "Artifact",
-      group.modality,
-      artifact.media_type || "unknown type",
+      sampleKind(group, artifact),
       `Step ${fmt(step)}`,
       Array.isArray(shape) ? `Shape ${shape.join(" × ")}` : null,
       artifact.bytes !== undefined ? `${fmt(artifact.bytes)} bytes` : null,
@@ -331,12 +358,22 @@ function renderSampleGroup(group) {
         (latest ? " · latest" : "");
       latestButton.hidden = latest;
     }
-    body.replaceChildren(sampleVersion(group, id, artifact));
+    body.replaceChildren(sampleVersion(group, version));
   }
   show(index);
   return li;
 }
-function sampleVersion(group, id, artifact) {
+function sampleKind(group, artifact) {
+  // Say what the file is, not which internal role/modality pair produced it.
+  if (group.modality === "image") return "Image grid";
+  if (group.modality === "tensor" && artifact.role === "sample")
+    return isFinalSample(artifact)
+      ? "Final sample · raw generator output (JSON numbers)"
+      : "Raw generator output (JSON numbers)";
+  return [artifact.role || "Artifact", group.modality, artifact.media_type || "unknown type"]
+    .join(" · ");
+}
+function sampleVersion(group, { id, artifact, tensor }) {
   const fragment = document.createDocumentFragment();
   if (artifact.status === "unavailable") {
     const reason = document.createElement("p");
@@ -376,8 +413,16 @@ function sampleVersion(group, id, artifact) {
     };
     fragment.append(image);
     download.download = "grid.png";
+    if (tensor) {
+      controls.append(rawTensorLink(tensor));
+      fragment.append(
+        note(
+          "The raw tensor is the same sample as numbers: the values this grid was drawn from, for analysis outside the viewer.",
+        ),
+      );
+    }
   }
-  if (
+  const previewable =
     artifact.modality === "tensor" &&
     artifact.media_type === "application/json" &&
     Number.isSafeInteger(artifact.bytes) &&
@@ -386,8 +431,21 @@ function sampleVersion(group, id, artifact) {
     shape.length > 0 &&
     shape.length <= 8 &&
     shape.every((n) => Number.isSafeInteger(n) && n > 0) &&
-    shape.reduce((a, b) => a * b, 1) <= 262144
-  ) {
+    shape.reduce((a, b) => a * b, 1) <= 262144;
+  if (artifact.modality === "tensor")
+    fragment.append(
+      note(
+        (artifact.role !== "sample"
+          ? "Raw numbers as JSON. "
+          : isFinalSample(artifact)
+            ? "The sample saved when the run finished, as raw numbers straight from the generator. "
+            : "The generator's output for this step as raw numbers, with no picture to draw from it. ") +
+          (previewable
+            ? '"Preview numbers" shows the first values; Download saves the whole tensor as JSON.'
+            : "Numeric preview supports JSON tensors up to 8 MiB and 262,144 values. Download this tensor to inspect it."),
+      ),
+    );
+  if (previewable) {
     const button = document.createElement("button");
     button.className = "secondary";
     button.textContent = "Preview numbers";
@@ -415,13 +473,25 @@ function sampleVersion(group, id, artifact) {
     controls.append(button);
     fragment.append(preview);
   }
-  if (artifact.modality === "tensor" && controls.children.length === 1) {
-    const hint = document.createElement("p");
-    hint.textContent = "Numeric preview supports JSON tensors up to 8 MiB and 262,144 values. Download this tensor to inspect it.";
-    fragment.append(hint);
-  }
   fragment.append(controls);
   return fragment;
+}
+function note(text) {
+  const paragraph = document.createElement("p");
+  paragraph.className = "sample-note";
+  paragraph.textContent = text;
+  return paragraph;
+}
+function rawTensorLink({ id, artifact }) {
+  const shape = artifact.shape || artifact.metadata?.shape;
+  const link = document.createElement("a");
+  link.href = `/api/v1${base()}/artifacts/${encodeURIComponent(id)}`;
+  link.download = "samples.json";
+  link.className = "text-link raw-tensor";
+  link.textContent = Array.isArray(shape)
+    ? `Download raw tensor (JSON, shape ${shape.join(" × ")})`
+    : "Download raw tensor (JSON)";
+  return link;
 }
 async function numericalPreview(path, shape) {
   const response = await fetch(path, { credentials: "same-origin" });

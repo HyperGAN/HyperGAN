@@ -83,3 +83,18 @@ group, and loads images lazily. Each name shows its most recent version; earlier
 retained versions are reached with that group's history slider (keyboard
 supported), which shows the step of the version being viewed. Unknown modalities
 remain downloads. There is no arbitrary file/image URL input.
+
+## The raw tensor behind a picture
+
+Every published generation carries the numbers as well as the picture: the JSON
+tensor is the EMA generator output the grid was drawn from, at the same name and
+step. The API keeps both records unchanged. In the viewer the picture comes
+first: when a grid exists for that name and step, the tensor is a secondary
+**Download raw tensor (JSON, shape ...)** action on the image card, with a line
+saying what it is, rather than a second group beside the image.
+
+Recipes that produce no images (numerical runs) keep a card of their own for the
+tensor, labelled as the raw generator output for that step, where **Preview
+numbers** shows the first values and Download saves the whole tensor. The sample
+saved when a run finishes is marked `final` in its provenance and is named as the
+final sample instead of appearing as one more anonymous tensor.

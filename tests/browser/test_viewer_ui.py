@@ -39,7 +39,7 @@ def viewer():
         protocol_version = 'HTTP/1.1'
         def log_message(self, *args): pass
         def send(self, status, value, mime='application/json'):
-            body=json.dumps(value).encode() if mime=='application/json' else value
+            body=value if isinstance(value,bytes) else json.dumps(value).encode()
             self.send_response(status);self.send_header('Content-Type',mime)
             self.send_header('Content-Length',len(body));self.end_headers();self.wfile.write(body)
         def do_POST(self):
@@ -62,7 +62,8 @@ def viewer():
             if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
             if '/artifacts/' in path:
                 asset=control['assets'].get(path.rsplit('/',1)[-1])
-                return self.send(404,{'error':'Not found'}) if asset is None else self.send(200,asset,'image/png')
+                mime='application/json' if asset and asset[:1]==b'{' else 'image/png'
+                return self.send(404,{'error':'Not found'}) if asset is None else self.send(200,asset,mime)
             if path.endswith('/artifacts'):return self.send(200,{'schema_version':1,'artifacts':control['artifacts']})
             if path.endswith('/views'):return self.send(200,{'map_revision':MAP})
             if path.endswith('/bootstrap'):
@@ -248,15 +249,21 @@ def test_named_samples_group_with_latest_image_and_history_slider(viewer):
     login(page)
     items = page.locator('#artifact-items li')
     items.first.wait_for()
-    assert items.count() == 3
-    # One card per name and modality, newest first, images before tensors.
-    assert [items.nth(i).get_attribute('data-sample') for i in range(3)] == ['g', 'x', 'g']
-    assert [items.nth(i).get_attribute('data-modality') for i in range(3)] == ['image', 'image', 'tensor']
+    assert items.count() == 2
+    # One card per named picture; the tensor behind a grid is not a card of its own.
+    assert [items.nth(i).get_attribute('data-sample') for i in range(2)] == ['g', 'x']
+    assert [items.nth(i).get_attribute('data-modality') for i in range(2)] == ['image', 'image']
+    assert page.locator('#artifact-items li[data-modality="tensor"]').count() == 0
     assert page.locator('#artifact-items img.image-grid').count() == 2
     generated = page.locator('#artifact-items li[data-sample="g"][data-modality="image"]')
     assert generated.locator('strong.sample-name').inner_text() == 'g'
     # Only the most recent generated image is shown by default.
     assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-30')
+    # The picture is named as a picture; its numbers are a secondary download.
+    assert 'Image grid · Step 30' in generated.locator('span').first.inner_text()
+    raw = generated.get_by_role('link', name='Download raw tensor (JSON, shape 1 × 2)', exact=True)
+    assert raw.get_attribute('href').endswith('/artifacts/numbers-30')
+    assert 'same sample as numbers' in generated.locator('.sample-note').inner_text()
     assert 'Version 3 of 3' in generated.locator('.sample-position').inner_text()
     assert 'step 30' in generated.locator('.sample-position').inner_text()
     assert 'latest' in generated.locator('.sample-position').inner_text()
@@ -272,13 +279,55 @@ def test_named_samples_group_with_latest_image_and_history_slider(viewer):
     generated.locator('.sample-position').filter(has_text='Version 1 of 3 · step 10').wait_for()
     assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-10')
     assert generated.get_by_role('button', name='Latest').is_visible()
+    # An older picture published no numbers of its own, so it offers no tensor.
+    assert generated.get_by_role('link', name='Download raw tensor (JSON, shape 1 × 2)').count() == 0
+    assert generated.locator('.sample-note').count() == 0
     page.keyboard.press('ArrowRight')
     generated.locator('.sample-position').filter(has_text='Version 2 of 3 · step 20').wait_for()
     assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-20')
-    assert 'Step 20' in generated.locator('span').first.inner_text()
+    assert 'Image grid · Step 20' in generated.locator('span').first.inner_text()
     generated.get_by_role('button', name='Latest').click()
     generated.locator('.sample-position').filter(has_text='Version 3 of 3').wait_for()
     assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-30')
+    assert raw.is_visible()
     page.wait_for_function(
         "() => [...document.querySelectorAll('#artifact-items img')].every(i => i.naturalWidth === 1)")
+    assert not errors
+
+
+def test_numerical_run_names_its_raw_tensors_and_final_sample(viewer):
+    """A run without pictures keeps its tensors, said in words rather than 'sample · tensor'."""
+    page, control, condition, errors = viewer
+    def tensor(identifier, step, values, **extra):
+        payload = json.dumps({'shape': [1, 2], 'samples': [values]}).encode()
+        control['assets'][identifier] = payload
+        control['artifacts'][identifier] = {
+            'role': 'sample', 'modality': 'tensor', 'media_type': 'application/json', 'name': 'g',
+            'bytes': len(payload), 'shape': [1, 2],
+            'provenance': {'step': step, 'name': 'g', **extra}}
+    tensor('numbers-10', 10, [1., 2.], sample_sequence=1)
+    tensor('numbers-20', 20, [3., 4.], sample_sequence=2)
+    # The final sample shares the last step; it is the newest version of it.
+    tensor('final-sample', 20, [5., 6.], final=True)
+    login(page)
+    items = page.locator('#artifact-items li')
+    items.first.wait_for()
+    assert items.count() == 1 and items.get_attribute('data-modality') == 'tensor'
+    assert page.locator('#artifact-items img').count() == 0
+    card = page.locator('#artifact-items li[data-sample="g"]')
+    details = card.locator('span').first
+    assert 'Final sample · raw generator output (JSON numbers) · Step 20' in details.inner_text()
+    assert 'Shape 1 × 2' in details.inner_text()
+    assert 'saved when the run finished' in card.locator('.sample-note').inner_text()
+    card.get_by_role('button', name='Preview numbers').click()
+    card.locator('.numeric-preview').filter(has_text='5, 6').wait_for()
+    # Earlier versions are the periodic previews, named for what they are.
+    card.locator('input[type="range"]').focus()
+    page.keyboard.press('Home')
+    card.locator('.sample-position').filter(has_text='Version 1 of 3 · step 10').wait_for()
+    assert 'Raw generator output (JSON numbers) · Step 10' in details.inner_text()
+    note = card.locator('.sample-note').inner_text()
+    assert 'no picture to draw from it' in note and '"Preview numbers" shows the first values' in note
+    card.get_by_role('button', name='Preview numbers').click()
+    card.locator('.numeric-preview').filter(has_text='1, 2').wait_for()
     assert not errors

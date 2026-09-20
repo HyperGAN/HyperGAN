@@ -724,6 +724,15 @@ footer {
   gap: 10px;
   align-items: flex-start;
 }
+.sample-note {
+  order: 3;
+  flex-basis: 100%;
+  margin: 0;
+  max-width: 62ch;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
 .image-grid {
   order: 3;
   display: block;

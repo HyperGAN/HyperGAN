@@ -9,6 +9,46 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 8. Sample slider should cover the whole run, not the last N (raised 2026-09-20)
+
+Owner: "the viewer shows the last N images but it should really show all of them. if it's on the last one and a new sample comes in it can update and stay on the last one. but i want someone to be able to slide from the beginning of their training to the end."
+
+- [ ] Stop pruning image history by default: keep every published preview (or at least every image grid) for the life of the run, so the slider reaches back to step 0. Keep a bound only for disk-heavy tensor payloads if one is needed, and make any retention an explicit opt-in.
+- [ ] Lift the viewer/API caps that assume a small preview count (`previews/index.json` is currently rejected above 100 entries; the artifact list is rebuilt from it) so a long run with thousands of samples still loads quickly.
+- [ ] Slider behavior: when positioned on the latest sample and a new one arrives, advance to the new one; when positioned on an earlier sample, stay put and do not jump.
+- [ ] Tests for retention-off, index size, and the follow-latest / stay-put slider behavior.
+
+Where this lives today:
+- `src/hypergan/previews.py` `DEFAULT_KEEP = 20`, `MAX_KEEP = 100`; `_publish_preview` deletes expired generations on every publish.
+- `src/hypergan/cli.py` `--preview-keep`; `src/hypergan/web_service.py` rejects a preview index longer than 100.
+- `frontend/src/app.js` groups artifacts by name and renders the slider.
+
+### 9. FID (snapshot evaluations) should be a chart, not a wall of text (raised 2026-09-20)
+
+Owner: "on snapshot evaluations FID should be a graph like the metrics, different x tho ofc. right now it's a wall of text. it may be a graph eventually, maybe it's just a graph with one point atm."
+
+- [ ] Plot each scalar snapshot metric (FID and friends) as a line chart with source step on the x axis, one point per completed evaluation, using the same chart look as the training metrics.
+- [ ] A single result is a chart with one point, not a text card; failed/cancelled evaluations show as status, not as text walls.
+- [ ] Keep the per-result details (duration, device, sample count, status) reachable but collapsed.
+- [ ] Tests for the chart with one point and with several points across steps.
+
+Where this lives today:
+- `frontend/src/evaluations.js` renders one card per evaluation stream, with an SVG single-point `plot` and a text list of fields.
+- Results come from `metrics/evaluations/<id>/stream.json` streams, one metric per evaluation, surfaced by `src/hypergan/web_service.py`.
+- The training metrics chart uses echarts in `frontend/src/app.js`.
+
+### 10. Clarify or remove the "sample - tensor" artifact (raised 2026-09-20)
+
+Owner: "theres a 'sample - tensor' that i'm not sure what it's supposed to be or how to use it. lets clarify or remove it."
+
+- [ ] Decide whether the raw tensor preview (the JSON payload behind every image grid, plus the final sample) earns a place in the viewer. If kept, label it by what it is (for example "g raw tensor, step N") and say what it is for; if not, hide it from the artifact list by default and keep only the download.
+- [ ] Make sure the image grid, not the tensor, is what a user sees first under each sample name.
+- [ ] Update docs/image-previews.md and the viewer test that covers the artifact list.
+
+Where this lives today:
+- `src/hypergan/web_service.py` emits `role='sample', modality='tensor'` records for every preview payload (`preview-<digest>`) and for the final sample.
+- `frontend/src/app.js` renders it with a "Preview numbers" button and a size hint.
+
 ### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
 
 Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."

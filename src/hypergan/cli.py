@@ -42,8 +42,10 @@ def _run_options(parser, *, resume=False):
                         help="stop at an update boundary after this attempt's wall-time budget")
     parser.add_argument("--stop-after-steps", type=_positive_int,
                         help="stop this attempt after N updates, preserving the total learning-rate schedule")
+    parser.add_argument("--progress-every", type=_positive_int,
+                        help="print routine progress every N updates (default: 100; saved UI setting inherits)")
     parser.add_argument("--progress-json", action="store_true",
-                        help="stream flushed JSONL events and a final result to stdout")
+                        help="stream cadence-filtered JSONL progress, lifecycle events and a final result to stdout")
     previews = parser.add_mutually_exclusive_group()
     previews.add_argument("--preview-every", type=_positive_int,
                           help="publish an isolated EMA preview every N complete updates")
@@ -298,6 +300,7 @@ def _dispatch(args, *, output=None):
             else:
                 prepared = prepare_resume(args.run_dir, args.checkpoint, args.config, **options)
             _warnings(prepared.config)
+            output.configure(args.run_dir, progress_every=args.progress_every)
             with _training_viewer(args):
                 output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
         elif args.command == "sample":

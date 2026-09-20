@@ -569,3 +569,25 @@ def test_remote_binding_auth_mode_and_same_origin(tmp_path, auth):
         schema = client.get('/api/v1/openapi.json').json()
         if auth == 'none':
             assert not any(operation.get('security') for path in schema['paths'].values() for operation in path.values())
+
+
+def test_console_control_is_bounded_validated_and_persisted(tmp_path):
+    from hypergan.console_settings import read_settings
+    fixture_run(tmp_path)
+    session = LocalSession(8123, auth="token")
+    session.write_credentials(tmp_path / 'session.json')
+    token = json.loads((tmp_path / 'session.json').read_text())['token']
+    with TestClient(create_app(tmp_path, session), base_url=session.origin) as client:
+        path = '/api/v1/runs/run/console'
+        assert client.put(path, json={'progress_every': 3}).status_code == 401
+        client.post('/api/v1/session', json={'token': token})
+        assert client.get(path).json() == {'progress_every': 100}
+        assert client.put(path, json={'progress_every': 7}).json() == {'progress_every': 7}
+        assert read_settings(tmp_path) == {'progress_every': 7}
+        for value in ({'progress_every': False}, {'progress_every': 0}, {'progress_every': 1, 'steps': 0}):
+            assert client.put(path, json=value).status_code == 400
+        assert client.put(path, content='x' * 4097, headers={'content-type': 'application/json'}).status_code == 413
+        assert client.put(path, content='{"progress_every":5}', headers={'content-type': 'text/plain'}).status_code == 415
+        assert client.put(path, json={'progress_every': 5}, headers={'origin': 'https://foreign.test'}).status_code == 403
+        assert client.get(path).json() == {'progress_every': 7}
+        assert 'put' in client.get('/api/v1/openapi.json').json()['paths'][path.replace('/run/', '/{run_id}/')]

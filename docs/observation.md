@@ -39,7 +39,7 @@ Sampling uses a copied EMA graph and prior, copied conditioning inputs, evaluati
 
 Previews cap sample count at 16 and combined output/conditioning tensors at 65,536 elements, with a 2 MiB serialized artifact limit. Large samples can reduce the effective count or fail preview publication. Rendering and preview-artifact errors are reported separately and do not stop optimization while mandatory run manifest/event writes remain available. Failure of those core writes can still fail the run. Forward execution and model copying still cost time and memory; these bounds are not a sandbox or a hard latency deadline for custom code.
 
-The [local viewer](local-web.md) serves these records through the public API and read-only browser. Use `--no-server` for headless training. [Execution profiles](execution.md) select native CUDA or supervised local CUDA/NCCL and explicit CPU fixtures; observation does not change their numerical identity.
+The [local viewer](local-web.md) serves these records through the public API and browser. Use `--no-server` for headless training. [Execution profiles](execution.md) select native CUDA or supervised local CUDA/NCCL and explicit CPU fixtures; observation does not change their numerical identity.
 
 ### Bounded training command output
 
@@ -55,6 +55,16 @@ Shutdown allows one second for delivery before killing and reaping blocked
 drains. Reconnect through `hypergan events RUN` or `hypergan inspect RUN` for the
 durable result and complete event history.
 
+Routine CLI training progress prints every **100 updates** by default. Set
+`--progress-every N` on `train` or `resume`, or use **CLI progress every N steps**
+in the browser. The setting is saved as `console.json` inside the run directory
+and survives resume; an explicit CLI flag replaces the saved value. Active CLI
+processes check for changes at most every 250 ms and apply them at complete
+update boundaries. This controls console reporting only: collected metric events,
+checkpoint cadence, previews and numerical configuration remain independent.
+Lifecycle events, errors and final status bypass this interval. The same cadence
+applies to `--progress-json`; use `--progress-every 1` for every console update.
+
 A normal command result is compact single-line JSON. With `--progress-json`, the
 final envelope remains `{"event":"result","manifest":...}`. Results over 64 KiB
 produce a small `output_omitted` record with reason `result_exceeds_output_limit`
@@ -67,4 +77,7 @@ flushed through the active drains before descriptor restoration, so buffered
 stdio cannot hold interpreter exit against a full destination. This covers libc
 on Linux/macOS and UCRT on Windows. Arbitrary custom streams, separate CRTs,
 separately cached OS handles and externally held native stream locks remain
-outside the descriptor transport.
+outside the descriptor transport. On POSIX, drain children use separate sessions
+so a terminal process-group SIGINT/SIGTERM reaches the training coordinator while
+the drains remain available for its final status. Parent-death monitoring still
+bounds cleanup if the coordinator is killed.

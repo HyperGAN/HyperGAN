@@ -29,6 +29,7 @@ const state = {
   catalog: null,
   evaluationMetrics: {},
   evaluationResults: [],
+  consoleSupported: false,
   map: null,
   selected: new Set(),
   groups: new Map(),
@@ -176,6 +177,11 @@ function updateRun(run) {
   $("run-status").textContent = run.status || "Unknown";
   $("step").textContent = fmt(run.steps);
   $("durable").textContent = fmt(run.last_durable_step);
+  const consistency = run.metric_consistency;
+  $("metric-consistency").textContent = !consistency ? "" :
+    consistency.status === "caught_up" ? `Metrics committed through step ${fmt(consistency.committed_step)} · view caught up` :
+    consistency.status === "pending" ? `Metrics committed through step ${fmt(consistency.committed_step)} · view catching up` :
+    `Metric projection status unavailable${consistency.committed_step === undefined ? "" : ` · committed step ${fmt(consistency.committed_step)}`}`;
   $("total-steps").textContent = run.total_steps
     ? `of ${fmt(run.total_steps)} configured steps`
     : "Completed optimizer updates";
@@ -410,10 +416,16 @@ async function metadata(expectedEpoch = state.epoch) {
   );
   renderCatalog();
   await refreshArtifacts();
+  $("console-settings").hidden = !state.consoleSupported;
+  if (state.consoleSupported) {
+    const settings = await api(`${base()}/console`);
+    $("progress-every").value = settings.data.progress_every;
+  }
 }
 async function connect() {
   connection("Connecting…");
   const capability = await api("/capabilities");
+  state.consoleSupported = capability.data.controls?.includes("console") === true;
   if (capability.data.run_id === null) {
     waitForRun();
     return;
@@ -947,6 +959,22 @@ function render() {
 new ResizeObserver(() => {
   for (const card of state.charts.values()) card.chart.resize();
 }).observe($("charts"));
+$("console-settings").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const progress_every = Number($("progress-every").value);
+  if (!Number.isSafeInteger(progress_every) || progress_every < 1 || progress_every > 1000000000) {
+    $("console-status").textContent = "Choose an integer from 1 to 1,000,000,000.";
+    return;
+  }
+  const button = $("console-settings").querySelector("button");
+  button.disabled = true;
+  try {
+    await api(`${base()}/console`, {method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({progress_every})});
+    $("console-status").textContent = `Saved: every ${progress_every} steps. Active CLI checks within 250 ms; applies at the next update boundary and persists on resume.`;
+  } catch (error) { $("console-status").textContent = error.message; }
+  finally { button.disabled = false; }
+});
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const token = $("token").value;

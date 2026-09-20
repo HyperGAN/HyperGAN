@@ -147,7 +147,10 @@ class _Stream:
             self.process = subprocess.Popen(
                 [sys.executable, '-m', 'hypergan.bounded_cli_output', '--drain', str(os.getpid())],
                 stdin=subprocess.PIPE, stdout=descriptor, stderr=subprocess.DEVNULL,
-                bufsize=0, close_fds=True)
+                bufsize=0, close_fds=True,
+                # Keep terminal-group stop signals on the coordinator so its
+                # complete-boundary shutdown can still publish final output.
+                start_new_session=os.name != 'nt')
             # Native libraries and spawned workers use the independently drained
             # pipe too. Python writes use the bounded queue below.
             os.dup2(self.process.stdin.fileno(), fd)
@@ -299,6 +302,9 @@ class CLIProgress:
         self.output = output
 
     def __call__(self, event):
+        self.output.policy.refresh(self.output.stderr)
+        if event.get('event') == 'train' and event['step'] % self.output.policy.every:
+            return
         if self.output.progress_json:
             self.output.stdout.write(json.dumps(event, allow_nan=False) + '\n')
         elif event.get('event') == 'train':
@@ -306,6 +312,11 @@ class CLIProgress:
             values = ' '.join(f'{label}={metrics[key]:.6g}' for key, label in
                               (('loss/d_total', 'D'), ('loss/g_total', 'G')) if key in metrics)
             self.output.stderr.write(f"step {event['step']}" + (f': {values}' if values else '') + '\n')
+
+        else:
+            message = event.get('error') or event.get('reason') or event.get('stop_reason')
+            self.output.stderr.write(f"{event.get('event', 'status')} at step {event.get('step', '?')}" +
+                                     (f": {message}" if message else '') + '\n')
 
     def deliver(self, event):
         self(event)
@@ -321,10 +332,16 @@ class CLIProgress:
 
 
 class TrainingOutput:
-    def __init__(self, stdout, stderr, progress_json):
+    def __init__(self, stdout, stderr, progress_json, progress_every=None):
+        from .console_settings import ConsolePolicy
+        self.policy = ConsolePolicy(progress_every=progress_every)
         self.stdout, self.stderr = stdout, stderr
         self.progress_json = progress_json
         self.progress = CLIProgress(self)
+
+    def configure(self, run_dir, *, progress_every=None):
+        from .console_settings import ConsolePolicy
+        self.policy = ConsolePolicy(run_dir, progress_every=progress_every)
 
     def result(self, result, *, run_dir=None):
         value = {'event': 'result', 'manifest': result} if self.progress_json else result
@@ -337,7 +354,7 @@ class TrainingOutput:
 
 
 @contextmanager
-def training_output(*, progress_json=False):
+def training_output(*, progress_json=False, progress_every=None):
     """Bound all train/resume output; close and reap drains within finite grace.
 
     Per stream: 16 queued lines in the parent, 16 in the child, one partial and
@@ -352,7 +369,7 @@ def training_output(*, progress_json=False):
         stdout = _Stream(originals[0], 1)
         stderr = _Stream(originals[1], 2)
         sys.stdout, sys.stderr = stdout, stderr
-        yield TrainingOutput(stdout, stderr, progress_json)
+        yield TrainingOutput(stdout, stderr, progress_json, progress_every)
     finally:
         # Flush cached Python and C stdio while both independent input drains
         # are alive. Otherwise interpreter/libc finalization could write those

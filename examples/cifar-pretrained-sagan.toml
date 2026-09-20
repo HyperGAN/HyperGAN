@@ -142,7 +142,9 @@ horizontal_flip = false
 [metrics.custom.fid50k_train]
 factory = "hypergan.image_metrics:InceptionFID"
 mode = "snapshot"
-trigger = "manual"
+trigger = "interval"
+every_steps = 10000
+on_busy = "skip"
 timeout = 3600
 on_error = "fail"
 inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }

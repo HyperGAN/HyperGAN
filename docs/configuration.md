@@ -81,9 +81,9 @@ objectives, weights or the training schedule still invalidates numerical resume.
 Give additional objectives a stable `id`, for example `id = "reconstruction"`,
 to publish `loss/objectives/reconstruction`. Without an explicit ID, a deterministic
 content hash names the term. Repeated identical terms require distinct explicit
-IDs. Custom scalar factories and explicit manual snapshot evaluation are described
-below. Unsupported scheduling modes fail validation; a built-in FID adapter is
-not yet provided.
+IDs. Custom scalar factories and manual or interval snapshot evaluation are
+described below. Unsupported scheduling modes fail validation. The
+[CIFAR recipe](cifar-recipe.md) includes a pinned Inception FID adapter.
 
 ## Custom metrics and explicit snapshot evaluation
 
@@ -143,8 +143,8 @@ are not sandboxed. Instances and global RNG state are isolated from training,
 but persistent evaluator state across calls is not supported.
 
 Snapshot metrics use a separate evaluation dataset/iterator and RNG, and an
-immutable copied EMA inference bundle. This first implementation is explicit
-and standalone; automatic snapshot schedules are rejected.
+immutable copied EMA inference bundle. Choose `trigger = "manual"` for standalone
+evaluation or `trigger = "interval"` for asynchronous evaluation during training.
 
 ```toml
 [metrics.custom.color_mean]
@@ -179,10 +179,55 @@ receipt = evaluate("runs/experiment", "color_mean", config_path="config.toml")
 The integrated CLI exposes the same operation as `hypergan evaluate RUN --metric
 color_mean --config config.toml`. `--bundle` selects an older `model.pt` under
 this run's attempts directory. The selected numerical recipe must match the run;
-observation settings may differ. Evaluation holds the run lock and requires a
-terminal run, so it cannot compete with this run's trainer. GPU remains the
-default. The source inference bundle must have saved run/attempt/step provenance
-and a matching SHA256; no old-format migration is provided.
+observation settings may differ. This standalone command holds the run lock and
+requires a terminal run. It can also explicitly evaluate an interval-configured
+metric. GPU remains the default. The source inference bundle must have saved
+run/attempt/step provenance and a matching SHA256; no old-format migration is provided.
+
+For automatic evaluation, change the metric's scheduling fields and explicitly
+select its device; keep its factory, inputs, arguments and evaluation protocol:
+
+```toml
+# Fields in [metrics.custom.color_mean]
+trigger = "interval"
+every_steps = 10000
+on_busy = "skip"
+# Field in [metrics.custom.color_mean.evaluation]
+device = "cuda:1"
+```
+
+The scheduler evaluates at completed global training steps divisible by
+`every_steps`, independently of checkpoint and scalar-metric cadence. Resume
+continues that global step cadence: resuming at step 41,000 with an interval of
+10,000 schedules step 50,000 next. It does not backfill missed intervals.
+Recovery from an earlier snapshot may produce another evaluation at a replayed
+step; source attempt identity distinguishes those measurements.
+
+An accepted evaluation uses an immutable inference snapshot taken at its source
+step and runs in a separate worker while training continues. Its result is
+plotted at that source step even if several more updates have completed. Capturing
+the snapshot still has a copy/I/O cost. An evaluation using the training GPU
+shares its memory and compute; choose a separate available GPU to avoid that
+contention. Device indices refer to the process's visible CUDA devices, including
+any `CUDA_VISIBLE_DEVICES` mapping. CPU evaluation must be selected explicitly
+for small correctness fixtures.
+
+`on_busy = "skip"` is the only supported busy policy and the default. A due
+interval is recorded as skipped when the evaluator is busy; it is not queued
+for catch-up. One evaluation worker runs at a time across the run. When several
+metrics are due together, selection rotates between them and unselected intervals
+are recorded as busy skips. Factory failures and timeouts are visible:
+`on_error = "disable"` disables that metric for the remainder of the attempt, while `on_error = "fail"`
+fails training when the asynchronous failure is collected. A failure may arrive
+after subsequent updates; recovery starts from a complete saved checkpoint.
+Normal completion or a step/time budget stop waits for accepted evaluation work
+within its bounded deadline. A signal or exceptional shutdown cancels outstanding
+snapshot evaluations and reaps their workers; cancellation itself does not fail
+training. Cancelled work has an explicit status and no fabricated metric value.
+A new attempt starts a fresh scheduler and never resumes a partial evaluation.
+
+The viewer shows configured snapshot metrics before the first result, including
+manual scheduling or the next interval step, and exposes evaluation status.
 
 Snapshot `evaluate(*, batches, context)` receives a bounded iterator of dictionaries
 with the explicitly bound generated/reference tensors. It must consume the full
@@ -209,7 +254,6 @@ evaluation ID; the next explicit evaluation reconciles abandoned receipts and
 releases temporary snapshot copies. It also recovers a completed result whose
 registration was interrupted, without recomputing that result.
 
-Automatic snapshot scheduling, asynchronous evaluation, partial-job resume and a
-built-in FID adapter remain unsupported. No dataset or weight downloads occur
-implicitly. A future FID adapter still needs a pinned implementation, explicit
-local weights and a complete preprocessing/sample protocol.
+Partial evaluation-job resume remains unsupported. No dataset or weight downloads
+occur implicitly. The Inception FID adapter requires pinned local weights and an
+explicit preprocessing/sample protocol; see the [CIFAR recipe](cifar-recipe.md).

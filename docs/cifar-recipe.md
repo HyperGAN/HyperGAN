@@ -64,11 +64,12 @@ metric workflow, not image quality. A new longer run uses a separate directory:
 
 ```sh
 hypergan train cifar.toml --run-dir runs/cifar --stop-after-steps 10000 --checkpoint-every 1000 --preview-every 500
-hypergan evaluate runs/cifar --metric fid50k_train
 hypergan resume runs/cifar --stop-after-steps 10000 --checkpoint-every 1000 --preview-every 500
 ```
 
-Evaluation is manual in this example; repeat it after each stopped segment.
+The example automatically evaluates FID at steps 10,000, 20,000 and so on.
+A stopped run can also be evaluated explicitly with
+`hypergan evaluate runs/cifar --metric fid50k_train`.
 `fid50k_train` evaluates EMA against all 50,000 unaugmented training references
 with 50,000 generated images, seed 34002 and batch 128. Optional automatic viewer
 startup prints its URL and private token-file path; `--no-server` disables it.
@@ -79,8 +80,8 @@ per-update D/G losses to stderr; redirect stderr to a log for `tail -F`.
 The [execution report](../reports/image-training-execution-2026-09-20.md) records
 the exact installed CUDA smoke/recovery proofs and the first 40k measurements.
 Keep the installed environment used by a run for supported recovery; source and
-package identity are intentionally checked strictly. The public example changes
-only artifact locations relative to that measured recipe, not numerical settings.
+package identity are intentionally checked strictly. The public example retains the measured numerical settings, changes artifact
+locations and schedules FID evaluations automatically.
 
 The generator projects to 256×4×4, then uses three deconvolutions, hidden
 GroupNorm/ReLU and a final tanh. SAGAN-style attention appears at 16×16 in
@@ -128,7 +129,15 @@ Each new evaluator starts at index zero; 50,000 samples consume the full trainin
 set without replacement. Sequential data never wraps. Evaluation has its own
 data instance and generator and does not advance training data state. The
 standard metrics preset records training scalars; Inception FID is a separately
-configured, pinned-weight snapshot evaluator.
+configured, pinned-weight snapshot evaluator. The example schedules
+`fid50k_train` every 10,000 completed training steps using `trigger="interval"`,
+`every_steps=10000` and `on_busy="skip"`; `fid_smoke` remains manual. Each accepted
+FID evaluation runs asynchronously from an immutable EMA snapshot and reports
+its original training step. Busy intervals are recorded as skipped. The example's
+explicit `evaluation.device="cuda"` shares the default visible GPU with training;
+set another available visible device such as `"cuda:1"` when appropriate. See
+[snapshot scheduling](configuration.md#custom-metrics-and-explicit-snapshot-evaluation)
+for timeout, failure, shutdown and resume behavior.
 
 Architecture parity compares the pinned source and this port under the same
 backend policy. HyperGAN's deterministic execution disables TF32 and cuDNN

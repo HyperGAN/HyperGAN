@@ -38,7 +38,7 @@ def validate_custom(specs):
     for name, spec in specs.items():
         if not isinstance(name, str) or re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_./-]{0,127}', name) is None:
             raise ValueError('Custom metric IDs must be 1–128 letters, digits, dots, underscores, slashes or hyphens')
-        allowed = {'factory', 'args', 'inputs', 'mode', 'every_steps', 'timeout', 'on_error', 'trigger', 'evaluation'}
+        allowed = {'factory', 'args', 'inputs', 'mode', 'every_steps', 'timeout', 'on_error', 'trigger', 'evaluation', 'on_busy'}
         if not isinstance(spec, dict) or set(spec) - allowed:
             raise ValueError(f'Unknown or invalid custom metric fields: {name}')
         ref = spec.get('factory')
@@ -66,17 +66,27 @@ def validate_custom(specs):
                 raise ValueError(f'{name}.every_steps must be a positive integer')
             if set(inputs.values()) - SCALAR_INPUTS:
                 raise ValueError(f'{name}.inputs must select supported update scalars')
-            if 'trigger' in spec or 'evaluation' in spec:
+            if {'trigger', 'evaluation', 'on_busy'} & set(spec):
                 raise ValueError(f'{name}: scalar metrics do not accept snapshot options')
         else:
-            if spec.get('trigger') != 'manual' or 'every_steps' in spec:
-                raise ValueError(f'{name}: snapshot metrics currently require trigger="manual" and no every_steps; invoke evaluate explicitly')
+            if spec.get('trigger') not in ('manual', 'interval'):
+                raise ValueError(f'{name}: snapshot metrics require trigger="manual" or "interval"')
+            if spec['trigger'] == 'interval':
+                if type(spec.get('every_steps')) is not int or spec['every_steps'] <= 0:
+                    raise ValueError(f'{name}.every_steps must be a positive integer for interval evaluation')
+                spec.setdefault('on_busy', 'skip')
+                if spec['on_busy'] != 'skip':
+                    raise ValueError(f'{name}.on_busy must be skip for interval evaluation')
+            elif {'every_steps', 'on_busy'} & set(spec):
+                raise ValueError(f'{name}: manual snapshot metrics do not accept every_steps or on_busy')
             if set(inputs.values()) - {'evaluation.generated', 'evaluation.reference'}:
                 raise ValueError(f'{name}.inputs must select evaluation.generated or evaluation.reference')
             evaluation = spec.get('evaluation')
             required = {'data', 'sample_count', 'batch_size', 'seed'}
             if not isinstance(evaluation, dict) or not required <= set(evaluation) or set(evaluation) - required - {'device'}:
                 raise ValueError(f'{name}.evaluation requires explicit data, sample_count, batch_size and seed')
+            if spec['trigger'] == 'interval' and 'device' not in evaluation:
+                raise ValueError(f'{name}.evaluation.device is required for interval evaluation')
             evaluation.setdefault('device', 'cuda')
             if not isinstance(evaluation['device'], str) or re.fullmatch(r'cpu|cuda(?::(?:0|[1-9][0-9]*))?', evaluation['device']) is None:
                 raise ValueError(f'{name}.evaluation.device requires cpu or cuda[:N]')

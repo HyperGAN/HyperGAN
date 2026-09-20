@@ -86,10 +86,10 @@ Live event and status persistence runs on a bounded background I/O worker. An
 ordinary update queues an event without waiting for disk writes. The event queue
 holds at most 256 pending rows and 8 MiB of conservative JSON size estimates, plus
 one active row (each row is limited to 1 MiB and bounded nesting/node count).
-When storage cannot keep up, training events are omitted rather than stalling
-updates. The next accepted event carries `observation_gap` with the omitted
-count and first/last step, and the run manifest records cumulative
-`dropped_train_events`. Accepted events retain contiguous sequence numbers;
+When storage cannot keep up, optional observation events are omitted rather than
+stalling updates. The next accepted event carries `observation_gap` with the omitted
+counts by event kind and first/last step, and the run manifest records cumulative
+`dropped_observation_events` and `dropped_train_events`. Accepted events retain contiguous sequence numbers;
 missing measurements are never fabricated or averaged. Checkpoint boundaries
 record any outstanding gap before committing the event prefix.
 

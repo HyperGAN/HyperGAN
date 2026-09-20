@@ -294,24 +294,35 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     dropped = None
     last_published = 0.0
     last_request_poll = 0.0
+    last_event_step = None
 
     def emit(event, *, _observe=True, _step=None, **values):
-        nonlocal sequence, dropped
+        nonlocal sequence, dropped, last_event_step
         row = dict(values, schema_version=2, event=event, run_id=manifest['run_id'],
                    stream_id='training', stream_generation=manifest['run_id'], catalog=catalog_revision,
                    attempt_id=attempt_id, sequence=sequence + 1,
                    step=manifest['steps'] if _step is None else _step, seconds=time.monotonic() - started)
         if dropped is not None:
             row['observation_gap'] = dict(dropped)
-        if not journal.append(row, wait=event != 'train'):
+        boundary_event = event in {'start', 'resume', 'checkpoint', 'checkpoint_request',
+                                   'checkpoint_boundary', 'observation_gap', 'complete',
+                                   'stopped', 'failed', 'interrupted'}
+        if not journal.append(row, wait=boundary_event):
             if dropped is None:
-                dropped = {'dropped_train_events': 0, 'first_step': row['step'], 'last_step': row['step']}
-            dropped['dropped_train_events'] += 1
-            dropped['last_step'] = row['step']
-            manifest['dropped_train_events'] = manifest.get('dropped_train_events', 0) + 1
+                dropped = {'dropped_train_events': 0, 'by_event': {},
+                           'first_step': row['step'], 'last_step': row['step']}
+            dropped['by_event'][event] = dropped['by_event'].get(event, 0) + 1
+            dropped['first_step'] = min(dropped['first_step'], row['step'])
+            dropped['last_step'] = max(dropped['last_step'], row['step'])
+            totals = manifest.setdefault('dropped_observation_events', {})
+            totals[event] = totals.get(event, 0) + 1
+            if event == 'train':
+                dropped['dropped_train_events'] += 1
+                manifest['dropped_train_events'] = manifest.get('dropped_train_events', 0) + 1
             return None
         dropped = None
         sequence += 1
+        last_event_step = row['step']
         if on_event is not None and _observe:
             def notify(value):
                 try:
@@ -335,7 +346,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                           'attempt_id': attempt_id,
                           'error': f'{type(exc).__name__}: {exc}'[:1000]}
                 manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
-                publish()
+                publish(wait=False)
                 emit('observer_error', _observe=False, source='progress', error=record['error'])
         return row
 
@@ -376,8 +387,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             metadata['next_sample_sequence'] = manifest['next_sample_sequence']
             metadata['request_ids'] = list(request_ids or [])
             try:
-                if dropped is not None:
-                    emit('observation_gap', _observe=False)
+                if dropped is not None or last_event_step != manifest['steps']:
+                    emit('checkpoint_boundary', _observe=False)
                 metadata['event_boundary'] = journal.commit_boundary()
                 path = execution.checkpoint(run_dir, metadata)
             except FatalExecutionError:
@@ -397,7 +408,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             record = {'source': source, 'step': manifest['steps'], 'attempt_id': attempt_id,
                       'error': f'{type(error).__name__}: {error}'[:1000]}
             manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
-            publish()
+            publish(wait=False)
             emit('observer_error', **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
 
         def preview_now():

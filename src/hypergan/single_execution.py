@@ -2,7 +2,6 @@
 from pathlib import Path
 import copy
 from types import SimpleNamespace
-import tempfile
 
 import torch
 
@@ -104,21 +103,16 @@ class SingleProcessExecution:
         return write_checkpoint(run_dir, self._trainer, self._last_batch, metadata)
 
     def preview(self, run_dir, identity, *, keep):
-        from .preview_snapshot import capture_snapshot
+        from .preview_snapshot import capture_snapshot_state
         from .preview_worker import PreviewWorker
         self._boundary()
         if self.preview_busy:
             raise RuntimeError('Preview worker is busy; skip before reserving or capturing another preview')
         if self._previews is None:
             self._previews = PreviewWorker()
-        temporary = tempfile.TemporaryDirectory(prefix='.preview-', dir=run_dir)
-        try:
-            descriptor = capture_snapshot(self._trainer, self._last_batch, identity,
-                                          Path(temporary.name) / 'snapshot.pt')
-            self._previews.submit(temporary, descriptor, dict(identity), self._trainer.step, run_dir, keep)
-        except BaseException:
-            temporary.cleanup()
-            raise
+        snapshot = capture_snapshot_state(self._trainer, self._last_batch, identity)
+        self._previews.submit(None, None, dict(identity), self._trainer.step, run_dir, keep,
+                              snapshot_state=snapshot)
 
     @property
     def preview_busy(self):

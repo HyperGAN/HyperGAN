@@ -5,10 +5,12 @@ and forwards remain trusted Python: the supervisor bounds their execution time,
 not arbitrary allocations, hidden external state or subprocesses they create.
 """
 import copy
+from collections import OrderedDict
 import hashlib
 import os
 from pathlib import Path
 import sys
+import time
 from types import ModuleType, SimpleNamespace
 
 import torch
@@ -17,17 +19,19 @@ import torch.distributed as dist
 from .artifacts import _restore_buffers
 from .checkpoints import _portable, capture_rng, restore_rng
 from .previews import MAX_COUNT, MAX_ELEMENTS, _inputs, _write_bounded, render_preview
-from .recipes import ComponentGraph, make_prior, move_tensors
+from .recipes import ComponentGraph, make_prior
 
 MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
 
 
 class _BoundedWriter:
-    def __init__(self, stream):
+    def __init__(self, stream, check=None):
         self.stream, self.size, self.error = stream, 0, None
+        self.check = check or (lambda: None)
 
     def write(self, data):
         try:
+            self.check()
             if self.size + (data.nbytes if isinstance(data, memoryview) else len(data)) > MAX_SNAPSHOT_BYTES:
                 raise ValueError(f'Preview snapshot exceeds {MAX_SNAPSHOT_BYTES} bytes')
             count = self.stream.write(data)
@@ -39,11 +43,16 @@ class _BoundedWriter:
             raise
 
     def flush(self):
+        self.check()
         self.stream.flush()
 
 
-def capture_snapshot(trainer, batch, identity, path):
-    """Write only copied EMA/prior state and bounded conditioning at a boundary."""
+def capture_snapshot_state(trainer, batch, identity):
+    """Freeze owned CPU state at a boundary; perform no filesystem operations.
+
+    Custom copy/state hooks and device transfers finish under the training RNG
+    fence. The returned snapshot contains no live modules or tensor aliases.
+    """
     rng, threads = capture_rng(), torch.get_num_threads()
     streams = {name: stream.get_state() for name, stream in trainer.streams.items()}
     try:
@@ -85,21 +94,7 @@ def capture_snapshot(trainer, batch, identity, path):
                  'model_buffers': {name: dict(model.named_buffers()) for name, model in models.items()},
                  'prior': prior.state_dict(), 'prior_buffers': dict(prior.named_buffers()), 'batch': normalized}
         _portable(state)
-        state = move_tensors(state, 'cpu')
-        path = Path(path)
-        with path.open('xb') as output:
-            writer = _BoundedWriter(output)
-            try:
-                torch.save(state, writer)
-            except BaseException as error:
-                # Torch's ZIP finalizer can replace an original failed write
-                # with an unrelated offset error; retain the actual byte/I/O cause.
-                if writer.error is not None:
-                    raise writer.error from error
-                raise
-            output.flush()
-            os.fsync(output.fileno())
-        return {'bytes': path.stat().st_size, 'sha256': _sha256(path)}
+        return _freeze_cpu_state(state)
     finally:
         restore_rng(rng)
         for name, value in streams.items():
@@ -107,10 +102,87 @@ def capture_snapshot(trainer, batch, identity, path):
         torch.set_num_threads(threads)
 
 
-def _sha256(path):
+def _freeze_cpu_state(state):
+    """Detach data from custom containers/tensor reducers before background save."""
+    budget = [MAX_SNAPSHOT_BYTES, 1000000]
+    memo = {}
+    def freeze(value, depth=0):
+        budget[1] -= 1
+        if depth > 64 or budget[1] < 0:
+            raise ValueError('Preview snapshot exceeds its structure budget')
+        if isinstance(value, torch.Tensor):
+            if id(value) in memo:
+                return memo[id(value)]
+            budget[0] -= value.numel() * value.element_size()
+            if budget[0] < 0:
+                raise ValueError(f'Preview snapshot exceeds {MAX_SNAPSHOT_BYTES} bytes')
+            tensor = value.detach()
+            if type(tensor) is not torch.Tensor:
+                tensor = tensor.as_subclass(torch.Tensor)
+            tensor = tensor.to(device='cpu', copy=True)
+            memo[id(value)] = tensor
+            return tensor
+        if value is None or type(value) in (bool, int, float, str):
+            budget[0] -= len(value) * 12 + 2 if type(value) is str else 32
+            result = value
+        elif isinstance(value, dict):
+            # Preserve standard state_dict version metadata without retaining
+            # custom mapping classes or user-defined pickle hooks.
+            result = OrderedDict() if isinstance(value, OrderedDict) else {}
+            for key, child in value.items():
+                if type(key) not in (str, int):
+                    raise ValueError('Preview state keys must be strings or integers')
+                result[freeze(key, depth + 1)] = freeze(child, depth + 1)
+            if isinstance(value, OrderedDict) and hasattr(value, '_metadata'):
+                result._metadata = freeze(value._metadata, depth + 1)
+        elif isinstance(value, (list, tuple)):
+            result = [freeze(child, depth + 1) for child in value]
+            if isinstance(value, tuple):
+                result = tuple(result)
+        else:
+            raise ValueError(f'Preview state must contain tensors and primitives, got {type(value).__name__}')
+        if budget[0] < 0:
+            raise ValueError(f'Preview snapshot exceeds {MAX_SNAPSHOT_BYTES} bytes')
+        return result
+    return freeze(state)
+
+
+def write_snapshot(state, path, *, cancellation_event=None, deadline=None):
+    """Persist an owned CPU snapshot without accessing a trainer or RNG state."""
+    def check():
+        if cancellation_event is not None and cancellation_event.is_set():
+            raise RuntimeError('Preview cancelled during snapshot persistence')
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError('Preview snapshot persistence deadline exceeded')
+    check()
+    path = Path(path)
+    with path.open('xb') as output:
+        writer = _BoundedWriter(output, check)
+        try:
+            torch.save(state, writer)
+        except BaseException as error:
+            # Torch's ZIP finalizer may mask the original bounded write error.
+            if writer.error is not None:
+                raise writer.error from error
+            raise
+        check()
+        output.flush()
+        os.fsync(output.fileno())
+        check()
+    return {'bytes': path.stat().st_size, 'sha256': _sha256(path, check=check)}
+
+
+def capture_snapshot(trainer, batch, identity, path):
+    """Synchronous file handoff for replicated ranks and direct snapshot callers."""
+    return write_snapshot(capture_snapshot_state(trainer, batch, identity), path)
+
+
+def _sha256(path, *, check=None):
     digest = hashlib.sha256()
     with Path(path).open('rb') as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            if check is not None:
+                check()
             digest.update(chunk)
     return digest.hexdigest()
 

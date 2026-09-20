@@ -38,7 +38,8 @@ def test_preview_slot_is_nonblocking_and_retains_source_identity(tmp_path, monke
         release.set()
     result = worker.poll(wait=True)
     assert result['record'] == {'step': 10, 'identity': identity}
-    assert observed['options'] == {'timeout': 3, 'publish_run_dir': tmp_path, 'keep': 2,
+    assert 0 < observed['options'].pop('timeout') <= 3
+    assert observed['options'] == {'publish_run_dir': tmp_path, 'keep': 2,
                                   'cancellation_event': worker._cancel}
     assert not worker.busy and not directory.exists()
     assert worker.poll(wait=True) is None
@@ -197,3 +198,64 @@ def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path
     assert time.monotonic() - started < 3
     assert result['stop_reason'] == 'SIGTERM' and result['cancelled_previews'] == 1
     assert not result['observation_errors']
+
+
+def test_blocked_snapshot_storage_allows_updates_and_preserves_complete_state(tmp_path, monkeypatch):
+    import hypergan.preview_snapshot as snapshots
+    from hypergan.checkpoints import read_checkpoint
+    from hypergan.config import write_default
+    from hypergan.distributed_checkpoints import _digest
+    from hypergan.training import train, resume
+
+    entered, release = Event(), Event()
+    original_write = snapshots._BoundedWriter.write
+    def blocked_write(writer, data):
+        entered.set()
+        assert release.wait(10), 'Training stalled behind snapshot storage'
+        return original_write(writer, data)
+
+    def observe(row):
+        if row['event'] == 'train' and row['step'] == 3:
+            assert entered.wait(5)
+            release.set()
+
+    config = write_default(tmp_path / 'config', device='cpu')
+    train(config, tmp_path / 'plain', checkpoint_every=1)
+    monkeypatch.setattr(snapshots._BoundedWriter, 'write', blocked_write)
+    try:
+        stopped = train(config, tmp_path / 'viewed', checkpoint_every=1, preview_every=1,
+                        stop_after_steps=3, on_event=observe)
+    finally:
+        release.set()
+    assert stopped['steps'] == 3 and stopped['status'] == 'stopped'
+    assert not stopped['observation_errors']
+    assert stopped['skipped_previews_busy'] == 2
+    assert stopped['previews'][0]['step'] == 1
+    done = resume(tmp_path / 'viewed', preview_every=0)
+    assert done['status'] == 'complete'
+    assert _digest(read_checkpoint(tmp_path / 'plain')[2]) == _digest(read_checkpoint(tmp_path / 'viewed')[2])
+    assert not list((tmp_path / 'viewed').glob('.preview-*'))
+
+
+def test_stalled_snapshot_storage_has_terminal_deadline_and_source_context(tmp_path, monkeypatch):
+    import hypergan.preview_snapshot as snapshots
+    entered, release = Event(), Event()
+    def stalled(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return {}
+    monkeypatch.setattr(snapshots, 'write_snapshot', stalled)
+    worker = PreviewWorker(timeout=1)
+    identity = {'run_id': 'run', 'attempt_id': 'attempt', 'sample_sequence': 7}
+    worker.submit(None, None, identity, 3, tmp_path, 1, snapshot_state={})
+    try:
+        assert entered.wait(5)
+        worker._deadline = time.monotonic() - 9
+        with pytest.raises(TimeoutError, match='deadline and cleanup grace') as failure:
+            worker.poll(wait=True)
+        assert failure.value.preview_context == {'step': 3, 'identity': identity}
+        assert worker._cancel.is_set()
+    finally:
+        release.set()
+        worker.abort()
+    assert not list(tmp_path.glob('.preview-*'))

@@ -477,3 +477,50 @@ def test_evaluation_rejects_missing_protocol_identity(real_viewer):
     page.locator('#evaluation-items').filter(has_text='Invalid evaluation definition or protocol identity').wait_for()
     assert page.get_by_role('checkbox', name='Snapshot quality · Evaluation', exact=True).count() == 0
     assert not errors
+
+
+def test_configured_snapshot_metrics_visible_before_results_and_live_schedule(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create()
+    catalog_path = experiment.root / 'metrics' / f'catalog-{experiment.catalog_revision}.json'
+    catalog = json.loads(catalog_path.read_text())
+    for metric, spec in {
+        'fid50k_train': {'trigger': 'interval', 'every_steps': 10000, 'on_busy': 'skip', 'evaluation': {'device': 'cuda:1'}},
+        'fid_manual': {'trigger': 'manual', 'evaluation': {'device': 'cuda:0'}},
+    }.items():
+        definition = dict(kind='scalar', source='custom:fid', scope='snapshot', label=metric, specification=spec)
+        definition['definition_hash'] = digest(definition)
+        catalog['metrics'][metric] = definition
+    experiment.catalog_revision = digest(catalog)
+    atomic_json(experiment.root / 'metrics' / f'catalog-{experiment.catalog_revision}.json', catalog)
+    experiment.publish()
+    sign_in(page, session, token)
+    schedules = page.locator('#evaluation-schedules')
+    interval = schedules.locator('li[data-metric="fid50k_train"]')
+    manual = schedules.locator('li[data-metric="fid_manual"]')
+    interval.filter(has_text='Not evaluated · every 10000 steps').wait_for()
+    assert 'Next evaluation at step 10000' in interval.inner_text()
+    assert 'Evaluation device: cuda:1' in interval.inner_text()
+    assert 'Not evaluated · manual' in manual.inner_text()
+    assert page.locator('#evaluations').is_visible()
+    assert page.locator('#evaluation-items li').count() == 0
+    experiment.manifest['evaluation_schedule'] = {'fid50k_train': {
+        'status': 'running', 'source_step': 10000, 'next_step': 30000,
+        'skipped_busy': 1, 'last_skipped_step': 20000, 'reason': 'worker_busy',
+    }}
+    experiment.publish()
+    interval.filter(has_text='Running · every 10000 steps').wait_for()
+    assert 'Source step 10000' in interval.inner_text()
+    assert 'Next evaluation at step 30000' in interval.inner_text()
+    assert 'last skipped step 20000' in interval.inner_text()
+    experiment.manifest['evaluation_schedule']['fid50k_train'].update(status='failed', reason='Evaluator exceeded its deadline')
+    experiment.publish()
+    interval.filter(has_text='Failed · every 10000 steps').wait_for()
+    assert 'Evaluator exceeded its deadline' in interval.inner_text()
+    experiment.manifest['status'] = 'stopped'
+    experiment.publish()
+    interval.filter(has_text='when training continues').wait_for()
+    page.reload()
+    interval.filter(has_text='Failed · every 10000 steps').wait_for()
+    assert 'Not evaluated · manual' in manual.inner_text()
+    assert not errors

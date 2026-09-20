@@ -8,6 +8,14 @@ The token never enters a URL, storage, telemetry, or browser logs.
 - `GET /capabilities` -> `{ "run_id":"r", "reducer":{"sha256":"..."} }`.
 - `GET /runs/r` -> run manifest, including status, steps, last_durable_step,
   total_steps, metrics_catalog and current attempt_id; optional name/config.name.
+  Optional `evaluation_schedule` maps configured metric IDs to scheduler status,
+  `source_step`, `next_step`, and optional `evaluation_id`, `reason`, `skipped_busy`
+  and `last_skipped_step`. Ready/heartbeat run payloads carry the same state.
+  A busy skip can retain `status: "running"` for the active snapshot while its
+  skip count advances. Configured snapshot metrics remain visible before any
+  result; cadence and device come from their catalog `specification`.
+  Without scheduler state, the viewer infers the next interval boundary from
+  observed training steps; stopped runs label that boundary as awaiting training.
 - `GET /runs/r/metrics/catalog[?revision=<sha256>]` -> the immutable metric catalog shape.
   Omit revision for the active training catalog; independent evaluation documents
   always supply their own catalog revision.

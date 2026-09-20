@@ -591,3 +591,23 @@ def test_console_control_is_bounded_validated_and_persisted(tmp_path):
         assert client.put(path, json={'progress_every': 5}, headers={'origin': 'https://foreign.test'}).status_code == 403
         assert client.get(path).json() == {'progress_every': 7}
         assert 'put' in client.get('/api/v1/openapi.json').json()['paths'][path.replace('/run/', '/{run_id}/')]
+
+
+def test_snapshot_evaluation_schedule_is_public_and_documented(tmp_path):
+    manifest = fixture_run(tmp_path)
+    manifest['evaluation_schedule'] = {'fid': {
+        'status': 'running', 'source_step': 10000, 'next_step': 30000,
+        'evaluation_id': 'a' * 32, 'skipped_busy': 1,
+        'last_skipped_step': 20000, 'reason': 'worker_busy',
+    }}
+    atomic_json(tmp_path / 'manifest.json', manifest)
+    session = LocalSession(8123, auth='none')
+    app = create_app(tmp_path, session, poll_seconds=.01)
+    with TestClient(app, base_url=session.origin) as client:
+        response = client.get('/api/v1/runs/run')
+        assert response.status_code == 200
+        assert response.json()['evaluation_schedule'] == manifest['evaluation_schedule']
+        schema = client.get('/api/v1/openapi.json').json()['components']['schemas']
+        schedule = schema['Run']['properties']['evaluation_schedule']['additionalProperties']['properties']
+        assert 'skipped' in schedule['status']['enum']
+        assert {'source_step', 'next_step', 'skipped_busy', 'last_skipped_step'} <= schedule.keys()

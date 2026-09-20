@@ -971,7 +971,7 @@ $("console-settings").addEventListener("submit", async (event) => {
   try {
     await api(`${base()}/console`, {method: "PUT", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({progress_every})});
-    $("console-status").textContent = `Saved: every ${progress_every} steps. Active CLI checks within 250 ms; applies at the next update boundary and persists on resume.`;
+    $("console-status").textContent = `Saved: every ${progress_every} steps. Active CLI checks at update boundaries, at most four times per second. Long updates delay changes; the setting persists on resume.`;
   } catch (error) { $("console-status").textContent = error.message; }
   finally { button.disabled = false; }
 });

@@ -59,8 +59,8 @@ Routine CLI training progress prints every **100 updates** by default. Set
 `--progress-every N` on `train` or `resume`, or use **CLI progress every N steps**
 in the browser. The setting is saved as `console.json` inside the run directory
 and survives resume; an explicit CLI flag replaces the saved value. Active CLI
-processes check for changes at most every 250 ms and apply them at complete
-update boundaries. This controls console reporting only: collected metric events,
+processes check at complete update boundaries, at most four times per second.
+Long updates delay when a change takes effect. This controls console reporting only: collected metric events,
 checkpoint cadence, previews and numerical configuration remain independent.
 Lifecycle events, errors and final status bypass this interval. The same cadence
 applies to `--progress-json`; use `--progress-every 1` for every console update.

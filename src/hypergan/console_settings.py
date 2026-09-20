@@ -1,5 +1,7 @@
 """Run-local console policy, independent from numerical and metric identity."""
 import json
+import os
+import stat
 from pathlib import Path
 import time
 
@@ -19,13 +21,29 @@ def validate_settings(value):
 
 def read_settings(run_dir):
     path = Path(run_dir) / 'console.json'
-    if path.is_symlink():
-        raise ValueError('Console settings must not be a symbolic link')
+    descriptor = None
     try:
-        with path.open('rb') as stream:
+        # Reject devices and named pipes before opening, including on Windows.
+        # O_NONBLOCK/O_NOFOLLOW also protect POSIX against replacement between
+        # this check and open; recheck the actual descriptor before reading.
+        if not stat.S_ISREG(path.lstat().st_mode):
+            raise ValueError('Console settings must be a regular file without links')
+        flags = os.O_RDONLY | getattr(os, 'O_BINARY', 0)
+        flags |= getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_NOFOLLOW', 0)
+        descriptor = os.open(path, flags)
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError('Console settings must be a regular file')
+        if info.st_size > 4096:
+            raise ValueError('Console settings exceed 4096 bytes')
+        with os.fdopen(descriptor, 'rb') as stream:
+            descriptor = None  # fdopen owns the descriptor, including failures.
             raw = stream.read(4097)
     except FileNotFoundError:
         return {'progress_every': DEFAULT_PROGRESS_EVERY}
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
     if len(raw) > 4096:
         raise ValueError('Console settings exceed 4096 bytes')
     return validate_settings(json.loads(raw))

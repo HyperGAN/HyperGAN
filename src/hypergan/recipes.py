@@ -120,8 +120,8 @@ class ComponentGraph(nn.Module):
             module = construct(spec)
             if not isinstance(module, nn.Module):
                 raise ValueError(f"Component {name} must construct a torch.nn.Module")
-            module.requires_grad_(spec["trainable"])
             if not spec["trainable"]:
+                module.requires_grad_(False)
                 module.eval()
             modules[name] = module
         self.models = nn.ModuleDict(modules)

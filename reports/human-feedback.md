@@ -9,18 +9,6 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
-### 1. Named samples with history slider (raised 2026-09-20)
-
-- [ ] Index every sample by a short stable name, e.g. `x` (real input) and `g` (generator output), instead of the preview digest key. The UI and API should present samples by that name.
-- [ ] For image samples, show only the most recent image per name by default.
-- [ ] Add a slider (or equivalent scrubber) per named sample to step back through earlier versions by step.
-- [ ] Decide how much history to retain; previews are currently pruned to a small fixed count, so the slider needs either a larger retention window or a configurable one.
-
-Where this lives today:
-- `src/hypergan/previews.py` publishes previews keyed by an `identity` dict and keeps only a few (`keep=3`).
-- `src/hypergan/web_service.py` builds the artifact list with keys `preview-<digest>` and `-grid` suffixes.
-- `frontend/src/app.js` renders every artifact as a flat list under "Samples & artifacts".
-
 ### 6. FID should evaluate on an interval by default (raised 2026-09-20)
 
 Owner ran `training-runs/start.sh` and saw no FID because both FID metrics in the run's `cifar10.toml` are `trigger = "manual"`, so the manifest records an empty evaluation schedule and nothing ever fires.
@@ -48,6 +36,20 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 - [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
 
 ## Done
+
+### 1. Named samples with history slider (raised 2026-09-20)
+
+**Status:** Implemented in commit a10611c3, merged to develop in e315ebb6. Previews are named `g` (EMA generator output, override with `--preview-name`) and `x` (the matching real batch, published in the same generation). The viewer groups artifacts by name, shows the newest image, and offers a slider with keyboard support plus a Latest button. Retention default moved from 3 to 20 (`--preview-keep`, max 100). Names live in the per-run manifest, not the numerical config, so existing runs resume unchanged.
+
+- [x] Index every sample by a short stable name, e.g. `x` (real input) and `g` (generator output), instead of the preview digest key. The UI and API should present samples by that name.
+- [x] For image samples, show only the most recent image per name by default.
+- [x] Add a slider (or equivalent scrubber) per named sample to step back through earlier versions by step.
+- [x] Decide how much history to retain; previews are currently pruned to a small fixed count, so the slider needs either a larger retention window or a configurable one.
+
+Where this lives today:
+- `src/hypergan/previews.py` publishes previews keyed by an `identity` dict and keeps only a few (`keep=3`).
+- `src/hypergan/web_service.py` builds the artifact list with keys `preview-<digest>` and `-grid` suffixes.
+- `frontend/src/app.js` renders every artifact as a flat list under "Samples & artifacts".
 
 ### 5. HTTPS fronting of the viewer (e.g. `tailscale serve`) is rejected by the origin check (found 2026-09-20 while fixing item 3)
 

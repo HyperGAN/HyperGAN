@@ -70,7 +70,12 @@ their timeout. Signals and training failures cancel and reap the evaluator;
 cancellation is distinct from metric failure. Resume starts cadence after the
 restored step and retains earlier results under their original attempt identity.
 The viewer shows the configured schedule, next step, busy skips and result state
-even before the first FID value. Manual `evaluate` remains available for an
+even before the first FID value. Published FID values are plotted as a chart per
+metric in **Snapshot evaluations**, with the evaluated source step on the
+horizontal axis and one point per evaluation, so a single 50k result is a chart
+with one point and later intervals extend the same chart; duration, evaluation
+device, sample count and protocol stay in that metric's collapsed results list.
+See [local web viewer](local-web.md). Manual `evaluate` remains available for an
 interval-configured metric while training is stopped.
 
 The extractor is pinned to torch-fidelity 0.3.0, Inception-v3-compatible 2048

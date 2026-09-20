@@ -92,18 +92,24 @@ after reconnect, and on `stream_added`, the browser reads the stream inventory.
 For each evaluation it reads `GET /runs/r/events?stream_id=evaluation:<id>&limit=2`
 and the event's explicit `catalog` revision. The current protocol is exactly one
 terminal document per evaluation. No live/history reducer runs for these reads.
-The browser serializes result loads, retains at most the 64 registered streams,
-and allocates plots/tables only on expansion. There is no recurring HTTP poll.
+The browser serializes result loads, retains at most the 64 registered streams
+the server admits (`MAX_STREAMS`), and allocates per-result tables, histogram
+plots and protocol documents only on expansion. There is no recurring HTTP poll.
+Completed scalar results are grouped by metric ID across streams and drawn as one
+line chart per metric, source step on the x axis and one visible point per
+evaluation, with a separate series per definition hash and protocol digest. A new
+stream extends that chart in place; history is never reduced or reordered.
 
 A complete evaluation has `event="evaluation"`, `status="complete"`,
 `source_position_known=true`, and the evaluated source `attempt_id` and `step`.
 Finite scalar values appear in `metrics`; histograms appear in `distributions`
 as `{edges:[...],counts:[...]}` with at most 512 ordered bins. Each result remains
 separate by evaluation ID and definition hash, with snapshot/protocol digests and
-full recorded protocol available for inspection and raw export. Snapshot metrics
+full recorded protocol available for inspection and raw export behind the metric's
+collapsed results list. Snapshot metrics
 are excluded from the training curve selector. Failed evaluations expose their
-`measurement_status` reason; `source_position_known=false` must never be plotted
-as a step-zero observation. Sampling artifacts keep their separate shelf.
+`measurement_status` reason as a compact status line under their metric's chart;
+`source_position_known=false` must never be plotted as a step-zero observation. Sampling artifacts keep their separate shelf.
 
 `discovery_error` is a control event with a visible `reason`; unlike a cursor
 reset it does not invalidate current training coverage. Existing sources continue

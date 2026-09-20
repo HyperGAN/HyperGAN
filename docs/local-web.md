@@ -162,7 +162,23 @@ production and any additional projection are independent services.
 
 The **Snapshot evaluations** panel lists every configured snapshot metric before
 any result exists, with its cadence, next step and evaluation device taken from
-the catalog `specification` and the run's `evaluation_schedule`. When every one
+the catalog `specification` and the run's `evaluation_schedule`.
+
+Results are shown by metric, not by stream. Each snapshot metric with completed
+scalar results gets one chart, drawn with the same echarts style as the training
+curves, with the evaluated **source step** on the horizontal axis and one visible
+point per evaluation; a metric with a single result is a chart with one point.
+Results from different definition hashes or protocol digests stay separate series
+and are never averaged. A new evaluation stream extends the chart in place, in
+step order, and no earlier result is dropped. Failed and cancelled evaluations
+appear as one compact status line each (source step, status and the recorded
+reason) under their metric, never as a text card. Every per-result field --
+source step, value, status, duration, evaluation device, sample count, attempt
+and evaluation ID -- is in a collapsed results list per metric, which also holds
+each result's raw export link, its recorded protocol document and, for histogram
+metrics, its bar plot and exact bin table. The panel reads at most the 64
+registered observation streams the server admits, and builds those tables, plots
+and protocol documents only when a list is expanded. When every one
 of them sets `trigger = "manual"` and the run records no schedule, the panel
 also shows a persistent notice above those cards: it names the manual metrics,
 states that no evaluation runs however far training gets, and gives the exact

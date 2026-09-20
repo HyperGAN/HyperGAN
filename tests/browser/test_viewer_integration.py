@@ -293,13 +293,13 @@ def test_artifact_shelf_streams_while_metrics_are_unselected(real_viewer):
     assert not errors
 
 
-def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=False, cancelled=False, step=1, protocol="c" * 64, attempt="saved-attempt"):
+def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=False, cancelled=False, step=1, protocol="c" * 64, attempt="saved-attempt", metric='quality'):
     # Exact terminal M4 source protocol, including a catalog absent from the
     # active training manifest. Publish registration last, as the evaluator does.
-    definition = dict(kind=kind, source='custom:quality', scope='snapshot',
-                      label='Snapshot quality', unit='distance', evaluation_protocol={'seed': 42})
+    definition = dict(kind=kind, source=f'custom:{metric}', scope='snapshot',
+                      label=f'Snapshot {metric}', unit='distance', evaluation_protocol={'seed': 42})
     definition['definition_hash'] = digest(definition)
-    catalog = {'schema_version': 1, 'metrics': {'quality': definition}}
+    catalog = {'schema_version': 1, 'metrics': {metric: definition}}
     revision = digest(catalog)
     atomic_json(experiment.root / 'metrics' / f'catalog-{revision}.json', catalog)
     event = dict(schema_version=2, event='evaluation', run_id=experiment.manifest['run_id'],
@@ -311,11 +311,11 @@ def publish_evaluation(experiment, evaluation_id, kind, value=None, *, failed=Fa
                  snapshot_identity={} if failed else {'attempt_id': attempt},
                  protocol_sha256=protocol, evaluation_protocol={'sample_count': 7, 'seed': 42})
     if cancelled:
-        event['measurement_status']['quality'] = {'status': 'cancelled', 'reason': 'Training stopped before evaluation finished'}
+        event['measurement_status'][metric] = {'status': 'cancelled', 'reason': 'Training stopped before evaluation finished'}
     elif failed:
-        event['measurement_status']['quality'] = {'status': 'failed', 'reason': 'Evaluation fixture timeout'}
+        event['measurement_status'][metric] = {'status': 'failed', 'reason': 'Evaluation fixture timeout'}
     else:
-        event.setdefault('metrics' if kind == 'scalar' else 'distributions', {})['quality'] = value
+        event.setdefault('metrics' if kind == 'scalar' else 'distributions', {})[metric] = value
     directory = experiment.root / 'metrics/evaluations' / evaluation_id
     directory.mkdir(parents=True)
     (directory / 'events.jsonl').write_text(json.dumps(event) + '\n')
@@ -332,44 +332,93 @@ def test_snapshot_scalar_histogram_failure_discovery_and_export(real_viewer, mon
     scalar = publish_evaluation(experiment, '1'*32, 'scalar', .25)
     sign_in(page, session, token)
     page.locator('#g-loss').filter(has_text='2').wait_for()
-    page.locator('#evaluation-items li').filter(has_text='0.25 distance').wait_for()
+    quality = page.locator('#evaluation-items li[data-metric="quality"]')
+    quality.filter(has_text='0.25 distance').wait_for()
+    # One scalar result is a chart with a visible point, not a text card.
+    assert quality.locator('.chart-canvas canvas').count() == 1
     assert 'Snapshot quality · Evaluation' in page.locator('#metric-list').inner_text()
     page.get_by_role('button', name='Clear', exact=True).click()
     page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
     monkeypatch.setattr(Reducer, 'add', lambda *a, **k: pytest.fail('Evaluation ran a server reduction'))
-    histogram = publish_evaluation(experiment, '2'*32, 'histogram', {'edges':[0.,.5,1.], 'counts':[.25,.75]})
+    histogram = publish_evaluation(experiment, '2'*32, 'histogram', {'edges':[0.,.5,1.], 'counts':[.25,.75]}, metric='spread')
     publish_evaluation(experiment, '3'*32, 'scalar', failed=True)
-    hist = page.locator('#evaluation-items li').filter(has_text='2 histogram bins')
-    hist.wait_for(timeout=10000)
-    failure = page.locator('#evaluation-items li').filter(has_text='Evaluation fixture timeout')
+    hist = page.locator('#evaluation-items li[data-metric="spread"]')
+    hist.filter(has_text='2 histogram bins').wait_for(timeout=10000)
+    # The failure is a compact status line under its own metric, with no step zero.
+    failure = quality.locator('.evaluation-status li')
     failure.wait_for(timeout=10000)
-    assert 'Source position unknown' in failure.inner_text()
-    assert 'Source step 0' not in failure.inner_text()
-    assert failure.locator('svg').count() == 0
-    hist.get_by_text('Plot and accessible values', exact=True).click()
+    assert failure.count() == 1
+    assert 'Source position unknown · Failed · Evaluation fixture timeout' == failure.inner_text()
+    assert 'Source step 0' not in quality.inner_text()
+    assert hist.locator('.chart-canvas').count() == 0
+    hist.locator('details.evaluation-results > summary').click()
+    hist.locator('details.evaluation-result > summary').click()
+    hist.locator('svg').first.wait_for()
     hist.locator('svg rect').first.wait_for()
     assert hist.locator('svg rect').count() == 2
-    assert hist.locator('table tbody tr').count() == 2
-    assert '0.75' in hist.locator('table').inner_text()
+    assert hist.locator('table tbody tr').filter(has_text='0.75').count() == 1
     hist.get_by_text('Definition and evaluation protocol', exact=True).click()
     assert 'sample_count' in hist.locator('pre').inner_text()
     assert histogram['catalog'] in hist.locator('pre').inner_text()
-    scalar_card = page.locator('#evaluation-items li').filter(has_text='0.25 distance')
-    scalar_card.get_by_text('Plot and accessible values', exact=True).click()
-    scalar_card.locator('svg circle').wait_for()
-    assert 'Source step 1' in scalar_card.inner_text() and 'saved-attempt' in scalar_card.inner_text()
-    export = scalar_card.get_by_role('link', name='Export raw evaluation').get_attribute('href')
+    # Per-result details stay collapsed until asked for, and keep the raw export.
+    assert quality.locator('details.evaluation-results').evaluate('node => node.open') is False
+    quality.locator('details.evaluation-results > summary').click()
+    quality.locator('details.evaluation-results tbody tr').first.wait_for()
+    assert 'Source step 1' in quality.inner_text() and 'saved-attempt' in quality.inner_text()
+    export = quality.locator('details.evaluation-result a.text-link').first.get_attribute('href')
     exported = context.request.get(session.origin + export).json()
     assert exported['events'] == [scalar]
     schema = context.request.get(session.origin + '/api/v1/openapi.json').json()
     assert 'distributions' in schema['components']['schemas']['Event']['properties']
     # Reconnect/reload discovers existing immutable sources without polling.
     page.reload()
-    page.locator('#evaluation-items li').filter(has_text='2 histogram bins').wait_for(timeout=10000)
-    page.locator('#evaluation-items li').filter(has_text='Evaluation fixture timeout').wait_for()
-    assert page.locator('#evaluation-items li').count() == 3
+    page.locator('#evaluation-items li[data-metric="spread"]').filter(has_text='2 histogram bins').wait_for(timeout=10000)
+    page.locator('#evaluation-items li[data-metric="quality"] .evaluation-status li').wait_for()
+    assert page.locator('#evaluation-items > li').count() == 2
     assert not errors
     assert not any(token in url for url in requests)
+
+
+def test_snapshot_chart_draws_one_point_and_extends_across_steps(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(2)
+    publish_evaluation(experiment, '1'*32, 'scalar', 42.5, step=10000)
+    sign_in(page, session, token)
+    card = page.locator('#evaluation-items li[data-metric="quality"]')
+    card.filter(has_text='42.5 distance').wait_for()
+    assert card.locator('.chart-canvas canvas').count() == 1
+    assert '1 completed evaluation' in card.locator('.chart-note').inner_text()
+    # A single result still paints its marker on the canvas, not an empty line.
+    page.wait_for_function("""() => {
+      const canvas = document.querySelector('#evaluation-items .chart-canvas canvas');
+      if (!canvas) return false;
+      const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      let marks = 0;
+      for (let i = 0; i < pixels.length; i += 4)
+        if (Math.abs(pixels[i] - 215) < 5 && Math.abs(pixels[i+1] - 187) < 5 && Math.abs(pixels[i+2] - 129) < 5 && pixels[i+3] > 200) marks++;
+      return marks > 3;
+    }""")
+    assert card.get_attribute('data-steps') == '10000'
+    card.locator('details.evaluation-results > summary').click()
+    rows = card.locator('details.evaluation-results tbody tr')
+    rows.first.wait_for()
+    assert rows.evaluate_all('rows => rows.map(r => r.dataset.step)') == ['10000']
+    assert '12.5' in rows.first.inner_text()
+    # New streams extend the same chart in place, in step order, losing nothing.
+    publish_evaluation(experiment, '2'*32, 'scalar', 21.5, step=30000, attempt='saved-2')
+    publish_evaluation(experiment, '3'*32, 'scalar', 30.5, step=20000, attempt='saved-3')
+    publish_evaluation(experiment, '4'*32, 'scalar', cancelled=True, step=40000)
+    page.locator('#evaluation-items li[data-metric="quality"][data-steps="10000,20000,30000"]').wait_for(timeout=10000)
+    card.locator('.evaluation-status li').filter(has_text='Cancelled').wait_for(timeout=10000)
+    assert page.locator('#evaluation-items > li').count() == 1
+    assert card.locator('.chart-canvas canvas').count() == 1
+    assert '3 completed evaluations' in card.locator('.chart-note').inner_text()
+    assert 'Source step 40000 · Cancelled · Training stopped' in card.locator('.evaluation-status li').inner_text()
+    # The details list stayed open across the update and lists every step.
+    assert rows.evaluate_all('rows => rows.map(r => r.dataset.step)') == ['10000', '20000', '30000', '40000']
+    assert card.locator('details.evaluation-result').count() == 4
+    assert page.locator('#evaluation-items canvas').count() == 1
+    assert not errors
 
 
 def test_single_measurement_has_a_visible_chart_mark(real_viewer):
@@ -430,8 +479,15 @@ def test_evaluation_metrics_sort_snapshots_preserve_repeats_and_protocols(real_v
     publish_evaluation(experiment, '6'*32, 'scalar', 9.0, step=20000, protocol='d'*64)
     publish_evaluation(experiment, '7'*32, 'scalar', 8.0, step=20000, attempt='recovered-attempt')
     sign_in(page, session, token)
-    page.locator('#evaluation-items li[data-step]').nth(6).wait_for()
-    assert page.locator('#evaluation-items li').evaluate_all('items => items.map(x => Number(x.dataset.step))') == [10000, 20000, 20000, 20000, 20000, 30000, 40000]
+    card = page.locator('#evaluation-items li[data-metric="quality"]')
+    # Every stream of one metric shares a single chart; history keeps its order.
+    page.locator('#evaluation-items li[data-steps="10000,20000,20000,20000,20000,30000,40000"]').wait_for(timeout=10000)
+    assert page.locator('#evaluation-items > li').count() == 1
+    assert card.locator('.chart-canvas canvas').count() == 1
+    card.locator('details.evaluation-results > summary').click()
+    card.locator('details.evaluation-results tbody tr').first.wait_for()
+    assert card.locator('details.evaluation-results tbody tr').evaluate_all(
+        'rows => rows.map(r => Number(r.dataset.step))') == [10000, 20000, 20000, 20000, 20000, 30000, 40000]
     assert page.locator('#metric-count').inner_text() == '3'
     assert page.get_by_role('checkbox', name='Snapshot quality · Evaluation', exact=True).count() == 2
     cards = page.locator('.chart-card').filter(has_text='Snapshot quality · Evaluation')
@@ -458,7 +514,11 @@ def test_evaluation_metrics_sort_snapshots_preserve_repeats_and_protocols(real_v
     publish_evaluation(experiment, '8'*32, 'scalar', 7.0, step=20000)
     page.locator('#values-table tr').filter(has_text='88888888888888888888888888888888').wait_for(timeout=10000)
     assert page.locator('#values-table tr').count() == 5
-    assert 'Evaluation duration: 12.5 seconds' in page.locator('#evaluation-items').inner_text()
+    # The late result joins the same card, and duration stays in its details.
+    page.locator('#evaluation-items li[data-metric="quality"][data-steps$="40000"]').wait_for(timeout=10000)
+    assert card.get_attribute('data-steps') == '10000,20000,20000,20000,20000,20000,30000,40000'
+    assert card.locator('details.evaluation-results tbody tr').count() == 8
+    assert card.locator('details.evaluation-results tbody tr').first.inner_text().count('12.5') == 1
     assert not errors
 
 
@@ -599,15 +659,18 @@ def test_cancelled_evaluation_retains_source_and_export_without_failure_or_value
     experiment.create()
     publish_evaluation(experiment, 'c' * 32, 'scalar', cancelled=True, step=10000)
     sign_in(page, session, token)
-    card = page.locator('#evaluation-items li')
-    card.filter(has_text='The evaluation was cancelled.').wait_for()
-    assert card.locator('.badge').inner_text() == 'CANCELLED'
-    assert 'Source step 10000' in card.inner_text()
-    card.get_by_text('Cancellation details', exact=True).click()
-    assert 'Training stopped before evaluation finished' in card.inner_text()
-    assert card.locator('.evaluation-failure, .evaluation-value').count() == 0
+    card = page.locator('#evaluation-items li[data-metric="quality"]')
+    status = card.locator('.evaluation-status li')
+    status.wait_for()
+    assert status.inner_text() == 'Source step 10000 · Cancelled · Training stopped before evaluation finished'
+    # Nothing was measured: no chart, no value and no failure styling.
+    assert card.locator('.chart-canvas, .evaluation-failure, .evaluation-value').count() == 0
+    assert card.get_attribute('data-steps') == ''
     assert page.locator('#charts').get_by_text('Snapshot quality', exact=True).count() == 0
-    export = card.get_by_role('link', name='Export raw evaluation').get_attribute('href')
+    card.locator('details.evaluation-results > summary').click()
+    card.locator('details.evaluation-results tbody tr').first.wait_for()
+    assert 'Cancelled' in card.locator('details.evaluation-results tbody tr').inner_text()
+    export = card.locator('details.evaluation-result a.text-link').get_attribute('href')
     response = context.request.get(session.origin + export)
     assert response.ok
     assert response.json()['events'][0]['status'] == 'cancelled'

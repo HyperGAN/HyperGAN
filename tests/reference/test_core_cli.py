@@ -24,7 +24,7 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
     first = cli(tmp_path, "train", config, "--run-dir", run, "--stop-after-steps", 2,
-                "--checkpoint-every", 1, "--preview-every", 1, "--preview-keep", 2, "--progress-json")
+                "--checkpoint-every", 1, "--preview-every", 1, "--preview-keep", 2, "--progress-json", "--progress-every", 1)
     assert first.returncode == 0, first.stderr
     rows = [json.loads(line) for line in first.stdout.splitlines()]
     assert [row["step"] for row in rows if row["event"] == "train"] == [1, 2]

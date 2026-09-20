@@ -77,7 +77,7 @@ class Execution(Protocol):
     def restore(self, run_dir, checkpoint, run_id, config_sha256) -> Restored: ...
     def update(self) -> CompletedUpdate: ...
     def checkpoint(self, run_dir, metadata) -> Path: ...
-    def preview(self, run_dir, identity, *, keep) -> PreviewResult: ...
+    def preview(self, run_dir, identity, *, keep) -> PreviewResult | None: ...
     @property
     def inference_available(self) -> bool: ...
     def inference(self, bundle_dir, identity) -> ArtifactResult: ...
@@ -297,6 +297,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     last_event_step = None
     custom_publications = 0
     checkpoint_custom_publications = 0
+    preview_publications = 0
+    checkpoint_preview_publications = 0
 
     def emit(event, *, _observe=True, _step=None, **values):
         nonlocal sequence, dropped, last_event_step
@@ -400,7 +402,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                         next_sample_sequence=manifest['next_sample_sequence'])
 
         def checkpoint_now(request_ids=None, observer=False):
-            nonlocal checkpoint_custom_publications
+            nonlocal checkpoint_custom_publications, checkpoint_preview_publications
             if not manifest['resume_supported']:
                 return
             metadata['next_sample_sequence'] = manifest['next_sample_sequence']
@@ -417,6 +419,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     return None, exc
                 raise
             checkpoint_custom_publications = custom_publications
+            checkpoint_preview_publications = preview_publications
             manifest.update(checkpoint_path=str(path), last_durable_step=manifest['steps'],
                             durable_event_boundary=metadata['event_boundary'],
                             possible_lost_steps=0)
@@ -431,25 +434,54 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             publish(wait=False)
             emit('observer_error', **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
 
+        def publish_preview_result(preview):
+            nonlocal preview_publications
+            if preview is None:
+                return
+            record, preview_index, errors = preview.record, preview.index, preview.errors
+            manifest['previews'] = preview_index['previews']
+            manifest['preview_path'] = record['path']
+            preview_publications += 1
+            publish(wait=False)
+            emit('preview', _step=record['step'], preview=record)
+            for error in errors:
+                observer_error('preview_retention', RuntimeError(error))
+
+        def collect_preview(*, final=False):
+            hook = getattr(execution, 'close_previews' if final else 'poll_preview', None)
+            if hook is None:
+                return
+            try:
+                if final and stop is not None and stop.reason:
+                    abort = getattr(execution, 'abort_previews', None)
+                    if abort is not None:
+                        publish_preview_result(execution.poll_preview())
+                        if abort():
+                            manifest['cancelled_previews'] = manifest.get('cancelled_previews', 0) + 1
+                            emit('preview_cancelled', reason=stop.reason)
+                        return
+                publish_preview_result(hook())
+            except FatalExecutionError:
+                raise
+            except Exception as exc:
+                observer_error('preview', exc)
+
         def preview_now():
+            if getattr(execution, 'preview_busy', False):
+                manifest['skipped_previews_busy'] = manifest.get('skipped_previews_busy', 0) + 1
+                emit('preview_skipped', reason='worker_busy')
+                return
             identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
                         'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence']}
             manifest['next_sample_sequence'] += 1
             publish()  # Reserve before rendering: failed or killed attempts never reuse a sequence.
             try:
-                preview = execution.preview(run_dir, identity, keep=manifest['preview_keep'])
-                record, preview_index, errors = preview.record, preview.index, preview.errors
+                publish_preview_result(execution.preview(run_dir, identity, keep=manifest['preview_keep']))
             except FatalExecutionError:
                 raise
             except Exception as exc:
                 observer_error('preview', exc)
                 return
-            manifest['previews'] = preview_index['previews']
-            manifest['preview_path'] = record['path']
-            publish()
-            emit('preview', preview=record)
-            for error in errors:
-                observer_error('preview_retention', RuntimeError(error))
 
         def poll_requests(*, force=False):
             nonlocal last_request_poll
@@ -533,6 +565,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 manifest['stop_reason'] = 'stop_after_steps'
                 break
             collect_custom()
+            collect_preview()
             update_started = time.monotonic()
             completed = execution.update()
             step_seconds = time.monotonic() - update_started
@@ -560,9 +593,11 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 preview_now()
             publish(wait=False)
         collect_custom(final=True)
+        collect_preview(final=True)
         poll_requests(force=True)
         if (manifest['last_durable_step'] != manifest['steps']
-                or custom_publications != checkpoint_custom_publications):
+                or custom_publications != checkpoint_custom_publications
+                or preview_publications != checkpoint_preview_publications):
             checkpoint_now()
         if stop is not None and stop.reason:
             manifest['stop_reason'] = stop.reason

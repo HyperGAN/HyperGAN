@@ -227,7 +227,8 @@ class ReplicatedExecution:
             if any(item.get('receipt_sha256') != digest for item in results):
                 raise ValueError('Ranks disagree on complete checkpoint preparation')
             self.service.assert_healthy()
-            return self.authority.commit(receipt, expected_command_sequence=sequence)
+            return self.authority.commit(receipt, expected_command_sequence=sequence,
+                                         expected_event_boundary=metadata.get('event_boundary'))
         except BaseException as error:
             self._fail(error)
 

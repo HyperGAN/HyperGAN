@@ -15,7 +15,8 @@ import warnings
 from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics
 from .metric_plugins import prepare_custom, ScalarMetrics
-from .run_state import atomic_json, repair_event_tail, run_lock, sync_directory
+from .run_state import atomic_json, EventJournal, run_lock, sync_directory, validate_event_boundary
+from .run_signals import GracefulStop
 
 
 @dataclass(frozen=True)
@@ -174,6 +175,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
         descriptor = _configure_attempt(execution, context, preview_every, on_event)
         environment = execution.environment()
         run_dir.mkdir(parents=True, exist_ok=False)
+        sync_directory(run_dir.parent)
         manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id,
                 'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
                 'runtime': environment['runtime'], 'source': environment['source'], 'qualification': qualification,
@@ -228,6 +230,9 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             restored = execution.restore(run_dir, checkpoint, manifest['run_id'], manifest['config_sha256'])
             _apply_execution(manifest, descriptor)
             checkpoint_info = json.loads((Path(restored.checkpoint_path) / 'manifest.json').read_text())
+            if checkpoint_info.get('event_boundary') is None:
+                raise ValueError('Controller checkpoint requires a durable event boundary')
+            validate_event_boundary(run_dir, checkpoint_info)
             manifest['recovery_parent'] = {
                 'attempt_id': checkpoint_info['attempt_id'], 'step': restored.step,
                 'checkpoint_id': Path(restored.checkpoint_path).name,
@@ -235,6 +240,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             }
             manifest['config'] = config_values(config)
             manifest.update(preview_every=preview_every, preview_keep=preview_keep,
+                            durable_event_boundary=checkpoint_info.get('event_boundary'),
                             checkpoint_path=str(restored.checkpoint_path), last_durable_step=restored.step,
                             resumed_from=str(restored.checkpoint_path), steps=restored.step)
         except BaseException:
@@ -254,9 +260,10 @@ def execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_a
             shutdown_attempted = True
             execution.shutdown()
     try:
-        return _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds,
+        with GracefulStop() as stop:
+            return _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds,
                             stop_after_steps, on_event, execution=execution, shutdown=shutdown,
-                            context=context)
+                            context=context, stop=stop)
     except BaseException:
         try:
             shutdown()
@@ -266,7 +273,7 @@ def execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_a
 
 
 def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_after_steps,
-             on_event, *, execution, shutdown, context=None):
+             on_event, *, execution, shutdown, context=None, stop=None):
     started = time.monotonic()
     context = context or _candidate_attempt(run_dir, manifest['run_id'])
     _persist_attempt(context)
@@ -281,7 +288,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     for key in ('error', 'shutdown_error', 'sample_path', 'bundle_path'):
         manifest.pop(key, None)
     atomic_json(run_dir / 'manifest.json', manifest)
-    repair_event_tail(run_dir / 'events.jsonl')
+    journal = EventJournal(run_dir)
     sequence = 0
 
     def emit(event, *, _observe=True, **values):
@@ -291,9 +298,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                    stream_id='training', stream_generation=manifest['run_id'], catalog=catalog_revision,
                    attempt_id=attempt_id, sequence=sequence,
                    step=manifest['steps'], seconds=time.monotonic() - started)
-        with (run_dir / 'events.jsonl').open('a', encoding='utf-8') as output:
-            output.write(json.dumps(row, allow_nan=False) + '\n')
-            output.flush()
+        journal.append(row)
         if on_event is not None and _observe:
             def notify(value):
                 try:
@@ -353,6 +358,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             metadata['next_sample_sequence'] = manifest['next_sample_sequence']
             metadata['request_ids'] = list(request_ids or [])
             try:
+                metadata['event_boundary'] = journal.commit_boundary()
                 path = execution.checkpoint(run_dir, metadata)
             except FatalExecutionError:
                 raise
@@ -361,6 +367,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     return None, exc
                 raise
             manifest.update(checkpoint_path=str(path), last_durable_step=manifest['steps'],
+                            durable_event_boundary=metadata['event_boundary'],
                             possible_lost_steps=0)
             publish()
             emit('checkpoint', checkpoint_path=str(path), request_ids=list(request_ids or []))
@@ -459,6 +466,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         poll_requests()
         attempt_steps = 0
         while manifest['steps'] < config['training']['steps']:
+            if stop is not None and stop.reason:
+                manifest['stop_reason'] = stop.reason
+                break
             if max_seconds is not None and time.monotonic() - started >= max_seconds:
                 manifest['stop_reason'] = 'max_seconds'
                 break
@@ -487,12 +497,14 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if manifest['steps'] % checkpoint_every == 0:
                 checkpoint_now()
             poll_requests()
-            if manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
+            if not (stop is not None and stop.reason) and manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
                 preview_now()
             publish()
         if manifest['last_durable_step'] != manifest['steps']:
             checkpoint_now()
-        if execution.inference_available:
+        if stop is not None and stop.reason:
+            manifest['stop_reason'] = stop.reason
+        if execution.inference_available and not (stop is not None and stop.reason):
             bundle_dir = attempt_dir / 'inference'
             bundle_dir.mkdir()
             sync_directory(attempt_dir)
@@ -516,5 +528,6 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         manifest.update(status='interrupted' if isinstance(exc, (KeyboardInterrupt, SystemExit)) else 'failed',
                         error=f'{type(exc).__name__}: {exc}')
         publish()
-        emit(manifest['status'], error=manifest['error'], checkpoint_path=manifest['checkpoint_path'])
+        if not journal.failed:
+            emit(manifest['status'], error=manifest['error'], checkpoint_path=manifest['checkpoint_path'])
         raise

@@ -81,3 +81,23 @@ outside the descriptor transport. On POSIX, drain children use separate sessions
 so a terminal process-group SIGINT/SIGTERM reaches the training coordinator while
 the drains remain available for its final status. Parent-death monitoring still
 bounds cleanup if the coordinator is killed.
+
+Live event and status persistence runs on a bounded background I/O worker. An
+ordinary update queues an event without waiting for disk writes. The event queue
+holds at most 256 pending rows and 8 MiB of conservative JSON size estimates, plus
+one active row (each row is limited to 1 MiB and bounded nesting/node count).
+When storage cannot keep up, optional observation events are omitted rather than
+stalling updates. The next accepted event carries `observation_gap` with the omitted
+counts by event kind and first/last step, and the run manifest records cumulative
+`dropped_observation_events` and `dropped_train_events`. Accepted events retain contiguous sequence numbers;
+missing measurements are never fabricated or averaged. Checkpoint boundaries
+record any outstanding gap before committing the event prefix.
+
+Live manifests coalesce to the newest snapshot and are scheduled at most four
+times per second. Checkpoint requests are polled at most four times per second,
+plus startup, periodic checkpoint and terminal boundaries. A slow update can
+extend request latency until its next safe boundary. Initial status, checkpoint
+publication, artifact identity reservation and final status still wait for
+durable metadata; checkpoint commits drain all accepted events before fsync.
+These explicit recovery boundaries can wait for storage. Background storage
+failures fail the run visibly rather than publishing an invalid durable frontier.

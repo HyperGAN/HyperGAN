@@ -60,6 +60,7 @@ def setup(tmp_path):
     text=text.replace('factory = "mlp"','factory = "eval_fixture:RGBGenerator"',1).replace('factory = "mlp"','factory = "eval_fixture:RGBDiscriminator"',1)
     text=text.replace('output_dim = 2','output_dim = 12').replace('input_dim = 2','input_dim = 12')
     text=text.replace('factory = "gaussian_grid"','factory = "eval_fixture:RGBData"').replace('side = 10\nnoise = 0.015\n','')
+    text+='\n[training.backend]\ndeterministic_algorithms = true\n'
     for name,factory in [('mean','hypergan.metric_examples:ColorMomentDistance'),('histogram','hypergan.metric_examples:ColorHistogramDifference')]:
         text+=metric(name,factory)
     path.write_text(text)
@@ -117,6 +118,10 @@ def test_snapshot_is_pinned_repeatable_and_publishes_independent_late_stream(tmp
     assert a['result']['step']==1 and c['result']['step']==2
     assert a['result']['protocol']['data_identity']['split']=='evaluation'
     assert a['result']['protocol']['evaluation']['sample_count']==7
+    runtime = a['result']['protocol']['runtime']
+    assert runtime['configured_training_backend'] == {'deterministic_algorithms': True}
+    assert runtime['backend']['deterministic_algorithms'] is True
+    assert runtime['backend']['deterministic_warn_only'] is False
     for receipt in (a,b,c):
         directory=tmp_path/'run/metrics/evaluations'/receipt['evaluation_id']
         assert not (directory/'snapshot.pt').exists()

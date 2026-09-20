@@ -96,6 +96,11 @@ and continue nondeterministically. Workspace values are `:4096:8` or `:16:8` and
 must agree with any already initialized CUDA process. Deterministic CUDA requires
 a valid workspace policy or the corresponding environment setting before CUDA
 initialization. Effective runtime flags and configured policy are both recorded.
+Disposable snapshot evaluators apply the saved backend policy before device/model
+construction and record the effective flags during generated batches, including
+any explicit evaluator context. Changed flags between batches fail evaluation.
+Fresh CPU sampling remains independent of CUDA initialization and preserves the
+caller's existing backend settings.
 
 The historical source enabled TF32 and cuDNN benchmarking. Changing those flags
 or replacing nondeterministic image operations is an explicit numerical

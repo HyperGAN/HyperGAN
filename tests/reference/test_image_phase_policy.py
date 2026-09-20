@@ -190,6 +190,15 @@ def test_component_construction_order_is_independent_of_json_key_order():
     close(trainer_state(second, None), state, exact=True)
 
 
+def test_run_manifest_reports_configured_named_rng_seeds(tmp_path):
+    from hypergan.config import write_default
+    from hypergan.training import train
+    path = write_default(tmp_path / 'config.toml', device='cpu')
+    path.write_text(path.read_text().replace('device = "cpu"', 'device = "cpu"\ndata_seed_offset = 4\nprior_seed_offset = 9'))
+    result = train(path, tmp_path / 'run', stop_after_steps=1)
+    assert result['rng_streams'] == {'data': 46, 'prior': 51, 'penalty': 45, 'sampling': 123}
+
+
 def test_alias_and_prior_bindings_survive_inference_bundle_and_preview_snapshot(tmp_path):
     from hypergan.artifacts import sample, save_bundle
     from hypergan.preview_snapshot import capture_snapshot, renderer_command

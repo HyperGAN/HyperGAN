@@ -2,10 +2,10 @@
 import pytest
 import torch
 
-from hypergan.training import _pack_metric_scalars
+from hypergan.training import _MetricScalarTransfer
 
 
-def test_metric_pack_preserves_mixed_dtypes_shapes_and_detaches():
+def test_metric_transfer_preserves_mixed_dtypes_shapes_without_initializing_cuda(monkeypatch):
     values = [
         torch.tensor(0.1, dtype=torch.float32, requires_grad=True),
         torch.tensor([[1.0000000001]], dtype=torch.float64, requires_grad=True),
@@ -14,18 +14,15 @@ def test_metric_pack_preserves_mixed_dtypes_shapes_and_detaches():
         torch.tensor(0.7, dtype=torch.bfloat16),
     ]
     expected = [float(value.detach()) for value in values]
-    with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU]) as profile:
-        packed = _pack_metric_scalars(values, torch.device('cpu'))
-    assert packed.tolist() == expected
-    assert packed.dtype == torch.float64
-    assert packed.shape == (len(values),)
-    assert not packed.requires_grad and packed.grad_fn is None
+    def no_cuda(*args, **kwargs):
+        raise AssertionError('CPU scalar observations must not initialize CUDA')
+    monkeypatch.setattr(torch.cuda, '_lazy_init', no_cuda)
+    transfer = _MetricScalarTransfer(torch.device('cpu'))
+    assert transfer(values) == expected
     assert all(value.grad is None for value in values)
-    # A scalar read here synchronizes CUDA. Check the transport independently
-    # of the necessary finite-loss/gradient checks in the numerical update.
-    assert not any(event.key == 'aten::_local_scalar_dense' for event in profile.key_averages())
+    assert transfer._groups == []
 
 
-def test_metric_pack_rejects_non_scalar_values():
-    with pytest.raises(RuntimeError, match='shape'):
-        _pack_metric_scalars([torch.ones(2)], torch.device('cpu'))
+def test_metric_transfer_rejects_non_scalar_values():
+    with pytest.raises(ValueError, match='one element'):
+        _MetricScalarTransfer(torch.device('cpu'))([torch.ones(2)])

@@ -1,6 +1,6 @@
 # Public execution profiles
 
-`train` uses the recipe's configured native device. New projects target CUDA;
+`train CONFIG --run-dir RUN_DIR` starts a new run or resumes the latest complete checkpoint in an existing run. A new run uses the recipe's configured native device. New projects target CUDA;
 `--device cpu` creates an explicit small correctness fixture. Native runs use one
 GPU (including a configured `cuda:N`). To train on the two visible local GPUs:
 
@@ -37,13 +37,14 @@ unqualified for arbitrary recipes; local numerical/recovery fixtures do not
 establish application quality or real multi-host execution. This command launches
 local supervised workers. It does not provision machines or launch cloud jobs.
 
-Resume infers the persisted numerical execution identity. An explicit profile must
+Repeating `train` and explicit `resume` infer the persisted numerical execution identity when `--profile` is omitted. Repeated `train` verifies the supplied resolved configuration, applying any `--steps` override before comparison. An override must match the saved total schedule. Checkpoint and preview controls inherit the saved values when omitted. An explicit profile must
 match the original world size, global/local/microbatch sizes and accumulation
-algorithm. `--checkpoint` accepts a complete earlier generation inside the same
-run; otherwise resume pins the latest complete generation. Configuration changes
+algorithm. `resume --checkpoint` accepts a complete earlier generation inside the
+same run; otherwise both commands pin the latest complete generation. Configuration changes
 that alter numerical training, including the total learning-rate schedule, fail.
-Observation configuration and cadence can change under the existing metrics
-contract. Native identity remains the recorded recipe/device and checkpoint
+Explicit `resume --config CONFIG` can change observation configuration and
+cadence under the existing metrics contract; repeated `train` requires those
+settings to match too. Native identity remains the recorded recipe/device and checkpoint
 runtime; no format conversion is performed.
 
 Replicated service deadlines are mutable per attempt: `--startup-timeout`,

@@ -209,7 +209,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
 
 def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
                max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None,
-               preview_keep=None, execution_factory=None):
+               preview_keep=None, execution_factory=None, steps=None, require_same_config=False):
     """Bind an in-memory candidate, then restore before publishing that attempt."""
     if execution_factory is None:
         raise TypeError('run_resume requires an execution_factory')
@@ -228,6 +228,16 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
         preview_keep = manifest.get('preview_keep', 3) if preview_keep is None else preview_keep
         _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
         config = load_config(config_path) if config_path is not None else resolve_config(manifest['config'])
+        if steps is not None:
+            if config_path is None:
+                raise ValueError('A training step override requires an explicit configuration')
+            raw = config_values(config)
+            raw['training']['steps'] = steps
+            config = resolve_config(raw)
+        if require_same_config:
+            original = resolve_config(manifest['config'])
+            if json.dumps(config_values(config), sort_keys=True, allow_nan=False) != json.dumps(config_values(original), sort_keys=True, allow_nan=False):
+                raise ValueError('Training configuration differs from the original run; use a new run directory for a different configuration')
         prepare_custom(config)
         context = _candidate_attempt(run_dir, manifest['run_id'])
         execution = execution_factory(config)

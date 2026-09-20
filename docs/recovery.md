@@ -8,11 +8,13 @@ Create a project and stop after two updates without changing its five-update lea
 hypergan new demo
 hypergan train demo --run-dir runs/demo --checkpoint-every 1 --stop-after-steps 2
 hypergan inspect runs/demo
-hypergan resume runs/demo
+hypergan train demo --run-dir runs/demo
 hypergan sample runs/demo --count 16
 ```
 
-`--steps` on a new `train` sets the total schedule. `--stop-after-steps` limits only the current attempt. `--max-seconds 60` requests a cooperative wall-time stop at an update boundary; startup, a running update and final artifact writing can exceed that budget. It is not a process deadline. Resume continues the saved total schedule; changing architecture, resolution, labels, losses or the schedule requires a new experiment. Partial transfer initialization is not implemented.
+`train CONFIG --run-dir RUN_DIR` creates a new run when the directory is absent and resumes its latest complete checkpoint when it already exists. The supplied resolved configuration must match the saved run; comments and formatting do not affect that comparison. An unrelated directory, incomplete run without a full checkpoint, or invalid checkpoint fails without starting a fresh experiment in that directory. Use a new run directory for changed training settings. Repeated `train` also rejects changed metrics configuration. To intentionally change observation-only settings, use `hypergan resume RUN_DIR --config CONFIG`; its existing numerical compatibility checks still apply.
+
+`--steps` on a new `train` sets the total schedule. Repeat that override when repeating `train`; it must still match the saved total. It does not request additional steps. `--stop-after-steps` limits only the current attempt. `--max-seconds 60` requests a cooperative wall-time stop at an update boundary; startup, a running update and final artifact writing can exceed that budget. It is not a process deadline. `hypergan resume RUN_DIR` continues using the saved configuration without needing the original project or `--steps` override. Both commands continue the saved total schedule; changing architecture, resolution, labels, losses or the schedule requires a new experiment. Partial transfer initialization is not implemented.
 
 `--checkpoint-every N` saves after every N completed updates, with an initial checkpoint and a final checkpoint on a successful or cooperative stop. Resume inherits the interval unless overridden. A failed update may already have changed the discriminator; the failure handler does not save that partial numerical state. Resume starts from the last complete checkpoint, so work since that checkpoint may be repeated.
 
@@ -62,7 +64,7 @@ incomplete trailing row is removed before appending. Resume events record the
 parent attempt/checkpoint and restored step, so abandoned updates remain
 distinguishable from resumed history.
 
-Every resume creates a new attempt with a monotonic index and unique identifier. Existing attempt artifacts are never overwritten. `sample RUN_DIR` uses the bundle selected by the run manifest, and repeated sampling uses unique filenames. Explicit `--output` refuses an existing file. Older checkpoints remain available through `resume RUN_DIR --checkpoint PATH`; replaying one creates a new attempt without replacing earlier samples. Use `inspect` to select the checkpoint's recorded path.
+Every resume, including repeating `train`, creates a new attempt with a monotonic index and unique identifier. Repeating a completed run validates and restores it without additional training updates; it still records a new attempt and final artifacts. Existing attempt artifacts are never overwritten. `sample RUN_DIR` uses the bundle selected by the run manifest, and repeated sampling uses unique filenames. Explicit `--output` refuses an existing file. Older checkpoints remain available through `resume RUN_DIR --checkpoint PATH`; replaying one creates a new attempt without replacing earlier samples. Use `inspect` to select the checkpoint's recorded path.
 
 The checkpoint includes generator/discriminator/auxiliary state, prior, EMA, Adam states and original learning rates, update counters, named RNG streams, global CPU Torch/Python/NumPy RNG states, and the declared data state. Resume validates the saved configuration and execution/data identity before continuing. `--config CONFIG` verifies that a supplied configuration matches; it does not override the checkpoint.
 

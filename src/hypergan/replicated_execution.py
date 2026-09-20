@@ -456,7 +456,7 @@ def run_train(config_path, run_dir, steps=None, *, profile, service_policy=None,
 
 def run_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, service_policy=None,
                checkpoint_every=None, max_seconds=None, stop_after_steps=None,
-               on_event=None, preview_every=None, preview_keep=None):
+               on_event=None, preview_every=None, preview_keep=None, steps=None, require_same_config=False):
     """Internal strict fixed-topology resume, validating before attempt publication."""
     from .run_controller import run_resume as controller_resume
     if profile is None:
@@ -468,4 +468,5 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, serv
     return controller_resume(run_dir, checkpoint, config_path, checkpoint_every=checkpoint_every,
         max_seconds=max_seconds, stop_after_steps=stop_after_steps, on_event=on_event,
         preview_every=preview_every, preview_keep=preview_keep,
+        steps=steps, require_same_config=require_same_config,
         execution_factory=ReplicatedExecutionFactory(profile, service_policy=service_policy))

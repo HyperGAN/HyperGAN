@@ -51,10 +51,10 @@ To stop and continue the same numerical schedule:
 
 ```sh
 hypergan train demo --run-dir runs/recoverable --checkpoint-every 1 --stop-after-steps 2
-hypergan resume runs/recoverable
+hypergan train demo --run-dir runs/recoverable --checkpoint-every 1 --stop-after-steps 2
 ```
 
-Resume creates a new attempt and preserves existing samples. `--max-seconds` provides a cooperative wall-time limit; `--progress-json` emits live JSONL for process managers. See [recovery and compatibility](docs/recovery.md). Image-folder preflight uses the optional `image` extra and `hypergan data-check CONFIG`; see [image data and preprocessing](docs/image-data.md). The default generator remains a 2D numerical fixture and cannot consume image batches.
+Repeat `train` with the same project and run directory to resume the latest complete checkpoint. Each invocation above advances at most two updates toward the saved total; omit `--stop-after-steps` to finish it. The resolved configuration must match, including any `--steps` override. Changed training settings require a new run directory. Checkpoint and preview intervals and the execution profile are inherited when omitted. `hypergan resume RUN_DIR` also remains available, including `--checkpoint PATH` for recovery from an earlier snapshot. Resume creates a new attempt and preserves existing samples. `--max-seconds` provides a cooperative wall-time limit; `--progress-json` emits live JSONL for process managers. See [recovery and compatibility](docs/recovery.md). Image-folder preflight uses the optional `image` extra and `hypergan data-check CONFIG`; see [image data and preprocessing](docs/image-data.md). The default generator remains a 2D numerical fixture and cannot consume image batches.
 
 Use `--preview-every N` for bounded periodic EMA previews. `hypergan events RUN_DIR` reads reconnectable event pages, and `hypergan checkpoint RUN_DIR` requests a save at the next complete update boundary. These commands share the [run observation contract](docs/observation.md). Routine CLI progress defaults to every 100 updates; change it with `--progress-every N` or the persisted browser setting, independently of stored metrics.
 

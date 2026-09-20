@@ -30,6 +30,72 @@ def equal(left, right):
         assert left == right
 
 
+def test_public_train_repeats_resume_exact_state_and_completed_schedule(tmp_path):
+    from hypergan.execution import train as public_train
+    config = write_default(tmp_path / 'config', device='cpu')
+    full, split = tmp_path / 'full', tmp_path / 'split'
+    public_train(config, full, steps=4, checkpoint_every=1)
+    stopped = public_train(config, split, steps=4, checkpoint_every=1, stop_after_steps=2)
+    assert stopped['status'] == 'stopped' and stopped['last_durable_step'] == 2
+    old_sample = Path(stopped['sample_path']).read_bytes()
+    old_bundle = Path(stopped['bundle_path']).read_bytes()
+    resumed = public_train(config, split, steps=4)
+    assert resumed['status'] == 'complete' and resumed['steps'] == 4
+    assert resumed['attempt_index'] == 2
+    assert resumed['run_id'] == stopped['run_id']
+    assert resumed['checkpoint_every'] == 1
+    equal(read_checkpoint(full)[2], read_checkpoint(split)[2])
+    assert Path(stopped['sample_path']).read_bytes() == old_sample
+    assert Path(stopped['bundle_path']).read_bytes() == old_bundle
+
+    before = {p.relative_to(split): p.read_bytes() for p in split.rglob('*') if p.is_file()}
+    for steps in (None, 3, 5):
+        with pytest.raises(ValueError, match='configuration differs'):
+            public_train(config, split, steps=steps)
+        assert before == {p.relative_to(split): p.read_bytes() for p in split.rglob('*') if p.is_file()}
+
+    events = []
+    repeated = public_train(config, split, steps=4, on_event=events.append)
+    assert repeated['status'] == 'complete' and repeated['steps'] == 4
+    assert repeated['run_id'] == stopped['run_id']
+    assert not [row for row in events if row['event'] == 'train']
+    equal(read_checkpoint(full)[2], read_checkpoint(split)[2])
+
+
+def test_repeated_train_checks_metric_argument_types_under_lock_before_factories(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from hypergan.execution import prepare_train
+    import hypergan.run_controller as controller
+
+    config = write_default(tmp_path / 'config', device='cpu')
+    config.write_text(config.read_text() + '''
+[metrics]
+disable = ["custom/typed"]
+[metrics.custom."custom/typed"]
+factory = "uninstalled.metrics:Typed"
+inputs = { value = "update.g_loss" }
+args = { flag = true }
+''')
+    run = tmp_path / 'run'
+    train(config, run, stop_after_steps=1)
+    prepared = prepare_train(config, run)
+    before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+    original_lock = controller.run_lock
+
+    @contextmanager
+    def change_config_after_preparation(run_dir):
+        with original_lock(run_dir):
+            config.write_text(config.read_text().replace('flag = true', 'flag = 1'))
+            yield
+
+    monkeypatch.setattr(controller, 'run_lock', change_config_after_preparation)
+    monkeypatch.setattr(controller, 'prepare_custom',
+                        lambda _: pytest.fail('custom metric factory validation preceded config rejection'))
+    with pytest.raises(ValueError, match='configuration differs'):
+        prepared.run()
+    assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+
+
 def test_resume_matches_uninterrupted_and_replays_old_checkpoint_without_overwrite(tmp_path):
     config = write_default(tmp_path / 'config', device="cpu")
     full = train(config, tmp_path / 'full', checkpoint_every=1)

@@ -141,6 +141,28 @@ def test_public_cpu_profile_observation_and_earlier_resume_are_exact(tmp_path):
     recover_public_job(tmp_path)
 
 
+def test_repeated_train_replicated_steps_override_and_saved_profile_are_exact(tmp_path):
+    config, profile = setup(tmp_path)
+    full, split = tmp_path / 'full', tmp_path / 'split'
+    common = ('--no-server', '--steps', 6, '--checkpoint-every', 1)
+    expected = result(cli(tmp_path, tmp_path / 'full-pids', 'train', config,
+                          '--run-dir', full, '--profile', profile, *common)[0])
+    stopped = result(cli(tmp_path, tmp_path / 'stop-pids', 'train', config,
+                         '--run-dir', split, '--profile', profile,
+                         '--stop-after-steps', 2, *common)[0])
+    profile.unlink()
+    resumed = result(cli(tmp_path, tmp_path / 'resume-pids', 'train', config,
+                         '--run-dir', split, '--steps', 6, '--no-server')[0])
+    assert expected['status'] == resumed['status'] == 'complete'
+    assert resumed['steps'] == resumed['last_durable_step'] == 6
+    assert resumed['run_id'] == stopped['run_id']
+    assert resumed['attempt_index'] == 2
+    assert resumed['execution'] == stopped['execution']
+    assert resumed['execution']['accumulation_steps'] == 2
+    assert resumed['checkpoint_every'] == 1
+    same_runs(full, split)
+
+
 def test_installed_module_entrypoint_named_profile_and_inference_commands(tmp_path):
     from hypergan.config import write_default
     config = write_default(tmp_path / 'project', device='cpu')

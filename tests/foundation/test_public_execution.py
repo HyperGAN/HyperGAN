@@ -189,3 +189,157 @@ def test_explicit_config_supplies_validated_checkpoint_schedule(tmp_path, saved_
     info_path.write_text(json.dumps(info))
     with pytest.raises(ValueError, match='outside the original schedule'):
         prepare_resume(run, config_path=config_path)
+
+
+@pytest.mark.parametrize('replicated', [False, True], ids=['native', 'replicated'])
+def test_repeated_train_selects_latest_and_inherits_saved_controls(tmp_path, replicated):
+    path, run, checkpoint, manifest = stopped(tmp_path, replicated=replicated)
+    manifest.update(preview_every=2, preview_keep=5)
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+    prepared = prepare_train(path, run)
+    assert prepared.operation == 'resume'
+    assert prepared.checkpoint == checkpoint
+    assert prepared.controls == dict(checkpoint_every=7, max_seconds=None,
+                                     stop_after_steps=None, preview_every=2, preview_keep=5)
+    if replicated:
+        assert prepared.profile['execution'] == manifest['execution']
+    else:
+        assert prepared.profile is None
+    assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+
+
+def test_repeated_train_allows_explicit_attempt_controls(tmp_path):
+    path, run, checkpoint, manifest = stopped(tmp_path)
+    manifest['preview_every'] = 2
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    prepared = prepare_train(path, run, checkpoint_every=2, preview_every=0,
+                             preview_keep=5, stop_after_steps=1,
+                             service_policy={'command_timeout': 120})
+    assert prepared.checkpoint == checkpoint
+    assert prepared.controls['checkpoint_every'] == 2
+    assert prepared.controls['preview_every'] == 0
+    assert prepared.controls['preview_keep'] == 5
+    assert prepared.controls['stop_after_steps'] == 1
+    assert prepared.service_policy['command_timeout'] == 120
+
+
+def test_repeated_train_effective_steps_must_match_original_schedule(tmp_path):
+    from hypergan.config import resolve_config
+    path, run, checkpoint, manifest = stopped(tmp_path, replicated=False)
+    values = config_values(load_config(path))
+    values['training']['steps'] = 9
+    config_hash = fingerprint(resolve_config(values))
+    manifest.update(config=values, config_sha256=config_hash)
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    info = json.loads((checkpoint / 'manifest.json').read_text())
+    info['config_sha256'] = config_hash
+    (checkpoint / 'manifest.json').write_text(json.dumps(info))
+    prepared = prepare_train(path, run, steps=9)
+    assert prepared.operation == 'resume'
+    assert prepared.config['training']['steps'] == 9
+    for steps in (None, 8, 10):
+        with pytest.raises(ValueError, match='configuration differs'):
+            prepare_train(path, run, steps=steps)
+
+
+def test_train_control_defaults_distinguish_omission_from_disable(tmp_path):
+    from hypergan.cli import _parser
+    args = _parser().parse_args(['train', 'config', '--run-dir', 'run'])
+    assert args.checkpoint_every is args.preview_every is args.preview_keep is None
+    disabled = _parser().parse_args(['train', 'config', '--run-dir', 'run', '--no-previews'])
+    assert disabled.preview_every == 0
+    prepared = prepare_train(project(tmp_path), tmp_path / 'run')
+    assert prepared.controls['checkpoint_every'] == 100
+    assert prepared.controls['preview_every'] == 0
+    assert prepared.controls['preview_keep'] == 3
+
+
+@pytest.mark.parametrize('conflict', ['config', 'metrics', 'schedule', 'profile', 'missing-checkpoint'])
+def test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports(
+        tmp_path, monkeypatch, capsys, conflict):
+    from hypergan import cli
+    path, run, _, _ = stopped(tmp_path)
+    extra = []
+    if conflict == 'config':
+        path.write_text(path.read_text().replace('steps = 5', 'steps = 6'))
+    elif conflict == 'metrics':
+        path.write_text(path.read_text() + '\n[metrics]\npreset = "none"\n')
+    elif conflict == 'schedule':
+        extra = ['--steps', '6']
+    elif conflict == 'profile':
+        extra = ['--profile', 'cpu-single']
+    else:
+        (run / 'distributed-checkpoints' / 'latest.json').unlink()
+    before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+    monkeypatch.setattr(cli, '_training_viewer', lambda _: pytest.fail('viewer started on conflict'))
+    original_import = builtins.__import__
+    def guarded(name, *args, **kwargs):
+        assert name.split('.')[0] not in {'torch', 'particlegan'}
+        return original_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', guarded)
+    assert cli.main(['train', str(path), '--run-dir', str(run), '--server',
+                     '--progress-every', '2', *extra]) == 1
+    error = capsys.readouterr().err
+    assert 'error:' in error
+    assert ('configuration differs' if conflict in {'config', 'metrics', 'schedule'} else
+            'execution identity differs' if conflict == 'profile' else
+            'No full training checkpoint') in error
+    assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('kind', ['empty-directory', 'file'])
+def test_repeated_train_rejects_existing_paths_without_run_metadata(tmp_path, kind):
+    path = project(tmp_path)
+    run = tmp_path / 'run'
+    if kind == 'file':
+        run.write_bytes(b'preserve me')
+    else:
+        run.mkdir()
+    with pytest.raises((OSError, ValueError)):
+        prepare_train(path, run)
+    if kind == 'file':
+        assert run.read_bytes() == b'preserve me'
+    else:
+        assert list(run.iterdir()) == []
+
+
+def test_repeated_train_revalidates_changed_config_before_dispatch(tmp_path):
+    path, run, _, _ = stopped(tmp_path, replicated=False)
+    prepared = prepare_train(path, run)
+    before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+    path.write_text(path.read_text().replace('steps = 5', 'steps = 6'))
+    with pytest.raises(ValueError, match='configuration differs'):
+        prepared.run()
+    assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+
+
+def test_repeated_train_metrics_are_strict_but_explicit_resume_can_change_them(tmp_path):
+    path, run, checkpoint, _ = stopped(tmp_path, replicated=False)
+    path.write_text(path.read_text() + '\n[metrics]\npreset = "none"\n')
+    with pytest.raises(ValueError, match='configuration differs'):
+        prepare_train(path, run)
+    prepared = prepare_resume(run, config_path=path)
+    assert prepared.checkpoint == checkpoint
+    assert prepared.config['metrics']['preset'] == 'none'
+
+
+def test_repeated_train_accepts_equivalent_config_from_another_filename(tmp_path):
+    path, run, checkpoint, _ = stopped(tmp_path, replicated=False)
+    copied = tmp_path / 'renamed.toml'
+    copied.write_text('# Only comments and the file location changed.\n' + path.read_text())
+    prepared = prepare_train(copied, run)
+    assert prepared.operation == 'resume' and prepared.checkpoint == checkpoint
+
+
+def test_prepared_new_train_cannot_silently_switch_to_existing_run(tmp_path):
+    path = project(tmp_path)
+    prepared = prepare_train(path, tmp_path / 'run')
+    # Another invocation creates the run while the prepared caller is opening
+    # its viewer. The first caller must not silently take over that invocation.
+    path.unlink()
+    _, run, _, _ = stopped(tmp_path, replicated=False)
+    before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+    with pytest.raises((OSError, ValueError)):
+        prepared.run()
+    assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}

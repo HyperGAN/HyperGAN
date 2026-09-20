@@ -32,6 +32,15 @@ def _same(left, right):
     return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(right, sort_keys=True, allow_nan=False)
 
 
+def _training_config(config_path, steps=None):
+    config = load_config(config_path)
+    if steps is not None:
+        values = config_values(config)
+        values['training']['steps'] = steps
+        config = resolve_config(values)
+    return config
+
+
 def _profile(value, config):
     if value is None:
         return None
@@ -127,6 +136,7 @@ class PreparedExecution:
     profile: object
     service_policy: object
     controls: dict
+    repeat_train: bool = False
 
     def run(self, *, on_event=None):
         # Revalidate files/options before dispatch: preparation is not a lock and
@@ -136,9 +146,14 @@ class PreparedExecution:
                 profile=self.profile, service_policy=self.service_policy, **self.controls)
         else:
             current = prepare_resume(self.run_dir, self.checkpoint, self.config_path,
+                steps=self.steps, _repeat_train=self.repeat_train,
                 profile=self.profile, service_policy=self.service_policy, **self.controls)
+        if current.operation != self.operation:
+            raise FileExistsError(f'Run directory appeared after training was prepared: {self.run_dir}')
         if fingerprint(current.config) != fingerprint(self.config) or not _same(_execution(current.profile), _execution(self.profile)):
             raise ValueError('Prepared numerical configuration or execution identity changed')
+        if self.repeat_train and not _same(config_values(current.config), config_values(self.config)):
+            raise ValueError('Prepared training configuration changed')
         if _execution(self.profile) is None:
             from .training import train as run_train, resume as run_resume
             options = {}
@@ -149,25 +164,28 @@ class PreparedExecution:
             return run_train(self.config_path, self.run_dir, self.steps,
                              on_event=on_event, **options, **self.controls)
         return run_resume(self.run_dir, self.checkpoint, self.config_path,
+                          steps=self.steps, require_same_config=self.repeat_train,
                           on_event=on_event, **options, **self.controls)
 
 
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
-                  checkpoint_every=100, max_seconds=None, stop_after_steps=None,
-                  preview_every=0, preview_keep=3):
-    """Resolve train selection and controls without workers, a viewer or run writes."""
+                  checkpoint_every=None, max_seconds=None, stop_after_steps=None,
+                  preview_every=None, preview_keep=None):
+    """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls
-    _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
-    config = load_config(config_path)
-    if steps is not None:
-        values = config_values(config)
-        values['training']['steps'] = steps
-        config = resolve_config(values)
-    profile = _profile(profile, config)
-    policy = _policy(profile, service_policy)
     run_dir = Path(run_dir).resolve()
     if run_dir.exists():
-        raise FileExistsError(f'Run directory already exists: {run_dir}')
+        return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
+            profile=profile, service_policy=service_policy, checkpoint_every=checkpoint_every,
+            max_seconds=max_seconds, stop_after_steps=stop_after_steps,
+            preview_every=preview_every, preview_keep=preview_keep)
+    checkpoint_every = 100 if checkpoint_every is None else checkpoint_every
+    preview_every = 0 if preview_every is None else preview_every
+    preview_keep = 3 if preview_keep is None else preview_keep
+    _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
+    config = _training_config(config_path, steps)
+    profile = _profile(profile, config)
+    policy = _policy(profile, service_policy)
     if _execution(profile) is not None:
         from .replicated_execution import MAX_SAMPLE_COUNT
         if config['sampling']['count'] > MAX_SAMPLE_COUNT:
@@ -177,17 +195,24 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls)
 
 
-def prepare_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, service_policy=None,
+def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _repeat_train=False,
+                   profile=None, service_policy=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, preview_keep=None):
     """Infer persisted numerical routing and pin an earlier/latest complete snapshot."""
     from .run_controller import _controls
     run_dir = Path(run_dir).resolve()
+    if not run_dir.is_dir():
+        raise ValueError(f'Run directory does not exist or is not a directory: {run_dir}')
     manifest = _read_metadata(run_dir / 'manifest.json')
     required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}
     if not required.issubset(manifest) or type(manifest['schema_version']) is not int or manifest['schema_version'] != 1:
         raise ValueError('Run manifest has no supported full recovery contract')
-    config = load_config(config_path) if config_path is not None else resolve_config(manifest['config'])
+    config = _training_config(config_path, steps) if config_path is not None else resolve_config(manifest['config'])
+    if config_path is None and steps is not None:
+        raise ValueError('A training step override requires an explicit configuration')
+    if _repeat_train and not _same(config_values(config), config_values(resolve_config(manifest['config']))):
+        raise ValueError('Training configuration differs from the original run; use a new run directory for a different configuration')
     if fingerprint(config) != manifest['config_sha256']:
         raise ValueError('Resume configuration differs from the original run; total training schedule cannot change')
     saved = manifest.get('execution')
@@ -208,11 +233,11 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, 
     checkpoint = _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'])
     controls = dict(checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                     stop_after_steps=stop_after_steps, preview_every=preview_every, preview_keep=preview_keep)
-    return PreparedExecution('resume', config, run_dir, config_path, checkpoint, None, profile, policy, controls)
+    return PreparedExecution('resume', config, run_dir, config_path, checkpoint, steps, profile, policy, controls, _repeat_train)
 
 
 def train(config_path, run_dir, steps=None, *, on_event=None, **options):
-    """Train natively by default, or use an explicit fixed-topology profile."""
+    """Create or resume a run; existing runs require the same resolved configuration."""
     return prepare_train(config_path, run_dir, steps, **options).run(on_event=on_event)
 
 

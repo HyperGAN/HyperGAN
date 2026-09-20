@@ -2,6 +2,50 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Repeatable training CLI (2026-09-20): owner requested subagent implementation
+and a direct local commit to `develop` for this change, overriding the usual PR
+workflow. Verified clean local/fetched/GitHub `develop` at
+`f8f5ae15c61ff48a88bedbe6a6818ebd9e91cde0` and PR #354 merged before starting.
+Three subagents implemented, tested and independently reviewed in external
+`repeatable-train*` worktrees.
+
+`hypergan train CONFIG --run-dir RUN_DIR` now creates a new run or resumes the
+latest complete checkpoint in an existing run. The full resolved configuration,
+including metrics and the effective `--steps` total, must match. Comments and
+formatting do not matter. Omitted profile/checkpoint/preview options inherit the
+saved values. Config rejection occurs before viewer startup and is rechecked
+under the writer lock before custom factories. Explicit `resume` retains earlier
+snapshot selection and observation-only changes. Completed repeats add no
+training updates but still record a restored attempt and final artifacts.
+Invalid directories/checkpoints never become fresh runs. See the updated
+[recovery guide](../docs/recovery.md).
+
+Validation: source → sdist → wheel build; all 58 installed Python runtime files
+byte-match candidate source. Base-only installed foundation tests passed 504
+checks in 39.51 seconds with no torch/ParticleGAN installed. Focused installed
+under-lock config mutation regression passed (1 test, 2.05 seconds), including
+custom metric argument `true` versus `1`. Native CUDA on physical GPU 0 passed
+exact uninterrupted/repeated complete-state equality, completed-repeat zero
+updates, immutable earlier artifacts and config rejection without run mutation.
+The GPU proof used Python 3.12.13 and torch 2.14.0+cu130. Integrated installed CPU
+acceptance passed 533 tests in 157.04 seconds, covering foundation, native recovery,
+real two-process replicated CLI execution and core CLI. The final under-lock
+regression above was added after that suite started and passed separately. All
+checks completed without failures or skips; whitespace and local documentation
+links passed.
+
+Commands: `git fetch origin develop`, GitHub branch/PR queries, `python -m build`,
+installed `python -I -m pytest` over foundation/recovery/public execution/core CLI,
+and the evidence directory's `cuda-acceptance.py` with GPU 0's UUID as the sole
+visible GPU. Evidence/build/test logs and source hashes:
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-repeatable-train/`.
+The initial isolated validation environment lacked its inherited build dependency
+path; that setup error was fixed before a successful package build. Existing
+installations, owner training runs and GPU 1 were untouched. No PR, push, release,
+paid compute, older-checkpoint migration or new two-GPU qualification is included.
+Next: use the repeatable command for a supported run in an updated installation,
+then continue the image plan and its remaining qualification gates.
+
 Interval FID implementation (2026-09-20): [PR #354](https://github.com/HyperGAN/HyperGAN/pull/354)
 adds configured step intervals, one asynchronous snapshot evaluator, explicit busy
 skips, current-run recovery and visible schedules/cancellation before any result.

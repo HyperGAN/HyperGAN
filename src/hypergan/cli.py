@@ -23,8 +23,8 @@ def _positive_seconds(value):
     return number
 
 
-def _run_options(parser, *, resume=False):
-    parser.add_argument("--profile", help="execution profile name or TOML path; train defaults to native device, resume inherits")
+def _run_options(parser):
+    parser.add_argument("--profile", help="execution profile name or TOML path; new runs default to native device, existing runs inherit")
     from .execution import SERVICE_TIMEOUTS
     for name in SERVICE_TIMEOUTS:
         parser.add_argument("--" + name.replace("_", "-"), type=_positive_seconds,
@@ -36,8 +36,8 @@ def _run_options(parser, *, resume=False):
     parser.add_argument("--server-host", help="listen address (default: 0.0.0.0)")
     parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--open", action="store_true", help="require the viewer and open its sign-in page")
-    parser.add_argument("--checkpoint-every", type=_positive_int, default=None if resume else 100,
-                        help="save a complete checkpoint every N updates (default: 100; resume inherits)")
+    parser.add_argument("--checkpoint-every", type=_positive_int,
+                        help="save a complete checkpoint every N updates (default: 100; existing runs inherit)")
     parser.add_argument("--max-seconds", type=_positive_seconds,
                         help="stop at an update boundary after this attempt's wall-time budget")
     parser.add_argument("--stop-after-steps", type=_positive_int,
@@ -51,9 +51,9 @@ def _run_options(parser, *, resume=False):
                           help="publish an isolated EMA preview every N complete updates")
     previews.add_argument("--no-previews", dest="preview_every", action="store_const", const=0,
                           help="disable periodic previews for this attempt")
-    parser.set_defaults(preview_every=None if resume else 0)
-    parser.add_argument("--preview-keep", type=_positive_int, default=None if resume else 3,
-                        help="retain at most N periodic previews (default: 3; resume inherits)")
+    parser.set_defaults(preview_every=None)
+    parser.add_argument("--preview-keep", type=_positive_int,
+                        help="retain at most N periodic previews (default: 3; existing runs inherit)")
 
 
 def _parser():
@@ -118,16 +118,16 @@ def _parser():
     operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
     checkpoint.add_argument("--attempt-id", help="target this attempt (default: current manifest attempt)")
-    train = commands.add_parser("train", help="Train a numerical reference on its configured device (requires the train extra)")
+    train = commands.add_parser("train", help="Create a run or resume its latest checkpoint with the same configuration")
     train.add_argument("config", type=Path)
-    train.add_argument("--run-dir", type=Path, required=True)
-    train.add_argument("--steps", type=_positive_int)
+    train.add_argument("--run-dir", type=Path, required=True, help="new run directory, or an existing run to resume")
+    train.add_argument("--steps", type=_positive_int, help="total training schedule; must match when resuming")
     _run_options(train)
     resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")
     resume.add_argument("run_dir", type=Path)
     resume.add_argument("--checkpoint", type=Path, help="choose an older checkpoint within this run")
     resume.add_argument("--config", type=Path, help="verify exact compatibility with this configuration")
-    _run_options(resume, resume=True)
+    _run_options(resume)
     sample = commands.add_parser("sample", help="Sample a saved reference model (requires the train extra)")
     sample.add_argument("run_dir", type=Path)
     sample.add_argument("--count", type=_positive_int, default=16)

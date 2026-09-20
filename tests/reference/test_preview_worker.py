@@ -4,7 +4,7 @@ import json
 import os
 import time
 from pathlib import Path
-from threading import Event
+from threading import Event, Timer
 
 import pytest
 
@@ -216,3 +216,46 @@ def test_stalled_snapshot_storage_has_terminal_deadline_and_source_context(tmp_p
         release.set()
         worker.abort()
     assert not list(tmp_path.glob('.preview-*'))
+
+
+def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path, monkeypatch):
+    import hypergan.preview_worker as worker
+    import hypergan.run_controller as controller
+    from hypergan.config import write_default
+    from hypergan.training import train
+
+    class Stop:
+        reason = None
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+    stop = Stop()
+    monkeypatch.setattr(controller, 'GracefulStop', lambda: stop)
+    entered = Event()
+    timers = []
+
+    def render(*args, cancellation_event, **kwargs):
+        entered.set()
+        assert cancellation_event.wait(5), 'Terminal drain ignored the stop request'
+        raise RuntimeError('Preview cancelled')
+
+    def observe(row):
+        if row['event'] == 'train' and row['step'] == 5:
+            assert entered.wait(5)
+            timer = Timer(.05, lambda: setattr(stop, 'reason', 'SIGTERM'))
+            timers.append(timer)
+            timer.start()
+
+    monkeypatch.setattr(worker, 'render_snapshot', render)
+    config = write_default(tmp_path / 'config', device='cpu')
+    started = time.monotonic()
+    try:
+        result = train(config, tmp_path / 'run', preview_every=1, on_event=observe)
+    finally:
+        for timer in timers:
+            timer.cancel()
+            timer.join()
+    assert time.monotonic() - started < 3
+    assert result['stop_reason'] == 'SIGTERM' and result['cancelled_previews'] == 1
+    assert not result['observation_errors']

@@ -469,12 +469,14 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             emit('checkpoint', checkpoint_path=str(path), request_ids=list(request_ids or []))
             return path, None
 
-        def observer_error(source, error):
-            record = {'source': source, 'step': manifest['steps'], 'attempt_id': attempt_id,
+        def observer_error(source, error, *, step=None):
+            source_step = manifest['steps'] if step is None else step
+            record = {'source': source, 'step': source_step, 'attempt_id': attempt_id,
                       'error': f'{type(error).__name__}: {error}'[:1000]}
             manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
             publish(wait=False)
-            emit('observer_error', **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
+            emit('observer_error', _step=source_step,
+                 **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
 
         def publish_preview_result(preview):
             nonlocal preview_publications
@@ -487,7 +489,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             publish(wait=False)
             emit('preview', _step=record['step'], preview=record)
             for error in errors:
-                observer_error('preview_retention', RuntimeError(error))
+                observer_error('preview_retention', RuntimeError(error), step=record['step'])
 
         def collect_preview(*, final=False):
             hook = getattr(execution, 'close_previews' if final else 'poll_preview', None)
@@ -506,7 +508,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             except FatalExecutionError:
                 raise
             except Exception as exc:
-                observer_error('preview', exc)
+                observer_error('preview', exc, step=getattr(exc, 'preview_context', {}).get('step'))
 
         def preview_now():
             if getattr(execution, 'preview_busy', False):

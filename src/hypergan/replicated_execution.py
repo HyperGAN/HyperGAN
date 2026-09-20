@@ -299,13 +299,14 @@ class ReplicatedExecution:
         return self._previews is not None and self._previews.busy
 
     def poll_preview(self, *, wait=False):
-        completed = False
+        completed, primary = False, None
         try:
             result = self._previews.poll(wait=wait) if self._previews is not None else None
             completed = result is not None
             return PreviewResult(**result) if result is not None else None
-        except BaseException:
+        except BaseException as error:
             completed = True
+            primary = error
             raise
         finally:
             # A poll with no completed observation must not add a synchronous
@@ -314,7 +315,7 @@ class ReplicatedExecution:
                 try:
                     self.service.assert_healthy()
                 except BaseException as health:
-                    self._fail(health)
+                    self._fail(primary if isinstance(primary, (FatalExecutionError, KeyboardInterrupt, SystemExit)) else health)
 
     def close_previews(self):
         return self.poll_preview(wait=True)

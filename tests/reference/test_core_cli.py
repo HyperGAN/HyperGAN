@@ -31,7 +31,12 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     before = rows[-1]["manifest"]
     assert before["status"] != "complete" and before["last_durable_step"] == 2
     previews = json.loads((run / "previews" / "index.json").read_text())
-    assert [record["step"] for record in previews["previews"]] == [1, 2]
+    first_steps = [record["step"] for record in previews["previews"]]
+    assert first_steps == sorted(set(first_steps)) and first_steps[0] == 1
+    assert set(first_steps) <= {1, 2}
+    assert len(first_steps) + before.get("skipped_previews_busy", 0) == 2
+    assert not before["observation_errors"]
+    assert all(record["identity"]["attempt_id"] == before["attempt_id"] for record in previews["previews"])
     old_sample = Path(before["sample_path"])
     saved = old_sample.read_bytes()
     second = cli(tmp_path, "resume", run, "--no-server")
@@ -39,7 +44,19 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     after = json.loads(second.stdout)
     assert after["status"] == "complete" and after["steps"] == 5
     previews = json.loads((run / "previews" / "index.json").read_text())
-    assert [record["step"] for record in previews["previews"]] == [4, 5]
+    events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+    measured = [row for row in events if row["event"] == "preview"]
+    resumed_steps = [row["step"] for row in measured if row["attempt_id"] == after["attempt_id"]]
+    assert resumed_steps == sorted(set(resumed_steps)) and resumed_steps[0] == 3
+    assert set(resumed_steps) <= {3, 4, 5}
+    skipped = after.get("skipped_previews_busy", 0) - before.get("skipped_previews_busy", 0)
+    assert len(resumed_steps) + skipped == 3
+    assert not after["observation_errors"]
+    assert [record["step"] for record in previews["previews"]] == (first_steps + resumed_steps)[-2:]
+    for record in previews["previews"]:
+        payload = json.loads(Path(record["path"]).read_text())
+        assert payload["step"] == record["step"]
+        assert payload["identity"] == record["identity"]
     assert after["preview_every"] == 1 and after["preview_keep"] == 2
     assert after["attempt_id"] != before["attempt_id"]
     assert after["sample_path"] != before["sample_path"]

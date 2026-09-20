@@ -341,6 +341,7 @@ class TrainingOutput:
 
     def configure(self, run_dir, *, progress_every=None):
         from .console_settings import ConsolePolicy
+        self.policy.close()
         self.policy = ConsolePolicy(run_dir, progress_every=progress_every)
 
     def result(self, result, *, run_dir=None):
@@ -363,14 +364,17 @@ def training_output(*, progress_json=False, progress_every=None):
     training. Shutdown gets one shared second plus forced process cleanup.
     """
     originals = sys.stdout, sys.stderr
-    stdout = stderr = native = None
+    stdout = stderr = native = output = None
     try:
         native = _NativeStreams()
         stdout = _Stream(originals[0], 1)
         stderr = _Stream(originals[1], 2)
         sys.stdout, sys.stderr = stdout, stderr
-        yield TrainingOutput(stdout, stderr, progress_json, progress_every)
+        output = TrainingOutput(stdout, stderr, progress_json, progress_every)
+        yield output
     finally:
+        if output is not None:
+            output.policy.close()
         # Flush cached Python and C stdio while both independent input drains
         # are alive. Otherwise interpreter/libc finalization could write those
         # buffers into the restored, already full destination and hang exit.

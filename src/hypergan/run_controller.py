@@ -17,6 +17,7 @@ from .metrics import digest, metric_catalog, publish_catalog, select_metrics
 from .metric_plugins import prepare_custom, ScalarMetrics
 from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
 from .observation_io import ObservationIO
+from .background_poll import BackgroundPoll
 from .run_signals import GracefulStop
 
 
@@ -312,7 +313,6 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     sequence = 0
     dropped = None
     last_published = 0.0
-    last_request_poll = 0.0
     last_event_step = None
     custom_publications = 0
     checkpoint_custom_publications = 0
@@ -397,6 +397,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         manifest['seconds'] = now - started
         journal.publish(manifest, wait=wait)
         last_published = now
+
+    request_reader = None
 
     def publish_custom(outcomes):
         nonlocal custom_publications
@@ -487,15 +489,17 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             for error in errors:
                 observer_error('preview_retention', RuntimeError(error))
 
+        from .run_requests import pending_requests, acknowledge_request
+        request_reader = BackgroundPoll(lambda: pending_requests(run_dir))
+
         def poll_requests(*, force=False):
-            nonlocal last_request_poll
-            now = time.monotonic()
-            if not force and now - last_request_poll < 0.25:
-                return
-            last_request_poll = now
-            from .run_requests import pending_requests, acknowledge_request
             try:
-                pending = pending_requests(run_dir)
+                if force:
+                    pending = request_reader.read_now()
+                else:
+                    ready, pending = request_reader.poll()
+                    if not ready:
+                        return
             except RuntimeError:
                 return  # A producer holds the short queue lock; retry next boundary.
             except Exception as exc:
@@ -619,10 +623,13 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         manifest['status'] = 'complete' if manifest['steps'] == config['training']['steps'] else 'stopped'
         publish()
         emit(manifest['status'], stop_reason=manifest['stop_reason'], checkpoint_path=manifest['checkpoint_path'])
+        request_reader.close(wait=True)
         journal.close()
         return manifest
     except BaseException as exc:
         # Execution may contain a half update: NEVER checkpoint in this handler.
+        if request_reader is not None:
+            request_reader.close()
         try:
             custom_metrics.close(drain=False)
         except BaseException as cleanup_error:

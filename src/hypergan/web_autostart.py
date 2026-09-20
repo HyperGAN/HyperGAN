@@ -127,13 +127,23 @@ def _read_state(private, *, locked=False):
 
 
 def _session(state):
-    credentials = json.loads(Path(state['session_file']).read_text(encoding='utf-8'))
+    credential_path = Path(state['session_file'])
+    with _launch_lock(credential_path.parent):
+        credentials = json.loads(credential_path.read_text(encoding='utf-8'))
     if credentials['server_instance_id'] != state['server_instance_id']:
         raise ValueError('Viewer credentials do not match the registered incarnation')
     return SimpleNamespace(host=credentials['origin'].removeprefix('http://'),
                            origin=credentials['origin'], instance_id=credentials['server_instance_id'],
                            _token=credentials.get('token', ''), auth_mode=credentials['auth_mode'],
                            bind_host=credentials['bind_host'])
+
+
+def _cleanup_session(private, launch_id):
+    # Match the credential reader's lock, so Windows deletion never races our
+    # own open handle. External programs holding the file remain outside it.
+    with _launch_lock(private):
+        (private / ('session-' + launch_id + '.json')).unlink(missing_ok=True)
+        (private / ('stop-' + launch_id)).unlink(missing_ok=True)
 
 
 def _probe(session):
@@ -227,8 +237,7 @@ def _broker(root, private, launch_id):
                 return
         # Metadata publication can fail after children are already reaped.
         # Credential cleanup must run regardless, before the lifetime lock exits.
-        ownership.callback(credential_path.unlink, missing_ok=True)
-        ownership.callback((private / ('stop-' + launch_id)).unlink, missing_ok=True)
+        ownership.callback(_cleanup_session, private, launch_id)
         def publish(status, error=None):
             state.update(status=status, error=error, supervisor_pid=os.getpid(),
                          processes={name: child.pid for name, child in children.items()})
@@ -245,7 +254,8 @@ def _broker(root, private, launch_id):
         try:
             listener = bind_server(state['port'], state['host'])
             session = LocalSession(listener.getsockname()[1], host=state['host'], auth=state['auth'])
-            session.write_credentials(credential_path)
+            with _launch_lock(private):
+                session.write_credentials(credential_path)
             for name, target, args in [('server', _server, (root, listener, session, stop)),
                                       ('projector', _project, (root, stop))]:
                 child = context.Process(target=target, args=args, name='hypergan-' + name)

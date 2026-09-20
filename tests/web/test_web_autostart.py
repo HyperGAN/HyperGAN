@@ -329,3 +329,54 @@ if __name__ == '__main__':
                 until(lambda: not any(_process_running(pid) for pid in record['processes'].values()))
             credential = private / ('session-' + launch_id + '.json')
             credential.unlink(missing_ok=True)
+
+
+def test_credential_cleanup_waits_for_own_active_reader(tmp_path, monkeypatch):
+    import threading
+    from hypergan.web_autostart import _cleanup_session, _registry, _session
+    from hypergan.web_session import LocalSession
+    private = _registry(tmp_path / 'pending')
+    launch_id = 'credential-read-race'
+    session = LocalSession(8123, auth='token')
+    credential = session.write_credentials(private / ('session-' + launch_id + '.json'))
+    state = dict(session_file=str(credential), server_instance_id=session.instance_id)
+    opened, release, cleanup_started, cleaned = [threading.Event() for _ in range(4)]
+    failures = []
+    read_text = Path.read_text
+    def held_read(path, *args, **kwargs):
+        if path != credential:
+            return read_text(path, *args, **kwargs)
+        with path.open(encoding='utf-8') as stream:
+            opened.set()
+            assert release.wait(3), 'test did not release credential reader'
+            return stream.read()
+    monkeypatch.setattr(Path, 'read_text', held_read)
+    def read():
+        try:
+            assert _session(state).instance_id == session.instance_id
+        except BaseException as exc:
+            failures.append(exc)
+    def cleanup():
+        cleanup_started.set()
+        try:
+            _cleanup_session(private, launch_id)
+            cleaned.set()
+        except BaseException as exc:
+            failures.append(exc)
+    reader, remover = threading.Thread(target=read), threading.Thread(target=cleanup)
+    reader.start()
+    try:
+        assert opened.wait(3)
+        remover.start()
+        assert cleanup_started.wait(3)
+        assert not cleaned.wait(.1), 'cleanup passed an active credential reader'
+        assert credential.exists()
+    finally:
+        release.set()
+        reader.join(3)
+        if remover.ident is not None:
+            remover.join(3)
+        credential.unlink(missing_ok=True)
+    assert not reader.is_alive() and not remover.is_alive()
+    assert not failures, failures
+    assert cleaned.is_set()

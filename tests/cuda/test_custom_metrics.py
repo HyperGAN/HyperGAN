@@ -29,7 +29,9 @@ def test_cuda_custom_scalar_isolation(tmp_path):
     fixture.test_supervised_scalar_cadence_and_rng_do_not_change_complete_state(tmp_path)
 
 
-def test_cuda_manual_snapshot_repeatability_and_training_isolation(tmp_path):
+def test_cuda_manual_snapshot_repeatability_and_training_isolation(tmp_path, monkeypatch):
+    # Inherited by the fresh training/evaluation processes before CUDA initializes.
+    monkeypatch.setenv('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
     assert torch.cuda.is_available(), 'CUDA acceptance requires a local GPU'
     fixture=module('test_metric_evaluation.py')
     setup=fixture.setup
@@ -41,6 +43,32 @@ def test_cuda_manual_snapshot_repeatability_and_training_isolation(tmp_path):
         return driver
     fixture.setup=gpu_setup
     fixture.test_snapshot_is_pinned_repeatable_and_publishes_independent_late_stream(tmp_path)
+
+
+def test_cuda_histogram_uses_cpu_aggregation_under_strict_determinism(monkeypatch):
+    from hypergan.metric_examples import ColorHistogramDifference
+    assert torch.cuda.is_available(), 'CUDA acceptance requires a local GPU'
+    original = torch.histc
+    calls = []
+
+    def cpu_histogram(value, **kwargs):
+        assert value.device.type == 'cpu'
+        calls.append(value.numel())
+        return original(value, **kwargs)
+
+    monkeypatch.setattr(torch, 'histc', cpu_histogram)
+    enabled, warn_only = torch.are_deterministic_algorithms_enabled(), torch.is_deterministic_algorithms_warn_only_enabled()
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=False)
+        batches = [{'generated': torch.zeros(1,3,2,2,device='cuda'),
+                    'reference': torch.ones(1,3,2,2,device='cuda')}]
+        result = ColorHistogramDifference(bins=2,low=0,high=1).evaluate(batches=batches,context={})
+        assert result == {'edges':[0.0,0.5,1.0], 'counts':[1.0,1.0]}
+        assert calls == [12,12]
+        assert torch.are_deterministic_algorithms_enabled()
+        assert not torch.is_deterministic_algorithms_warn_only_enabled()
+    finally:
+        torch.use_deterministic_algorithms(enabled, warn_only=warn_only)
 
 
 def test_two_gpu_custom_scalar_complete_state_parity(tmp_path):

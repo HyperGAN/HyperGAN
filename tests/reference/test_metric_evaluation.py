@@ -103,6 +103,31 @@ def test_color_moments_histogram_reference_and_pixel_weighting():
         ColorMomentDistance().evaluate(batches=iter([{'generated':torch.zeros(1,2),'reference':torch.zeros(1,2)}]),context={})
 
 
+def test_histogram_detaches_and_preserves_strict_backend_policy(monkeypatch):
+    original = torch.histc
+    calls = []
+
+    def detached_histogram(value, **kwargs):
+        assert not value.requires_grad
+        assert value.device.type == 'cpu'
+        calls.append(value.numel())
+        return original(value, **kwargs)
+
+    monkeypatch.setattr(torch, 'histc', detached_histogram)
+    enabled, warn_only = torch.are_deterministic_algorithms_enabled(), torch.is_deterministic_algorithms_warn_only_enabled()
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=False)
+        batches = [{'generated': torch.zeros(1,3,2,2,requires_grad=True),
+                    'reference': torch.ones(1,3,2,2,requires_grad=True)}]
+        result = ColorHistogramDifference(bins=2,low=0,high=1).evaluate(batches=batches,context={})
+        assert result == {'edges':[0.0,0.5,1.0], 'counts':[1.0,1.0]}
+        assert calls == [12,12]
+        assert torch.are_deterministic_algorithms_enabled()
+        assert not torch.is_deterministic_algorithms_warn_only_enabled()
+    finally:
+        torch.use_deterministic_algorithms(enabled, warn_only=warn_only)
+
+
 def test_snapshot_is_pinned_repeatable_and_publishes_independent_late_stream(tmp_path):
     driver=setup(tmp_path)
     result=run(driver,'train')

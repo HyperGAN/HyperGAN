@@ -25,7 +25,7 @@ import threading
 import time
 from pathlib import Path
 
-from .cpu_worker_service import CPUWorkerService, _json
+from .cpu_worker_service import CPUServiceCancelled, CPUWorkerService, _json
 from .run_controller import ObserverError
 
 MAX_EVENT_BYTES = 65536
@@ -198,6 +198,10 @@ class AsyncBoundedObserver:
         self._pending = False
         if error is not None:
             self._disabled = True
+            if isinstance(error.__cause__, CPUServiceCancelled):
+                self._status['cancelled'] = self._status.get('cancelled', 0) + 1
+                self._status['last_cancelled_step'] = step
+                return
             self._status['failed'] += 1
             self._status['last_failed_step'] = step
             failure = ObserverError(str(error))
@@ -227,25 +231,31 @@ class AsyncBoundedObserver:
         self._status['accepted'] += 1
         return True
 
-    def _wait(self):
-        if self._pending:
+    def _wait(self, stop_requested=None):
+        deadline = max(time.monotonic(), self._deadline) + 8.0
+        while self._pending:
             # Only used at terminal boundaries, never from deliver or poll.
-            timeout = max(0.0, self._deadline - time.monotonic()) + 8.0
+            if stop_requested is not None and stop_requested() and not self._cancel.is_set():
+                self._cancel.set()
+                deadline = min(deadline, time.monotonic() + 8.0)
+            timeout = max(0.0, deadline - time.monotonic())
             try:
-                step, error = self._results.get(timeout=timeout)
+                step, error = self._results.get(timeout=min(.05, timeout))
             except queue.Empty as exc:
-                raise ObserverError('Progress worker exceeded its deadline and cleanup grace') from exc
+                if time.monotonic() >= deadline:
+                    raise ObserverError('Progress worker exceeded its deadline and cleanup grace') from exc
+                continue
             self._results.put_nowait((step, error))
             self.poll()
 
-    def finish(self, event):
+    def finish(self, event, *, stop_requested=None):
         if self._closed:
             return
         try:
-            self._wait()
-            if not self._disabled:
+            self._wait(stop_requested)
+            if not self._disabled and not (stop_requested is not None and stop_requested()):
                 self.deliver(event)
-                self._wait()
+                self._wait(stop_requested)
         finally:
             self.close()
 

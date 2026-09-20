@@ -253,3 +253,28 @@ def test_stop_is_bounded_when_child_cannot_cooperate(tmp_path):
     finally:
         viewer.detach()
         stop_viewer(tmp_path / 'pending')
+
+
+def test_short_optional_attempt_prints_discovery_and_startup_can_be_cancelled(tmp_path, capsys):
+    from hypergan.web_autostart import _registry, stop_viewer, viewer_status
+    root = tmp_path / 'pending'
+    try:
+        with training_viewer(root):
+            pass
+        assert 'hypergan server-status' in capsys.readouterr().err
+        until(lambda: viewer_status(root)['status'] == 'ready')
+        result = subprocess.run([sys.executable, '-m', 'hypergan', 'server-status', str(root)],
+                                capture_output=True, text=True, timeout=5)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)['origin'].startswith('http://127.0.0.1:')
+        assert 'token' not in json.loads(result.stdout)
+    finally:
+        stop_viewer(root)
+    # A reservation whose launcher died before broker lock acquisition has no
+    # service to stop. Cancel it immediately, with no 15-second startup wait.
+    private = _registry(tmp_path / 'unstarted')
+    atomic_json(private / 'state.json', dict(launch_id='unstarted', status='starting',
+                                           started_at=time.time()))
+    started = time.monotonic()
+    assert stop_viewer(tmp_path / 'unstarted')['status'] == 'stopped'
+    assert time.monotonic() - started < 1

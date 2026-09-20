@@ -30,12 +30,13 @@ def equal(left, right):
 def test_failure_at_publication_stages_has_complete_recoverable_prefix(tmp_path, monkeypatch, stage):
     import hypergan.checkpoints as checkpoints
     import hypergan.run_controller as controller
+    import hypergan.observation_io as observation_io
     config = write_default(tmp_path / 'config', device='cpu')
     train(config, tmp_path / 'full')
     original_save = torch.save
     original_rename = Path.rename
     original_atomic = checkpoints.atomic_json
-    original_boundary = controller.EventJournal.commit_boundary
+    original_boundary = observation_io.EventJournal.commit_boundary
     failed = False
     def fail_once():
         nonlocal failed
@@ -67,11 +68,12 @@ def test_failure_at_publication_stages_has_complete_recoverable_prefix(tmp_path,
         if selected and stage == 'after-pointer':
             fail_once()
     with monkeypatch.context() as patch:
-        patch.setattr(controller.EventJournal, 'commit_boundary', boundary)
+        patch.setattr(observation_io.EventJournal, 'commit_boundary', boundary)
         patch.setattr(torch, 'save', save)
         patch.setattr(Path, 'rename', rename)
         patch.setattr(checkpoints, 'atomic_json', atomic)
         patch.setattr(controller, 'atomic_json', atomic)
+        patch.setattr(observation_io, 'atomic_json', atomic)
         with pytest.raises(OSError, match='injected publication'):
             train(config, tmp_path / 'run', checkpoint_every=1)
     _, info, state = read_checkpoint(tmp_path / 'run')

@@ -15,7 +15,8 @@ import warnings
 from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics
 from .metric_plugins import prepare_custom, ScalarMetrics
-from .run_state import atomic_json, EventJournal, run_lock, sync_directory, validate_event_boundary
+from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
+from .observation_io import ObservationIO
 from .run_signals import GracefulStop
 
 
@@ -288,17 +289,29 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     for key in ('error', 'shutdown_error', 'sample_path', 'bundle_path'):
         manifest.pop(key, None)
     atomic_json(run_dir / 'manifest.json', manifest)
-    journal = EventJournal(run_dir)
+    journal = ObservationIO(run_dir, attempt_dir)
     sequence = 0
+    dropped = None
+    last_published = 0.0
+    last_request_poll = 0.0
 
-    def emit(event, *, _observe=True, **values):
-        nonlocal sequence
-        sequence += 1
+    def emit(event, *, _observe=True, _step=None, **values):
+        nonlocal sequence, dropped
         row = dict(values, schema_version=2, event=event, run_id=manifest['run_id'],
                    stream_id='training', stream_generation=manifest['run_id'], catalog=catalog_revision,
-                   attempt_id=attempt_id, sequence=sequence,
-                   step=manifest['steps'], seconds=time.monotonic() - started)
-        journal.append(row)
+                   attempt_id=attempt_id, sequence=sequence + 1,
+                   step=manifest['steps'] if _step is None else _step, seconds=time.monotonic() - started)
+        if dropped is not None:
+            row['observation_gap'] = dict(dropped)
+        if not journal.append(row, wait=event != 'train'):
+            if dropped is None:
+                dropped = {'dropped_train_events': 0, 'first_step': row['step'], 'last_step': row['step']}
+            dropped['dropped_train_events'] += 1
+            dropped['last_step'] = row['step']
+            manifest['dropped_train_events'] = manifest.get('dropped_train_events', 0) + 1
+            return None
+        dropped = None
+        sequence += 1
         if on_event is not None and _observe:
             def notify(value):
                 try:
@@ -326,10 +339,15 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 emit('observer_error', _observe=False, source='progress', error=record['error'])
         return row
 
-    def publish():
-        manifest['seconds'] = time.monotonic() - started
-        atomic_json(run_dir / 'manifest.json', manifest)
-        atomic_json(attempt_dir / 'manifest.json', manifest)
+    def publish(*, wait=True):
+        nonlocal last_published
+        now = time.monotonic()
+        if not wait and now - last_published < 0.25:
+            journal.check()
+            return
+        manifest['seconds'] = now - started
+        journal.publish(manifest, wait=wait)
+        last_published = now
 
     try:
         info = execution.start()
@@ -358,6 +376,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             metadata['next_sample_sequence'] = manifest['next_sample_sequence']
             metadata['request_ids'] = list(request_ids or [])
             try:
+                if dropped is not None:
+                    emit('observation_gap', _observe=False)
                 metadata['event_boundary'] = journal.commit_boundary()
                 path = execution.checkpoint(run_dir, metadata)
             except FatalExecutionError:
@@ -400,7 +420,12 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             for error in errors:
                 observer_error('preview_retention', RuntimeError(error))
 
-        def poll_requests():
+        def poll_requests(*, force=False):
+            nonlocal last_request_poll
+            now = time.monotonic()
+            if not force and now - last_request_poll < 0.25:
+                return
+            last_request_poll = now
             from .run_requests import pending_requests, acknowledge_request
             try:
                 pending = pending_requests(run_dir)
@@ -463,7 +488,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             # even if this attempt stops before another update.
             checkpoint_now()
         publish()
-        poll_requests()
+        poll_requests(force=True)
         attempt_steps = 0
         while manifest['steps'] < config['training']['steps']:
             if stop is not None and stop.reason:
@@ -494,12 +519,14 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                  samples_seen=completed.step * config['training']['batch_size'],
                  **{key: row[key] for key in ('global_batch_size', 'local_batch_size', 'world_size',
                                              'accumulation_steps', 'microbatch_size') if key in row})
-            if manifest['steps'] % checkpoint_every == 0:
+            periodic_checkpoint = manifest['steps'] % checkpoint_every == 0
+            if periodic_checkpoint:
                 checkpoint_now()
-            poll_requests()
+            poll_requests(force=periodic_checkpoint)
             if not (stop is not None and stop.reason) and manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
                 preview_now()
-            publish()
+            publish(wait=False)
+        poll_requests(force=True)
         if manifest['last_durable_step'] != manifest['steps']:
             checkpoint_now()
         if stop is not None and stop.reason:
@@ -518,6 +545,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         manifest['status'] = 'complete' if manifest['steps'] == config['training']['steps'] else 'stopped'
         publish()
         emit(manifest['status'], stop_reason=manifest['stop_reason'], checkpoint_path=manifest['checkpoint_path'])
+        journal.close()
         return manifest
     except BaseException as exc:
         # Execution may contain a half update: NEVER checkpoint in this handler.
@@ -527,7 +555,15 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             manifest['shutdown_error'] = f'{type(cleanup_error).__name__}: {cleanup_error}'[:1000]
         manifest.update(status='interrupted' if isinstance(exc, (KeyboardInterrupt, SystemExit)) else 'failed',
                         error=f'{type(exc).__name__}: {exc}')
-        publish()
-        if not journal.failed:
-            emit(manifest['status'], error=manifest['error'], checkpoint_path=manifest['checkpoint_path'])
+        try:
+            if not journal.failed:
+                publish()
+                emit(manifest['status'], error=manifest['error'], checkpoint_path=manifest['checkpoint_path'])
+            else:
+                # The writer has stopped on failure; preserve failure visibility
+                # without asking that failed worker to publish again.
+                atomic_json(run_dir / 'manifest.json', manifest)
+                atomic_json(attempt_dir / 'manifest.json', manifest)
+        finally:
+            journal.close()
         raise

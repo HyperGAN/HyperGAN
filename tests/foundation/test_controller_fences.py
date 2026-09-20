@@ -323,3 +323,58 @@ def test_training_continues_while_event_disk_is_stalled_and_reports_queue_loss(t
     checkpoint = json.loads((__import__('pathlib').Path(result['checkpoint_path']) / 'manifest.json').read_text())
     assert checkpoint['step'] == checkpoint['event_boundary']['step'] == 10
     validate_event_boundary(root, checkpoint)
+
+
+@pytest.mark.parametrize('required_failure', [False, True])
+def test_final_delayed_metrics_keep_source_step_and_current_checkpoint_frontier(tmp_path, monkeypatch, required_failure):
+    import hypergan.run_controller as controller
+    from pathlib import Path
+    from hypergan.run_events import read_event_page
+    from hypergan.run_state import validate_event_boundary
+
+    class DelayedMetrics:
+        def __init__(self, config):
+            self.source = None
+        def start(self):
+            pass
+        def evaluate(self, values, context):
+            if self.source is None:
+                self.source = dict(context)
+            return {}, {}
+        def poll(self):
+            return []
+        def close(self, *, drain=True):
+            if not drain:
+                return []
+            outcome = {'context': self.source, 'metrics': {'loss/g_total': 1.5},
+                       'measurement_status': {}}
+            if required_failure:
+                error = RuntimeError('Required metric delayed failed at terminal drain')
+                outcome.update(metrics={}, measurement_status={'loss/g_total': {'status': 'failed'}})
+                error.metric_outcomes = [outcome]
+                raise error
+            return [outcome]
+
+    monkeypatch.setattr(controller, 'ScalarMetrics', DelayedMetrics)
+    path, root, factory, _, _, instances = setup(tmp_path)
+    if required_failure:
+        with pytest.raises(RuntimeError, match='terminal drain'):
+            run_train(path, root, steps=2, execution_factory=factory)
+        manifest = json.loads((root / 'manifest.json').read_text())
+        assert manifest['status'] == 'failed' and manifest['last_durable_step'] == 0
+        assert instances[0].closed
+    else:
+        manifest = run_train(path, root, steps=2, checkpoint_every=2, execution_factory=factory)
+        # The final periodic save preceded metric completion. Refresh its event
+        # boundary with a second same-step save without changing trainer state.
+        assert instances[0].count == 3
+        info = json.loads((Path(manifest['checkpoint_path']) / 'manifest.json').read_text())
+        validate_event_boundary(root, info)
+        prefix = (root / 'events.jsonl').read_bytes()[:info['event_boundary']['offset']]
+        saved_events = [json.loads(line) for line in prefix.splitlines()]
+        assert saved_events[-1]['step'] == info['step'] == 2
+        assert any(event['event'] == 'metric' and event['step'] == 1 for event in saved_events)
+    events = read_event_page(root)['events']
+    measured = [event for event in events if event['event'] == 'metric']
+    assert len(measured) == 1 and measured[0]['step'] == 1
+    assert [event['sequence'] for event in events] == list(range(1, len(events) + 1))

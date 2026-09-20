@@ -238,7 +238,8 @@ Durable source/package hashes, commands/results, review findings, required CI an
 
 ## Agreed next-version image plan
 
-Owner clarification replaces the proposed conventional DCGAN baseline with
+[PR #329](https://github.com/HyperGAN/HyperGAN/pull/329) records the owner
+clarification replacing the proposed conventional DCGAN baseline with
 **ParticleGAN MoG + b-cap and a pretrained discriminator from the first image
 recipe**. The [focused image plan](image-training-plan-2026-09-19.md) updates the
 version checklist without restarting completed runtime work. It sequences partial

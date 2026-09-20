@@ -24,7 +24,9 @@ shared draws.
 implementation explicitly. The default remains `device_adam`. Both use the
 configured learning rates and G/D/prior betas, and save complete optimizer state.
 
-Factories construct graph modules on CPU before execution-device transfer.
+Factories construct graph modules on CPU before execution-device transfer, in
+generator, discriminator, then sorted auxiliary-name order. JSON/TOML key order
+does not change the initialization stream; aliases do not allocate modules.
 `prior.initialization_device = "cpu"` independently constructs/calibrates the
 prior there before transfer; its default is `"execution"`. An optional
 `prior.initialization_seed` gives prior initialization its own generator.

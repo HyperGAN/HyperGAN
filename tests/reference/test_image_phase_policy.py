@@ -181,6 +181,15 @@ def test_alias_validation_and_resolved_roundtrip():
         resolve_config(raw)
 
 
+def test_component_construction_order_is_independent_of_json_key_order():
+    original = config()
+    reordered = resolve_config(json.loads(json.dumps(config_values(original), sort_keys=True)))
+    first = ReferenceTrainer(original)
+    state = copy.deepcopy(trainer_state(first, None))
+    second = ReferenceTrainer(reordered)
+    close(trainer_state(second, None), state, exact=True)
+
+
 def test_alias_and_prior_bindings_survive_inference_bundle_and_preview_snapshot(tmp_path):
     from hypergan.artifacts import sample, save_bundle
     from hypergan.preview_snapshot import capture_snapshot, renderer_command

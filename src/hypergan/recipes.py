@@ -124,7 +124,10 @@ class ComponentGraph(nn.Module):
         super().__init__()
         self.specs = specs
         modules = {}
-        for name, spec in specs.items():
+        order = [name for name in ('generator', 'discriminator') if name in specs]
+        order += sorted(set(specs) - set(order))
+        for name in order:
+            spec = specs[name]
             if 'reuse' in spec:
                 continue
             module = construct(spec)

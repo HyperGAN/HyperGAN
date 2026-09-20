@@ -111,8 +111,31 @@ export function evaluationShelf(api, base, changed = () => {}) {
   const results = new Map();
   const records = new Map();
   let definitions = {}, run = {};
+  // Derived from the catalog specification and the run's schedule, both already
+  // fetched; a run with nothing scheduled otherwise looks exactly like one that
+  // has simply not reached its first interval yet.
+  function renderUnscheduled(snapshots) {
+    const target = document.getElementById('evaluation-unscheduled');
+    if (!target) return;
+    const manual = snapshots.filter(([, definition]) => (definition.specification || {}).trigger !== 'interval').map(([id]) => id);
+    const scheduled = Object.keys(run.evaluation_schedule || {}).length > 0;
+    if (!snapshots.length || manual.length !== snapshots.length || scheduled) {
+      target.replaceChildren();
+      target.hidden = true;
+      return;
+    }
+    const named = manual.slice(0, 8).join(', ') + (manual.length > 8 ? `, and ${manual.length - 8} more` : '');
+    target.replaceChildren(node('strong', 'No automatic evaluation is scheduled. '), node('span',
+      `Snapshot ${manual.length > 1 ? 'metrics' : 'metric'} ${named} set trigger = "manual", so this run `
+      + 'publishes no evaluation result while it trains, however many steps it reaches. '
+      + 'Remove trigger = "manual" (or set trigger = "interval" with every_steps) in the '
+      + 'configuration, then apply it with: hypergan resume RUN --config CONFIG'));
+    target.hidden = false;
+  }
   function renderSchedule() {
-    const cards = Object.entries(definitions).filter(([, definition]) => definition.scope === 'snapshot').map(([id, definition]) => {
+    const snapshots = Object.entries(definitions).filter(([, definition]) => definition.scope === 'snapshot');
+    renderUnscheduled(snapshots);
+    const cards = snapshots.map(([id, definition]) => {
       const spec = definition.specification || {};
       const schedule = run.evaluation_schedule?.[id] || {};
       const interval = spec.trigger === 'interval';

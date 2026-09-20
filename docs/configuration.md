@@ -214,6 +214,25 @@ empty and no evaluation ever fires. `hypergan train`, `resume`, `validate` and
 `preflight` print a warning naming those metrics so the absent schedule is not
 silent, and the viewer shows each of them as `manual` with no next step.
 
+That launch warning is easy to miss among other configuration warnings, so the
+same condition is also reported while the run is under way:
+
+- `hypergan train` and `hypergan resume` print one extra `hint:` line after the
+  warnings block, naming the exact edit and the command that applies it, for
+  example `hint: remove 'trigger = "manual"' from [metrics.custom.fid50k_train]
+  to evaluate it every 10000 steps, then apply it with `hypergan resume RUN
+  --config CONFIG``.
+- The periodic progress output carries a one-line `reminder:` on its first
+  printed progress line and every tenth one after that. With `--progress-json`
+  those same progress rows gain an `evaluation_reminder` string field; every
+  existing field keeps its meaning, and rows without the reminder omit it.
+- The viewer's **Snapshot evaluations** panel shows a persistent notice above
+  the schedule cards naming the manual metrics and the same edit. Runs with any
+  scheduled metric, or any recorded `evaluation_schedule`, never show it.
+
+Neither the hint nor the reminder appears for a recipe with no snapshot metrics
+or with any metric on an interval.
+
 An existing run resumes under its own recorded settings: the manifest stores the
 resolved configuration, including the resolved trigger, so a run created with
 `trigger = "manual"` keeps that schedule and is unaffected by the default. Adding

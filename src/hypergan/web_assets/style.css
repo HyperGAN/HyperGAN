@@ -757,6 +757,10 @@ footer {
 .evaluation-list summary { cursor: pointer; }
 .evaluation-list .evaluation-value { font-size: 22px; color: #d7bb81; }
 .evaluation-failure { color: #e8ab95; }
+.evaluation-list .evaluation-unscheduled { background: #2a231b; border: 1px solid #6f5a33;
+  border-left-width: 4px; border-radius: 7px; padding: 12px 14px; margin: 0 0 12px;
+  color: #e6d3a6; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.evaluation-list .evaluation-unscheduled code { color: #f0e2bd; }
 .evaluation-plot { width: 100%; max-height: 220px; fill: #8fbdaa; margin-top: 12px; }
 .evaluation-plot text { fill: #d4ded6; font: 11px monospace; }
 .evaluation-list .table-scroll { max-height: 260px; }

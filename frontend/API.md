@@ -16,6 +16,11 @@ The token never enters a URL, storage, telemetry, or browser logs.
   result; cadence and device come from their catalog `specification`.
   Without scheduler state, the viewer infers the next interval boundary from
   observed training steps; stopped runs label that boundary as awaiting training.
+  No new field carries the "nothing is scheduled" case: when every snapshot
+  metric in the catalog has `specification.trigger != "interval"` and
+  `evaluation_schedule` is absent or empty, the evaluation panel renders a
+  persistent notice naming those metrics and the configuration edit that
+  schedules them. Any scheduled metric, or any scheduler entry, hides it.
 - `GET /runs/r/metrics/catalog[?revision=<sha256>]` -> the immutable metric catalog shape.
   Omit revision for the active training catalog; independent evaluation documents
   always supply their own catalog revision.

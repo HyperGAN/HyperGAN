@@ -41,8 +41,18 @@ Owner ran `training-runs/start.sh` and saw no FID because both FID metrics in th
 
 Follow-up (2026-09-20): the owner reached step 10k on a fresh run with no FID because their `cifar10.toml` still says `trigger = "manual"`, and the stderr warning at launch was missed among other config warnings.
 
-- [ ] Show the "no automatic evaluation scheduled" notice in the viewer's evaluation panel and in the periodic CLI progress line, not only at launch.
-- [ ] Consider whether an explicit `trigger = "manual"` on an FID metric in a training run should print a louder, single-line hint naming the exact edit.
+- [x] Show the "no automatic evaluation scheduled" notice in the viewer's evaluation panel and in the periodic CLI progress line, not only at launch.
+- [x] Consider whether an explicit `trigger = "manual"` on an FID metric in a training run should print a louder, single-line hint naming the exact edit. It should: one is printed.
+
+The notices appear in three places when every enabled snapshot metric is manual:
+a persistent notice above the schedule cards in the viewer's **Snapshot evaluations**
+panel (`frontend/src/evaluations.js`, derived from the catalog `specification` and
+the run's empty `evaluation_schedule`, with no new API field), a one-line `reminder:`
+on the first periodic CLI progress line and every tenth one after it (an added
+`evaluation_reminder` field on `--progress-json` train rows), and a single loud
+`hint:` line after the launch warnings block naming the exact `[metrics.custom.NAME]`
+edit and the `hypergan resume RUN --config CONFIG` that applies it
+(`hypergan.metrics.manual_evaluation_hint` / `manual_evaluation_reminder`).
 
 - `src/hypergan/metric_plugins.py` defines `DEFAULT_SNAPSHOT_TRIGGER = "interval"`
   and `DEFAULT_EVALUATION_EVERY_STEPS = 10000` in one place. A snapshot metric that

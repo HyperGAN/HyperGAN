@@ -19,6 +19,9 @@ import time
 MAX_LINE_BYTES = 65536
 MAX_PENDING_LINES = 16
 CLOSE_SECONDS = 1.0
+# A run whose snapshot metrics are all manual repeats its reminder on the first
+# printed progress line and every Nth one after it, never on every update.
+REMINDER_EVERY_PROGRESS_LINES = 10
 
 
 def _put_latest(pending, value):
@@ -300,18 +303,28 @@ class CLIProgress:
     """Exact internal sink type allowed to bypass arbitrary callback isolation."""
     def __init__(self, output):
         self.output = output
+        self.progress_lines = 0
 
     def __call__(self, event):
         self.output.policy.refresh(self.output.stderr)
         if event.get('event') == 'train' and event['step'] % self.output.policy.every:
             return
+        reminder = None
+        if event.get('event') == 'train' and self.output.evaluation_reminder:
+            if not self.progress_lines % REMINDER_EVERY_PROGRESS_LINES:
+                reminder = self.output.evaluation_reminder
+            self.progress_lines += 1
         if self.output.progress_json:
-            self.output.stdout.write(json.dumps(event, allow_nan=False) + '\n')
+            # An added field only; existing progress keys and their meaning are unchanged.
+            row = dict(event, evaluation_reminder=reminder) if reminder else event
+            self.output.stdout.write(json.dumps(row, allow_nan=False) + '\n')
         elif event.get('event') == 'train':
             metrics = event.get('metrics', {})
             values = ' '.join(f'{label}={metrics[key]:.6g}' for key, label in
                               (('loss/d_total', 'D'), ('loss/g_total', 'G')) if key in metrics)
             self.output.stderr.write(f"step {event['step']}" + (f': {values}' if values else '') + '\n')
+            if reminder:
+                self.output.stderr.write(f'reminder: {reminder}\n')
 
         else:
             message = event.get('error') or event.get('reason') or event.get('stop_reason')
@@ -337,12 +350,14 @@ class TrainingOutput:
         self.policy = ConsolePolicy(progress_every=progress_every)
         self.stdout, self.stderr = stdout, stderr
         self.progress_json = progress_json
+        self.evaluation_reminder = None
         self.progress = CLIProgress(self)
 
-    def configure(self, run_dir, *, progress_every=None):
+    def configure(self, run_dir, *, progress_every=None, evaluation_reminder=None):
         from .console_settings import ConsolePolicy
         self.policy.close()
         self.policy = ConsolePolicy(run_dir, progress_every=progress_every)
+        self.evaluation_reminder = evaluation_reminder
 
     def result(self, result, *, run_dir=None):
         value = {'event': 'result', 'manifest': result} if self.progress_json else result

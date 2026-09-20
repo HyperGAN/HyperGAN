@@ -160,6 +160,20 @@ evaluated attempt and step; registration does not change them to publish time.
 The initial default chart maps training scalar events; numerical evaluation stream
 production and any additional projection are independent services.
 
+The **Snapshot evaluations** panel lists every configured snapshot metric before
+any result exists, with its cadence, next step and evaluation device taken from
+the catalog `specification` and the run's `evaluation_schedule`. When every one
+of them sets `trigger = "manual"` and the run records no schedule, the panel
+also shows a persistent notice above those cards: it names the manual metrics,
+states that no evaluation runs however far training gets, and gives the exact
+edit (remove `trigger = "manual"`, or set `trigger = "interval"` with
+`every_steps`, then `hypergan resume RUN --config CONFIG`). The notice is
+derived from the catalog and run payloads the browser already reads, needs no
+extra request, and is hidden as soon as one metric is scheduled or the run has
+any scheduler state. The same condition prints a `hint:` line at launch and a
+periodic `reminder:` line in the terminal; see
+[configuration](configuration.md).
+
 Preview publication records a SHA256 in the existing retained preview index. The
 server exposes these sample descriptors without rereading every sample payload.
 Each descriptor adds a short stable `name` (`g` generated, `x` real, or an

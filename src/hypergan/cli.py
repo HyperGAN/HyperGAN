@@ -360,7 +360,17 @@ def _dispatch(args, *, output=None):
             else:
                 prepared = prepare_resume(args.run_dir, args.checkpoint, args.config, **options)
             _warnings(prepared.config)
-            output.configure(args.run_dir, progress_every=args.progress_every)
+            from .metrics import manual_evaluation_hint, manual_evaluation_reminder
+
+            # The generic warnings block is easy to skim past, so an all-manual
+            # evaluation setup also gets one distinct line naming the exact edit.
+            labels = {"run": str(args.run_dir),
+                      "config_path": str(args.config) if getattr(args, "config", None) else "CONFIG"}
+            hint = manual_evaluation_hint(prepared.config, **labels)
+            if hint:
+                print(f"hint: {hint}", file=sys.stderr)
+            output.configure(args.run_dir, progress_every=args.progress_every,
+                             evaluation_reminder=manual_evaluation_reminder(prepared.config, **labels))
             with _training_viewer(args):
                 output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
         elif args.command == "sample":

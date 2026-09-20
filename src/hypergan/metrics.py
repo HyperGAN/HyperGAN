@@ -112,6 +112,33 @@ def evaluation_warnings(config):
     return messages
 
 
+def manual_only_snapshot_metrics(config):
+    """Every enabled snapshot metric, but only when none of them is scheduled."""
+    manual = snapshot_metrics(config, 'manual')
+    return manual if manual and not snapshot_metrics(config, 'interval') else []
+
+
+def manual_evaluation_hint(config, run='RUN', config_path='CONFIG'):
+    """One loud line naming the exact edit; printed once after the warnings block."""
+    manual = manual_only_snapshot_metrics(config)
+    if not manual:
+        return None
+    rest = f' (and {", ".join(manual[1:])} the same way)' if len(manual) > 1 else ''
+    return (f'remove \'trigger = "manual"\' from [metrics.custom.{manual[0]}] to evaluate it every '
+            f'{DEFAULT_EVALUATION_EVERY_STEPS} steps{rest}, then apply it with '
+            f'`hypergan resume {run} --config {config_path}`')
+
+
+def manual_evaluation_reminder(config, run='RUN', config_path='CONFIG'):
+    """Compact periodic reminder while a run's snapshot metrics are all manual."""
+    manual = manual_only_snapshot_metrics(config)
+    if not manual:
+        return None
+    return ('no automatic evaluation is scheduled: ' + ', '.join(manual)
+            + ' set trigger = "manual", so no snapshot result is published while this run trains; '
+            f'edit the config and apply it with `hypergan resume {run} --config {config_path}`')
+
+
 def metric_catalog(config):
     from .config import fingerprint
     spec = config['metrics']

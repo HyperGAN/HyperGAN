@@ -17,15 +17,17 @@ from hypergan.web_server import create_app
 from hypergan.web_session import LocalSession
 
 
-def fixture_run(root, count=5):
+def fixture_run(root, count=5, extra_metrics=None, evaluation_schedule=None):
     root.mkdir(exist_ok=True)
     definition = {'kind': 'scalar', 'source': 'g_loss', 'label': 'Generator loss'}
     definition['definition_hash'] = digest(definition)
-    catalog = {'schema_version': 1, 'metrics': {'loss/g_total': definition}}
+    catalog = {'schema_version': 1, 'metrics': {'loss/g_total': definition, **(extra_metrics or {})}}
     revision = digest(catalog)
     atomic_json(root / 'metrics' / f'catalog-{revision}.json', catalog)
     manifest = dict(schema_version=1, run_id='run', attempt_id='a', steps=count,
                     status='running', metrics_catalog=revision)
+    if evaluation_schedule is not None:
+        manifest['evaluation_schedule'] = evaluation_schedule
     atomic_json(root / 'manifest.json', manifest)
     append_event(root, 1, 0, event='start')
     for step in range(1, count + 1):
@@ -98,6 +100,33 @@ def test_auth_api_schema_artifact_and_no_mapper(tmp_path, monkeypatch):
         assert artifact.content == data and artifact.headers['content-disposition'].startswith('attachment')
         (tmp_path / 'sample.bin').write_bytes(b'corrupt')
         assert client.get('/api/v1/runs/run/artifacts/sample').status_code == 400
+
+
+def test_manual_snapshot_metric_trigger_and_empty_schedule_reach_the_browser(tmp_path):
+    """The viewer's unscheduled notice derives from data the public API already sends."""
+    snapshot = {'kind': 'scalar', 'source': 'custom:fid', 'label': 'FID50k', 'scope': 'snapshot',
+                'specification': {'mode': 'snapshot', 'trigger': 'manual',
+                                  'evaluation': {'device': 'cuda:0'}}}
+    snapshot['definition_hash'] = digest(snapshot)
+    fixture_run(tmp_path, extra_metrics={'fid50k_train': snapshot}, evaluation_schedule={})
+    session = LocalSession(8124, auth='token')
+    session.write_credentials(tmp_path / 'session.json')
+    token = json.loads((tmp_path / 'session.json').read_text())['token']
+    app = create_app(tmp_path, session, poll_seconds=.01)
+    with TestClient(app, base_url=session.origin) as client:
+        assert client.post('/api/v1/session', json={'token': token}).status_code == 200
+        run = client.get('/api/v1/runs/run').json()
+        assert run['evaluation_schedule'] == {}
+        catalog = client.get('/api/v1/runs/run/metrics/catalog').json()
+        definition = catalog['metrics']['fid50k_train']
+        assert definition['scope'] == 'snapshot'
+        assert definition['specification']['trigger'] == 'manual'
+        # Nothing in the catalog is scheduled, which is exactly the notice's condition.
+        assert not [name for name, value in catalog['metrics'].items()
+                    if value.get('scope') == 'snapshot'
+                    and value.get('specification', {}).get('trigger') == 'interval']
+        schema = client.get('/api/v1/openapi.json').json()['components']['schemas']['Run']
+        assert 'evaluation_schedule' in schema['properties']
 
 
 def test_bootstrap_fixed_watermark_then_live_continuation(tmp_path, monkeypatch):

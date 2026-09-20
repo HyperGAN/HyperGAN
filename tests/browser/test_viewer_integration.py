@@ -517,6 +517,8 @@ def test_configured_snapshot_metrics_visible_before_results_and_live_schedule(re
     interval = schedules.locator('li[data-metric="fid50k_train"]')
     manual = schedules.locator('li[data-metric="fid_manual"]')
     interval.filter(has_text='Not evaluated · every 10000 steps').wait_for()
+    # One scheduled metric is enough; the unscheduled notice stays out of the way.
+    assert page.locator('#evaluation-unscheduled').is_hidden()
     assert 'Next evaluation at step 10000' in interval.inner_text()
     assert 'Evaluation device: cuda:1' in interval.inner_text()
     assert 'Not evaluated · manual' in manual.inner_text()
@@ -545,6 +547,43 @@ def test_configured_snapshot_metrics_visible_before_results_and_live_schedule(re
     interval.filter(has_text='Disabled · every 10000 steps').wait_for()
     assert interval.locator('.evaluation-next-step').count() == 0
     assert 'Not evaluated · manual' in manual.inner_text()
+    assert not errors
+
+
+def test_all_manual_snapshot_metrics_show_a_persistent_unscheduled_notice(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create()
+    catalog_path = experiment.root / 'metrics' / f'catalog-{experiment.catalog_revision}.json'
+    catalog = json.loads(catalog_path.read_text())
+    for metric in ('fid50k_train', 'fid_smoke'):
+        definition = dict(kind='scalar', source='custom:fid', scope='snapshot', label=metric,
+                          specification={'trigger': 'manual', 'evaluation': {'device': 'cuda:0'}})
+        definition['definition_hash'] = digest(definition)
+        catalog['metrics'][metric] = definition
+    experiment.catalog_revision = digest(catalog)
+    atomic_json(experiment.root / 'metrics' / f'catalog-{experiment.catalog_revision}.json', catalog)
+    experiment.publish()
+    sign_in(page, session, token)
+    notice = page.locator('#evaluation-unscheduled')
+    notice.filter(has_text='No automatic evaluation is scheduled.').wait_for()
+    text = notice.inner_text()
+    assert 'Snapshot metrics fid50k_train, fid_smoke set trigger = "manual"' in text
+    assert 'set trigger = "interval" with every_steps' in text
+    assert 'hypergan resume RUN --config CONFIG' in text
+    assert page.locator('#evaluations').is_visible()
+    # It is a panel notice, not a launch-time toast: training on does not retire it.
+    for step in range(4, 7):
+        experiment.event('train', step, metrics={'loss/g_total': float(step)})
+    experiment.publish()
+    experiment.project()
+    page.locator('#step').filter(has_text='6').wait_for()
+    assert notice.is_visible()
+    assert page.locator('#evaluation-schedules li[data-metric="fid_smoke"]').count() == 1
+    # A run that does have a schedule never sees it.
+    experiment.manifest['evaluation_schedule'] = {'fid50k_train': {'status': 'complete', 'source_step': 6}}
+    experiment.publish()
+    page.locator('#evaluation-schedules li[data-metric="fid50k_train"]').filter(has_text='Complete').wait_for()
+    assert notice.is_hidden()
     assert not errors
 
 

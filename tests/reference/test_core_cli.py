@@ -118,6 +118,55 @@ def test_cli_reports_snapshot_metrics_that_have_no_schedule(tmp_path):
     assert "fid.evaluation.device" in rejected.stderr and 'trigger = "manual"' in rejected.stderr
 
 
+def test_manual_snapshot_metrics_hint_at_launch_and_remind_with_progress(tmp_path):
+    config = write_default(tmp_path / "project", device="cpu")
+    config.write_text(config.read_text() + SNAPSHOT_METRIC.format(trigger='trigger = "manual"\n'))
+    run = tmp_path / "run"
+    human = cli(tmp_path, "train", config, "--run-dir", run, "--no-server",
+                "--stop-after-steps", 2, "--progress-every", 1)
+    assert human.returncode == 0, human.stderr
+    lines = human.stderr.splitlines()
+
+    # One distinct line after the generic warnings block, naming the exact edit.
+    hints = [line for line in lines if line.startswith("hint: ")]
+    assert len(hints) == 1, human.stderr
+    assert "remove 'trigger = \"manual\"' from [metrics.custom.fid]" in hints[0]
+    assert "every 10000 steps" in hints[0]
+    assert f"hypergan resume {run} --config {config}" in hints[0]
+    assert lines.index(hints[0]) > lines.index(
+        next(line for line in lines if line.startswith("warning: No automatic evaluation")))
+
+    # The reminder rides along with the periodic progress output, not every update.
+    reminders = [index for index, line in enumerate(lines) if line.startswith("reminder: ")]
+    assert len(reminders) == 1
+    assert "no automatic evaluation is scheduled: fid set trigger = \"manual\"" in lines[reminders[0]]
+    assert lines[reminders[0] - 1].startswith("step 1")
+    assert "\n" not in lines[reminders[0]]
+
+    # JSON progress keeps its existing keys and gains one optional field.
+    machine = cli(tmp_path, "train", config, "--run-dir", tmp_path / "json-run", "--no-server",
+                  "--stop-after-steps", 2, "--progress-every", 1, "--progress-json")
+    assert machine.returncode == 0, machine.stderr
+    rows = [json.loads(line) for line in machine.stdout.splitlines()]
+    trained = [row for row in rows if row["event"] == "train"]
+    assert [row["step"] for row in trained] == [1, 2]
+    assert "no automatic evaluation is scheduled" in trained[0]["evaluation_reminder"]
+    assert "evaluation_reminder" not in trained[1]
+    assert all("metrics" in row for row in trained)
+    assert rows[-1]["event"] == "result"
+    assert "hint: " in machine.stderr
+
+    # A scheduled metric, and a recipe with no snapshot metric at all, stay quiet.
+    scheduled = tmp_path / "scheduled.toml"
+    scheduled.write_text(config.read_text().replace('trigger = "manual"\n', ""))
+    for recipe, directory in ((scheduled, "scheduled-run"), (write_default(tmp_path / "plain", device="cpu"), "plain-run")):
+        quiet = cli(tmp_path, "train", recipe, "--run-dir", tmp_path / directory, "--no-server",
+                    "--stop-after-steps", 2, "--progress-every", 1)
+        assert quiet.returncode == 0, quiet.stderr
+        assert "hint: " not in quiet.stderr and "reminder: " not in quiet.stderr
+        assert "step 1" in quiet.stderr
+
+
 def test_sampling_preserves_global_rng_and_existing_outputs(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"

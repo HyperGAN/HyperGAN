@@ -2,7 +2,7 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-19 (America/Denver).
 
-Current cutpoint: public `train`/`resume` now expose native CUDA and supervised local CUDA/NCCL or explicit CPU execution profiles, with inferred fixed-topology recovery and bounded CLI output. Installed CPU/native CUDA/two-GPU recovery, disconnected-output cleanup and live viewer/API acceptance pass. See the [public execution checkpoint](core-public-execution-2026-09-19.md). Next qualify the selected image experiment after explicit licensing and protocol/provenance are fixed; real multi-host execution still needs a concrete agreed allocation.
+Current cutpoint: public `train`/`resume`, native CUDA and local CUDA/NCCL profiles, complete recovery, bounded CLI output and the optional viewer are implemented at `11b4ccc2663beef185709e3d5dcbd59b0bc593f8`; both post-merge required workflows passed. See the [public execution checkpoint](core-public-execution-2026-09-19.md). **Next: the [agreed image-training plan](image-training-plan-2026-09-19.md)**, using MoG + b-cap and a pretrained discriminator from the first recipe, anchored to the owner's SAGAN-style CIFAR run. Begin with preserving factory-defined frozen parameters, then port/qualify the recipe, add image grids, reproduce/evaluate CIFAR-10 and qualify the real workload on two GPUs. Real multi-host execution still needs a concrete agreed allocation.
 
 Metrics implementation checkpoint: the [implementation report](metrics-implementation-2026-09-19.md) links the file-backed metrics, shared WASM reducers, public streaming API/browser, ordinary Python factories, manual snapshot evaluation and supervised CLI startup slices. Native CUDA, full two-GPU numerical/recovery checks, actual browser and installed-package proofs accompany the protected PRs. Samples remain separate modality-neutral artifacts. The performance report records measured costs and explicitly unestablished throughput targets; no database, federation or paid compute was introduced. Final integrated checks and merge receipts are retained in the durable metrics evidence directory. The separate numerical/distributed core cutpoint above remains unchanged.
 
@@ -13,6 +13,8 @@ The clean CPU foundation is merged in PRs [#301](https://github.com/HyperGAN/Hyp
 The next release integrates on `develop`. The coordinator reviews and merges passing PRs; bounded subagent work uses external worktrees. Master remains the historical stable line until a separately qualified release.
 
 ## Accepted decisions
+
+- The first image workflow retains ParticleGAN MoG + exact b-cap and uses pretrained discriminator features immediately; G starts from scratch. The owner's `feat/cifar-ae-gan-pretrained-encoder` run is the new source target (original FID50k12.5345 at200k, batch64), superseding the earlier residual candidate. Ship qualified defaults, image grids and complete recovery, then comparable CIFAR-10 evidence. See the [image plan](image-training-plan-2026-09-19.md) for protocol and PR gates. Ordinary Python configurability remains; unsupported combinations cannot pass as successful no-ops.
 
 - GPU execution is the product default (owner direction, 2026-09-19). `new` targets CUDA; explicit CPU runs remain available for small correctness fixtures. This box has two RTX A6000 48 GB GPUs authorized for local validation. Native CUDA and real two-GPU work proceed alongside public distributed integration; no paid allocation is implied.
 
@@ -190,10 +192,10 @@ The coordinator verified current develop against Git/GitHub before starting from
 - [x] Add GPU-first project defaults and native CUDA training/recovery, with separate installed-package CPU and explicit local CUDA acceptance gates. Two-GPU NCCL diagnostics are infrastructure evidence; they do not close full replicated GPU training.
 - [x] Port the supervised replicated strategy to rank-owned CUDA devices and NCCL-aware numerical/control paths. Qualify complete two-GPU updates, accumulated replay, CUDA RNG and coordinated recovery against controlled single-process results, including rank failure and independent cleanup. See the [local CUDA checkpoint](core-replicated-cuda-2026-09-19.md).
 - [x] Expose execution profiles through public `train`/`resume`, with GPU-first workflows and explicit CPU fixtures. Preserve headless operation, persisted numerical identity, mutable deadlines, early conflict rejection and bounded progress/result streams. Installed CPU/native CUDA/two-GPU and disconnected-output acceptance are recorded in the [public execution checkpoint](core-public-execution-2026-09-19.md).
-- [ ] **Next core cutpoint:** resolve upstream explicit licensing and freeze the selected image experiment's architecture, preprocessing/augmentation/evaluation and pretrained-weight identity. A synthetic image recovery fixture is not image-quality qualification.
+- [ ] **Next core cutpoint:** follow I1–I4 of the [image plan](image-training-plan-2026-09-19.md): partial-freezing correctness, pinned pretrained weights and source terms, the selected MoG/b-cap SAGAN-style recipe, real image grids and CIFAR reproduction/evaluation. The original200k experiment supersedes the earlier residual candidate; synthetic recovery remains distinct from image-quality qualification.
 - [ ] After full local two-GPU training/recovery gates pass, prepare a concrete, separately agreed real two-node allocation using the reserved Modal credit or another provider. Communication-only diagnostics do not authorize this transition.
 
-The optional standalone viewer W2/W3 can follow the implemented W1 read contract alongside core work. ONNX/container deployment and release promotion remain later gates. Continue from current `develop`; do not restart branch or issue audits. Keep master historical. Use the authorized local GPUs; paid compute still requires a concrete agreed allocation.
+The optional standalone viewer and automatic local serving are implemented; image-grid artifacts/rendering are the next observation work. ONNX/container deployment and release promotion remain later gates. Continue from current `develop`; do not restart branch or issue audits. Keep master historical. Use the authorized local GPUs; paid compute still requires a concrete agreed allocation.
 
 ## Configurable metric publication checkpoint
 
@@ -233,3 +235,43 @@ Three subagents implemented and cross-reviewed the slices in external worktrees.
 PR #328 merged at `ddebd5a33ce5ff5395f4cbe8d79bdccebd6068ff` after all eighteen exact-head checks passed. Its deterministic shutdown regression reproduced a shared Event lock-owner death hazard; the fix uses a shared stop byte and independent parent-death monitoring. Final source passed **21 installed viewer tests** and repeated the actual two-GPU live-viewer/WASM-bootstrap comparison exactly across **144 tensors and 2,740 state values**, with clean process/credential cleanup. `viewer-shutdown-acceptance.json` preserves that final proof. PR #327 includes this merged base and remains subject to final exact-head required checks and the protected merge receipt; the report also preserves its earlier browser CI failure, ten matching-source repeats, a passing complete browser suite, and **227 passing CPU CI tests in 985.55 seconds**.
 
 Durable source/package hashes, commands/results, review findings, required CI and PR merge identities are under `/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-public-execution/`; `final-public-acceptance.json` and `integration-current.json` identify the final accepted tree and integration. Local/fetched/GitHub develop and strict required checks were verified before work. Both authorized local GPUs were used; unrelated jobs remained running. No paid compute or release. Next concrete action: settle explicit upstream licensing and freeze the selected image recipe/protocol/provenance before actual image-workload qualification; agree a separate real two-node allocation afterward.
+
+## Agreed next-version image plan
+
+Owner clarification replaces the proposed conventional DCGAN baseline with
+**ParticleGAN MoG + b-cap and a pretrained discriminator from the first image
+recipe**. The [focused image plan](image-training-plan-2026-09-19.md) updates the
+version checklist without restarting completed runtime work. It sequences partial
+freezing and source fidelity, image components, PNG previews and the usable local
+workflow, pinned FID reproduction, real two-GPU qualification and externally
+comparable CIFAR-10 evidence. Full-data CIFAR-10 is first; 10%-data CIFAR-10 is a
+proposed follow-up. Multi-host, deployment and release remain later gates.
+
+Verified clean local/fetched/GitHub develop at
+`11b4ccc2663beef185709e3d5dcbd59b0bc593f8`. PR #327 is merged; its post-merge
+[Foundation CI](https://github.com/HyperGAN/HyperGAN/actions/runs/35474619748)
+and [Repository integrity](https://github.com/HyperGAN/HyperGAN/actions/runs/35474619657)
+both passed. The earlier checkpoint text records its pre-merge state.
+
+Read-only inspection found ParticleGAN branch
+`feat/cifar-ae-gan-pretrained-encoder` at
+`9e9ce96c96948197e21e1171c8394e3819bb0013`, matching its remote. The actual
+saved run records FID50k12.5344567 at200k, batch64. Its archived trainer, image
+components and pretrained critic match committed branch files. The later
+12.2464 result is explicitly a different attention-depth intervention. An
+independent subagent reviewed architecture, E-only reconstruction, distinct D/G
+draws, optimizer/initialization differences and required acceptance gates.
+
+Commands: `git status --short --branch`, `git fetch origin develop`, GitHub branch
+and workflow queries, `git show`, `git ls-remote`, read-only JSON/ZIP/SHA256
+inspection, `git diff --check` and local Markdown-link validation. Source/config
+receipts and PR integration evidence are under
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-19-image-plan/`.
+This is a documentation milestone; no new runtime, experiment, GPU job, dataset
+download, upstream edit, paid compute or release occurred.
+
+Next concrete implementation: I1's preservation of factory-defined frozen
+parameter masks with native/replicated gradient and full-recovery checks, then
+the pinned image recipe. Source/weight terms and exact port/evaluation protocol
+remain implementation gates; the existing score is not yet HyperGAN reproduction
+or leaderboard placement.

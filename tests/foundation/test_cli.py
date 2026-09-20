@@ -104,7 +104,7 @@ from hypergan.cli import main
 raise SystemExit(main(sys.argv[1:]))
 """
     result = subprocess.run(
-        [sys.executable, "-I", "-c", code, missing, "train", str(project), "--run-dir", str(tmp_path / "run"), "--steps", "6"],
+        [sys.executable, "-I", "-c", code, missing, "train", str(project), "--run-dir", str(tmp_path / "run"), "--steps", "6", "--no-server"],
         cwd=tmp_path, capture_output=True, text=True, timeout=30,
     )
     assert result.returncode != 0

@@ -5,9 +5,15 @@ within the [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md); the
 [status ledger](resurrection-status.md) remains the implementation record.
 
 The [2026-09-20 execution report](image-training-execution-2026-09-20.md) records
-the passing local CLI smoke, exact supported-run recovery, active GPU-1 training
-and explicit deterministic execution variant. Source distribution permission,
-quality reproduction and image-distributed qualification remain open gates.
+the passing local CLI smoke, exact supported-run recovery and completed 40k GPU-1
+allocation under the explicit deterministic variant. Final EMA FID50k/train is
+**19.37753221446735**. On 2026-09-20 the owner confirmed authorship of both projects
+and authorized MIT distribution of the ParticleGAN port, with no additional
+attribution requested; normal source and experiment provenance remain recorded.
+This supersedes earlier licensing holds. Full quality reproduction and
+image-distributed qualification remain open gates. Check the public-port branch
+`feat/cifar-recipe-public` and protected merge receipts for its current integration
+state.
 
 ## Product outcome and decisions
 
@@ -111,7 +117,7 @@ Use external worktrees and subagents for independent implementation/review.
 
 | Order | Work | Done when |
 | --- | --- | --- |
-| I1 | Preserve factory-defined frozen parameter masks; define pinned pretrained-weight loading/provenance; capture source recipe and protocol | A trainable head cannot accidentally unfreeze its backbone; frozen weights/buffers stay fixed, input and b-cap gradients work, optimizer ownership and full recovery are checked. Missing/wrong weights fail before a long run; no implicit downloads. Resolve source/weight terms before distributing a port |
+| I1 | Preserve factory-defined frozen parameter masks; define pinned pretrained-weight loading/provenance; capture source recipe and protocol | A trainable head cannot accidentally unfreeze its backbone; frozen weights/buffers stay fixed, input and b-cap gradients work, optimizer ownership and full recovery are checked. Missing/wrong weights fail before a long run; no implicit downloads. The owner's MIT distribution authorization and pinned artifact provenance are recorded; no data/weights are redistributed |
 | I2 | Port the selected G/D/prior and required encoder behavior into ordinary Python components; represent exact phase draws, augmentation, optimizer and initialization choices | Small controlled native-CUDA comparisons cover complete updates against the pinned source, then bounded image training and exact current-run stop/resume pass. Public package APIs replace imports from the upstream experiment tree. Differences are explained, not hidden |
 | I3 | Add bounded PNG image grids and browser rendering, fixed-latent history and fresh samples; finish the image walkthrough | A user can prepare data, train, watch meaningful images, stop, resume and sample a saved generator in a fresh process. Previews preserve numerical state and remain useful with metrics disabled; sampling is separate from measurement |
 | I4 | Add the explicit pinned FID evaluator and reproduce the source trajectory on one local GPU | Evaluation agrees on reference/sample/weight/preprocessing choices. Publish samples, quality versus updates and elapsed GPU time, peak memory, failures and complete recovery evidence. Use the 40k/200k observations as comparison points, not guaranteed scores or automatic plateau rules |
@@ -165,16 +171,23 @@ with reproducible evidence and complete recovery.
 
 ## Version scope and continuity
 
-The core runtime, viewer/metrics infrastructure and public CPU/CUDA profiles are
-already implemented at HyperGAN `11b4ccc2663beef185709e3d5dcbd59b0bc593f8`.
-Both post-merge required workflows passed. None of I1–I6 is claimed complete by
-this planning update. The earlier explicit upstream licensing gate remains open;
-this inspection did not re-audit project-wide license grants.
+The original planning baseline was HyperGAN
+`11b4ccc2663beef185709e3d5dcbd59b0bc593f8`, with both post-merge required workflows
+passing and no I1–I6 completion claimed at that point. PRs #330–333 subsequently
+merged with 18 passing checks each, reaching develop
+`a5919d6572ad62f494f4a1b7d8b31bafac49b374`. They provide partial freezing, pinned
+FID, native image numerical/recovery/preflight policies and PNG/browser support.
+The execution report establishes the installed local image journey and completed
+40k measurements, preserving the failed original-policy checks and the explicit
+deterministic variant. The owner has now authorized MIT distribution, so source
+permission is no longer a blocker; public-port integration is verified through
+its GitHub PR and receipts. A 40k allocation does not complete historical 200k
+quality reproduction, actual two-GPU image qualification or external benchmarking.
 
 After the real local image and two-GPU gates, retain the version plan's separately
 budgeted real two-node training/recovery, deployment and release gates. The two
 local GPUs are authorized; paid compute and release publication are not part of
-this planning change. Preserve historical source attribution and run evidence.
+this planning change. Preserve source revision and run evidence.
 No compatibility with the research checkpoint format is required: port/reproduce
 the recipe, then guarantee complete validated recovery within the current
 HyperGAN implementation.

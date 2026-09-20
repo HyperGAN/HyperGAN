@@ -1,0 +1,163 @@
+# Source recipe: ParticleGAN 9e9ce96, sagan_gd_16k_200k; explicit deterministic variant.
+# Requires local CIFAR bytes and hash-pinned ResNet18 weights; never downloads.
+schema_version = 1
+name = "images/cifar-pretrained-sagan"
+
+[data]
+factory = "hypergan.image_data:CIFAR10Data"
+[data.args]
+root = "./data"
+split = "train"
+sampling = "random"
+horizontal_flip = true
+
+# Core constructs G, D, then named auxiliaries: source initialization is G, D, E.
+[components.generator]
+factory = "hypergan.image_components:CIFARGenerator"
+inputs = { z = "latent" }
+[components.generator.args]
+z_dim = 64
+width = 32
+attention_seed = 124003
+
+[components.discriminator]
+factory = "hypergan.image_components:CIFARDiscriminator"
+inputs = { x = "candidate" }
+[components.discriminator.args]
+width = 32
+weights_path = "~/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
+weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+deterministic_features = true
+feature_state_sha256 = "5de287ab28d569dfc53a5bca4a646d4416621da29e71e80859e6117c7f90b0ac"
+attention_seed = 124003
+
+[components.encoder]
+factory = "hypergan.image_components:CIFARRoutingEncoder"
+inputs = { x = "batch.real", means = "prior.means", sigma = "prior.sigma" }
+[components.encoder.args]
+z_dim = 64
+width = 32
+temperature = 0.125
+
+[components.reconstruction]
+reuse = "generator"
+inputs = { z = "components.encoder.latent" }
+freeze_parameters = true
+
+[[objectives]]
+id = "reconstruction"
+factory = "mse"
+inputs = { input = "components.reconstruction", target = "batch.real" }
+weight = 1.0
+detach = ["target"]
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 24003
+fixed_sigma = 0.212616428732872
+[prior.args]
+num_particles = 16384
+z_dim = 64
+sigma_rel = 0.025
+
+[adversarial]
+loss_type = "logistic"
+mode = "rp"
+weight = 1.0
+
+[gradient_penalty]
+arm = "b_cap"
+coeff = 1.0
+kappa = 1.0
+lazy_k = 8
+
+[prior_regularizer]
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001
+
+[optimizer]
+implementation = "torch_fused_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
+
+[training]
+steps = 200000
+batch_size = 64
+seed = 24002
+device = "cuda"
+ema = 0.995
+lr_anneal_start = 0.6
+lr_floor = 1.0
+phase_draws = "independent"
+data_rng_device = "execution"
+data_seed_offset = 2
+prior_seed_offset = 3
+
+# Explicit current-run recovery policy. Historical source enabled TF32/benchmark.
+[training.backend]
+deterministic_algorithms = true
+cudnn_deterministic = true
+cudnn_benchmark = false
+matmul_allow_tf32 = false
+cudnn_allow_tf32 = false
+cublas_workspace_config = ":4096:8"
+
+[sampling]
+count = 64
+seed = 34002
+
+[metrics]
+preset = "standard"
+every_steps = 1
+
+[metrics.custom.fid_smoke]
+factory = "hypergan.image_metrics:InceptionFID"
+mode = "snapshot"
+trigger = "manual"
+timeout = 180
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.fid_smoke.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+[metrics.custom.fid_smoke.evaluation]
+device = "cuda"
+sample_count = 128
+batch_size = 128
+seed = 34002
+[metrics.custom.fid_smoke.evaluation.data]
+factory = "hypergan.image_data:CIFAR10Data"
+[metrics.custom.fid_smoke.evaluation.data.args]
+root = "./data"
+split = "train"
+sampling = "sequential"
+horizontal_flip = false
+
+[metrics.custom.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+mode = "snapshot"
+trigger = "manual"
+timeout = 3600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.fid50k_train.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+[metrics.custom.fid50k_train.evaluation]
+device = "cuda"
+sample_count = 50000
+batch_size = 128
+seed = 34002
+[metrics.custom.fid50k_train.evaluation.data]
+factory = "hypergan.image_data:CIFAR10Data"
+[metrics.custom.fid50k_train.evaluation.data.args]
+root = "./data"
+split = "train"
+sampling = "sequential"
+horizontal_flip = false

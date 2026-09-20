@@ -2,9 +2,11 @@
 
 2026-09-20 execution of [the image plan](image-training-plan-2026-09-19.md).
 The requested acceptance is achieved locally: an installed HyperGAN CLI passes
-an actual CUDA image smoke test with complete recovery, and the longer recipe is
-training on physical GPU 1. Quality reproduction, image-distributed qualification
-and public distribution of the copied components remain separate gates.
+an actual CUDA image smoke test with complete recovery, and the bounded run on
+physical GPU 1 completed 40,000 updates and all four FID evaluations. Final EMA
+FID50k/train is **19.37753221446735**. The owner has authorized MIT distribution
+of the ParticleGAN port. Full quality reproduction and image-distributed
+qualification remain separate gates.
 
 ## Recipe and implementation
 
@@ -15,10 +17,11 @@ features, a standardized 16,384-component MoG (latent 64; fixed sigma
 0.212616428732872), Rp-logistic and b-cap (coefficient 1, kappa 1, every eight
 updates), batch 64 and source fused-Adam learning rates. Reconstruction updates
 only the encoder. Independent D/G draws, initialization order, named RNG offsets,
-feature modes and partial parameter masks are explicit. The copied CIFAR
-components and example remain local pending the plan's source-license gate;
-upstream has no root license, and owner confirmation was requested before public
-distribution. No pretrained weights or dataset are redistributed.
+feature modes and partial parameter masks are explicit. On 2026-09-20 the owner
+confirmed authorship of both projects and explicitly permitted MIT distribution
+of the ParticleGAN port, with no additional attribution requested. This supersedes
+the earlier source-license hold. Source revision and experiment provenance remain
+recorded. No pretrained weights or dataset are redistributed.
 
 The independent core changes are split across PRs
 [#330](https://github.com/HyperGAN/HyperGAN/pull/330) (partial freezing),
@@ -26,6 +29,11 @@ The independent core changes are split across PRs
 [#332](https://github.com/HyperGAN/HyperGAN/pull/332) (native numerical policies,
 recovery and preflight), and
 [#333](https://github.com/HyperGAN/HyperGAN/pull/333) (PNG samples and viewer).
+All four merged with 18 successful checks each; develop reached
+`a5919d6572ad62f494f4a1b7d8b31bafac49b374` with #333. The public component/data/example
+port is tracked by branch `feat/cifar-recipe-public`; verify its current PR review
+and merge state on GitHub and in the protected merge receipts rather than infer
+it from this execution result.
 Native preflight now uses the configured device when no distributed profile is
 selected. Unsupported combinations with replicated training or accumulation fail
 explicitly; this run does not qualify the image recipe on two GPUs.
@@ -80,45 +88,73 @@ numerical tolerance. Neither establishes the historical approximately-12 FID50k.
 
 The core and PNG slices each passed their scoped **461 installed CPU tests**;
 the PNG scope includes actual Chromium. The integrated wheel additionally passed
-35 focused tests, then 30 deterministic-policy tests. Required GitHub checks must
-pass at each final current-base PR head before protected merges.
+35 focused tests, then 30 deterministic-policy tests. PR #333's final current-base
+CPU CI passed 250 tests in 874.17 seconds; all 18 checks passed before its protected
+merge. The public-port PR has its own exact-head review and CI gate.
 
-## Run, observation and control
+The authorized public port additionally passed a source → sdist → wheel build
+and **88 focused installed CPU tests in 14.64 seconds**, with no failures or
+skips. All 51 Python runtime files byte-match the frozen accepted training wheel;
+the public TOML matches the executed recipe after its six local paths are
+substituted. The example is included in the sdist. This verification left the
+training environment untouched; its receipt is
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-cifar-public/installed-verification.json`.
+
+## Completed run, observation and control
 
 Run root: `/home/martyn/dev/hypergan/training-runs/cifar10-pretrained-20260920/`.
-Configuration: `cifar10.toml`; active run: `train/`; supervisor: `run-training.py`.
-The schedule remains 200,000 updates, but this first allocation stops at **40,000**
-updates. It trains in 10,000-update CLI segments, evaluates EMA FID50k against all
-50,000 sequential, unaugmented CIFAR-10 training references, then resumes from
-the same supported-run checkpoint. Checkpoints are written every 1,000 updates,
-fixed-seed EMA PNG previews every 500, and scalar metrics every update. FID uses
+Configuration: `cifar10.toml`; run: `train/`; supervisor: `run-training.py`.
+The saved schedule is 200,000 updates; this allocation completed at **40,000**
+updates. It trained in four 10,000-update CLI segments, evaluated EMA FID50k
+against all 50,000 sequential, unaugmented CIFAR-10 training references, and
+successfully resumed between segments from the same supported-run checkpoints.
+Checkpoints were written every 1,000 updates, fixed-seed EMA PNG previews every
+500, and scalar metrics every update. FID used
 50,000 generated samples, seed 34002 and batch 128. Evaluation is serial with
-training on GPU 1 and failures stop the supervisor without automatic retries.
+training on GPU 1; failures stop the supervisor without automatic retries.
 The supervisor checks a six-hour elapsed budget before each training segment,
 including time already spent evaluating. An in-flight evaluation has its own
 one-hour timeout and may extend beyond that elapsed budget.
 
-Follow progress:
+The supervisor completed at **2026-09-20 08:21:19 UTC**, reporting
+**5,152.7077005680185 seconds** elapsed (about 85 minutes 53 seconds), including
+serial evaluation and supervision. `supervisor.json` says `complete` at 40,000.
+`train/manifest.json` says `stopped`, reason `stop_after_steps`, with observed and
+durable step 40,000: the allocation ended cleanly before the saved 200k schedule.
+No further GPU training was launched for this documentation update.
+
+Inspect the retained execution log:
 
 ```sh
-tail -F /home/martyn/dev/hypergan/training-runs/cifar10-pretrained-20260920/workflow.log
+tail -n 30 /home/martyn/dev/hypergan/training-runs/cifar10-pretrained-20260920/workflow.log
 ```
 
-Request a clean stop at a complete update boundary:
+For an explicitly resumed supervised allocation, a clean stop can be requested
+at a complete update boundary:
 
 ```sh
 touch /home/martyn/dev/hypergan/training-runs/cifar10-pretrained-20260920/STOP
 ```
 
-The first 10,000-update segment completed at 07:14:10 UTC after approximately
-1,124 seconds of supervision. **EMA FID50k/train was 33.46801440699488 at 10k**,
-with evaluation completing in 167.2 seconds. The supervisor successfully invoked
-`hypergan resume` and training continued beyond 10k. The metric receipt is
-`fid50k-step-10000.json` in the evidence directory. This is the first measured
-HyperGAN score under this pinned protocol, not reproduction of the historical
-200k score or an externally comparable leaderboard result.
-The detached supervisor survives the coordinator turn. Its `supervisor.json`
-records the current CLI phase; `train/manifest.json` records current progress.
+All four evaluation receipts have status `complete` and the same pinned protocol:
+
+| Update | EMA FID50k/train | Evaluation seconds |
+| --- | --- | --- |
+| 10,000 | 33.46801440699488 | 167.215474 |
+| 20,000 | 25.71653952561263 | 166.971042 |
+| 30,000 | 21.595076630349126 | 168.797689 |
+| 40,000 | 19.37753221446735 | 171.041159 |
+
+The exact CLI receipts in the run root are
+`cli-fid50k_train-1789888450755173059.json`,
+`cli-fid50k_train-1789889735931499132.json`,
+`cli-fid50k_train-1789891019106293086.json`, and
+`cli-fid50k_train-1789892307286223334.json`, respectively. The 40k evaluation ID is
+`45a3f577f93d4dc1912b7279e6149b88`, and its inference snapshot SHA256 is
+`4d5cb2545c345d46405bbabcddf0940393fb9004b1bd1ea1d4c6885c404addd1`.
+These are measured HyperGAN results under the declared deterministic protocol,
+not reproduction of the historical 200k score or an external leaderboard result.
+The final `supervisor.json` and `train/manifest.json` retain allocation status.
 CLI JSON results, scalar events, preview artifacts and snapshot metric protocol
 receipts remain durable. A standalone localhost viewer uses port 8765 and
 `viewer-session.json` outside the served run; its token is private. Standalone `hypergan project train --follow` maintains the live projection; the
@@ -136,9 +172,9 @@ coordinator-live-check` request succeeded at update 6,389 while training continu
 Frozen environment: `/home/martyn/dev/hypergan/image-training-env/`.
 Wheel source: local integration commit `29d9ec87eff9bb7b45f93b35b5a3a557cf5b9074`.
 Wheel SHA256: `53717577260e00558407cebd3d4e9a83436be07ed0d9bb772fe41ab22cf2801a`.
-Do not reinstall this environment during the run: checkpoint source and package
-identity are deliberately strict. Runtime is Python 3.12.13, torch 2.14.0+cu130,
-torchvision 0.29.0+cu130 and ParticleGAN 0.5.0. CUDA visibility is pinned to
+Retain this environment for supported-run recovery: checkpoint source and package
+identity are deliberately strict. Runtime was Python 3.12.13, torch 2.14.0+cu130,
+torchvision 0.29.0+cu130, NumPy 2.5.2 and ParticleGAN 0.5.0. CUDA visibility was pinned to
 `GPU-548116b7-9dbe-de58-b3d9-a6e27b0f74ce` (physical GPU 1; logical cuda:0).
 GPU 0 and unrelated desktop processes were left alone. No paid compute or release.
 
@@ -158,9 +194,10 @@ failed comparison/diagnostic receipts and protected PR premerge/merge receipts.
 Neighboring `2026-09-20-image-core`, `2026-09-20-image-recipe` and
 `2026-09-20-image-previews` directories preserve subagent builds and reviews.
 
-Next actions: inspect the 20k/30k/40k FID50k results and image grids; preserve quality-versus-time
-and diversity evidence; resolve source distribution permission; finish full-data
-reproduction before external benchmark claims. I5 requires actual two-GPU image
+Next actions: integrate the authorized public port through its review and CI,
+preserve quality-versus-time and diversity evidence from the completed allocation,
+and qualify further full-data reproduction before external benchmark claims.
+I5 requires actual two-GPU image
 numerical/recovery validation and is not satisfied by earlier runtime/NCCL tests.
 Full reproduction, external evaluation protocol, two-host execution and release
 remain later gates. There is no leaderboard or historical-FID reproduction claim.

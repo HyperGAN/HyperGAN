@@ -2,7 +2,13 @@
 
 HyperGAN is being rebuilt to make proven GANs configurable and practical: prepare data, train, inspect samples, recover runs, and build generators for applications. The next release integrates on `develop`, using [ParticleGAN](https://github.com/255BITS/ParticleGAN) primitives inside a HyperGAN-owned training loop.
 
-The current foundation is a **numerical reference with native CUDA training**, flexible component configuration, complete training checkpoints, reloadable inference artifacts and an optional image-folder data contract. New projects target CUDA by default; CPU execution is an explicit option for small correctness fixtures. It is not yet a qualified image-training product. Image recipes, multi-GPU and real cluster training remain release gates. Custom visual generators are the first product direction; conditional input/output contracts also support development of colorization and super-resolution recipes.
+The current foundation supports native CUDA training, flexible Python components,
+complete training checkpoints and a local viewer. The first measured image recipe
+is [CIFAR-10 with ParticleGAN MoG, b-cap and a pretrained discriminator](docs/cifar-recipe.md),
+with a scratch generator, PNG previews and explicit FID evaluation. New projects
+target CUDA; CPU execution is explicit for small correctness fixtures. Full image
+reproduction, actual two-GPU image qualification and real cluster training remain
+release gates. Custom configurations still require their own qualification.
 
 ## Install the development foundation
 

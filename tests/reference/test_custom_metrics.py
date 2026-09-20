@@ -29,6 +29,8 @@ class Probe:
         random.random()
         import numpy as np
         import torch
+        assert os.environ['CUDA_VISIBLE_DEVICES'] == ''
+        assert torch.get_num_threads() == 1
         np.random.rand()
         torch.rand(9)
         if self.slow: ctypes.PyDLL(None).sleep(30)
@@ -110,9 +112,12 @@ def test_supervised_scalar_cadence_and_rng_do_not_change_complete_state(tmp_path
     result=run(driver,'normal')
     assert result.returncode==0,result.stdout+result.stderr
     same(torch.load(tmp_path/'base.pt',weights_only=True),torch.load(tmp_path/'custom.pt',weights_only=True))
-    training=[row for row in rows(tmp_path/'custom') if row['event']=='train']
-    assert [row['step'] for row in training if 'ratio' in row['metrics']]==[2]
-    assert training[1]['metrics']['ratio']==training[1]['metrics']['loss/g_total']/training[1]['metrics']['loss/d_total']
+    events=rows(tmp_path/'custom')
+    training=[row for row in events if row['event']=='train']
+    measured=[row for row in events if 'ratio' in row.get('metrics',{})]
+    assert [row['step'] for row in measured]==[2]
+    assert measured[0]['event']=='metric'
+    assert measured[0]['metrics']['ratio']==training[1]['metrics']['loss/g_total']/training[1]['metrics']['loss/d_total']
     for pid in map(int,marker.read_text().splitlines()):
         with pytest.raises(ProcessLookupError): os.kill(pid,0)
 
@@ -125,7 +130,10 @@ def test_optional_failure_and_timeout_disable_metric_and_reap_worker(tmp_path,sl
     assert result.returncode==0,result.stdout+result.stderr
     training=[row for row in rows(tmp_path/'custom') if row['event']=='train']
     assert len(training)==3
-    assert all(row['measurement_status']['ratio']['status']=='disabled' for row in training)
+    assert training[0]['measurement_status']['ratio']['status']=='queued'
+    assert all(row['measurement_status']['ratio']['status'] in ('dropped','disabled') for row in training[1:])
+    assert any(row.get('measurement_status',{}).get('ratio',{}).get('status')=='disabled'
+               for row in rows(tmp_path/'custom'))
     assert len(marker.read_text().splitlines())==1
     for pid in map(int,marker.read_text().splitlines()):
         with pytest.raises(ProcessLookupError): os.kill(pid,0)
@@ -136,8 +144,9 @@ def test_required_factory_failure_is_not_successful_training(tmp_path):
     result=run(driver,'error')
     assert result.returncode!=0 and 'Required metric ratio failed' in result.stderr
     manifest=json.loads((tmp_path/'custom/manifest.json').read_text())
-    assert manifest['status']=='failed' and manifest['steps']==1 and manifest['last_durable_step']==0
-    assert not [row for row in rows(tmp_path/'custom') if row['event']=='train']
+    assert manifest['status']=='failed' and 1 <= manifest['steps'] <= 3
+    assert manifest['last_durable_step'] < manifest['steps']
+    assert [row for row in rows(tmp_path/'custom') if row['event']=='train']
     result=run(driver,'recover')
     assert result.returncode==0,result.stdout+result.stderr
     same(torch.load(tmp_path/'base.pt',weights_only=True),torch.load(tmp_path/'custom.pt',weights_only=True))

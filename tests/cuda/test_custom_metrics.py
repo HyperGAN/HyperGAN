@@ -16,7 +16,7 @@ def module(name):
 def test_cuda_custom_scalar_isolation(tmp_path):
     assert torch.cuda.is_available(), 'CUDA acceptance requires a local GPU'
     fixture=module('test_custom_metrics.py')
-    fixture.PLUGIN=fixture.PLUGIN.replace('        torch.rand(9)', '        torch.rand(9)\n        torch.rand(9,device="cuda:0")')
+    fixture.PLUGIN=fixture.PLUGIN.replace('        torch.rand(9)', '        torch.rand(9)\n        assert not torch.cuda.is_available(), "Scalar observers must not compete for the training GPU"')
     setup=fixture.setup
     def gpu_setup(*args,**kwargs):
         kwargs['timeout']=15

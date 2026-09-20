@@ -205,7 +205,9 @@ def test_manual_save_is_optional_only_while_execution_remains_usable(tmp_path, f
     assert receipt['status'] == ('pending' if fatal else 'rejected')
     assert instances[0].closed
     if fatal:
-        assert manifest['steps'] == 1 and manifest['last_durable_step'] == 0
+        # Fast updates may finish before the 250 ms request poll. The forced
+        # terminal poll still executes the request before final checkpointing.
+        assert 1 <= manifest['steps'] <= 2 and manifest['last_durable_step'] == 0
         assert not manifest['observation_errors']
 
 
@@ -273,3 +275,203 @@ def test_unclassified_observer_execution_failure_remains_fatal(tmp_path):
     assert manifest['steps'] == 1 and manifest['last_durable_step'] == 0
     assert manifest['possible_lost_steps'] == 1 and not manifest['observation_errors']
     assert instances[0].closed
+
+
+def test_training_continues_while_event_disk_is_stalled_and_reports_queue_loss(tmp_path, monkeypatch):
+    from threading import Event
+    import hypergan.run_controller as controller
+    from hypergan.observation_io import ObservationIO
+    from hypergan.run_events import read_event_page
+    from hypergan.run_state import EventJournal, validate_event_boundary
+
+    entered, release = Event(), Event()
+    append = EventJournal.append
+    def slow_append(self, event):
+        if event['event'] == 'train':
+            entered.set()
+            assert release.wait(5)
+        return append(self, event)
+    class SmallQueue(ObservationIO):
+        def __init__(self, run_dir, attempt_dir):
+            super().__init__(run_dir, attempt_dir, capacity=2)
+    monkeypatch.setattr(EventJournal, 'append', slow_append)
+    monkeypatch.setattr(controller, 'ObservationIO', SmallQueue)
+    path, root, factory, _, _, instances = setup(tmp_path)
+    original = factory
+    def execution_factory(config):
+        execution = original(config)
+        update = execution.update
+        def advance():
+            if execution.step == 1:
+                assert entered.wait(5)
+            value = update()
+            if value.step == 10:
+                release.set()
+            return value
+        execution.update = advance
+        return execution
+    execution_factory.environment = original.environment
+    try:
+        result = run_train(path, root, steps=10, execution_factory=execution_factory)
+    finally:
+        release.set()
+    assert instances[0].step == 10
+    assert result['dropped_train_events'] >= 1
+    events = read_event_page(root)['events']
+    assert [event['sequence'] for event in events] == list(range(1, len(events) + 1))
+    assert sum(event.get('observation_gap', {}).get('dropped_train_events', 0) for event in events) == result['dropped_train_events']
+    checkpoint = json.loads((__import__('pathlib').Path(result['checkpoint_path']) / 'manifest.json').read_text())
+    assert checkpoint['step'] == checkpoint['event_boundary']['step'] == 10
+    validate_event_boundary(root, checkpoint)
+
+
+@pytest.mark.parametrize('required_failure', [False, True])
+def test_final_delayed_metrics_keep_source_step_and_current_checkpoint_frontier(tmp_path, monkeypatch, required_failure):
+    import hypergan.run_controller as controller
+    from pathlib import Path
+    from hypergan.run_events import read_event_page
+    from hypergan.run_state import validate_event_boundary
+
+    class DelayedMetrics:
+        def __init__(self, config):
+            self.source = None
+        def start(self):
+            pass
+        def evaluate(self, values, context):
+            if self.source is None:
+                self.source = dict(context)
+            return {}, {}
+        def poll(self):
+            return []
+        def close(self, *, drain=True, stop_requested=None):
+            if not drain:
+                return []
+            outcome = {'context': self.source, 'metrics': {'loss/g_total': 1.5},
+                       'measurement_status': {}}
+            if required_failure:
+                error = RuntimeError('Required metric delayed failed at terminal drain')
+                outcome.update(metrics={}, measurement_status={'loss/g_total': {'status': 'failed'}})
+                error.metric_outcomes = [outcome]
+                raise error
+            return [outcome]
+
+    monkeypatch.setattr(controller, 'ScalarMetrics', DelayedMetrics)
+    path, root, factory, _, _, instances = setup(tmp_path)
+    if required_failure:
+        with pytest.raises(RuntimeError, match='terminal drain'):
+            run_train(path, root, steps=2, execution_factory=factory)
+        manifest = json.loads((root / 'manifest.json').read_text())
+        assert manifest['status'] == 'failed' and manifest['last_durable_step'] == 0
+        assert instances[0].closed
+    else:
+        manifest = run_train(path, root, steps=2, checkpoint_every=2, execution_factory=factory)
+        # The final periodic save preceded metric completion. Refresh its event
+        # boundary with a second same-step save without changing trainer state.
+        assert instances[0].count == 3
+        info = json.loads((Path(manifest['checkpoint_path']) / 'manifest.json').read_text())
+        validate_event_boundary(root, info)
+        prefix = (root / 'events.jsonl').read_bytes()[:info['event_boundary']['offset']]
+        saved_events = [json.loads(line) for line in prefix.splitlines()]
+        assert saved_events[-1]['step'] == info['step'] == 2
+        assert any(event['event'] == 'metric' and event['step'] == 1 for event in saved_events)
+    events = read_event_page(root)['events']
+    measured = [event for event in events if event['event'] == 'metric']
+    assert len(measured) == 1 and measured[0]['step'] == 1
+    assert [event['sequence'] for event in events] == list(range(1, len(events) + 1))
+
+
+def test_controller_cleans_background_observer_when_terminal_publication_fails(monkeypatch):
+    import hypergan.run_controller as controller
+    actions = []
+    class Execution:
+        def shutdown(self):
+            actions.append('shutdown')
+        def close_observers(self):
+            actions.append('close_observers')
+            raise RuntimeError('secondary cleanup failure')
+    def fail(*args, **kwargs):
+        raise OSError('primary journal failure')
+    monkeypatch.setattr(controller, '_execute_run', fail)
+    with pytest.raises(OSError, match='primary journal failure'):
+        controller.execute_run({}, None, {}, 100, None, None, None, execution=Execution())
+    assert actions == ['shutdown', 'close_observers']
+
+
+def test_checkpoint_request_scan_does_not_stall_updates_and_terminal_scan_is_fresh(tmp_path, monkeypatch):
+    from threading import Event, current_thread, main_thread
+    import time
+    import hypergan.run_requests as requests
+    entered, release = Event(), Event()
+    original_read = requests.pending_requests
+    def slow_read(run_dir):
+        if current_thread() is not main_thread():
+            entered.set()
+            assert release.wait(5)
+        return original_read(run_dir)
+    monkeypatch.setattr(requests, 'pending_requests', slow_read)
+    path, root, factory, _, _, instances = setup(tmp_path)
+    original_factory = factory
+    def execution_factory(config):
+        execution = original_factory(config)
+        update = execution.update
+        def advance():
+            if execution.step == 0:
+                time.sleep(.26)  # Reach the actual public 250 ms read cadence.
+            if execution.step == 1:
+                assert entered.wait(5)
+            value = update()
+            if value.step == 3:
+                submit_checkpoint_request(root, run_id=execution.context.run_id,
+                                          attempt_id=execution.context.attempt_id, request_id='late')
+            if value.step == 6:
+                release.set()
+            return value
+        execution.update = advance
+        return execution
+    execution_factory.environment = original_factory.environment
+    try:
+        result = run_train(path, root, steps=6, execution_factory=execution_factory)
+    finally:
+        release.set()
+    assert instances[0].step == 6 and result['status'] == 'complete'
+    receipt = checkpoint_request_status(root, 'late')
+    assert receipt['status'] == 'succeeded' and receipt['step'] == 6
+
+
+@pytest.mark.parametrize('terminal_failure', [False, True])
+def test_fast_terminal_observer_status_and_errors_are_persisted(tmp_path, terminal_failure):
+    path, root, factory, _, _, _ = setup(tmp_path)
+    status = {'accepted': 2, 'completed': 1 if terminal_failure else 2,
+              'dropped': 3, 'failed': int(terminal_failure), 'pending': False}
+    def execution_factory(config):
+        execution = factory(config)
+        execution.observation_status = lambda: status
+        def observe(callback, event):
+            if terminal_failure and event['event'] == 'complete':
+                error = ObserverError('terminal callback failed')
+                error.observation_step = 1
+                raise error
+        execution.observe = observe
+        return execution
+    result = run_train(path, root, steps=2, on_event=lambda event: None,
+                       execution_factory=execution_factory)
+    saved = json.loads((root/'manifest.json').read_text())
+    attempt = json.loads((__import__('pathlib').Path(result['attempt_dir'])/'manifest.json').read_text())
+    for manifest in (saved, attempt):
+        assert manifest['progress_observation'] == result['progress_observation'] == status
+        assert manifest['observation_errors'] == result['observation_errors']
+        if terminal_failure:
+            assert manifest['observation_errors'][-1]['step'] == 1
+
+
+def test_resume_without_callback_clears_prior_attempt_worker_status(tmp_path):
+    path, root, factory, _, _, _ = setup(tmp_path)
+    result=run_train(path, root, steps=2, execution_factory=factory)
+    result['progress_observation']={'accepted':1, 'failed':1, 'pending':False}
+    result['metric_shutdown_error']='prior attempt worker cleanup failed'
+    (root/'manifest.json').write_text(json.dumps(result))
+    resumed=run_resume(root, execution_factory=factory)
+    saved=json.loads((root/'manifest.json').read_text())
+    for manifest in (resumed,saved):
+        assert 'progress_observation' not in manifest
+        assert 'metric_shutdown_error' not in manifest

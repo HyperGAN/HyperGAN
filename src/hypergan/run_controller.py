@@ -15,7 +15,9 @@ import warnings
 from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics
 from .metric_plugins import prepare_custom, ScalarMetrics
-from .run_state import atomic_json, EventJournal, run_lock, sync_directory, validate_event_boundary
+from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
+from .observation_io import ObservationIO
+from .background_poll import BackgroundPoll
 from .run_signals import GracefulStop
 
 
@@ -76,7 +78,7 @@ class Execution(Protocol):
     def restore(self, run_dir, checkpoint, run_id, config_sha256) -> Restored: ...
     def update(self) -> CompletedUpdate: ...
     def checkpoint(self, run_dir, metadata) -> Path: ...
-    def preview(self, run_dir, identity, *, keep) -> PreviewResult: ...
+    def preview(self, run_dir, identity, *, keep) -> PreviewResult | None: ...
     @property
     def inference_available(self) -> bool: ...
     def inference(self, bundle_dir, identity) -> ArtifactResult: ...
@@ -147,6 +149,13 @@ def _cleanup_validation_failure(execution):
         execution.shutdown()
     except BaseException:
         pass  # Preserve the validation/restore error; no attempt is published.
+    finally:
+        cleanup = getattr(execution, 'close_observers', None)
+        if cleanup is not None:
+            try:
+                cleanup()
+            except BaseException:
+                pass
 
 
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
@@ -254,6 +263,7 @@ def execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_a
                 on_event, *, execution, context=None):
     """Hold one adapter for an attempt; cleanup also covers early persistence errors."""
     shutdown_attempted = False
+    primary_error = None
     def shutdown():
         nonlocal shutdown_attempted
         if not shutdown_attempted:
@@ -261,15 +271,29 @@ def execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_a
             execution.shutdown()
     try:
         with GracefulStop() as stop:
+            observe_stop = getattr(execution, 'set_observation_stop', None)
+            if observe_stop is not None:
+                observe_stop(lambda: bool(stop.reason))
             return _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds,
                             stop_after_steps, on_event, execution=execution, shutdown=shutdown,
                             context=context, stop=stop)
-    except BaseException:
+    except BaseException as error:
+        primary_error = error
         try:
             shutdown()
         except BaseException:
             pass
         raise
+    finally:
+        cleanup = getattr(execution, 'close_observers', None)
+        if cleanup is not None:
+            try:
+                cleanup()
+            except BaseException as error:
+                if primary_error is None:
+                    raise
+                if hasattr(primary_error, 'add_note'):
+                    primary_error.add_note(f'Progress worker cleanup also failed: {error}')
 
 
 def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_after_steps,
@@ -285,20 +309,47 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     manifest.update(attempt_id=attempt_id, attempt_index=index, attempt_dir=str(attempt_dir),
                     status='initializing', checkpoint_every=checkpoint_every, stop_reason=None,
                     possible_lost_steps=0)
-    for key in ('error', 'shutdown_error', 'sample_path', 'bundle_path'):
+    for key in ('error', 'shutdown_error', 'metric_shutdown_error', 'progress_observation',
+                'sample_path', 'bundle_path'):
         manifest.pop(key, None)
     atomic_json(run_dir / 'manifest.json', manifest)
-    journal = EventJournal(run_dir)
+    journal = ObservationIO(run_dir, attempt_dir)
     sequence = 0
+    dropped = None
+    last_published = 0.0
+    last_event_step = None
+    custom_publications = 0
+    checkpoint_custom_publications = 0
+    preview_publications = 0
+    checkpoint_preview_publications = 0
 
-    def emit(event, *, _observe=True, **values):
-        nonlocal sequence
-        sequence += 1
+    def emit(event, *, _observe=True, _step=None, **values):
+        nonlocal sequence, dropped, last_event_step
         row = dict(values, schema_version=2, event=event, run_id=manifest['run_id'],
                    stream_id='training', stream_generation=manifest['run_id'], catalog=catalog_revision,
-                   attempt_id=attempt_id, sequence=sequence,
-                   step=manifest['steps'], seconds=time.monotonic() - started)
-        journal.append(row)
+                   attempt_id=attempt_id, sequence=sequence + 1,
+                   step=manifest['steps'] if _step is None else _step, seconds=time.monotonic() - started)
+        if dropped is not None:
+            row['observation_gap'] = dict(dropped)
+        boundary_event = event in {'start', 'resume', 'checkpoint', 'checkpoint_request',
+                                   'checkpoint_boundary', 'observation_gap', 'complete',
+                                   'stopped', 'failed', 'interrupted'}
+        if not journal.append(row, wait=boundary_event):
+            if dropped is None:
+                dropped = {'dropped_train_events': 0, 'by_event': {},
+                           'first_step': row['step'], 'last_step': row['step']}
+            dropped['by_event'][event] = dropped['by_event'].get(event, 0) + 1
+            dropped['first_step'] = min(dropped['first_step'], row['step'])
+            dropped['last_step'] = max(dropped['last_step'], row['step'])
+            totals = manifest.setdefault('dropped_observation_events', {})
+            totals[event] = totals.get(event, 0) + 1
+            if event == 'train':
+                dropped['dropped_train_events'] += 1
+                manifest['dropped_train_events'] = manifest.get('dropped_train_events', 0) + 1
+            return None
+        dropped = None
+        sequence += 1
+        last_event_step = row['step']
         if on_event is not None and _observe:
             def notify(value):
                 try:
@@ -311,25 +362,70 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     except Warning:
                         pass
             try:
-                execution.observe(notify, dict(row))
+                from .bounded_cli_output import CLIProgress
+                execution.observe(on_event if type(on_event) is CLIProgress else notify, dict(row))
             except FatalExecutionError:
                 raise
             except ObserverError as exc:
                 # A supervised adapter delivers its configured callback outside
                 # this process. Its failure must remain observable without
                 # recursively invoking that same failed observer.
-                record = {'source': 'progress', 'step': manifest['steps'],
+                source_step = getattr(exc, 'observation_step', manifest['steps'])
+                record = {'source': 'progress', 'step': source_step,
                           'attempt_id': attempt_id,
                           'error': f'{type(exc).__name__}: {exc}'[:1000]}
                 manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
-                publish()
-                emit('observer_error', _observe=False, source='progress', error=record['error'])
+                publish(wait=False)
+                emit('observer_error', _observe=False, _step=source_step,
+                     source='progress', error=record['error'])
+            except Exception as exc:
+                if type(on_event) is not CLIProgress:
+                    raise
+                try:
+                    warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
+                except Warning:
+                    pass
+            finally:
+                if event in ('complete', 'stopped', 'failed', 'interrupted'):
+                    status = getattr(execution, 'observation_status', lambda: None)()
+                    if status is not None:
+                        manifest['progress_observation'] = status
+                        if stop is not None and stop.reason:
+                            manifest['stop_reason'] = stop.reason
+                        # Terminal callback results must outlive the API return;
+                        # the live-status throttle may suppress this final update.
+                        publish()
+                        emit('observer_status', _observe=False, source='progress', delivery=status)
         return row
 
-    def publish():
-        manifest['seconds'] = time.monotonic() - started
-        atomic_json(run_dir / 'manifest.json', manifest)
-        atomic_json(attempt_dir / 'manifest.json', manifest)
+    def publish(*, wait=True):
+        nonlocal last_published
+        now = time.monotonic()
+        if not wait and now - last_published < 0.25:
+            journal.check()
+            return
+        manifest['seconds'] = now - started
+        journal.publish(manifest, wait=wait)
+        last_published = now
+
+    request_reader = None
+
+    def publish_custom(outcomes):
+        nonlocal custom_publications
+        for outcome in outcomes:
+            custom_publications += 1
+            emit('metric', _step=outcome['context']['step'],
+                 metrics=outcome['metrics'], measurement_status=outcome['measurement_status'],
+                 metric_publication='sampled' if outcome['metrics'] else 'failed')
+
+    def collect_custom(*, final=False):
+        try:
+            outcomes = custom_metrics.close(drain=True,
+                stop_requested=lambda: stop is not None and bool(stop.reason)) if final else custom_metrics.poll()
+        except Exception as error:
+            publish_custom(getattr(error, 'metric_outcomes', []))
+            raise
+        publish_custom(outcomes)
 
     try:
         info = execution.start()
@@ -353,11 +449,14 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                         next_sample_sequence=manifest['next_sample_sequence'])
 
         def checkpoint_now(request_ids=None, observer=False):
+            nonlocal checkpoint_custom_publications, checkpoint_preview_publications
             if not manifest['resume_supported']:
                 return
             metadata['next_sample_sequence'] = manifest['next_sample_sequence']
             metadata['request_ids'] = list(request_ids or [])
             try:
+                if dropped is not None or last_event_step != manifest['steps']:
+                    emit('checkpoint_boundary', _observe=False)
                 metadata['event_boundary'] = journal.commit_boundary()
                 path = execution.checkpoint(run_dir, metadata)
             except FatalExecutionError:
@@ -366,6 +465,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 if observer:
                     return None, exc
                 raise
+            checkpoint_custom_publications = custom_publications
+            checkpoint_preview_publications = preview_publications
             manifest.update(checkpoint_path=str(path), last_durable_step=manifest['steps'],
                             durable_event_boundary=metadata['event_boundary'],
                             possible_lost_steps=0)
@@ -373,37 +474,80 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             emit('checkpoint', checkpoint_path=str(path), request_ids=list(request_ids or []))
             return path, None
 
-        def observer_error(source, error):
-            record = {'source': source, 'step': manifest['steps'], 'attempt_id': attempt_id,
+        def observer_error(source, error, *, step=None):
+            source_step = manifest['steps'] if step is None else step
+            record = {'source': source, 'step': source_step, 'attempt_id': attempt_id,
                       'error': f'{type(error).__name__}: {error}'[:1000]}
             manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
-            publish()
-            emit('observer_error', **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
+            publish(wait=False)
+            emit('observer_error', _step=source_step,
+                 **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
+
+        def publish_preview_result(preview):
+            nonlocal preview_publications
+            if preview is None:
+                return
+            record, preview_index, errors = preview.record, preview.index, preview.errors
+            manifest['previews'] = preview_index['previews']
+            manifest['preview_path'] = record['path']
+            preview_publications += 1
+            publish(wait=False)
+            emit('preview', _step=record['step'], preview=record)
+            for error in errors:
+                observer_error('preview_retention', RuntimeError(error), step=record['step'])
+
+        def collect_preview(*, final=False):
+            hook = getattr(execution, 'close_previews' if final else 'poll_preview', None)
+            if hook is None:
+                return
+            try:
+                if final and hasattr(execution, 'preview_busy'):
+                    while execution.preview_busy:
+                        publish_preview_result(execution.poll_preview())
+                        if stop is not None and stop.reason:
+                            if execution.abort_previews():
+                                manifest['cancelled_previews'] = manifest.get('cancelled_previews', 0) + 1
+                                emit('preview_cancelled', reason=stop.reason)
+                            return
+                        if execution.preview_busy:
+                            # Only terminal draining waits. Poll so a signal
+                            # received during that wait can cancel immediately.
+                            time.sleep(.01)
+                    return
+                publish_preview_result(hook())
+            except FatalExecutionError:
+                raise
+            except Exception as exc:
+                observer_error('preview', exc, step=getattr(exc, 'preview_context', {}).get('step'))
 
         def preview_now():
+            if getattr(execution, 'preview_busy', False):
+                manifest['skipped_previews_busy'] = manifest.get('skipped_previews_busy', 0) + 1
+                emit('preview_skipped', reason='worker_busy')
+                return
             identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
                         'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence']}
             manifest['next_sample_sequence'] += 1
             publish()  # Reserve before rendering: failed or killed attempts never reuse a sequence.
             try:
-                preview = execution.preview(run_dir, identity, keep=manifest['preview_keep'])
-                record, preview_index, errors = preview.record, preview.index, preview.errors
+                publish_preview_result(execution.preview(run_dir, identity, keep=manifest['preview_keep']))
             except FatalExecutionError:
                 raise
             except Exception as exc:
                 observer_error('preview', exc)
                 return
-            manifest['previews'] = preview_index['previews']
-            manifest['preview_path'] = record['path']
-            publish()
-            emit('preview', preview=record)
-            for error in errors:
-                observer_error('preview_retention', RuntimeError(error))
 
-        def poll_requests():
-            from .run_requests import pending_requests, acknowledge_request
+        from .run_requests import pending_requests, acknowledge_request
+        request_reader = BackgroundPoll(lambda: pending_requests(run_dir))
+
+        def poll_requests(*, force=False):
             try:
-                pending = pending_requests(run_dir)
+                if force:
+                    pending = request_reader.read_now()
+                else:
+                    ready, pending = request_reader.poll()
+                    if not ready:
+                        return
             except RuntimeError:
                 return  # A producer holds the short queue lock; retry next boundary.
             except Exception as exc:
@@ -463,7 +607,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             # even if this attempt stops before another update.
             checkpoint_now()
         publish()
-        poll_requests()
+        poll_requests(force=True)
+        custom_metrics.start()
         attempt_steps = 0
         while manifest['steps'] < config['training']['steps']:
             if stop is not None and stop.reason:
@@ -475,6 +620,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if stop_after_steps is not None and attempt_steps >= stop_after_steps:
                 manifest['stop_reason'] = 'stop_after_steps'
                 break
+            collect_custom()
+            collect_preview()
             update_started = time.monotonic()
             completed = execution.update()
             step_seconds = time.monotonic() - update_started
@@ -494,13 +641,22 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                  samples_seen=completed.step * config['training']['batch_size'],
                  **{key: row[key] for key in ('global_batch_size', 'local_batch_size', 'world_size',
                                              'accumulation_steps', 'microbatch_size') if key in row})
-            if manifest['steps'] % checkpoint_every == 0:
+            periodic_checkpoint = manifest['steps'] % checkpoint_every == 0
+            if periodic_checkpoint:
                 checkpoint_now()
-            poll_requests()
+            poll_requests(force=periodic_checkpoint)
             if not (stop is not None and stop.reason) and manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
                 preview_now()
-            publish()
-        if manifest['last_durable_step'] != manifest['steps']:
+            publish(wait=False)
+        collect_custom(final=True)
+        collect_preview(final=True)
+        poll_requests(force=True)
+        # Reconcile one transient lost acknowledgement before ending the attempt.
+        # Saved request IDs identify the existing checkpoint and avoid a second save.
+        poll_requests(force=True)
+        if (manifest['last_durable_step'] != manifest['steps']
+                or custom_publications != checkpoint_custom_publications
+                or preview_publications != checkpoint_preview_publications):
             checkpoint_now()
         if stop is not None and stop.reason:
             manifest['stop_reason'] = stop.reason
@@ -518,16 +674,34 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         manifest['status'] = 'complete' if manifest['steps'] == config['training']['steps'] else 'stopped'
         publish()
         emit(manifest['status'], stop_reason=manifest['stop_reason'], checkpoint_path=manifest['checkpoint_path'])
+        request_reader.close(wait=True)
+        journal.close()
         return manifest
     except BaseException as exc:
         # Execution may contain a half update: NEVER checkpoint in this handler.
+        if request_reader is not None:
+            request_reader.close()
+        if stop is not None and stop.reason:
+            manifest['stop_reason'] = stop.reason
+        try:
+            custom_metrics.close(drain=False)
+        except BaseException as cleanup_error:
+            manifest['metric_shutdown_error'] = f'{type(cleanup_error).__name__}: {cleanup_error}'[:1000]
         try:
             shutdown()
         except BaseException as cleanup_error:
             manifest['shutdown_error'] = f'{type(cleanup_error).__name__}: {cleanup_error}'[:1000]
         manifest.update(status='interrupted' if isinstance(exc, (KeyboardInterrupt, SystemExit)) else 'failed',
                         error=f'{type(exc).__name__}: {exc}')
-        publish()
-        if not journal.failed:
-            emit(manifest['status'], error=manifest['error'], checkpoint_path=manifest['checkpoint_path'])
+        try:
+            if not journal.failed:
+                publish()
+                emit(manifest['status'], error=manifest['error'], checkpoint_path=manifest['checkpoint_path'])
+            else:
+                # The writer has stopped on failure; preserve failure visibility
+                # without asking that failed worker to publish again.
+                atomic_json(run_dir / 'manifest.json', manifest)
+                atomic_json(attempt_dir / 'manifest.json', manifest)
+        finally:
+            journal.close()
         raise

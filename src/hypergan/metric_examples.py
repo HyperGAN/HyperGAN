@@ -70,7 +70,10 @@ class ColorHistogramDifference:
         for batch in batches:
             for i, name in enumerate(('generated', 'reference')):
                 value = _rgb(batch[name], self.low, self.high)
-                histogram = torch.histc(value, bins=self.bins, min=0, max=1)
+                # CUDA histc uses nondeterministic atomic accumulation. Snapshot
+                # evaluation already runs in an isolated worker; keep its bounded
+                # histogram aggregation on CPU without relaxing backend policy.
+                histogram = torch.histc(value.detach().cpu(), bins=self.bins, min=0, max=1)
                 histograms[i] = histogram if histograms[i] is None else histograms[i] + histogram
         if any(value is None or value.sum() == 0 for value in histograms):
             raise ValueError('Color histograms require nonempty samples')

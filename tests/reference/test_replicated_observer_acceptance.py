@@ -56,10 +56,12 @@ def observe(event):
     with (root / 'delivered.jsonl').open('a') as output:
         output.write(json.dumps(event) + '\\n')
     # Only child code imports the numerical runtime, never the coordinator.
-    if event['event'] == 'train' and event['step'] == 1:
+    if event['event'] == 'start':
         import numpy as np
         import torch
         import torch.distributed as dist
+        assert os.environ['CUDA_VISIBLE_DEVICES'] == ''
+        assert torch.get_num_threads() == 1
         assert not dist.is_initialized(), 'callback inherited the training process group'
         random.random(), np.random.random(), torch.rand(20)
         mode = os.environ.get('HG_ACCEPTANCE_MODE', '')
@@ -175,25 +177,30 @@ def test_observation_preserves_full_state_and_resume_preview_identity(tmp_path):
     _run(driver, config, tmp_path / 'plain', tmp_path / 'plain-pids', 'plain')
     full = _run(driver, config, tmp_path / 'observed', tmp_path / 'observed-pids', 'observed')
     assert not full['observation_errors']
-    assert [row['step'] for row in _index(tmp_path / 'observed')] == [3, 4]
+    assert full['progress_observation']['accepted'] == full['progress_observation']['completed']
+    assert not full['progress_observation']['pending']
+    events = [json.loads(line) for line in (tmp_path/'observed/events.jsonl').read_text().splitlines()]
+    assert [row['delivery'] for row in events if row['event']=='observer_status'] == [full['progress_observation']]
+    assert all(1 <= row['step'] <= 4 for row in _index(tmp_path / 'observed'))
     _equal_runs(tmp_path / 'plain', tmp_path / 'observed')
     stopped = _run(driver, config, tmp_path / 'split', tmp_path / 'stop-pids', 'split')
     prior = _index(tmp_path / 'split')
-    assert [row['step'] for row in prior] == [1, 2]
+    assert prior and all(1 <= row['step'] <= 2 for row in prior)
     first_sequence = max(row['identity']['sample_sequence'] for row in prior)
     old_final = _base._artifacts(stopped)
     resumed = _run(driver, config, tmp_path / 'split', tmp_path / 'resume-pids', 'resume')
     retained = _index(tmp_path / 'split')
-    assert [row['step'] for row in retained] == [3, 4]
-    assert min(row['identity']['sample_sequence'] for row in retained) > first_sequence
+    new = [row for row in retained if row['identity']['attempt_id'] == resumed['attempt_id']]
+    assert new and all(3 <= row['step'] <= 4 for row in new)
+    assert min(row['identity']['sample_sequence'] for row in new) > first_sequence
     _equal_runs(tmp_path / 'plain', tmp_path / 'split')
     replayed = _run(driver, config, tmp_path / 'split', tmp_path / 'replay-pids', 'replay')
     assert replayed['steps'] == 2 and replayed['status'] == 'stopped'
     assert _index(tmp_path / 'split') == retained  # Zero updates reserve final artifact only.
     final = _run(driver, config, tmp_path / 'split', tmp_path / 'final-pids', 'resume')
     newest = _index(tmp_path / 'split')
-    assert min(row['identity']['sample_sequence'] for row in newest) > max(row['identity']['sample_sequence'] for row in retained)
-    assert all(row['identity']['attempt_id'] == final['attempt_id'] for row in newest)
+    new = [row for row in newest if row['identity']['attempt_id'] == final['attempt_id']]
+    assert new and min(row['identity']['sample_sequence'] for row in new) > max(row['identity']['sample_sequence'] for row in retained)
     assert Path(stopped['bundle_path']).read_bytes() == old_final[0]
     assert Path(stopped['sample_path']).read_bytes() == old_final[1]
     assert stopped['next_sample_sequence'] < resumed['next_sample_sequence'] < replayed['next_sample_sequence'] < final['next_sample_sequence']
@@ -216,11 +223,13 @@ def test_optional_observer_failures_are_bounded_and_do_not_change_updates(tmp_pa
     else:
         assert (tmp_path / 'fault-pids/callback-fault-entered').read_text() == mode
         errors = [row for row in result['observation_errors'] if row['source'] == 'progress']
-        assert len(errors) == 1 and errors[0]['step'] == 1
+        assert len(errors) == 1 and errors[0]['step'] == 0
         assert len([row for row in events if row['event'] == 'observer_error' and row['source'] == 'progress']) == 1
         delivered = [json.loads(line) for line in (tmp_path / 'fault-pids/delivered.jsonl').read_text().splitlines()]
-        assert any(row['event'] == 'train' and row['step'] == 1 for row in delivered)
-        assert not any(row['event'] == 'train' and row['step'] > 1 for row in delivered)
+        assert any(row['event'] == 'start' and row['step'] == 0 for row in delivered)
+        assert not any(row['event'] == 'train' for row in delivered)
+        assert result['progress_observation']['failed'] == 1
+        assert not result['progress_observation']['pending']
 
 
 DEATH_HARNESS = '''
@@ -264,7 +273,7 @@ if __name__ == '__main__':
             assert {'rank', 'renderer'} <= {row['role'] for row in rows}
             brokers = {row['broker'] for row in rows}
             manifest = json.loads((run / 'manifest.json').read_text())
-            assert manifest['status'] == 'running' and manifest['last_durable_step'] == 1
+            assert manifest['status'] == 'running' and 1 <= manifest['last_durable_step'] <= 4
             pointer = (run / 'distributed-checkpoints/latest.json').read_bytes()
             parent.kill()
             parent.wait(timeout=5)

@@ -36,6 +36,55 @@ def test_host_origin_and_login_validation():
             session.exchange(token)
 
 
+def test_credentials_are_invisible_until_complete_and_staging_is_removed(tmp_path, monkeypatch):
+    import hypergan.web_session as module
+    session = LocalSession(8123, auth='token')
+    path = tmp_path / 'credentials.json'
+    original = module.json.dump
+
+    def partially_write(record, output):
+        output.write('{')
+        output.flush()
+        assert not path.exists()
+        output.seek(0)
+        output.truncate()
+        original(record, output)
+
+    monkeypatch.setattr(module.json, 'dump', partially_write)
+    session.write_credentials(path)
+    assert json.loads(path.read_text())['server_instance_id'] == session.instance_id
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_credentials_publication_never_clobbers_racing_writer(tmp_path, monkeypatch):
+    import hypergan.web_session as module
+    path = tmp_path / 'credentials.json'
+    original = module.os.link
+
+    def racing_link(source, destination):
+        path.write_text('existing owner')
+        return original(source, destination)
+
+    monkeypatch.setattr(module.os, 'link', racing_link)
+    with pytest.raises(FileExistsError):
+        LocalSession(8123, auth='token').write_credentials(path)
+    assert path.read_text() == 'existing owner'
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_credentials_failed_serialization_leaves_no_publication(tmp_path, monkeypatch):
+    import hypergan.web_session as module
+
+    def fail(record, output):
+        output.write('{')
+        raise OSError('write failed')
+
+    monkeypatch.setattr(module.json, 'dump', fail)
+    with pytest.raises(OSError, match='write failed'):
+        LocalSession(8123, auth='token').write_credentials(tmp_path / 'credentials.json')
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_expired_sessions_reject_both_clients(tmp_path, monkeypatch):
     session = LocalSession(8123, auth="token", lifetime=1)
     token = json.loads(session.write_credentials(tmp_path / "credentials").read_text())["token"]

@@ -31,11 +31,46 @@ This is a local filesystem protocol for a trusted run directory, not a remote au
 
 ## Periodic previews
 
-`--preview-every N` samples an isolated EMA snapshot after every N complete updates. `--preview-keep N` (1–100) bounds the retained periodic history across attempts. Resume inherits those settings; `--no-previews` explicitly disables periodic previews. These controls are operational settings and do not change the numerical recipe or total schedule.
+`--preview-every N` requests an isolated EMA snapshot after every N complete updates when the preview worker is available. `--preview-keep N` (1–100) bounds the retained periodic history across attempts. Resume inherits those settings; `--no-previews` explicitly disables periodic previews. These controls are operational settings and do not change the numerical recipe or total schedule.
 
-Previews are immutable numeric JSON artifacts, with run, attempt, update and monotonic sample identities. They are not image grids or training checkpoints. Their run-wide counter never rewinds when an older checkpoint is replayed; gaps are allowed after failed publication. Retention runs after successful publication and applies only to periodic preview artifacts. Cleanup errors are visible and may leave extra files until a later successful cleanup; the retention setting is not a disk quota. Complete checkpoints and final attempt inference bundles remain separate.
+Previews are immutable numeric JSON artifacts with bounded PNG grids for image output, carrying run, attempt, update and monotonic sample identities. They are separate from training checkpoints. Their run-wide counter never rewinds when an older checkpoint is replayed; gaps are allowed after failed publication. Retention runs after successful publication and applies only to periodic preview artifacts. Cleanup errors are visible and may leave extra files until a later successful cleanup; the retention setting is not a disk quota. Complete checkpoints and final attempt inference bundles remain separate.
 
 Sampling uses a copied EMA graph and prior, copied conditioning inputs, evaluation mode and isolated random state. The supported native and replicated execution contracts protect model buffers, optimizer state and data/prior/penalty RNG streams. Tests exercise stochastic modules and nonpersistent buffers. Arbitrary side effects in trusted custom Python components remain the author's responsibility.
+
+Periodic preview rendering and artifact publication run in an isolated CPU process
+with no visible CUDA devices. Training captures one immutable snapshot at a
+completed update boundary, then continues without waiting for rendering. At most
+one snapshot is in flight; scheduled previews while it is busy are skipped before
+copying state or reserving a sample sequence. `preview_skipped` events and
+`skipped_previews_busy` in the run manifest expose these omissions. Completed
+preview events retain the snapshot's original step. Terminal cleanup drains the
+one outstanding job under the renderer deadline (60 seconds for native execution,
+the configured `preview_timeout` for replicated execution). A signal or failed
+training update cancels pending rendering and reaps its process; a publication
+that already finished remains an immutable artifact. CPU worker thread counts
+are limited to one and POSIX workers lower their scheduling priority. Snapshot copying and the durable sequence reservation still pause the training
+boundary; replicated file handoff also serializes at that boundary. Asynchronous
+rendering does not remove those capture costs.
+Python scripts that enable periodic previews must use the usual
+`if __name__ == '__main__':` guard for process creation and importable component
+factories; the CLI already supplies that guard.
+
+For native training, the update boundary freezes owned CPU tensors and plain
+containers under the training RNG fence. Snapshot directory creation,
+serialization, fsync and content hashing run on the preview supervisor thread;
+that thread never reads a live trainer or executes custom serialization hooks.
+Only one snapshot is retained, capped at 256 MiB of captured payload and 256 MiB
+on disk. The same preview deadline covers persistence and CPU rendering, with
+bounded cleanup grace. Cancellation is checked between storage operations;
+uninterruptible OS writes cannot be force-cancelled inside a thread and surface
+a cleanup failure if they outlive that grace. Device transfer, copying and
+custom state hooks still run at the safe numerical boundary.
+
+Replicated training retains its rank-zero snapshot file handoff: that capture
+command copies, serializes, fsyncs and hashes the snapshot before ranks resume.
+Rendering and final preview publication are asynchronous. Removing this remaining
+transport barrier requires a separate rank/coordinator handoff protocol; native
+training does not require it.
 
 Previews cap sample count at 16 and combined output/conditioning tensors at 65,536 elements, with a 2 MiB serialized artifact limit. Large samples can reduce the effective count or fail preview publication. Rendering and preview-artifact errors are reported separately and do not stop optimization while mandatory run manifest/event writes remain available. Failure of those core writes can still fail the run. Forward execution and model copying still cost time and memory; these bounds are not a sandbox or a hard latency deadline for custom code.
 
@@ -53,7 +88,7 @@ Python and native diagnostics with a healthy consumer. Each stream has at most
 queues drop oldest lines and oversized progress/diagnostic lines are omitted.
 Shutdown allows one second for delivery before killing and reaping blocked
 drains. Reconnect through `hypergan events RUN` or `hypergan inspect RUN` for the
-durable result and complete event history.
+durable result and accepted event history, including recorded observation gaps.
 
 Routine CLI training progress prints every **100 updates** by default. Set
 `--progress-every N` on `train` or `resume`, or use **CLI progress every N steps**
@@ -81,3 +116,33 @@ outside the descriptor transport. On POSIX, drain children use separate sessions
 so a terminal process-group SIGINT/SIGTERM reaches the training coordinator while
 the drains remain available for its final status. Parent-death monitoring still
 bounds cleanup if the coordinator is killed.
+
+Live event and status persistence runs on a bounded background I/O worker. An
+ordinary update queues an event without waiting for disk writes. The event queue
+holds at most 256 pending rows and 8 MiB of conservative JSON size estimates, plus
+one active row (each row is limited to 1 MiB and bounded nesting/node count).
+When storage cannot keep up, optional observation events are omitted rather than
+stalling updates. The next accepted event carries `observation_gap` with the omitted
+counts by event kind and first/last step, and the run manifest records cumulative
+`dropped_observation_events` and `dropped_train_events`. Accepted events retain
+contiguous sequence numbers;
+missing measurements are never fabricated or averaged. Checkpoint boundaries
+record any outstanding gap before committing the event prefix.
+
+Live manifests coalesce to the newest snapshot and are scheduled at most four
+times per second. Live console settings and checkpoint request discovery use a
+single background
+read slot each, at most four reads per second. Ordinary updates only consume
+cached results. Startup, periodic checkpoint and terminal control boundaries
+may perform fresh synchronous scans; terminal processing retries one lost
+acknowledgement against the saved request IDs without repeating the checkpoint.
+A slow update can
+extend request latency until its next safe boundary. Initial status, checkpoint
+publication, artifact identity reservation and final status still wait for
+durable metadata; checkpoint commits drain all accepted events before fsync.
+These explicit recovery boundaries can wait for storage. Optional live read
+workers are daemons and their cancellation does not wait for a stalled OS read;
+they exit when that read returns. The terminal checkpoint-request scan waits for
+its in-flight scan before checking the latest requests. Initial console policy
+and CLI override persistence happen at the start/resume boundary. Background
+storage failures fail the run visibly rather than publishing an invalid durable frontier.

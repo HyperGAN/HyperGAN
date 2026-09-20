@@ -2,6 +2,38 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Metric optimization acceptance (2026-09-20): the owner-requested audit and worker
+fixes are recorded in [metric optimization](metric-optimization-2026-09-20.md).
+Scalar transport [#344](https://github.com/HyperGAN/HyperGAN/pull/344) passed
+protected CI and merged into `develop` as `895f9c7681f81569627f07d243712f75ed408b20`.
+The combined implementation [#347](https://github.com/HyperGAN/HyperGAN/pull/347)
+preserves the reviewed heads of #345–#346 and #348–#353, including asynchronous
+metrics/I/O/previews/callbacks/control reads and cancellation/recovery fixes.
+Its protected checks and merge receipt are the authoritative final integration
+state; do not merge the superseded slice states independently.
+
+Measured source `2c749af9`: 20 synthetic and 12 actual CIFAR GPU trials retained
+identical complete numerical state across all conditions and the baseline.
+CIFAR controller/observation overhead was 1.16% (95% interval 0.41–1.92%); the
+custom-worker condition added 0.66% with 75% explicit busy sampling drops. A 1%
+upper bound is **not established**. Native CUDA save/resume, worker isolation and
+scalar transport passed 11 checks; final source `0955fa6f` passed two additional
+strict deterministic CUDA snapshot/histogram checks. All experiments masked only
+physical GPU 0's UUID; GPU 1 and the owner's training environment were untouched.
+Final installed source `0955fa6f` passed 518 CPU acceptance tests in 361.87 seconds,
+including real signal/fault/recovery checks, with all 56 runtime files matching
+the archived source. Exact commands and identities are in the report and receipts. Benchmark windows exclude final durability and
+observer drains; replicated snapshot file transport and native Python control
+callbacks remain explicit synchronous boundaries.
+
+Evidence and command/result receipts:
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-metric-optimization/`.
+No release, paid compute, old-checkpoint migration or new two-GPU qualification
+is included. Next: continue the owner workflow/image plan below from the merged
+`develop`; use this report's overload/cadence measurements when selecting passive
+metrics. A future distributed performance qualification must use an explicitly
+available second GPU and then real multi-host execution.
+
 Current cutpoint: the [feedback implementation report](feedback-implementation-2026-09-20.md) records all seven workflow fixes in PRs #336–#342 and their combined acceptance. The coordinator integrates the reviewed branch heads through `feat/feedback-integration`; consult its protected PR and receipts for final merge state. Planning PR #335 merged at `17a3cb307c8ff7b12a47600e855ca2d0c52409eb`. The actual run was stopped at step 41,000 on inspection, and its frozen environment remains untouched. Native CUDA and two-GPU generic runtime recovery passed; the reference's historical 40k EMA FID50k/train remains **19.37753221446735**. **Next:** finish protected feedback integration if still open, then continue the [five-step plan](image-next-steps-2026-09-20.md): owner workflow testing, the preserved 200k reference continuation and evidence, actual two-GPU image qualification, and external benchmarking. Check live processes before training; paid compute, real multi-host execution and release remain separate gates.
 
 Metrics implementation checkpoint: the [implementation report](metrics-implementation-2026-09-19.md) links the file-backed metrics, shared WASM reducers, public streaming API/browser, ordinary Python factories, manual snapshot evaluation and supervised CLI startup slices. Native CUDA, full two-GPU numerical/recovery checks, actual browser and installed-package proofs accompany the protected PRs. Samples remain separate modality-neutral artifacts. The performance report records measured costs and explicitly unestablished throughput targets; no database, federation or paid compute was introduced. Final integrated checks and merge receipts are retained in the durable metrics evidence directory. The separate numerical/distributed core cutpoint above remains unchanged.

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import tempfile
 import time
 from urllib.parse import urlsplit
 
@@ -79,9 +80,10 @@ class LocalSession:
     def write_credentials(self, path):
         """Create a private, new file; never replace an existing path/symlink."""
         path = Path(path)
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        flags |= getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags, 0o600)
+        # An existing pathname is also the readiness signal for CLI clients.
+        # Publish only after close, with a hard link's atomic no-clobber contract.
+        # The private staging file is on the same filesystem as the destination.
+        descriptor, staging = tempfile.mkstemp(prefix=".hypergan-session-", dir=path.parent)
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as output:
                 json.dump({"schema_version": 1, "origin": self.origin,
@@ -90,7 +92,7 @@ class LocalSession:
                            **({"token": self._token, "expires_in_seconds": self._lifetime}
                               if self.auth_mode == "token" else {})}, output)
                 output.write("\n")
-        except BaseException:
-            path.unlink(missing_ok=True)
-            raise
+            os.link(staging, path)
+        finally:
+            Path(staging).unlink(missing_ok=True)
         return path

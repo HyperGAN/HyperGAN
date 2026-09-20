@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -29,6 +30,8 @@ class Probe:
         random.random()
         import numpy as np
         import torch
+        assert os.environ['CUDA_VISIBLE_DEVICES'] == ''
+        assert torch.get_num_threads() == 1
         np.random.rand()
         torch.rand(9)
         if self.slow: ctypes.PyDLL(None).sleep(30)
@@ -110,9 +113,12 @@ def test_supervised_scalar_cadence_and_rng_do_not_change_complete_state(tmp_path
     result=run(driver,'normal')
     assert result.returncode==0,result.stdout+result.stderr
     same(torch.load(tmp_path/'base.pt',weights_only=True),torch.load(tmp_path/'custom.pt',weights_only=True))
-    training=[row for row in rows(tmp_path/'custom') if row['event']=='train']
-    assert [row['step'] for row in training if 'ratio' in row['metrics']]==[2]
-    assert training[1]['metrics']['ratio']==training[1]['metrics']['loss/g_total']/training[1]['metrics']['loss/d_total']
+    events=rows(tmp_path/'custom')
+    training=[row for row in events if row['event']=='train']
+    measured=[row for row in events if 'ratio' in row.get('metrics',{})]
+    assert [row['step'] for row in measured]==[2]
+    assert measured[0]['event']=='metric'
+    assert measured[0]['metrics']['ratio']==training[1]['metrics']['loss/g_total']/training[1]['metrics']['loss/d_total']
     for pid in map(int,marker.read_text().splitlines()):
         with pytest.raises(ProcessLookupError): os.kill(pid,0)
 
@@ -125,7 +131,10 @@ def test_optional_failure_and_timeout_disable_metric_and_reap_worker(tmp_path,sl
     assert result.returncode==0,result.stdout+result.stderr
     training=[row for row in rows(tmp_path/'custom') if row['event']=='train']
     assert len(training)==3
-    assert all(row['measurement_status']['ratio']['status']=='disabled' for row in training)
+    assert training[0]['measurement_status']['ratio']['status']=='queued'
+    assert all(row['measurement_status']['ratio']['status'] in ('dropped','disabled') for row in training[1:])
+    assert any(row.get('measurement_status',{}).get('ratio',{}).get('status')=='disabled'
+               for row in rows(tmp_path/'custom'))
     assert len(marker.read_text().splitlines())==1
     for pid in map(int,marker.read_text().splitlines()):
         with pytest.raises(ProcessLookupError): os.kill(pid,0)
@@ -136,8 +145,9 @@ def test_required_factory_failure_is_not_successful_training(tmp_path):
     result=run(driver,'error')
     assert result.returncode!=0 and 'Required metric ratio failed' in result.stderr
     manifest=json.loads((tmp_path/'custom/manifest.json').read_text())
-    assert manifest['status']=='failed' and manifest['steps']==1 and manifest['last_durable_step']==0
-    assert not [row for row in rows(tmp_path/'custom') if row['event']=='train']
+    assert manifest['status']=='failed' and 1 <= manifest['steps'] <= 3
+    assert manifest['last_durable_step'] < manifest['steps']
+    assert [row for row in rows(tmp_path/'custom') if row['event']=='train']
     result=run(driver,'recover')
     assert result.returncode==0,result.stdout+result.stderr
     same(torch.load(tmp_path/'base.pt',weights_only=True),torch.load(tmp_path/'custom.pt',weights_only=True))
@@ -191,3 +201,98 @@ def test_missing_factory_or_incompatible_descriptor_fails_before_run_mutation(tm
     result=run(driver,'error')
     assert result.returncode!=0
     assert not (tmp_path/'custom').exists()
+
+
+def test_async_cancel_reaps_native_blocked_scalar_without_waiting_for_timeout(tmp_path):
+    driver=setup(tmp_path, timeout=30)
+    driver.write_text('''
+from pathlib import Path
+import os
+import time
+import sys
+from hypergan.config import load_config
+from hypergan.metric_plugins import ScalarMetrics, prepare_custom
+
+if __name__ == '__main__':
+    root=Path(sys.argv[1])
+    config=load_config(root/'custom.toml')
+    spec=config['metrics']['custom']['ratio']
+    spec['args']={'slow':True,'marker':str(root/'worker-pid')}
+    spec['every_steps']=1
+    prepare_custom(config)
+    metrics=ScalarMetrics(config)
+    metrics.start()
+    started=time.monotonic()
+    metrics.evaluate({'g_loss':2.,'d_loss':1.},{'step':1})
+    for step in range(2,1002):
+        assert metrics.evaluate({'g_loss':2.,'d_loss':1.},{'step':step})[1]['ratio']['status']=='dropped'
+        assert metrics.poll()==[]
+    elapsed=time.monotonic()-started
+    assert elapsed<1, elapsed
+    deadline=time.monotonic()+15
+    while not (root/'worker-pid').exists() and time.monotonic()<deadline:
+        time.sleep(.01)
+    pid=int((root/'worker-pid').read_text())
+    started=time.monotonic()
+    metrics.close(drain=False)
+    elapsed=time.monotonic()-started
+    assert elapsed<8, elapsed
+    try:
+        os.kill(pid,0)
+    except ProcessLookupError:
+        pass
+    else:
+        raise AssertionError('Metric worker survived cancellation')
+''')
+    result=run(driver,'cancel')
+    assert result.returncode==0,result.stdout+result.stderr
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX cooperative SIGTERM contract')
+@pytest.mark.parametrize('on_error', ['disable', 'fail'])
+def test_signal_during_terminal_metric_drain_cancels_and_reaps_long_timeout(tmp_path, on_error):
+    marker=tmp_path/'worker-pids'
+    driver=setup(tmp_path, args='slow = true\nmarker = '+json.dumps(str(marker)),
+                 timeout=3600, cadence=1, on_error=on_error)
+    plugin=tmp_path/'metric_probe.py'
+    plugin.write_text(plugin.read_text().replace('sleep(30)', 'sleep(120)'))
+    bootstrap = 'import runpy,sys;sys.path.insert(0,sys.argv[1]);sys.argv=sys.argv[2:];runpy.run_path(sys.argv[0],run_name="__main__")'
+    process=subprocess.Popen([sys.executable,'-c',bootstrap,str(tmp_path),str(driver),str(tmp_path),'signal'],
+                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        deadline=time.monotonic()+20
+        while time.monotonic()<deadline:
+            assert process.poll() is None
+            events_path=tmp_path/'custom/events.jsonl'
+            events=[json.loads(line) for line in events_path.read_bytes().split(b'\n')[:-1]] if events_path.exists() else []
+            if marker.exists() and any(row['event']=='train' and row['step']==3 for row in events):
+                break
+            time.sleep(.01)
+        else:
+            raise AssertionError('Training did not reach terminal drain while the scalar worker was blocked')
+        started=time.monotonic()
+        process.send_signal(signal.SIGTERM)
+        stdout,stderr=process.communicate(timeout=12)
+        assert time.monotonic()-started<12
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
+    manifest=json.loads((tmp_path/'custom/manifest.json').read_text())
+    assert manifest['steps']==3 and manifest['stop_reason']=='SIGTERM'
+    if on_error=='disable':
+        assert process.returncode==0,stdout+stderr
+        # All requested numerical updates already finished before the signal;
+        # completion remains honest, with cancellation recorded separately.
+        assert manifest['status']=='complete' and manifest['last_durable_step']==3
+    else:
+        assert process.returncode!=0 and 'Required metric ratio failed' in stderr
+        assert manifest['status']=='failed' and manifest['last_durable_step']==0
+    outcomes=[row for row in rows(tmp_path/'custom') if row['event']=='metric']
+    assert len(outcomes)==1 and outcomes[0]['step']==1
+    status=outcomes[0]['measurement_status']['ratio']
+    assert status['status']==('cancelled' if on_error=='disable' else 'failed')
+    assert 'cancelled' in status['reason']
+    for pid in map(int,marker.read_text().splitlines()):
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid,0)

@@ -1,11 +1,20 @@
 import io
 import json
 import os
+import time
 
 import pytest
 
 from hypergan.bounded_cli_output import TrainingOutput
 from hypergan.console_settings import read_settings, write_settings
+
+
+def refresh_until(output, predicate):
+    deadline = time.perf_counter() + 5
+    while not predicate():
+        output.policy.refresh(output.stderr)
+        assert time.perf_counter() < deadline
+        time.sleep(.001)
 
 
 def test_default_cadence_filters_only_console_progress():
@@ -33,6 +42,7 @@ def test_ui_policy_reload_and_resume_preserve_settings(tmp_path, monkeypatch):
     assert stderr.getvalue() == ''
     write_settings(tmp_path, {'progress_every': 2})
     clock[0] = .3
+    refresh_until(output, lambda: output.policy.every == 2)
     output.progress({'event': 'train', 'step': 2})
     assert stderr.getvalue() == 'step 2\n'
     resumed = TrainingOutput(io.StringIO(), io.StringIO(), False)
@@ -45,12 +55,16 @@ def test_ui_policy_reload_and_resume_preserve_settings(tmp_path, monkeypatch):
     # Invalid external edits warn, retain last policy and recover on correction.
     (tmp_path / 'console.json').write_text('{')
     clock[0] = 1.
+    refresh_until(resumed, lambda: 'retaining interval 3' in resumed.stderr.getvalue())
     resumed.progress({'event': 'train', 'step': 9})
     assert 'retaining interval 3' in resumed.stderr.getvalue()
     write_settings(tmp_path, {'progress_every': 5})
     clock[0] = 2.
+    refresh_until(resumed, lambda: resumed.policy.every == 5)
     resumed.progress({'event': 'train', 'step': 10})
     assert resumed.stderr.getvalue().endswith('step 10\n')
+    output.policy.close()
+    resumed.policy.close()
 
 
 @pytest.mark.parametrize('value', [True, 0, -1, 1.5, '100', 1000000001, None])

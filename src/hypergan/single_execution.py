@@ -24,6 +24,7 @@ class SingleProcessExecution:
         self._previous_device = None
         self._ready = False
         self._closed = False
+        self._previews = None
 
     def environment(self):
         return {'runtime': runtime_info(self._device), 'source': source_info()}
@@ -102,10 +103,30 @@ class SingleProcessExecution:
         return write_checkpoint(run_dir, self._trainer, self._last_batch, metadata)
 
     def preview(self, run_dir, identity, *, keep):
-        from .previews import publish_preview
+        from .preview_snapshot import capture_snapshot_state
+        from .preview_worker import PreviewWorker
         self._boundary()
-        record, index, errors = publish_preview(run_dir, self._trainer, self._last_batch, identity, keep=keep)
-        return PreviewResult(record=record, index=index, errors=errors)
+        if self.preview_busy:
+            raise RuntimeError('Preview worker is busy; skip before reserving or capturing another preview')
+        if self._previews is None:
+            self._previews = PreviewWorker()
+        snapshot = capture_snapshot_state(self._trainer, self._last_batch, identity)
+        self._previews.submit(None, None, dict(identity), self._trainer.step, run_dir, keep,
+                              snapshot_state=snapshot)
+
+    @property
+    def preview_busy(self):
+        return self._previews is not None and self._previews.busy
+
+    def poll_preview(self, *, wait=False):
+        result = self._previews.poll(wait=wait) if self._previews is not None else None
+        return PreviewResult(**result) if result is not None else None
+
+    def close_previews(self):
+        return self.poll_preview(wait=True)
+
+    def abort_previews(self):
+        return self._previews.abort() if self._previews is not None else False
 
     @property
     def inference_available(self):
@@ -129,6 +150,13 @@ class SingleProcessExecution:
         return ArtifactResult(bundle_path=Path(bundle_dir) / 'model.pt', sample_path=sample_path)
 
     def observe(self, callback, event):
+        from .bounded_cli_output import CLIProgress
+        # The internal sink only submits bounded text and refreshes console
+        # policy. It cannot touch numerical state, so avoid copying/restoring
+        # Python, NumPy and every visible CUDA RNG on each progress event.
+        if type(callback) is CLIProgress:
+            callback(event)
+            return
         rng, threads = capture_rng(), torch.get_num_threads()
         device = torch.cuda.current_device() if torch.cuda.is_initialized() else None
         try:
@@ -143,6 +171,12 @@ class SingleProcessExecution:
     def shutdown(self):
         if self._closed:
             return
+        try:
+            self.abort_previews()
+        finally:
+            self._shutdown_training()
+
+    def _shutdown_training(self):
         self._closed = True
         self._ready = False
         if self._previous_device is not None:

@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 import tempfile
 
-from .bounded_observer import BoundedObserver
+from .bounded_observer import AsyncBoundedObserver
 from .config import config_values, fingerprint
 from .metrics import validate_update_scalars
 from .cpu_worker_service import CPUWorkerService
@@ -92,6 +92,8 @@ class ReplicatedExecution:
         self.step, self._inference_available = 0, False
         self._closed = self._poisoned = False
         self.observer = None
+        self._observation_stop_requested = None
+        self._previews = None
 
     def configure_attempt(self, context, *, preview_every, on_event):
         if self.context is not None:
@@ -102,8 +104,10 @@ class ReplicatedExecution:
             # Only the concrete CLI sink performs bounded parent delivery.
             # Ordinary user callbacks retain their isolated worker contract.
             self.observer = (on_event if type(on_event) is CLIProgress else
-                BoundedObserver(on_event, timeout=self.policy['observer_timeout'],
+                AsyncBoundedObserver(on_event, timeout=self.policy['observer_timeout'],
                     run_id=context.run_id, attempt_id=context.attempt_id))
+            if isinstance(self.observer, AsyncBoundedObserver):
+                self.observer.start()
         self.context = {key: str(value) if isinstance(value, Path) else value for key, value in asdict(context).items()}
         return {'execution': self.profile['execution'], 'service_policy': self.policy}
 
@@ -250,25 +254,26 @@ class ReplicatedExecution:
             self._fail(error)
 
     def preview(self, run_dir, identity, *, keep):
-        from .previews import publish_preview_payload
-        from .snapshot_renderer import render_snapshot
-        temporary, result, error = None, None, None
+        from .preview_worker import PreviewWorker
+        temporary, error = None, None
         try:
             self.service.assert_healthy()
+            if self.preview_busy:
+                raise RuntimeError('Preview worker is busy; skip before reserving or capturing another preview')
             if str(Path(run_dir).resolve()) != self.context['run_dir']:
                 raise ValueError('Preview run differs from configured attempt')
+            if self._previews is None:
+                self._previews = PreviewWorker(timeout=self.policy['preview_timeout'])
             temporary = tempfile.TemporaryDirectory(prefix='.preview-', dir=self.context['attempt_dir'])
-            snapshot, output = Path(temporary.name) / 'snapshot.pt', Path(temporary.name) / 'preview.json'
+            snapshot = Path(temporary.name) / 'snapshot.pt'
             results = self._results(self._command('preview-snapshot', {'path': str(snapshot), 'identity': identity}),
                                     expected_step=self.step)
             try:
                 descriptor = results[0]['snapshot']
             except BaseException as failure:
                 self._fail(failure)
-            payload = render_snapshot(snapshot, descriptor, identity, self.step, output,
-                                      timeout=self.policy['preview_timeout'])
-            record, index, errors = publish_preview_payload(run_dir, payload, identity, self.step, keep)
-            result = PreviewResult(record=record, index=index, errors=errors)
+            self._previews.submit(temporary, descriptor, dict(identity), self.step, run_dir, keep)
+            temporary = None  # The worker now owns the immutable snapshot directory.
         except BaseException as failure:
             error = failure
         finally:
@@ -291,12 +296,57 @@ class ReplicatedExecution:
                 self._fail(error if isinstance(error, (FatalExecutionError, KeyboardInterrupt, SystemExit)) else health)
         if error is not None:
             raise error
-        return result
+
+    @property
+    def preview_busy(self):
+        return self._previews is not None and self._previews.busy
+
+    def poll_preview(self, *, wait=False):
+        completed, primary = False, None
+        try:
+            result = self._previews.poll(wait=wait) if self._previews is not None else None
+            completed = result is not None
+            return PreviewResult(**result) if result is not None else None
+        except BaseException as error:
+            completed = True
+            primary = error
+            raise
+        finally:
+            # A poll with no completed observation must not add a synchronous
+            # broker health roundtrip to every training update.
+            if completed and self.service is not None and not self._closed:
+                try:
+                    self.service.assert_healthy()
+                except BaseException as health:
+                    self._fail(primary if isinstance(primary, (FatalExecutionError, KeyboardInterrupt, SystemExit)) else health)
+
+    def close_previews(self):
+        return self.poll_preview(wait=True)
+
+    def abort_previews(self):
+        return self._previews.abort() if self._previews is not None else False
+
+    def set_observation_stop(self, stop_requested):
+        self._observation_stop_requested = stop_requested
 
     def observe(self, callback, event):
         # The controller's local warning wrapper is intentionally not sent to a
         # child. Configure validated the original importable callback once.
-        if self.observer is None or self.observer.disabled:
+        if self.observer is None:
+            return
+        from .bounded_cli_output import CLIProgress
+        if type(self.observer) is CLIProgress:
+            # Numerical commands already validate worker health. Delivering
+            # bounded text does not require another synchronous broker request.
+            self.observer.deliver(event)
+            return
+        if isinstance(self.observer, AsyncBoundedObserver):
+            # Numerical commands already detect rank failure. A background
+            # observer does not justify another synchronous health roundtrip.
+            if event['event'] in ('complete', 'stopped', 'failed', 'interrupted'):
+                self.observer.finish(event, stop_requested=self._observation_stop_requested)
+            else:
+                self.observer.deliver(event)
             return
         primary = None
         try:
@@ -313,9 +363,23 @@ class ReplicatedExecution:
                 except BaseException as error:
                     self._fail(primary if isinstance(primary, (KeyboardInterrupt, SystemExit, FatalExecutionError)) else error)
 
+    def observation_status(self):
+        if isinstance(self.observer, AsyncBoundedObserver):
+            return self.observer.statistics()
+
+    def close_observers(self):
+        if isinstance(self.observer, AsyncBoundedObserver):
+            self.observer.close()
+
     def shutdown(self):
         if self._closed:
             return
+        try:
+            self.abort_previews()
+        finally:
+            self._shutdown_training()
+
+    def _shutdown_training(self):
         self._closed = True
         try:
             if self.service is not None:

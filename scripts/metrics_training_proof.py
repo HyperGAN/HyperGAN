@@ -83,13 +83,41 @@ def training(args):
     save(args.result, result)
 
 
+def bare_training(args):
+    """The same validated adapter updates, without controller observation I/O."""
+    import torch
+    from hypergan.checkpoints import trainer_state
+    from hypergan.config import load_config
+    from hypergan.single_execution import SingleProcessExecution
+    execution = SingleProcessExecution(load_config(args.config))
+    started = time.perf_counter()
+    try:
+        execution.start()
+        for step in range(1, args.steps + 1):
+            execution.update()
+            if step == args.warmup:
+                torch.cuda.synchronize(torch.device(args.device))
+                measured_started = time.perf_counter()
+        torch.cuda.synchronize(torch.device(args.device))
+        elapsed = time.perf_counter() - measured_started
+        wall_seconds = time.perf_counter() - started
+        digest = state_digest(trainer_state(execution._trainer, execution._last_batch))
+        save(args.result, dict(steps=args.steps, warmup=args.warmup,
+            measured_steps=args.steps - args.warmup, measured_seconds=elapsed,
+            updates_per_second=(args.steps - args.warmup) / elapsed,
+            wall_seconds=wall_seconds, numerical_state_sha256=digest,
+            metric_ids=[], observed_steps=None, durable_steps=None, checkpoint_step=None))
+    finally:
+        execution.shutdown()
+
+
 def serving(args):
     import socket
     from hypergan.web_server import run_socket
     from hypergan.web_session import LocalSession
     sock = socket.socket()
     sock.bind(('127.0.0.1', 0))
-    session = LocalSession(sock.getsockname()[1])
+    session = LocalSession(sock.getsockname()[1], auth='token')
     session.write_credentials(args.credentials)
     # Convert Uvicorn's replay of SIGTERM into a Python unwind, as the product CLI
     # does, so the owned file/socket cleanup below executes on graceful POSIX stop.
@@ -125,34 +153,51 @@ async def consuming(args):
     async def consumer(index):
         nonlocal connected
         count, last_sequence, last_step = 0, 0, 0
+        cursor, gaps, registered = None, 0, False
         async with httpx.AsyncClient(base_url=credentials['origin'], headers=headers, timeout=None) as client:
-            async with client.stream('GET', '/api/v1/stream', params={'stream_id': 'projection:' + map_revision}) as response:
-                response.raise_for_status()
-                connected += 1
-                if connected == 5:
-                    save(args.ready, {'connected': 5})
-                event = None
-                async for line in response.aiter_lines():
-                    if line.startswith('event: '):
-                        event = line[7:]
-                    elif line.startswith('data: '):
-                        value = json.loads(line[6:])
-                        if event in ('gap', 'reset_required'):
-                            raise RuntimeError(f'Viewer {index} lost stream continuity: {value}')
-                        if event == 'frame':
-                            frame = value['frame']
-                            sequence = frame['projection_sequence']
-                            if sequence != last_sequence + 1:
-                                raise RuntimeError(f'Viewer {index} projection sequence gap')
-                            last_sequence = sequence
-                            count += 1
-                            for emission in frame['emissions']:
-                                last_step = max(last_step, emission['key'][2])
-                            if last_step >= args.steps:
-                                results.append({'viewer': index, 'frames': count,
-                                                'last_sequence': last_sequence, 'last_step': last_step})
-                                return
-        raise RuntimeError(f'Viewer {index} disconnected before the final update')
+            while gaps <= 16:
+                params = {'stream_id': 'projection:' + map_revision}
+                if cursor is not None:
+                    params['cursor'] = cursor
+                reconnect = False
+                async with client.stream('GET', '/api/v1/stream', params=params) as response:
+                    response.raise_for_status()
+                    if not registered:
+                        registered = True
+                        connected += 1
+                        if connected == 5:
+                            save(args.ready, {'connected': 5})
+                    event = None
+                    async for line in response.aiter_lines():
+                        if line.startswith('event: '):
+                            event = line[7:]
+                        elif line.startswith('data: '):
+                            value = json.loads(line[6:])
+                            if event == 'gap' and value.get('recover') == 'reconnect_from_last_applied_cursor' and cursor:
+                                gaps += 1
+                                reconnect = True
+                                break
+                            if event in ('gap', 'reset_required'):
+                                raise RuntimeError(f'Viewer {index} cannot recover stream continuity: {value}')
+                            if event == 'frame':
+                                frame = value['frame']
+                                sequence = frame['projection_sequence']
+                                if sequence != last_sequence + 1:
+                                    raise RuntimeError(f'Viewer {index} projection sequence gap')
+                                last_sequence = sequence
+                                cursor = value['cursor']
+                                count += 1
+                                for emission in frame['emissions']:
+                                    last_step = max(last_step, emission['key'][2])
+                                if last_step >= args.steps:
+                                    results.append({'viewer': index, 'frames': count,
+                                                    'last_sequence': last_sequence, 'last_step': last_step,
+                                                    'backpressure_reconnects': gaps})
+                                    return
+                if not reconnect:
+                    raise RuntimeError(f'Viewer {index} disconnected before the final update')
+                await asyncio.sleep(.05)
+        raise RuntimeError(f'Viewer {index} exceeded the bounded reconnect budget')
     await asyncio.wait_for(asyncio.gather(*(consumer(i) for i in range(5))), timeout=300)
     save(args.result, {'viewers': sorted(results, key=lambda r: r['viewer']),
                        'consumer': 'five real HTTP SSE readers; no browser rendering simulated'})
@@ -233,13 +278,13 @@ def orchestrate(args):
                   'Consumers are actual SSE clients, not graphical browsers; browser-render latency is not measured.',
                   'Steady-state elapsed uses completed-update event seconds after warmup, excluding initialization/final export.',
                   'No training callback, per-step profiler or benchmark timestamp write is added to the measured loop.']}
-    order = list(CONDITIONS)
+    order = list(CONDITIONS) + (['bare'] if args.include_bare else [])
     random.Random(20260919).shuffle(order)
     state_hash = None
     with tempfile.TemporaryDirectory(prefix='hypergan-observation-training-') as temporary:
         root = Path(temporary)
         for block in range(args.repetitions):
-            block_order = order[block % 4:] + order[:block % 4]
+            block_order = order[block % len(order):] + order[:block % len(order)]
             for position, condition in enumerate(block_order):
                 trial_name = f'{block:02d}-{position}-{condition}'
                 folder = root / trial_name
@@ -279,7 +324,7 @@ def orchestrate(args):
                                 consumer = launch('consumers', '--credentials', credentials, '--ready', ready,
                                                   '--result', folder / 'consumers.json', '--steps', args.steps)
                                 wait_file(ready, consumer)
-                        trainer = launch('train', '--config', config, '--result', result_path,
+                        trainer = launch('bare' if condition == 'bare' else 'train', '--config', config, '--result', result_path,
                                          '--device', args.device, '--steps', args.steps, '--warmup', args.warmup)
                         if trainer.wait(timeout=300) != 0:
                             raise RuntimeError(f'{trial_name} training failed; inspect log')
@@ -307,6 +352,8 @@ def orchestrate(args):
     report['comparisons'] = [paired_summary(report['trials'], 'metrics', 'none', 1),
                              paired_summary(report['trials'], 'server_five', 'server_zero', 2),
                              paired_summary(report['trials'], 'server_five', 'metrics', 2)]
+    if args.include_bare:
+        report['comparisons'].append(paired_summary(report['trials'], 'metrics', 'bare', 1))
     report['all_complete_states_equal'] = True
     report['all_children_reaped'] = True
     report['final_gpu_telemetry'] = telemetry()
@@ -318,20 +365,21 @@ def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest='role', required=True)
     run = sub.add_parser('run')
-    run.add_argument('--device', default='cuda:1')
+    run.add_argument('--device', default='cuda:0')
+    run.add_argument('--include-bare', action='store_true', help='Also compare validated updates without controller observation')
     run.add_argument('--steps', type=int, default=1088)
     run.add_argument('--warmup', type=int, default=64)
     run.add_argument('--repetitions', type=int, default=4)
     run.add_argument('--output', type=Path, required=True)
-    for role in ('train', 'server', 'projector', 'consumers'):
+    for role in ('train', 'bare', 'server', 'projector', 'consumers'):
         child = sub.add_parser(role)
         child.add_argument('--run-dir', type=Path, required=True)
         if role in ('server', 'consumers'):
             child.add_argument('--credentials', type=Path, required=True)
-        if role in ('train', 'consumers'):
+        if role in ('train', 'bare', 'consumers'):
             child.add_argument('--steps', type=int, required=True)
             child.add_argument('--result', type=Path, required=True)
-        if role == 'train':
+        if role in ('train', 'bare'):
             child.add_argument('--config', type=Path, required=True)
             child.add_argument('--device', required=True)
             child.add_argument('--warmup', type=int, required=True)
@@ -342,6 +390,8 @@ def main():
         orchestrate(args)
     elif args.role == 'train':
         training(args)
+    elif args.role == 'bare':
+        bare_training(args)
     elif args.role == 'server':
         serving(args)
     elif args.role == 'projector':

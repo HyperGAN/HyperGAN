@@ -73,3 +73,32 @@ def test_structural_cli_reports_invalid_profile_without_runtime_or_partial_json(
     assert completed.stdout == ''
     assert 'world_size' in completed.stderr
     assert 'Traceback' not in completed.stderr
+
+
+def test_native_structural_cli_is_dependency_free_for_configured_cuda_and_cpu(tmp_path):
+    for device in ('cuda', 'cuda:1', 'cpu'):
+        config = write_default(tmp_path / device.replace(':', '-'), device=device)
+        config.write_text(config.read_text().replace('factory = "mlp"', 'factory = "preflight_custom:Generator"', 1))
+        completed = subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), '-c',
+                                   BLOCKED_CLI, 'preflight', str(config)],
+                                  capture_output=True, text=True, timeout=15)
+        assert completed.returncode == 0, completed.stderr
+        report = json.loads(completed.stdout)
+        assert report['runtime_checked'] is False
+        execution = report['profile']['execution']
+        assert execution['name'] == 'native-single' and execution['device'] == device
+        assert execution['world_size'] == execution['accumulation_steps'] == 1
+        assert execution['global_batch_size'] == execution['local_batch_size'] == execution['microbatch_size'] == 16
+        assert report['profile']['preflight']['timeout'] == 60
+
+
+def test_native_resolved_profile_cannot_forge_device_or_world_size():
+    import pytest
+    from hypergan.config import resolve_config
+    from hypergan.execution_preflight import _resolve_profile
+    config = resolve_config({'training': {'device': 'cpu'}})
+    for field, value in [('device', 'cuda'), ('world_size', 2), ('accumulation_steps', True)]:
+        profile = _resolve_profile(None, config)
+        profile['execution'][field] = value
+        with pytest.raises(ValueError, match='Resolved native profile differs'):
+            _resolve_profile(profile, config)

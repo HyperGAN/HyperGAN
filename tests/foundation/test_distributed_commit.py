@@ -62,6 +62,14 @@ import hypergan.distributed_commit
     assert result.returncode == 0, result.stderr
 
 
+def test_parent_rejects_prepared_boundary_different_from_durable_controller_prefix(tmp_path):
+    authority, staging, receipt, pointer = _fixture(tmp_path)
+    before = pointer.read_bytes()
+    with pytest.raises(ValueError, match='event boundary differs'):
+        authority.commit(receipt, expected_command_sequence=1, expected_event_boundary={'offset': 123})
+    assert pointer.read_bytes() == before and staging.exists()
+
+
 @pytest.mark.parametrize('field,value', [('run_id', 'old-run'), ('attempt_id', 'old-attempt'),
                                         ('controller_id', 'old-controller'), ('command_sequence', 2),
                                         ('command_sequence', True), ('staging', '../escape'),

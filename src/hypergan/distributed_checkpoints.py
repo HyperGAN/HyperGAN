@@ -212,7 +212,7 @@ def distributed_checkpoint_identity(trainer):
 
 def _metadata(value, restore=False):
     required = {'run_id'} if restore else {'run_id', 'attempt_id'}
-    allowed = required if restore else required | {'next_sample_sequence', 'request_ids'}
+    allowed = required if restore else required | {'next_sample_sequence', 'request_ids', 'event_boundary'}
     if not isinstance(value, dict) or not required <= set(value) <= allowed:
         raise ValueError('Invalid distributed checkpoint lineage metadata fields')
     for key in required:
@@ -401,8 +401,10 @@ def _read(root, checkpoint, expected_identity, expected_run):
         raise ValueError('Select a completed distributed checkpoint directory inside this run')
     info = _read_json(target / 'manifest.json')
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    if not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids'} or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
+    if not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids', 'event_boundary'} or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
         raise ValueError('Invalid distributed checkpoint metadata/schema')
+    from .run_state import validate_event_boundary
+    validate_event_boundary(root.parent, info)
     if info['run_id'] != expected_run or not _same_json(info['identity'], expected_identity):
         raise ValueError('Distributed checkpoint config/runtime/source/data/topology or run identity differs')
     lineage = {key: info[key] for key in ('run_id', 'attempt_id', 'next_sample_sequence')}

@@ -11,7 +11,7 @@ import uuid
 import numpy as np
 import torch
 
-from .run_state import atomic_json, sync_directory
+from .run_state import atomic_json, sync_directory, validate_event_boundary
 
 SCHEMA = 1
 
@@ -222,6 +222,7 @@ def _read_checkpoint(run_dir, checkpoint=None):
         raise ValueError('Invalid training checkpoint metadata')
     if info.get('schema_version') != SCHEMA or info.get('kind') != 'hypergan-training-checkpoint':
         raise ValueError('Unsupported full training checkpoint schema')
+    validate_event_boundary(run_dir, info)
     if file_sha256(target / 'state.pt') != info['state_sha256']:
         raise ValueError('Training checkpoint digest mismatch')
     try:

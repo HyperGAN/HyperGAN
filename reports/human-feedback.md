@@ -9,6 +9,24 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
+
+Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."
+
+What is true today:
+- Python is the product. `pip install hypergan[web]` pulls only Python wheels (starlette, uvicorn, wasmtime).
+- Rust lives in `reducers/core` and compiles to the metrics reducer WASM, which is committed as `src/hypergan/metrics_reducer/assets/reducer.wasm` and executed by wasmtime (Python side) and the browser. Users do not need cargo.
+- Node is used only to bundle the viewer frontend (`frontend/`, esbuild + echarts) into the committed `src/hypergan/web_assets/app.js`. Users do not need Node; contributors who edit the UI do.
+
+- [ ] Confirm and document the split clearly: end users need Python only; Rust and Node are contributor-only build tools, with the built artifacts committed. State this in README and a contributor guide.
+Owner note: an acceptable outcome of this investigation is "it's fine as is", provided the user-facing install stays Python-only.
+
+- [ ] Decide whether Node is worth keeping. Options to evaluate: keep esbuild with committed output (status quo), drop the bundler and ship plain ES modules plus a vendored chart library, or move the bundling step into a Python-invoked tool so there is one contributor toolchain. Record the trade-offs (echarts size, minification, dev-mode watch from item 4).
+- [ ] Add a CI check that the committed `app.js` and `reducer.wasm` match their sources, so a contributor without Node or Rust can still trust the artifacts they ship.
+- [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
+
+## Done
+
 ### 8. Sample slider should cover the whole run, not the last N (raised 2026-09-20)
 
 Owner: "the viewer shows the last N images but it should really show all of them. if it's on the last one and a new sample comes in it can update and stay on the last one. but i want someone to be able to slide from the beginning of their training to the end."
@@ -18,7 +36,7 @@ Owner: "the viewer shows the last N images but it should really show all of them
 - [x] Slider behavior: when positioned on the latest sample and a new one arrives, advance to the new one; when positioned on an earlier sample, stay put and do not jump.
 - [x] Tests for retention-off, index size, and the follow-latest / stay-put slider behavior.
 
-**Status:** Implemented in commit 2b601cf1 on `worktree-agent-afd0478ab5a7ac2f3`, pending merge to develop.
+**Status:** Implemented in commit 2b601cf1, merged to develop in d99d2164.
 
 Retention is now opt-in. `hypergan.previews.KEEP_ALL = 0` is the default `keep`,
 so a run accumulates every published generation (tensor payload and both PNG
@@ -70,7 +88,7 @@ Where this lives now:
 
 Owner: "on snapshot evaluations FID should be a graph like the metrics, different x tho ofc. right now it's a wall of text. it may be a graph eventually, maybe it's just a graph with one point atm."
 
-**Status:** Implemented on branch `worktree-agent-a945d3598e3c5017c` (frontend only,
+**Status:** Implemented in commit 6f364c38, merged to develop in aa227704 (frontend only,
 no API change). The **Snapshot evaluations** panel now groups results by metric
 instead of by stream: one echarts line chart per scalar metric, evaluated source
 step on the x axis, one visible point per evaluation. Failed and cancelled
@@ -122,7 +140,7 @@ Owner: "theres a 'sample - tensor' that i'm not sure what it's supposed to be or
 - [x] Make sure the image grid, not the tensor, is what a user sees first under each sample name.
 - [x] Update docs/image-previews.md and the viewer test that covers the artifact list.
 
-**Status:** Kept, renamed and folded into the picture it belongs to. The API is
+**Status:** Implemented in commit 6b8bc372, merged to develop (fast-forward). Kept, renamed and folded into the picture it belongs to. The API is
 unchanged apart from one additive marker: the run's finished sample now carries
 `provenance.final: true`, so the viewer can name it instead of showing one more
 anonymous tensor. When a grid exists for the same name and step, its tensor is no
@@ -140,23 +158,6 @@ Where this lives now:
 - Copy lives in `src/hypergan/web_assets/index.html` (shelf intro) and `docs/image-previews.md` ("The raw tensor behind a picture"); `frontend/API.md` documents the pairing and the `final` marker.
 - Tests: `tests/browser/test_viewer_ui.py` (image run folds the tensor; numerical run names its tensors and final sample), `tests/browser/test_viewer_integration.py` (real published generation, tensor downloads from the image card), `tests/web/test_web_service.py` (`provenance.final`).
 
-### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
-
-Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."
-
-What is true today:
-- Python is the product. `pip install hypergan[web]` pulls only Python wheels (starlette, uvicorn, wasmtime).
-- Rust lives in `reducers/core` and compiles to the metrics reducer WASM, which is committed as `src/hypergan/metrics_reducer/assets/reducer.wasm` and executed by wasmtime (Python side) and the browser. Users do not need cargo.
-- Node is used only to bundle the viewer frontend (`frontend/`, esbuild + echarts) into the committed `src/hypergan/web_assets/app.js`. Users do not need Node; contributors who edit the UI do.
-
-- [ ] Confirm and document the split clearly: end users need Python only; Rust and Node are contributor-only build tools, with the built artifacts committed. State this in README and a contributor guide.
-Owner note: an acceptable outcome of this investigation is "it's fine as is", provided the user-facing install stays Python-only.
-
-- [ ] Decide whether Node is worth keeping. Options to evaluate: keep esbuild with committed output (status quo), drop the bundler and ship plain ES modules plus a vendored chart library, or move the bundling step into a Python-invoked tool so there is one contributor toolchain. Record the trade-offs (echarts size, minification, dev-mode watch from item 4).
-- [ ] Add a CI check that the committed `app.js` and `reducer.wasm` match their sources, so a contributor without Node or Rust can still trust the artifacts they ship.
-- [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
-
-## Done
 
 ### 6. FID should evaluate on an interval by default (raised 2026-09-20)
 

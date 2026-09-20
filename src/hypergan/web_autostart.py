@@ -214,7 +214,7 @@ def _receipt(root, session, mode, status, children):
 
 def _broker(root, private, launch_id):
     from .run_state import atomic_json, run_lock
-    from .web_launch import bind_server
+    from .web_launch import bind_available
     from .web_session import LocalSession
 
     from contextlib import ExitStack
@@ -252,7 +252,7 @@ def _broker(root, private, launch_id):
                 except (OSError, ValueError) as exc:
                     print(f'Viewer receipt unavailable: {exc}', file=sys.stderr, flush=True)
         try:
-            listener = bind_server(state['port'], state['host'])
+            listener = bind_available(state['port'], state['host'])
             session = LocalSession(listener.getsockname()[1], host=state['host'], auth=state['auth'])
             with _launch_lock(private):
                 session.write_credentials(credential_path)
@@ -339,9 +339,9 @@ def viewer_status(root):
 class Viewer:
     """Attach to one persistent per-run supervisor; optional startup stays async."""
 
-    def __init__(self, root, *, port=0, host=None, auth=None, mode='auto', open_browser=False):
+    def __init__(self, root, *, port=None, host=None, auth=None, mode='auto', open_browser=False):
         from .run_state import atomic_json, run_lock
-        from .web_launch import bind_server, require_web
+        from .web_launch import bind_available, require_web
         import secrets
 
         require_web()
@@ -367,9 +367,11 @@ class Viewer:
                     # private file when the next launcher takes over.
                     (self.private / ('session-' + state['launch_id'] + '.json')).unlink(missing_ok=True)
                 host, auth = host or '0.0.0.0', auth or 'none'
-                # Fail explicit invalid ports before numerical imports. The
-                # broker repeats binding; a race remains an actionable error.
-                with bind_server(port, host):
+                # Fail unusable ports before numerical imports. The broker
+                # repeats the same selection, so a port lost in between is
+                # re-searched for a default request and an actionable error
+                # for an explicitly requested one.
+                with bind_available(port, host):
                     pass
                 if auth not in {'none', 'token'}:
                     raise ValueError("auth must be 'none' or 'token'")
@@ -445,7 +447,7 @@ class Viewer:
 
 
 @contextmanager
-def training_viewer(root, *, required=False, port=0, host=None, auth=None, open_browser=False):
+def training_viewer(root, *, required=False, port=None, host=None, auth=None, open_browser=False):
     if not required:
         from importlib.util import find_spec
         if any(find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):

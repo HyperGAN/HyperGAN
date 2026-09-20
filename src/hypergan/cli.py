@@ -24,6 +24,7 @@ def _positive_seconds(value):
 
 
 def _run_options(parser):
+    from .ports import DEFAULT_VIEWER_PORT
     parser.add_argument("--profile", help="execution profile name or TOML path; new runs default to native device, existing runs inherit")
     from .execution import SERVICE_TIMEOUTS
     for name in SERVICE_TIMEOUTS:
@@ -32,7 +33,9 @@ def _run_options(parser):
     server = parser.add_mutually_exclusive_group()
     server.add_argument("--server", action="store_true", help="require the local viewer before training starts")
     server.add_argument("--no-server", action="store_true", help="train without web imports or listening sockets")
-    parser.add_argument("--server-port", type=int, help="require a specific port (default: automatic)")
+    parser.add_argument("--port", "--server-port", dest="server_port", type=int,
+                        help=f"require a specific viewer port (default: {DEFAULT_VIEWER_PORT}, "
+                             "or the next free port above it; 0 selects any free port)")
     parser.add_argument("--server-host", help="listen address (default: 0.0.0.0)")
     parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--open", action="store_true", help="require the viewer and open its sign-in page")
@@ -101,7 +104,10 @@ def _parser():
     contributions.add_argument("--max-bytes", type=_positive_int, default=1048576)
     serve = commands.add_parser("serve", help="Serve an existing run over the local API and browser UI (web extra)")
     serve.add_argument("run_dir", type=Path)
-    serve.add_argument("--port", type=int, default=0, help="listen port; default chooses an available port")
+    from .ports import DEFAULT_VIEWER_PORT
+    serve.add_argument("--port", type=int,
+                       help=f"listen port (default: {DEFAULT_VIEWER_PORT}, or the next free port "
+                            "above it; 0 selects any free port)")
     serve.add_argument("--host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
     serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     serve.add_argument("--session-file", type=Path, help="new private credential file outside the run")
@@ -148,12 +154,13 @@ def _warnings(config):
 def _training_viewer(args):
     if args.no_server:
         if args.open or args.server_port is not None or args.server_host is not None or args.auth is not None:
-            raise ValueError("--no-server cannot be combined with --open, --server-port, --server-host or --auth")
+            raise ValueError("--no-server cannot be combined with --open, --port/--server-port, "
+                             "--server-host or --auth")
         from contextlib import nullcontext
         return nullcontext()
     from .web_autostart import training_viewer
     return training_viewer(args.run_dir, required=args.server or args.open or args.server_port is not None or args.server_host is not None or args.auth is not None,
-                           port=args.server_port if args.server_port is not None else 0, host=args.server_host, auth=args.auth, open_browser=args.open)
+                           port=args.server_port, host=args.server_host, auth=args.auth, open_browser=args.open)
 
 
 def main(argv=None):

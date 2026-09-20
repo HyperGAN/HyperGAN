@@ -7,6 +7,8 @@ import signal
 import sys
 import tempfile
 
+from .ports import DEFAULT_VIEWER_PORT, PORT_SEARCH_LIMIT
+
 
 def require_web():
     missing = [name for name in ('starlette', 'uvicorn', 'wasmtime')
@@ -32,12 +34,37 @@ def bind_server(port=0, host="0.0.0.0"):
         raise
 
 
+def bind_available(port=None, host="0.0.0.0", *, attempts=PORT_SEARCH_LIMIT):
+    """Bind the viewer socket, preferring one stable port across restarts.
+
+    ``None`` requests the default port and permits a bounded upward search, so
+    a bookmarked URL keeps working while a second concurrent run still starts.
+    Every other value is taken literally, including ``0`` for an OS-assigned
+    port: an occupied explicit port is an error, never a silent relocation.
+    Each candidate is bound for real, because probing a port and binding it
+    afterwards leaves a window for another process to take it.
+    """
+    if port is not None:
+        return bind_server(port, host)
+    if type(attempts) is not int or attempts < 1:
+        raise ValueError('attempts must be a positive integer')
+    last = min(DEFAULT_VIEWER_PORT + attempts, 65536) - 1
+    failure = None
+    for candidate in range(DEFAULT_VIEWER_PORT, last + 1):
+        try:
+            return bind_server(candidate, host)
+        except OSError as error:
+            failure = error
+    raise OSError(f'No free viewer port in {DEFAULT_VIEWER_PORT}..{last} on {host}; '
+                  f'free one or request a port explicitly ({failure})')
+
+
 def bind_loopback(port=0):
     """Explicit loopback socket for internal clients and test fixtures."""
     return bind_server(port, "127.0.0.1")
 
 
-def serve(run_dir, *, port=0, host="0.0.0.0", auth="none", session_file=None, open_browser=False):
+def serve(run_dir, *, port=None, host="0.0.0.0", auth="none", session_file=None, open_browser=False):
     require_web()
     from .web_files import read_json
     from .web_server import run_socket
@@ -51,7 +78,7 @@ def serve(run_dir, *, port=0, host="0.0.0.0", auth="none", session_file=None, op
         raise ValueError('Viewer credentials must be stored outside the run directory')
     with tempfile.TemporaryDirectory(prefix='hypergan-viewer-') as private:
         credential_path = Path(session_file) if session_file is not None else Path(private) / 'session.json'
-        with bind_server(port, host) as listener:
+        with bind_available(port, host) as listener:
             session = LocalSession(listener.getsockname()[1], host=host, auth=auth)
             session.write_credentials(credential_path)
             # Uvicorn restores and re-raises SIGTERM after its graceful shutdown.

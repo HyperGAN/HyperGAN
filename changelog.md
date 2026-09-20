@@ -5,6 +5,7 @@
 - Rebuild the supported package around configurable ParticleGAN primitives and a HyperGAN-owned CPU reference loop.
 - Add lightweight CLI/configuration tooling, conditional component bindings, run metadata and reloadable EMA inference artifacts.
 - Replace legacy packaging and CI with installed-wheel checks and explicit numerical tests.
+- Give the local viewer a stable default port (8765) for `train`, `resume` and `serve`, searching upward to 100 ports when it is busy. `--port` names an exact port and fails when occupied; `--server-port` remains an accepted spelling.
 - Archive the previous runtime and research branches. Image recipes, complete resume, multi-GPU/cluster execution and deployment remain release gates.
 
 The entries below describe historical versions; see [migration notes](docs/migration.md) before using legacy configurations or checkpoints.

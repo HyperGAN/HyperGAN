@@ -14,6 +14,7 @@ import warnings
 
 from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics
+from .previews import DEFAULT_KEEP, DEFAULT_NAME, MAX_KEEP, sample_name
 from .metric_plugins import prepare_custom, ScalarMetrics
 from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
 from .observation_io import ObservationIO
@@ -86,11 +87,13 @@ class Execution(Protocol):
     def shutdown(self) -> None: ...
 
 
-def _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every=0, preview_keep=3):
+def _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every=0,
+              preview_keep=DEFAULT_KEEP, preview_name=DEFAULT_NAME):
     if type(preview_every) is not int or preview_every < 0:
         raise ValueError("preview_every must be a nonnegative integer; zero disables previews")
-    if type(preview_keep) is not int or not 1 <= preview_keep <= 100:
-        raise ValueError("preview_keep must be between 1 and 100")
+    if type(preview_keep) is not int or not 1 <= preview_keep <= MAX_KEEP:
+        raise ValueError(f"preview_keep must be between 1 and {MAX_KEEP}")
+    sample_name(preview_name)
     if type(checkpoint_every) is not int or checkpoint_every < 1:
         raise ValueError('checkpoint_every must be a positive integer')
     if max_seconds is not None and (type(max_seconds) not in (int, float) or not math.isfinite(max_seconds) or max_seconds <= 0):
@@ -191,11 +194,12 @@ def _cleanup_validation_failure(execution):
 
 
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
-          stop_after_steps=None, on_event=None, preview_every=0, preview_keep=3, execution_factory=None):
+          stop_after_steps=None, on_event=None, preview_every=0, preview_keep=DEFAULT_KEEP,
+          preview_name=DEFAULT_NAME, execution_factory=None):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
     if execution_factory is None:
         raise TypeError('run_train requires an execution_factory')
-    _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
+    _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     config = load_config(config_path)
     if steps is not None:
         raw = config_values(config)
@@ -223,7 +227,8 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
                 'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
                 'global_batch_size': config['training']['batch_size'], 'resume_supported': False,
                 'last_durable_step': None, 'checkpoint_path': None, 'next_sample_sequence': 1,
-                'preview_every': preview_every, 'preview_keep': preview_keep, 'previews': [], 'observation_errors': [],
+                'preview_every': preview_every, 'preview_keep': preview_keep,
+                'preview_name': sample_name(preview_name), 'previews': [], 'observation_errors': [],
                 'rng_streams': {name: config['training']['seed'] + offset for name, offset in [
                     ('data', config['training']['data_seed_offset']),
                     ('prior', config['training']['prior_seed_offset']), ('penalty', 3)]}}
@@ -241,7 +246,8 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
 
 def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
                max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None,
-               preview_keep=None, execution_factory=None, steps=None, require_same_config=False):
+               preview_keep=None, preview_name=None, execution_factory=None, steps=None,
+               require_same_config=False):
     """Bind an in-memory candidate, then restore before publishing that attempt."""
     if execution_factory is None:
         raise TypeError('run_resume requires an execution_factory')
@@ -257,8 +263,10 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             raise ValueError('Run manifest execution identity must be a dictionary')
         checkpoint_every = manifest.get('checkpoint_every', 100) if checkpoint_every is None else checkpoint_every
         preview_every = manifest.get('preview_every', 0) if preview_every is None else preview_every
-        preview_keep = manifest.get('preview_keep', 3) if preview_keep is None else preview_keep
-        _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep)
+        preview_keep = manifest.get('preview_keep', DEFAULT_KEEP) if preview_keep is None else preview_keep
+        preview_name = manifest.get('preview_name') if preview_name is None else preview_name
+        preview_name = sample_name(preview_name)
+        _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
         config = load_config(config_path) if config_path is not None else resolve_config(manifest['config'])
         if steps is not None:
             if config_path is None:
@@ -292,6 +300,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             manifest['config'] = config_values(config)
             _preserve_initial_source(run_dir, manifest)
             manifest.update(preview_every=preview_every, preview_keep=preview_keep,
+                            preview_name=preview_name,
                             durable_event_boundary=checkpoint_info.get('event_boundary'),
                             checkpoint_path=str(restored.checkpoint_path), last_durable_step=restored.step,
                             resumed_from=str(restored.checkpoint_path), steps=restored.step)
@@ -583,7 +592,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 emit('preview_skipped', reason='worker_busy')
                 return
             identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
-                        'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence']}
+                        'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence'],
+                        'name': sample_name(manifest.get('preview_name'))}
             manifest['next_sample_sequence'] += 1
             publish()  # Reserve before rendering: failed or killed attempts never reuse a sequence.
             try:
@@ -726,7 +736,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             bundle_dir.mkdir()
             sync_directory(attempt_dir)
             identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
-                                         'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence']}
+                                         'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence'],
+                                         'name': sample_name(manifest.get('preview_name'))}
             manifest['next_sample_sequence'] += 1
             publish()
             artifacts = execution.inference(bundle_dir, identity)

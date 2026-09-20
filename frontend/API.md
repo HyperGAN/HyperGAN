@@ -19,8 +19,15 @@ The token never enters a URL, storage, telemetry, or browser logs.
 - `GET /runs/r/metrics/catalog[?revision=<sha256>]` -> the immutable metric catalog shape.
   Omit revision for the active training catalog; independent evaluation documents
   always supply their own catalog revision.
-- `GET /runs/r/artifacts` -> `{ "schema_version":1, "artifacts":{ "id":{ "role":"sample", "modality":"tensor", "media_type":"application/json", "bytes":54, "shape":[2,2], "provenance":{ "step":2 } } } }`.
+- `GET /runs/r/artifacts` -> `{ "schema_version":1, "artifacts":{ "id":{ "name":"g", "role":"sample", "modality":"tensor", "media_type":"application/json", "bytes":54, "shape":[2,2], "provenance":{ "step":2, "name":"g" } } } }`.
   `GET /runs/r/artifacts/{id}` downloads a bounded, digest-checked indexed artifact.
+  Artifact IDs remain the opaque digest keys; `name` is an added short stable
+  label for the source being sampled (`g` generated, `x` real), repeated in
+  `provenance`. Periodic previews publish `preview-<digest>` (tensor),
+  `preview-<digest>-grid` (generated PNG) and `preview-<digest>-real-grid`
+  (real PNG). Explicit `artifacts/index.json` entries may carry their own
+  `name`; otherwise the artifact ID is its own name. Consumers group versions of
+  one source by `(name, modality)` and order them by `provenance.step`.
 - `GET /runs/r/views` -> `{ "map_revision":"...", "streams":[{"stream_id":"evaluation:<id>", "cursor":"...", "caught_up":true, "error":null}], "discovery_error":null }`.
   Training, projection and independent evaluation sources share this inventory.
   At most 64 streams are registered. Inventory overflow is visible without

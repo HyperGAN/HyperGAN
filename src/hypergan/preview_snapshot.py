@@ -69,8 +69,9 @@ def capture_snapshot_state(trainer, batch, identity):
         if count < 1:
             raise ValueError(f'One preview sample exceeds the {MAX_ELEMENTS}-element budget')
         normalized = {name: value[torch.arange(count) % len(value)].detach().clone() for name, value in inputs.items()}
-        # A single real row supplies output-shape budgeting only; it is not rendered.
-        normalized['real'] = real[:1].detach().clone() if 'real' not in normalized else normalized['real']
+        # Real rows supply output-shape budgeting and the comparable 'x' grid.
+        normalized['real'] = (real[torch.arange(count) % len(real)].detach().clone()
+                              if 'real' not in normalized else normalized['real'])
         needed = set()
         def include(name):
             if name in needed:

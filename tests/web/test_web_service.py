@@ -614,3 +614,60 @@ def test_snapshot_evaluation_schedule_is_public_and_documented(tmp_path, status,
         assert 'cancelled' in schema['Event']['properties']['status']['enum']
         assert {'type': 'null'} in schedule['next_step']['oneOf']
         assert {'source_step', 'next_step', 'skipped_busy', 'last_skipped_step'} <= schedule.keys()
+
+
+def test_artifact_records_carry_stable_sample_names_within_the_bounded_index(tmp_path):
+    """Named samples group the shelf; digest artifact IDs stay unchanged."""
+    import base64
+    from hypergan.image_grids import encode_png
+    from hypergan.previews import publish_preview_payload
+    fixture_run(tmp_path, 1)
+    png = encode_png(bytes([255, 0, 0]), 1, 1, 3, {'step': 1})
+    real = encode_png(bytes([0, 0, 255]), 1, 1, 3, {'step': 1, 'name': 'x'})
+    def publish(sequence, step):
+        identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32,
+                    'sample_sequence': sequence, 'name': 'g'}
+        payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity, 'name': 'g',
+                   'step': step, 'count': 1, 'shape': [1, 3, 1, 1],
+                   'samples': [[[[1]], [[-1]], [[-1]]]],
+                   'image_grid': {'width': 1, 'height': 1, 'channels': 3, 'name': 'g',
+                                  'png_base64': base64.b64encode(png).decode('ascii')},
+                   'real_image_grid': {'width': 1, 'height': 1, 'channels': 3, 'name': 'x',
+                                       'png_base64': base64.b64encode(real).decode('ascii')}}
+        return publish_preview_payload(tmp_path, payload, identity, step, keep=4)
+    for sequence, step in ((1, 1), (2, 2)):
+        publish(sequence, step)
+    unnamed = json.dumps({'shape': [1], 'samples': [1.]}).encode()
+    (tmp_path / 'other.json').write_bytes(unnamed)
+    atomic_json(tmp_path / 'artifacts/index.json', {'schema_version': 1, 'artifacts': {
+        'diagnostic': dict(path='other.json', bytes=len(unnamed),
+                           sha256=hashlib.sha256(unnamed).hexdigest(), role='diagnostic',
+                           modality='tensor', media_type='application/json', shape=[1])}})
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            records = service.artifact_index()['artifacts']
+            assert len(records) == 7
+            previews = {key: value for key, value in records.items() if key.startswith('preview-')}
+            assert len(previews) == 6 and all(len(key) <= 64 for key in previews)
+            names = sorted((value['name'], value['modality']) for value in previews.values())
+            assert names == [('g', 'image'), ('g', 'image'), ('g', 'tensor'),
+                             ('g', 'tensor'), ('x', 'image'), ('x', 'image')]
+            for key, value in previews.items():
+                # Names are additive: provenance, role and digest keys are unchanged.
+                assert value['provenance']['name'] == value['name'] and value['role'] == 'sample'
+                assert value['provenance']['step'] in (1, 2)
+                assert key.endswith('-real-grid') == (value['name'] == 'x')
+            # An explicit index without a name groups under its own artifact ID.
+            assert records['diagnostic']['name'] == 'diagnostic'
+            # Retention is configurable, so the served index stays explicitly bounded.
+            indexed = json.loads((tmp_path / 'previews/index.json').read_text())
+            template = indexed['previews'][0]
+            indexed['previews'] = [dict(template, identity=dict(template['identity'], sample_sequence=n))
+                                   for n in range(101)]
+            atomic_json(tmp_path / 'previews/index.json', indexed)
+            with pytest.raises(ValueError, match='Invalid bounded preview index'):
+                await service.refresh_artifacts()
+        finally:
+            await service.close()
+    asyncio.run(scenario())

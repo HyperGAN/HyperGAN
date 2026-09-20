@@ -200,8 +200,8 @@ def test_repeated_train_selects_latest_and_inherits_saved_controls(tmp_path, rep
     prepared = prepare_train(path, run)
     assert prepared.operation == 'resume'
     assert prepared.checkpoint == checkpoint
-    assert prepared.controls == dict(checkpoint_every=7, max_seconds=None,
-                                     stop_after_steps=None, preview_every=2, preview_keep=5)
+    assert prepared.controls == dict(checkpoint_every=7, max_seconds=None, stop_after_steps=None,
+                                     preview_every=2, preview_keep=5, preview_name='g')
     if replicated:
         assert prepared.profile['execution'] == manifest['execution']
     else:
@@ -214,12 +214,13 @@ def test_repeated_train_allows_explicit_attempt_controls(tmp_path):
     manifest['preview_every'] = 2
     (run / 'manifest.json').write_text(json.dumps(manifest))
     prepared = prepare_train(path, run, checkpoint_every=2, preview_every=0,
-                             preview_keep=5, stop_after_steps=1,
+                             preview_keep=5, preview_name='ema', stop_after_steps=1,
                              service_policy={'command_timeout': 120})
     assert prepared.checkpoint == checkpoint
     assert prepared.controls['checkpoint_every'] == 2
     assert prepared.controls['preview_every'] == 0
     assert prepared.controls['preview_keep'] == 5
+    assert prepared.controls['preview_name'] == 'ema'
     assert prepared.controls['stop_after_steps'] == 1
     assert prepared.service_policy['command_timeout'] == 120
 
@@ -247,12 +248,15 @@ def test_train_control_defaults_distinguish_omission_from_disable(tmp_path):
     from hypergan.cli import _parser
     args = _parser().parse_args(['train', 'config', '--run-dir', 'run'])
     assert args.checkpoint_every is args.preview_every is args.preview_keep is None
+    assert args.preview_name is None
     disabled = _parser().parse_args(['train', 'config', '--run-dir', 'run', '--no-previews'])
     assert disabled.preview_every == 0
     prepared = prepare_train(project(tmp_path), tmp_path / 'run')
     assert prepared.controls['checkpoint_every'] == 100
     assert prepared.controls['preview_every'] == 0
-    assert prepared.controls['preview_keep'] == 3
+    # A history slider needs more than a handful of retained previews.
+    assert prepared.controls['preview_keep'] == 20
+    assert prepared.controls['preview_name'] == 'g'
 
 
 @pytest.mark.parametrize('conflict', ['config', 'metrics', 'schedule', 'profile', 'missing-checkpoint'])

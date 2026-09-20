@@ -197,3 +197,103 @@ raise SystemExit(main(["sample", {str(tmp_path / 'viewed')!r}, "--count", "3", "
             sample(tmp_path / 'viewed', count=65, output=tmp_path / 'oversized.png')
     finally:
         torch.set_num_threads(old_threads)
+
+
+def test_named_samples_publish_real_grid_and_bounded_retention(tmp_path):
+    """Samples carry a short stable name; the real batch publishes beside them."""
+    from hypergan.previews import DEFAULT_KEEP, MAX_KEEP, sample_name
+    assert DEFAULT_KEEP == 20 and MAX_KEEP == 100
+    trainer = ReferenceTrainer(recipe())
+    _, batch = trainer.update()
+    identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1, 'name': 'g'}
+    payload = render_preview(trainer, batch, identity)
+    assert payload['name'] == 'g' and payload['image_grid']['name'] == 'g'
+    assert payload['real_image_grid']['name'] == 'x'
+    assert payload['real_image_grid']['source'] == 'batch.real'
+    record, index, errors = publish_preview_payload(tmp_path, payload, identity, trainer.step, keep=2)
+    assert not errors and record['name'] == 'g' and index['names'] == ['g'] and index['keep'] == 2
+    assert index['previews'][-1]['name'] == 'g'
+    grid, real = Path(record['image_grid']['path']), Path(record['real_image_grid']['path'])
+    assert grid.name == 'grid.png' and real.name == 'real.png' and grid.parent == real.parent
+    assert real.read_bytes() == base64.b64decode(payload['real_image_grid']['png_base64'])
+    with Image.open(real) as image:
+        assert image.size == (4, 4)
+        metadata = json.loads(image.info['hypergan'])
+        assert metadata['name'] == 'x' and metadata['source'] == 'batch.real'
+        assert metadata['step'] == trainer.step
+    stored = json.loads(Path(record['path']).read_text())
+    assert 'png_base64' not in stored['real_image_grid'] and stored['name'] == 'g'
+
+    for sequence in range(2, 7):
+        moment = dict(identity, sample_sequence=sequence)
+        record, index, errors = publish_preview_payload(
+            tmp_path, render_preview(trainer, batch, moment), moment, trainer.step, keep=2)
+        assert not errors
+    generations = [entry for entry in (tmp_path / 'previews').iterdir() if entry.is_dir()]
+    assert len(index['previews']) == len(generations) == 2
+    assert [item['identity']['sample_sequence'] for item in index['previews']] == [5, 6]
+
+    renamed = dict(identity, sample_sequence=7, name='ema:g')
+    payload = render_preview(trainer, batch, renamed)
+    assert payload['name'] == payload['image_grid']['name'] == 'ema:g'
+    record, index, _ = publish_preview_payload(tmp_path, payload, renamed, trainer.step, keep=2)
+    assert record['name'] == 'ema:g' and index['names'] == ['ema:g', 'g']
+
+    assert sample_name(None) == 'g' and sample_name('x') == 'x'
+    for invalid in ('has space', '', '-leading', 'x' * 17, 5):
+        with pytest.raises(ValueError, match='Sample name'):
+            sample_name(invalid)
+    with pytest.raises(ValueError, match='Sample name'):
+        render_preview(trainer, batch, dict(identity, name='not a name'))
+    with pytest.raises(ValueError, match='identity, step, name or shape'):
+        publish_preview_payload(tmp_path, payload, dict(renamed, name='g'), trainer.step, keep=2)
+    for keep in (0, MAX_KEEP + 1):
+        with pytest.raises(ValueError, match='preview_keep'):
+            publish_preview_payload(tmp_path, payload, renamed, trainer.step, keep=keep)
+
+
+def test_named_previews_reach_the_run_manifest_with_a_configurable_history(tmp_path, monkeypatch):
+    """Training publishes named previews; resume inherits the name and retention."""
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
+    old_threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        config = tmp_path / 'images.toml'
+        config.write_text(f'''[components.generator]
+factory = "{__name__}:ImageGenerator"
+args = {{}}
+inputs = {{x = "latent"}}
+[components.discriminator]
+factory = "{__name__}:ImageDiscriminator"
+args = {{}}
+inputs = {{x = "candidate"}}
+[data]
+factory = "{__name__}:ImageData"
+args = {{}}
+[prior.args]
+num_particles = 16
+z_dim = 2
+[sampling]
+count = 3
+seed = 91
+[training]
+device = "cpu"
+steps = 4
+batch_size = 3
+[metrics]
+preset = "none"
+''')
+        stopped = train(config, tmp_path / 'named', preview_every=1, preview_keep=4,
+                        preview_name='gen', checkpoint_every=1, stop_after_steps=2)
+        assert stopped['preview_name'] == 'gen' and stopped['preview_keep'] == 4
+        assert stopped['previews'] and not stopped['observation_errors']
+        for preview in stopped['previews']:
+            assert preview['name'] == preview['identity']['name'] == 'gen'
+            assert preview['image_grid']['name'] == 'gen'
+            assert preview['real_image_grid']['name'] == 'x'
+        finished = resume(tmp_path / 'named', preview_every=1)
+        assert finished['preview_name'] == 'gen' and finished['preview_keep'] == 4
+        assert 0 < len(finished['previews']) <= 4
+        assert all(item['name'] == 'gen' for item in finished['previews'])
+    finally:
+        torch.set_num_threads(old_threads)

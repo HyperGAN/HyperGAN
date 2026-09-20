@@ -48,6 +48,7 @@ const state = {
   retry: null,
   retries: 0,
   renderTimer: null,
+  sampleVersions: new Map(),
   stepFrom: null,
   stepTo: null,
   refreshing: false,
@@ -200,113 +201,217 @@ async function refreshArtifacts() {
   state.artifactSignature = signature;
   renderArtifacts(artifacts);
 }
+const MAX_SAMPLE_GROUPS = 20;
+const MAX_SAMPLE_VERSIONS = 100;
+const provenanceStep = (artifact) => {
+  const step = artifact.provenance?.step;
+  return Number.isFinite(step) ? step : -1;
+};
+const provenanceSequence = (artifact) => {
+  const sequence = artifact.provenance?.sample_sequence;
+  return Number.isFinite(sequence) ? sequence : -1;
+};
+function sampleGroups(artifacts) {
+  // Samples are indexed by a short stable name ('g' generated, 'x' real) and
+  // grouped per modality so an image name shows one picture at a time.
+  const groups = new Map();
+  for (const [id, artifact] of Object.entries(artifacts)) {
+    const name =
+      typeof artifact.name === "string" && artifact.name ? artifact.name : id;
+    const modality = artifact.modality || "unspecified";
+    const key = `${name}\u0000${modality}`;
+    if (!groups.has(key)) groups.set(key, { key, name, modality, versions: [] });
+    groups.get(key).versions.push({ id, artifact });
+  }
+  for (const group of groups.values()) {
+    group.versions.sort(
+      (a, b) =>
+        provenanceStep(a.artifact) - provenanceStep(b.artifact) ||
+        provenanceSequence(a.artifact) - provenanceSequence(b.artifact) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+    if (group.versions.length > MAX_SAMPLE_VERSIONS)
+      group.versions = group.versions.slice(-MAX_SAMPLE_VERSIONS);
+    group.latest = group.versions[group.versions.length - 1];
+  }
+  return [...groups.values()].sort(
+    (a, b) =>
+      provenanceStep(b.latest.artifact) - provenanceStep(a.latest.artifact) ||
+      Number(b.modality === "image") - Number(a.modality === "image") ||
+      (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+  );
+}
 function renderArtifacts(artifacts) {
   $("artifact-items").replaceChildren();
-  const records = Object.entries(artifacts).sort(
-    (a, b) => (b[1].provenance?.step || 0) - (a[1].provenance?.step || 0)
-      || Number(b[1].modality === "image") - Number(a[1].modality === "image"),
-  );
-  $("artifacts").hidden = !records.length;
-  for (const [id, artifact] of records.slice(0, 20)) {
-    const li = document.createElement("li");
-    const info = document.createElement("div");
-    const heading = document.createElement("strong");
-    heading.textContent = `${artifact.role || "Artifact"} · ${artifact.modality || "unspecified"}`;
-    const details = document.createElement("span");
+  const groups = sampleGroups(artifacts);
+  $("artifacts").hidden = !groups.length;
+  for (const group of groups.slice(0, MAX_SAMPLE_GROUPS))
+    $("artifact-items").append(renderSampleGroup(group));
+}
+function renderSampleGroup(group) {
+  const li = document.createElement("li");
+  li.dataset.sample = group.name;
+  li.dataset.modality = group.modality;
+  const info = document.createElement("div");
+  const heading = document.createElement("strong");
+  heading.className = "sample-name";
+  heading.textContent = group.name;
+  const details = document.createElement("span");
+  info.append(heading, details);
+  li.append(info);
+  const body = document.createElement("div");
+  body.className = "sample-body";
+  li.append(body);
+  const pinned = state.sampleVersions.get(group.key);
+  const pinnedIndex = group.versions.findIndex((v) => v.id === pinned);
+  let index = pinnedIndex < 0 ? group.versions.length - 1 : pinnedIndex;
+  let history = null;
+  let position = null;
+  let latestButton = null;
+  if (group.versions.length > 1) {
+    history = document.createElement("div");
+    history.className = "sample-history";
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = String(group.versions.length - 1);
+    slider.step = "1";
+    slider.value = String(index);
+    slider.className = "sample-slider";
+    slider.setAttribute("aria-label", `${group.name} sample history`);
+    position = document.createElement("span");
+    position.className = "sample-position";
+    latestButton = document.createElement("button");
+    latestButton.className = "secondary sample-latest";
+    latestButton.textContent = "Latest";
+    latestButton.onclick = () => {
+      slider.value = String(group.versions.length - 1);
+      state.sampleVersions.delete(group.key);
+      show(group.versions.length - 1);
+    };
+    slider.oninput = () => {
+      const chosen = Number(slider.value);
+      if (chosen === group.versions.length - 1)
+        state.sampleVersions.delete(group.key);
+      else state.sampleVersions.set(group.key, group.versions[chosen].id);
+      show(chosen);
+    };
+    history.append(slider, position, latestButton);
+    li.append(history);
+  }
+  function show(chosen) {
+    index = chosen;
+    const { id, artifact } = group.versions[index];
+    const step = artifact.provenance?.step;
     const shape = artifact.shape || artifact.metadata?.shape;
     details.textContent = [
+      artifact.role || "Artifact",
+      group.modality,
       artifact.media_type || "unknown type",
-      `Step ${fmt(artifact.provenance?.step)}`,
+      `Step ${fmt(step)}`,
       Array.isArray(shape) ? `Shape ${shape.join(" × ")}` : null,
       artifact.bytes !== undefined ? `${fmt(artifact.bytes)} bytes` : null,
     ]
       .filter(Boolean)
       .join(" · ");
-    info.append(heading, details);
-    li.append(info);
-    if (artifact.status === "unavailable") {
-      const reason = document.createElement("p");
-      reason.textContent = artifact.reason || "Artifact unavailable";
-      li.append(reason);
-    } else {
-      const path = `/api/v1${base()}/artifacts/${encodeURIComponent(id)}`;
-      const controls = document.createElement("div");
-      controls.className = "artifact-controls";
-      const download = document.createElement("a");
-      download.href = path;
-      download.download = artifact.media_type === "application/json" ? "samples.json" : "artifact";
-      download.className = "text-link";
-      download.textContent = "Download";
-      controls.append(download);
-      if (
-        artifact.modality === "image" && artifact.media_type === "image/png" &&
-        Number.isSafeInteger(artifact.bytes) && artifact.bytes > 0 && artifact.bytes <= 8388608 &&
-        [artifact.width, artifact.height].every((n) => Number.isSafeInteger(n) && n > 0 && n <= 4096) &&
-        artifact.width * artifact.height <= 4194304
-      ) {
-        const image = document.createElement("img");
-        image.className = "image-grid";
-        image.alt = `Generated image grid at step ${fmt(artifact.provenance?.step)}`;
-        image.width = artifact.width;
-        image.height = artifact.height;
-        image.loading = "lazy";
-        image.decoding = "async";
-        image.src = path;
-        image.onerror = () => {
-          const error = document.createElement("p");
-          error.textContent = "Image unavailable or removed by preview retention.";
-          image.replaceWith(error);
-        };
-        li.append(image);
-        download.download = "grid.png";
-      }
-      if (
-        artifact.modality === "tensor" &&
-        artifact.media_type === "application/json" &&
-        Number.isSafeInteger(artifact.bytes) &&
-        artifact.bytes <= 8388608 &&
-        Array.isArray(shape) &&
-        shape.length > 0 &&
-        shape.length <= 8 &&
-        shape.every((n) => Number.isSafeInteger(n) && n > 0) &&
-        shape.reduce((a, b) => a * b, 1) <= 262144
-      ) {
-        const button = document.createElement("button");
-        button.className = "secondary";
-        button.textContent = "Preview numbers";
-        const preview = document.createElement("pre");
-        preview.className = "numeric-preview";
-        preview.hidden = true;
-        button.onclick = async () => {
-          if (!preview.hidden) {
-            preview.hidden = true;
-            button.textContent = "Preview numbers";
-            return;
-          }
-          button.disabled = true;
-          try {
-            preview.textContent = await numericalPreview(path, shape);
-            preview.hidden = false;
-            button.textContent = "Hide numbers";
-          } catch (error) {
-            preview.textContent = error.message;
-            preview.hidden = false;
-          } finally {
-            button.disabled = false;
-          }
-        };
-        controls.append(button);
-        li.append(preview);
-      }
-      if (artifact.modality === "tensor" && controls.children.length === 1) {
-        const hint = document.createElement("p");
-        hint.textContent = "Numeric preview supports JSON tensors up to 8 MiB and 262,144 values. Download this tensor to inspect it.";
-        li.append(hint);
-      }
-      li.append(controls);
+    if (position) {
+      const latest = index === group.versions.length - 1;
+      position.textContent =
+        `Version ${index + 1} of ${group.versions.length} · step ${fmt(step)}` +
+        (latest ? " · latest" : "");
+      latestButton.hidden = latest;
     }
-    $("artifact-items").append(li);
+    body.replaceChildren(sampleVersion(group, id, artifact));
   }
+  show(index);
+  return li;
+}
+function sampleVersion(group, id, artifact) {
+  const fragment = document.createDocumentFragment();
+  if (artifact.status === "unavailable") {
+    const reason = document.createElement("p");
+    reason.textContent = artifact.reason || "Artifact unavailable";
+    fragment.append(reason);
+    return fragment;
+  }
+  const path = `/api/v1${base()}/artifacts/${encodeURIComponent(id)}`;
+  const shape = artifact.shape || artifact.metadata?.shape;
+  const controls = document.createElement("div");
+  controls.className = "artifact-controls";
+  const download = document.createElement("a");
+  download.href = path;
+  download.download =
+    artifact.media_type === "application/json" ? "samples.json" : "artifact";
+  download.className = "text-link";
+  download.textContent = "Download";
+  controls.append(download);
+  if (
+    artifact.modality === "image" && artifact.media_type === "image/png" &&
+    Number.isSafeInteger(artifact.bytes) && artifact.bytes > 0 && artifact.bytes <= 8388608 &&
+    [artifact.width, artifact.height].every((n) => Number.isSafeInteger(n) && n > 0 && n <= 4096) &&
+    artifact.width * artifact.height <= 4194304
+  ) {
+    const image = document.createElement("img");
+    image.className = "image-grid";
+    image.alt = `Sample ${group.name} image grid at step ${fmt(artifact.provenance?.step)}`;
+    image.width = artifact.width;
+    image.height = artifact.height;
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.src = path;
+    image.onerror = () => {
+      const error = document.createElement("p");
+      error.textContent = "Image unavailable or removed by preview retention.";
+      image.replaceWith(error);
+    };
+    fragment.append(image);
+    download.download = "grid.png";
+  }
+  if (
+    artifact.modality === "tensor" &&
+    artifact.media_type === "application/json" &&
+    Number.isSafeInteger(artifact.bytes) &&
+    artifact.bytes <= 8388608 &&
+    Array.isArray(shape) &&
+    shape.length > 0 &&
+    shape.length <= 8 &&
+    shape.every((n) => Number.isSafeInteger(n) && n > 0) &&
+    shape.reduce((a, b) => a * b, 1) <= 262144
+  ) {
+    const button = document.createElement("button");
+    button.className = "secondary";
+    button.textContent = "Preview numbers";
+    const preview = document.createElement("pre");
+    preview.className = "numeric-preview";
+    preview.hidden = true;
+    button.onclick = async () => {
+      if (!preview.hidden) {
+        preview.hidden = true;
+        button.textContent = "Preview numbers";
+        return;
+      }
+      button.disabled = true;
+      try {
+        preview.textContent = await numericalPreview(path, shape);
+        preview.hidden = false;
+        button.textContent = "Hide numbers";
+      } catch (error) {
+        preview.textContent = error.message;
+        preview.hidden = false;
+      } finally {
+        button.disabled = false;
+      }
+    };
+    controls.append(button);
+    fragment.append(preview);
+  }
+  if (artifact.modality === "tensor" && controls.children.length === 1) {
+    const hint = document.createElement("p");
+    hint.textContent = "Numeric preview supports JSON tensors up to 8 MiB and 262,144 values. Download this tensor to inspect it.";
+    fragment.append(hint);
+  }
+  fragment.append(controls);
+  return fragment;
 }
 async function numericalPreview(path, shape) {
   const response = await fetch(path, { credentials: "same-origin" });

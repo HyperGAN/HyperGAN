@@ -111,36 +111,52 @@ def test_real_png_grid_loads_and_updates_without_selected_metrics(real_viewer):
     experiment.create(2)
     def publish(sequence, step, pixels):
         identity = {'run_id': 'browser-run', 'attempt_id': '0001-' + 'a' * 32,
-                    'sample_sequence': sequence}
+                    'sample_sequence': sequence, 'name': 'g'}
         png = encode_png(pixels, 2, 1, 3, {'step': step})
+        real = encode_png(bytes([255, 255, 255, 0, 0, 0]), 2, 1, 3, {'step': step, 'name': 'x'})
         payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity,
-                   'step': step, 'count': 2, 'shape': [2, 3, 1, 1],
-                   'image_grid': {'width': 2, 'height': 1, 'channels': 3,
-                                  'png_base64': base64.b64encode(png).decode('ascii')}}
-        return publish_preview_payload(experiment.root, payload, identity, step, keep=2)
+                   'name': 'g', 'step': step, 'count': 2, 'shape': [2, 3, 1, 1],
+                   'image_grid': {'width': 2, 'height': 1, 'channels': 3, 'name': 'g',
+                                  'png_base64': base64.b64encode(png).decode('ascii')},
+                   'real_image_grid': {'width': 2, 'height': 1, 'channels': 3, 'name': 'x',
+                                       'png_base64': base64.b64encode(real).decode('ascii')}}
+        return publish_preview_payload(experiment.root, payload, identity, step, keep=4)
     publish(1, 1, bytes([255, 0, 0, 0, 255, 0]))
     sign_in(page, session, token)
-    image = page.get_by_role('img', name='Generated image grid at step 1', exact=True)
+    image = page.get_by_role('img', name='Sample g image grid at step 1', exact=True)
     image.wait_for()
     image.scroll_into_view_if_needed()
     page.wait_for_function("() => document.querySelector('img.image-grid')?.naturalWidth === 2")
     # Decode the actual authenticated image in the browser and inspect its pixels.
-    pixels = image.evaluate('''image => { const canvas = document.createElement('canvas');
+    read = '''image => { const canvas = document.createElement('canvas');
       canvas.width = 2; canvas.height = 1; const ctx = canvas.getContext('2d');
-      ctx.drawImage(image, 0, 0); return [...ctx.getImageData(0, 0, 2, 1).data]; }''')
-    assert pixels == [255, 0, 0, 255, 0, 255, 0, 255]
+      ctx.drawImage(image, 0, 0); return [...ctx.getImageData(0, 0, 2, 1).data]; }'''
+    assert image.evaluate(read) == [255, 0, 0, 255, 0, 255, 0, 255]
+    # The comparable real batch is indexed beside it under its own short name.
+    page.get_by_role('img', name='Sample x image grid at step 1', exact=True).wait_for()
     page.get_by_role('button', name='Clear', exact=True).click()
     page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
     latest_record = publish(2, 2, bytes([0, 0, 255, 255, 255, 255]))[0]
-    latest = page.get_by_role('img', name='Generated image grid at step 2', exact=True)
+    latest = page.get_by_role('img', name='Sample g image grid at step 2', exact=True)
     latest.wait_for(timeout=10000)
     latest.scroll_into_view_if_needed()
     page.wait_for_function("() => [...document.querySelectorAll('img.image-grid')].every(img => img.naturalWidth === 2)")
-    assert page.locator('img.image-grid').count() == 2
-    item = page.locator('#artifact-items li').filter(has=latest)
+    # Each name shows one image: the newest. Older versions live behind the slider.
+    generated = page.locator('#artifact-items li[data-sample="g"][data-modality="image"]')
+    assert generated.count() == 1 and page.locator('img.image-grid').count() == 2
+    assert page.get_by_role('img', name='Sample g image grid at step 1').count() == 0
     with page.expect_download() as download:
-        item.get_by_role('link', name='Download', exact=True).click()
+        generated.get_by_role('link', name='Download', exact=True).click()
     assert Path(download.value.path()).read_bytes() == Path(latest_record['image_grid']['path']).read_bytes()
+    generated.locator('input[type="range"]').focus()
+    page.keyboard.press('Home')
+    older = page.get_by_role('img', name='Sample g image grid at step 1', exact=True)
+    older.wait_for()
+    page.wait_for_function("() => document.querySelector('li[data-sample=\\'g\\'] img')?.naturalWidth === 2")
+    assert older.evaluate(read) == [255, 0, 0, 255, 0, 255, 0, 255]
+    assert 'Version 1 of 2 · step 1' in generated.locator('.sample-position').inner_text()
+    page.keyboard.press('End')
+    generated.locator('.sample-position').filter(has_text='Version 2 of 2').wait_for()
     assert not errors
 
 

@@ -6,7 +6,7 @@ The browser displays them through the authenticated artifact API. No viewer is
 needed to save or inspect the files; metrics can be disabled.
 
 ```sh
-hypergan train project/config.toml --run-dir runs/images --preview-every 100 --preview-keep 4
+hypergan train project/config.toml --run-dir runs/images --preview-every 100 --preview-keep 24
 hypergan resume runs/images --no-server
 hypergan sample runs/images --count 16 --seed 42 --output samples.png
 hypergan sample runs/images --count 16 --seed 73 --output fresh-samples.png
@@ -21,10 +21,11 @@ fresh process and never overwrites an existing output. Select `.png` explicitly
 for a grid; the default and other outputs retain generic tensor JSON. PNG
 requests for non-image tensors fail with an actionable shape error.
 
-Each periodic image generation contains `preview.json`, `grid.png` and
-`manifest.json`. The directory is published atomically, then indexed, and
-retention removes the whole generation. Numeric JSON retains samples and gains
-a PNG descriptor recording size, SHA256 and dimensions. The same digest-checked
+Each periodic image generation contains `preview.json`, `grid.png`,
+`manifest.json` and, for image recipes, `real.png`. The directory is published
+atomically, then indexed, and retention removes the whole generation. Numeric
+JSON retains samples and gains a PNG descriptor recording size, SHA256 and
+dimensions. The same digest-checked
 file is shown in the browser. Final inference bundles, final JSON samples and
 explicitly requested sample files are not pruned by preview retention. Preview
 filenames retain run/attempt/sequence identity across resume.
@@ -51,9 +52,34 @@ outputs; they do not sandbox arbitrary allocations in trusted custom generators.
 Rendering keeps copied EMA state and isolated RNG; the replicated renderer
 remains separately supervised.
 
+## Named samples and their history
+
+Every sample carries a short stable name so a viewer can index it across steps
+rather than by publication digest. The EMA generator output is `g` and the real
+batch it is compared against is `x`; `--preview-name NAME` renames the generated
+source for a run (1-16 letters, digits, dots, colons, underscores or hyphens)
+and resume inherits it. The name is recorded in the preview payload, in each PNG
+provenance chunk, in the retained `previews/index.json` entries (with the
+retained `names` list) and in the public artifact records, beside the unchanged
+digest artifact IDs.
+
+Image recipes publish the real grid as `real.png` in the same atomic generation
+as `grid.png`, so `x` and `g` share one retention decision and one sequence. It
+is the comparable real batch actually used at that boundary, not regenerated or
+rescaled data, and it is skipped when the batch is not a finite RGB/grayscale
+image tensor.
+
+`--preview-keep N` (1-100, default **20**) bounds the retained history per run
+and therefore how far the browser slider can scrub back. Retention is a bounded
+count, not a disk quota: a retained generation is bounded by 2 MiB of JSON plus
+its PNGs, and the periodic element budget below keeps ordinary grids far smaller.
+Choose a smaller value for large grids or small disks.
+
 The browser reads only indexed artifact IDs. PNG framing, dimensions, byte count
 and digest are checked before inline delivery; authentication, path/link checks,
 same-origin policy and `nosniff` remain in force. SVG/HTML and other media are
-never rendered as images. The shelf renders at most 20 entries and loads images
-lazily. Older retained grids remain available through the bounded index; unknown
-modalities remain downloads. There is no arbitrary file/image URL input.
+never rendered as images. The shelf renders at most 20 named groups, one image per
+group, and loads images lazily. Each name shows its most recent version; earlier
+retained versions are reached with that group's history slider (keyboard
+supported), which shows the step of the version being viewed. Unknown modalities
+remain downloads. There is no arbitrary file/image URL input.

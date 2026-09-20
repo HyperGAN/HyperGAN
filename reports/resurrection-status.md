@@ -20,8 +20,9 @@ upper bound is **not established**. Native CUDA save/resume, worker isolation an
 scalar transport passed 11 checks; final source `0955fa6f` passed two additional
 strict deterministic CUDA snapshot/histogram checks. All experiments masked only
 physical GPU 0's UUID; GPU 1 and the owner's training environment were untouched.
-CPU installed acceptance, fault/signal tests and exact source identities are in
-the report and evidence receipts. Benchmark windows exclude final durability and
+Final installed source `0955fa6f` passed 518 CPU acceptance tests in 361.87 seconds,
+including real signal/fault/recovery checks, with all 56 runtime files matching
+the archived source. Exact commands and identities are in the report and receipts. Benchmark windows exclude final durability and
 observer drains; replicated snapshot file transport and native Python control
 callbacks remain explicit synchronous boundaries.
 

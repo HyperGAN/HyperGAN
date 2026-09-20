@@ -314,8 +314,9 @@ protected merge gate. `preserved-pr-heads.json`, `pr344-premerge.json` and
 GitHub check/merge receipts are stored alongside them; the linked integration PR
 records the final merge commit and check history.
 
-Final-source CPU test output, exact invocation, distribution hashes and installed
-package identity are retained in `workers/final-0955fa6f/tests.log` and
+Final installed source `0955fa6f` passed **518 CPU tests** in 361.87 seconds,
+with no failures or skips; all 56 runtime Python files match the archived source.
+Test output, exact invocation, distribution hashes and installed package identity are retained in `workers/final-0955fa6f/tests.log` and
 `workers/final-0955fa6f/identity.json`. This covers all foundation tests plus
 actual native/replicated signals, manual saves and recovery, callback/custom
 workers, snapshot evaluation, CLI, previews and observation persistence.

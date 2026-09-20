@@ -593,10 +593,11 @@ def test_console_control_is_bounded_validated_and_persisted(tmp_path):
         assert 'put' in client.get('/api/v1/openapi.json').json()['paths'][path.replace('/run/', '/{run_id}/')]
 
 
-def test_snapshot_evaluation_schedule_is_public_and_documented(tmp_path):
+@pytest.mark.parametrize('status,next_step', [('running', 30000), ('disabled', None)])
+def test_snapshot_evaluation_schedule_is_public_and_documented(tmp_path, status, next_step):
     manifest = fixture_run(tmp_path)
     manifest['evaluation_schedule'] = {'fid': {
-        'status': 'running', 'source_step': 10000, 'next_step': 30000,
+        'status': status, 'source_step': 10000, 'next_step': next_step,
         'evaluation_id': 'a' * 32, 'skipped_busy': 1,
         'last_skipped_step': 20000, 'reason': 'worker_busy',
     }}
@@ -611,4 +612,5 @@ def test_snapshot_evaluation_schedule_is_public_and_documented(tmp_path):
         schedule = schema['Run']['properties']['evaluation_schedule']['additionalProperties']['properties']
         assert {'skipped', 'cancelled', 'disabled'} <= set(schedule['status']['enum'])
         assert 'cancelled' in schema['Event']['properties']['status']['enum']
+        assert {'type': 'null'} in schedule['next_step']['oneOf']
         assert {'source_step', 'next_step', 'skipped_busy', 'last_skipped_step'} <= schedule.keys()

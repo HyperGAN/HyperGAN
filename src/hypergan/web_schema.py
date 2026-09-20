@@ -74,7 +74,7 @@ def schemas():
         'last_durable_step': {'oneOf': [SAFE_INTEGER, {'type': 'null'}]}, 'metrics_catalog': HASH,
         'evaluation_schedule': {'type': 'object', 'additionalProperties': object_schema({
             'status': {'enum': ['running', 'complete', 'failed', 'skipped', 'cancelled', 'pending', 'disabled']},
-            'source_step': SAFE_INTEGER, 'next_step': SAFE_INTEGER,
+            'source_step': SAFE_INTEGER, 'next_step': {'oneOf': [SAFE_INTEGER, {'type': 'null'}]},
             'skipped_busy': SAFE_INTEGER, 'last_skipped_step': SAFE_INTEGER,
             'reason': {'type': 'string'}, 'evaluation_id': {'type': 'string'}}, ('status',))},
         'durable_event_boundary': object_schema({'schema_version': {'const': 1},

@@ -39,6 +39,11 @@ Owner ran `training-runs/start.sh` and saw no FID because both FID metrics in th
 
 **Status:** Implemented in commit 7d937f94, merged to develop.
 
+Follow-up (2026-09-20): the owner reached step 10k on a fresh run with no FID because their `cifar10.toml` still says `trigger = "manual"`, and the stderr warning at launch was missed among other config warnings.
+
+- [ ] Show the "no automatic evaluation scheduled" notice in the viewer's evaluation panel and in the periodic CLI progress line, not only at launch.
+- [ ] Consider whether an explicit `trigger = "manual"` on an FID metric in a training run should print a louder, single-line hint naming the exact edit.
+
 - `src/hypergan/metric_plugins.py` defines `DEFAULT_SNAPSHOT_TRIGGER = "interval"`
   and `DEFAULT_EVALUATION_EVERY_STEPS = 10000` in one place. A snapshot metric that
   omits `trigger` resolves to interval evaluation, and an explicit

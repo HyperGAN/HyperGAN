@@ -73,3 +73,58 @@ receipts are stored under
 `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-metric-optimization/`.
 Implementation and final acceptance results will be appended before handoff.
 No paid compute, release, GPU-1 experiment or old-checkpoint migration is included.
+
+## Reviewed implementation slices
+
+- [#344](https://github.com/HyperGAN/HyperGAN/pull/344): scalar transport. The first
+  candidate reduced nine device-to-host copies to one, but an actual CUDA probe
+  rejected it: median transport increased from 83.76 µs to 233.06 µs. The receipt
+  `scalar_cuda_probe.json` preserves this regression. Revised transport is being
+  measured; fewer copies is not itself an acceptance criterion.
+- [#345](https://github.com/HyperGAN/HyperGAN/pull/345): bounded background event
+  persistence and coalesced progress manifests. At most 256 pending events and
+  8 MiB of conservative encoded size are admitted, plus one active bounded row.
+  Overload records counts/ranges by event kind. Accepted sequence numbers remain
+  contiguous, and checkpoint barriers record a current-step marker if the latest
+  completed observation belongs to an older step. Unicode surrogate escaping and
+  large integer sizes were included in the byte-bound review.
+- [#346](https://github.com/HyperGAN/HyperGAN/pull/346): custom scalar submission,
+  asynchronous source-step results, explicit busy drops, CPU-only lower-priority
+  workers, finite admission deadlines and cancellation/reaping. Required failures
+  remain failures, including required work cancelled by a stop request. Optional
+  cancellation is recorded. Stop does not wait out a configured one-hour plugin
+  deadline. Normal completion drains admitted observations before the final
+  checkpoint frontier.
+- [#348](https://github.com/HyperGAN/HyperGAN/pull/348): bounded asynchronous
+  replicated callbacks with accepted/completed/dropped/failed counters. Terminal
+  delivery persists counters and failures durably; the review found and fixed
+  a throttle that otherwise omitted this terminal metadata. Native `on_event`
+  remains the explicitly synchronous Python control-hook API, including closures.
+- [#349](https://github.com/HyperGAN/HyperGAN/pull/349): background console-policy
+  and checkpoint-request readers. Ordinary updates consume cached results.
+  Startup settings/overrides and fresh checkpoint/final control scans remain
+  explicit boundaries. Blocked optional reader shutdown does not hold training.
+- [#350](https://github.com/HyperGAN/HyperGAN/pull/350): one outstanding immutable
+  periodic preview, rendered and published by a CPU process. Busy previews are
+  skipped before reserving another sequence or copying another model. Failures
+  remain visible. Native snapshot serialization is being moved to its supervisor
+  as a follow-up; immutable GPU-state capture and durable sequence reservation
+  remain costs that must be measured rather than hidden.
+- [#347](https://github.com/HyperGAN/HyperGAN/pull/347): coordinator integration,
+  report and reproducible benchmark fixes. The exact internal CLI sink bypasses
+  native numerical RNG snapshots and replicated per-event health round trips;
+  arbitrary Python callbacks do not receive that privilege.
+
+The custom dispatcher CPU probe recorded five original synchronous invocations
+at **198.5–261.2 ms** each. With one observation outstanding, 1,000 new submit/poll
+calls measured **1.54 µs median, 2.87 µs p99**, with one accepted observation and
+999 explicitly dropped samples. The final result retained source step 1. This
+measures submission overhead under overload, not plugin throughput or GPU
+training speed; `workers/dispatcher-benchmark.json` preserves the receipt.
+
+Fault-injection coverage includes blocked event writes while ten updates finish,
+queue saturation and explicit gaps, durable-prefix validation, late custom
+results at their original step, same-step final checkpoint refresh, failed
+publication, acknowledgement retry without duplicate saves, blocked control-file
+reads, real plugin timeout/cancellation and process reaping. Integrated installed
+package and final CUDA receipts are pending at this report checkpoint.

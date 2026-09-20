@@ -22,10 +22,11 @@ def validate_replicated_recipe(config):
             or training.get('data_rng_device', 'cpu') != 'cpu'
             or training.get('data_seed_offset', 1) != 1
             or training.get('prior_seed_offset', 2) != 2
+            or training.get('backend')
             or config.get('optimizer', {}).get('implementation', 'device_adam') != 'device_adam'
             or any('reuse' in spec or any(path.startswith('prior.') for path in spec['inputs'].values())
                    for spec in config['components'].values())):
-        raise ValueError('Independent phase draws, custom RNG layout, fused Adam and reused/prior-bound components currently require native execution; replicated/accumulated image execution is not qualified')
+        raise ValueError('Independent phase draws, custom RNG/backend policy, fused Adam and reused/prior-bound components currently require native execution; replicated/accumulated image execution is not qualified')
 
 
 def _table(value, name, allowed, required=()):

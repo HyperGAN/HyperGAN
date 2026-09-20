@@ -7,6 +7,8 @@ Image architecture/source parity is a separate CUDA qualification.
 """
 import copy
 import json
+import subprocess
+import sys
 
 import pytest
 import torch
@@ -197,6 +199,46 @@ def test_run_manifest_reports_configured_named_rng_seeds(tmp_path):
     path.write_text(path.read_text().replace('device = "cpu"', 'device = "cpu"\ndata_seed_offset = 4\nprior_seed_offset = 9'))
     result = train(path, tmp_path / 'run', stop_after_steps=1)
     assert result['rng_streams'] == {'data': 46, 'prior': 51, 'penalty': 45, 'sampling': 123}
+
+
+def test_explicit_backend_policy_is_applied_before_fresh_resume_identity(tmp_path):
+    from hypergan.config import write_default
+    from hypergan.training import train
+    before = torch.are_deterministic_algorithms_enabled()
+    warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+    path = write_default(tmp_path / 'config.toml', device='cpu')
+    path.write_text(path.read_text() + '\n[training.backend]\ndeterministic_algorithms = true\n')
+    try:
+        torch.use_deterministic_algorithms(False)
+        result = train(path, tmp_path / 'run', stop_after_steps=1)
+        assert result['runtime']['deterministic_algorithms'] is True
+        torch.use_deterministic_algorithms(False)
+        completed = subprocess.run([sys.executable, '-c',
+            'import torch,sys; from hypergan.training import resume; '
+            'assert not torch.are_deterministic_algorithms_enabled(); '
+            'result=resume(sys.argv[1]); assert result["status"] == "complete"; '
+            'assert torch.are_deterministic_algorithms_enabled(); '
+            'assert not torch.is_deterministic_algorithms_warn_only_enabled()', str(tmp_path / 'run')],
+            capture_output=True, text=True, timeout=30)
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+    finally:
+        torch.use_deterministic_algorithms(before, warn_only=warn_only)
+
+
+def test_invalid_or_late_cuda_backend_policy_fails_without_gpu_work(monkeypatch):
+    from hypergan.training import apply_backend_policy
+    with pytest.raises(ValueError, match='boolean'):
+        resolve_config({'training': {'backend': {'deterministic_algorithms': 'warn'}}})
+    with pytest.raises(ValueError, match='cublas_workspace_config'):
+        resolve_config({'training': {'backend': {'cublas_workspace_config': ':bad'}}})
+    monkeypatch.delenv('CUBLAS_WORKSPACE_CONFIG', raising=False)
+    cfg = resolve_config({'training': {'device': 'cuda', 'backend': {'deterministic_algorithms': True}}})
+    with pytest.raises(ValueError, match='requires training.backend'):
+        apply_backend_policy(cfg)
+    cfg['training']['backend']['cublas_workspace_config'] = ':4096:8'
+    monkeypatch.setattr(torch.cuda, 'is_initialized', lambda: True)
+    with pytest.raises(ValueError, match='before CUDA initialization'):
+        apply_backend_policy(cfg)
 
 
 def test_alias_and_prior_bindings_survive_inference_bundle_and_preview_snapshot(tmp_path):

@@ -33,7 +33,7 @@ DEFAULT = {
     "objectives": [],
     "optimizer": {"lr": 0.0006, "d_lr_mult": 1.5, "prior_lr_mult": 10.0, "betas": [0.0, 0.999], "prior_betas": [0.0, 0.999], "implementation": "device_adam"},
     "training": {"steps": 5, "batch_size": 16, "seed": 42, "device": "cpu", "ema": 0.995, "lr_anneal_start": 0.6, "lr_floor": 0.05,
-                 "phase_draws": "shared", "data_rng_device": "cpu", "data_seed_offset": 1, "prior_seed_offset": 2},
+                 "phase_draws": "shared", "data_rng_device": "cpu", "data_seed_offset": 1, "prior_seed_offset": 2, "backend": {}},
     "sampling": {"count": 256, "seed": 123},
 }
 
@@ -266,6 +266,15 @@ def resolve_config(raw):
         raise ValueError('training.data_rng_device must be cpu or execution')
     for key in ('data_seed_offset', 'prior_seed_offset'):
         _positive(result['training'][key], 'training.' + key, integer=True, zero=True)
+    backend = result['training']['backend']
+    _keys(backend, ('deterministic_algorithms', 'cudnn_deterministic', 'cudnn_benchmark',
+                    'matmul_allow_tf32', 'cudnn_allow_tf32', 'cublas_workspace_config'), 'training.backend')
+    for key, value in backend.items():
+        if key == 'cublas_workspace_config':
+            if value not in (':4096:8', ':16:8'):
+                raise ValueError('training.backend.cublas_workspace_config must be :4096:8 or :16:8')
+        elif type(value) is not bool:
+            raise ValueError(f'training.backend.{key} must be boolean')
     for section in ("training", "sampling"):
         _positive(result[section]["seed"], f"{section}.seed", integer=True, zero=True)
     _positive(result["sampling"]["count"], "sampling.count", integer=True)

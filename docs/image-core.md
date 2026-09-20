@@ -73,6 +73,31 @@ verify that the reconstruction term affects E, with no G/prior parameter gradien
 Inference bundles, periodic previews and evaluation snapshots preserve aliases
 and prior bindings, serialize each real module once and omit objective-only
 components. These controls do not qualify an image architecture by themselves.
-The historical image run also selected TF32/cuDNN benchmark flags; this adapter
-records existing runtime flags without silently changing process-wide backend
-policy. Source/image CUDA parity and quality remain separate acceptance gates.
+Source/image CUDA parity and quality remain separate acceptance gates.
+
+## Explicit backend policy
+
+An empty `training.backend` preserves the caller's current runtime settings.
+An explicit table applies process-wide numerical settings before construction,
+runtime identity reporting and resume comparison:
+
+```toml
+[training.backend]
+deterministic_algorithms = true
+cudnn_deterministic = true
+cudnn_benchmark = false
+matmul_allow_tf32 = false
+cudnn_allow_tf32 = false
+cublas_workspace_config = ":4096:8"
+```
+
+These are strict settings: unsupported deterministic kernels fail, never warn
+and continue nondeterministically. Workspace values are `:4096:8` or `:16:8` and
+must agree with any already initialized CUDA process. Deterministic CUDA requires
+a valid workspace policy or the corresponding environment setting before CUDA
+initialization. Effective runtime flags and configured policy are both recorded.
+
+The historical source enabled TF32 and cuDNN benchmarking. Changing those flags
+or replacing nondeterministic image operations is an explicit numerical
+adaptation, requiring measured source comparisons and exact within-run recovery;
+it does not retrospectively reproduce the historical trajectory.

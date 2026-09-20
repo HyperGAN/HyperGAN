@@ -9,13 +9,14 @@ from .checkpoints import capture_rng, read_checkpoint, restore_rng, restore_trai
 from .config import config_values, fingerprint
 from .metrics import validate_update_scalars
 from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, PreviewResult, Restored
-from .training import ReferenceTrainer, _implementation, _recovery_contract, runtime_info, source_info
+from .training import ReferenceTrainer, _implementation, _recovery_contract, apply_backend_policy, runtime_info, source_info
 from .recipes import execution_device
 
 
 class SingleProcessExecution:
     def __init__(self, config):
         self._config = config
+        apply_backend_policy(config)
         self._device = execution_device(config['training']['device'])
         self._trainer = None
         self._last_batch = None
@@ -68,6 +69,7 @@ class SingleProcessExecution:
             raise ValueError('Checkpoint belongs to a different run')
         if fingerprint(self._config) != info['config_sha256'] or fingerprint(self._config) != config_sha256:
             raise ValueError('Resume configuration differs from checkpoint; total training schedule cannot change')
+        apply_backend_policy(self._config)
         if runtime_info(self._config['training']['device']) != info['runtime']:
             raise ValueError('Resume runtime/topology differs from checkpoint')
         self._open()

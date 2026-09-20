@@ -90,9 +90,37 @@ class DeviceAdam(torch.optim.Adam):
             return super()._cuda_graph_capture_health_check()
 
 
+def apply_backend_policy(config):
+    """Apply explicit process-wide numerical policy before construction/identity.
+
+    An empty policy preserves caller settings. Deterministic failures remain
+    errors: unsupported kernels never fall back to warn-only execution.
+    """
+    policy = config['training']['backend']
+    workspace = policy.get('cublas_workspace_config')
+    if workspace is not None:
+        if torch.cuda.is_initialized() and os.environ.get('CUBLAS_WORKSPACE_CONFIG') != workspace:
+            raise ValueError('CUBLAS workspace policy must be set before CUDA initialization; start a fresh process')
+        os.environ['CUBLAS_WORKSPACE_CONFIG'] = workspace
+    if policy.get('deterministic_algorithms') and config['training']['device'].startswith('cuda'):
+        if os.environ.get('CUBLAS_WORKSPACE_CONFIG') not in (':4096:8', ':16:8'):
+            raise ValueError('Deterministic CUDA execution requires training.backend.cublas_workspace_config or a valid CUBLAS_WORKSPACE_CONFIG environment setting before initialization')
+    if 'deterministic_algorithms' in policy:
+        torch.use_deterministic_algorithms(policy['deterministic_algorithms'], warn_only=False)
+    for key, owner, attribute in (
+        ('cudnn_deterministic', torch.backends.cudnn, 'deterministic'),
+        ('cudnn_benchmark', torch.backends.cudnn, 'benchmark'),
+        ('matmul_allow_tf32', torch.backends.cuda.matmul, 'allow_tf32'),
+        ('cudnn_allow_tf32', torch.backends.cudnn, 'allow_tf32'),
+    ):
+        if key in policy:
+            setattr(owner, attribute, policy[key])
+
+
 class ReferenceTrainer:
     """Small inspectable state machine; future distributed strategies wrap this contract."""
     def __init__(self, config):
+        apply_backend_policy(config)
         self.device = execution_device(config['training']['device'])
         if self.device.type == 'cuda':
             with torch.cuda.device(self.device):

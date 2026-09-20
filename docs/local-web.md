@@ -155,3 +155,19 @@ within bounded cleanup deadlines; the projection producer gets a bounded final
 drain. A large backlog may therefore remain incomplete, visibly resumable with
 `hypergan project RUN`. The automatically started viewer ends with its training
 command; use `hypergan serve RUN` afterward for inspection.
+
+### Checkpoint metrics and projection progress
+
+Run responses and stream heartbeats expose `durable_event_boundary` when the
+training controller recorded one. `metric_consistency` compares its event byte
+boundary with the built-in metric projection's source cursor. `pending` means
+the projection has not reached that committed boundary; `caught_up` means the
+server has observed projection frames through it. `unavailable` means the run
+has no recorded boundary or its projection cannot be read. The response includes
+`committed_step`, `committed_offset`, and `projected_offset`.
+
+This readout does not revalidate checkpoint durability or acknowledge that a
+particular browser has rendered the frames. Projection progress is independent
+of the training event tail, and uses byte offsets so restoring an earlier step
+does not accidentally look caught up. Projection-only changes emit a heartbeat
+even after training and its manifest have stopped changing.

@@ -95,6 +95,7 @@ class Stream:
     caught_up: bool = False
     error: str | None = None
     generation: str | None = None
+    projected_offset: int | None = None
     task: object = None
 
 
@@ -162,6 +163,33 @@ class ObservationService:
                   'observation_sha256', 'checkpoint_every', 'stop_reason', 'possible_lost_steps')
         result = {key: self.manifest[key] for key in fields if key in self.manifest}
         result['name'] = self.manifest.get('config', {}).get('name', self.root.name)
+        boundary = self.manifest.get('durable_event_boundary')
+        if isinstance(boundary, dict):
+            result['durable_event_boundary'] = boundary
+        result['metric_consistency'] = self.metric_consistency()
+        return result
+
+    def metric_consistency(self):
+        """Report projection progress separately from the durable training prefix.
+
+        This is server-observed projection progress, not an acknowledgement that
+        a particular browser has rendered those frames or a new durability check.
+        A caught-up training tail alone says nothing about the metric projector.
+        """
+        boundary = self.manifest.get('durable_event_boundary')
+        result = {'status': 'unavailable', 'committed_step': None,
+                  'committed_offset': None, 'projected_offset': None}
+        if (not isinstance(boundary, dict) or boundary.get('run_id') != self.run_id
+                or type(boundary.get('offset')) is not int or boundary['offset'] < 1
+                or type(boundary.get('step')) is not int or boundary['step'] < 0):
+            return result
+        result.update(committed_step=boundary['step'], committed_offset=boundary['offset'])
+        stream = self.streams.get('projection:' + MapSpec().revision)
+        if stream is not None and stream.error:
+            return result
+        projected = stream.projected_offset if stream is not None else None
+        result.update(projected_offset=projected,
+                      status='caught_up' if projected is not None and projected >= boundary['offset'] else 'pending')
         return result
 
     def artifact_index(self):
@@ -370,6 +398,13 @@ class ObservationService:
                         stream.generation = generation
                     if stream.stream_id == 'training':
                         self._index_source(frame)
+                    elif stream.stream_id.startswith('projection:'):
+                        if frame['source']['stream_id'] != 'training' or frame['source']['stream_generation'] != self.run_id:
+                            raise ValueError('Metric projection is not from the training stream')
+                        offset = cursor_offset(frame['source_cursor'])
+                        if offset <= (stream.projected_offset or 0):
+                            raise ValueError('Projection source cursor did not advance')
+                        stream.projected_offset = offset
                     stream.cursor = cursor
                     stream.sequence = frame.get('projection_sequence', stream.sequence + 1)
                     envelope = {'stream_id': stream.stream_id, 'cursor': cursor, 'frame': frame}
@@ -382,6 +417,8 @@ class ObservationService:
                 if stream.caught_up and not was_caught_up:
                     self.notify('bootstrap_ready', {'stream_id': stream.stream_id, 'status': 'index_ready'})
                 stream.error = None
+                if frames and stream.stream_id == 'projection:' + MapSpec().revision:
+                    self.notify('heartbeat', {'run': self.public_manifest()})
                 if not page['has_more']:
                     await asyncio.sleep(self.poll_seconds)
                 else:
@@ -390,6 +427,8 @@ class ObservationService:
                 await asyncio.sleep(self.poll_seconds)
             except (OSError, ValueError, KeyError) as exc:
                 stream.error = str(exc)
+                if stream.stream_id == 'projection:' + MapSpec().revision:
+                    self.notify('heartbeat', {'run': self.public_manifest()})
                 self.notify('reset_required', {'stream_id': stream.stream_id, 'reason': str(exc)})
                 # Corrupt/replaced complete history must not be silently skipped.
                 return

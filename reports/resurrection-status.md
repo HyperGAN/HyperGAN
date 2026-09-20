@@ -2,7 +2,7 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
-Current cutpoint: PRs #330–333 are merged with 18 passing checks each through develop `a5919d6572ad62f494f4a1b7d8b31bafac49b374`, including partial freezing, pinned FID, native numerical/recovery/preflight policies and PNG/browser support. The [image execution report](image-training-execution-2026-09-20.md) records installed CUDA CLI acceptance, exact supported-run recovery and the completed 40k GPU-1 allocation: final EMA FID50k/train **19.37753221446735**. The owner has explicitly authorized MIT distribution of the ParticleGAN port; earlier licensing holds are superseded. Public-port integration is tracked by branch `feat/cifar-recipe-public`; verify its current review/merge state on GitHub and in the protected receipts. **Next:** integrate the authorized recipe, preserve the completed quality/diversity evidence, then continue the [image plan](image-training-plan-2026-09-19.md). Full quality reproduction, two-GPU image qualification, real multi-host execution and release remain open gates.
+Current cutpoint: PRs #330–334 are merged through develop `261ff9f3d34aa74475c57b79fadb53554680c84c`. PR [#334](https://github.com/HyperGAN/HyperGAN/pull/334) publishes the MIT-authorized CIFAR recipe and walkthrough; all 18 checks passed, including 269 CPU reference tests. The [image execution report](image-training-execution-2026-09-20.md) records installed CUDA CLI acceptance, exact supported-run recovery and the completed 40k GPU-1 allocation: final EMA FID50k/train **19.37753221446735**. Source permission and public recipe integration are complete. **Next:** follow the [five-step continuation plan](image-next-steps-2026-09-20.md) and [hands-on feedback](feedback-2026-09-20.md): complete the reference trajectory, publish evidence and improve the user workflow, then qualify two-GPU image training and external benchmarking. The owner is testing resume/UI; recheck live state before launching work and do not disturb an owner-started run. Full quality reproduction, real multi-host execution and release remain open gates.
 
 Metrics implementation checkpoint: the [implementation report](metrics-implementation-2026-09-19.md) links the file-backed metrics, shared WASM reducers, public streaming API/browser, ordinary Python factories, manual snapshot evaluation and supervised CLI startup slices. Native CUDA, full two-GPU numerical/recovery checks, actual browser and installed-package proofs accompany the protected PRs. Samples remain separate modality-neutral artifacts. The performance report records measured costs and explicitly unestablished throughput targets; no database, federation or paid compute was introduced. Final integrated checks and merge receipts are retained in the durable metrics evidence directory. The separate numerical/distributed core cutpoint above remains unchanged.
 
@@ -366,3 +366,31 @@ common pinned protocol. Next concrete action: complete public recipe integration
 and assess the saved grids, quality-versus-time and diversity evidence before
 further reproduction work. This 40k allocation does not complete historical 200k
 quality reproduction, two-GPU image training/recovery or external ranking gates.
+
+
+## User feedback and five-step continuation handoff (2026-09-20)
+
+The owner requested committing the [feedback report](feedback-2026-09-20.md)
+and the [five-step plan](image-next-steps-2026-09-20.md) before the next work
+session. Feedback covers CLI cadence (default 100, configurable through the UI),
+the tensor-sample issue with image display confirmed working, termination,
+server binding/authentication and lifetime, durable checkpoint/metric boundaries,
+and step-ordered evaluation metrics. These are recorded requests and design
+proposals, not implemented changes.
+
+The plan sequences the 200k GPU-1 continuation, evidence publication, fresh-user
+workflow, actual two-GPU recipe qualification and external benchmark submission.
+It preserves the current formulation and existing qualification gates. Immediate
+engineering work starts with the feedback; termination and metric/checkpoint
+consistency should be reviewed together. Inspect the owner's live run before
+using GPU 1. Keep its frozen environment unchanged.
+
+Verified clean develop (apart from the new feedback draft), GitHub develop and
+PR #334's merged identity at `261ff9f3d34aa74475c57b79fadb53554680c84c`.
+Publication receipts remain under
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-cifar-public/`.
+This documentation slice uses external worktree `image-feedback-next-steps` and
+branch `docs/image-feedback-next-steps`. Verification includes `git diff --check`,
+relative Markdown-link checks and document review. Its protected PR/check state
+is available on GitHub by branch. No runtime changes, GPU jobs, paid compute or
+release publication are part of this handoff.

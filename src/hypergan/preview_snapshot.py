@@ -72,7 +72,10 @@ def capture_snapshot(trainer, batch, identity, path):
                     include(binding.split('.')[1])
         include('generator')
         memo = {id(module): module for module in list(sys.modules.values()) if isinstance(module, ModuleType)}
-        models = {name: copy.deepcopy(trainer.ema_graph.models[name], memo) for name in needed}
+        needed.update(trainer.config['components'][name]['reuse'] for name in list(needed)
+                      if 'reuse' in trainer.config['components'][name])
+        models = {name: copy.deepcopy(trainer.ema_graph.models[name], memo) for name in needed
+                  if 'reuse' not in trainer.config['components'][name]}
         prior = copy.deepcopy(trainer.ema_prior, memo)
         config = copy.deepcopy(trainer.config)
         config['components'] = {name: spec for name, spec in config['components'].items() if name in needed}

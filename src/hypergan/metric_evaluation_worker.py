@@ -29,6 +29,7 @@ def _sources(objects):
 
 def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     from .metric_evaluation import _sha256, MAX_SNAPSHOT_BYTES
+    from .numerical_policy import apply_backend_policy, backend_info
     path = Path(snapshot)
     if path.is_symlink() or not 0 < path.stat().st_size <= MAX_SNAPSHOT_BYTES or _sha256(path) != snapshot_sha256:
         raise ValueError('Pinned evaluation snapshot identity changed')
@@ -38,7 +39,6 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.set_num_threads(1)
-    device = execution_device(evaluation['device'])
     saved = torch.load(path, map_location='cpu', weights_only=True)
     if not isinstance(saved, dict) or saved.get('schema_version') != 1 or saved.get('kind') != 'ema-inference':
         raise ValueError('Evaluation requires a current EMA inference bundle')
@@ -46,6 +46,8 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     if owner.get('run_id') != identity['run_id'] or not isinstance(owner.get('attempt_id'), str) or type(saved.get('step')) is not int:
         raise ValueError('Snapshot lacks validated run/attempt/update provenance')
     config = resolve_config(saved['config'])
+    apply_backend_policy({'training': {**config['training'], 'device': evaluation['device']}})
+    device = execution_device(evaluation['device'])
     graph = ComponentGraph(saved['components']).float().eval().requires_grad_(False)
     for name, model in graph.models.items():
         model.load_state_dict(saved['model_states'][name])
@@ -68,12 +70,15 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     factory_modules = [importlib.import_module(value['factory'].split(':', 1)[0])
                        for value in constructors if ':' in value['factory']]
     code = _sources([type(data), type(prior), *[type(module) for module in graph.modules()],
-                     *factory_modules, evaluate_snapshot])
+                     *factory_modules, evaluate_snapshot, apply_backend_policy])
     data_rng = torch.Generator().manual_seed(seed + 1)
     prior_rng = torch.Generator(device=device).manual_seed(seed + 2)
     count = 0
+    observed_backend = None
+    runtime = {'torch': torch.__version__, 'numpy': np.__version__, 'device': str(device),
+               'backend': backend_info(), 'configured_training_backend': config['training']['backend']}
     def batches():
-        nonlocal count
+        nonlocal count, observed_backend
         while count < evaluation['sample_count']:
             size = min(evaluation['batch_size'], evaluation['sample_count'] - count)
             batch = data(size, generator=data_rng)
@@ -85,7 +90,12 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                 raise ValueError('Evaluation input batch exceeds element budget')
             batch = move_tensors(batch, device)
             z, _ = prior.sample(size, generator=prior_rng)
-            generated = graph.generate(z, batch)['generated']
+            effective_backend = backend_info()
+            if observed_backend is not None and observed_backend != effective_backend:
+                raise ValueError('Evaluation backend settings changed between generated batches')
+            observed_backend = effective_backend
+            runtime['backend'] = effective_backend
+            generated = graph.generate(z, batch, prior=prior)['generated']
             if (not isinstance(generated, torch.Tensor) or generated.ndim < 1 or len(generated) != size
                     or generated.numel() > MAX_BATCH_ELEMENTS or not torch.isfinite(generated).all()
                     or not torch.isfinite(batch['real']).all()):
@@ -96,7 +106,7 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     protocol = {'schema_version': 1, 'metric_factory': spec['factory'], 'factory_sources': description['factory_sources'],
                 'args': spec['args'], 'inputs': spec['inputs'], 'data_identity': data_identity,
                 'evaluation': evaluation, 'ema': True, 'sources': code,
-                'runtime': {'torch': torch.__version__, 'numpy': np.__version__, 'device': str(device)}}
+                'runtime': runtime}
     with torch.inference_mode():
         value = instance.evaluate(batches=batches(), context={'sample_count': evaluation['sample_count'],
                                   'seed': seed, 'step': saved['step'], 'snapshot_sha256': snapshot_sha256,

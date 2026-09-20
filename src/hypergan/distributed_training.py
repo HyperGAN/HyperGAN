@@ -35,6 +35,8 @@ class ReplicatedTrainer(ReferenceTrainer):
         self.checkpoint_ready = False
         self._poisoned = False
         config = self._phase('configuration', lambda: resolve_config(config_values(config)))
+        from .execution_profiles import validate_replicated_recipe
+        self._phase('recipe policy', lambda: validate_replicated_recipe(config))
         self._agree('configuration', {'fingerprint': fingerprint(config), 'accumulation_steps': accumulation_steps})
         if world_size < 2:
             raise ValueError('Replicated training requires at least two ranks')

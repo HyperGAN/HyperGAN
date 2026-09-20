@@ -1,8 +1,8 @@
 # Resurrection execution ledger
 
-Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-19 (America/Denver).
+Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
-Current cutpoint: public `train`/`resume`, native CUDA and local CUDA/NCCL profiles, complete recovery, bounded CLI output and the optional viewer are implemented at `11b4ccc2663beef185709e3d5dcbd59b0bc593f8`; both post-merge required workflows passed. See the [public execution checkpoint](core-public-execution-2026-09-19.md). **Next: the [agreed image-training plan](image-training-plan-2026-09-19.md)**, using MoG + b-cap and a pretrained discriminator from the first recipe, anchored to the owner's SAGAN-style CIFAR run. Begin with preserving factory-defined frozen parameters, then port/qualify the recipe, add image grids, reproduce/evaluate CIFAR-10 and qualify the real workload on two GPUs. Real multi-host execution still needs a concrete agreed allocation.
+Current cutpoint: partial freezing, pinned FID and native image numerical/recovery/preflight policies are merged through PR #332 at `d838be6336d41ca6216b25d2ff43360de424eab1`. The [image execution report](image-training-execution-2026-09-20.md) records installed CUDA CLI acceptance, exact supported-run recovery and active GPU-1 training under the explicit deterministic variant. The first 10k checkpoint measured EMA FID50k/train **33.46801440699488**, then training resumed automatically. PR #333 adds PNG/browser support and this record; its final current-base checks and protected merge remain pending. **Next:** inspect the 20k/30k/40k results and grids, resolve copied-source distribution permission, then continue the [image plan](image-training-plan-2026-09-19.md). Image quality reproduction, two-GPU image qualification, real multi-host execution and release remain open gates.
 
 Metrics implementation checkpoint: the [implementation report](metrics-implementation-2026-09-19.md) links the file-backed metrics, shared WASM reducers, public streaming API/browser, ordinary Python factories, manual snapshot evaluation and supervised CLI startup slices. Native CUDA, full two-GPU numerical/recovery checks, actual browser and installed-package proofs accompany the protected PRs. Samples remain separate modality-neutral artifacts. The performance report records measured costs and explicitly unestablished throughput targets; no database, federation or paid compute was introduced. Final integrated checks and merge receipts are retained in the durable metrics evidence directory. The separate numerical/distributed core cutpoint above remains unchanged.
 
@@ -276,3 +276,74 @@ parameter masks with native/replicated gradient and full-recovery checks, then
 the pinned image recipe. Source/weight terms and exact port/evaluation protocol
 remain implementation gates; the existing score is not yet HyperGAN reproduction
 or leaderboard placement.
+
+## Image workflow execution in progress (2026-09-20)
+
+Owner requested execution of the image plan with GPU 1, the public CLI, configured
+metrics, a working smoke test and ongoing training. PR [#330](https://github.com/HyperGAN/HyperGAN/pull/330)
+merged at `0cdefc96666d198f97adb38a1c2129247042963b` after all required checks
+passed, preserving factory-defined frozen parameters. Independent subagents own
+native image policies, the pinned CIFAR components/data, and PNG/browser flow.
+
+The integrated installed wheel passes 35 focused CPU tests; the PNG slice passed
+461 installed foundation/reference/viewer/browser checks. The port matches all
+50,000 cached CIFAR images/labels and passed 77 source architecture/state/RNG/gradient
+checks on CPU and GPU 1. Pinned Inception FID plumbing passed an identical-image
+16-sample GPU fixture (raw FID -0.0001325, numerical tolerance 0.001); this is not
+a GAN quality measurement. `hypergan validate` and native `preflight --runtime`
+passed against the real batch-64/16,384-component recipe. The CLI preflight gap
+was fixed: profile omission now checks the configured native CPU/CUDA device.
+
+The complete source-update comparison did **not** pass its declared tolerances:
+four generator weights differed after the first Adam update. A diagnostic
+confirmed nonexact same-port CUDA replay, with preoptimizer gradient differences
+on the order of 1e-9 amplified by Adam. Enabling strict deterministic algorithms
+failed on `adaptive_avg_pool2d_backward_cuda`. Preserve these failed gates; do not
+widen tolerances or use warn-only determinism. Next concrete action: explicit
+backend policy and derivative-qualified deterministic feature operations, then
+repeat complete-update and actual CLI recovery checks before the longer run.
+
+Source licensing remains pending owner confirmation. The copied CIFAR components
+and example are committed locally in the external integration worktree, not
+published. Independent core/FID/PNG PRs #331–333 are in required CI. No GPU 0,
+paid compute or release publication was used.
+
+Worktree: `/home/martyn/dev/hypergan/image-integration/`. Dedicated environment:
+`/home/martyn/dev/hypergan/image-training-env/`. Run configuration and live setup
+log: `/home/martyn/dev/hypergan/training-runs/cifar10-pretrained-20260920/`.
+Evidence, failed/passing receipts, package builds and merge receipts:
+`/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-image-workflow/`;
+subagent source and preview evidence are in neighboring `2026-09-20-image-recipe`
+and `2026-09-20-image-previews` directories. This is an in-progress cutpoint,
+not closure of image quality, distributed image training or leaderboard gates.
+
+## Image CLI acceptance and active training (2026-09-20)
+
+The [execution report](image-training-execution-2026-09-20.md) supersedes the
+in-progress next action above. Strict deterministic backend settings plus an
+equivalent derivative-qualified feature-pool backward resolve current-run
+recovery for an explicitly different execution variant; original failures remain
+preserved. Eight controlled complete source/port updates pass 6,854 checks at
+the original tolerances. Installed CLI validate/preflight/train/resume/sample/
+evaluate all pass on GPU 1, including exact 802-tensor/1,984-value recovery across
+the lazy b-cap boundary and replay from an older snapshot. FID128 is plumbing
+evidence only. The longer 40k-bounded training run is active with scalar metrics,
+1,000-update checkpoints, 500-update PNG previews and scheduled serial FID50k/train
+at each 10k boundary. Follow `workflow.log` in the run root recorded above.
+
+PR #330 merged at `0cdefc96666d198f97adb38a1c2129247042963b`; PR #331 merged at
+`e7595ead4645160594ed1e9015d0b8634e6c278a`, each after all exact-head checks
+passed. PR #332 merged at `d838be6336d41ca6216b25d2ff43360de424eab1` after all
+18 exact-head checks passed (244 installed CPU reference tests in 1,051.87 seconds).
+PR #333 carries PNG/viewer support and this execution record on the merged #332
+base. Its final current-base required checks and protected merge remain pending;
+their receipts will be retained with the execution evidence. The core and PNG
+scopes each passed 461 installed CPU tests, including actual browser checks in
+the PNG scope. Copied image components remain local pending the I1 license
+gate; no copied port is published. No GPU 0, paid compute or release was used.
+
+The first 10k checkpoint produced **EMA FID50k/train 33.46801440699488** in
+167.2 seconds, then the supervisor successfully resumed CLI training beyond 10k.
+Next concrete action: inspect the 20k/30k/40k metric results and grids while
+training continues. Local smoke acceptance does not complete image quality,
+two-GPU image training/recovery, external ranking or distribution-permission gates.

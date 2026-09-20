@@ -73,9 +73,17 @@ def move_tensors(value, device):
 def make_prior(spec, *, device=None):
     from particlegan import GaussianPrior, MoGParticlePrior, ParticlePrior
     args = dict(spec['args'])
-    if device is not None:
-        args['device'] = device
-    return {"particles": ParticlePrior, "mog": MoGParticlePrior, "gaussian": GaussianPrior}[spec["kind"]](**args)
+    initial_device = 'cpu' if spec.get('initialization_device') == 'cpu' else device
+    if initial_device is not None:
+        args['device'] = initial_device
+    if spec.get('initialization_seed') is not None:
+        args['generator'] = torch.Generator(device=initial_device or 'cpu').manual_seed(spec['initialization_seed'])
+    prior = {"particles": ParticlePrior, "mog": MoGParticlePrior, "gaussian": GaussianPrior}[spec["kind"]](**args)
+    if spec.get('fixed_sigma') is not None:
+        with torch.no_grad():
+            prior.sigma.fill_(spec['fixed_sigma'])
+        prior._noise_enabled = bool(spec['fixed_sigma'] > 0)
+    return prior.to(device) if device is not None else prior
 
 
 def construct(spec):
@@ -116,18 +124,28 @@ class ComponentGraph(nn.Module):
         super().__init__()
         self.specs = specs
         modules = {}
-        for name, spec in specs.items():
+        order = [name for name in ('generator', 'discriminator') if name in specs]
+        order += sorted(set(specs) - set(order))
+        for name in order:
+            spec = specs[name]
+            if 'reuse' in spec:
+                continue
             module = construct(spec)
             if not isinstance(module, nn.Module):
                 raise ValueError(f"Component {name} must construct a torch.nn.Module")
-            module.requires_grad_(spec["trainable"])
             if not spec["trainable"]:
+                module.requires_grad_(False)
                 module.eval()
             modules[name] = module
         self.models = nn.ModuleDict(modules)
 
     def resolve(self, path, context, active=None):
         parts = path.split(".")
+        if parts[0] == 'prior' and parts[1] not in context['prior']:
+            prior = context.get('_prior')
+            if prior is None:
+                raise ValueError('This component binding requires the current prior')
+            context['prior'][parts[1]] = prior.means() if parts[1] == 'means' else prior.sigma
         if parts[0] == "components" and parts[1] not in context["components"]:
             self.call(parts[1], context, active)
         value = context
@@ -145,14 +163,24 @@ class ComponentGraph(nn.Module):
         active.add(name)
         try:
             kwargs = {arg: self.resolve(path, context, active) for arg, path in self.specs[name]["inputs"].items()}
-            value = self.models[name](**kwargs)
+            spec = self.specs[name]
+            model = self.models[spec.get('reuse', name)]
+            flags = [parameter.requires_grad for parameter in model.parameters()]
+            if spec.get('freeze_parameters', False):
+                model.requires_grad_(False)
+            try:
+                value = model(**kwargs)
+            finally:
+                if spec.get('freeze_parameters', False):
+                    for parameter, flag in zip(model.parameters(), flags):
+                        parameter.requires_grad_(flag)
             context["components"][name] = value
             return value
         finally:
             active.remove(name)
 
-    def generate(self, latent, batch):
-        context = {"latent": latent, "batch": batch, "components": {}}
+    def generate(self, latent, batch, *, prior=None):
+        context = {"latent": latent, "batch": batch, "components": {}, 'prior': {}, '_prior': prior}
         context["generated"] = self.call("generator", context)
         return context
 

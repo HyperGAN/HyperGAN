@@ -15,6 +15,20 @@ _KINDS = {'cpu-single': 'hypergan-training-checkpoint',
           'cuda-replicated-nccl': 'hypergan-distributed-training-checkpoint'}
 
 
+def validate_replicated_recipe(config):
+    """Reject native-only numerical policies before allocating ranks or a viewer."""
+    training = config['training']
+    if (training.get('phase_draws', 'shared') != 'shared'
+            or training.get('data_rng_device', 'cpu') != 'cpu'
+            or training.get('data_seed_offset', 1) != 1
+            or training.get('prior_seed_offset', 2) != 2
+            or training.get('backend')
+            or config.get('optimizer', {}).get('implementation', 'device_adam') != 'device_adam'
+            or any('reuse' in spec or any(path.startswith('prior.') for path in spec['inputs'].values())
+                   for spec in config['components'].values())):
+        raise ValueError('Independent phase draws, custom RNG/backend policy, fused Adam and reused/prior-bound components currently require native execution; replicated/accumulated image execution is not qualified')
+
+
 def _table(value, name, allowed, required=()):
     if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
         raise ValueError(f'{name} must be a table with string keys')
@@ -71,6 +85,8 @@ def resolve_execution_profile(values, config):
     if not isinstance(config, dict) or not isinstance(config.get('training'), dict):
         raise ValueError('Execution profile requires a recipe config with a training table')
     training = config['training']
+    if name != 'cpu-single':
+        validate_replicated_recipe(config)
     if name == 'cuda-replicated-nccl':
         if training.get('device') != 'cuda':
             raise ValueError('cuda-replicated-nccl requires training.device=cuda; each rank owns its visible GPU index, so cuda:N is ambiguous')

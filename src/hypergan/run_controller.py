@@ -295,6 +295,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     last_published = 0.0
     last_request_poll = 0.0
     last_event_step = None
+    custom_publications = 0
+    checkpoint_custom_publications = 0
 
     def emit(event, *, _observe=True, _step=None, **values):
         nonlocal sequence, dropped, last_event_step
@@ -360,6 +362,22 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         journal.publish(manifest, wait=wait)
         last_published = now
 
+    def publish_custom(outcomes):
+        nonlocal custom_publications
+        for outcome in outcomes:
+            custom_publications += 1
+            emit('metric', _step=outcome['context']['step'],
+                 metrics=outcome['metrics'], measurement_status=outcome['measurement_status'],
+                 metric_publication='sampled' if outcome['metrics'] else 'failed')
+
+    def collect_custom(*, final=False):
+        try:
+            outcomes = custom_metrics.close(drain=True) if final else custom_metrics.poll()
+        except Exception as error:
+            publish_custom(getattr(error, 'metric_outcomes', []))
+            raise
+        publish_custom(outcomes)
+
     try:
         info = execution.start()
         if info.environment is not None:
@@ -382,6 +400,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                         next_sample_sequence=manifest['next_sample_sequence'])
 
         def checkpoint_now(request_ids=None, observer=False):
+            nonlocal checkpoint_custom_publications
             if not manifest['resume_supported']:
                 return
             metadata['next_sample_sequence'] = manifest['next_sample_sequence']
@@ -397,6 +416,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 if observer:
                     return None, exc
                 raise
+            checkpoint_custom_publications = custom_publications
             manifest.update(checkpoint_path=str(path), last_durable_step=manifest['steps'],
                             durable_event_boundary=metadata['event_boundary'],
                             possible_lost_steps=0)
@@ -500,6 +520,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             checkpoint_now()
         publish()
         poll_requests(force=True)
+        custom_metrics.start()
         attempt_steps = 0
         while manifest['steps'] < config['training']['steps']:
             if stop is not None and stop.reason:
@@ -511,6 +532,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if stop_after_steps is not None and attempt_steps >= stop_after_steps:
                 manifest['stop_reason'] = 'stop_after_steps'
                 break
+            collect_custom()
             update_started = time.monotonic()
             completed = execution.update()
             step_seconds = time.monotonic() - update_started
@@ -537,8 +559,10 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if not (stop is not None and stop.reason) and manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
                 preview_now()
             publish(wait=False)
+        collect_custom(final=True)
         poll_requests(force=True)
-        if manifest['last_durable_step'] != manifest['steps']:
+        if (manifest['last_durable_step'] != manifest['steps']
+                or custom_publications != checkpoint_custom_publications):
             checkpoint_now()
         if stop is not None and stop.reason:
             manifest['stop_reason'] = stop.reason
@@ -560,6 +584,10 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         return manifest
     except BaseException as exc:
         # Execution may contain a half update: NEVER checkpoint in this handler.
+        try:
+            custom_metrics.close(drain=False)
+        except BaseException as cleanup_error:
+            manifest['metric_shutdown_error'] = f'{type(cleanup_error).__name__}: {cleanup_error}'[:1000]
         try:
             shutdown()
         except BaseException as cleanup_error:

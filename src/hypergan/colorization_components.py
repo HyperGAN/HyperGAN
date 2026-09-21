@@ -238,6 +238,9 @@ class DINOv3ProjectedDiscriminator(nn.Module):
     It is a single final-feature-map adaptation: the 3x3 convolution mixes
     neighboring patches, not multiple feature scales. It does not reproduce
     the paper's multiscale cross-scale mixing or separate scale discriminators.
+    ``head='conv'`` adds a nonlinear, spectral-normalized discriminator over
+    the projected patches (16 -> 8 -> 4 -> 1). The default linear head retains
+    the original parameter layout so existing checkpoints remain loadable.
 
     Projection initialization uses Torch's checkpointed global RNG, and all
     frozen weights are included in the module state. Image derivatives remain
@@ -245,9 +248,12 @@ class DINOv3ProjectedDiscriminator(nn.Module):
     The original two-path DINOv3Discriminator remains available for prior runs.
     """
     def __init__(self, source_path, source_commit, weights_path, weights_sha256,
-                 feature_width=64):
+                 feature_width=64, head='linear'):
         super().__init__()
         _positive_integer(feature_width, 'feature_width')
+        if head not in ('linear', 'conv'):
+            raise ValueError("Projected discriminator head must be 'linear' or 'conv'")
+        self.head = head
         self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256)
         self.backbone.eval().requires_grad_(False)
         self.feature_project = nn.Sequential(
@@ -255,14 +261,26 @@ class DINOv3ProjectedDiscriminator(nn.Module):
             nn.Conv2d(feature_width, feature_width, 3, padding=1))
         self.feature_project.eval().requires_grad_(False)
         self.attention = SAGANAttention(feature_width)
-        self.feature_output = nn.Linear(feature_width * 16, 1)
+        if head == 'linear':
+            self.feature_output = nn.Linear(feature_width * 16, 1)
+        else:
+            # No batch normalization: each score and its b-cap input derivative
+            # should depend only on that example, not its batch companions.
+            def spectral_conv(*args, **kwargs):
+                return nn.utils.spectral_norm(nn.Conv2d(*args, **kwargs))
+            self.feature_output = nn.Sequential(
+                spectral_conv(feature_width, 2 * feature_width, 4, stride=2, padding=1),
+                nn.LeakyReLU(.2),
+                spectral_conv(2 * feature_width, 4 * feature_width, 4, stride=2, padding=1),
+                nn.LeakyReLU(.2),
+                spectral_conv(4 * feature_width, 1, 4))
         self.register_buffer('mean', torch.tensor([.485, .456, .406])[None, :, None, None])
         self.register_buffer('std', torch.tensor([.229, .224, .225])[None, :, None, None])
         self.pretrained_metadata = {'architecture': 'dinov3_vits16', 'pretraining': 'LVD-1689M',
                                     'source_commit': source_commit, 'weights_sha256': weights_sha256,
                                     'input_size': 256, 'sdpa_backend': 'math',
                                     'projection': 'frozen_random_1x1_channel_3x3_spatial',
-                                    'feature_scales': 1}
+                                    'feature_scales': 1, 'head': head}
 
     def train(self, mode=True):
         super().train(mode)
@@ -286,6 +304,8 @@ class DINOv3ProjectedDiscriminator(nn.Module):
             raise ValueError('DINOv3 ViT-S/16 must return 256 patch tokens of width 384')
         features = tokens.transpose(1, 2).reshape(len(x), 384, 16, 16)
         features = self.attention(self.feature_project(features))
+        if self.head == 'conv':
+            return self.feature_output(features).flatten(1)
         # Nonoverlapping reduction avoids adaptive-pool CUDA backward atomics.
         pooled = features.reshape(len(x), features.shape[1], 4, 4, 4, 4).mean((3, 5))
         return self.feature_output(pooled.flatten(1))

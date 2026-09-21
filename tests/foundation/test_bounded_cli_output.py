@@ -296,3 +296,45 @@ with training_output(progress_json=True) as output:
         if process.poll() is None:
             process.kill()
             process.wait(timeout=5)
+
+
+@pytest.mark.parametrize('seconds,expected', [
+    (0, '0s'), (0.9, '0s'), (45, '45s'), (59.9, '59s'), (60, '1m 00s'),
+    (725, '12m 05s'), (3600, '1h 00m'), (5025, '1h 23m'), (360000, '100h 00m'),
+])
+def test_training_duration_reads_as_a_bounded_human_value(seconds, expected):
+    from hypergan.bounded_cli_output import human_duration
+    assert human_duration(seconds) == expected
+
+
+@pytest.mark.parametrize('value', [-1, float('nan'), float('inf'), None, '60'])
+def test_unusable_duration_prints_nothing_rather_than_a_wrong_one(value):
+    from hypergan.bounded_cli_output import human_duration
+    assert human_duration(value) is None
+
+
+def test_progress_line_reports_throughput_training_time_and_samples(capsys):
+    with training_output(progress_every=1) as output:
+        output.progress({'event': 'train', 'step': 7, 'metrics': {'loss/d_total': 1.5, 'loss/g_total': 2.5},
+                         'steps_per_second': 123.44, 'training_seconds': 5025.4, 'samples_seen': 1792})
+        # A slow run keeps three significant digits instead of reporting 0.0.
+        output.progress({'event': 'train', 'step': 8, 'metrics': {},
+                         'steps_per_second': .0421, 'training_seconds': 45., 'samples_seen': 2048})
+        # An update whose throughput is not measurable yet omits only that field.
+        output.progress({'event': 'train', 'step': 9, 'metrics': {}, 'training_seconds': 0., 'samples_seen': 2304})
+        # An event without progress fields keeps the original one-line shape.
+        output.progress({'event': 'train', 'step': 10})
+    assert capsys.readouterr().err.splitlines() == [
+        'step 7: D=1.5 G=2.5 | 123.4 steps/s | 1h 23m | 1,792 samples',
+        'step 8 | 0.0421 steps/s | 45s | 2,048 samples',
+        'step 9 | 0s | 2,304 samples',
+        'step 10',
+    ]
+
+
+def test_json_progress_rows_carry_the_same_training_metrics(capsys):
+    with training_output(progress_json=True, progress_every=1) as output:
+        output.progress({'event': 'train', 'step': 3, 'steps_per_second': 12.5,
+                         'training_seconds': 1.25, 'samples_seen': 96})
+    row = json.loads(capsys.readouterr().out)
+    assert row['steps_per_second'] == 12.5 and row['training_seconds'] == 1.25 and row['samples_seen'] == 96

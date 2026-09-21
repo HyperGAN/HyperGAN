@@ -146,3 +146,56 @@ def test_interval_evaluation_warns_about_a_shared_training_device(training, eval
     manual = resolve_config({'training': {'device': training}, 'metrics': {'custom': {
         'fid': evaluation_metric(trigger='manual', evaluation={'device': evaluation})}}})
     assert not [w for w in manual['warnings'] if 'contention' in w]
+
+
+def test_throughput_window_averages_recent_updates_without_dividing_by_zero():
+    from hypergan.metrics import THROUGHPUT_WINDOW, Throughput
+    throughput = Throughput()
+    # A clock too coarse to separate two boundaries has no rate to report.
+    assert throughput.observe(0.) is None
+    assert throughput.observe(.5) == 4.
+    fresh = Throughput()
+    assert fresh.observe(.1) == 10.
+    assert fresh.observe(.3) == 5.
+    for _ in range(THROUGHPUT_WINDOW + 5):
+        rate = fresh.observe(.2)
+    # Only the trailing window survives: the slow first updates are forgotten.
+    assert len(fresh.durations) == THROUGHPUT_WINDOW and rate == 5.
+    assert Throughput(1).observe(.25) == 4.
+    for invalid in (-1., float('nan'), float('inf'), '0.1', None):
+        with pytest.raises(ValueError):
+            Throughput().observe(invalid)
+    with pytest.raises(ValueError):
+        Throughput(0)
+
+
+def test_progress_scalars_publish_throughput_time_and_samples_seen():
+    import math
+    config = resolve_config({})
+    catalog = metric_catalog(config)
+    row = {'d_loss': 2., 'g_loss': 3.}
+    progress = {'samples_seen': 32, 'training_seconds': 5025.5, 'steps_per_second': 12.5}
+    values, statuses, mode = select_metrics(config, catalog, row, 1, .08, progress)
+    assert mode == 'sampled'
+    assert values['throughput/steps_per_second'] == 12.5
+    assert values['timing/training_seconds'] == 5025.5
+    assert values['progress/samples_seen'] == 32
+    assert values['timing/step_seconds'] == .08
+    assert all(math.isfinite(value) and value >= 0 for value in
+               (values['throughput/steps_per_second'], values['timing/training_seconds'],
+                values['progress/samples_seen'], values['timing/step_seconds']))
+    # A first update with no measurable rate publishes nothing for it.
+    values, statuses, _ = select_metrics(config, catalog, row, 1, 0.,
+                                         {'samples_seen': 32, 'training_seconds': 0.})
+    assert 'throughput/steps_per_second' not in values
+    assert statuses['throughput/steps_per_second']['status'] == 'unavailable'
+    assert values['timing/training_seconds'] == 0. and values['progress/samples_seen'] == 32
+    definitions = catalog['metrics']
+    assert definitions['throughput/steps_per_second']['unit'] == 'steps/second'
+    assert 'attempt-local' in definitions['throughput/steps_per_second']['description']
+    assert 'between attempts is not counted' in definitions['timing/training_seconds']['description']
+    assert 'training.batch_size' in definitions['progress/samples_seen']['description']
+    assert all(definitions[name]['scope'] == 'complete_update' for name in
+               ('throughput/steps_per_second', 'timing/training_seconds', 'progress/samples_seen'))
+    with pytest.raises(ValueError, match='progress scalars'):
+        select_metrics(config, catalog, row, 1, .1, {1: 2})

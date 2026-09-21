@@ -9,6 +9,7 @@ complete observation/result contract.
 from contextlib import contextmanager
 import io
 import json
+import math
 import os
 import queue
 import subprocess
@@ -22,6 +23,31 @@ CLOSE_SECONDS = 1.0
 # A run whose snapshot metrics are all manual repeats its reminder on the first
 # printed progress line and every Nth one after it, never on every update.
 REMINDER_EVERY_PROGRESS_LINES = 10
+
+
+def human_duration(seconds):
+    """Bounded, human training duration: '45s', '12m 05s' or '1h 23m'."""
+    if type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds < 0:
+        return None
+    total = int(seconds)
+    if total < 60:
+        return f'{total}s'
+    if total < 3600:
+        return f'{total // 60}m {total % 60:02d}s'
+    return f'{total // 3600}h {total % 3600 // 60:02d}m'
+
+
+def _progress_details(event):
+    """Throughput, training time and samples seen, each only when published."""
+    rate = event.get('steps_per_second')
+    if type(rate) in (int, float) and math.isfinite(rate) and rate >= 0:
+        yield f'{rate:.1f} steps/s' if rate >= 1 else f'{rate:.3g} steps/s'
+    elapsed = human_duration(event.get('training_seconds'))
+    if elapsed is not None:
+        yield elapsed
+    samples = event.get('samples_seen')
+    if type(samples) is int and samples >= 0:
+        yield f'{samples:,} samples'
 
 
 def _put_latest(pending, value):
@@ -322,7 +348,9 @@ class CLIProgress:
             metrics = event.get('metrics', {})
             values = ' '.join(f'{label}={metrics[key]:.6g}' for key, label in
                               (('loss/d_total', 'D'), ('loss/g_total', 'G')) if key in metrics)
-            self.output.stderr.write(f"step {event['step']}" + (f': {values}' if values else '') + '\n')
+            details = ' | '.join(_progress_details(event))
+            self.output.stderr.write(f"step {event['step']}" + (f': {values}' if values else '')
+                                     + (f' | {details}' if details else '') + '\n')
             if reminder:
                 self.output.stderr.write(f'reminder: {reminder}\n')
 

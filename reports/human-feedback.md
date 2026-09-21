@@ -13,29 +13,94 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 Owner: "we should have steps/s during training as a metric."
 
-- [ ] Publish a `throughput/steps_per_second` (name to taste) scalar on the training stream, smoothed over a short window so it charts cleanly, and list it in the catalog so it appears in Learning curves and can be selected like any loss.
-- [ ] Show the current value in the headline stats next to Step.
-- [ ] Include it in the CLI progress line.
-- [ ] Tests for the value across a few updates and for resume (the window restarts, no negative or infinite values).
+**Status:** Implemented in commit 0ec7ce79. `throughput/steps_per_second` is a
+built-in training-scope scalar published on every complete update, smoothed over
+the last 20 updates. It is listed in the catalog, part of the viewer's default
+Learning curves selection, shown in the headline stats next to Completed step,
+and printed on the CLI progress line as `123.4 steps/s`.
 
-Where this lives today:
-- `src/hypergan/run_controller.py` measures `step_seconds` per update (around line 700) and passes it to `select_metrics` and custom metrics, but no built-in metric publishes it.
+- [x] Publish a `throughput/steps_per_second` (name to taste) scalar on the training stream, smoothed over a short window so it charts cleanly, and list it in the catalog so it appears in Learning curves and can be selected like any loss.
+- [x] Show the current value in the headline stats next to Step.
+- [x] Include it in the CLI progress line.
+- [x] Tests for the value across a few updates and for resume (the window restarts, no negative or infinite values).
+
+Where this lives now:
+- `src/hypergan/metrics.py` holds `Throughput` (a `THROUGHPUT_WINDOW = 20`
+  trailing window over measured update durations) and the catalog entry. A
+  window whose durations sum to zero — a clock too coarse to separate two
+  boundaries, which is what the first update can look like — returns `None`, so
+  the metric reports `unavailable` instead of dividing by zero or publishing an
+  infinity. `select_metrics(..., progress)` accepts the controller-measured
+  scalars for the same boundary and never fabricates a missing one.
+- `src/hypergan/run_controller.py` owns one `Throughput` per attempt, so resume
+  restarts the window rather than averaging across the idle gap, and mirrors the
+  current rate into `manifest['steps_per_second']`.
+- `frontend/src/app.js` `defaults()` selects it after the losses; the
+  **Steps per second** tile in `web_assets/index.html` reads the run payload, so
+  it updates from stream heartbeats without selecting the metric.
+- Tests: `tests/foundation/test_metrics_config.py`
+  (`test_throughput_window_averages_recent_updates_without_dividing_by_zero`,
+  `test_progress_scalars_publish_throughput_time_and_samples_seen`),
+  `tests/foundation/test_bounded_cli_output.py`,
+  `tests/reference/test_core_cli.py::test_cli_stop_resume_and_json_progress`,
+  `tests/browser/test_viewer_ui.py::test_headline_stats_report_throughput_training_time_and_samples`.
 
 ### 12. Time spent training (raised 2026-09-20)
 
 Owner: "we should have time spent training."
 
-- [ ] Track cumulative wall-clock training time across attempts (resume adds to it, idle time between attempts does not count) and store it in the run manifest.
-- [ ] Show it in the headline stats and the CLI progress line as a human duration.
-- [ ] Publish it on the training stream so it can be charted against step if useful.
-- [ ] Tests, including that resume continues the total rather than resetting it.
+**Status:** Implemented in commit 0ec7ce79. The run manifest carries
+`training_seconds`, the cumulative wall clock spent inside training attempts.
+Each attempt reads it as its baseline and adds only its own elapsed time, so a
+resumed run continues the total and the gap between two commands is never
+counted. It is charted as `timing/training_seconds` and displayed as `1h 23m` in
+the headline stats and on the CLI progress line.
+
+- [x] Track cumulative wall-clock training time across attempts (resume adds to it, idle time between attempts does not count) and store it in the run manifest.
+- [x] Show it in the headline stats and the CLI progress line as a human duration.
+- [x] Publish it on the training stream so it can be charted against step if useful.
+- [x] Tests, including that resume continues the total rather than resetting it.
+
+Where this lives now:
+- `src/hypergan/run_controller.py` validates the stored baseline at attempt
+  start (a finite, nonnegative number or the attempt refuses to run) and
+  refreshes `manifest['training_seconds']` on every manifest publication and
+  every update, beside the existing per-attempt `seconds`.
+- `src/hypergan/bounded_cli_output.py` `human_duration()` formats `45s`,
+  `12m 05s` and `1h 23m`; `frontend/src/app.js` `duration()` matches it exactly
+  for the **Time training** tile.
+- `src/hypergan/web_service.py` publishes `training_seconds` (with
+  `samples_seen`, `steps_per_second` and `global_batch_size`) in the run payload,
+  described in `src/hypergan/web_schema.py` and `frontend/API.md`.
+- `tests/reference/test_core_cli.py::test_cli_stop_resume_and_json_progress`
+  asserts that the resumed total equals the first attempt's total plus the second
+  attempt's own `seconds`, which is exactly the idle time being excluded.
 
 ### 13. Number of samples seen (raised 2026-09-20)
 
 Owner: "we should have number of samples seen."
 
-- [ ] Surface `samples_seen` (already emitted on every `train` event as `step * batch_size`) in the headline stats and the CLI progress line, and make it correct when gradient accumulation or a world size larger than one changes the effective batch.
-- [ ] Tests.
+**Status:** Implemented in commit 0ec7ce79. `samples_seen` is now in the run
+manifest and the headline stats, on the CLI progress line (`12,800 samples`) and
+chartable as `progress/samples_seen`. `step * batch_size` was already correct
+under gradient accumulation and a world size larger than one: `training.batch_size`
+is the global batch, which those executions split into per-rank shards and
+microbatches without changing how many real examples a completed update draws
+(`distributed_training.py` derives `local_batch_size` and `microbatch_size` from
+it, and `replicated_execution.py` checks every update against that profile). The
+definition is now stated in the catalog entry and in `docs/observation.md`.
+
+- [x] Surface `samples_seen` (already emitted on every `train` event as `step * batch_size`) in the headline stats and the CLI progress line, and make it correct when gradient accumulation or a world size larger than one changes the effective batch.
+- [x] Tests.
+
+Where this lives now:
+- `src/hypergan/run_controller.py` computes it from the execution's reported
+  `global_batch_size` when the update carries one, falling back to
+  `training.batch_size`, and stores it in the manifest with the batch size it
+  used.
+- The **Samples seen** tile shows exact counts below 100,000 and a compact
+  `1.2M` above it, with the exact value in its tooltip, so a long run cannot
+  widen the headline row.
 
 ### 14. Header: unexplained hash next to the status, and "RUNNING" should read "TRAINING" (raised 2026-09-20)
 

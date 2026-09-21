@@ -306,6 +306,18 @@ dies, its children exit independently; the next launch safely replaces stale
 registry state and rotates credentials. Standalone `serve` remains a foreground
 command; stop that command with Ctrl-C.
 
+### Headline run summary
+
+The summary tiles above the learning curves read the run payload, so they stay
+current from stream heartbeats without selecting a metric: completed step,
+**steps per second** (a trailing average of recent updates), **time training**
+(cumulative wall clock across attempts, as `1h 23m`), **samples seen**
+(completed updates × global batch size) and the durable checkpoint, followed by
+the latest generator and discriminator loss. A run that has not published a
+value yet shows `—`. The same three progress metrics are chartable under
+Learning curves and printed on the CLI progress line; see
+[observation](observation.md#training-progress-metrics) for their definitions.
+
 ### Checkpoint metrics and projection progress
 
 Run responses and stream heartbeats expose `durable_event_boundary` when the

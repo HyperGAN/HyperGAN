@@ -8,6 +8,11 @@ The token never enters a URL, storage, telemetry, or browser logs.
 - `GET /capabilities` -> `{ "run_id":"r", "reducer":{"sha256":"..."} }`.
 - `GET /runs/r` -> run manifest, including status, steps, last_durable_step,
   total_steps, metrics_catalog and current attempt_id; optional name/config.name.
+  Training progress fields: `training_seconds` (cumulative wall clock across
+  attempts, excluding idle time between them), `samples_seen` (completed updates
+  × `global_batch_size`) and `steps_per_second` (a trailing average of the
+  current attempt's recent updates, absent until one is measurable). The same
+  three values appear on every `train` event.
   Optional `evaluation_schedule` maps configured metric IDs to scheduler status,
   `source_step`, `next_step`, and optional `evaluation_id`, `reason`, `skipped_busy`
   and `last_skipped_step`. Ready/heartbeat run payloads carry the same state.

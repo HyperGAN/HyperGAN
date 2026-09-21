@@ -59,7 +59,11 @@ def viewer():
                 return self.send(200,resource.read_bytes(),mime)
             if 'session=valid' not in self.headers.get('Cookie',''):return self.send(401,{'error':'Session required'})
             if path=='/api/v1/capabilities':return self.send(200,{'run_id':None if control.get('waiting') else RUN,'reducer':reducer.spec})
-            if path==f'/api/v1/runs/{RUN}':return self.send(200,{'run_id':RUN,'status':control['status'],'steps':control['step'],'last_durable_step':1,'total_steps':100,'config':{'name':'Color / reference study'}})
+            if path==f'/api/v1/runs/{RUN}':
+                run={'run_id':RUN,'status':control['status'],'steps':control['step'],'last_durable_step':1,'total_steps':100,'config':{'name':'Color / reference study'}}
+                if control.get('progress',True):
+                    run.update(steps_per_second=12.5,training_seconds=5025.4,samples_seen=control['step']*32,global_batch_size=32)
+                return self.send(200,run)
             if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
             if '/artifacts/' in path:
                 asset=control['assets'].get(path.rsplit('/',1)[-1])
@@ -401,4 +405,20 @@ def test_sample_slider_follows_latest_and_holds_an_earlier_pick(viewer):
     published()
     position.filter(has_text='Version 5 of 5 \u00b7 step 60 \u00b7 latest').wait_for()
     assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-60')
+    assert not errors
+
+
+def test_headline_stats_report_throughput_training_time_and_samples(viewer):
+    page,control,condition,errors=viewer;login(page)
+    assert page.locator('#steps-per-second').inner_text()=='12.5'
+    assert page.locator('#training-time').inner_text()=='1h 23m'
+    assert page.locator('#samples-seen').inner_text()=='64'
+    assert page.locator('#samples-batch').inner_text()=='32 per completed update'
+    # A run that publishes no progress yet reads as unknown, never as zero.
+    control['progress']=False
+    page.reload()
+    page.locator('#stream-position[data-projection="2"]').wait_for()
+    assert [page.locator(f'#{tile}').inner_text() for tile in
+            ('steps-per-second','training-time','samples-seen')]==['—','—','—']
+    assert page.locator('#samples-batch').inner_text()=='Updates × global batch'
     assert not errors

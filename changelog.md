@@ -8,6 +8,7 @@
 - Give the local viewer a stable default port (8765) for `train`, `resume` and `serve`, searching upward to 100 ports when it is busy. `--port` names an exact port and fails when occupied; `--server-port` remains an accepted spelling.
 - Let a TLS proxy front the viewer: `--public-origin URL` on `train`, `resume` and `serve` accepts exactly one extra origin, such as the `https://<machine>.<tailnet>.ts.net` that `tailscale serve` publishes, and marks the session cookie `Secure` on it. Direct `http://<host>:<port>` access is unchanged, and `X-Forwarded-*` headers are ignored unless that option names an origin.
 - Archive the previous runtime and research branches. Image recipes, complete resume, multi-GPU/cluster execution and deployment remain release gates.
+- Map `.hndl` network definitions to Python in `.gitattributes` so GitHub language statistics count them.
 
 The entries below describe historical versions; see [migration notes](docs/migration.md) before using legacy configurations or checkpoints.
 

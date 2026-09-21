@@ -2,30 +2,45 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
-Colorization discriminator simplification (2026-09-20): owner authorized a single
-unconditional `D(X)` / `D(G(z))` and PR/merge. The new projected DINOv3 path uses
-frozen pretrained features and random channel/local-spatial projections, then
-trainable attention/head; E/G, 4,096 fixed-sigma particles and encoder-only L2
-remain unchanged. Original discriminator/config/environment are preserved.
-[Implementation and validation report](colorization-projected-2026-09-20.md).
-Clean installed source `de11816d` matches all 65 Python files; 858 fast tests pass,
-185 heavy tests deselected. Actual GPU-1 DINO image double backward/frozen masks
-and eight full-manifest CLI updates pass. Resume reached ten; exact full restore
-matched 948 tensors / 407,302 values, and all three 512-output metrics plus g/x/gray
-viewer PNGs pass. Independent review found no blockers. The verification run and
-viewer are stopped. start-color.sh selects the fresh, unstarted projected run.
-[PR #360](https://github.com/HyperGAN/HyperGAN/pull/360) is open. Owner clarified that the full heavy suite is for prereleases; the
-owner replaced the outdated AGENTS.md in `4d143c87`, preserved verbatim here. The active suite was stopped at
-121 passing tests / zero failures, with 64 selected tests unfinished; this is
-not a complete heavy pass. The develop gates are fast, focused GPU and GitHub
-checks. Original two-path checkpoint restore also matched 1,050 tensors / 407,414
-values. CI exposed an existing viewer discovery race: an older inventory response
-could forget a newly discovered evaluation. A deterministic test reproduced the
-missing cancelled status against the old bundle; bounded per-run inventory union
-fixes it. All 35 browser tests and bundle reproducibility pass; failed logs remain
-preserved. Next: install the final bundle and merge after final GitHub checks.
-Evidence: `../resurrection-backups/2026-09-20-colorization-projected/` outside repo.
+Projected colorization accepted (2026-09-20): [PR #360](https://github.com/HyperGAN/HyperGAN/pull/360)
+merged into develop as `a31f92cc45908dba3a59706f6753b568267a2136` after all final
+checks passed ([Foundation CI](https://github.com/HyperGAN/HyperGAN/actions/runs/35564668394),
+[Repository integrity](https://github.com/HyperGAN/HyperGAN/actions/runs/35564668377)).
+The owner-requested single unconditional D(X)/D(G(z)) path is frozen DINOv3,
+frozen random channel/local-spatial projection, then trainable attention/head.
+E/G, 4,096 fixed-sigma particles, encoder-only VAE L2 and held-out metrics remain
+unchanged; no optimized KL. See the [acceptance report](colorization-projected-2026-09-20.md).
 
+Validation: 858 installed fast tests, 35 browser tests, actual GPU-1 DINO image
+double backward/frozen masks, eight full-manifest updates including b-cap and
+resume to ten. Exact restore matched 948 tensors / 407,302 values; old two-path
+checkpoint restore matched 1,050 tensors / 407,414 values. All three 512-output
+held-out metrics and g/x/gray PNG serving passed. Across training, 192 frozen
+tensors and sigma stayed unchanged while E/G, attention/head and means updated.
+The final installed wheel from clean `24bbd4d5` matches all 70 runtime Python and
+web-asset files, and its complete GPU restore also passed. The short checks prove
+execution/recovery, not convergence or colorization quality.
+
+CI exposed an existing viewer discovery race: older inventory responses could
+forget newly discovered evaluations. A deterministic test reproduced the missing
+cancelled status against the old bundle; bounded per-run inventory union fixes
+it. Before/after and original failed logs remain preserved. Final-head CI passed
+in both normal and manually dispatched runs; GitHub briefly delayed dispatch,
+and the reopened-PR check also passed before the protected merge.
+
+Owner clarified that full heavy tests are for prereleases; the active suite was
+stopped immediately at 121 passed / zero failed with 64 selected tests unfinished.
+This is not a full heavy pass. Owner's replacement AGENTS.md (`4d143c87`) is
+preserved verbatim. No heavy tests are running or required for this develop merge.
+
+Ready: `~/dev/hypergan/training-runs/start-color.sh`, physical GPU 1 by UUID,
+`colorization-projected-env`, `logos-colorization-projected-256/colorization.toml`,
+and fresh `train-color-projected`. The original setup remains behind
+`start-color-original.sh`. All our verification training/viewers are stopped;
+the owner controls the actual run. Evidence/builds/receipts are under
+`../resurrection-backups/2026-09-20-colorization-projected/` outside the repository.
+Unrelated local research edits are preserved. Next: owner starts the launcher and
+assesses learned structure and color diversity. No paid compute or release.
 
 Colorization demo acceptance (2026-09-20): the owner requested a 256x256
 logo colorization demo with learned grayscale E, 4,096 hard-routed fixed-sigma

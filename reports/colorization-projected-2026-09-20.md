@@ -88,3 +88,10 @@ and the complete browser suite passes **35 tests** (60.61s). The original failed
 CI logs and before/after regression logs remain in evidence. The viewer bundle
 was rebuilt and its reproducibility check passed; no timeout was increased or
 test skipped. Final integration status is recorded in the ledger.
+
+Final integration: PR #360 merged as `a31f92cc45908dba3a59706f6753b568267a2136`.
+Final-head Foundation CI `35564668394` and repository integrity `35564668377`
+passed. The installed clean `24bbd4d5` wheel contains the viewer fix; all 70 Python
+and web-asset files match, and a final GPU restore again matched the complete
+saved state. The owner launcher remains unstarted and all verification processes
+are stopped. Owner-authored AGENTS.md is preserved verbatim.

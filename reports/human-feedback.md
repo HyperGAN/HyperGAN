@@ -241,6 +241,11 @@ Where this lives now:
 - Docs: [image previews](../docs/image-previews.md), [observation](../docs/observation.md),
   [replicated observation](../docs/replicated-observation.md), README.
 
+Follow-up (2026-09-20): after the merge the owner moved the `g` slider to the start and still saw only the 20 most recent samples. "i want to be able to slide all the way back to the beginning of time. it may need refactoring to be on-demand depending if the browser is caching."
+
+- [ ] Investigate against the owner's live run: whether the run is still on the pre-change retention (a run started before this change keeps `preview_keep = 20` in its manifest until resumed with `--preview-keep all`), whether already-pruned generations are simply gone, and whether the viewer or API still caps the history it returns.
+- [ ] If the viewer loads the whole history up front, consider loading version metadata eagerly but images on demand as the slider moves, so a long run does not fetch thousands of PNGs.
+
 ### 9. FID (snapshot evaluations) should be a chart, not a wall of text (raised 2026-09-20)
 
 Owner: "on snapshot evaluations FID should be a graph like the metrics, different x tho ofc. right now it's a wall of text. it may be a graph eventually, maybe it's just a graph with one point atm."

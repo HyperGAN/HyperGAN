@@ -24,6 +24,7 @@ METRICS = {'loss/g_total': 'Generator total', 'loss/d_total': 'Discriminator tot
 def viewer():
     reducer = Reducer()
     control = {'paths': [], 'streams': [], 'step': 2, 'pending': False, 'release': False,
+               'status': 'running',
                'artifacts': {}, 'assets': {}, 'artifact_revision': 0}
     condition = threading.Condition()
     def frame(step):
@@ -58,7 +59,7 @@ def viewer():
                 return self.send(200,resource.read_bytes(),mime)
             if 'session=valid' not in self.headers.get('Cookie',''):return self.send(401,{'error':'Session required'})
             if path=='/api/v1/capabilities':return self.send(200,{'run_id':None if control.get('waiting') else RUN,'reducer':reducer.spec})
-            if path==f'/api/v1/runs/{RUN}':return self.send(200,{'run_id':RUN,'status':'training','steps':control['step'],'last_durable_step':1,'total_steps':100,'config':{'name':'Color / reference study'}})
+            if path==f'/api/v1/runs/{RUN}':return self.send(200,{'run_id':RUN,'status':control['status'],'steps':control['step'],'last_durable_step':1,'total_steps':100,'config':{'name':'Color / reference study'}})
             if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
             if '/artifacts/' in path:
                 asset=control['assets'].get(path.rsplit('/',1)[-1])
@@ -141,6 +142,23 @@ def test_login_plots_live_ack_reconnect_and_exact_table(viewer,tmp_path):
     assert 'cursor:3' in control['streams']
     assert not any('fixture-secret' in path for path in control['paths'])
     page.screenshot(path=str(tmp_path/'viewer-desktop.png'),full_page=True)
+    assert not errors
+
+
+@pytest.mark.parametrize('status,label',[('running','Training'),('failed','Failed'),('quiesced','Quiesced')])
+def test_status_badge_reads_in_plain_words_beside_a_labelled_run_id(viewer,status,label):
+    page,control,condition,errors=viewer
+    control['status']=status;login(page)
+    badge=page.locator('#run-status')
+    # text_content, not inner_text: the badge is uppercased by the stylesheet.
+    assert badge.text_content()==label
+    assert badge.get_attribute('data-status')==status
+    assert page.locator('#run-id').text_content()==RUN
+    assert page.locator('.run-identity').text_content().strip().startswith('Run id')
+    page.get_by_role('button',name='Copy',exact=True).click()
+    # Either the clipboard took it, or the id was selected for a keystroke.
+    page.locator('#run-id-status:not(:empty)').wait_for()
+    assert 'opy' in page.locator('#run-id-status').text_content()
     assert not errors
 
 

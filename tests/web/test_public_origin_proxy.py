@@ -27,11 +27,10 @@ def client_for(root, session, base_url=None):
     return TestClient(create_app(root, session, poll_seconds=.01), base_url=base_url or session.origin)
 
 
-def test_proxied_https_request_signs_in_and_writes_the_console(tmp_path):
+def test_proxied_https_request_signs_in_and_reads_the_run(tmp_path):
     """tailscale serve forwards the public Host; that request is a first-class one."""
     fixture_run(tmp_path)
     session = LocalSession(8123, host='0.0.0.0', auth='token', public_origin=PUBLIC)
-    console = '/api/v1/runs/run/console'
     with client_for(tmp_path, session, base_url=PUBLIC) as client:
         assert client.get('/api/v1/capabilities', headers=PROXIED).status_code == 401
         login = client.post('/api/v1/session', json={'token': session._token}, headers=PROXIED)
@@ -39,7 +38,7 @@ def test_proxied_https_request_signs_in_and_writes_the_console(tmp_path):
         cookie = login.headers['set-cookie']
         assert 'Secure' in cookie and 'HttpOnly' in cookie and 'samesite=strict' in cookie.lower()
         assert client.get('/api/v1/capabilities', headers=PROXIED).json()['public_origin'] == PUBLIC
-        assert client.put(console, json={'progress_every': 9}, headers=PROXIED).json() == {'progress_every': 9}
+        assert client.get('/api/v1/runs/run', headers=PROXIED).json()['run_id'] == 'run'
         # The page loads its own assets and API through relative URLs, so the
         # single 'self' policy already names the proxy's origin.
         policy = client.get('/', headers=PROXIED).headers['content-security-policy']
@@ -58,8 +57,7 @@ def test_other_https_origins_stay_rejected(tmp_path, headers):
     with client_for(tmp_path, session, base_url=PUBLIC) as client:
         assert client.post('/api/v1/session', json={'token': session._token},
                            headers=headers).status_code == 403
-        assert client.put('/api/v1/runs/run/console', json={'progress_every': 4},
-                          headers=headers).status_code == 403
+        assert client.get('/api/v1/runs/run', headers=headers).status_code == 403
 
 
 def test_direct_plain_http_login_still_works_beside_the_proxy(tmp_path):
@@ -73,7 +71,7 @@ def test_direct_plain_http_login_still_works_beside_the_proxy(tmp_path):
         assert 'HttpOnly' in login.headers['set-cookie']
         # The browser kept the cookie, so the authenticated routes stay usable.
         assert client.get('/api/v1/capabilities').json()['public_origin'] == PUBLIC
-        assert client.put('/api/v1/runs/run/console', json={'progress_every': 6}).status_code == 200
+        assert client.get('/api/v1/runs/run').status_code == 200
         assert client.get('/api/v1/capabilities', headers={'host': 'evil.example'}).status_code == 403
 
 

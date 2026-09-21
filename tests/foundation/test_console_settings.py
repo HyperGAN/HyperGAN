@@ -1,20 +1,11 @@
 import io
 import json
 import os
-import time
 
 import pytest
 
 from hypergan.bounded_cli_output import TrainingOutput
 from hypergan.console_settings import read_settings, write_settings
-
-
-def refresh_until(output, predicate):
-    deadline = time.perf_counter() + 5
-    while not predicate():
-        output.policy.refresh(output.stderr)
-        assert time.perf_counter() < deadline
-        time.sleep(.001)
 
 
 def test_default_cadence_filters_only_console_progress():
@@ -32,39 +23,41 @@ def test_default_cadence_filters_only_console_progress():
     assert len(events) == 201 and events[-1]['metrics']['loss/g_total'] == 201.
 
 
-def test_ui_policy_reload_and_resume_preserve_settings(tmp_path, monkeypatch):
-    clock = [0.]
-    monkeypatch.setattr('hypergan.console_settings.time.monotonic', lambda: clock[0])
-    stderr = io.StringIO()
-    output = TrainingOutput(io.StringIO(), stderr, False)
+def test_cli_interval_persists_across_attempts_and_a_flag_replaces_it(tmp_path):
+    """The stored cadence is resolved once per attempt; nothing changes it mid-run."""
+    write_settings(tmp_path, {'progress_every': 2})
+    output = TrainingOutput(io.StringIO(), io.StringIO(), False)
     output.configure(tmp_path)
     output.progress({'event': 'train', 'step': 1})
-    assert stderr.getvalue() == ''
-    write_settings(tmp_path, {'progress_every': 2})
-    clock[0] = .3
-    refresh_until(output, lambda: output.policy.every == 2)
     output.progress({'event': 'train', 'step': 2})
-    assert stderr.getvalue() == 'step 2\n'
+    assert output.stderr.getvalue() == 'step 2\n'
+    # A live edit of the file no longer reaches the running attempt.
+    write_settings(tmp_path, {'progress_every': 1})
+    output.progress({'event': 'train', 'step': 3})
+    assert output.stderr.getvalue() == 'step 2\n'
     resumed = TrainingOutput(io.StringIO(), io.StringIO(), False)
     resumed.configure(tmp_path)
-    resumed.progress({'event': 'train', 'step': 4})
-    assert resumed.stderr.getvalue() == 'step 4\n'
+    resumed.progress({'event': 'train', 'step': 3})
+    assert resumed.stderr.getvalue() == 'step 3\n'
+    # An explicit flag replaces the saved value for this and later attempts.
     resumed.configure(tmp_path, progress_every=3)
     resumed.progress({'event': 'train', 'step': 6})
     assert read_settings(tmp_path) == {'progress_every': 3}
-    # Invalid external edits warn, retain last policy and recover on correction.
-    (tmp_path / 'console.json').write_text('{')
-    clock[0] = 1.
-    refresh_until(resumed, lambda: 'retaining interval 3' in resumed.stderr.getvalue())
-    resumed.progress({'event': 'train', 'step': 9})
-    assert 'retaining interval 3' in resumed.stderr.getvalue()
-    write_settings(tmp_path, {'progress_every': 5})
-    clock[0] = 2.
-    refresh_until(resumed, lambda: resumed.policy.every == 5)
-    resumed.progress({'event': 'train', 'step': 10})
-    assert resumed.stderr.getvalue().endswith('step 10\n')
+    assert resumed.stderr.getvalue().endswith('step 6\n')
     output.policy.close()
     resumed.policy.close()
+
+
+def test_unreadable_settings_warn_once_and_retain_the_default(tmp_path):
+    (tmp_path / 'console.json').write_text('{')
+    output = TrainingOutput(io.StringIO(), io.StringIO(), False)
+    output.configure(tmp_path)
+    output.progress({'event': 'train', 'step': 100})
+    assert 'retaining interval 100' in output.stderr.getvalue()
+    assert output.stderr.getvalue().endswith('step 100\n')
+    output.progress({'event': 'train', 'step': 200})
+    assert output.stderr.getvalue().count('retaining interval') == 1
+    output.policy.close()
 
 
 @pytest.mark.parametrize('value', [True, 0, -1, 1.5, '100', 1000000001, None])

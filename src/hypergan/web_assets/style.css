@@ -149,7 +149,16 @@ h3 {
   color: var(--muted);
   font-size: 12px;
 }
-.run-subtitle code {
+.run-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.run-subtitle code,
+.run-identity code {
   font-size: 11px;
 }
 .badge {
@@ -609,7 +618,11 @@ footer {
   .run-subtitle {
     flex-wrap: wrap;
   }
-  .run-subtitle code {
+  .run-identity {
+    flex-wrap: wrap;
+  }
+  .run-subtitle code,
+  .run-identity code {
     max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;

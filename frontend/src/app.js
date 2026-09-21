@@ -7,7 +7,6 @@ const state = {
   catalog: null,
   evaluationMetrics: {},
   evaluationResults: [],
-  consoleSupported: false,
   map: null,
   selected: new Set(),
   groups: new Map(),
@@ -154,6 +153,23 @@ const evaluations = evaluationShelf(api, base, (results) => {
 });
 function metricDefinitions() { return {...(state.catalog?.metrics || {}), ...state.evaluationMetrics}; }
 function trainingSelection() { return [...state.selected].filter(id => !state.evaluationMetrics[id]); }
+// The manifest status is an internal word; the badge reads as the person's
+// view of the run. Unmapped values fall back to the raw word, capitalised.
+const RUN_STATUS_LABELS = {
+  initializing: "Starting",
+  pending: "Starting",
+  starting: "Starting",
+  running: "Training",
+  training: "Training",
+  complete: "Complete",
+  stopped: "Stopped",
+  cancelled: "Stopped",
+  interrupted: "Interrupted",
+  failed: "Failed",
+};
+const statusLabel = (status) =>
+  RUN_STATUS_LABELS[status] ||
+  (status ? status.charAt(0).toUpperCase() + status.slice(1) : "Unknown");
 const fmt = (value) =>
   value === null || value === undefined
     ? "—"
@@ -163,8 +179,12 @@ function updateRun(run) {
   evaluations.update(state.catalog, run);
   $("run-name").textContent =
     run.config?.name || run.name || "Training experiment";
-  $("run-id").textContent = run.run_id;
-  $("run-status").textContent = run.status || "Unknown";
+  if ($("run-id").textContent !== run.run_id) {
+    $("run-id").textContent = run.run_id;
+    $("run-id-status").textContent = "";
+  }
+  $("run-status").textContent = statusLabel(run.status);
+  $("run-status").dataset.status = run.status || "unknown";
   $("step").textContent = fmt(run.steps);
   $("durable").textContent = fmt(run.last_durable_step);
   const consistency = run.metric_consistency;
@@ -594,16 +614,10 @@ async function metadata(expectedEpoch = state.epoch) {
   );
   renderCatalog();
   await refreshArtifacts();
-  $("console-settings").hidden = !state.consoleSupported;
-  if (state.consoleSupported) {
-    const settings = await api(`${base()}/console`);
-    $("progress-every").value = settings.data.progress_every;
-  }
 }
 async function connect() {
   connection("Connecting…");
   const capability = await api("/capabilities");
-  state.consoleSupported = capability.data.controls?.includes("console") === true;
   if (capability.data.run_id === null) {
     waitForRun();
     return;
@@ -1101,21 +1115,24 @@ function render() {
 new ResizeObserver(() => {
   for (const card of state.charts.values()) card.chart.resize();
 }).observe($("charts"));
-$("console-settings").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const progress_every = Number($("progress-every").value);
-  if (!Number.isSafeInteger(progress_every) || progress_every < 1 || progress_every > 1000000000) {
-    $("console-status").textContent = "Choose an integer from 1 to 1,000,000,000.";
-    return;
-  }
-  const button = $("console-settings").querySelector("button");
-  button.disabled = true;
+$("copy-run-id").addEventListener("click", async () => {
+  const code = $("run-id");
+  const value = code.textContent;
+  if (!value) return;
   try {
-    await api(`${base()}/console`, {method: "PUT", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({progress_every})});
-    $("console-status").textContent = `Saved: every ${progress_every} steps. Active CLI checks at update boundaries, at most four times per second. Long updates delay changes; the setting persists on resume.`;
-  } catch (error) { $("console-status").textContent = error.message; }
-  finally { button.disabled = false; }
+    // Clipboard writes need a secure context, which plain-HTTP loopback is
+    // not in every browser. Select the id instead so a keystroke copies it.
+    if (!navigator.clipboard) throw new Error("no clipboard");
+    await navigator.clipboard.writeText(value);
+    $("run-id-status").textContent = "Copied";
+  } catch {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(code);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    $("run-id-status").textContent = "Selected — press Ctrl+C to copy";
+  }
 });
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();

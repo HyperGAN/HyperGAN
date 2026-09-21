@@ -3,10 +3,8 @@ import json
 import os
 import stat
 from pathlib import Path
-import time
 
 from .run_state import atomic_json
-from .background_poll import BackgroundPoll
 
 DEFAULT_PROGRESS_EVERY = 100
 MAX_PROGRESS_EVERY = 1000000000
@@ -60,46 +58,30 @@ def write_settings(run_dir, value):
 
 
 class ConsolePolicy:
-    """Read live policy in one background slot, at most four times per second."""
+    """Resolve the run's console cadence once, at the start/resume boundary.
+
+    Nothing changes ``console.json`` while a run is live, so the policy is read
+    on the first delivery and then held: an explicit ``--progress-every`` is
+    persisted for later attempts, and an attempt without the flag inherits the
+    stored value.
+    """
     def __init__(self, run_dir=None, *, progress_every=None):
         self.run_dir = run_dir
         self.override = progress_every
         self.every = DEFAULT_PROGRESS_EVERY if progress_every is None else validate_settings({'progress_every': progress_every})['progress_every']
-        self.next_check = 0.
-        self.warned = False
-        self.reader = None
-
-    def _read(self):
-        if self.override is not None:
-            write_settings(self.run_dir, {'progress_every': self.override})
-            self.override = None
-        return read_settings(self.run_dir)
+        self.resolved = False
 
     def close(self):
-        if self.reader is not None:
-            self.reader.close()
+        pass
 
     def refresh(self, stderr):
-        if self.run_dir is None:
+        if self.run_dir is None or self.resolved:
             return
+        self.resolved = True
         try:
-            if self.reader is None:
-                # First delivery is the explicit start/resume boundary. Keep
-                # CLI override persistence and initial policy there.
-                self.reader = BackgroundPoll(self._read, interval=0)
-                self.next_check = time.monotonic() + .25
-                self.every = self._read()['progress_every']
-                self.warned = False
-                return
-            now = time.monotonic()
-            schedule = now >= self.next_check
-            if schedule:
-                self.next_check = now + .25
-            ready, value = self.reader.poll(schedule=schedule)
-            if ready:
-                self.every = value['progress_every']
-                self.warned = False
+            if self.override is not None:
+                write_settings(self.run_dir, {'progress_every': self.override})
+                self.override = None
+            self.every = read_settings(self.run_dir)['progress_every']
         except (OSError, ValueError) as error:
-            if not self.warned:
-                stderr.write(f'warning: console settings unavailable; retaining interval {self.every}: {error}\n')
-                self.warned = True
+            stderr.write(f'warning: console settings unavailable; retaining interval {self.every}: {error}\n')

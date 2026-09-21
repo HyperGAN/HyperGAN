@@ -49,8 +49,14 @@
           <span class="eyebrow">TRAINING OBSERVATORY</span>
           <h1 id="run-name">Experiment</h1>
           <p class="run-subtitle">
-            <code id="run-id"></code
-            ><span id="run-status" class="badge">Loading</span>
+            <span id="run-status" class="badge" data-status="unknown">Loading</span>
+          </p>
+          <p class="run-identity">
+            <span>Run id</span><code id="run-id"></code
+            ><button id="copy-run-id" class="text-button" type="button">
+              Copy
+            </button
+            ><span id="run-id-status" role="status"></span>
           </p>
         </div>
         <div class="heading-actions">
@@ -79,12 +85,6 @@
           ><small id="d-step">No published value</small>
         </article>
       </section>
-      <form id="console-settings" class="range-controls" hidden>
-        <label for="progress-every">CLI progress every N steps</label>
-        <input id="progress-every" type="number" min="1" max="1000000000" step="1" value="100" required />
-        <button class="secondary" type="submit">Save CLI interval</button>
-        <span id="console-status" role="status">Metrics are collected independently.</span>
-      </form>
       <div class="workspace-grid">
         <aside class="catalog">
           <div class="section-title">

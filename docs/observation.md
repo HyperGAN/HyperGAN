@@ -91,11 +91,11 @@ drains. Reconnect through `hypergan events RUN` or `hypergan inspect RUN` for th
 durable result and accepted event history, including recorded observation gaps.
 
 Routine CLI training progress prints every **100 updates** by default. Set
-`--progress-every N` on `train` or `resume`, or use **CLI progress every N steps**
-in the browser. The setting is saved as `console.json` inside the run directory
-and survives resume; an explicit CLI flag replaces the saved value. Active CLI
-processes check at complete update boundaries, at most four times per second.
-Long updates delay when a change takes effect. This controls console reporting only: collected metric events,
+`--progress-every N` on `train` or `resume`. The setting is saved as
+`console.json` inside the run directory and survives resume; an explicit CLI
+flag replaces the saved value. Each attempt resolves the cadence once, at its
+first delivery; nothing changes it while the attempt runs. This controls console
+reporting only: collected metric events,
 checkpoint cadence, previews and numerical configuration remain independent.
 Lifecycle events, errors and final status bypass this interval. The same cadence
 applies to `--progress-json`; use `--progress-every 1` for every console update.
@@ -130,9 +130,8 @@ missing measurements are never fabricated or averaged. Checkpoint boundaries
 record any outstanding gap before committing the event prefix.
 
 Live manifests coalesce to the newest snapshot and are scheduled at most four
-times per second. Live console settings and checkpoint request discovery use a
-single background
-read slot each, at most four reads per second. Ordinary updates only consume
+times per second. Checkpoint request discovery uses a single background
+read slot, at most four reads per second. Ordinary updates only consume
 cached results. Startup, periodic checkpoint and terminal control boundaries
 may perform fresh synchronous scans; terminal processing retries one lost
 acknowledgement against the saved request IDs without repeating the checkpoint.

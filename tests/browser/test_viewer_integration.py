@@ -522,38 +522,6 @@ def test_evaluation_metrics_sort_snapshots_preserve_repeats_and_protocols(real_v
     assert not errors
 
 
-def test_ui_console_interval_changes_active_sink_and_persists(real_viewer):
-    import io
-    from hypergan.bounded_cli_output import TrainingOutput
-    experiment, session, token, page, context, errors, requests = real_viewer
-    experiment.create(2)
-    sign_in(page, session, token)
-    page.get_by_label('CLI progress every N steps').wait_for()
-    assert page.get_by_label('CLI progress every N steps').input_value() == '100'
-    output = TrainingOutput(io.StringIO(), io.StringIO(), False)
-    output.configure(experiment.root)
-    output.progress({'event': 'train', 'step': 3})
-    assert output.stderr.getvalue() == ''
-    page.get_by_label('CLI progress every N steps').fill('4')
-    page.get_by_role('button', name='Save CLI interval').click()
-    page.locator('#console-status').filter(has_text='Saved: every 4 steps.').wait_for()
-    import time
-    deadline = time.monotonic() + 5
-    while output.policy.every != 4:
-        output.policy.refresh(output.stderr)
-        assert time.monotonic() < deadline
-        time.sleep(.01)
-    output.progress({'event': 'train', 'step': 4})
-    output.policy.close()
-    assert output.stderr.getvalue() == 'step 4\n'
-    page.reload()
-    from playwright.sync_api import expect
-    expect(page.get_by_label('CLI progress every N steps')).to_have_value('4')
-    # Console policy writes do not touch the event history or trainer identity.
-    assert len((experiment.root / 'events.jsonl').read_text().splitlines()) == 3
-    assert not errors
-
-
 def test_evaluation_rejects_missing_protocol_identity(real_viewer):
     experiment, session, token, page, context, errors, requests = real_viewer
     experiment.create(2)

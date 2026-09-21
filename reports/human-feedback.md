@@ -41,19 +41,80 @@ Owner: "we should have number of samples seen."
 
 Owner: "theres a hash at the top of the page idk what it is, next to 'RUNNING' which should say 'TRAINING'."
 
-- [ ] The hash is the run id (`<code id="run-id">`). Either label it ("Run id …", with a copy affordance) or move it out of the heading into the run details; it should not be a bare hash.
-- [ ] Map the manifest status to user wording in the badge: `running` displays as "Training"; check the other statuses (`complete`, `failed`, `stopped`, …) read well too.
-- [ ] Update the browser UI test that asserts the badge text.
+- [x] The hash is the run id (`<code id="run-id">`). Either label it ("Run id …", with a copy affordance) or move it out of the heading into the run details; it should not be a bare hash.
+- [x] Map the manifest status to user wording in the badge: `running` displays as "Training"; check the other statuses (`complete`, `failed`, `stopped`, …) read well too.
+- [x] Update the browser UI test that asserts the badge text.
 
-Where this lives today:
-- `src/hypergan/web_assets/index.html` run heading; `frontend/src/app.js` `updateRun` sets `run-id` and `run-status` straight from the manifest.
+**Status:** Implemented on branch `worktree-agent-ae1f64e7eeeeeac5b`.
+
+The status badge now stands alone under the run name and reads in the words the
+owner uses: `running` and `training` both show **Training**, `initializing`,
+`pending` and `starting` show **Starting**, `complete`, `failed`,
+`stopped`/`cancelled` and `interrupted` get their own plain word, and any status
+the map does not know falls back to the raw value capitalised. The raw manifest
+status stays on the badge as `data-status` for styling and tests.
+
+The run id is no longer a bare hash glued to the badge. It sits on its own line
+below it, captioned "Run id", with a **Copy** button: a clipboard write when the
+browser allows one, otherwise the id is selected so Ctrl+C takes it, and either
+way a short status says which happened. The message is cleared only when the id
+itself changes, so a manifest refresh does not wipe it.
+
+Where this lives now:
+- `src/hypergan/web_assets/index.html` run heading (`.run-subtitle` badge,
+  `.run-identity` caption, `#copy-run-id`, `#run-id-status`) and the matching
+  `.run-identity` rules in `src/hypergan/web_assets/style.css`.
+- `frontend/src/app.js` `RUN_STATUS_LABELS` / `statusLabel`, `updateRun`, and the
+  `#copy-run-id` click handler.
+- Tests: `tests/browser/test_viewer_ui.py`
+  (`test_status_badge_reads_in_plain_words_beside_a_labelled_run_id`, which
+  parametrises the mapped and the fallback wording and exercises the copy
+  affordance).
 
 ### 15. Remove the CLI interval controller from the viewer (raised 2026-09-20)
 
 Owner: "we don't need the cli interval controller."
 
-- [ ] Remove the "CLI progress every N steps / Save CLI interval" form from the viewer.
-- [ ] Decide whether the `/runs/{id}/console` API, the `console` control capability and `console_settings.py` stay for scripted use or go with it; keep the `--progress-every` CLI flag either way. Remove dead code and tests, update `frontend/API.md` and docs.
+- [x] Remove the "CLI progress every N steps / Save CLI interval" form from the viewer.
+- [x] Decide whether the `/runs/{id}/console` API, the `console` control capability and `console_settings.py` stay for scripted use or go with it; keep the `--progress-every` CLI flag either way. Remove dead code and tests, update `frontend/API.md` and docs.
+
+**Status:** Implemented on branch `worktree-agent-ae1f64e7eeeeeac5b`.
+
+The form is gone from the viewer, and so is the API behind it: `GET`/`PUT
+/api/v1/runs/{run_id}/console`, its OpenAPI entry and the `console` control
+capability (`controls` is now an empty list, kept so consumers still find the
+field). Nothing but that endpoint ever changed the cadence while a run was live,
+so the mid-run polling went with it: `ConsolePolicy` reads `console.json` once,
+at the attempt's first delivery, instead of taking a background read slot four
+times a second.
+
+`console_settings.py` stays, because the trainer — not the viewer — is its other
+user: `--progress-every N` is persisted to `console.json` at the start/resume
+boundary, so a later attempt without the flag inherits the interval, the same
+way `--preview-keep` is inherited. The flag is unchanged. Hand-editing
+`console.json` mid-run no longer reaches the running attempt; it takes effect at
+the next resume.
+
+Where this lives now:
+- `src/hypergan/web_server.py`: the `console_settings` handler, its route, its
+  OpenAPI path and the `console` capability are removed.
+- `src/hypergan/console_settings.py` `ConsolePolicy` resolves once
+  (`resolved`), no longer importing `BackgroundPoll`; `background_poll.py` stays
+  for checkpoint request discovery in `run_controller.py`.
+- `src/hypergan/web_assets/index.html` (`#console-settings` form removed) and
+  `frontend/src/app.js` (`consoleSupported`, the `/console` fetch and the submit
+  handler removed).
+- Tests: `tests/web/test_web_service.py`
+  (`test_console_control_is_no_longer_served`),
+  `tests/web/test_public_origin_proxy.py` (the origin gate is checked on a run
+  read now that there is no write route), `tests/foundation/test_console_settings.py`
+  (`test_cli_interval_persists_across_attempts_and_a_flag_replaces_it`,
+  `test_unreadable_settings_warn_once_and_retain_the_default`);
+  the viewer control tests in `tests/browser/test_viewer_integration.py` and the
+  live-refresh test in `tests/foundation/test_background_poll.py` are deleted.
+- Docs: [observation](../docs/observation.md), [local web](../docs/local-web.md),
+  [recovery](../docs/recovery.md), README. `frontend/API.md` never listed the
+  endpoint.
 
 ### 16. Snapshot evaluations panel: FID out of Learning curves, one tile per metric, better empty state (raised 2026-09-20)
 

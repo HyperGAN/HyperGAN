@@ -43,8 +43,8 @@ hypergan serve runs/example --public-origin https://mlserver.tail1234.ts.net
 
 `tailscale serve --bg 8765` publishes `https://<machine>.<tailnet>.ts.net` on
 port 443 and forwards to the local port. Without `--public-origin` the browser's
-`https://` `Origin` and proxied `Host` are rejected, so token sign-in and the
-console control fail; the option is what makes that one origin acceptable.
+`https://` `Origin` and proxied `Host` are rejected, so token sign-in and every
+run request fail; the option is what makes that one origin acceptable.
 
 `--public-origin` takes an absolute `http://` or `https://` URL with a host and
 an optional port and nothing else. A path, query, fragment, username or password
@@ -97,7 +97,6 @@ bootstrap state and SSE envelopes. The browser uses this same public interface:
 
 - `/api/v1/capabilities`: server incarnation, selected run, reducer digest and limits.
 - `/api/v1/runs/{run_id}`: public observed/durable progress summary.
-- `/api/v1/runs/{run_id}/console`: GET/PUT the persisted `progress_every` interval; the browser control changes terminal output at complete update boundaries without changing stored metrics.
 - `/api/v1/runs/{run_id}/metrics/catalog?revision=...`: current or historical catalog.
 - `/api/v1/runs/{run_id}/events?stream_id=...&cursor=...&limit=100`: bounded raw pages.
 - `/api/v1/runs/{run_id}/views`: built-in view and registered streams.

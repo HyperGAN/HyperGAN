@@ -51,7 +51,7 @@ def render_source(source, parameters=None):
 
 
 def validate_network_args(args, location):
-    allowed = {'source', 'file', 'input_shape', 'output_shape', 'parameters', 'concat_inputs', 'concat_dim'}
+    allowed = {'source', 'file', 'input_shape', 'output_shape', 'parameters', 'input_dtype'}
     if set(args) - allowed:
         raise ValueError(f'{location}: unknown HNDL arguments {sorted(set(args) - allowed)}')
     if ('source' in args) == ('file' in args):
@@ -65,21 +65,19 @@ def validate_network_args(args, location):
             if (not isinstance(shape, (list, tuple)) or len(shape) not in (2, 3, 4)
                     or shape[0] != 'B' or any(type(size) is not int or size < 1 for size in shape[1:])):
                 raise ValueError(f'{location}.{key}.{name} must be ["B", positive dimensions...]')
-    if isinstance(args.get('input_shape'), dict) and 'concat_inputs' in args:
-        raise ValueError(f'{location}: named input_shape uses HNDL concat in source, not concat_inputs')
     if not isinstance(args.get('parameters', {}), dict):
         raise ValueError(f'{location}.parameters must be a table')
     if 'source' in args:
         render_source(args['source'], args.get('parameters'))
     elif not isinstance(args['file'], str) or not args['file']:
         raise ValueError(f'{location}.file must name a .hndl file')
-    inputs = args.get('concat_inputs')
-    if inputs is not None and (not isinstance(inputs, list) or not inputs
-                               or any(not isinstance(key, str) for key in inputs)
-                               or len(set(inputs)) != len(inputs)):
-        raise ValueError(f'{location}.concat_inputs must list distinct input names in concatenation order')
-    if type(args.get('concat_dim', -1)) is not int or args.get('concat_dim') == 0:
-        raise ValueError(f'{location}.concat_dim must be a non-batch integer axis')
+    dtype = args.get('input_dtype')
+    if dtype is not None:
+        ports = args['input_shape'] if isinstance(args['input_shape'], dict) else {'x': None}
+        dtypes = dtype if isinstance(dtype, dict) else {name: dtype for name in ports}
+        if (not dtypes or set(dtypes) - set(ports)
+                or any(value not in ('float32', 'int32', 'int64', 'bool') for value in dtypes.values())):
+            raise ValueError(f'{location}.input_dtype must declare supported dtypes for input ports')
 
 
 # Templates are loaded without importing their numerical adapters. Resolved
@@ -93,9 +91,9 @@ COMPONENT_TEMPLATES = {
     'hypergan.autoencoder_components:ParticleAEEncoder256': ('colorization_encoder_features', 'colorization_query', 'autoencoder_offset'),
     'hypergan.colorization_components:ColorizationGenerator': ('colorization_generator16', 'colorization_generator32', 'image_attention'),
     'hypergan.colorization_components:GrayscaleRoutingEncoder': ('colorization_encoder_features', 'colorization_query'),
-    'hypergan.colorization_components:DINOv3Discriminator': ('colorization_pixel_head', 'colorization_feature_project', 'colorization_linear_head', 'image_attention'),
-    'hypergan.colorization_components:DINOv3ProjectedDiscriminator': ('colorization_random_project', 'colorization_linear_head', 'colorization_conv_head', 'colorization_pixel_features', 'image_attention'),
-    'hypergan.colorization_components:DINOv3MultiScaleDiscriminator': ('colorization_multidepth_projection', 'colorization_scale_head32', 'colorization_scale_head16', 'colorization_scale_head8', 'colorization_scale_head4', 'image_attention'),
+    'hypergan.colorization_components:DINOv3Discriminator': ('colorization_dinov3_patch_tokens', 'colorization_pixel_head', 'colorization_feature_project', 'colorization_linear_head', 'colorization_joint_score', 'image_attention'),
+    'hypergan.colorization_components:DINOv3ProjectedDiscriminator': ('colorization_dinov3_patch_tokens', 'colorization_random_project', 'colorization_linear_head', 'colorization_conv_head', 'colorization_pixel_features', 'colorization_feature_concat', 'image_attention'),
+    'hypergan.colorization_components:DINOv3MultiScaleDiscriminator': ('colorization_dinov3_multidepth', 'colorization_multidepth_projection', 'colorization_scale_head32', 'colorization_scale_head16', 'colorization_scale_head8', 'colorization_scale_head4', 'colorization_multiscale_score', 'image_attention'),
     'hypergan.colorization_components:DCGANDiscriminator256': ('colorization_dcgan256',),
 }
 

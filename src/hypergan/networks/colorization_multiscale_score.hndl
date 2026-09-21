@@ -1,0 +1,2 @@
+concat(scale0, scale1, scale2, scale3)
+mean(1, keepdim=True)

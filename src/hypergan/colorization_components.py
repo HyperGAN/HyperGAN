@@ -4,11 +4,7 @@ The posterior matches its selected prior component exactly; its joint KL is the
 constant log(K). The straight-through routing derivative is a surrogate. There
 are no spatial generator skips and no learned posterior offset or variance.
 """
-import importlib
 import math
-from pathlib import Path
-import subprocess
-import sys
 
 import torch
 from torch import nn
@@ -124,33 +120,19 @@ class GrayscaleRoutingEncoder(nn.Module):
                 'ids': ids, 'soft': soft}
 
 
-def _load_dinov3(source_path, source_commit, weights_path, weights_sha256):
-    """Load an explicitly pinned clean local upstream checkout; never download."""
-    source = Path(source_path).expanduser().resolve()
-    if len(source_commit) != 40 or any(c not in '0123456789abcdef' for c in source_commit):
-        raise ValueError('DINOv3 source_commit must be a full lowercase Git SHA')
-    if not (source / 'dinov3' / 'hub' / 'backbones.py').is_file():
-        raise FileNotFoundError(f'DINOv3 source checkout missing: {source}')
-    try:
-        actual = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
-        dirty = subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all'], text=True).strip()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise ValueError(f'Cannot verify local DINOv3 Git checkout: {source}') from exc
-    if actual != source_commit or dirty:
-        raise ValueError(f'DINOv3 source must be clean at {source_commit}; got {actual}, dirty={bool(dirty)}')
+def _load_dinov3(source_path, source_commit, weights_path, weights_sha256,
+                 *, multidepth=False, networks=None):
+    """Build a pinned native pretrained node; HNDL owns checkpoint loading."""
+    from .pretrained_providers import dinov3_registry
+    registry = dinov3_registry(source_path, source_commit)
     weights = _verified_file(weights_path, weights_sha256)
-    # Explicit local import instead of Torch Hub's network/cache discovery.
-    sys.path.insert(0, str(source))
-    try:
-        package = importlib.import_module('dinov3')
-        if Path(package.__file__).resolve().parent != source / 'dinov3':
-            raise ValueError('A different DINOv3 package is imported; use the configured pinned checkout')
-        backbones = importlib.import_module('dinov3.hub.backbones')
-        backbone = backbones.dinov3_vits16(pretrained=False)
-    finally:
-        sys.path.remove(str(source))
-    backbone.load_state_dict(torch.load(weights, map_location='cpu', weights_only=True), strict=True)
-    return backbone
+    stem = 'colorization_dinov3_' + ('multidepth' if multidepth else 'patch_tokens')
+    output_shape = ({f'm{i}': ('B', 384, 16, 16) for i in range(4)} if multidepth
+                    else ('B', 384, 16, 16))
+    return build_network(source=(networks or {}).get(stem), file=stem + '.hndl',
+                         input_shape=('B', 3, 256, 256), output_shape=output_shape,
+                         parameters={'weights_path': str(weights), 'weights_sha256': weights_sha256},
+                         registry=registry)
 
 
 class _PixelHead(nn.Module):
@@ -178,8 +160,8 @@ class DINOv3Discriminator(nn.Module):
         super().__init__()
         _positive_integer(width, 'width')
         _positive_integer(feature_width, 'feature_width')
-        self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256)
-        self.backbone.eval().requires_grad_(False)
+        self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256,
+                                    networks=networks)
         self.pixel = _PixelHead(width, networks)
         self.feature_project = _network('colorization_feature_project', (384, 16, 16),
                                         (feature_width, 16, 16),
@@ -188,36 +170,21 @@ class DINOv3Discriminator(nn.Module):
         self.attention = SAGANAttention(feature_width, image_size=16, networks=networks)
         self.feature_output = _network('colorization_linear_head', (feature_width, 16, 16),
                                        (1,), networks=networks)
-        self.register_buffer('mean', torch.tensor([.485, .456, .406])[None, :, None, None])
-        self.register_buffer('std', torch.tensor([.229, .224, .225])[None, :, None, None])
+        self.score = _network('colorization_joint_score', {'pixel': (1,), 'feature': (1,)},
+                               (1,), networks=networks)
         self.pretrained_metadata = {'architecture': 'dinov3_vits16', 'pretraining': 'LVD-1689M',
                                     'source_commit': source_commit, 'weights_sha256': weights_sha256,
                                     'input_size': 256, 'sdpa_backend': 'math'}
-
-    def train(self, mode=True):
-        super().train(mode)
-        self.backbone.eval()
-        return self
-
-    def requires_grad_(self, requires_grad=True):
-        super().requires_grad_(requires_grad)
-        self.backbone.requires_grad_(False)
-        return self
 
     def forward(self, x, gray):
         if x.ndim != 4 or tuple(x.shape[1:]) != (3, 256, 256):
             raise ValueError('Discriminator requires x [batch,3,256,256] in [-1,1]')
         if gray.shape != (len(x), 1, 256, 256):
             raise ValueError('Discriminator requires matching gray [batch,1,256,256]')
-        normalized = (x * .5 + .5 - self.mean) / self.std
-        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
-            tokens = self.backbone.forward_features(normalized)['x_norm_patchtokens']
-        if tokens.shape != (len(x), 256, 384):
-            raise ValueError('DINOv3 ViT-S/16 must return 256 patch tokens of width 384')
-        features = tokens.transpose(1, 2).reshape(len(x), 384, 16, 16)
+        features = self.backbone(x)
         features = self.attention(self.feature_project(features))
         logits = self.feature_output(features)
-        return (self.pixel(x, gray) + logits) / math.sqrt(2)
+        return self.score(pixel=self.pixel(x, gray), feature=logits)
 
 
 class DINOv3ProjectedDiscriminator(nn.Module):
@@ -253,55 +220,39 @@ class DINOv3ProjectedDiscriminator(nn.Module):
             raise ValueError("pixel_width > 0 requires head='conv'")
         self.head = head
         self.pixel_width = pixel_width
-        self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256)
-        self.backbone.eval().requires_grad_(False)
+        self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256,
+                                    networks=networks)
         self.feature_project = _network('colorization_random_project', (384, 16, 16),
                                         (feature_width, 16, 16),
                                         {'feature_width': feature_width}, networks)
-        self.feature_project.eval().requires_grad_(False)
         feature_channels = feature_width
         if pixel_width:
             self.pixel_features = _network('colorization_pixel_features', (3, 256, 256),
                                            (feature_width, 16, 16),
                                            {'pixel_width': pixel_width, 'p2': 2 * pixel_width,
                                             'feature_width': feature_width}, networks)
+            self.feature_concat = _network('colorization_feature_concat',
+                                            {'features': (feature_width, 16, 16),
+                                             'pixels': (feature_width, 16, 16)},
+                                            (2 * feature_width, 16, 16), networks=networks)
             feature_channels += feature_width
         self.attention = SAGANAttention(feature_channels, image_size=16, networks=networks)
         self.feature_output = _network('colorization_' + head + '_head',
                                        (feature_channels, 16, 16), (1,),
                                        {'f2': 2 * feature_width, 'f4': 4 * feature_width}, networks)
-        self.register_buffer('mean', torch.tensor([.485, .456, .406])[None, :, None, None])
-        self.register_buffer('std', torch.tensor([.229, .224, .225])[None, :, None, None])
         self.pretrained_metadata = {'architecture': 'dinov3_vits16', 'pretraining': 'LVD-1689M',
                                     'source_commit': source_commit, 'weights_sha256': weights_sha256,
                                     'input_size': 256, 'sdpa_backend': 'math',
                                     'projection': 'frozen_random_1x1_channel_3x3_spatial',
                                     'feature_scales': 1, 'head': head, 'pixel_width': pixel_width}
 
-    def train(self, mode=True):
-        super().train(mode)
-        self.backbone.eval()
-        self.feature_project.eval()
-        return self
-
-    def requires_grad_(self, requires_grad=True):
-        super().requires_grad_(requires_grad)
-        self.backbone.requires_grad_(False)
-        self.feature_project.requires_grad_(False)
-        return self
-
     def forward(self, x):
         if x.ndim != 4 or tuple(x.shape[1:]) != (3, 256, 256):
             raise ValueError('Discriminator requires x [batch,3,256,256] in [-1,1]')
-        normalized = (x * .5 + .5 - self.mean) / self.std
-        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
-            tokens = self.backbone.forward_features(normalized)['x_norm_patchtokens']
-        if tokens.shape != (len(x), 256, 384):
-            raise ValueError('DINOv3 ViT-S/16 must return 256 patch tokens of width 384')
-        features = tokens.transpose(1, 2).reshape(len(x), 384, 16, 16)
+        features = self.backbone(x)
         features = self.feature_project(features)
         if self.pixel_width:
-            features = torch.cat((features, self.pixel_features(x)), dim=1)
+            features = self.feature_concat(features=features, pixels=self.pixel_features(x))
         features = self.attention(features)
         return self.feature_output(features)
 
@@ -356,13 +307,13 @@ class DINOv3MultiScaleDiscriminator(nn.Module):
                  feature_width=64, networks=None):
         super().__init__()
         _positive_integer(feature_width, 'feature_width')
-        self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256)
-        self.backbone.eval().requires_grad_(False)
-        self.feature_project = _MultiDepthProjection(feature_width, networks).eval().requires_grad_(False)
+        self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256,
+                                    multidepth=True, networks=networks)
+        self.feature_project = _MultiDepthProjection(feature_width, networks)
         self.heads = nn.ModuleList(_ProjectedScaleHead(feature_width, size, networks)
                                   for size in self.feature_project.sizes)
-        self.register_buffer('mean', torch.tensor([.485, .456, .406])[None, :, None, None])
-        self.register_buffer('std', torch.tensor([.229, .224, .225])[None, :, None, None])
+        self.score = _network('colorization_multiscale_score',
+                               {f'scale{i}': (1,) for i in range(4)}, (1,), networks=networks)
         self.pretrained_metadata = {
             'architecture': 'dinov3_vits16', 'pretraining': 'LVD-1689M',
             'source_commit': source_commit, 'weights_sha256': weights_sha256,
@@ -375,28 +326,13 @@ class DINOv3MultiScaleDiscriminator(nn.Module):
             'head': 'spectral_conv_attention', 'aggregation': 'mean_scalar_logits',
         }
 
-    def train(self, mode=True):
-        super().train(mode)
-        self.backbone.eval()
-        self.feature_project.eval()
-        return self
-
-    def requires_grad_(self, requires_grad=True):
-        super().requires_grad_(requires_grad)
-        self.backbone.requires_grad_(False)
-        self.feature_project.requires_grad_(False)
-        return self
-
     def forward(self, x):
         if x.ndim != 4 or tuple(x.shape[1:]) != (3, 256, 256):
             raise ValueError('Discriminator requires x [batch,3,256,256] in [-1,1]')
-        normalized = (x * .5 + .5 - self.mean) / self.std
-        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
-            maps = self.backbone.get_intermediate_layers(normalized, n=self.blocks, reshape=True, norm=True)
-        if len(maps) != 4 or any(feature.shape != (len(x), 384, 16, 16) for feature in maps):
-            raise ValueError('DINOv3 ViT-S/16 must return four [batch,384,16,16] intermediate maps')
-        projected = self.feature_project(maps)
-        return torch.stack([head(feature) for head, feature in zip(self.heads, projected)]).mean(0)
+        maps = self.backbone(x)
+        projected = self.feature_project([maps[f'm{i}'] for i in range(4)])
+        return self.score(**{f'scale{i}': head(feature)
+                             for i, (head, feature) in enumerate(zip(self.heads, projected))})
 
 
 class DCGANDiscriminator256(nn.Module):

@@ -10,6 +10,7 @@ from torch.nn import functional as F
 
 from hypergan import colorization_components as color
 from tests.hndl_fixtures import fixture_network
+from tests.dinov3_fixtures import dinov3_assets, backbone_model
 from hypergan.config import load_config
 from hypergan.recipes import ComponentGraph
 
@@ -137,12 +138,16 @@ class _TinyBackbone(nn.Module):
         return {'x_norm_patchtokens': self.network(x)}
 
 
-def test_discriminator_keeps_features_frozen_but_allows_image_double_backward(monkeypatch):
-    monkeypatch.setattr(color, '_load_dinov3', lambda *args: _TinyBackbone())
-    model = color.DINOv3Discriminator('unused', '0' * 40, 'unused', '0' * 64,
+def test_discriminator_keeps_features_frozen_but_allows_image_double_backward(monkeypatch, tmp_path):
+    args = dinov3_assets(monkeypatch, tmp_path, _TinyBackbone)
+    model = color.DINOv3Discriminator(*args,
                                       width=2, feature_width=4)
-    model.requires_grad_(False).requires_grad_(True).train()
-    assert not model.backbone.training
+    flags = [(parameter, parameter.requires_grad) for parameter in model.parameters()]
+    model.requires_grad_(False)
+    for parameter, flag in flags:
+        parameter.requires_grad_(flag)
+    model.train()
+    assert not backbone_model(model).training
     assert all(not parameter.requires_grad for parameter in model.backbone.parameters())
     x = torch.randn(1, 3, 256, 256, requires_grad=True)
     gray = torch.randn(1, 1, 256, 256)
@@ -159,25 +164,27 @@ def test_discriminator_keeps_features_frozen_but_allows_image_double_backward(mo
         assert not torch.equal(model(x.detach(), gray), model(x.detach(), gray + .2))
 
 
-def _projected_discriminator(monkeypatch, **kwargs):
-    monkeypatch.setattr(color, '_load_dinov3', lambda *args: _TinyBackbone())
-    return color.DINOv3ProjectedDiscriminator('unused', '0' * 40, 'unused', '0' * 64,
-                                               feature_width=4, **kwargs)
+def _projected_discriminator(monkeypatch, tmp_path, **kwargs):
+    args = dinov3_assets(monkeypatch, tmp_path, _TinyBackbone)
+    return color.DINOv3ProjectedDiscriminator(*args, feature_width=4, **kwargs)
 
 
-def test_projected_discriminator_single_path_frozen_masks_and_double_backward(monkeypatch):
-    model = _projected_discriminator(monkeypatch)
+def test_projected_discriminator_single_path_frozen_masks_and_double_backward(monkeypatch, tmp_path):
+    model = _projected_discriminator(monkeypatch, tmp_path)
+    flags = [(parameter, parameter.requires_grad) for parameter in model.parameters()]
     model.requires_grad_(False)
     assert all(not parameter.requires_grad for parameter in model.parameters())
-    model.requires_grad_(True).train()
-    assert not model.backbone.training and not model.feature_project.training
+    for parameter, flag in flags:
+        parameter.requires_grad_(flag)
+    model.train()
+    assert not backbone_model(model).training
     assert model.attention.training and model.feature_output.training
     frozen = {name: parameter.detach().clone() for name, parameter in model.named_parameters()
               if name.startswith(('backbone.', 'feature_project.'))}
     assert all(parameter.requires_grad == (name not in frozen)
                for name, parameter in model.named_parameters())
     calls = []
-    hook = model.backbone.network['patch'].register_forward_hook(lambda *_: calls.append(True))
+    hook = backbone_model(model).network['patch'].register_forward_hook(lambda *_: calls.append(True))
     x = torch.randn(1, 3, 256, 256, requires_grad=True)
     logits = model(x)
     hook.remove()
@@ -202,27 +209,32 @@ def test_projected_discriminator_single_path_frozen_masks_and_double_backward(mo
 
 
 def test_projected_discriminator_state_reload_preserves_random_projection(monkeypatch, tmp_path):
-    model = _projected_discriminator(monkeypatch).eval()
+    model = _projected_discriminator(monkeypatch, tmp_path).eval()
     x = torch.randn(1, 3, 256, 256)
     expected = model(x).detach()
     path = tmp_path / 'projected.pt'
     torch.save(model.state_dict(), path)
-    restored = _projected_discriminator(monkeypatch).eval()
+    restored = _projected_discriminator(monkeypatch, tmp_path).eval()
     assert not torch.equal(model.feature_project[0].weight, restored.feature_project[0].weight)
     restored.load_state_dict(torch.load(path, weights_only=True), strict=True)
     torch.testing.assert_close(restored(x), expected, rtol=0, atol=0)
     assert all(not parameter.requires_grad for parameter in restored.feature_project.parameters())
+    args = dinov3_assets(monkeypatch, tmp_path, _TinyBackbone)
     with pytest.raises(RuntimeError, match='Missing key|Unexpected key|size mismatch'):
-        color.DINOv3Discriminator('unused', '0' * 40, 'unused', '0' * 64,
+        color.DINOv3Discriminator(*args,
                                   width=2, feature_width=4).load_state_dict(model.state_dict())
 
 
-def test_projected_conv_head_trains_with_frozen_features_and_input_double_backward(monkeypatch):
-    model = _projected_discriminator(monkeypatch, head='conv')
-    model.requires_grad_(False).requires_grad_(True).train()
+def test_projected_conv_head_trains_with_frozen_features_and_input_double_backward(monkeypatch, tmp_path):
+    model = _projected_discriminator(monkeypatch, tmp_path, head='conv')
+    flags = [(parameter, parameter.requires_grad) for parameter in model.parameters()]
+    model.requires_grad_(False)
+    for parameter, flag in flags:
+        parameter.requires_grad_(flag)
+    model.train()
     frozen = {name: parameter.detach().clone() for name, parameter in model.named_parameters()
               if name.startswith(('backbone.', 'feature_project.'))}
-    assert not model.backbone.training and not model.feature_project.training
+    assert not backbone_model(model).training
     assert model.attention.training and model.feature_output.training
     assert all(parameter.requires_grad == (name not in frozen)
                for name, parameter in model.named_parameters())
@@ -249,14 +261,14 @@ def test_projected_conv_head_trains_with_frozen_features_and_input_double_backwa
             torch.testing.assert_close(parameter, frozen[name], rtol=0, atol=0)
     # Spectral-norm vectors and original weights survive strict checkpoint reload.
     model.eval()
-    restored = _projected_discriminator(monkeypatch, head='conv').eval()
+    restored = _projected_discriminator(monkeypatch, tmp_path, head='conv').eval()
     restored.load_state_dict(model.state_dict(), strict=True)
     torch.testing.assert_close(restored(x.detach()), model(x.detach()), rtol=0, atol=0)
 
 
-def test_projected_linear_default_and_explicit_config_share_checkpoint_keys(monkeypatch):
-    model = _projected_discriminator(monkeypatch)
-    explicit = _projected_discriminator(monkeypatch, head='linear')
+def test_projected_linear_default_and_explicit_config_share_checkpoint_keys(monkeypatch, tmp_path):
+    model = _projected_discriminator(monkeypatch, tmp_path)
+    explicit = _projected_discriminator(monkeypatch, tmp_path, head='linear')
     explicit.load_state_dict(model.state_dict(), strict=True)
     assert model.feature_output.plan.nodes[-1].op == 'linear@1'
     assert 'feature_output.nodes.n_output.weight' in model.state_dict()
@@ -269,14 +281,14 @@ def test_projected_discriminator_rejects_invalid_head_before_loading_weights(hea
         color.DINOv3ProjectedDiscriminator('unused', '0' * 40, 'unused', '0' * 64, head=head)
 
 
-def test_projected_discriminator_rejects_conditioning_and_bad_feature_contract(monkeypatch):
-    model = _projected_discriminator(monkeypatch)
+def test_projected_discriminator_rejects_conditioning_and_bad_feature_contract(monkeypatch, tmp_path):
+    model = _projected_discriminator(monkeypatch, tmp_path)
     x = torch.randn(1, 3, 256, 256)
     with pytest.raises(TypeError):
         model(x, gray=x[:, :1])
     with pytest.raises(ValueError, match='requires x'):
         model(x[:, :, :128])
-    monkeypatch.setattr(model.backbone, 'forward_features',
+    monkeypatch.setattr(backbone_model(model), 'forward_features',
                         lambda x: {'x_norm_patchtokens': torch.zeros(len(x), 64, 384)})
     with pytest.raises(ValueError, match='256 patch tokens'):
         model(x)
@@ -335,3 +347,37 @@ def test_pretrained_loader_rejects_changed_external_source(tmp_path):
     implementation.write_text('# modified source\n')
     with pytest.raises(ValueError, match='dirty=True'):
         color._load_dinov3(tmp_path, commit, 'missing.pth', '0' * 64)
+
+
+def test_native_pretrained_normalization_and_weight_pin(monkeypatch, tmp_path):
+    args = dinov3_assets(monkeypatch, tmp_path, _TinyBackbone)
+    model = color.DINOv3ProjectedDiscriminator(*args, feature_width=4).eval()
+    captured = []
+    hook = backbone_model(model).network.register_forward_pre_hook(
+        lambda module, inputs: captured.append(inputs[0].detach()))
+    x = torch.linspace(-1, 1, 3 * 256 * 256).reshape(1, 3, 256, 256)
+    model(x)
+    hook.remove()
+    mean = x.new_tensor([.485, .456, .406])[None, :, None, None]
+    std = x.new_tensor([.229, .224, .225])[None, :, None, None]
+    torch.testing.assert_close(captured[0], (x * .5 + .5 - mean) / std)
+    assert model.backbone.plan.nodes[-3].op == 'pretrained@1'
+    with pytest.raises(ValueError, match='SHA256 mismatch'):
+        color.DINOv3ProjectedDiscriminator(*args[:3], '0' * 64, feature_width=4)
+
+
+def test_pretrained_trainability_is_controlled_by_hndl(monkeypatch, tmp_path):
+    from hypergan.network_config import packaged_source
+    args = dinov3_assets(monkeypatch, tmp_path, _TinyBackbone)
+    source = packaged_source('colorization_dinov3_patch_tokens.hndl').replace(
+        'trainable=False', 'trainable=True')
+    model = color.DINOv3ProjectedDiscriminator(
+        *args, feature_width=4, networks={'colorization_dinov3_patch_tokens': source})
+    model.train()
+    assert backbone_model(model).training
+    assert all(parameter.requires_grad for parameter in model.backbone.parameters())
+    assert all(not parameter.requires_grad for parameter in model.feature_project.parameters())
+    model(torch.randn(1, 3, 256, 256)).square().mean().backward()
+    assert backbone_model(model).network['patch'].weight.grad.abs().sum() > 0
+    model.eval()
+    assert not backbone_model(model).training

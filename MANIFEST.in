@@ -35,3 +35,5 @@ recursive-include frontend *.json *.js *.mjs *.md
 prune frontend/node_modules
 
 recursive-include src/hypergan/networks *.hndl
+
+include tests/dinov3_fixtures.py

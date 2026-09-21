@@ -1,0 +1,2 @@
+# The optional RGB stem joins projected DINO patches before shared attention.
+concat(features, pixels)

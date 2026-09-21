@@ -6,6 +6,7 @@ from torch.nn import functional as F
 
 from hypergan import colorization_components as color
 from tests.hndl_fixtures import fixture_network
+from tests.dinov3_fixtures import dinov3_assets, backbone_model
 
 
 @pytest.fixture(autouse=True)
@@ -30,22 +31,21 @@ class _Backbone(nn.Module):
         return {'x_norm_patchtokens': self.network(x)}
 
 
-def _model(monkeypatch, pixel_width=2, constant=False):
-    monkeypatch.setattr(color, '_load_dinov3', lambda *args: _Backbone(constant))
-    return color.DINOv3ProjectedDiscriminator('unused', '0' * 40, 'unused', '0' * 64,
-                                               feature_width=4, head='conv', pixel_width=pixel_width)
+def _model(monkeypatch, tmp_path, pixel_width=2, constant=False):
+    args = dinov3_assets(monkeypatch, tmp_path, lambda: _Backbone(constant))
+    return color.DINOv3ProjectedDiscriminator(*args, feature_width=4, head='conv', pixel_width=pixel_width)
 
 
-def test_pixel_features_supply_image_gradient_when_dino_is_constant(monkeypatch):
+def test_pixel_features_supply_image_gradient_when_dino_is_constant(monkeypatch, tmp_path):
     torch.manual_seed(971)
-    model = _model(monkeypatch, constant=True).train()
+    model = _model(monkeypatch, tmp_path, constant=True).train()
     x = torch.randn(2, 3, 256, 256, requires_grad=True)
     calls = []
     hook = model.attention.register_forward_pre_hook(lambda module, inputs: calls.append(tuple(inputs[0].shape)))
     logits = model(x)
     hook.remove()
     assert logits.shape == (2, 1)
-    assert model.backbone.calls == 1
+    assert backbone_model(model).calls == 1
     assert calls == [(2, 8, 16, 16)]
     gradient, = torch.autograd.grad(logits.sum(), x, create_graph=True)
     assert torch.isfinite(gradient).all() and gradient.abs().sum() > 0
@@ -61,8 +61,8 @@ def test_pixel_features_supply_image_gradient_when_dino_is_constant(monkeypatch)
     assert all(p.grad is None for p in model.feature_project.parameters())
 
 
-def test_dino_image_gradient_remains_when_pixel_features_are_disabled(monkeypatch):
-    model = _model(monkeypatch, pixel_width=0)
+def test_dino_image_gradient_remains_when_pixel_features_are_disabled(monkeypatch, tmp_path):
+    model = _model(monkeypatch, tmp_path, pixel_width=0)
     assert not hasattr(model, 'pixel_features')
     x = torch.randn(1, 3, 256, 256, requires_grad=True)
     gradient, = torch.autograd.grad(model(x).sum(), x, create_graph=True)
@@ -72,12 +72,15 @@ def test_dino_image_gradient_remains_when_pixel_features_are_disabled(monkeypatc
     assert model.attention.network['attention_query'].weight.grad.abs().sum() > 0
 
 
-def test_pixel_features_freeze_masks_and_checkpoint_reload(monkeypatch):
-    model = _model(monkeypatch)
+def test_pixel_features_freeze_masks_and_checkpoint_reload(monkeypatch, tmp_path):
+    model = _model(monkeypatch, tmp_path)
+    flags = [(parameter, parameter.requires_grad) for parameter in model.parameters()]
     model.requires_grad_(False)
     assert all(not p.requires_grad for p in model.parameters())
-    model.requires_grad_(True).train()
-    assert not model.backbone.training and not model.feature_project.training
+    for parameter, flag in flags:
+        parameter.requires_grad_(flag)
+    model.train()
+    assert not backbone_model(model).training
     assert model.pixel_features.training and model.attention.training and model.feature_output.training
     frozen = {name: p.detach().clone() for name, p in model.named_parameters()
               if name.startswith(('backbone.', 'feature_project.'))}
@@ -92,7 +95,7 @@ def test_pixel_features_freeze_masks_and_checkpoint_reload(monkeypatch):
             assert p.grad is None
             torch.testing.assert_close(p, frozen[name], rtol=0, atol=0)
     model.eval()
-    restored = _model(monkeypatch).eval()
+    restored = _model(monkeypatch, tmp_path).eval()
     restored.load_state_dict(model.state_dict(), strict=True)
     torch.testing.assert_close(restored(x), model(x), rtol=0, atol=0)
 

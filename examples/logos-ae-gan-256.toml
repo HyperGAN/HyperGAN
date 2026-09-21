@@ -238,6 +238,8 @@ image_attention = "../src/hypergan/networks/image_attention.hndl"
 
 # Editable HNDL architecture sources, resolved relative to this recipe.
 [components.discriminator.args.network_files]
+colorization_dinov3_patch_tokens = "../src/hypergan/networks/colorization_dinov3_patch_tokens.hndl"
+colorization_feature_concat = "../src/hypergan/networks/colorization_feature_concat.hndl"
 colorization_random_project = "../src/hypergan/networks/colorization_random_project.hndl"
 colorization_linear_head = "../src/hypergan/networks/colorization_linear_head.hndl"
 colorization_conv_head = "../src/hypergan/networks/colorization_conv_head.hndl"

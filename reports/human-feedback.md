@@ -9,11 +9,29 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
+
+Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."
+
+What is true today:
+- Python is the product. `pip install hypergan[web]` pulls only Python wheels (starlette, uvicorn, wasmtime).
+- Rust lives in `reducers/core` and compiles to the metrics reducer WASM, which is committed as `src/hypergan/metrics_reducer/assets/reducer.wasm` and executed by wasmtime (Python side) and the browser. Users do not need cargo.
+- Node is used only to bundle the viewer frontend (`frontend/`, esbuild + echarts) into the committed `src/hypergan/web_assets/app.js`. Users do not need Node; contributors who edit the UI do.
+
+- [ ] Confirm and document the split clearly: end users need Python only; Rust and Node are contributor-only build tools, with the built artifacts committed. State this in README and a contributor guide.
+Owner note: an acceptable outcome of this investigation is "it's fine as is", provided the user-facing install stays Python-only.
+
+- [ ] Decide whether Node is worth keeping. Options to evaluate: keep esbuild with committed output (status quo), drop the bundler and ship plain ES modules plus a vendored chart library, or move the bundling step into a Python-invoked tool so there is one contributor toolchain. Record the trade-offs (echarts size, minification, dev-mode watch from item 4).
+- [ ] Add a CI check that the committed `app.js` and `reducer.wasm` match their sources, so a contributor without Node or Rust can still trust the artifacts they ship.
+- [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
+
+## Done
+
 ### 11. Steps per second as a training metric (raised 2026-09-20)
 
 Owner: "we should have steps/s during training as a metric."
 
-**Status:** Implemented in commit 0ec7ce79. `throughput/steps_per_second` is a
+**Status:** Implemented in commit 0ec7ce79, merged to develop in ed9632c5. `throughput/steps_per_second` is a
 built-in training-scope scalar published on every complete update, smoothed over
 the last 20 updates. It is listed in the catalog, part of the viewer's default
 Learning curves selection, shown in the headline stats next to Completed step,
@@ -49,7 +67,7 @@ Where this lives now:
 
 Owner: "we should have time spent training."
 
-**Status:** Implemented in commit 0ec7ce79. The run manifest carries
+**Status:** Implemented in commit 0ec7ce79, merged to develop in ed9632c5. The run manifest carries
 `training_seconds`, the cumulative wall clock spent inside training attempts.
 Each attempt reads it as its baseline and adds only its own elapsed time, so a
 resumed run continues the total and the gap between two commands is never
@@ -80,7 +98,7 @@ Where this lives now:
 
 Owner: "we should have number of samples seen."
 
-**Status:** Implemented in commit 0ec7ce79. `samples_seen` is now in the run
+**Status:** Implemented in commit 0ec7ce79, merged to develop in ed9632c5. `samples_seen` is now in the run
 manifest and the headline stats, on the CLI progress line (`12,800 samples`) and
 chartable as `progress/samples_seen`. `step * batch_size` was already correct
 under gradient accumulation and a world size larger than one: `training.batch_size`
@@ -110,7 +128,7 @@ Owner: "theres a hash at the top of the page idk what it is, next to 'RUNNING' w
 - [x] Map the manifest status to user wording in the badge: `running` displays as "Training"; check the other statuses (`complete`, `failed`, `stopped`, …) read well too.
 - [x] Update the browser UI test that asserts the badge text.
 
-**Status:** Implemented on branch `worktree-agent-ae1f64e7eeeeeac5b`.
+**Status:** Implemented in commit b81823fc, merged to develop (fast-forward).
 
 The status badge now stands alone under the run name and reads in the words the
 owner uses: `running` and `training` both show **Training**, `initializing`,
@@ -143,7 +161,7 @@ Owner: "we don't need the cli interval controller."
 - [x] Remove the "CLI progress every N steps / Save CLI interval" form from the viewer.
 - [x] Decide whether the `/runs/{id}/console` API, the `console` control capability and `console_settings.py` stay for scripted use or go with it; keep the `--progress-every` CLI flag either way. Remove dead code and tests, update `frontend/API.md` and docs.
 
-**Status:** Implemented on branch `worktree-agent-ae1f64e7eeeeeac5b`.
+**Status:** Implemented in commit b81823fc, merged to develop (fast-forward).
 
 The form is gone from the viewer, and so is the API behind it: `GET`/`PUT
 /api/v1/runs/{run_id}/console`, its OpenAPI entry and the `console` control
@@ -190,7 +208,7 @@ Owner: "We don't want the FID score in learning curves section. It should only b
 - [x] Design the empty state: a metric with a schedule but no result yet shows its chart area with "No evaluations yet · next at step N" (or "manual"), not a wall of text; a run with no snapshot metrics keeps hiding the panel.
 - [x] Update the browser tests for the panel.
 
-**Status:** Implemented on branch `worktree-agent-a6b1bedbcb92a624f`.
+**Status:** Implemented in commit 48b5e919, merged to develop in 3f2edebd.
 
 Where this lives now:
 
@@ -231,23 +249,6 @@ lines, that device and busy policy are only behind Details, and that "Snapshot
 quality" appears in neither `#metric-list` nor `#charts` while `#metric-count`
 counts training scalars only. The item 9 chart assertions are unchanged.
 
-### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
-
-Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."
-
-What is true today:
-- Python is the product. `pip install hypergan[web]` pulls only Python wheels (starlette, uvicorn, wasmtime).
-- Rust lives in `reducers/core` and compiles to the metrics reducer WASM, which is committed as `src/hypergan/metrics_reducer/assets/reducer.wasm` and executed by wasmtime (Python side) and the browser. Users do not need cargo.
-- Node is used only to bundle the viewer frontend (`frontend/`, esbuild + echarts) into the committed `src/hypergan/web_assets/app.js`. Users do not need Node; contributors who edit the UI do.
-
-- [ ] Confirm and document the split clearly: end users need Python only; Rust and Node are contributor-only build tools, with the built artifacts committed. State this in README and a contributor guide.
-Owner note: an acceptable outcome of this investigation is "it's fine as is", provided the user-facing install stays Python-only.
-
-- [ ] Decide whether Node is worth keeping. Options to evaluate: keep esbuild with committed output (status quo), drop the bundler and ship plain ES modules plus a vendored chart library, or move the bundling step into a Python-invoked tool so there is one contributor toolchain. Record the trade-offs (echarts size, minification, dev-mode watch from item 4).
-- [ ] Add a CI check that the committed `app.js` and `reducer.wasm` match their sources, so a contributor without Node or Rust can still trust the artifacts they ship.
-- [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
-
-## Done
 
 ### 8. Sample slider should cover the whole run, not the last N (raised 2026-09-20)
 

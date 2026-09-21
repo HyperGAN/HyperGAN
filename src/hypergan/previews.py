@@ -16,6 +16,11 @@ from .run_state import atomic_json, sync_directory
 MAX_COUNT = 16
 MAX_ELEMENTS = 65536
 MAX_BYTES = 2 * 1024 * 1024
+# PNG transport is bounded separately; published JSON never contains image bytes
+# or large nested pixel lists. The total float image budget is 16 MiB.
+MAX_IMAGE_ELEMENTS = 4_194_304
+MAX_RENDER_BYTES = 24 * 1024 * 1024
+MAX_INPUT_GRIDS = 4
 # Image history is what a reader scrubs through, so a run keeps a bounded but
 # whole-run history rather than only its newest samples. When a run outgrows
 # `keep`, the spacing between the older samples doubles (a run publishing every
@@ -70,6 +75,28 @@ def _inputs(trainer, batch):
     return {key: batch[key] for key in needed}
 
 
+def _image(value):
+    return value.ndim == 4 and value.shape[1] in (1, 3) and value.is_floating_point()
+
+
+def preview_budget(trainer, batch, inputs):
+    """Keep tensor fixtures small; allow bounded images without tensor JSON."""
+    import torch
+    real = batch['real']
+    for name, value in dict(inputs, real=real).items():
+        if not isinstance(value, torch.Tensor) or value.ndim < 1 or not len(value):
+            raise ValueError(f'Preview input {name} must be a nonempty batched tensor')
+    per_sample = real[0].numel() + sum(value[0].numel() for value in inputs.values())
+    image_only = _image(real) and per_sample * min(trainer.config['sampling']['count'], MAX_COUNT) > MAX_ELEMENTS
+    budget = MAX_IMAGE_ELEMENTS if image_only else MAX_ELEMENTS
+    count = min(trainer.config['sampling']['count'], MAX_COUNT, budget // max(1, per_sample))
+    if count < 1:
+        raise ValueError(f'One preview sample exceeds the {budget}-element output/input budget')
+    if image_only and sum(count * value[0].numel() for value in inputs.values() if not _image(value)) > MAX_ELEMENTS:
+        raise ValueError('Nonimage preview inputs exceed the tensor element budget')
+    return count, per_sample, budget, image_only
+
+
 def render_preview(trainer, batch, identity):
     """Copy EMA state before eval: custom forwards cannot mutate live buffers."""
     import copy
@@ -77,6 +104,7 @@ def render_preview(trainer, batch, identity):
     import numpy as np
     import torch
     from .checkpoints import capture_rng, restore_rng
+    from .recipes import generation_particle_ids
     rng = capture_rng()
     try:
         seed = trainer.config['sampling']['seed']
@@ -85,14 +113,7 @@ def render_preview(trainer, batch, identity):
         np.random.seed(seed % (2 ** 32))
         inputs = _inputs(trainer, batch)
         real = batch['real']
-        per_sample = real[0].numel()
-        for key, value in inputs.items():
-            if not isinstance(value, torch.Tensor) or value.ndim < 1 or not len(value):
-                raise ValueError(f'Preview input {key} must be a nonempty batched tensor')
-            per_sample += value[0].numel()
-        count = min(trainer.config['sampling']['count'], MAX_COUNT, MAX_ELEMENTS // max(1, per_sample))
-        if count < 1:
-            raise ValueError(f'One preview sample exceeds the {MAX_ELEMENTS}-element output/input budget')
+        count, per_sample, budget, image_only = preview_budget(trainer, batch, inputs)
         normalized = {key: value[torch.arange(count) % len(value)].detach().clone() for key, value in inputs.items()}
         recorded_inputs = {key: value.clone() for key, value in normalized.items()}
         graph = copy.deepcopy(trainer.ema_graph).cpu().eval().requires_grad_(False)
@@ -101,21 +122,28 @@ def render_preview(trainer, batch, identity):
         recorded_inputs = {key: value.cpu() for key, value in recorded_inputs.items()}
         with torch.inference_mode():
             latent, ids = prior.sample(count, generator=torch.Generator().manual_seed(seed))
-            values = graph.generate(latent, normalized, prior=prior)['generated']
+            context = graph.generate(latent, normalized, prior=prior)
+            values = context['generated']
+            ids = generation_particle_ids(graph, context, ids, trainer.config['sampling'])
         if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
             raise ValueError('Preview generator must return a tensor with the requested batch size')
-        if values.numel() + sum(value.numel() for value in recorded_inputs.values()) > MAX_ELEMENTS:
-            raise ValueError(f'Preview exceeds the {MAX_ELEMENTS}-element output/input budget')
+        if values.numel() + sum(value.numel() for value in recorded_inputs.values()) > budget:
+            raise ValueError(f'Preview exceeds the {budget}-element output/input budget')
+        if image_only and not _image(values):
+            raise ValueError('Large previews require floating NCHW RGB/grayscale generator output')
         if not torch.isfinite(values).all():
             raise ValueError('Preview contains nonfinite values')
         payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': dict(identity),
                 'name': _identity_name(identity),
                 'step': trainer.step, 'seed': seed, 'count': count,
                 'requested_count': trainer.config['sampling']['count'],
-                'count_limited_by': [name for name, limit in [('count-cap', MAX_COUNT), ('element-budget', MAX_ELEMENTS // max(1, per_sample))] if count < trainer.config['sampling']['count'] and count == limit],
+                'count_limited_by': [name for name, limit in [('count-cap', MAX_COUNT), ('element-budget', budget // max(1, per_sample))] if count < trainer.config['sampling']['count'] and count == limit],
                 'shape': list(values.shape),
-                'samples': values.tolist(), 'particle_ids': ids.tolist() if ids is not None else None,
-                'inputs': {key: value.tolist() for key, value in recorded_inputs.items()},
+                'samples': None if image_only else values.tolist(), 'particle_ids': ids.tolist() if ids is not None else None,
+                'representation': 'png' if image_only else 'tensor',
+                'inputs': {key: {'shape': list(value.shape), 'representation': 'png'}
+                           if image_only and _image(value) else value.tolist()
+                           for key, value in recorded_inputs.items()},
                 'conditioning': 'last-completed-batch-cycled' if normalized else 'unconditional',
                 'resume_supported': False}
         if values.ndim == 4 and values.shape[1] in (1, 3):
@@ -129,24 +157,46 @@ def render_preview(trainer, batch, identity):
             # so the viewer can index both sources; it is not regenerated data.
             rows = real[torch.arange(count) % len(real)].detach().cpu()
             if (rows.ndim == 4 and rows.shape[1] == values.shape[1] and rows.is_floating_point()
-                    and rows.numel() <= MAX_ELEMENTS and torch.isfinite(rows).all()):
+                    and rows.numel() <= budget and torch.isfinite(rows).all()):
                 encoded, grid = tensor_grid(rows, dict(provenance, name=REAL_NAME,
                                                        shape=list(rows.shape), source='batch.real'))
                 payload['real_image_grid'] = dict(grid, name=REAL_NAME, source='batch.real',
                                                   png_base64=base64.b64encode(encoded).decode('ascii'))
+            image_inputs = [(key, value) for key, value in sorted(recorded_inputs.items())
+                            if key != 'real' and _image(value)]
+            if len(image_inputs) > MAX_INPUT_GRIDS:
+                raise ValueError(f'Preview supports at most {MAX_INPUT_GRIDS} conditioning image grids')
+            # Input names may equal the generator/real shelf names. Preserve the
+            # original batch source, but give every image a distinct shelf name.
+            occupied = {payload['name'], REAL_NAME}
+            reserved = occupied | {key for key, _ in image_inputs}
+            for index, (key, value) in enumerate(image_inputs):
+                name = key
+                if NAME.fullmatch(name) is None or name in occupied:
+                    suffix = index
+                    name = f'input:{suffix}'
+                    while name in reserved:
+                        suffix += 1
+                        name = f'input:{suffix}'
+                occupied.add(name)
+                reserved.add(name)
+                encoded, grid = tensor_grid(value, dict(provenance, name=name,
+                    shape=list(value.shape), source='batch.' + key))
+                payload[f'input_image_grid_{index}'] = dict(grid, name=name, source='batch.' + key,
+                    shape=list(value.shape), png_base64=base64.b64encode(encoded).decode('ascii'))
         return payload
     finally:
         restore_rng(rng)
 
 
-def _write_bounded(path, payload):
+def _write_bounded(path, payload, max_bytes=MAX_BYTES):
     size = 0
     with path.open('xb') as output:
         for chunk in json.JSONEncoder(allow_nan=False, separators=(',', ':')).iterencode(payload):
             encoded = chunk.encode('utf-8')
             size += len(encoded)
-            if size + 1 > MAX_BYTES:
-                raise ValueError(f'Preview JSON exceeds the {MAX_BYTES}-byte budget')
+            if size + 1 > max_bytes:
+                raise ValueError(f'Preview JSON exceeds the {max_bytes}-byte budget')
             output.write(encoded)
         output.write(b'\n')
         output.flush()
@@ -170,10 +220,14 @@ def publish_preview_payload(run_dir, payload, identity, step, keep=DEFAULT_KEEP)
             or payload['shape'][0] != payload['count']
             or sample_name(payload.get('name')) != sample_name((identity or {}).get('name'))):
         raise ValueError('Rendered preview identity, step, name or shape is invalid')
+    if payload.get('representation') == 'png' and (
+            payload.get('samples') is not None or not isinstance(payload.get('image_grid'), dict)):
+        raise ValueError('PNG-only previews require an image grid and no raw sample tensor')
     return _publish_preview(run_dir, identity, step, lambda: payload, keep)
 
 
-GRIDS = (('image_grid', 'grid.png'), ('real_image_grid', 'real.png'))
+GRIDS = (('image_grid', 'grid.png'), ('real_image_grid', 'real.png')) + tuple(
+    (f'input_image_grid_{index}', f'input-{index}.png') for index in range(MAX_INPUT_GRIDS))
 
 
 def _publish_grids(temporary, target, payload):
@@ -368,7 +422,8 @@ def _publish_preview(run_dir, identity, step, render, keep):
                   'name': _identity_name(identity, payload),
                   'step': step, 'path': str(target / 'preview.json'), 'bytes': size,
                   'sha256': hashlib.sha256((temporary / 'preview.json').read_bytes()).hexdigest(),
-                  'count': payload['count'], 'shape': payload['shape']}
+                  'count': payload['count'], 'shape': payload['shape'],
+                  'representation': payload.get('representation', 'tensor')}
         record.update(grids)
         atomic_json(temporary / 'manifest.json', record)
         sync_directory(temporary)

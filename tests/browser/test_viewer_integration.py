@@ -103,6 +103,33 @@ def sign_in(page, session, token):
     page.get_by_role('button', name='Open workspace').click()
 
 
+def test_color256_png_only_preview_displays_three_named_grids(real_viewer):
+    import base64
+    from hypergan.image_grids import encode_png
+    from hypergan.previews import publish_preview_payload
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(1)
+    identity = {'run_id': 'browser-run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1}
+    payload = dict(schema_version=1, kind='ema-preview', identity=identity, name='g',
+                   step=1, count=8, shape=[8, 3, 256, 256], samples=None, representation='png')
+    for field, name, channels in [('image_grid', 'g', 3), ('real_image_grid', 'x', 3),
+                                 ('input_image_grid_0', 'gray', 1)]:
+        png = encode_png(bytes([128]) * 768 * 768 * channels, 768, 768, channels)
+        payload[field] = dict(width=768, height=768, channels=channels, name=name,
+                              png_base64=base64.b64encode(png).decode('ascii'))
+    publish_preview_payload(experiment.root, payload, identity, 1)
+    sign_in(page, session, token)
+    page.wait_for_function("""() => {
+      const images = [...document.querySelectorAll('#artifact-items img.image-grid')];
+      return images.length === 3 && images.every(image => image.complete && image.naturalWidth === 768);
+    }""")
+    cards = page.locator('#artifact-items > li')
+    assert sorted(cards.evaluate_all('cards => cards.map(card => card.dataset.sample)')) == ['g', 'gray', 'x']
+    assert page.locator('#artifact-items .raw-tensor').count() == 0
+    assert page.locator('#artifact-items li[data-modality="tensor"]').count() == 0
+    assert not errors
+
+
 def test_real_png_grid_loads_and_updates_without_selected_metrics(real_viewer):
     import base64
     from hypergan.image_grids import encode_png

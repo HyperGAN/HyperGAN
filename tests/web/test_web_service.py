@@ -713,6 +713,31 @@ def test_artifact_records_carry_stable_sample_names_within_the_bounded_index(tmp
     asyncio.run(scenario())
 
 
+def test_png_only_colorization_artifacts_are_served_as_named_images(tmp_path):
+    import base64
+    from hypergan.image_grids import encode_png
+    from hypergan.previews import publish_preview_payload
+    fixture_run(tmp_path, 1)
+    identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1}
+    payload = dict(schema_version=1, kind='ema-preview', identity=identity, name='g',
+                   step=1, count=8, shape=[8, 3, 256, 256], samples=None, representation='png')
+    for field, name, channels in [('image_grid', 'g', 3), ('real_image_grid', 'x', 3),
+                                 ('input_image_grid_0', 'gray', 1)]:
+        png = encode_png(bytes([128]) * 768 * 768 * channels, 768, 768, channels)
+        payload[field] = dict(width=768, height=768, channels=channels, name=name,
+                              png_base64=base64.b64encode(png).decode('ascii'))
+    publish_preview_payload(tmp_path, payload, identity, 1)
+    session = LocalSession(8123, auth='none')
+    with TestClient(create_app(tmp_path, session, poll_seconds=.01), base_url=session.origin) as client:
+        records = client.get('/api/v1/runs/run/artifacts').json()['artifacts']
+        assert sorted((record['name'], record['modality']) for record in records.values()) == [
+            ('g', 'image'), ('gray', 'image'), ('x', 'image')]
+        for key, record in records.items():
+            response = client.get('/api/v1/runs/run/artifacts/' + key)
+            assert response.status_code == 200 and response.headers['content-type'] == 'image/png'
+            assert len(response.content) == record['bytes']
+
+
 def test_default_retention_publishes_a_whole_run_history_to_the_viewer(tmp_path):
     """Sixty real publications with the default keep stay listed; none are pruned."""
     import base64

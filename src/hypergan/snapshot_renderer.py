@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from .cpu_worker_service import CPUWorkerService
-from .previews import DEFAULT_KEEP, MAX_BYTES
+from .previews import DEFAULT_KEEP, MAX_RENDER_BYTES
 
 
 def _factory(*args):
@@ -60,11 +60,11 @@ def render_snapshot(path, descriptor, identity, step, output, *, timeout=60, pub
 
 def _read_output(output, receipt, identity, step):
     output = Path(output)
-    if output.is_symlink() or not output.is_file() or not 0 < output.stat().st_size <= MAX_BYTES:
+    if output.is_symlink() or not output.is_file() or not 0 < output.stat().st_size <= MAX_RENDER_BYTES:
         raise ValueError('Preview renderer output exceeds its bounded ordinary-file contract')
     with output.open('rb') as source:
-        encoded = source.read(MAX_BYTES + 1)
-    if (len(encoded) > MAX_BYTES or receipt['bytes'] != len(encoded)
+        encoded = source.read(MAX_RENDER_BYTES + 1)
+    if (len(encoded) > MAX_RENDER_BYTES or receipt['bytes'] != len(encoded)
             or receipt['sha256'] != hashlib.sha256(encoded).hexdigest()
             or receipt['step'] != step or receipt['identity'] != identity):
         raise ValueError('Preview renderer output size, hash or identity mismatch')

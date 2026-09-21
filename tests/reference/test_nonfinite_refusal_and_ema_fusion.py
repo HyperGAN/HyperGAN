@@ -12,7 +12,7 @@ import copy
 
 import pytest
 import torch
-from tests.hndl_fixtures import fixture_linear, fixture_norm
+from tests.hndl_fixtures import fixture_linear, fixture_norm, fixture_network
 
 from hypergan.config import resolve_config
 from hypergan.training import ReferenceTrainer, update_ema
@@ -22,10 +22,16 @@ class Encoder(torch.nn.Module):
     """A small auxiliary component so the generator phase owns more than one model."""
     def __init__(self):
         super().__init__()
-        self.linear = fixture_linear(2, 4)
+        self.network = fixture_network('prior_projection',
+            {'x': (2,), 'prior_mean': (4,), 'sigma': (4,)}, (4,))
+
+    @property
+    def linear(self):
+        return self.network['projection']
 
     def forward(self, x, means, sigma):
-        return self.linear(x) + sigma * means.detach()[0]
+        return self.network(x=x, prior_mean=means.detach()[0].expand(len(x), 4),
+                            sigma=sigma.expand(len(x), 4))
 
 
 def config():

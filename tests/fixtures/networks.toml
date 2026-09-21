@@ -79,3 +79,16 @@ gray = concat(gray, gray, gray, axis=1)
 add(color, gray)
 tanh()
 '''
+
+[prior_projection]
+source = '''
+projected = linear(x, name="projection")
+offset = mul(prior_mean, sigma)
+add(projected, offset)
+'''
+
+[condition_projection]
+source = '''
+projected = linear(x, name="projection")
+add(projected, condition)
+'''

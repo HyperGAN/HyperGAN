@@ -22,7 +22,9 @@ def fixture_network(name, input_shape, output_shape, *, device='cpu', **paramete
     else:
         source = config['source']
     source = Template(source).substitute({key: repr(value) for key, value in parameters.items()})
-    return build_network(source, input_shape=('B', *input_shape), output_shape=('B', *output_shape)).to(device)
+    inputs = ({key: ('B', *shape) for key, shape in input_shape.items()}
+              if isinstance(input_shape, dict) else ('B', *input_shape))
+    return build_network(source, input_shape=inputs, output_shape=('B', *output_shape)).to(device)
 
 
 def fixture_linear(in_features, out_features, bias=True, *, device='cpu'):

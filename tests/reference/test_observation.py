@@ -7,7 +7,7 @@ import random
 import numpy as np
 import pytest
 import torch
-from tests.hndl_fixtures import fixture_linear, fixture_network
+from tests.hndl_fixtures import fixture_network
 from torch import nn
 
 from hypergan.checkpoints import read_checkpoint, trainer_state
@@ -199,11 +199,12 @@ def test_manual_request_is_never_serviced_after_partial_update(tmp_path, monkeyp
 class MutatingConditionGenerator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = fixture_linear(4, 2)
+        self.network = fixture_network('condition_projection',
+            {'x': (4,), 'condition': (2,)}, (2,))
 
     def forward(self, x, condition):
         condition.add_(2)
-        return self.linear(x) + condition
+        return self.network(x=x, condition=condition)
 
 
 def test_preview_clones_real_conditioning_before_custom_forward(tmp_path):

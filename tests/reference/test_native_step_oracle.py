@@ -212,7 +212,8 @@ def test_duplicate_generator_parameters_keep_the_first_occurrence():
     original = trainer.graph.generator_parameters
     parameters = original()
     trainer.graph.generator_parameters = lambda: [parameters[0], parameters[0], *parameters[1:]]
-    program = compile_legacy_program(trainer.graph, trainer.prior, trainer.config, trainer.objectives)
+    program = compile_legacy_program(
+        trainer.graph, trainer.prior, trainer.config, trainer.objectives, trainer.gan, trainer.penalty, trainer.spread)
     assert program.generator_parameters == tuple(parameters)
 
 
@@ -223,7 +224,8 @@ def test_overlapping_update_groups_are_rejected():
     original = trainer.graph.generator_parameters
     trainer.graph.generator_parameters = lambda: [shared, *original()]
     with pytest.raises(ValueError, match="both the critic and generator"):
-        compile_legacy_program(trainer.graph, trainer.prior, trainer.config, trainer.objectives)
+        compile_legacy_program(
+            trainer.graph, trainer.prior, trainer.config, trainer.objectives, trainer.gan, trainer.penalty, trainer.spread)
 
 
 def test_component_condition_is_detached_while_generator_path_can_train_it():

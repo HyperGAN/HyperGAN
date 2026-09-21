@@ -9,6 +9,65 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 11. Steps per second as a training metric (raised 2026-09-20)
+
+Owner: "we should have steps/s during training as a metric."
+
+- [ ] Publish a `throughput/steps_per_second` (name to taste) scalar on the training stream, smoothed over a short window so it charts cleanly, and list it in the catalog so it appears in Learning curves and can be selected like any loss.
+- [ ] Show the current value in the headline stats next to Step.
+- [ ] Include it in the CLI progress line.
+- [ ] Tests for the value across a few updates and for resume (the window restarts, no negative or infinite values).
+
+Where this lives today:
+- `src/hypergan/run_controller.py` measures `step_seconds` per update (around line 700) and passes it to `select_metrics` and custom metrics, but no built-in metric publishes it.
+
+### 12. Time spent training (raised 2026-09-20)
+
+Owner: "we should have time spent training."
+
+- [ ] Track cumulative wall-clock training time across attempts (resume adds to it, idle time between attempts does not count) and store it in the run manifest.
+- [ ] Show it in the headline stats and the CLI progress line as a human duration.
+- [ ] Publish it on the training stream so it can be charted against step if useful.
+- [ ] Tests, including that resume continues the total rather than resetting it.
+
+### 13. Number of samples seen (raised 2026-09-20)
+
+Owner: "we should have number of samples seen."
+
+- [ ] Surface `samples_seen` (already emitted on every `train` event as `step * batch_size`) in the headline stats and the CLI progress line, and make it correct when gradient accumulation or a world size larger than one changes the effective batch.
+- [ ] Tests.
+
+### 14. Header: unexplained hash next to the status, and "RUNNING" should read "TRAINING" (raised 2026-09-20)
+
+Owner: "theres a hash at the top of the page idk what it is, next to 'RUNNING' which should say 'TRAINING'."
+
+- [ ] The hash is the run id (`<code id="run-id">`). Either label it ("Run id …", with a copy affordance) or move it out of the heading into the run details; it should not be a bare hash.
+- [ ] Map the manifest status to user wording in the badge: `running` displays as "Training"; check the other statuses (`complete`, `failed`, `stopped`, …) read well too.
+- [ ] Update the browser UI test that asserts the badge text.
+
+Where this lives today:
+- `src/hypergan/web_assets/index.html` run heading; `frontend/src/app.js` `updateRun` sets `run-id` and `run-status` straight from the manifest.
+
+### 15. Remove the CLI interval controller from the viewer (raised 2026-09-20)
+
+Owner: "we don't need the cli interval controller."
+
+- [ ] Remove the "CLI progress every N steps / Save CLI interval" form from the viewer.
+- [ ] Decide whether the `/runs/{id}/console` API, the `console` control capability and `console_settings.py` stay for scripted use or go with it; keep the `--progress-every` CLI flag either way. Remove dead code and tests, update `frontend/API.md` and docs.
+
+### 16. Snapshot evaluations panel: FID out of Learning curves, one tile per metric, better empty state (raised 2026-09-20)
+
+Owner: "We don't want the FID score in learning curves section. It should only be in snapshot evaluations. Also there are tiles in snapshot evaluation that are just really wordy. Like there are two fid_smoke tiles. I like it otherwise. It does need a better initial state when no readings are available."
+
+- [ ] Stop merging evaluation metrics into the Learning curves chart, metric list and default selection; they belong only in Snapshot evaluations.
+- [ ] One tile per metric: fold the schedule card (status, cadence, next step, device, skips) and the result card (chart, collapsed details) into a single card per metric id, with much shorter wording.
+- [ ] Design the empty state: a metric with a schedule but no result yet shows its chart area with "No evaluations yet · next at step N" (or "manual"), not a wall of text; a run with no snapshot metrics keeps hiding the panel.
+- [ ] Update the browser tests for the panel.
+
+Where this lives today:
+- `frontend/src/app.js` `state.evaluationMetrics` is merged into `metricDefinitions()`, `defaults()` and the selection (lines ~140-160, 538-560, 593).
+- `frontend/src/evaluations.js` renders schedule cards (`renderSchedules`, ~line 197) and per-metric result cards (~line 225) into separate lists.
+
 ### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
 
 Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."

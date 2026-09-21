@@ -1,0 +1,12 @@
+{
+  "status": "stopped",
+  "steps": 106008,
+  "stop_reason": "stop_after_steps",
+  "last_durable_step": 106008,
+  "attempt_id": "0002-1ce61f86ec1f4b14943da3ce89b1a67b",
+  "checkpoint_path": "/home/martyn/dev/hypergan/training-runs/train-develop/checkpoints/0002-1ce61f86ec1f4b14943da3ce89b1a67b-step-00106008-a79b00d675af",
+  "seconds": 19.234287214999995,
+  "command": "/home/martyn/dev/hypergan/training-runs/start.sh --stop-after-steps 8",
+  "cwd": "/tmp",
+  "exit_code": 0
+}

@@ -1,4 +1,5 @@
 """Projection recovery, bounded map workers and raw agent pages need no torch."""
+import base64
 import hashlib
 import importlib
 import json
@@ -130,6 +131,55 @@ def test_source_replacement_rejected_without_projection_mutation(tmp_path):
     source.write_bytes((tmp_path / 'old.jsonl').read_bytes())
     with pytest.raises(ValueError, match='replaced'):
         with Projector(tmp_path):
+            pass
+    assert projector.path.read_bytes() == original
+
+
+def changed_device_cursor(projector):
+    frame = json.loads(projector.path.read_bytes())
+    cursor = json.loads(base64.urlsafe_b64decode(frame['source_cursor']))
+    cursor['file'][0] += 1
+    frame['source_cursor'] = base64.urlsafe_b64encode(encode(cursor)).decode()
+    projector.path.write_bytes(encode(frame) + b'\n')
+
+
+def test_automatic_projector_can_resume_after_filesystem_device_change(tmp_path):
+    append(tmp_path, 1)
+    with Projector(tmp_path) as projector:
+        projector.project()
+    generation = projector.generation
+    changed_device_cursor(projector)
+    original = projector.path.read_bytes()
+    with pytest.raises(ValueError, match='replaced'):
+        with Projector(tmp_path):
+            pass
+    append(tmp_path, 1, start=2)
+    with Projector(tmp_path, allow_device_change=True) as resumed:
+        assert resumed.generation == generation
+        assert resumed.sequence == 1
+        assert resumed.project()['documents'] == 1
+    assert projector.path.read_bytes().startswith(original)
+    with Projector(tmp_path) as resumed:
+        assert resumed.sequence == 2
+
+
+@pytest.mark.parametrize('change', ['inode', 'boundary', 'truncate'])
+def test_automatic_device_rebind_still_rejects_changed_source(tmp_path, change):
+    append(tmp_path, 1)
+    with Projector(tmp_path) as projector:
+        projector.project()
+    changed_device_cursor(projector)
+    original = projector.path.read_bytes()
+    source = tmp_path / 'events.jsonl'
+    if change == 'inode':
+        source.rename(tmp_path / 'old.jsonl')
+        source.write_bytes((tmp_path / 'old.jsonl').read_bytes())
+    elif change == 'boundary':
+        source.write_bytes(source.read_bytes().replace(b'0.5', b'0.6'))
+    else:
+        source.write_bytes(b'')
+    with pytest.raises(ValueError, match='Stale event cursor'):
+        with Projector(tmp_path, allow_device_change=True):
             pass
     assert projector.path.read_bytes() == original
 

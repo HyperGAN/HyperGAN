@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-20",
+  "config": "/home/martyn/dev/hypergan/training-runs/cifar10-pretrained-20260920/cifar10.toml",
+  "cuda_visible_devices": "0",
+  "python": "/usr/bin/python",
+  "torch": "2.14.0+cu130",
+  "exit_code": 0,
+  "scope": "128 direct ReferenceTrainer updates using the original CIFAR configuration, then three preview captures and three evaluation captures; no CLI/server, checkpoint writes, rendering or FID evaluation",
+  "observations": [
+    {"label": "update-32", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 1943059968, "memory": {"VmHWM": "2322332 kB", "VmRSS": "2322332 kB"}, "seconds": 16.675},
+    {"label": "update-64", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 1943059968, "memory": {"VmHWM": "2322340 kB", "VmRSS": "2322340 kB"}, "seconds": 18.52},
+    {"label": "update-96", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 1943059968, "memory": {"VmHWM": "2322340 kB", "VmRSS": "2322340 kB"}, "seconds": 20.409},
+    {"label": "update-128", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 1943059968, "memory": {"VmHWM": "2322344 kB", "VmRSS": "2322344 kB"}, "seconds": 22.198},
+    {"label": "preview-capture-1", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 267577856, "memory": {"VmHWM": "2330648 kB", "VmRSS": "2330648 kB"}, "seconds": 22.326},
+    {"label": "preview-capture-2", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 267577856, "memory": {"VmHWM": "2330656 kB", "VmRSS": "2330656 kB"}, "seconds": 22.443},
+    {"label": "preview-capture-3", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 267577856, "memory": {"VmHWM": "2330656 kB", "VmRSS": "2330656 kB"}, "seconds": 22.568},
+    {"label": "evaluation-capture-1", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 283912704, "memory": {"VmHWM": "2330756 kB", "VmRSS": "2330756 kB"}, "seconds": 22.698},
+    {"label": "evaluation-capture-2", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 283912704, "memory": {"VmHWM": "2330756 kB", "VmRSS": "2330756 kB"}, "seconds": 22.826},
+    {"label": "evaluation-capture-3", "allocated": 259460608, "reserved": 2004877312, "peak_allocated": 283912704, "memory": {"VmHWM": "2330756 kB", "VmRSS": "2330756 kB"}, "seconds": 22.959}
+  ],
+  "tensor_bytes": {"generator_bytes": 3723532, "ema_graph_bytes": 19820460, "ema_prior_bytes": 4194312, "dataset_bytes": 154000000}
+}

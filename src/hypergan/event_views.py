@@ -327,7 +327,8 @@ class Projector:
     an incomplete tail. Complete corrupt rows fail. No source log is modified.
     Custom worker total lifetime is bounded by total_timeout (restart explicitly).
     """
-    def __init__(self, run_dir, spec=None, *, timeout=5.0, total_timeout=300.0):
+    def __init__(self, run_dir, spec=None, *, timeout=5.0, total_timeout=300.0,
+                 allow_device_change=False):
         self.root = Path(run_dir).resolve()
         self.spec = spec or MapSpec()
         self.descriptor = self.spec.descriptor()
@@ -335,6 +336,7 @@ class Projector:
         self.directory = self.root / 'views' / self.revision
         self.path = self.directory / 'contributions.jsonl'
         self.timeout, self.total_timeout = timeout, total_timeout
+        self.allow_device_change = allow_device_change
         self._stack = self._service = None
         self.cursor = None
         self.sequence = 0
@@ -393,7 +395,25 @@ class Projector:
                 self._output.truncate(begin + end + 1)
             self._output.seek(0, os.SEEK_END)
             # Validate saved source generation/boundary before appending anything.
-            read_event_page(self.root, self.cursor, limit=1, max_bytes=MAX_FRAME_BYTES)
+            try:
+                read_event_page(self.root, self.cursor, limit=1, max_bytes=MAX_FRAME_BYTES)
+            except ValueError as exc:
+                # Linux can assign a different filesystem device number after
+                # reboot/remount. The automatic viewer may rebind that number
+                # alone; path, inode, event identity, offset and boundary anchor
+                # still have to pass the ordinary reader's validation. Explicit
+                # projectors retain the strict replacement policy by default.
+                if (not self.allow_device_change or self.cursor is None or
+                        str(exc) != 'Stale event cursor: the log was replaced; restart without a cursor'):
+                    raise
+                saved = _load(base64.urlsafe_b64decode(self.cursor))
+                current = (self.root / 'events.jsonl').stat()
+                if saved['file'][1] != current.st_ino or saved['file'][0] == current.st_dev:
+                    raise
+                saved['file'] = [current.st_dev, current.st_ino]
+                rebound = base64.urlsafe_b64encode(_json(saved)).decode()
+                read_event_page(self.root, rebound, limit=1, max_bytes=MAX_FRAME_BYTES)
+                self.cursor = rebound
             if self.descriptor['reference'] != 'builtin:metrics':
                 from .cpu_worker_service import CPUWorkerService
                 self._service = stack.enter_context(CPUWorkerService(_map_worker, _map_command,

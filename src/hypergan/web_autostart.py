@@ -86,7 +86,7 @@ def _project(root, stop):
     while not (root / 'manifest.json').is_file():
         if stop.wait(0.1):
             return
-    with Projector(root) as projector:
+    with Projector(root, allow_device_change=True) as projector:
         drain_deadline = None
         while True:
             if stop.is_set():

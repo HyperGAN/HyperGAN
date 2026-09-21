@@ -2,44 +2,92 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
-Colorization demo in progress (2026-09-20): owner requested 256x256 logo
-colorization from `/mnt/ml7tb/data/logos256`, learned grayscale E, 4,096 hard-routed
-MoG particles with fixed matching sigma and no optimized constant KL, frozen
-DINOv3 ViT-S/16 plus attention, GPU 1 verification only, and a ready-to-run
-`training-runs/start-color.sh`. Owner authorizes PRs, merges into develop and
-pushing the existing local develop history. GitHub/local develop now match
-`a83d707296ea9125c1eea26f83c3b158561e3d0d`; existing main-checkout research/ledger
-edits remain preserved. No prerequisite synchronization PR was needed after
-that push; prior PRs #355/#356 are merged.
+Colorization demo acceptance (2026-09-20): the owner requested a 256x256
+logo colorization demo with learned grayscale E, 4,096 hard-routed fixed-sigma
+particles, frozen DINOv3 plus discriminator attention, independent metrics, and
+GPU-1 verification followed by a stopped launcher for direct control. The
+[acceptance report](colorization-2026-09-20.md) records the formulation,
+provenance, complete inventory, failure handling and evidence. Owner authorized
+PRs/merges and pushing the existing local develop history; local/GitHub develop
+at `a83d7072` preserved all earlier work and closed prior PRs #355/#356.
 
-External worktree: `/home/martyn/dev/hypergan/colorization-demo`, branch
-`feat/colorization-demo`. PR #357 adds bounded 256px g/x/gray PNG previews and
-explicit routed particle sample provenance; PR #358 adds the recipe, components,
-validated paired dataset inventory and held-out chroma/edge/diversity metrics.
-Both await required CI. Source commits `c94fc65b` and `0781d7ce`; DINOv3 source
-`6876159a11b4df116f30f667f8c9888617df0751`, owner-provided weights SHA256
-`08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d`.
+[PR #357](https://github.com/HyperGAN/HyperGAN/pull/357) adds bounded 256px PNG
+previews with g/x/gray shelves and explicit routed particle IDs. [PR #358](https://github.com/HyperGAN/HyperGAN/pull/358)
+adds the colorization recipe/data/models/metrics and includes that preview head.
+Combined code is complete at `903393713d592059cdcbc924f53a0374537cf426`,
+including the newly merged develop heavy-test selection (`6ed2eafb`). CI caught
+a captured-default byte-limit regression; `377974f8` / `49f206b5` fixes it and
+42 targeted preview checks passed. The installed combined fast suite passed
+851 tests with 185 heavy tests explicitly deselected. The owner then requested that GitHub
+heavy jobs run only for master. `41f3cedb` restricts them to master pushes and
+PRs targeting master, and verifies all 36 final-gate result combinations.
+Develop CI keeps the fast, viewer, reducer and integrity checks; results pending.
+The repository does not enable automatic PR merges; coordinator will merge the
+combined passing head, preserving both reviewed slices, then synchronize develop.
 
-Local acceptance: 58 focused configuration/model/data/metric checks passed;
-combined preview/API/browser checks passed 67 tests and initially found one
-isolated-environment missing-web-dependency failure, which passed after installing
-the declared web extras. GPU-1 full model derivatives/b-cap passed with frozen
-DINO weights and nonzero particle gradients. Actual public CLI trained a real-logo
-fixture through step 8, resumed to 10, and recovered from earlier step 4 to 5.
-Exact restoration compared 1,050 tensors and 2,717 values, including all optimizer,
-EMA, sampler and RNG state. All three snapshot metrics executed. This proves
-execution/recovery only, not learned image quality or distributed behavior.
+Full preparation attempted 426,445 image paths and accepted 426,343: 404,757
+train / 21,586 held-out. Exactly 102 exclusions (99 truncated, two unreadable,
+one animated) are explicitly hash-pinned. Three valid one-bit PNGs were
+revalidated and retained after adding mode support. Original files are unchanged;
+initial failure and final exclusion reports are preserved. The manifest SHA256 is
+`e336ddec33364aa9300108fa9566f51a1e321d632067f553ffb97f410e3fbdb0`.
 
-Dataset preparation is validating all 426,445 image paths, with an explicit
-rejection report for invalid files and no source modification. Content-hash
-splitting keeps identical bytes in one split; evaluation uses a fixed hash-ordered
-held-out subset. The launcher already exists and is shell-validated; it pins
-physical GPU 1 by UUID. The owner run `training-runs/train-color` is not started.
-Evidence/logs/builds: `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-colorization/`.
-Next: finish full census, inspect/publish explicit exclusion inventory, write
-machine-specific TOML, verify the actual launcher on a separate full-dataset run
-with save/resume/previews/evaluation, stop its server, merge passing PRs and update
-this entry with final run/merge receipts. No paid compute or release.
+Acceptance: 58 focused local tests, 34 installed focused checks, and 12 final
+installed data/metric checks passed. Combined preview/API/browser checks passed
+67 initially; the sole isolated-server environment failure passed after installing
+the declared web extras. Actual DINO CPU/GPU-1 double backward and frozen masks
+passed. The fixture CLI crossed lazy b-cap step 8, resumed to 10, and recovered
+from earlier step 4 to 5. The actual launcher/full-inventory run also trained to
+8 and resumed to 10; complete restore matched 1,050 tensors and 407,414 values.
+All three full 512-output held-out snapshot metrics passed; actual Chromium
+confirmed all g/x/gray grids. Source->sdist->wheel packaging matched all 65 runtime
+Python files. The validated run records clean source `165dea8e`; the launcher
+was subsequently updated to clean `90339371` with the preview guard fix, again
+matching all 65 runtime files. No trained quality or distributed
+qualification is claimed.
+
+Ready launcher: `/home/martyn/dev/hypergan/training-runs/start-color.sh`, physical
+GPU 1 pinned by UUID, dedicated installed environment and `train-color` run.
+The verification run and its viewer are stopped; the owner run was left fresh.
+Recipe defaults are batch 16, 200k total updates, 1k checkpoints and 100-update
+previews; the owner controls startup and stopping. Evidence/builds/commands and
+preexisting-ledger backup: `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-colorization/`.
+Main-checkout HNDL/research edits are preserved separately. No paid compute or
+release. Next: merge passing PRs #357/#358 into develop, commit final ledger/receipt
+and restore the preserved uncommitted research ledger changes. After that, owner
+runs start-color.sh and assesses color diversity and logo structure over training.
+
+Resume on the other identical GPU, and the heavy-test gate (2026-09-20): the
+owner restarted `training-runs/start.sh` and resume failed with the bare
+`Resume runtime/topology differs from checkpoint`. Diagnosis: two identical RTX
+A6000s enumerate in an unstable order with `CUDA_DEVICE_ORDER` unset, so
+`CUDA_VISIBLE_DEVICES=0` landed on the other card and only `cuda.uuid` /
+`cuda.visible_devices` differed from the step-6359 checkpoint. The owner asked for
+a warning that names what differs. Two owner-authorized Opus subagents worked in
+Agent worktrees. Item 18 (`e8ada8b0`, merged `9c4985dc`): `validate_runtime`
+flattens both runtime dicts to dotted paths, rejects with every differing field
+and both values, and warns-and-continues when the difference is confined to
+`DEVICE_IDENTITY_KEYS`; the warning goes to stderr, the run manifest and the
+`resume` event. Replaying the owner's checkpoint against the current card warns
+and returns. Item 20 (`f236af15`, merged `f3b21832`; 19 was taken by the
+throughput work in flight): the owner asked that heavy tests be gated and run
+intentionally. A measured `heavy` marker (>= 1 s, which is exactly the set that
+spawns subprocesses or multi-rank jobs; 185 of 1000 tests) is deselected by
+`addopts`, run with `-m heavy`, registered with `--strict-markers`, never skipped;
+CI gained `heavy-lightweight` and `heavy-reference` jobs required by the
+foundation gate, and AGENTS.md states the rule. Fast suite on merged develop:
+814 passed, 1 failed (`test_distribution_contains_only_supported_package`,
+wheel-only, known) in 25 s; the heavy suite on the merged tree was started and
+its result is recorded below when it lands. Both subagents reported that the
+Agent tool created their worktree off `291ddccd` (pre-resurrection history) and
+fast-forwarded to `develop` before working; coordinators should verify the base.
+Also: tests that re-invoke `python -I -m hypergan` cannot see this machine's
+user-site editable install, so a plain `python3 -m pytest` fails 17 CLI tests
+spuriously; run the suite from a venv (`--system-site-packages` plus an editable
+install of the checkout). Neither branch was pushed; `develop` stays local. The
+owner's run can restart; `CUDA_DEVICE_ORDER=PCI_BUS_ID` in `start.sh` pins the
+card. Blockers: none. Next: record the heavy-suite result, then continue the
+plan's CUDA save/resume and two-GPU qualification.
 
 Training throughput (2026-09-20): the owner reported the CIFAR run on one A6000
 at 10-12 steps/s against 14-15 for the ParticleGAN source and asked for the GPU

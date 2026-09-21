@@ -75,10 +75,10 @@ jobs:
 
   # The two jobs below run the half that `addopts` deselects: tests marked
   # `heavy` because they start real subprocesses, worker services or multi-rank
-  # jobs. Nothing is skipped and nothing is dropped from develop - the same
-  # tests run, in their own clearly named job, so that a plain `pytest` stays
-  # fast for everyday work.
+  # jobs. Run these only for master pushes and PRs targeting master; develop
+  # uses the fast selection. Both selections remain available locally.
   heavy-lightweight:
+    if: github.ref == 'refs/heads/master' || github.base_ref == 'master'
     name: Heavy lightweight (${{ matrix.os }}, Python ${{ matrix.python }})
     timeout-minutes: 30
     strategy:
@@ -106,6 +106,7 @@ jobs:
         run: python -I -m pytest "${{ github.workspace }}/tests/foundation" --import-mode=importlib -m heavy
 
   heavy-reference:
+    if: github.ref == 'refs/heads/master' || github.base_ref == 'master'
     name: Heavy CPU reference (Python 3.12)
     timeout-minutes: 60
     runs-on: ubuntu-latest
@@ -194,6 +195,7 @@ jobs:
         env:
           LIGHTWEIGHT_RESULT: ${{ needs.lightweight.result }}
           REFERENCE_RESULT: ${{ needs.reference.result }}
+          HEAVY_REQUIRED: ${{ github.ref == 'refs/heads/master' || github.base_ref == 'master' }}
           HEAVY_LIGHTWEIGHT_RESULT: ${{ needs['heavy-lightweight'].result }}
           HEAVY_REFERENCE_RESULT: ${{ needs['heavy-reference'].result }}
           REDUCERS_RESULT: ${{ needs.reducers.result }}
@@ -201,7 +203,12 @@ jobs:
         run: |
           test "$LIGHTWEIGHT_RESULT" = success
           test "$REFERENCE_RESULT" = success
-          test "$HEAVY_LIGHTWEIGHT_RESULT" = success
-          test "$HEAVY_REFERENCE_RESULT" = success
+          if [ "$HEAVY_REQUIRED" = true ]; then
+            test "$HEAVY_LIGHTWEIGHT_RESULT" = success
+            test "$HEAVY_REFERENCE_RESULT" = success
+          else
+            test "$HEAVY_LIGHTWEIGHT_RESULT" = skipped
+            test "$HEAVY_REFERENCE_RESULT" = skipped
+          fi
           test "$REDUCERS_RESULT" = success
           test "$WEB_RESULT" = success

@@ -42,11 +42,15 @@ usage. Hard routing and a moving decoder can still make the encoder collapse.
 The discriminator receives only RGB through the same single path for real and fake:
 
 ```text
-RGB -> frozen DINOv3 -> frozen random projection -> attention/head
+RGB -> [frozen DINOv3 + frozen projection, learned RGB stem]
+    -> concatenate at 16x16 -> shared attention -> convolutional head -> D(RGB)
 ```
 
 The projection mixes DINOv3's final 16×16 patch features with fixed random 1×1
-channel and 3×3 spatial convolutions. SAGAN attention and the output head learn.
+channel and 3×3 spatial convolutions. A learned four-stage RGB stem supplies
+local pixel features at the same resolution. Their concatenated features pass
+through one SAGAN attention module and one spectrally normalized convolutional
+head. The RGB stem, attention, and output head learn.
 This is a minimal single-map adaptation of the frozen feature/projection idea in
 [Projected GAN](https://github.com/autonomousvision/projected-gan/blob/main/pg_modules/projector.py).
 The 3×3 layer mixes local spatial features; it does not reproduce the paper's
@@ -68,8 +72,10 @@ when changing architecture):
 - `DINOv3ProjectedDiscriminator(head="conv")` replaces the linear head with
   spectrally normalized nonlinear convolutions. Its optional `pixel_width=32`
   adds a learned RGB stem, concatenated with projected DINO features before the
-  shared attention/head. This candidate awaits the next collapse comparison;
-  it is not yet a demonstrated fix.
+  shared attention/head. The example uses this configuration: it avoided the
+  earlier near-constant failure through 1,000 controlled updates while retaining
+  the original b-cap settings. This is bounded collapse evidence, not a guarantee
+  of long-run stability or colorization quality.
 - `DINOv3MultiScaleDiscriminator` reads transformer blocks 2, 5, 8, and 11 in
   one backbone pass. Frozen random projections build and fuse a synthetic
   32/16/8/4 pyramid, followed by four attention/convolution heads whose scalar
@@ -157,7 +163,7 @@ environment live under `~/dev/hypergan/training-runs/`. Run:
 bash ~/dev/hypergan/training-runs/start-color.sh
 ```
 
-The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-random` run.
+The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-critic` run.
 Interrupt it with Ctrl-C to save a recoverable boundary. Repeating the same
 command resumes the latest complete checkpoint. It does not touch the CIFAR run.
 The default total schedule is 200,000 updates; batch size starts at 16. The fast
@@ -166,7 +172,9 @@ state without promising bitwise-identical future learning trajectories.
 
 Configuration and dataset/component dependency checks remain enforced on resume;
 HyperGAN release hashes remain provenance, not compatibility rejection keys.
-The validation run is separate from `train-color-random`, leaving it fresh.
+The validation run is separate from `train-color-critic`, leaving it fresh.
 The collapsed projected run and its launcher `start-color-projected.sh` remain
-available. The updated launcher uses `colorization-random-env`; the older
-`start-color-original.sh` is also preserved.
+available. The updated launcher uses `colorization-critic-env` and
+`logos-colorization-critic-256/colorization.toml`. The earlier random-prior run
+and its `start-color-random.sh` launcher are preserved, along with
+`start-color-original.sh`.

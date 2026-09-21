@@ -29,6 +29,8 @@ source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
 weights_path = "./dinov3_vits16_pretrain_lvd1689m-08c60483.pth"
 weights_sha256 = "08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d"
 feature_width = 64
+head = "conv"
+pixel_width = 32
 
 [components.encoder]
 factory = "hypergan.colorization_components:GrayscaleRoutingEncoder"

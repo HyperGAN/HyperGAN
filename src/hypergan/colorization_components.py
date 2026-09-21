@@ -311,6 +311,122 @@ class DINOv3ProjectedDiscriminator(nn.Module):
         return self.feature_output(pooled.flatten(1))
 
 
+class _MultiDepthProjection(nn.Module):
+    """Fixed channel mixing and top-down fusion of a synthetic feature pyramid."""
+    sizes = (32, 16, 8, 4)
+
+    def __init__(self, width):
+        super().__init__()
+        self.channel = nn.ModuleList(nn.Conv2d(384, width, 1) for _ in self.sizes)
+        self.fusion = nn.ModuleList(nn.Conv2d(width, width, 1) for _ in self.sizes)
+
+    def forward(self, maps):
+        projected = []
+        for feature, channel, size in zip(maps, self.channel, self.sizes):
+            feature = channel(feature)
+            if size > 16:
+                feature = F.interpolate(feature, scale_factor=2, mode='nearest')
+            elif size < 16:
+                factor = 16 // size
+                feature = feature.reshape(len(feature), feature.shape[1], size, factor, size, factor).mean((3, 5))
+            projected.append(feature)
+        outputs = [None] * len(projected)
+        for index in range(len(projected) - 1, -1, -1):
+            feature = projected[index]
+            if index + 1 < len(projected):
+                feature = feature + F.interpolate(outputs[index + 1], scale_factor=2, mode='nearest')
+            outputs[index] = self.fusion[index](feature)
+        return outputs
+
+
+class _ProjectedScaleHead(nn.Module):
+    """Learned per-scale critic; spatial attention never exceeds 16x16."""
+    def __init__(self, width, size):
+        super().__init__()
+        layers = []
+        channels = width
+        if size <= 16:
+            layers.append(SAGANAttention(channels))
+        while size > 4:
+            next_channels = min(2 * channels, 4 * width)
+            layers.extend([
+                nn.utils.spectral_norm(nn.Conv2d(channels, next_channels, 4, stride=2, padding=1)),
+                nn.LeakyReLU(.2),
+            ])
+            size //= 2
+            channels = next_channels
+            if size == 16:
+                layers.append(SAGANAttention(channels))
+        layers.append(nn.utils.spectral_norm(nn.Conv2d(channels, 1, 4)))
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.layers(x).flatten(1)
+
+
+class DINOv3MultiScaleDiscriminator(nn.Module):
+    """One DINOv3 pass, four frozen projected depths, and learned scale critics.
+
+    This adapts Projected GAN's channel mixing, cross-scale mixing and separate
+    convolutional critics to ViT-S/16. Blocks 2, 5, 8 and 11 all return 16x16
+    patch maps; nearest upsampling and nonoverlapping averaging construct a
+    synthetic 32/16/8/4 pyramid. These are not native backbone spatial scales.
+    Four scalar logits are averaged, unlike upstream's concatenated patch
+    logits. Each trainable head includes attention at at most 16x16.
+
+    Backbone and random channel/fusion convolutions remain frozen and in eval
+    mode. Image derivatives pass through them. Math SDPA and linear resampling
+    retain input double backward for b-cap, including deterministic execution.
+    """
+    blocks = (2, 5, 8, 11)
+
+    def __init__(self, source_path, source_commit, weights_path, weights_sha256,
+                 feature_width=64):
+        super().__init__()
+        _positive_integer(feature_width, 'feature_width')
+        self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256)
+        self.backbone.eval().requires_grad_(False)
+        self.feature_project = _MultiDepthProjection(feature_width).eval().requires_grad_(False)
+        self.heads = nn.ModuleList(_ProjectedScaleHead(feature_width, size)
+                                  for size in self.feature_project.sizes)
+        self.register_buffer('mean', torch.tensor([.485, .456, .406])[None, :, None, None])
+        self.register_buffer('std', torch.tensor([.229, .224, .225])[None, :, None, None])
+        self.pretrained_metadata = {
+            'architecture': 'dinov3_vits16', 'pretraining': 'LVD-1689M',
+            'source_commit': source_commit, 'weights_sha256': weights_sha256,
+            'input_size': 256, 'sdpa_backend': 'math',
+            'projection': 'frozen_random_channel_and_topdown_fusion',
+            'feature_blocks': list(self.blocks), 'feature_scales': 4,
+            'native_feature_sizes': [16, 16, 16, 16],
+            'projected_feature_sizes': list(self.feature_project.sizes),
+            'resampling': 'nearest_upsample_nonoverlapping_mean_downsample',
+            'head': 'spectral_conv_attention', 'aggregation': 'mean_scalar_logits',
+        }
+
+    def train(self, mode=True):
+        super().train(mode)
+        self.backbone.eval()
+        self.feature_project.eval()
+        return self
+
+    def requires_grad_(self, requires_grad=True):
+        super().requires_grad_(requires_grad)
+        self.backbone.requires_grad_(False)
+        self.feature_project.requires_grad_(False)
+        return self
+
+    def forward(self, x):
+        if x.ndim != 4 or tuple(x.shape[1:]) != (3, 256, 256):
+            raise ValueError('Discriminator requires x [batch,3,256,256] in [-1,1]')
+        normalized = (x * .5 + .5 - self.mean) / self.std
+        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
+            maps = self.backbone.get_intermediate_layers(normalized, n=self.blocks, reshape=True, norm=True)
+        if len(maps) != 4 or any(feature.shape != (len(x), 384, 16, 16) for feature in maps):
+            raise ValueError('DINOv3 ViT-S/16 must return four [batch,384,16,16] intermediate maps')
+        projected = self.feature_project(maps)
+        return torch.stack([head(feature) for head, feature in zip(self.heads, projected)]).mean(0)
+
+
 class DCGANDiscriminator256(nn.Module):
     """Unconditional RGB pixel critic for a 256px discriminator control.
 

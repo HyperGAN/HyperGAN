@@ -54,7 +54,7 @@ as independent quality evidence.
 ## Bounded comparison
 
 Three 200-update arms use identical saved step-zero weights, data streams, batch
-16 and real DINOv3 on physical GPU1. Each measures the same 64 held-out images
+16 and real DINOv3 on physical GPU 1. Each measures the same 64 held-out images
 with fixed evaluation draws. CUDA kernels are nondeterministic and the old arm
 consumes posterior noise in an additional phase, so trajectories are not bitwise
 paired. These are raw-model diagnostics, not EMA checkpoint selection.
@@ -65,7 +65,7 @@ paired. These are raw-model diagnostics, not EMA checkpoint selection.
 | Random-prior GAN, RGB L2 | 8 | 57.8% | 0.0971 | 0.0491 | 0.6396 |
 | Random-prior GAN, grayscale L2 | 4 | 48.4% | 0.2685 | 0.1596 | 0.5092 |
 
-Routing improved transiently (18–25 particles for grayscale at steps50–100), but
+Routing improved transiently (18–25 particles for grayscale at steps 50–100), but
 by step200 the grayscale previews still show a small family of repetitive
 textures. This change must not be described as curing collapse. The separate
 random view makes that remaining failure visible.
@@ -74,5 +74,37 @@ Machine evidence (saved source checkpoints, scripts, logs, JSON results and PNGs
 `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-colorization-collapse/`.
 The original run/config/environment are preserved. The fresh experiment lives in
 `logos-colorization-random-256/`, uses `colorization-random-env`, and starts through
-`training-runs/start-color.sh` on physical card1. An RGB-objective comparison
+`training-runs/start-color.sh` on physical card 1. An RGB-objective comparison
 config is retained alongside it. The owner training run is left unstarted.
+
+A fresh grayscale run was also tested through **700 updates**. It retained seven
+routes on the 64 held-out inputs (largest share 75%), but random output pairwise
+RMS fell to **0.0270** and conditional RMS to 0.0686. Visual inspection shows
+near-identical textures in the random grid. Thus fixing encoder coverage is not
+sufficient: the random-prior adversarial path itself can collapse. The repeated
+nondeterministic run differs substantially from the first 200-step trajectory,
+so these single runs do not establish grayscale reconstruction as a robust
+quality improvement. The next diagnostic should isolate the minimal projected
+critic/adversarial dynamics, keeping the new random view as a direct check.
+
+## Integration validation
+
+The clean installed wheel is from `d74958e2f7b8dde48807760f422c12ba1f0d10fe`.
+Installed fast suite: **885 passed, 186 heavy tests deselected** in 22.27s.
+An earlier pass exposed six field-validation error regressions; those were fixed
+without changing the failing tests. A subsequent source-path run encountered
+build-generated egg-info shadowing installed distribution metadata; the isolated
+installed-wheel run passes the complete fast selection. Logs retain both failures.
+No prerelease heavy suite was run.
+
+Actual pinned DINOv3/GPU 1 train completed eight updates including lazy b-cap,
+then resumed to ten. The worker rendered and published conditional g, real x,
+grayscale gray, random, and comparison PNGs. The comparison is 768×2072 and was
+visually inspected for row alignment. The observation service indexes all five
+views. A full 512-output held-out structure evaluation completed using explicit
+`generated_binding=components.reconstruction`. These checks establish execution
+and observation behavior, not image quality.
+
+The owner launcher now selects `train-color-random` on card 1; that directory is
+unstarted. `start-color-projected.sh` still points at the untouched old experiment.
+The source PR is [#361](https://github.com/HyperGAN/HyperGAN/pull/361).

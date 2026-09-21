@@ -2,6 +2,39 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Training throughput (2026-09-20): the owner reported the CIFAR run on one A6000
+at 10-12 steps/s against 14-15 for the ParticleGAN source and asked for the GPU
+to be utilized as fully as possible, with less host blocking if needed. Two
+owner-authorized Opus subagents profiled `hypergan train` on GPU 0 (ablation runs
+`training-runs/perf-*`, in-process harness, dispatch census) and diffed one step
+against ParticleGAN `9e9ce96` `experiments/train_cifar_ae_sagan.py`. Models are
+at exact parameter parity (G 930883 / D 3588324 / E 428320); the gap was host
+synchronization and backend policy: ~103 blocking device reads per step from
+per-parameter `isfinite` gradient checks and pre-backward loss checks, a whole-
+graph EMA of 193 launches, and the recipe's deterministic/no-TF32 backend block
+(+32% throughput when matched to the source). Server, progress cadence, metrics
+`every_steps`, previews and data loading measured at or below 0.5 ms/step.
+ParticleGAN reference on GPU 0 under the same box load: 16.5 steps/s at 38% GPU
+utilization, so both loops are launch-bound at batch 64.
+PR #355 (`perf/trainer-host-syncs`, `2bc0a9d3`) fuses each phase's loss and
+gradient screening into one device-side check with one host read, and fuses the
+EMA with `_foreach_lerp_`/`_foreach_copy_`; messages, refusal-before-step
+semantics, checkpoint contents and numerics are unchanged (20 metric rows bitwise
+identical). Measured on a quiet GPU 0: 69.8 -> 61.4 ms/step (deterministic
+backend) and 47.0 -> 41.2 ms/step (source backend flags). New tests
+`tests/reference/test_nonfinite_refusal_and_ema_fusion.py` (18 passed) and
+`tests/cuda/test_trainer_host_syncs.py` (10 passed); the existing suites were not
+run at the owner's request (heavy tests being removed). GitHub CI: all Linux/macOS
+checks pass; the Windows viewer failure is a pre-existing CRLF assertion in
+`tests/web/test_viewer_dev_mode.py`, unrelated. Merged locally as `82f9df11`;
+`develop` is not pushed, so the PR stays open until the owner pushes. A derived
+recipe `training-runs/cifar10-pretrained-20260920/cifar10-fast.toml` with
+`start-fast.sh` applies the source backend flags for a new run directory; adopting
+them in the shipped recipe is an owner decision (exact within-run resume is lost).
+Blockers: none. Next: owner picks the backend policy; apply the same fused
+screening to `distributed_training._reduce_gradients` with two-GPU qualification;
+beyond parity, throughput needs fewer launches (CUDA graphs or larger batch).
+
 Checkpoint compatibility and release provenance (2026-09-20): the owner
 clarified that HyperGAN release/source SHAs must be recorded, not used as resume
 rejection keys. This supersedes the earlier no-cross-version-compatibility policy

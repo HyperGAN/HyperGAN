@@ -9,6 +9,37 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 19. Training throughput: use the GPU fully, less host blocking if needed (raised 2026-09-20)
+
+Owner: "i'm running hypergan on card 0, it's like 10-12 steps/s. particlegan its
+semi-adapted from is 14-15 steps per second ... i want to optimize this to utilize
+the gpu as much as possible." Later: "we can do less blocking if we need to, idk
+where the cost is coming from."
+
+Where the cost was (measured 2026-09-20 on GPU 0, CIFAR recipe, batch 64):
+- ~103 blocking device reads per step: `torch.isfinite(p.grad).all()` per parameter
+  tensor plus loss checks before each backward (`src/hypergan/training.py`). Worth
+  about 22 ms of a 100 ms step under the shipped backend.
+- Whole-graph EMA: 193 separate `lerp_`/`copy_` launches per step (8 ms).
+- The recipe's `[training.backend]` determinism/no-TF32 block: +32% throughput when
+  matched to the ParticleGAN source flags (TF32, cudnn benchmark, nondeterministic).
+- Not the cost: `--server`, progress cadence, `metrics.every_steps`, previews,
+  checkpoints, data loading, the prior regularizer (all ≤0.5 ms/step). Models match
+  ParticleGAN parameter for parameter.
+
+- [x] Fuse the nonfinite screening into one device-side check per phase and fuse the
+  EMA — PR #355 (`2bc0a9d3`, merged locally as `82f9df11`). 69.8 → 61.4 ms/step under
+  the shipped backend, 47.0 → 41.2 ms/step under the source backend flags; metrics
+  bitwise identical.
+- [ ] Owner decision: adopt the source backend flags in the shipped recipe (fast, but
+  within-run resume is no longer bit-exact) or keep determinism. A ready variant is
+  `training-runs/cifar10-pretrained-20260920/cifar10-fast.toml` via `start-fast.sh`.
+- [ ] Apply the same fused screening to `distributed_training._reduce_gradients`
+  (per-parameter host reads on every rank) with two-GPU qualification.
+- [ ] Beyond parity: both loops are launch-bound (~5,000 launches/step, 38% GPU
+  utilization for ParticleGAN itself). Raising utilization means fewer launches
+  (CUDA graphs / `torch.compile`) or a larger batch, which changes the recipe.
+
 ### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
 
 Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."

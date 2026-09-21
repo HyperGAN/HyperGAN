@@ -13,7 +13,7 @@ import uuid
 import warnings
 
 from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint, resume_compatible
-from .metrics import digest, metric_catalog, publish_catalog, select_metrics, Throughput
+from .metrics import digest, metric_catalog, publish_catalog, select_metrics, select_preview_metrics, Throughput
 from .previews import DEFAULT_KEEP, DEFAULT_NAME, KEEP_ALL, sample_name
 from .metric_plugins import prepare_custom, ScalarMetrics
 from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
@@ -625,6 +625,10 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             preview_publications += 1
             publish(wait=False)
             emit('preview', _step=record['step'], preview=record)
+            metrics, statuses = select_preview_metrics(catalog, record)
+            if metrics or statuses:
+                emit('metric', _step=record['step'], metrics=metrics, measurement_status=statuses,
+                     source='preview', preview_identity=record['identity'])
             for error in errors:
                 observer_error('preview_retention', RuntimeError(error), step=record['step'])
 

@@ -117,9 +117,47 @@ def test_direct_preview_preserves_ema_live_modes_buffers_rng_and_conditioning(tm
         a = render_preview(trainer, batch, identity)
         b = render_preview(trainer, batch, identity)
         assert a == b
+        assert a['diversity']['generated_count'] == MAX_COUNT
+        assert a['diversity']['reference_count'] == len(batch['real'])
+        assert a['diversity']['metrics']['generated_rms'] > 0
         equal(state, trainer_state(trainer, batch))
     finally:
         torch.set_num_threads(previous)
+
+
+def test_preview_reference_with_one_sample_is_unavailable_even_when_display_cycles(tmp_path):
+    from hypergan.preview_snapshot import capture_snapshot_state
+    config = load_config(stochastic_config(tmp_path / 'config.toml'))
+    config['training']['batch_size'] = 1
+    trainer = ReferenceTrainer(config)
+    batch = {'real': torch.ones(1, 2)}
+    identity = {'run_id': 'run', 'attempt_id': 'attempt', 'sample_sequence': 1}
+    snapshot = capture_snapshot_state(trainer, batch, identity)
+    assert snapshot['batch']['real'].shape[0] == 1
+    payload = render_preview(trainer, snapshot['batch'], identity)
+    assert payload['diversity']['generated_count'] == MAX_COUNT
+    assert payload['diversity']['reference_count'] == 1
+    assert 'ratio' not in payload['diversity']['metrics']
+    assert 'reference_rms' in payload['diversity']['unavailable']
+
+
+@pytest.mark.heavy
+def test_preview_diversity_reaches_metric_events_and_catalog(tmp_path):
+    from hypergan.metrics import read_catalog
+    config = stochastic_config(tmp_path / 'config.toml')
+    result = train(config, tmp_path / 'run', preview_every=1)
+    rows = [json.loads(line) for line in (tmp_path / 'run/events.jsonl').read_text().splitlines()]
+    previews = {row['step']: row['preview'] for row in rows if row['event'] == 'preview'}
+    measured = [row for row in rows if row['event'] == 'metric' and row.get('source') == 'preview']
+    assert measured
+    catalog = read_catalog(tmp_path / 'run')
+    for row in measured:
+        record = previews[row['step']]
+        assert row['preview_identity'] == record['identity']
+        assert row['catalog'] == result['metrics_catalog']
+        for name, value in row['metrics'].items():
+            assert name in catalog['metrics']
+            assert value == record['diversity']['metrics'][name.split('/', 1)[1]]
 
 
 def test_preview_write_failure_is_observer_only_and_sequence_not_reused(tmp_path, monkeypatch):

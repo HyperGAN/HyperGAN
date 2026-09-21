@@ -10,6 +10,34 @@ from hypergan.config import config_values, fingerprint, observation_fingerprint,
 from hypergan.metrics import metric_catalog, objective_id, publish_catalog, read_catalog, select_metrics
 
 
+def test_preview_diversity_is_default_but_uses_preview_cadence_and_can_be_disabled():
+    from hypergan.metrics import select_preview_metrics, preview_metrics_enabled
+    config = resolve_config({'metrics': {'every_steps': 100}})
+    catalog = metric_catalog(config)
+    assert preview_metrics_enabled(config)
+    assert catalog['metrics']['diversity/ratio']['scope'] == 'preview'
+    assert catalog['metrics']['diversity/ratio']['direction'] == 'none'
+    # Training events must not manufacture missing values between previews.
+    values, statuses, _ = select_metrics(config, catalog, {}, 100, .1)
+    assert not any(name.startswith('diversity/') for name in values.keys() | statuses.keys())
+    record = {'step': 7, 'diversity': {
+        'metrics': {'generated_rms': 0., 'reference_rms': 2., 'ratio': 0.},
+        'unavailable': {'pooled4_ratio': 'Pooling requires NCHW images'}}}
+    values, statuses = select_preview_metrics(catalog, record)
+    assert values['diversity/ratio'] == 0.
+    assert statuses['diversity/pooled4_ratio']['status'] == 'unavailable'
+    none = resolve_config({'metrics': {'preset': 'none'}})
+    assert not preview_metrics_enabled(none)
+    assert select_preview_metrics(metric_catalog(none), record) == ({}, {})
+    only = resolve_config({'metrics': {'preset': 'none',
+        'overrides': {'diversity/ratio': {'enabled': True}}}})
+    assert preview_metrics_enabled(only)
+    assert select_preview_metrics(metric_catalog(only), record) == ({'diversity/ratio': 0.}, {})
+    record['diversity']['metrics']['ratio'] = float('nan')
+    with pytest.raises(ValueError, match='finite preview'):
+        select_preview_metrics(catalog, record)
+
+
 def test_default_none_and_individual_removal_do_not_change_numerical_identity(tmp_path):
     default = resolve_config({})
     none = resolve_config({'metrics': {'preset': 'none'}})

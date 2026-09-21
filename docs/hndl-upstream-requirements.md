@@ -118,3 +118,28 @@ Canonical hashing is necessary because the historical checkpoint stores BN
 buffers in a different order from a loaded module state and omits
 `num_batches_tracked`; the loader follows PyTorch's zero-counter compatibility
 behavior for that older format.
+
+## Follow-up: one pretrained backbone, multiple feature maps
+
+The logos collapse investigation motivates expressing the pixel-plus-multiscale
+critic entirely in a single `.hndl` file. HNDL 0.2.1 already provides all its
+pixel/attention/head operations, branching and score joins. The missing efficient
+primitive is multiple native-resolution intermediate outputs from one shared
+pretrained node, for example (proposed syntax, not supported in 0.2.1):
+
+```hndl
+f1, f2, f3 = pretrained(x, "/local/resnet18.pth",
+    provider="torchvision_resnet18", sha256="...",
+    layers=("layer1", "layer2", "layer3"), trainable=False)
+```
+
+The operator should load one model, execute one forward, infer each output shape,
+retain input gradients and second derivatives, and keep frozen parameters and
+BatchNorm state frozen through parent train/eval calls. Selected layers and
+checkpoint identity belong in the plan digest. Multi-output named provider
+readouts would also cover the DINO intermediate-map case without Python packing.
+
+A CPU proof using three separate 0.2.1 `pretrained(..., layer=...)` nodes passed
+first- and second-derivative checks, but allocated three independent ResNets
+(35,068,536 frozen parameters) and recomputed shared prefixes. It is not adopted as
+a workaround. No other operator additions are required for the proposed critic.

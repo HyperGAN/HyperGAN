@@ -12,7 +12,8 @@ def read_source(path):
         data = stream.read(MAX_SOURCE_BYTES + 1)
     if len(data) > MAX_SOURCE_BYTES:
         raise ValueError('HNDL source exceeds 1 MiB')
-    return data.decode('utf-8')
+    # Match TOML multiline-string newline normalization on every platform.
+    return data.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n')
 
 
 def packaged_source(name):

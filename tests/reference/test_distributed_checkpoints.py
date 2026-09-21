@@ -403,7 +403,8 @@ def test_distributed_restore_identity_allows_only_constant_lr_step_extension(cha
     from hypergan.distributed_checkpoints import _validate_restore_identity
 
     config = resolve_config({'training': {'steps': 4, 'lr_floor': .05 if change == 'annealed' else 1.0}})
-    saved = {'config': numerical_values(config), 'config_sha256': fingerprint(config),
+    saved = {'hypergan_checkpoint_version': CURRENT_VERSION,
+             'config': numerical_values(config), 'config_sha256': fingerprint(config),
              'runtime': {}, 'implementation': {}, 'data_contract': {'dataset': 'fixture'},
              'topology': {'world_size': 2}}
     current = copy.deepcopy(saved)

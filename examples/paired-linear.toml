@@ -23,10 +23,10 @@ source = "linear()"
 factory = "hndl"
 inputs = { x = "latent", condition = "components.encoder" }
 [components.generator.args]
-input_shape = ["B", 6]
+input_shape = { x = ["B", 4], condition = ["B", 2] }
 output_shape = ["B", 2]
-concat_inputs = ["x", "condition"]
 source = """
+concat(x, condition)
 linear(16)
 leaky_relu(0.2)
 linear(16)
@@ -38,10 +38,10 @@ linear()
 factory = "hndl"
 inputs = { x = "candidate", condition = "batch.condition" }
 [components.discriminator.args]
-input_shape = ["B", 4]
+input_shape = { x = ["B", 2], condition = ["B", 2] }
 output_shape = ["B", 1]
-concat_inputs = ["x", "condition"]
 source = """
+concat(x, condition)
 linear(16)
 leaky_relu(0.2)
 linear(16)

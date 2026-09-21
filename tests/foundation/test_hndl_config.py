@@ -61,3 +61,10 @@ def test_invalid_hndl_contracts_rejected(changes):
 
 def test_string_parameters_cannot_inject_operations():
     assert render_source('pretrained(${path})', {'path': "x')\nlinear(9)\n#"}) == 'pretrained("x\')\\nlinear(9)\\n#")'
+
+
+def test_network_file_newlines_match_toml_across_platforms(tmp_path):
+    from hypergan.network_config import read_source
+    path = tmp_path / 'windows.hndl'
+    path.write_bytes(b'linear(8)\r\nrelu()\r\nlinear()\r\n')
+    assert read_source(path) == 'linear(8)\nrelu()\nlinear()\n'

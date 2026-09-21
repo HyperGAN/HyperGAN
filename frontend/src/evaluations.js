@@ -355,11 +355,21 @@ export function evaluationShelf(api, base) {
     run = currentRun || {};
     renderPanel();
   }
-  let pending = false, again = false, runPath = null, inventory = [];
+  let pending = false, again = false, runPath = null, inventoryPath = null, inventory = [];
   const items = document.getElementById('evaluation-items');
   if (items) new ResizeObserver(() => { for (const card of cards.values()) card.chart?.resize(); }).observe(items);
   async function refresh(streams) {
-    if (streams) inventory = streams;
+    const path = base();
+    if (inventoryPath !== path) { inventory = []; inventoryPath = path; }
+    if (streams) {
+      // Discovery responses can arrive out of order while a result is loading.
+      // Sources are immutable: an older inventory must not forget a new source
+      // whose stream_added event has already been delivered. Keep the server's
+      // bounded union for this run, including sources queued behind pending work.
+      const discovered = new Map(inventory.map(stream => [stream.stream_id, stream]));
+      for (const stream of streams.slice(0, 64)) discovered.set(stream.stream_id, stream);
+      inventory = [...discovered.values()].slice(0, 64);
+    }
     if (pending) { again = true; return; }
     pending = true;
     try {

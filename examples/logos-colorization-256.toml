@@ -1,7 +1,7 @@
 # Experimental conditional particle VAEGAN. See docs/colorization.md.
 # Prepare a dataset manifest and supply local, hash-pinned DINOv3 artifacts.
 schema_version = 1
-name = "images/logos-colorization-256"
+name = "images/logos-colorization-projected-256"
 
 [data]
 factory = "hypergan.colorization_data:ColorizationData"
@@ -20,14 +20,14 @@ z_dim = 128
 width = 32
 
 [components.discriminator]
-factory = "hypergan.colorization_components:DINOv3Discriminator"
-inputs = { x = "candidate", gray = "batch.gray" }
+factory = "hypergan.colorization_components:DINOv3ProjectedDiscriminator"
+inputs = { x = "candidate" }
 [components.discriminator.args]
 source_path = "./dinov3-source"
 source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
 weights_path = "./dinov3_vits16_pretrain_lvd1689m-08c60483.pth"
 weights_sha256 = "08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d"
-width = 32
+feature_width = 64
 
 [components.encoder]
 factory = "hypergan.colorization_components:GrayscaleRoutingEncoder"
@@ -38,7 +38,7 @@ width = 32
 temperature = 0.125
 
 # Reconstruction trains E through fixed G and detached particle means.
-# Conditional adversarial training updates E, G, and the particle means.
+# Adversarial gradients through unconditional D update E, G, and particle means.
 [components.reconstruction]
 reuse = "generator"
 inputs = { z = "components.encoder.reconstruction_latent" }

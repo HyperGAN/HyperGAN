@@ -24,13 +24,36 @@ updates only the encoder: it reuses the generator with frozen parameters and
 detached particle means, with the same selected center and noise. Particle spread
 regularization and lazy b-cap remain configured separately.
 
-The discriminator combines a pixel critic conditioned on grayscale with a frozen
-DINOv3 ViT-S/16 LVD-1689M feature critic and trainable SAGAN attention. Its feature
-path remains differentiable with respect to candidate pixels, including the
-second derivatives required by b-cap. The pretrained backbone stays frozen and
-in evaluation mode. The recipe pins the local weight file by SHA256 and the
-external DINOv3 source checkout by commit; it does not download during training.
-The upstream code and weights retain their [DINOv3 terms](https://github.com/facebookresearch/dinov3).
+The discriminator receives only RGB: `D(X)` for real images and `D(G(z))` for
+fake images. Both use the same single path:
+
+```text
+E(bw(X)) -> particle selection -> z = center + fixed-sigma noise
+G(z) -> Xhat
+D(X) or D(Xhat): frozen DINOv3 -> frozen random projection -> attention/head
+L2 = mean((Xhat - X)^2)  # reconstruction updates E only
+```
+
+The projection mixes DINOv3's final 16×16 patch features with fixed random 1×1
+channel and 3×3 spatial convolutions. SAGAN attention and the output head learn.
+This is a minimal single-map adaptation of the frozen feature/projection idea in
+[Projected GAN](https://github.com/autonomousvision/projected-gan/blob/main/pg_modules/projector.py).
+The 3×3 layer mixes local spatial features; it does not reproduce the paper's
+multiscale feature fusion or multiple discriminator heads. There is one backbone
+call per candidate batch, with no grayscale input or separate pixel critic.
+Normal training still evaluates real and fake candidates and the configured
+b-cap regularizer; “one path” does not mean only one D evaluation per update.
+
+The frozen DINOv3 ViT-S/16 LVD-1689M backbone and random projection stay in
+evaluation mode while retaining derivatives with respect to candidate pixels,
+including the second derivatives required by b-cap. The recipe pins the local
+weight file by SHA256 and the external source checkout by commit; it does not
+download during training. The upstream code and weights retain their
+[DINOv3 terms](https://github.com/facebookresearch/dinov3).
+
+The earlier two-path `DINOv3Discriminator` remains available for existing
+configurations and checkpoints. The new `DINOv3ProjectedDiscriminator` is a
+different architecture: use a fresh run directory and its own configuration.
 
 ## Data preparation
 
@@ -85,7 +108,7 @@ environment live under `~/dev/hypergan/training-runs/`. Run:
 bash ~/dev/hypergan/training-runs/start-color.sh
 ```
 
-The launcher pins physical GPU 1 by UUID and uses a separate `train-color` run.
+The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-projected` run.
 Interrupt it with Ctrl-C to save a recoverable boundary. Repeating the same
 command resumes the latest complete checkpoint. It does not touch the CIFAR run.
 The default total schedule is 200,000 updates; batch size starts at 16. The fast
@@ -94,4 +117,6 @@ state without promising bitwise-identical future learning trajectories.
 
 Configuration and dataset/component dependency checks remain enforced on resume;
 HyperGAN release hashes remain provenance, not compatibility rejection keys.
-The actual test run is separate from `train-color`, leaving the owner run fresh.
+The validation run is separate from `train-color-projected`, leaving it fresh.
+The original environment and config remain available via
+`start-color-original.sh`; the new launcher uses `colorization-projected-env`.

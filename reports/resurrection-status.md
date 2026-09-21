@@ -10,9 +10,12 @@ remain unchanged. Original discriminator/config/environment are preserved.
 [Implementation and validation report](colorization-projected-2026-09-20.md).
 Clean installed source `de11816d` matches all 65 Python files; 858 fast tests pass,
 185 heavy tests deselected. Actual GPU-1 DINO image double backward/frozen masks
-and eight full-manifest CLI updates pass. Independent review found no blockers.
-Next: finish resume/full-state verification and deliberate local heavy suite,
-merge the passing PR, and leave the new owner run unstarted behind start-color.sh.
+and eight full-manifest CLI updates pass. Resume reached ten; exact full restore
+matched 948 tensors / 407,302 values, and all three 512-output metrics plus g/x/gray
+viewer PNGs pass. Independent review found no blockers. The verification run and
+viewer are stopped. start-color.sh selects the fresh, unstarted projected run.
+[PR #360](https://github.com/HyperGAN/HyperGAN/pull/360) is open. Next: finish the
+deliberate local heavy suite and GitHub checks, then merge the passing PR.
 Evidence: `../resurrection-backups/2026-09-20-colorization-projected/` outside repo.
 
 

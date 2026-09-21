@@ -41,9 +41,14 @@ Actual DINO weights on physical GPU 1 passed image first/second derivatives,
 attention/head gradients and frozen-weight preservation across an optimizer step.
 Batch eight output shape was `[8,1]`, with peak allocated memory 1,515,375,104
 bytes. The actual full-manifest launcher completed eight updates, including lazy
-b-cap at step eight. Resume, full-state restoration and the deliberate local
-heavy suite are being checked before merge; the short run establishes execution,
-not convergence or colorization quality.
+b-cap at step eight, then resumed to ten. Complete-state restoration matched
+948 tensors and 407,302 other values exactly, including optimizer, EMA, prior,
+sampler and RNG state. All three configured held-out metrics completed their
+512-output protocols; values are execution checks, not trained quality scores.
+The live viewer served all three 768×768 PNG grids (g/x/gray), with verified
+content hashes and source step. The verification train and viewer are stopped.
+The deliberate local heavy regression suite and GitHub checks remain required
+pre-merge gates; their final receipts and PR status are recorded in the ledger.
 
 A first isolated fast-test invocation could not import the shared pytest; an
 initial heavy attempt similarly could not see user-site training dependencies
@@ -53,8 +58,8 @@ failed logs are preserved; no tests were skipped to hide failures.
 
 Machine assets are under `~/dev/hypergan/training-runs/`: the new installed
 `colorization-projected-env`, config `logos-colorization-projected-256/colorization.toml`,
-and fresh owner directory `train-color-projected`. The staged launcher is
-`start-color-projected.sh`; `start-color.sh` will select it after validation.
+and fresh owner directory `train-color-projected`. `start-color.sh` now selects the validated new experiment; the same script is
+also available as `start-color-projected.sh`. The owner run is unstarted.
 `start-color-original.sh` retains the original config/environment. No colorization
 training was active on entry, and the original `train-color` directory was absent;
 the owner's active CIFAR run was not changed.
@@ -62,3 +67,5 @@ the owner's active CIFAR run was not changed.
 Commands, builds, logs, derivative/state receipts and original launcher copies:
 `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-colorization-projected/`.
 No owner training allocation, paid compute, release or quality claim is included.
+
+Integration: [PR #360](https://github.com/HyperGAN/HyperGAN/pull/360).

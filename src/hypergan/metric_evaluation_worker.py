@@ -49,6 +49,10 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
             any(owner.get(key) != identity.get(key) for key in ('attempt_id', 'attempt_index', 'evaluation_id'))):
         raise ValueError('Interval snapshot differs from the requested source step or attempt identity')
     config = resolve_config(saved['config'])
+    generated_binding = evaluation.get('generated', config['sampling'].get('generated', 'generated'))
+    if (generated_binding.startswith('components.')
+            and generated_binding.split('.')[1] not in saved['components']):
+        raise ValueError(f'Snapshot does not contain evaluation.generated component: {generated_binding}')
     apply_backend_policy({'training': {**config['training'], 'device': evaluation['device']}})
     device = execution_device(evaluation['device'])
     graph = ComponentGraph(saved['components']).float().eval().requires_grad_(False)
@@ -98,8 +102,7 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                 raise ValueError('Evaluation backend settings changed between generated batches')
             observed_backend = effective_backend
             runtime['backend'] = effective_backend
-            from .recipes import generation_output
-            generated = generation_output(graph, graph.generate(z, batch, prior=prior), config['sampling'])
+            generated = graph.resolve(generated_binding, graph.generate(z, batch, prior=prior))
             if (not isinstance(generated, torch.Tensor) or generated.ndim < 1 or len(generated) != size
                     or generated.numel() > MAX_BATCH_ELEMENTS or not torch.isfinite(generated).all()
                     or not torch.isfinite(batch['real']).all()):
@@ -110,7 +113,7 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     protocol = {'schema_version': 1, 'metric_factory': spec['factory'], 'factory_sources': description['factory_sources'],
                 'args': spec['args'], 'inputs': spec['inputs'], 'data_identity': data_identity,
                 'evaluation': evaluation, 'ema': True, 'sources': code,
-                'generated_binding': config['sampling'].get('generated', 'generated'),
+                'generated_binding': generated_binding,
                 'runtime': runtime}
     with torch.inference_mode():
         value = instance.evaluate(batches=batches(), context={'sample_count': evaluation['sample_count'],

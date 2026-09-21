@@ -42,11 +42,15 @@ usage. Hard routing and a moving decoder can still make the encoder collapse.
 The discriminator receives only RGB through the same single path for real and fake:
 
 ```text
-RGB -> frozen DINOv3 -> frozen random projection -> attention/head
+RGB -> [frozen DINOv3 + frozen projection, learned RGB stem]
+    -> concatenate at 16x16 -> shared attention -> convolutional head -> D(RGB)
 ```
 
 The projection mixes DINOv3's final 16×16 patch features with fixed random 1×1
-channel and 3×3 spatial convolutions. SAGAN attention and the output head learn.
+channel and 3×3 spatial convolutions. A learned four-stage RGB stem supplies
+local pixel features at the same resolution. Their concatenated features pass
+through one SAGAN attention module and one spectrally normalized convolutional
+head. The RGB stem, attention, and output head learn.
 This is a minimal single-map adaptation of the frozen feature/projection idea in
 [Projected GAN](https://github.com/autonomousvision/projected-gan/blob/main/pg_modules/projector.py).
 The 3×3 layer mixes local spatial features; it does not reproduce the paper's
@@ -61,6 +65,30 @@ including the second derivatives required by b-cap. The recipe pins the local
 weight file by SHA256 and the external source checkout by commit; it does not
 download during training. The upstream code and weights retain their
 [DINOv3 terms](https://github.com/facebookresearch/dinov3).
+
+The discriminator comparisons also expose these alternatives (use a fresh run
+when changing architecture):
+
+- `DINOv3ProjectedDiscriminator(head="conv")` replaces the linear head with
+  spectrally normalized nonlinear convolutions. Its optional `pixel_width=32`
+  adds a learned RGB stem, concatenated with projected DINO features before the
+  shared attention/head. The example uses this configuration: it avoided the
+  earlier near-constant failure through 1,500 controlled updates while retaining
+  the original b-cap settings. This is bounded collapse evidence, not a guarantee
+  of long-run stability or colorization quality.
+- `DINOv3MultiScaleDiscriminator` reads transformer blocks 2, 5, 8, and 11 in
+  one backbone pass. Frozen random projections build and fuse a synthetic
+  32/16/8/4 pyramid, followed by four attention/convolution heads whose scalar
+  outputs are averaged. DINOv3's native maps are all 16×16; this is a multidepth
+  adaptation, not an exact reproduction of Projected GAN.
+- `DCGANDiscriminator256(width=32)` is an RGB-only convolutional control with
+  spectral normalization. It has no pretrained backbone.
+
+The DINOv3 token and normalization audit, controlled comparisons, and their limits
+are recorded in [the collapse report](../reports/colorization-collapse-2026-09-21.md).
+The working CIFAR critic combines a learned pixel path with multiscale pretrained
+ResNet features, so it is not a pretrained-only counterpart to the original
+single-map DINO critic.
 
 The earlier two-path `DINOv3Discriminator` remains available for existing
 configurations and checkpoints. The new `DINOv3ProjectedDiscriminator` is a
@@ -96,6 +124,17 @@ is a structural diagnostic related to the grayscale reconstruction loss:
   draws for each identical grayscale input. Interpret it alongside structure;
   arbitrary noise can increase diversity without improving colorization.
 
+Two additional metrics explicitly select uniform-prior outputs with
+`evaluation.generated = "generated"`, independently of the conditional preview:
+
+- `random_spread` measures pooled pixel pairwise RMS relative to the held-out
+  reference. Near zero detects constant outputs; one matches overall spread.
+  Noise or repeated coarse patterns can also produce spread, so this is a
+  collapse diagnostic, not a quality target. It runs every 250 updates on 256
+  samples to reveal the early failure seen in the original run.
+- `random_chroma` compares unconditional color distributions every 1,100 updates
+  on 512 samples. It shares the existing chroma metric's spatial limitations.
+
 Keep the evaluation seed, count, held-out inventory and sample multiplicity
 fixed when comparing checkpoints. Show grayscale inputs, source RGB and generated
 RGB previews together. The `comparison` view has one example per row and labelled
@@ -124,7 +163,7 @@ environment live under `~/dev/hypergan/training-runs/`. Run:
 bash ~/dev/hypergan/training-runs/start-color.sh
 ```
 
-The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-random` run.
+The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-critic` run.
 Interrupt it with Ctrl-C to save a recoverable boundary. Repeating the same
 command resumes the latest complete checkpoint. It does not touch the CIFAR run.
 The default total schedule is 200,000 updates; batch size starts at 16. The fast
@@ -133,7 +172,9 @@ state without promising bitwise-identical future learning trajectories.
 
 Configuration and dataset/component dependency checks remain enforced on resume;
 HyperGAN release hashes remain provenance, not compatibility rejection keys.
-The validation run is separate from `train-color-random`, leaving it fresh.
+The validation run is separate from `train-color-critic`, leaving it fresh.
 The collapsed projected run and its launcher `start-color-projected.sh` remain
-available. The updated launcher uses `colorization-random-env`; the older
-`start-color-original.sh` is also preserved.
+available. The updated launcher uses `colorization-critic-env` and
+`logos-colorization-critic-256/colorization.toml`. The earlier random-prior run
+and its `start-color-random.sh` launcher are preserved, along with
+`start-color-original.sh`.

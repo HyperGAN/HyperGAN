@@ -303,7 +303,7 @@ def resolve_config(raw):
     # Particle IDs have their own validation below, including their field name
     # in errors and requiring an output of the selected inference graph.
     inference_paths = sampling_bindings({k: v for k, v in sampling.items() if k != 'particle_ids'}, preview=True)
-    paths += inference_paths
+    paths += inference_paths + evaluation_bindings(result)
     for path in paths:
         if not isinstance(path, str) or not path or not all(path.split('.')):
             raise ValueError('I/O bindings must be nonempty dotted paths')
@@ -453,3 +453,9 @@ def sampling_bindings(sampling, *, preview=False):
         paths += list(sampling.get('views', {}).values())
         paths += [column['binding'] for column in sampling.get('comparison', [])]
     return paths
+
+
+def evaluation_bindings(config):
+    """Explicit snapshot output overrides; omitted values use sampling output."""
+    return [spec['evaluation']['generated'] for spec in config['metrics']['custom'].values()
+            if spec['mode'] == 'snapshot' and 'generated' in spec['evaluation']]

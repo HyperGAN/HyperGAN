@@ -161,10 +161,10 @@ def test_discriminator_keeps_features_frozen_but_allows_image_double_backward(mo
         assert not torch.equal(model(x.detach(), gray), model(x.detach(), gray + .2))
 
 
-def _projected_discriminator(monkeypatch):
+def _projected_discriminator(monkeypatch, **kwargs):
     monkeypatch.setattr(color, '_load_dinov3', lambda *args: _TinyBackbone())
     return color.DINOv3ProjectedDiscriminator('unused', '0' * 40, 'unused', '0' * 64,
-                                               feature_width=4)
+                                               feature_width=4, **kwargs)
 
 
 def test_projected_discriminator_single_path_frozen_masks_and_double_backward(monkeypatch):
@@ -217,6 +217,58 @@ def test_projected_discriminator_state_reload_preserves_random_projection(monkey
     with pytest.raises(RuntimeError, match='Missing key|Unexpected key|size mismatch'):
         color.DINOv3Discriminator('unused', '0' * 40, 'unused', '0' * 64,
                                   width=2, feature_width=4).load_state_dict(model.state_dict())
+
+
+def test_projected_conv_head_trains_with_frozen_features_and_input_double_backward(monkeypatch):
+    model = _projected_discriminator(monkeypatch, head='conv')
+    model.requires_grad_(False).requires_grad_(True).train()
+    frozen = {name: parameter.detach().clone() for name, parameter in model.named_parameters()
+              if name.startswith(('backbone.', 'feature_project.'))}
+    assert not model.backbone.training and not model.feature_project.training
+    assert model.attention.training and model.feature_output.training
+    assert all(parameter.requires_grad == (name not in frozen)
+               for name, parameter in model.named_parameters())
+    x = torch.randn(2, 3, 256, 256, requires_grad=True)
+    logits = model(x)
+    assert logits.shape == (2, 1)
+    derivative, = torch.autograd.grad(logits.sum(), x, create_graph=True)
+    # Two training forwards before backward exercise spectral-norm power-iteration
+    # buffers in the real/fake discriminator pattern as well as the b-cap path.
+    other_logits = model(torch.randn_like(x))
+    loss = F.softplus(other_logits - logits).mean() + derivative.square().sum()
+    loss.backward()
+    assert torch.isfinite(derivative).all() and derivative.abs().sum() > 0
+    assert torch.isfinite(x.grad).all()
+    trainable = {name: parameter for name, parameter in model.named_parameters() if name not in frozen}
+    assert all(parameter.grad is not None and torch.isfinite(parameter.grad).all()
+               for parameter in trainable.values())
+    before = {name: parameter.detach().clone() for name, parameter in trainable.items()}
+    torch.optim.SGD(model.parameters(), lr=.1).step()
+    assert any(not torch.equal(before[name], parameter) for name, parameter in trainable.items())
+    for name, parameter in model.named_parameters():
+        if name in frozen:
+            assert parameter.grad is None
+            torch.testing.assert_close(parameter, frozen[name], rtol=0, atol=0)
+    # Spectral-norm vectors and original weights survive strict checkpoint reload.
+    model.eval()
+    restored = _projected_discriminator(monkeypatch, head='conv').eval()
+    restored.load_state_dict(model.state_dict(), strict=True)
+    torch.testing.assert_close(restored(x.detach()), model(x.detach()), rtol=0, atol=0)
+
+
+def test_projected_linear_default_keeps_legacy_checkpoint_keys(monkeypatch):
+    model = _projected_discriminator(monkeypatch)
+    explicit = _projected_discriminator(monkeypatch, head='linear')
+    explicit.load_state_dict(model.state_dict(), strict=True)
+    assert isinstance(model.feature_output, nn.Linear)
+    assert 'feature_output.weight' in model.state_dict()
+    assert 'feature_output.bias' in model.state_dict()
+
+
+@pytest.mark.parametrize('head', ['', 'mlp', None, True, 1])
+def test_projected_discriminator_rejects_invalid_head_before_loading_weights(head):
+    with pytest.raises(ValueError, match='head must be'):
+        color.DINOv3ProjectedDiscriminator('unused', '0' * 40, 'unused', '0' * 64, head=head)
 
 
 def test_projected_discriminator_rejects_conditioning_and_bad_feature_contract(monkeypatch):

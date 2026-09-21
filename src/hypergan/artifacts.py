@@ -10,15 +10,15 @@ import uuid
 import numpy as np
 import torch
 
-from .config import config_values, resolve_config, sampling_bindings
+from .config import config_values, resolve_config, sampling_bindings, evaluation_bindings
 from .recipes import ComponentGraph, generation_output, generation_particle_ids, make_prior
 from .run_state import sync_directory
 
 
 def bundle_state(trainer, batch):
     """Assemble inference state; callers own copying and RNG isolation."""
-    # Keep exactly the generator dependency graph, omitting objective-only encoders
-    # and discriminator conditioners from the inference environment.
+    # Retain generation/sampling and explicitly selected evaluation dependency
+    # graphs, omitting unrelated training components from inference artifacts.
     needed_components = set()
     called_components = set()
     def include(name):
@@ -35,8 +35,12 @@ def bundle_state(trainer, batch):
     for binding in sampling_bindings(trainer.config['sampling']):
         if binding.startswith('components.'):
             include(binding.split('.')[1])
+    sampling_components = set(called_components)
+    for binding in evaluation_bindings(trainer.config):
+        if binding.startswith('components.'):
+            include(binding.split('.')[1])
     specs = {name: spec for name, spec in trainer.config["components"].items() if name in needed_components}
-    needed = {path.split(".")[1] for name in called_components for path in specs[name]["inputs"].values() if path.startswith("batch.")}
+    needed = {path.split(".")[1] for name in sampling_components for path in specs[name]["inputs"].values() if path.startswith("batch.")}
     models = {name: trainer.ema_graph.models[name] for name, spec in specs.items() if 'reuse' not in spec}
     state = {"schema_version": 1, "kind": "ema-inference", "resume_supported": False, "step": trainer.step, "config": config_values(trainer.config), "components": specs, "model_states": {name: model.state_dict() for name, model in models.items()}, "prior": trainer.ema_prior.state_dict(), "example_inputs": {k: v for k, v in batch.items() if k in needed}}
     state["identity"] = getattr(trainer, "artifact_identity", {})

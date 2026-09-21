@@ -174,6 +174,22 @@ factory = "my_project.data:EvaluationData"
 args = { split = "validation" }
 ```
 
+Snapshot metrics normally evaluate `sampling.generated`, or the adversarial
+generator output when that sampling override is absent. Set
+`generated = "generated"` inside a metric's `evaluation` table to measure the
+adversarial generator output independently of a conditional reconstruction shown
+by the sampler. A component binding such as
+`generated = "components.reconstruction"` selects another declared output.
+Each metric records its resolved `generated_binding` in the evaluation protocol.
+New inference bundles retain the selected component and its dependencies; an
+older bundle that omitted those components cannot evaluate that override.
+
+`hypergan.colorization_metrics:SampleDiversityRatio` measures generated/reference
+sample spread after RGB average pooling (`args.pool_size = 32` by default).
+Zero means identical generated outputs; one matches reference spread. This is a
+collapse diagnostic, not a quality score: noise can also have substantial spread.
+It needs at least two samples in each set and nonzero reference spread.
+
 Call the standalone evaluation API with the run and metric ID:
 
 ```python

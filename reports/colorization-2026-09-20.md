@@ -20,6 +20,19 @@ That head also incorporates the owner's develop heavy-test selection (`6ed2eafb`
 develop history at `a83d7072` was pushed under owner authorization; prior
 performance PRs #355/#356 are consequently merged.
 
+## Integration
+
+The combined head `5a34cc76` passed all required checks, including Windows and
+Foundation CI, in [run 35561553137](https://github.com/HyperGAN/HyperGAN/actions/runs/35561553137).
+PR #358 merged as `48e0b34648d732d57bca1cdf5feeb3430515f352`; #357 and
+[#359](https://github.com/HyperGAN/HyperGAN/pull/359) are also merged by ancestry.
+The final policy runs heavy GitHub jobs only for master pushes and PRs targeting
+master, as subsequently requested by the owner. Both jobs were intentionally
+omitted for this develop PR; fast foundation/reference, viewer, reducer and
+repository integrity checks passed. The standalone #359 run hit the existing
+Windows CRLF fixture failure; the passing combined head includes its #357 fix.
+Earlier superseded heavy CI runs were canceled under the new policy.
+
 ## Pinned artifacts and preparation
 
 - DINOv3 source: `6876159a11b4df116f30f667f8c9888617df0751`.

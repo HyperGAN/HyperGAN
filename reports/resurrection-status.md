@@ -14,16 +14,22 @@ at `a83d7072` preserved all earlier work and closed prior PRs #355/#356.
 [PR #357](https://github.com/HyperGAN/HyperGAN/pull/357) adds bounded 256px PNG
 previews with g/x/gray shelves and explicit routed particle IDs. [PR #358](https://github.com/HyperGAN/HyperGAN/pull/358)
 adds the colorization recipe/data/models/metrics and includes that preview head.
-Combined code is complete at `903393713d592059cdcbc924f53a0374537cf426`,
-including the newly merged develop heavy-test selection (`6ed2eafb`). CI caught
-a captured-default byte-limit regression; `377974f8` / `49f206b5` fixes it and
-42 targeted preview checks passed. The installed combined fast suite passed
-851 tests with 185 heavy tests explicitly deselected. The owner then requested that GitHub
-heavy jobs run only for master. `41f3cedb` restricts them to master pushes and
-PRs targeting master, and verifies all 36 final-gate result combinations.
-Develop CI keeps the fast, viewer, reducer and integrity checks; results pending.
-The repository does not enable automatic PR merges; coordinator will merge the
-combined passing head, preserving both reviewed slices, then synchronize develop.
+The combined head `5a34cc76` passed Foundation CI and repository integrity
+([CI run](https://github.com/HyperGAN/HyperGAN/actions/runs/35561553137)).
+PR #358 merged into develop as `48e0b34648d732d57bca1cdf5feeb3430515f352`;
+PRs #357 and [#359](https://github.com/HyperGAN/HyperGAN/pull/359) are also marked
+merged through preserved ancestry. #359 implements the owner's subsequent
+request: GitHub heavy jobs run only for master pushes and master-targeting PRs;
+develop keeps fast, viewer, reducer and integrity checks. All 36 gate-result
+combinations passed validation, and GitHub confirmed the two heavy jobs were
+intentionally omitted. The standalone CI-policy PR encountered the known Windows
+CRLF fixture failure; the combined passing head includes its fix from #357.
+
+CI initially caught a preview captured-default byte-limit regression;
+`377974f8` / `49f206b5` fixes it and all 42 focused preview checks passed.
+The combined installed fast suite passed 851 tests with 185 heavy tests explicitly
+deselected in 24.46s. Older superseded CI runs that still included heavy tests
+were canceled after the owner changed the policy.
 
 Full preparation attempted 426,445 image paths and accepted 426,343: 404,757
 train / 21,586 held-out. Exactly 102 exclusions (99 truncated, two unreadable,
@@ -53,9 +59,9 @@ Recipe defaults are batch 16, 200k total updates, 1k checkpoints and 100-update
 previews; the owner controls startup and stopping. Evidence/builds/commands and
 preexisting-ledger backup: `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-colorization/`.
 Main-checkout HNDL/research edits are preserved separately. No paid compute or
-release. Next: merge passing PRs #357/#358 into develop, commit final ledger/receipt
-and restore the preserved uncommitted research ledger changes. After that, owner
-runs start-color.sh and assesses color diversity and logo structure over training.
+release. All task branches are preserved in develop. Owner next runs
+start-color.sh and assesses color diversity and logo structure over training.
+Unrelated preexisting HNDL/research edits remain outside these commits.
 
 Resume on the other identical GPU, and the heavy-test gate (2026-09-20): the
 owner restarted `training-runs/start.sh` and resume failed with the bare

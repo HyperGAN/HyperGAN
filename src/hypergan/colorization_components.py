@@ -309,3 +309,34 @@ class DINOv3ProjectedDiscriminator(nn.Module):
         # Nonoverlapping reduction avoids adaptive-pool CUDA backward atomics.
         pooled = features.reshape(len(x), features.shape[1], 4, 4, 4, 4).mean((3, 5))
         return self.feature_output(pooled.flatten(1))
+
+
+class DCGANDiscriminator256(nn.Module):
+    """Unconditional RGB pixel critic for a 256px discriminator control.
+
+    Six stride-two convolutions reduce 256px to 4px before a scalar head.
+    Spectral normalization bounds each learned layer; batch normalization is
+    deliberately absent so a sample's score has no dependence on its peers.
+    Unlike the projected critic, this model has no pretrained feature path.
+    """
+    def __init__(self, width=32, spectral_norm=True):
+        super().__init__()
+        _positive_integer(width, 'width')
+        if type(spectral_norm) is not bool:
+            raise ValueError('spectral_norm must be a boolean')
+
+        def normalize(layer):
+            return nn.utils.parametrizations.spectral_norm(layer) if spectral_norm else layer
+
+        channels = [3, width, 2 * width, 4 * width, 8 * width, 8 * width, 8 * width]
+        layers = []
+        for cin, cout in zip(channels, channels[1:]):
+            layers.extend([normalize(nn.Conv2d(cin, cout, 4, stride=2, padding=1)),
+                           nn.LeakyReLU(.2)])
+        self.features = nn.Sequential(*layers)
+        self.output = normalize(nn.Linear(channels[-1] * 16, 1))
+
+    def forward(self, x):
+        if x.ndim != 4 or tuple(x.shape[1:]) != (3, 256, 256):
+            raise ValueError('Discriminator requires x [batch,3,256,256] in [-1,1]')
+        return self.output(self.features(x).flatten(1))

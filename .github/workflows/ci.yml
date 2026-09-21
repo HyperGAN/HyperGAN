@@ -73,6 +73,57 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest "${{ github.workspace }}/tests/reference" --import-mode=importlib
 
+  # The two jobs below run the half that `addopts` deselects: tests marked
+  # `heavy` because they start real subprocesses, worker services or multi-rank
+  # jobs. Nothing is skipped and nothing is dropped from develop - the same
+  # tests run, in their own clearly named job, so that a plain `pytest` stays
+  # fast for everyday work.
+  heavy-lightweight:
+    name: Heavy lightweight (${{ matrix.os }}, Python ${{ matrix.python }})
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build the wheel
+        run: |
+          python -m pip install "build>=1,<2"
+          python -m build --wheel
+      - name: Install the wheel with only test dependencies
+        run: python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[test]'])"
+      - name: Verify clean lightweight environment
+        working-directory: ${{ runner.temp }}
+        run: python -I -c "import importlib.util; assert importlib.util.find_spec('torch') is None; assert importlib.util.find_spec('particlegan') is None"
+      - name: Run the gated heavy foundation tests
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pytest "${{ github.workspace }}/tests/foundation" --import-mode=importlib -m heavy
+
+  heavy-reference:
+    name: Heavy CPU reference (Python 3.12)
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install tested CPU runtime and build
+        run: |
+          python -m pip install "build>=1,<2"
+          python -m pip install "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
+          python -m build
+          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,test]'])"
+      - name: Run the gated heavy reference tests
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pytest "${{ github.workspace }}/tests/reference" --import-mode=importlib -m heavy
+
   reducers:
     name: Shared reducer (${{ matrix.os }})
     strategy:
@@ -136,17 +187,21 @@ jobs:
   foundation:
     name: Foundation CI
     if: always()
-    needs: [lightweight, reference, reducers, web]
+    needs: [lightweight, reference, heavy-lightweight, heavy-reference, reducers, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every foundation job
         env:
           LIGHTWEIGHT_RESULT: ${{ needs.lightweight.result }}
           REFERENCE_RESULT: ${{ needs.reference.result }}
+          HEAVY_LIGHTWEIGHT_RESULT: ${{ needs['heavy-lightweight'].result }}
+          HEAVY_REFERENCE_RESULT: ${{ needs['heavy-reference'].result }}
           REDUCERS_RESULT: ${{ needs.reducers.result }}
           WEB_RESULT: ${{ needs.web.result }}
         run: |
           test "$LIGHTWEIGHT_RESULT" = success
           test "$REFERENCE_RESULT" = success
+          test "$HEAVY_LIGHTWEIGHT_RESULT" = success
+          test "$HEAVY_REFERENCE_RESULT" = success
           test "$REDUCERS_RESULT" = success
           test "$WEB_RESULT" = success

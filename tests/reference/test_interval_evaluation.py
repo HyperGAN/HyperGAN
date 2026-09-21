@@ -74,6 +74,7 @@ def receipts(root):
     return [json.loads(path.read_text()) for path in (root / 'metrics/evaluations').glob('*/receipt.json')]
 
 
+@pytest.mark.heavy
 def test_interval_worker_allows_updates_while_busy_and_preserves_complete_state(tmp_path, monkeypatch):
     entered, release = tmp_path / 'entered', tmp_path / 'release'
     path = config(tmp_path, monkeypatch, args={'entered': str(entered), 'release': str(release)})
@@ -102,6 +103,7 @@ def test_interval_worker_allows_updates_while_busy_and_preserves_complete_state(
         assert receipt['result']['step'] == receipt['source_step']
 
 
+@pytest.mark.heavy
 def test_interval_resume_and_older_snapshot_recovery_keep_attempt_positions(tmp_path, monkeypatch):
     path = config(tmp_path, monkeypatch, interval=2)
     stopped = train(path, tmp_path / 'run', checkpoint_every=1, stop_after_steps=2)
@@ -117,6 +119,7 @@ def test_interval_resume_and_older_snapshot_recovery_keep_attempt_positions(tmp_
     assert recovered['evaluation_schedule']['distance']['next_step'] == 6
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize('policy', ['fail', 'disable'])
 def test_interval_failure_is_visible_and_honors_policy(tmp_path, monkeypatch, policy):
     path = config(tmp_path, monkeypatch, interval=2, args={'fail': True}, on_error=policy)
@@ -146,6 +149,7 @@ def test_interval_worker_rejects_mismatched_snapshot_source(tmp_path, field, val
         evaluate_snapshot({'evaluation': {'seed': 1}}, {}, path, _sha256(path), requested)
 
 
+@pytest.mark.heavy
 @pytest.mark.skipif(os.name != 'posix', reason='POSIX signal and process-death recovery contract')
 @pytest.mark.parametrize('abrupt', [False, True])
 def test_signal_reaps_evaluator_and_recovers_abandoned_snapshot(tmp_path, monkeypatch, abrupt):

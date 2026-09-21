@@ -192,16 +192,19 @@ def _launch(tmp_path, mode):
     return [json.loads(path.read_text()) for path in sorted(tmp_path.glob("rank*.json"))]
 
 
+@pytest.mark.heavy
 def test_two_process_global_objectives_gradients_and_double_backward(tmp_path):
     assert _launch(tmp_path, "numerics") == [{"passed": True}, {"passed": True}]
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize("mode", ["mismatch", "bad-index", "operation", "autograd"])
 def test_rank_input_errors_are_collective_and_bounded(tmp_path, mode):
     results = _launch(tmp_path, mode)
     assert len(results) == 2 and results[0]["error"] == results[1]["error"]
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize("mode", ["exit", "stall"])
 def test_lost_or_nonparticipating_rank_fails_within_timeout(tmp_path, mode):
     result = _launch(tmp_path, mode)[0]

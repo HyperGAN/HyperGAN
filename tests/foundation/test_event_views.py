@@ -188,6 +188,7 @@ def test_custom_map_worker_isolated_multiple_emissions_and_revision(tmp_path, ma
     assert len({e['id'] for f in rows for e in f['emissions']}) == 4
 
 
+@pytest.mark.heavy
 def test_custom_map_timeout_and_output_bound_leave_source_cursor(tmp_path, maps):
     name, digest, _ = maps
     append(tmp_path, 1)

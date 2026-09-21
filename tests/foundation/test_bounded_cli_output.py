@@ -71,6 +71,7 @@ with training_output(progress_json=True, progress_every=1) as output:
     assert b'inherited fixture\n' in result.stderr
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize('destination', ['unread', 'closed', 'slow'])
 def test_consumer_cannot_hold_terminal_completion(tmp_path, destination):
     receipt = tmp_path / 'receipt.json'
@@ -120,6 +121,7 @@ Path(sys.argv[1]).write_text(json.dumps(pids))
                 stream.close()
 
 
+@pytest.mark.heavy
 def test_parent_death_reaps_blocked_drains(tmp_path):
     receipt = tmp_path / 'pids.json'
     code = '''
@@ -225,6 +227,7 @@ Path(sys.argv[1]).write_text(json.dumps(pids))
 '''
 
 
+@pytest.mark.heavy
 def test_cached_python_and_native_stdio_cannot_hang_exit(tmp_path):
     receipt = tmp_path / 'pids.json'
     process = subprocess.Popen([sys.executable, '-c', _BUFFERED_CODE, str(receipt), 'unread'],

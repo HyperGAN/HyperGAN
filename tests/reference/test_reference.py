@@ -72,6 +72,7 @@ def test_one_update_matches_upstream_loop_gradients_weights_prior_and_ema():
     assert_modules_equal(trainer.ema_prior, ema_prior)
 
 
+@pytest.mark.heavy
 def test_run_and_fresh_process_inference(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"

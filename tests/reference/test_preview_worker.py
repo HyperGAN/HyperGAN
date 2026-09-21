@@ -59,6 +59,7 @@ def test_failed_renderer_releases_snapshot_and_slot(tmp_path, monkeypatch):
     assert not worker.busy and not directory.exists()
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize('fail', [False, True])
 def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp_path, monkeypatch, fail):
     import hypergan.preview_worker as module
@@ -105,6 +106,7 @@ def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp
     assert _digest(read_checkpoint(tmp_path / 'plain')[2]) == _digest(read_checkpoint(tmp_path / 'viewed')[2])
 
 
+@pytest.mark.heavy
 def test_fatal_update_cancels_hung_cpu_renderer_and_reaps_process(tmp_path, monkeypatch):
     import torch
     from hypergan.config import write_default
@@ -200,6 +202,7 @@ def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path
     assert not result['observation_errors']
 
 
+@pytest.mark.heavy
 def test_blocked_snapshot_storage_allows_updates_and_preserves_complete_state(tmp_path, monkeypatch):
     import hypergan.preview_snapshot as snapshots
     from hypergan.checkpoints import read_checkpoint

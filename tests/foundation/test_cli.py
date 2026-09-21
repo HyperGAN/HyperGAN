@@ -84,6 +84,7 @@ def test_manifest_inspection_without_model_loading(tmp_path):
     assert "Traceback" not in missing.stderr
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize("missing", ["numpy", "torch", "particlegan"])
 def test_missing_runtime_has_install_guidance(tmp_path, missing):
     project = tmp_path / "project"

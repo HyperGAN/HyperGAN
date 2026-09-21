@@ -102,6 +102,7 @@ def test_fixed_grid_publication_retention_and_tampered_payload_cleanup(tmp_path)
     assert not original.exists() and Path(record['image_grid']['path']).exists()
 
 
+@pytest.mark.heavy
 def test_isolated_renderer_transports_png_without_touching_parent_state(tmp_path, monkeypatch):
     import importlib
     import shutil
@@ -131,6 +132,7 @@ def test_isolated_renderer_transports_png_without_touching_parent_state(tmp_path
         assert image.size == (4, 4)
 
 
+@pytest.mark.heavy
 def test_image_previews_metrics_disabled_resume_and_fresh_process_png(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
     old_threads = torch.get_num_threads()
@@ -431,6 +433,7 @@ def test_index_reuses_published_records_instead_of_rereading_manifests(tmp_path)
     assert len(reads) == 7 and len(index['previews']) == 7
 
 
+@pytest.mark.heavy
 def test_named_previews_reach_the_run_manifest_with_a_configurable_history(tmp_path, monkeypatch):
     """Training publishes named previews; resume inherits the name and retention."""
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))

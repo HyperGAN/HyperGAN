@@ -12,6 +12,11 @@ import pytest
 from hypergan.config import write_default
 
 
+# Heavy: every test here starts real subprocesses or multi-rank jobs and
+# measured at a second or more; see reports/test-durations-2026-09-20.txt.
+pytestmark = pytest.mark.heavy
+
+
 @pytest.mark.skipif(os.name == 'nt', reason='POSIX cooperative SIGTERM contract')
 @pytest.mark.parametrize('fatal', [False, True])
 def test_signal_during_terminal_callback_cancels_hour_timeout_and_reaps(tmp_path, fatal):

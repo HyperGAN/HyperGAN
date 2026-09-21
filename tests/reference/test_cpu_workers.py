@@ -88,6 +88,7 @@ if __name__ == '__main__':
 '''
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize("mode", ["success", "crash", "error", "stall"])
 def test_cpu_worker_lifecycle(tmp_path, mode):
     script = tmp_path / "worker_case.py"

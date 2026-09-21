@@ -86,7 +86,9 @@ The primitive fixtures use explicit averaged parameter reductions. The trainer f
 Local validation uses Python 3.12.13, PyTorch 2.14.0+cpu and ParticleGAN 0.5.0. Run the bounded test with the numerical dependencies installed:
 
 ```sh
-python -m pytest tests/reference/test_distributed.py -q
+python -m pytest tests/reference/test_distributed.py -q -m heavy
 ```
+
+Seven of its eight tests carry the `heavy` marker, so the `-m heavy` is needed: the default selection deselects them.
 
 Next, connect the implemented accumulation, complete-state publication, rank-specific RNG/data restore and worker lifecycle to the shared run service. The [integration design](../reports/distributed-run-service-design-2026-09-19.md) divides that work into reviewable steps. Only then qualify actual two-GPU NCCL and real multi-node behavior. Internal CPU updates do not close the distributed-training issue or establish cluster support.

@@ -1,0 +1,570 @@
+HyperGAN test durations - 2026-09-20
+========================================================================
+
+Command (the whole default testpaths, nothing deselected):
+
+  python -m pytest tests/foundation tests/reference -q \
+      -p no:cacheprovider -m '' --durations=0
+
+Environment: Linux, 24 cores, CPython 3.14.7, torch 2.14.0+cu130, CPU only.
+The package was installed into a throwaway venv so that the tests which
+re-invoke `python -I -m hypergan` in a subprocess actually run; against the
+editable checkout they abort in milliseconds with `No module named hypergan`
+and under-report by design. Other work was running on the machine, so treat
+these numbers as a ranking, not as absolute thresholds.
+
+Result: 944 passed in 1169.39s (0:19:29), 1168.0s attributed to tests.
+
+Per-test wall time and process spawns were recorded by a temporary root
+conftest that wrapped os.fork / os.posix_spawn / _posixsubprocess.fork_exec /
+subprocess._fork_exec / subprocess.Popen.__init__ and attributed each call to
+the running test. `subprocess` binds `_fork_exec` at import time and only
+takes the `os.posix_spawn` path for some argument shapes, so both are needed.
+
+Marking rule: a test is `heavy` when it measured at one second or more.
+All 180 tests over that line start real operating system processes; the
+marker is applied per function, so the 5 extra cases are fast
+parametrisations of a function whose other parametrisations are heavy.
+
+  selection        tests    measured seconds
+  default (fast)     759              19.3
+  -m heavy           185            1148.7
+  everything         944            1168.0
+
+
+Per file, slowest first
+------------------------------------------------------------------------
+
+  total_s tests  heavy  spawn_t   procs   max_s  file
+    149.2    29     28       28     204    9.45  tests/reference/test_distributed_checkpoints.py
+    107.3     8      8        8      36   29.73  tests/reference/test_public_execution_acceptance.py
+     92.9    11     11       11      26   15.96  tests/reference/test_custom_metrics.py
+     91.5     6      6        6      34   33.04  tests/reference/test_replicated_observer_acceptance.py
+     76.8     6      6        6      36   17.27  tests/reference/test_replicated_fault_acceptance.py
+     66.4     6      6        6      48   17.41  tests/reference/test_replicated_job_acceptance.py
+     62.8     4      2        2       8   39.14  tests/reference/test_metric_evaluation.py
+     42.1     8      6        6      44   13.18  tests/reference/test_core_cli.py
+     38.6     3      3        3      22   13.80  tests/reference/test_worker_service_acceptance.py
+     33.0    12     12       12      24    7.19  tests/reference/test_cpu_worker_service.py
+     31.7    13     12       12      24    9.19  tests/reference/test_execution_preflight.py
+     30.4     2      2        2       4   20.97  tests/reference/test_replicated_interval_evaluation.py
+     30.0    10      6        6      18    9.98  tests/reference/test_interval_evaluation.py
+     28.6     5      5        5      32   12.97  tests/reference/test_accumulation_acceptance.py
+     28.0     2      2        2      12   14.12  tests/reference/test_replicated_signals.py
+     24.5    22      3       10      16   10.13  tests/foundation/test_bounded_observer.py
+     21.4     1      1        1       2   21.36  tests/reference/test_metrics_replicated.py
+     20.9     8      8        8      16    3.19  tests/reference/test_training_signals.py
+     18.6     5      5        5      10    7.77  tests/reference/test_preflight_acceptance.py
+     17.9    13      4        4      10    6.89  tests/reference/test_observation.py
+     15.7     8      7        7      28    5.65  tests/reference/test_distributed.py
+     14.9    17      4        6      11    6.38  tests/reference/test_cpu_workers.py
+     14.4     5      5        5      20    3.42  tests/reference/test_distributed_acceptance.py
+     10.6    12      3        3       7    4.84  tests/reference/test_image_previews.py
+     10.6     2      2        2       4    5.42  tests/reference/test_async_observer_signals.py
+      9.5     3      3        3      12    4.10  tests/reference/test_distributed_training.py
+      9.2     8      2        2       4    4.64  tests/reference/test_replicated_evaluation_snapshot.py
+      9.0     3      3        3      12    3.06  tests/reference/test_accumulation_replay.py
+      8.2     1      1        1       6    8.19  tests/reference/test_cpu_job.py
+      8.0    30      5       11      24    1.87  tests/foundation/test_bounded_cli_output.py
+      7.8    10      4        3       3    3.40  tests/reference/test_preview_worker.py
+      5.0     1      1        1       2    5.02  tests/reference/test_accumulation_stochastic_loss.py
+      4.7    17      1        1       2    3.07  tests/reference/test_recovery.py
+      3.2     2      1        1       4    3.19  tests/reference/test_partial_freezing.py
+      3.0    13      3       13      50    1.49  tests/foundation/test_cli.py
+      3.0    20      1        4       5    2.34  tests/foundation/test_event_views.py
+      2.8    11      1        1       2    2.42  tests/reference/test_image_phase_policy.py
+      2.7     1      1        1       4    2.69  tests/reference/test_distributed_checkpoint_acceptance.py
+      2.2     8      1        1       2    1.68  tests/reference/test_reference.py
+      1.6    11      0        0       0    0.85  tests/reference/test_checkpoint_compatibility.py
+      1.3     8      0        0       0    0.20  tests/reference/test_checkpoint_event_commit.py
+      0.9     5      0        0       0    0.25  tests/reference/test_lifecycle_acceptance.py
+      0.7    43      0        5      18    0.13  tests/foundation/test_run_state.py
+      0.7     2      0        2      24    0.43  tests/foundation/test_observer_cli.py
+      0.6     3      0        0       0    0.45  tests/reference/test_metrics_runtime.py
+      0.6    27      0        0       0    0.27  tests/foundation/test_controller_fences.py
+      0.5     4      0        0       0    0.17  tests/reference/test_source_provenance.py
+      0.5     4      0        3      14    0.20  tests/foundation/test_preflight_acceptance.py
+      0.4    58      0        0       0    0.01  tests/foundation/test_public_execution.py
+      0.3     3      0        0       0    0.20  tests/reference/test_image_recovery.py
+      0.3     1      0        1       2    0.30  tests/foundation/test_group_free_service.py
+      0.3    30      0        1       2    0.14  tests/reference/test_image_data.py
+      0.2    52      0        2       4    0.07  tests/foundation/test_execution_profiles.py
+      0.2     3      0        2       4    0.16  tests/foundation/test_run_signals.py
+      0.2     1      0        1       4    0.17  tests/reference/test_data_cli.py
+      0.1     3      0        0       0    0.07  tests/reference/test_metric_cli_observation.py
+      0.1    42      0        1       2    0.04  tests/foundation/test_metric_plugins.py
+      0.1    24      0        2       4    0.05  tests/foundation/test_config.py
+      0.1     9      0        0       0    0.02  tests/foundation/test_lifecycle_acceptance.py
+      0.1    29      0        1       2    0.06  tests/foundation/test_metrics_config.py
+      0.1    31      0        1       2    0.07  tests/foundation/test_cpu_service_protocol.py
+      0.1    27      0        1       2    0.06  tests/foundation/test_replicated_execution.py
+      0.1     5      0        0       0    0.04  tests/reference/test_preview_snapshot.py
+      0.1    13      0        2       4    0.04  tests/foundation/test_console_settings.py
+      0.1     2      0        1       2    0.08  tests/foundation/test_metrics_cli.py
+      0.1    24      0        1       2    0.04  tests/foundation/test_distributed_commit.py
+      0.1     5      0        0       0    0.05  tests/foundation/test_observation_io.py
+      0.1    15      0        0       0    0.01  tests/foundation/test_cli_viewer_options.py
+      0.1     2      0        0       0    0.05  tests/foundation/test_background_poll.py
+
+  total_s  summed wall time of the file's tests
+  heavy    how many of them carry the marker
+  spawn_t  how many of them started at least one real process
+  procs    total processes started by the file
+  max_s    the file's slowest single test
+
+
+Worst single test per heavy file
+------------------------------------------------------------------------
+
+   9.45s  tests/reference/test_distributed_checkpoints.py::test_fresh_group_resume_preserves_every_rank_rng_sampler_and_optimizer[image]
+  29.73s  tests/reference/test_public_execution_acceptance.py::test_public_cpu_profile_observation_and_earlier_resume_are_exact
+  15.96s  tests/reference/test_custom_metrics.py::test_factory_source_revision_changes_catalog_but_allows_numerical_resume
+  33.04s  tests/reference/test_replicated_observer_acceptance.py::test_observation_preserves_full_state_and_resume_preview_identity
+  17.27s  tests/reference/test_replicated_fault_acceptance.py::test_shared_controller_fault_boundary_and_exact_fresh_recovery[rename]
+  17.41s  tests/reference/test_replicated_job_acceptance.py::test_replicated_job_exact_recovery_old_selection_and_required_artifacts
+  39.14s  tests/reference/test_metric_evaluation.py::test_snapshot_is_pinned_repeatable_and_publishes_independent_late_stream
+  13.18s  tests/reference/test_core_cli.py::test_manual_snapshot_metrics_hint_at_launch_and_remind_with_progress
+  13.80s  tests/reference/test_worker_service_acceptance.py::test_prepared_receipt_without_every_rank_command_result_cannot_advance_latest
+   7.19s  tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[total]
+   9.19s  tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[expected]
+  20.97s  tests/reference/test_replicated_interval_evaluation.py::test_replicated_interval_resume_and_older_checkpoint_replay_preserve_state_and_attempts
+   9.98s  tests/reference/test_interval_evaluation.py::test_signal_reaps_evaluator_and_recovers_abandoned_snapshot[False]
+  12.97s  tests/reference/test_accumulation_acceptance.py::test_accumulated_checkpoint_resumes_exactly_in_fresh_worker_group
+  14.12s  tests/reference/test_replicated_signals.py::test_group_signal_during_update_commits_and_resumes_all_ranks[SIGTERM]
+  10.13s  tests/foundation/test_bounded_observer.py::test_blocked_output_is_bounded
+  21.36s  tests/reference/test_metrics_replicated.py::test_cpu_replicated_metrics_on_off_and_revision_resume
+   3.19s  tests/reference/test_training_signals.py::test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly[SIGTERM]
+   7.77s  tests/reference/test_preflight_acceptance.py::test_runtime_preflight_bounds_real_rank_failures_without_running_models[hang]
+   6.89s  tests/reference/test_observation.py::test_resume_refreshes_a_stale_default_preview_bound
+   5.65s  tests/reference/test_distributed.py::test_lost_or_nonparticipating_rank_fails_within_timeout[stall]
+   6.38s  tests/reference/test_cpu_workers.py::test_cpu_worker_lifecycle[stall]
+   3.42s  tests/reference/test_distributed_acceptance.py::test_replicated_complete_updates_match_independent_global_oracle
+   4.84s  tests/reference/test_image_previews.py::test_image_previews_metrics_disabled_resume_and_fresh_process_png
+   5.42s  tests/reference/test_async_observer_signals.py::test_signal_during_terminal_callback_cancels_hour_timeout_and_reaps[False]
+   4.10s  tests/reference/test_distributed_training.py::test_complete_replicated_cpu_updates[parity]
+   4.64s  tests/reference/test_replicated_evaluation_snapshot.py::test_two_rank_evaluation_snapshot_preserves_state_or_propagates_failure[preserve-state]
+   3.06s  tests/reference/test_accumulation_replay.py::test_accumulation_replay_contract[failures]
+   8.19s  tests/reference/test_cpu_job.py::test_supervised_training_and_fresh_group_resume
+   1.87s  tests/foundation/test_bounded_cli_output.py::test_consumer_cannot_hold_terminal_completion[slow]
+   3.40s  tests/reference/test_preview_worker.py::test_fatal_update_cancels_hung_cpu_renderer_and_reaps_process
+   5.02s  tests/reference/test_accumulation_stochastic_loss.py::test_accumulation_preserves_logical_label_randomness_and_prior_controls
+   3.07s  tests/reference/test_recovery.py::test_resume_matches_uninterrupted_and_replays_old_checkpoint_without_overwrite
+   3.19s  tests/reference/test_partial_freezing.py::test_replicated_factory_mask_and_complete_checkpoint_recovery
+   1.49s  tests/foundation/test_cli.py::test_missing_runtime_has_install_guidance[particlegan]
+   2.34s  tests/foundation/test_event_views.py::test_custom_map_timeout_and_output_bound_leave_source_cursor
+   2.42s  tests/reference/test_image_phase_policy.py::test_explicit_backend_policy_is_applied_before_fresh_resume_identity
+   2.69s  tests/reference/test_distributed_checkpoint_acceptance.py::test_checkpoint_identity_observation_and_metadata_limit_preserve_durable_state
+   1.68s  tests/reference/test_reference.py::test_run_and_fresh_process_inference
+
+
+Raw pytest --durations=0 output
+------------------------------------------------------------------------
+
+============================== slowest durations ===============================
+39.14s call     tests/reference/test_metric_evaluation.py::test_snapshot_is_pinned_repeatable_and_publishes_independent_late_stream
+33.03s call     tests/reference/test_replicated_observer_acceptance.py::test_observation_preserves_full_state_and_resume_preview_identity
+29.73s call     tests/reference/test_public_execution_acceptance.py::test_public_cpu_profile_observation_and_earlier_resume_are_exact
+23.66s call     tests/reference/test_metric_evaluation.py::test_partial_sample_consumption_fails_with_visible_receipt
+21.36s call     tests/reference/test_metrics_replicated.py::test_cpu_replicated_metrics_on_off_and_revision_resume
+20.97s call     tests/reference/test_replicated_interval_evaluation.py::test_replicated_interval_resume_and_older_checkpoint_replay_preserve_state_and_attempts
+17.46s call     tests/reference/test_public_execution_acceptance.py::test_public_replicated_output_cannot_hold_workers_or_run_lock[unread-pipe-stderr]
+17.41s call     tests/reference/test_replicated_job_acceptance.py::test_replicated_job_exact_recovery_old_selection_and_required_artifacts
+17.27s call     tests/reference/test_replicated_fault_acceptance.py::test_shared_controller_fault_boundary_and_exact_fresh_recovery[rename]
+16.93s call     tests/reference/test_public_execution_acceptance.py::test_public_replicated_output_cannot_hold_workers_or_run_lock[closed-pipe-stderr]
+15.96s call     tests/reference/test_custom_metrics.py::test_factory_source_revision_changes_catalog_but_allows_numerical_resume
+15.47s call     tests/reference/test_public_execution_acceptance.py::test_repeated_train_replicated_steps_override_and_saved_profile_are_exact
+14.70s call     tests/reference/test_replicated_observer_acceptance.py::test_optional_observer_failures_are_bounded_and_do_not_change_updates[callback-hang]
+14.12s call     tests/reference/test_replicated_signals.py::test_group_signal_during_update_commits_and_resumes_all_ranks[SIGTERM]
+13.84s call     tests/reference/test_replicated_signals.py::test_group_signal_during_update_commits_and_resumes_all_ranks[SIGINT]
+13.80s call     tests/reference/test_worker_service_acceptance.py::test_prepared_receipt_without_every_rank_command_result_cannot_advance_latest
+13.61s call     tests/reference/test_replicated_job_acceptance.py::test_manual_requests_reconcile_and_failed_save_group_is_fatal
+13.51s call     tests/reference/test_worker_service_acceptance.py::test_abrupt_parent_death_during_native_work_preserves_commit_and_allows_fenced_takeover
+13.45s call     tests/reference/test_replicated_fault_acceptance.py::test_shared_controller_fault_boundary_and_exact_fresh_recovery[stage]
+13.39s call     tests/reference/test_replicated_observer_acceptance.py::test_optional_observer_failures_are_bounded_and_do_not_change_updates[render-hang]
+13.20s call     tests/reference/test_replicated_fault_acceptance.py::test_shared_controller_fault_boundary_and_exact_fresh_recovery[pointer]
+13.18s call     tests/reference/test_core_cli.py::test_manual_snapshot_metrics_hint_at_launch_and_remind_with_progress
+13.09s call     tests/reference/test_replicated_job_acceptance.py::test_abrupt_coordinator_death_and_fresh_controller_takeover
+12.97s call     tests/reference/test_accumulation_acceptance.py::test_accumulated_checkpoint_resumes_exactly_in_fresh_worker_group
+12.21s call     tests/reference/test_replicated_observer_acceptance.py::test_coordinator_death_during_native_hung_preview_reaps_both_groups
+12.18s call     tests/reference/test_replicated_fault_acceptance.py::test_shared_controller_fault_boundary_and_exact_fresh_recovery[after-pointer]
+11.48s call     tests/reference/test_core_cli.py::test_cli_stop_resume_and_json_progress
+11.26s call     tests/reference/test_worker_service_acceptance.py::test_persistent_commands_parent_commit_and_fresh_group_accumulated_recovery
+10.64s call     tests/reference/test_custom_metrics.py::test_optional_failure_and_timeout_disable_metric_and_reap_worker[True]
+10.50s call     tests/reference/test_custom_metrics.py::test_required_factory_failure_is_not_successful_training
+10.39s call     tests/reference/test_replicated_fault_acceptance.py::test_shared_controller_fault_boundary_and_exact_fresh_recovery[ema]
+10.34s call     tests/reference/test_replicated_job_acceptance.py::test_actual_image_folder_whole_job_accumulated_recovery
+10.33s call     tests/reference/test_replicated_fault_acceptance.py::test_shared_controller_fault_boundary_and_exact_fresh_recovery[g-backward]
+10.13s call     tests/foundation/test_bounded_observer.py::test_blocked_output_is_bounded
+10.12s call     tests/reference/test_custom_metrics.py::test_signal_during_terminal_metric_drain_cancels_and_reaps_long_timeout[fail]
+10.03s call     tests/foundation/test_bounded_observer.py::test_hang_bounded_and_reaped
+9.97s call     tests/reference/test_interval_evaluation.py::test_signal_reaps_evaluator_and_recovers_abandoned_snapshot[False]
+9.53s call     tests/reference/test_custom_metrics.py::test_signal_during_terminal_metric_drain_cancels_and_reaps_long_timeout[disable]
+9.51s call     tests/reference/test_replicated_observer_acceptance.py::test_optional_observer_failures_are_bounded_and_do_not_change_updates[render-collective]
+9.45s call     tests/reference/test_distributed_checkpoints.py::test_fresh_group_resume_preserves_every_rank_rng_sampler_and_optimizer[image]
+9.42s call     tests/reference/test_replicated_interval_evaluation.py::test_replicated_interval_evaluation_keeps_training_live_and_complete_state_equal
+9.19s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[expected]
+8.88s call     tests/reference/test_distributed_checkpoints.py::test_fresh_group_resume_preserves_every_rank_rng_sampler_and_optimizer[ordered]
+8.84s call     tests/reference/test_distributed_checkpoints.py::test_compatible_hypergan_build_changes_preserve_exact_distributed_continuation[before-contract-version]
+8.71s call     tests/reference/test_distributed_checkpoints.py::test_compatible_hypergan_build_changes_preserve_exact_distributed_continuation[versioned]
+8.68s call     tests/reference/test_replicated_observer_acceptance.py::test_optional_observer_failures_are_bounded_and_do_not_change_updates[callback-error]
+8.54s call     tests/reference/test_public_execution_acceptance.py::test_public_replicated_output_cannot_hold_workers_or_run_lock[closed-pipe-stdout]
+8.52s call     tests/reference/test_custom_metrics.py::test_replicated_custom_scalar_keeps_parent_torch_free_and_state_exact
+8.41s call     tests/reference/test_public_execution_acceptance.py::test_public_replicated_output_cannot_hold_workers_or_run_lock[unread-pipe-stdout]
+8.31s call     tests/reference/test_custom_metrics.py::test_supervised_scalar_cadence_and_rng_do_not_change_complete_state
+8.21s call     tests/reference/test_interval_evaluation.py::test_signal_reaps_evaluator_and_recovers_abandoned_snapshot[True]
+8.19s call     tests/reference/test_cpu_job.py::test_supervised_training_and_fresh_group_resume
+8.16s call     tests/reference/test_core_cli.py::test_cli_viewer_preserves_numerics_and_machine_output
+8.10s call     tests/reference/test_custom_metrics.py::test_optional_failure_and_timeout_disable_metric_and_reap_worker[False]
+7.76s call     tests/reference/test_preflight_acceptance.py::test_runtime_preflight_bounds_real_rank_failures_without_running_models[hang]
+7.19s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[total]
+6.89s call     tests/reference/test_observation.py::test_resume_refreshes_a_stale_default_preview_bound
+6.38s call     tests/reference/test_cpu_workers.py::test_cpu_worker_lifecycle[stall]
+6.22s call     tests/reference/test_interval_evaluation.py::test_interval_resume_and_older_snapshot_recovery_keep_attempt_positions
+6.19s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-missing-rank]
+6.12s call     tests/reference/test_replicated_job_acceptance.py::test_required_inference_failure_recovers_without_repeating_updates
+6.12s call     tests/reference/test_accumulation_acceptance.py::test_accumulation_complete_updates_match_unaccumulated_global_objectives
+6.06s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-pointer]
+6.03s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-not-ready]
+6.01s call     tests/reference/test_public_execution_acceptance.py::test_installed_module_entrypoint_named_profile_and_inference_commands
+5.98s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-mutating-hook]
+5.91s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-poisoned]
+5.86s call     tests/reference/test_replicated_job_acceptance.py::test_strict_rejections_leave_run_and_attempts_untouched
+5.85s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-third-party-implementation]
+5.75s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-data]
+5.71s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-live-failure]
+5.67s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-build-disagreement]
+5.65s call     tests/reference/test_distributed.py::test_lost_or_nonparticipating_rank_fails_within_timeout[stall]
+5.64s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-custom-implementation]
+5.62s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-config]
+5.56s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-version]
+5.53s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-runtime]
+5.52s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-threads]
+5.43s call     tests/reference/test_distributed_checkpoints.py::test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation[restore-topology]
+5.42s call     tests/reference/test_async_observer_signals.py::test_signal_during_terminal_callback_cancels_hour_timeout_and_reaps[False]
+5.35s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[hang]
+5.15s call     tests/reference/test_async_observer_signals.py::test_signal_during_terminal_callback_cancels_hour_timeout_and_reaps[True]
+5.02s call     tests/reference/test_accumulation_stochastic_loss.py::test_accumulation_preserves_logical_label_randomness_and_prior_controls
+4.90s call     tests/reference/test_observation.py::test_corrupt_old_preview_metadata_does_not_accumulate_new_orphans
+4.84s call     tests/reference/test_image_previews.py::test_image_previews_metrics_disabled_resume_and_fresh_process_png
+4.73s call     tests/reference/test_public_execution_acceptance.py::test_public_profile_conflicts_reject_before_viewer_and_attempt_creation
+4.64s call     tests/reference/test_replicated_evaluation_snapshot.py::test_two_rank_evaluation_snapshot_preserves_state_or_propagates_failure[preserve-state]
+4.57s call     tests/reference/test_replicated_evaluation_snapshot.py::test_two_rank_evaluation_snapshot_preserves_state_or_propagates_failure[capture-failure]
+4.55s call     tests/reference/test_custom_metrics.py::test_missing_factory_or_incompatible_descriptor_fails_before_run_mutation[hypergan.metric_examples:ColorHistogramDifference]
+4.45s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[happy]
+4.16s call     tests/reference/test_custom_metrics.py::test_missing_factory_or_incompatible_descriptor_fails_before_run_mutation[missing_metric_module:Probe]
+4.10s call     tests/reference/test_distributed_training.py::test_complete_replicated_cpu_updates[parity]
+3.78s call     tests/reference/test_image_previews.py::test_named_previews_reach_the_run_manifest_with_a_configurable_history
+3.68s call     tests/reference/test_core_cli.py::test_cli_reports_snapshot_metrics_that_have_no_schedule
+3.62s call     tests/reference/test_observation.py::test_preview_schedule_retention_and_resume_preserve_complete_state
+3.59s call     tests/reference/test_accumulation_acceptance.py::test_accumulation_bounds_forward_batch_and_peak_saved_activation_storage
+3.42s call     tests/reference/test_distributed_acceptance.py::test_replicated_complete_updates_match_independent_global_oracle
+3.39s call     tests/reference/test_preview_worker.py::test_fatal_update_cancels_hung_cpu_renderer_and_reaps_process
+3.38s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[malformed]
+3.33s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[missing]
+3.21s call     tests/reference/test_distributed_acceptance.py::test_rank_local_gradient_or_buffer_failure_never_commits_complete_step[buffers]
+3.19s call     tests/reference/test_partial_freezing.py::test_replicated_factory_mask_and_complete_checkpoint_recovery
+3.19s call     tests/reference/test_training_signals.py::test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly[SIGTERM]
+3.16s call     tests/reference/test_cpu_workers.py::test_cpu_worker_lifecycle[success]
+3.13s call     tests/reference/test_distributed_checkpoints.py::test_failed_rank_or_staging_never_advances_last_complete_checkpoint[half]
+3.13s call     tests/reference/test_distributed_acceptance.py::test_rank_local_gradient_or_buffer_failure_never_commits_complete_step[poison]
+3.07s call     tests/reference/test_recovery.py::test_resume_matches_uninterrupted_and_replays_old_checkpoint_without_overwrite
+3.07s call     tests/reference/test_training_signals.py::test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly[SIGINT]
+3.06s call     tests/reference/test_accumulation_replay.py::test_accumulation_replay_contract[failures]
+3.05s call     tests/reference/test_distributed_checkpoints.py::test_failed_rank_or_staging_never_advances_last_complete_checkpoint[missing-after-gather]
+3.05s call     tests/reference/test_accumulation_replay.py::test_accumulation_replay_contract[sum]
+3.05s call     tests/reference/test_accumulation_acceptance.py::test_second_micro_backward_failure_keeps_prior_durable_checkpoint
+3.05s call     tests/reference/test_distributed_checkpoints.py::test_failed_rank_or_staging_never_advances_last_complete_checkpoint[metadata-bound]
+3.05s call     tests/reference/test_distributed_acceptance.py::test_rank_local_gradient_or_buffer_failure_never_commits_complete_step[extra-state]
+3.02s call     tests/reference/test_distributed_checkpoints.py::test_failed_rank_or_staging_never_advances_last_complete_checkpoint[divergent]
+3.01s call     tests/reference/test_core_cli.py::test_live_progress_and_cross_process_checkpoint_request
+2.99s call     tests/reference/test_training_signals.py::test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly[publication]
+2.97s call     tests/reference/test_distributed_checkpoints.py::test_failed_rank_or_staging_never_advances_last_complete_checkpoint[missing]
+2.94s call     tests/reference/test_accumulation_replay.py::test_accumulation_replay_contract[rng]
+2.93s call     tests/reference/test_distributed_checkpoints.py::test_failed_rank_or_staging_never_advances_last_complete_checkpoint[stage-failure]
+2.93s call     tests/reference/test_distributed_training.py::test_complete_replicated_cpu_updates[data]
+2.92s call     tests/reference/test_distributed_checkpoints.py::test_failed_rank_or_staging_never_advances_last_complete_checkpoint[build-disagreement]
+2.89s call     tests/reference/test_distributed_checkpoints.py::test_failed_rank_or_staging_never_advances_last_complete_checkpoint[identity-type]
+2.88s call     tests/reference/test_preflight_acceptance.py::test_runtime_preflight_bounds_real_rank_failures_without_running_models[identity]
+2.87s call     tests/reference/test_preflight_acceptance.py::test_runtime_preflight_bounds_real_rank_failures_without_running_models[success]
+2.84s call     tests/reference/test_distributed_checkpoints.py::test_failed_rank_or_staging_never_advances_last_complete_checkpoint[state-failure]
+2.84s call     tests/reference/test_accumulation_acceptance.py::test_mutating_forward_state_cannot_be_replayed_or_checkpointed
+2.80s call     tests/reference/test_cpu_workers.py::test_cpu_worker_lifecycle[error]
+2.69s call     tests/reference/test_distributed_checkpoint_acceptance.py::test_checkpoint_identity_observation_and_metadata_limit_preserve_durable_state
+2.61s call     tests/reference/test_preflight_acceptance.py::test_runtime_preflight_bounds_real_rank_failures_without_running_models[single]
+2.57s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[replicated]
+2.57s call     tests/reference/test_core_cli.py::test_sampling_preserves_global_rng_and_existing_outputs
+2.56s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[unsupported]
+2.54s call     tests/reference/test_cpu_workers.py::test_cpu_worker_lifecycle[crash]
+2.54s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[complex]
+2.53s call     tests/reference/test_interval_evaluation.py::test_interval_worker_allows_updates_while_busy_and_preserves_complete_state
+2.51s call     tests/reference/test_distributed_training.py::test_complete_replicated_cpu_updates[errors]
+2.50s call     tests/reference/test_custom_metrics.py::test_async_cancel_reaps_native_blocked_scalar_without_waiting_for_timeout
+2.50s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[nonfinite]
+2.49s call     tests/reference/test_preflight_acceptance.py::test_runtime_preflight_bounds_real_rank_failures_without_running_models[constructor]
+2.42s call     tests/reference/test_image_phase_policy.py::test_explicit_backend_policy_is_applied_before_fresh_resume_identity
+2.42s call     tests/reference/test_training_signals.py::test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly[kill-payload]
+2.40s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[identity-threads]
+2.36s call     tests/reference/test_execution_preflight.py::test_native_cli_runtime_constructs_cpu_without_forward_or_data_draw
+2.36s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[threads]
+2.33s call     tests/foundation/test_event_views.py::test_custom_map_timeout_and_output_bound_leave_source_cursor
+2.32s call     tests/reference/test_training_signals.py::test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly[kill-event]
+2.31s call     tests/reference/test_training_signals.py::test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly[kill-after-pointer]
+2.30s call     tests/reference/test_training_signals.py::test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly[kill-pointer]
+2.30s call     tests/reference/test_distributed.py::test_two_process_global_objectives_gradients_and_double_backward
+2.26s call     tests/reference/test_training_signals.py::test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly[SIGKILL]
+2.25s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[single]
+2.19s call     tests/foundation/test_bounded_observer.py::test_async_observer_drops_busy_events_without_waiting_and_cancels
+2.10s call     tests/reference/test_preview_worker.py::test_blocked_snapshot_storage_allows_updates_and_preserves_complete_state
+1.89s call     tests/reference/test_preview_worker.py::test_training_finishes_updates_while_preview_waits_and_keeps_source_step[False]
+1.87s call     tests/foundation/test_bounded_cli_output.py::test_consumer_cannot_hold_terminal_completion[unread]
+1.87s call     tests/foundation/test_bounded_cli_output.py::test_consumer_cannot_hold_terminal_completion[slow]
+1.84s call     tests/reference/test_observation.py::test_killed_pending_preview_is_cleaned_without_touching_unmanaged_files
+1.68s call     tests/reference/test_reference.py::test_run_and_fresh_process_inference
+1.62s call     tests/reference/test_distributed_acceptance.py::test_accumulation_rejects_nondividing_microbatch_count
+1.61s call     tests/reference/test_distributed.py::test_rank_input_errors_are_collective_and_bounded[bad-index]
+1.61s call     tests/reference/test_distributed.py::test_lost_or_nonparticipating_rank_fails_within_timeout[exit]
+1.60s call     tests/reference/test_distributed.py::test_rank_input_errors_are_collective_and_bounded[mismatch]
+1.54s call     tests/reference/test_interval_evaluation.py::test_interval_failure_is_visible_and_honors_policy[fail]
+1.53s call     tests/reference/test_image_previews.py::test_isolated_renderer_transports_png_without_touching_parent_state
+1.49s call     tests/foundation/test_cli.py::test_missing_runtime_has_install_guidance[particlegan]
+1.49s call     tests/reference/test_interval_evaluation.py::test_interval_failure_is_visible_and_honors_policy[disable]
+1.49s call     tests/reference/test_distributed.py::test_rank_input_errors_are_collective_and_bounded[operation]
+1.46s call     tests/reference/test_distributed.py::test_rank_input_errors_are_collective_and_bounded[autograd]
+1.44s call     tests/reference/test_cpu_worker_service.py::test_coordinator_death_during_native_startup_reaps_ranks
+1.39s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[missing-particlegan]
+1.39s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[idle-exit]
+1.39s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[missing-numpy]
+1.37s call     tests/foundation/test_bounded_cli_output.py::test_cached_python_and_native_stdio_cannot_hang_exit
+1.33s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[fail]
+1.32s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[exit]
+1.31s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[mismatch]
+1.26s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[startup]
+1.25s call     tests/reference/test_cpu_worker_service.py::test_persistent_commands_and_cleanup[stale]
+1.25s call     tests/foundation/test_bounded_cli_output.py::test_parent_death_reaps_blocked_drains
+0.87s call     tests/foundation/test_bounded_cli_output.py::test_consumer_cannot_hold_terminal_completion[closed]
+0.85s call     tests/reference/test_checkpoint_compatibility.py::test_native_previous_hypergan_build_restores_exact_state_and_earlier_snapshot[existing-unversioned]
+0.53s call     tests/foundation/test_bounded_observer.py::test_success_snapshot_no_torch_and_reaped
+0.46s call     tests/foundation/test_bounded_observer.py::test_async_terminal_delivery_is_reaped_and_reports_completed_work
+0.44s call     tests/reference/test_metrics_runtime.py::test_metrics_on_off_cadence_and_changed_resume_are_numerically_identical
+0.42s call     tests/foundation/test_observer_cli.py::test_event_pages_and_checkpoint_receipts_without_training
+0.36s call     tests/foundation/test_bounded_observer.py::test_parent_death_during_native_callback_reaps_child
+0.34s call     tests/reference/test_recovery.py::test_public_train_repeats_resume_exact_state_and_completed_schedule
+0.30s call     tests/foundation/test_cli.py::test_missing_runtime_has_install_guidance[torch]
+0.30s call     tests/foundation/test_group_free_service.py::test_group_free_service_and_preview_parent_import_without_torch
+0.27s call     tests/foundation/test_controller_fences.py::test_checkpoint_request_scan_does_not_stall_updates_and_terminal_scan_is_fresh
+0.27s call     tests/reference/test_checkpoint_compatibility.py::test_native_previous_hypergan_build_restores_exact_state_and_earlier_snapshot[current-version]
+0.27s call     tests/foundation/test_bounded_observer.py::test_exact_event_size_limit
+0.27s call     tests/reference/test_reference.py::test_one_update_matches_upstream_loop_gradients_weights_prior_and_ema
+0.25s call     tests/reference/test_lifecycle_acceptance.py::test_extracted_source_bytes_are_provenance_without_blocking_recovery[hypergan.single_execution]
+0.25s call     tests/reference/test_image_previews.py::test_pruning_runs_in_the_background_and_never_indexes_what_it_deletes
+0.25s call     tests/foundation/test_event_views.py::test_custom_map_worker_isolated_multiple_emissions_and_revision
+0.25s call     tests/reference/test_recovery.py::test_older_checkpoint_zero_update_resume_updates_default_pointer
+0.24s call     tests/reference/test_recovery.py::test_failure_after_discriminator_update_preserves_prior_durable_boundary
+0.23s call     tests/foundation/test_bounded_observer.py::test_callback_error_disables_once_and_reaps
+0.23s call     tests/foundation/test_observer_cli.py::test_observer_usage_errors_are_actionable
+0.22s call     tests/reference/test_lifecycle_acceptance.py::test_extracted_source_bytes_are_provenance_without_blocking_recovery[hypergan.run_controller]
+0.21s call     tests/foundation/test_cli.py::test_missing_runtime_has_install_guidance[numpy]
+0.19s call     tests/reference/test_image_recovery.py::test_image_training_resume_matches_buffers_optimizers_rng_and_data
+0.19s call     tests/reference/test_checkpoint_event_commit.py::test_failure_at_publication_stages_has_complete_recoverable_prefix[rename]
+0.19s call     tests/foundation/test_preflight_acceptance.py::test_native_structural_cli_is_dependency_free_for_configured_cuda_and_cpu
+0.19s call     tests/reference/test_preview_worker.py::test_training_finishes_updates_while_preview_waits_and_keeps_source_step[True]
+0.19s call     tests/foundation/test_preflight_acceptance.py::test_structural_cli_never_loads_custom_code_or_workers_and_excludes_timeouts_from_identity
+0.19s call     tests/foundation/test_bounded_observer.py::test_async_failure_keeps_source_step_and_is_reported_once
+0.19s call     tests/reference/test_image_phase_policy.py::test_independent_phases_match_direct_updates_and_encoder_only_gradient_routing
+0.18s call     tests/reference/test_checkpoint_event_commit.py::test_failure_at_publication_stages_has_complete_recoverable_prefix[manifest]
+0.18s call     tests/reference/test_checkpoint_event_commit.py::test_failure_at_publication_stages_has_complete_recoverable_prefix[payload]
+0.18s call     tests/reference/test_checkpoint_event_commit.py::test_failure_at_publication_stages_has_complete_recoverable_prefix[events]
+0.18s call     tests/reference/test_checkpoint_event_commit.py::test_lost_committed_metrics_reject_latest_and_allow_explicit_intact_snapshot
+0.18s call     tests/foundation/test_bounded_cli_output.py::test_json_format_and_native_diagnostics
+0.18s call     tests/foundation/test_event_views.py::test_partial_tail_read_and_atomic_per_source_rollback
+0.18s call     tests/reference/test_checkpoint_event_commit.py::test_failure_at_publication_stages_has_complete_recoverable_prefix[pointer]
+0.17s call     tests/reference/test_checkpoint_event_commit.py::test_failure_at_publication_stages_has_complete_recoverable_prefix[after-pointer]
+0.17s call     tests/reference/test_data_cli.py::test_image_data_check_has_no_training_imports_and_refuses_overwrite
+0.17s call     tests/reference/test_recovery.py::test_observer_rng_and_failure_do_not_change_numerics
+0.17s call     tests/reference/test_observation.py::test_preview_write_failure_is_observer_only_and_sequence_not_reused
+0.16s call     tests/foundation/test_run_signals.py::test_blocked_shutdown_and_second_signal_force_exit[deadline]
+0.16s call     tests/reference/test_source_provenance.py::test_missing_initial_source_uses_first_attempt_not_previous_release
+0.16s call     tests/reference/test_observation.py::test_manual_checkpoint_failure_is_rejected_without_changing_training
+0.16s call     tests/reference/test_execution_preflight.py::test_preflight_runtime_contract[missing-torch]
+0.16s call     tests/foundation/test_cli.py::test_create_validate_and_no_overwrite
+0.16s call     tests/reference/test_lifecycle_acceptance.py::test_failed_native_restore_cleans_up_before_releasing_lock_without_new_attempt[True]
+0.15s call     tests/foundation/test_bounded_cli_output.py::test_terminal_group_signal_preserves_final_output[15]
+0.15s call     tests/foundation/test_event_views.py::test_custom_source_digest_change_rejected
+0.15s call     tests/reference/test_lifecycle_acceptance.py::test_failing_observer_warning_handler_cannot_change_numerics_or_threads
+0.14s call     tests/reference/test_image_previews.py::test_retention_thins_the_history_instead_of_dropping_its_beginning
+0.14s call     tests/reference/test_image_data.py::test_corrupt_file_alongside_valid_image_fails_preflight[not an image]
+0.14s call     tests/foundation/test_bounded_cli_output.py::test_large_normal_result_remains_one_complete_json_record
+0.14s call     tests/foundation/test_cli.py::test_help_and_version_are_lightweight
+0.14s call     tests/reference/test_lifecycle_acceptance.py::test_failed_native_restore_cleans_up_before_releasing_lock_without_new_attempt[False]
+0.13s call     tests/foundation/test_bounded_cli_output.py::test_terminal_group_signal_preserves_final_output[2]
+0.13s call     tests/foundation/test_run_state.py::test_empty_and_existing_locks_exclude_other_processes_and_release_on_exit[0-run]
+0.13s call     tests/reference/test_recovery.py::test_lock_partial_log_and_observer_error_are_honest
+0.12s call     tests/foundation/test_run_state.py::test_pending_and_payload_work_are_bounded
+0.12s call     tests/reference/test_source_provenance.py::test_resume_preserves_initial_source_and_records_each_attempt[True]
+0.12s call     tests/reference/test_source_provenance.py::test_resume_preserves_initial_source_and_records_each_attempt[False]
+0.11s call     tests/foundation/test_bounded_observer.py::test_module_import_is_torch_free
+0.11s call     tests/foundation/test_cli.py::test_new_cli_device_selection[cuda:1]
+0.11s call     tests/foundation/test_cli.py::test_new_cli_device_selection[cpu]
+0.11s call     tests/foundation/test_cli.py::test_new_cli_device_selection[None]
+0.11s call     tests/reference/test_recovery.py::test_wall_time_zero_update_stop_has_checkpoint_no_inference
+0.11s call     tests/reference/test_metrics_runtime.py::test_named_loss_decomposition_and_half_update_never_publishes
+0.11s call     tests/foundation/test_cli.py::test_manifest_inspection_without_model_loading
+0.11s call     tests/reference/test_preview_worker.py::test_signal_arriving_during_terminal_preview_drain_cancels_promptly
+0.11s call     tests/foundation/test_cli.py::test_bad_config_and_arguments_fail_cleanly
+0.10s call     tests/foundation/test_bounded_cli_output.py::test_flush_failure_still_restores_and_reaps
+0.10s call     tests/foundation/test_run_state.py::test_empty_and_existing_locks_exclude_other_processes_and_release_on_exit[-run]
+0.10s call     tests/foundation/test_run_state.py::test_empty_and_existing_locks_exclude_other_processes_and_release_on_exit[-queue]
+0.10s call     tests/foundation/test_run_state.py::test_empty_and_existing_locks_exclude_other_processes_and_release_on_exit[0-queue]
+0.09s call     tests/reference/test_observation.py::test_manual_request_is_never_serviced_after_partial_update
+0.08s call     tests/foundation/test_metrics_cli.py::test_catalog_project_and_exact_pages_without_training
+0.08s call     tests/foundation/test_bounded_cli_output.py::test_cached_python_and_native_stdio_are_forwarded
+0.08s call     tests/reference/test_image_recovery.py::test_image_resume_rejects_changed_content_or_class_map[class-map]
+0.07s call     tests/reference/test_image_recovery.py::test_image_resume_rejects_changed_content_or_class_map[content]
+0.07s call     tests/reference/test_reference.py::test_paired_encoder_custom_factory_and_objective_have_effect
+0.07s call     tests/reference/test_observation.py::test_manual_requests_coalesce_acknowledge_durable_checkpoint
+0.07s call     tests/foundation/test_preflight_acceptance.py::test_structural_cli_reports_invalid_profile_without_runtime_or_partial_json
+0.07s call     tests/reference/test_source_provenance.py::test_failed_start_records_current_source_before_execution_environment
+0.07s call     tests/foundation/test_execution_profiles.py::test_structural_profile_imports_no_runtime_or_custom_factories
+0.07s call     tests/reference/test_metric_cli_observation.py::test_native_cli_progress_does_not_capture_numerical_rng
+0.06s call     tests/reference/test_checkpoint_compatibility.py::test_hypergan_provenance_differences_do_not_bypass_other_validation[implementation-container]
+0.06s call     tests/foundation/test_execution_profiles.py::test_cuda_structural_profile_and_adapter_import_no_torch
+0.06s call     tests/reference/test_observation.py::test_acknowledgement_retry_reuses_identifiable_saved_checkpoint
+0.06s call     tests/foundation/test_run_state.py::test_protocol_imports_do_not_load_optional_dependencies
+0.06s call     tests/foundation/test_cpu_service_protocol.py::test_service_import_is_torch_free
+0.06s call     tests/foundation/test_replicated_execution.py::test_parent_import_is_numerical_dependency_free
+0.06s call     tests/reference/test_recovery.py::test_malformed_checkpoint_is_actionable_without_run_mutation[missing-optimizer]
+0.06s call     tests/foundation/test_event_views.py::test_large_backfill_batches_and_bounded_reopen
+0.06s call     tests/reference/test_recovery.py::test_runtime_config_tampering_and_inference_rejected_without_mutation
+0.06s call     tests/reference/test_reference.py::test_tampered_bundle_rejected
+0.06s call     tests/reference/test_preview_worker.py::test_controller_terminal_poll_enforces_stalled_snapshot_storage_deadline
+0.06s call     tests/reference/test_metric_cli_observation.py::test_user_callback_still_receives_rng_isolation
+0.06s call     tests/reference/test_checkpoint_compatibility.py::test_hypergan_provenance_differences_do_not_bypass_other_validation[dependency]
+0.06s call     tests/foundation/test_cli.py::test_invalid_new_device_leaves_no_project
+0.06s call     tests/foundation/test_metrics_config.py::test_default_none_and_individual_removal_do_not_change_numerical_identity
+0.06s call     tests/reference/test_checkpoint_compatibility.py::test_hypergan_provenance_differences_do_not_bypass_other_validation[data]
+0.06s call     tests/reference/test_checkpoint_compatibility.py::test_changed_external_factory_source_still_rejects_resume
+0.06s call     tests/foundation/test_cli.py::test_console_entrypoint
+0.06s call     tests/foundation/test_cli.py::test_recipe_listing
+0.06s call     tests/reference/test_recovery.py::test_unknown_data_trains_without_false_recovery_claim
+0.05s call     tests/reference/test_checkpoint_compatibility.py::test_hypergan_provenance_differences_do_not_bypass_other_validation[runtime]
+0.05s call     tests/reference/test_checkpoint_compatibility.py::test_hypergan_provenance_differences_do_not_bypass_other_validation[runtime-container]
+0.05s call     tests/reference/test_checkpoint_event_commit.py::test_missing_boundary_fails_before_new_attempt
+0.05s call     tests/foundation/test_observation_io.py::test_slow_append_is_bounded_and_commit_waits_for_exact_prefix
+0.05s call     tests/foundation/test_background_poll.py::test_explicit_final_read_waits_then_refreshes_stale_cached_result
+0.05s call     tests/reference/test_checkpoint_compatibility.py::test_hypergan_provenance_differences_do_not_bypass_other_validation[digest]
+0.05s call     tests/reference/test_image_data.py::test_registered_factory_and_optional_import_boundaries
+0.05s call     tests/reference/test_recovery.py::test_repeated_train_checks_metric_argument_types_under_lock_before_factories
+0.05s call     tests/reference/test_checkpoint_compatibility.py::test_checkpoint_compatibility_rechecked_under_lock_before_numerical_loading[True]
+0.04s call     tests/foundation/test_config.py::test_default_roundtrip_without_runtime
+0.04s call     tests/foundation/test_reducer_import.py::test_shared_reducer_import_and_missing_runtime
+0.04s call     tests/reference/test_reference.py::test_interrupted_manifest_is_terminal
+0.04s call     tests/reference/test_checkpoint_compatibility.py::test_checkpoint_compatibility_rechecked_under_lock_before_numerical_loading[2]
+0.04s call     tests/reference/test_image_phase_policy.py::test_run_manifest_reports_configured_named_rng_seeds
+0.04s call     tests/reference/test_preview_snapshot.py::test_frozen_snapshot_has_no_live_tensor_or_custom_container_aliases
+0.04s call     tests/foundation/test_metric_plugins.py::test_custom_structural_configuration_never_imports_factory
+0.04s call     tests/reference/test_recovery.py::test_malformed_checkpoint_is_actionable_without_run_mutation[metadata-list]
+0.04s call     tests/reference/test_recovery.py::test_malformed_checkpoint_is_actionable_without_run_mutation[payload]
+0.04s call     tests/foundation/test_config.py::test_new_project_defaults_to_cuda_without_loading_runtime
+0.04s call     tests/reference/test_recovery.py::test_malformed_checkpoint_is_actionable_without_run_mutation[metadata-key]
+0.04s call     tests/foundation/test_distributed_commit.py::test_parent_commit_is_torch_free_and_consumes_sequence
+0.04s call     tests/foundation/test_console_settings.py::test_console_fifo_cannot_block_training_progress[True]
+0.04s call     tests/foundation/test_console_settings.py::test_console_fifo_cannot_block_training_progress[False]
+0.03s call     tests/reference/test_image_previews.py::test_named_samples_publish_real_grid_and_bounded_retention
+0.03s call     tests/reference/test_recovery.py::test_checkpoint_write_failure_keeps_last_durable_pointer
+0.03s call     tests/reference/test_image_phase_policy.py::test_complete_recovery_before_and_after_lazy_penalty[1]
+0.03s call     tests/foundation/test_metric_plugins.py::test_queue_wait_is_included_in_metric_deadline
+0.03s call     tests/reference/test_image_phase_policy.py::test_complete_recovery_before_and_after_lazy_penalty[2]
+0.03s call     tests/reference/test_metrics_runtime.py::test_disabling_metrics_does_not_disable_completion_validation
+0.03s call     tests/reference/test_image_previews.py::test_index_reuses_published_records_instead_of_rereading_manifests
+0.03s call     tests/reference/test_native_observer_restoration.py::test_native_rng_restore_failure_stops_without_saving_changed_state
+0.03s call     tests/reference/test_partial_freezing.py::test_native_factory_mask_gradients_and_exact_recovery
+0.02s call     tests/reference/test_preview_snapshot.py::test_snapshot_serialization_preserves_live_state_rng_and_excludes_discriminator
+0.02s call     tests/foundation/test_provenance.py::test_source_and_editable_identity_observe_clean_dirty_and_untracked_files
+0.02s call     tests/reference/test_core_cli.py::test_preview_keep_accepts_a_count_or_the_whole_run
+0.02s call     tests/reference/test_cifar_components.py::test_generator_encoder_reconstruction_gradient_ownership
+0.02s call     tests/reference/test_image_phase_policy.py::test_alias_and_prior_bindings_survive_inference_bundle_and_preview_snapshot
+0.02s call     tests/foundation/test_controller_fences.py::test_candidate_identity_survives_restore_and_mutable_policy_change
+0.02s call     tests/reference/test_reference.py::test_integer_conditioning_survives_native_bundle
+0.02s call     tests/foundation/test_event_boundary.py::test_large_last_event_has_no_implicit_megabyte_limit
+0.02s call     tests/reference/test_replicated_inference.py::test_final_inference_copies_registered_state_and_restores_all_rng
+0.02s call     tests/foundation/test_controller_fences.py::test_historical_native_manifest_without_execution_stays_native
+0.02s call     tests/foundation/test_controller_fences.py::test_resume_without_callback_clears_prior_attempt_worker_status
+0.02s call     tests/reference/test_preview_snapshot.py::test_failed_bounded_serialization_still_preserves_live_state
+0.02s call     tests/foundation/test_run_signals.py::test_blocked_shutdown_and_second_signal_force_exit[second]
+0.02s call     tests/foundation/test_lifecycle_acceptance.py::test_controller_failure_cleans_up_without_half_update_checkpoint[inference]
+0.01s call     tests/foundation/test_lifecycle_acceptance.py::test_controller_failure_cleans_up_without_half_update_checkpoint[shutdown]
+0.01s call     tests/reference/test_recovery.py::test_global_rng_restore_after_constructors_and_module_modes
+0.01s call     tests/foundation/test_lifecycle_acceptance.py::test_controller_requires_cleanup_before_terminal_success[True]
+0.01s call     tests/foundation/test_controller_fences.py::test_failed_resume_does_not_change_any_run_path[identity]
+0.01s call     tests/reference/test_image_previews.py::test_fixed_grid_publication_retention_and_tampered_payload_cleanup
+0.01s call     tests/foundation/test_controller_fences.py::test_failed_resume_does_not_change_any_run_path[restore]
+0.01s call     tests/reference/test_observation.py::test_failed_index_write_does_not_accumulate_published_orphans
+0.01s call     tests/foundation/test_distribution.py::test_base_requirements_do_not_pull_training_stack
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[None-replicated]
+0.01s call     tests/foundation/test_controller_fences.py::test_failed_resume_does_not_change_any_run_path[configure]
+0.01s call     tests/reference/test_image_data.py::test_exact_resume_including_epoch_crossing_and_global_rng_isolation[False]
+0.01s call     tests/foundation/test_lifecycle_acceptance.py::test_controller_requires_cleanup_before_terminal_success[False]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[2-native]
+0.01s call     tests/foundation/test_controller_fences.py::test_training_continues_while_event_disk_is_stalled_and_reports_queue_loss
+0.01s call     tests/foundation/test_controller_fences.py::test_fast_terminal_observer_status_and_errors_are_persisted[False]
+0.01s call     tests/foundation/test_controller_fences.py::test_failed_resume_does_not_change_any_run_path[identity-type]
+0.01s call     tests/foundation/test_controller_fences.py::test_final_delayed_metrics_keep_source_step_and_current_checkpoint_frontier[False]
+0.01s call     tests/foundation/test_controller_fences.py::test_manual_save_is_optional_only_while_execution_remains_usable[False]
+0.01s call     tests/foundation/test_controller_fences.py::test_native_and_explicit_execution_cannot_cross_resume_routes[False]
+0.01s call     tests/foundation/test_lifecycle_acceptance.py::test_controller_failure_cleans_up_without_half_update_checkpoint[update]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[1.0-native]
+0.01s call     tests/foundation/test_controller_fences.py::test_preview_cannot_swallow_a_fatal_execution_failure[True]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[version7-native]
+0.01s call     tests/reference/test_image_data.py::test_exact_resume_including_epoch_crossing_and_global_rng_isolation[True]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[version7-replicated]
+0.01s call     tests/foundation/test_controller_fences.py::test_native_and_explicit_execution_cannot_cross_resume_routes[True]
+0.01s call     tests/foundation/test_controller_fences.py::test_preview_cannot_swallow_a_fatal_execution_failure[False]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[None-native]
+0.01s call     tests/reference/test_observation.py::test_direct_preview_preserves_ema_live_modes_buffers_rng_and_conditioning
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[0-native]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[1-replicated]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[1-native]
+0.01s call     tests/foundation/test_controller_fences.py::test_failed_resume_does_not_change_any_run_path[identity-float]
+0.01s call     tests/foundation/test_controller_fences.py::test_supervised_progress_failure_is_recorded_without_recursive_delivery[False]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[1.0-replicated]
+0.01s call     tests/foundation/test_controller_fences.py::test_fast_terminal_observer_status_and_errors_are_persisted[True]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[True-replicated]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[-1-native]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[-1-replicated]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[True-native]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[0-replicated]
+0.01s call     tests/foundation/test_public_execution.py::test_checkpoint_compatibility_rejects_before_viewer_and_imports[2-replicated]
+0.01s call     tests/foundation/test_controller_fences.py::test_final_delayed_metrics_keep_source_step_and_current_checkpoint_frontier[True]
+0.01s call     tests/reference/test_image_phase_policy.py::test_component_construction_order_is_independent_of_json_key_order
+0.01s call     tests/reference/test_observation.py::test_preview_byte_limit_is_enforced_before_publication
+0.01s call     tests/foundation/test_controller_fences.py::test_unclassified_observer_execution_failure_remains_fatal
+0.01s call     tests/foundation/test_controller_fences.py::test_supervised_progress_failure_is_recorded_without_recursive_delivery[True]
+0.01s call     tests/reference/test_image_previews.py::test_thinning_halves_spacing_and_holds_any_bound
+0.01s call     tests/foundation/test_controller_fences.py::test_manual_save_is_optional_only_while_execution_remains_usable[True]
+0.01s call     tests/foundation/test_public_execution.py::test_resume_inherits_only_an_explicit_preview_bound[train]
+0.01s call     tests/reference/test_core_cli.py::test_inference_restores_nonpersistent_registered_buffers
+0.01s call     tests/foundation/test_run_state.py::test_concurrent_same_id_submission_preserves_one_request
+0.01s call     tests/foundation/test_lifecycle_acceptance.py::test_controller_preserves_primary_failure_when_cleanup_also_fails
+0.01s call     tests/foundation/test_lifecycle_acceptance.py::test_controller_failure_cleans_up_without_half_update_checkpoint[checkpoint]
+0.01s call     tests/foundation/test_lifecycle_acceptance.py::test_controller_failure_cleans_up_without_half_update_checkpoint[interrupt]
+0.01s call     tests/reference/test_cifar_components.py::test_attention_has_active_residual_and_double_backward
+0.01s call     tests/reference/test_recovery.py::test_nonpersistent_buffers_and_dynamic_trainability_restored
+0.01s call     tests/foundation/test_public_execution.py::test_train_control_defaults_distinguish_omission_from_disable
+0.01s call     tests/foundation/test_lifecycle_acceptance.py::test_controller_failure_cleans_up_without_half_update_checkpoint[start]
+0.01s call     tests/reference/test_image_data.py::test_flat_and_recursive_sorted_inventory_and_exact_rgb_range
+0.01s call     tests/foundation/test_public_execution.py::test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports[missing-checkpoint]
+0.01s call     tests/foundation/test_public_execution.py::test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports[metrics]
+0.01s call     tests/foundation/test_public_execution.py::test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports[profile]
+0.01s call     tests/foundation/test_public_execution.py::test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports[config]
+0.01s call     tests/foundation/test_public_execution.py::test_repeated_train_effective_steps_must_match_original_schedule
+0.01s call     tests/reference/test_observation.py::test_preview_clones_real_conditioning_before_custom_forward
+0.01s call     tests/foundation/test_public_execution.py::test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports[schedule]
+0.01s call     tests/foundation/test_public_execution.py::test_manual_run_keeps_its_recorded_schedule_when_the_default_changes
+0.01s call     tests/foundation/test_public_execution.py::test_resume_inherits_only_an_explicit_preview_bound[resume]
+0.01s call     tests/foundation/test_cli_viewer_options.py::test_public_origin_reaches_the_automatic_viewer_and_requires_it
+0.01s call     tests/foundation/test_observation_io.py::test_event_queue_byte_and_structure_bounds
+
+(2430 durations < 0.005s hidden.  Use -vv to show these durations.)
+944 passed in 1169.39s (0:19:29)
+WALL 1170.99 s
+PYTEST_EXIT=0

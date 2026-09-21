@@ -1,8 +1,8 @@
-# Native HNDL 0.2 integration
+# Native HNDL 0.2.1 integration
 
 HyperGAN's image architecture is defined in `src/hypergan/networks/*.hndl`
-and recorded in resolved run configurations. HNDL 0.2.0 supplies the operators
-that were missing from the initial 0.1.2 migration. The image integration uses
+and recorded in resolved run configurations. HNDL 0.2.1 supplies the native
+operators, dtype tracking, and pretrained readouts required by this migration. The image integration uses
 the released PyPI wheel directly; `image_hndl_ops.py` has been removed. There
 are no local implementations of matrix multiplication, constants, channel-bias
 addition, or deterministic feature pooling.
@@ -35,34 +35,53 @@ separate torchvision network or download artifacts. The original canonical
 feature-state digest is preserved, including compatibility with historical
 batch-normalization counters.
 
-The colorization integration uses native spectral normalization. DINOv3 still
-needs an upstream local-pretrained extension: selectable `forward_features`
-with dictionary output `x_norm_patchtokens`, or `get_intermediate_layers` with
-`n=[2,5,8,11]`, `reshape=True`, `norm=True` and four outputs from one backbone
-pass. The 0.2.0 local provider currently supports the model's ordinary forward
-or one captured layer. No local replacement for the missing API is planned.
+The standalone ResNet discriminator example uses the native local `pretrained`
+operator with `provider="torchvision_resnet18"`, a SHA256-pinned `.pth`, and
+`layer="layer3"`. Its `.hndl` file owns ImageNet normalization, feature selection,
+`trainable=False`, and the trainable discriminator head. The host provider only
+constructs the external torchvision architecture without downloading weights.
 
-## Runtime validation
+DINOv3 uses native named provider readouts from HNDL 0.2.1. The provider verifies
+a clean local source checkout at the configured full Git commit; HNDL verifies
+and loads the local SHA256-pinned checkpoint. Configuration selects:
 
-Validation uses `/tmp/hypergan-hndl-venv/bin/python`, with the released HNDL
-0.2.0 wheel in that environment rather than an editable upstream checkout.
-Native HNDL owns network construction, execution, and copying. HyperGAN does
-not patch HNDL runtime internals.
+- `readout="patch_tokens"`: `forward_features()["x_norm_patchtokens"]`.
+- `readout="multidepth"`: one `get_intermediate_layers(n=(2,5,8,11),
+  reshape=True, norm=True)` call, concatenated into one tensor by the provider.
+  Native HNDL `split` nodes expose its four maps through named output ports.
 
-HNDL 0.2.0 currently leaves its runtime dtype checks unchanged after `.double()`.
-The existing dtype-conversion regression tests expose that upstream limitation;
-no local workaround is included. Float32 image validation is separate from
-those failing dtype-conversion cases.
+The readouts select the math SDPA backend so input gradients support the second
+backward required by b-cap. ImageNet normalization, token reshaping, joins,
+projections, attention, and discriminator heads remain in `.hndl` files. No
+custom HNDL operators or runtime patches are needed.
+
+## Runtime and plan compatibility
+
+Validation uses the released HNDL 0.2.1 PyPI wheel. Native HNDL owns network
+construction, execution, copying, and dtype checks. `.double()` and `.to(dtype=...)`
+now retarget floating runtime checks; integer embedding inputs keep their dtype.
+Casting a deep copy does not change the original network.
+
+HyperGAN stores HNDL source in resolved recipes and resolves it at construction.
+It does not load serialized HNDL plans. An independently saved 0.2.0 plan with a
+pretrained node must be re-resolved from source with 0.2.1 because `readout`
+participates in the semantic digest. Training state predating the HNDL migration
+is rejected by checkpoint contract version 2: parameter names and initialization
+order changed, so optimizer state cannot be silently reused.
+
+Alternating discriminator/generator updates preserve each parameter's original
+trainability. Frozen pretrained features remain frozen while the discriminator
+head trains and gradients flow through the features into generated images.
 
 ## Image validation evidence
 
-With the released HNDL 0.2.0 wheel, the CPU image, CIFAR, ResNet, data, metrics,
-and image-grid selection passed 94 tests. Four existing heavy tests and five
-upstream dtype-conversion regression cases were explicitly excluded. Those
-five regressions remain in the test suite; they are not marked as expected
-failures or silently skipped.
+The HNDL 0.2.1 image tests cover the previously failing dtype conversions,
+including divisible/ragged feature pooling and ResNet context-cache invalidation.
+Both DCGAN 128×128 batch-64 launch configurations were also checked against the
+released wheel for forward execution, generator gradients, and candidate second
+derivatives. Frozen ResNet parameters and BatchNorm buffers remain unchanged.
 
-`tests/cuda/test_hndl_images.py` passed all three tests on CUDA device 0 with
+Before the 0.2.1 upgrade, `tests/cuda/test_hndl_images.py` passed all three tests on CUDA device 0 with
 `torch.use_deterministic_algorithms(True)` and `CUBLAS_WORKSPACE_CONFIG=:4096:8`:
 
 - Divisible and ragged native pooling agree with the PyTorch forward within

@@ -217,7 +217,14 @@ def test_phase_gradients_and_optimizer_ownership():
         module.forward = forward
 
     wrap(discriminator, disc_seen, 'candidate')
-    wrap(generator, gen_seen, 'latent')
+    original_generator = generator.forward
+
+    def generator_forward(*args, **kwargs):
+        value = original_generator(*args, **kwargs)
+        gen_seen.append(value.detach().clone())
+        return value
+
+    generator.forward = generator_forward
     original_joint = joint.forward
 
     def joint_forward(*args, **kwargs):

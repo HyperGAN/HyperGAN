@@ -222,10 +222,26 @@ def _sample_tensor(graph, context, binding):
     return detach(value) if binding.detach_sample else value
 
 
+def _sample_context(context, phase_name):
+    """Critic-phase component samples must not occupy the generator-step cache.
+
+    An attached real sample can be a component output. Backward through that
+    score frees the forward. The generator step resolves the same component
+    again, so the critic read uses a private component and prior cache.
+    """
+    if phase_name != "critic":
+        return context
+    scratch = dict(context)
+    scratch["components"] = {}
+    scratch["prior"] = {}
+    return scratch
+
+
 def _bound_scores(term, context, graph, phase_name, phase, *, first):
     """Resolve both samples, then score them in the phase's historical order."""
-    real = _sample_tensor(graph, context, phase.real)
-    fake = _sample_tensor(graph, context, phase.fake)
+    sample_context = _sample_context(context, phase_name)
+    real = _sample_tensor(graph, sample_context, phase.real)
+    fake = _sample_tensor(graph, sample_context, phase.fake)
 
     def score(sample, binding):
         value = score_candidate(term, sample, context, graph, phase_name)

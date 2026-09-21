@@ -1,0 +1,231 @@
+# Experimental RGB particle AE-GAN. See docs/logos-ae-gan.md.
+# Prepare a dataset manifest and supply local, hash-pinned DINOv3 artifacts.
+schema_version = 1
+name = "images/logos-ae-gan-dino-256"
+
+[data]
+factory = "hypergan.colorization_data:ColorizationData"
+[data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "train"
+shuffle = true
+
+[components.generator]
+factory = "hypergan.colorization_components:ColorizationGenerator"
+# Independent, uniformly sampled prior particles drive both GAN phases.
+inputs = { z = "latent" }
+[components.generator.args]
+z_dim = 128
+width = 32
+
+[components.discriminator]
+factory = "hypergan.colorization_components:DINOv3ProjectedDiscriminator"
+inputs = { x = "candidate" }
+[components.discriminator.args]
+source_path = "./dinov3-source"
+source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
+weights_path = "./dinov3_vits16_pretrain_lvd1689m-08c60483.pth"
+weights_sha256 = "08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d"
+feature_width = 64
+head = "conv"
+pixel_width = 32
+
+[components.encoder]
+factory = "hypergan.autoencoder_components:ParticleAEEncoder256"
+inputs = { x = "batch.real", means = "prior.means", sigma = "prior.sigma" }
+[components.encoder.args]
+z_dim = 128
+width = 32
+temperature = 0.125
+
+# Joint AE-GAN: RGB reconstruction updates E, G and the selected particle means.
+[components.reconstruction]
+reuse = "generator"
+inputs = { z = "components.encoder.latent" }
+
+[[objectives]]
+id = "rgb_reconstruction"
+factory = "mse"
+inputs = { input = "components.reconstruction", target = "batch.real" }
+weight = 1.0
+detach = ["target"]
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 25003
+[prior.args]
+num_particles = 4096
+z_dim = 128
+# Fixed prior noise scale; AE uses a deterministic learned offset at this scale.
+sigma_rel = 0.025
+
+[adversarial]
+loss_type = "logistic"
+mode = "rp"
+weight = 1.0
+
+[gradient_penalty]
+arm = "b_cap"
+coeff = 1.0
+kappa = 1.0
+lazy_k = 4
+
+[prior_regularizer]
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001
+
+[optimizer]
+implementation = "torch_fused_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
+
+[training]
+steps = 200000
+batch_size = 16
+seed = 25002
+device = "cuda"
+ema = 0.995
+lr_anneal_start = 0.6
+lr_floor = 1.0
+phase_draws = "independent"
+data_rng_device = "cpu"
+data_seed_offset = 2
+prior_seed_offset = 3
+
+[training.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[sampling]
+count = 8
+seed = 35002
+generated = "components.reconstruction"
+particle_ids = "components.encoder.ids"
+views = { random = "components.generator" }
+comparison = [
+  { label = "X", binding = "batch.real" },
+  { label = "X_hat", binding = "components.reconstruction" },
+]
+
+[metrics]
+preset = "standard"
+every_steps = 10
+
+[metrics.custom.chroma]
+factory = "hypergan.colorization_metrics:ChromaDistributionDistance"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 5000
+on_busy = "skip"
+timeout = 600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.chroma.args]
+bins = 64
+projections = 8
+[metrics.custom.chroma.evaluation]
+device = "cuda"
+sample_count = 512
+batch_size = 8
+seed = 35002
+[metrics.custom.chroma.evaluation.data]
+factory = "hypergan.colorization_data:ColorizationData"
+[metrics.custom.chroma.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+[metrics.custom.structure]
+factory = "hypergan.colorization_metrics:GrayscaleStructureDistance"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 6000
+on_busy = "skip"
+timeout = 600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.structure.evaluation]
+device = "cuda"
+sample_count = 512
+batch_size = 8
+seed = 35002
+[metrics.custom.structure.evaluation.data]
+factory = "hypergan.colorization_data:ColorizationData"
+[metrics.custom.structure.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+# Independent uniform-prior diagnostics.
+[metrics.custom.random_spread]
+factory = "hypergan.colorization_metrics:SampleDiversityRatio"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 250
+on_busy = "skip"
+timeout = 600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.random_spread.args]
+pool_size = 32
+[metrics.custom.random_spread.evaluation]
+generated = "generated"
+device = "cuda"
+sample_count = 256
+batch_size = 8
+seed = 35002
+[metrics.custom.random_spread.evaluation.data]
+factory = "hypergan.colorization_data:ColorizationData"
+[metrics.custom.random_spread.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+
+[metrics.custom.random_chroma]
+factory = "hypergan.colorization_metrics:ChromaDistributionDistance"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 1100
+on_busy = "skip"
+timeout = 600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.random_chroma.args]
+bins = 64
+projections = 8
+[metrics.custom.random_chroma.evaluation]
+generated = "generated"
+device = "cuda"
+sample_count = 512
+batch_size = 8
+seed = 35002
+[metrics.custom.random_chroma.evaluation.data]
+factory = "hypergan.colorization_data:ColorizationData"
+[metrics.custom.random_chroma.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "heldout"
+shuffle = false
+repeats = 1

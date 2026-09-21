@@ -1,7 +1,7 @@
 # Experimental conditional particle VAEGAN. See docs/colorization.md.
-# Prepare a dataset manifest and supply local, hash-pinned DINOv3 artifacts.
+# Prepare a dataset manifest and supply local, hash-pinned ResNet18 weights.
 schema_version = 1
-name = "images/logos-colorization-random-256"
+name = "images/logos-colorization-resnet-256"
 
 [data]
 factory = "hypergan.colorization_data:ColorizationData"
@@ -21,16 +21,15 @@ z_dim = 128
 width = 32
 
 [components.discriminator]
-factory = "hypergan.colorization_components:DINOv3ProjectedDiscriminator"
+factory = "hypergan.image_components:CIFARDiscriminator"
 inputs = { x = "candidate" }
 [components.discriminator.args]
-source_path = "./dinov3-source"
-source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
-weights_path = "./dinov3_vits16_pretrain_lvd1689m-08c60483.pth"
-weights_sha256 = "08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d"
-feature_width = 64
-head = "conv"
-pixel_width = 32
+weights_path = "./resnet18-f37072fd.pth"
+weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+width = 32
+image_size = 256
+feature_size = 256
+deterministic_features = true
 
 [components.encoder]
 factory = "hypergan.colorization_components:GrayscaleRoutingEncoder"

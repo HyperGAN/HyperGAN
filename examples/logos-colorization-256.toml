@@ -205,3 +205,61 @@ manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 4
+
+# Independent uniform-prior diagnostics, separate from conditional reconstruction.
+[metrics.custom.random_spread]
+factory = "hypergan.colorization_metrics:SampleDiversityRatio"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 250
+on_busy = "skip"
+timeout = 600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.random_spread.args]
+pool_size = 32
+[metrics.custom.random_spread.evaluation]
+generated = "generated"
+device = "cuda"
+sample_count = 256
+batch_size = 8
+seed = 35002
+[metrics.custom.random_spread.evaluation.data]
+factory = "hypergan.colorization_data:ColorizationData"
+[metrics.custom.random_spread.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+
+[metrics.custom.random_chroma]
+factory = "hypergan.colorization_metrics:ChromaDistributionDistance"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 1100
+on_busy = "skip"
+timeout = 600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.random_chroma.args]
+bins = 64
+projections = 8
+[metrics.custom.random_chroma.evaluation]
+generated = "generated"
+device = "cuda"
+sample_count = 512
+batch_size = 8
+seed = 35002
+[metrics.custom.random_chroma.evaluation.data]
+factory = "hypergan.colorization_data:ColorizationData"
+[metrics.custom.random_chroma.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "heldout"
+shuffle = false
+repeats = 1
+

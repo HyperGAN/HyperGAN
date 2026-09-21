@@ -62,6 +62,28 @@ weight file by SHA256 and the external source checkout by commit; it does not
 download during training. The upstream code and weights retain their
 [DINOv3 terms](https://github.com/facebookresearch/dinov3).
 
+The discriminator comparisons also expose these alternatives (use a fresh run
+when changing architecture):
+
+- `DINOv3ProjectedDiscriminator(head="conv")` replaces the linear head with
+  spectrally normalized nonlinear convolutions. Its optional `pixel_width=32`
+  adds a learned RGB stem, concatenated with projected DINO features before the
+  shared attention/head. This candidate awaits the next collapse comparison;
+  it is not yet a demonstrated fix.
+- `DINOv3MultiScaleDiscriminator` reads transformer blocks 2, 5, 8, and 11 in
+  one backbone pass. Frozen random projections build and fuse a synthetic
+  32/16/8/4 pyramid, followed by four attention/convolution heads whose scalar
+  outputs are averaged. DINOv3's native maps are all 16×16; this is a multidepth
+  adaptation, not an exact reproduction of Projected GAN.
+- `DCGANDiscriminator256(width=32)` is an RGB-only convolutional control with
+  spectral normalization. It has no pretrained backbone.
+
+The DINOv3 token and normalization audit, controlled comparisons, and their limits
+are recorded in [the collapse report](../reports/colorization-collapse-2026-09-21.md).
+The working CIFAR critic combines a learned pixel path with multiscale pretrained
+ResNet features, so it is not a pretrained-only counterpart to the original
+single-map DINO critic.
+
 The earlier two-path `DINOv3Discriminator` remains available for existing
 configurations and checkpoints. The new `DINOv3ProjectedDiscriminator` is a
 different architecture: use a fresh run directory and its own configuration.
@@ -95,6 +117,17 @@ is a structural diagnostic related to the grayscale reconstruction loss:
 - Repeated-condition chroma diversity measures variation across several noise
   draws for each identical grayscale input. Interpret it alongside structure;
   arbitrary noise can increase diversity without improving colorization.
+
+Two additional metrics explicitly select uniform-prior outputs with
+`evaluation.generated = "generated"`, independently of the conditional preview:
+
+- `random_spread` measures pooled pixel pairwise RMS relative to the held-out
+  reference. Near zero detects constant outputs; one matches overall spread.
+  Noise or repeated coarse patterns can also produce spread, so this is a
+  collapse diagnostic, not a quality target. It runs every 250 updates on 256
+  samples to reveal the early failure seen in the original run.
+- `random_chroma` compares unconditional color distributions every 1,100 updates
+  on 512 samples. It shares the existing chroma metric's spatial limitations.
 
 Keep the evaluation seed, count, held-out inventory and sample multiplicity
 fixed when comparing checkpoints. Show grayscale inputs, source RGB and generated

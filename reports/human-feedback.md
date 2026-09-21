@@ -42,7 +42,7 @@ setting matched. `validate_runtime` compared the whole `runtime` dict as one JSO
 so it could neither report which field differed nor tell a physical card swap apart from
 a real incompatibility.
 
-**Status:** Implemented on branch `worktree-agent-a71d0612e78de539e` (not merged; the
+**Status:** Merged into develop (`e8ada8b0`, merge `9c4985dc`). Implemented on branch `worktree-agent-a71d0612e78de539e` (the
 coordinator merges). `src/hypergan/checkpoint_compatibility.py` now flattens both runtime
 dicts to dotted key paths and classifies the differences against one explicit set,
 `DEVICE_IDENTITY_KEYS = {'cuda.uuid', 'cuda.visible_devices'}`. A difference confined to

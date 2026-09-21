@@ -67,6 +67,14 @@ class ColorizationGenerator(nn.Module):
         return self.output(h).tanh()
 
 
+class GrayscaleImage(nn.Module):
+    """Differentiable luminance, matching the colorization data transform."""
+    def forward(self, x):
+        if x.ndim != 4 or x.shape[1] != 3:
+            raise ValueError('GrayscaleImage requires RGB [batch,3,height,width]')
+        return x[:, 0:1] * .299 + x[:, 1:2] * .587 + x[:, 2:3] * .114
+
+
 class GrayscaleRoutingEncoder(nn.Module):
     """Encode grayscale, select one particle and add the prior's fixed sigma noise.
 

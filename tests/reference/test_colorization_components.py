@@ -1,5 +1,7 @@
 """Small CPU derivative and posterior fixtures; no pretrained downloads or GPU."""
 import subprocess
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -7,6 +9,8 @@ from torch import nn
 from torch.nn import functional as F
 
 from hypergan import colorization_components as color
+from hypergan.config import tomllib
+from hypergan.recipes import ComponentGraph
 
 
 @pytest.fixture(autouse=True)
@@ -56,6 +60,51 @@ def test_reconstruction_gradients_update_only_encoder_through_frozen_decoder():
     assert all(parameter.grad is None for parameter in generator.parameters())
     assert encoder.query.weight.grad is not None
     assert encoder.query.weight.grad.abs().sum() > 0
+
+
+def test_grayscale_reconstruction_matches_data_luminance_and_preserves_gradient():
+    rgb = torch.tensor([[[[1.]], [[0.]], [[-1.]]]], requires_grad=True)
+    gray = color.GrayscaleImage()(rgb)
+    torch.testing.assert_close(gray, torch.tensor([[[[.185]]]]))
+    gray.sum().backward()
+    torch.testing.assert_close(rgb.grad.flatten(), torch.tensor([.299, .587, .114]))
+    with pytest.raises(ValueError, match='requires RGB'):
+        color.GrayscaleImage()(rgb[:, :1])
+
+
+def test_random_gan_and_conditional_reconstruction_have_separate_gradient_owners():
+    """Exercise the actual recipe bindings without pretrained assets or a GPU."""
+    torch.manual_seed(97)
+    path = Path(__file__).resolve().parents[2] / 'examples/logos-colorization-256.toml'
+    recipe = tomllib.loads(path.read_text())
+    specs = recipe['components']
+    specs['discriminator'] = {'factory': 'identity', 'inputs': {'input': 'candidate'}}
+    for name in ('generator', 'encoder'):
+        specs[name]['args'].update(z_dim=8, width=2)
+    for spec in specs.values():
+        spec.setdefault('trainable', True)
+    graph = ComponentGraph(specs)
+    means = torch.randn(16, 8, requires_grad=True)
+    prior = SimpleNamespace(means=lambda: means, sigma=torch.tensor(.2))
+    rgb = torch.randn(2, 3, 256, 256).tanh()
+    batch = {'real': rgb, 'gray': color.GrayscaleImage()(rgb)}
+    latent = means[torch.tensor([1, 12])] + .2 * torch.randn(2, 8)
+    context = graph.generate(latent, batch, prior=prior)
+    assert set(context['components']) == {'generator'}
+    context['generated'].square().mean().backward()
+    assert means.grad.abs().sum() > 0
+    assert graph.models['generator'].output.weight.grad.abs().sum() > 0
+    assert all(p.grad is None for p in graph.models['encoder'].parameters())
+    graph.zero_grad(set_to_none=True)
+    means.grad = None
+    objective = recipe['objectives'][0]
+    reconstruction = graph.resolve(objective['inputs']['input'], context)
+    target = graph.resolve(objective['inputs']['target'], context).detach()
+    F.mse_loss(reconstruction, target).backward()
+    assert means.grad is None
+    assert all(p.grad is None for p in graph.models['generator'].parameters())
+    assert graph.models['encoder'].query.weight.grad.abs().sum() > 0
+    assert all(p.requires_grad for p in graph.models['generator'].parameters())
 
 
 def test_adversarial_latent_updates_selected_means_and_encoder():

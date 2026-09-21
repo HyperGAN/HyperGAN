@@ -44,6 +44,17 @@ def test_default_hndl_trainer_updates_parameters():
     assert any(not torch.equal(a, b) for a, b in zip(before, trainer.graph.parameters()))
 
 
+def test_cast_embedding_keeps_integer_inputs_and_copy_cast_is_independent():
+    from hypergan.hndl_networks import HNDLNetwork
+    model = HNDLNetwork('embedding(4, 2)\nflatten()', ['B', 1], ['B', 2],
+                        input_dtype='int64').double()
+    tokens = torch.tensor([[0], [3]])
+    clone = copy.deepcopy(model).float()
+    assert model(tokens).dtype == torch.float64
+    assert clone(tokens).dtype == torch.float32
+    torch.testing.assert_close(model(tokens).float(), clone(tokens))
+
+
 def test_invalid_network_is_rejected_before_tensor_execution():
     with pytest.raises(Exception, match='E_|shape|constraint'):
         build_network('linear(3)', input_shape=('B', 4), output_shape=('B', 2))

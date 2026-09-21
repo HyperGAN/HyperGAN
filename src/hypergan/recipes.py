@@ -17,8 +17,8 @@ class MLP(nn.Module):
         self.network = build_network(source, input_shape=input_shape or ('B', input_dim),
                                      output_shape=output_shape or ('B', output_dim), **kwargs)
 
-    def forward(self, x, condition=None):
-        return self.network(torch.cat((x, condition), dim=-1) if condition is not None else x)
+    def forward(self, x, **inputs):
+        return self.network(x=x, **inputs) if inputs else self.network(x)
 
 
 def linear(in_features, out_features, bias=True):

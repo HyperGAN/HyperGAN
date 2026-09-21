@@ -1,12 +1,11 @@
 """HNDL construction and binding adapters; architectures live in configuration."""
-import torch
 from torch import nn
 
 from .network_config import packaged_source, render_source
 
 
 def build_network(source=None, *, file=None, input_shape, output_shape,
-                  parameters=None, registry=None):
+                  parameters=None, registry=None, input_dtype=None):
     """Construct an unmodified native HNDL tensor/named-port network."""
     from hndl import Registry
     from hndl.torch import network
@@ -14,19 +13,18 @@ def build_network(source=None, *, file=None, input_shape, output_shape,
     source = render_source(source if source is not None else packaged_source(file), parameters)
     registry = register_providers(Registry.builtins() if registry is None else registry)
     return network(source, input_shape=input_shape, output_shape=output_shape,
-                   device='cpu', registry=registry)
+                   device='cpu', registry=registry, input_dtype=input_dtype)
 
 
 class HNDLNetwork(nn.Module):
-    """Bind one tensor or explicitly concatenate a list of component inputs."""
+    """Bind component inputs to native HNDL tensor or named ports."""
     def __init__(self, source, input_shape, output_shape, parameters=None,
-                 concat_inputs=None, concat_dim=-1):
+                 input_dtype=None):
         super().__init__()
         self.network = build_network(source, input_shape=input_shape,
-                                     output_shape=output_shape, parameters=parameters)
+                                     output_shape=output_shape, parameters=parameters,
+                                     input_dtype=input_dtype)
         self.named_inputs = isinstance(input_shape, dict)
-        self.concat_inputs = tuple(concat_inputs) if concat_inputs else None
-        self.concat_dim = concat_dim
 
     def forward(self, *args, **inputs):
         if self.named_inputs:
@@ -35,12 +33,8 @@ class HNDLNetwork(nn.Module):
             if len(args) != 1 or inputs:
                 raise ValueError('HNDL component expects one positional tensor or named bindings')
             return self.network(args[0])
-        if self.concat_inputs:
-            if set(inputs) != set(self.concat_inputs):
-                raise ValueError('HNDL concat_inputs must match component bindings')
-            value = torch.cat([inputs[key] for key in self.concat_inputs], dim=self.concat_dim)
-        elif len(inputs) == 1:
+        if len(inputs) == 1:
             value = next(iter(inputs.values()))
         else:
-            raise ValueError('Multiple HNDL inputs require explicit concat_inputs')
+            raise ValueError('Multiple HNDL inputs require named input_shape contracts')
         return self.network(value)

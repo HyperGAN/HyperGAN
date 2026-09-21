@@ -141,18 +141,18 @@ def test_tampered_bundle_rejected(tmp_path):
 
 def test_integer_conditioning_survives_native_bundle(tmp_path):
     raw = copy.deepcopy(DEFAULT)
-    raw["components"]["encoder"] = {"factory": "torch.nn:Embedding", "args": {"num_embeddings": 4, "embedding_dim": 2}, "inputs": {"input": "batch.condition"}}
-    raw["components"]["generator"]["args"]["input_shape"] = ["B", 6]
-    raw["components"]["generator"]["args"]["concat_inputs"] = ["x", "condition"]
+    raw["components"]["encoder"] = {"factory": "hndl", "args": {"source": "embedding(4, 2)\nflatten()", "input_shape": ["B", 1], "output_shape": ["B", 2], "input_dtype": "int64"}, "inputs": {"input": "batch.condition"}}
+    raw["components"]["generator"]["args"]["input_shape"] = {"x": ["B", 4], "condition": ["B", 2]}
+    raw["components"]["generator"]["args"]["source"] = "concat(x, condition)\n" + raw["components"]["generator"]["args"]["source"]
     raw["components"]["generator"]["inputs"]["condition"] = "components.encoder"
     trainer = ReferenceTrainer(resolve_config(raw))
-    batch = {"real": torch.zeros(16, 2), "condition": torch.arange(16) % 4}
+    batch = {"real": torch.zeros(16, 2), "condition": (torch.arange(16) % 4).reshape(16, 1)}
     trainer.update(batch)
     save_bundle(tmp_path, trainer, batch)
     path = sample(tmp_path, count=8)
     result = json.loads(path.read_text())
     assert result["shape"] == [8, 2]
-    assert result["inputs"]["condition"] == [0, 1, 2, 3, 0, 1, 2, 3]
+    assert result["inputs"]["condition"] == [[0], [1], [2], [3], [0], [1], [2], [3]]
 
 
 def test_interrupted_manifest_is_terminal(tmp_path, monkeypatch):

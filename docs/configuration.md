@@ -36,7 +36,7 @@ tanh()
 
 Use `file = "generator.hndl"` instead of `source` to load a standalone architecture relative to the recipe. File contents are copied into the resolved configuration and participate in the numerical fingerprint. Checkpoints and inference artifacts retain that source; moving or editing the original file does not change a saved run. Training from an edited file starts a different recipe and cannot silently resume an older architecture.
 
-For conditional graphs, declare named `input_shape` contracts and use HNDL `concat`, branches, and joins in the source. Named `output_shape` contracts expose several outputs to component bindings. The older `concat_inputs` option is supported for flat tensor input adapters, but new recipes should express concatenation in HNDL itself.
+For conditional graphs, declare named `input_shape` contracts and use HNDL `concat`, branches, and joins in the source. Named `output_shape` contracts expose several outputs to component bindings. Concatenation belongs in HNDL source. Set `input_dtype = "int64"` for embedding inputs, or use a table keyed by input port for mixed float and integer inputs.
 
 The image and particle-routing adapters load their architectures from [`src/hypergan/networks`](../src/hypergan/networks). Their recipes expose each template through `[components.<name>.args.network_files]`; paths are relative to the recipe. `[components.<name>.args.networks]` accepts inline source overrides instead. The resolved configuration records all selected template text. `${name}` template parameters substitute Python literals only; applications provide any trusted reusable source fragments before HNDL parses the resulting declarative graph.
 

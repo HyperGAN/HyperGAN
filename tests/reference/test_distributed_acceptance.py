@@ -106,7 +106,9 @@ def _config(case='ra'):
     raw['components'] = {
         'encoder': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 2},
                     'inputs': {'input': 'batch.condition'}},
-        'generator': {'factory': 'mlp', 'args': {'input_dim': 6, 'output_dim': 2, 'hidden': [8]},
+        'generator': {'factory': 'hndl', 'args': {'source': 'concat(x, condition)\nlinear(8)\nleaky_relu(0.2)\nlinear()',
+                                               'input_shape': {'x': ['B', 4], 'condition': ['B', 2]},
+                                               'output_shape': ['B', 2]},
                       'inputs': {'x': 'latent', 'condition': 'components.encoder'}},
         # RA is invariant to additive critic bias. Adam amplifies near-zero
         # reduction-order residuals in that null direction; omit it in this oracle.

@@ -1,0 +1,155 @@
+# Reduced-depth TransGAN-style 128px generator; one latent [B,128], no extra noise.
+# Two transformer blocks per stage instead of depths 5/4/4/4/4.
+# Parameter-free PixelNorm via RMS normalization; native parameter initialization.
+# No learned 2D relative-position bias. This reduced-depth recipe is an adaptation.
+# Reference architecture: https://arxiv.org/html/2102.07074v4#A2.T6
+# Learned absolute positions precede grid partitioning at 64px and 128px.
+# Global attention at 8/16/32px; shared 16x16-window attention at 64/128px.
+h = linear(x, 65536, name="input_projection")
+h = reshape(h, 64, 1024)
+h = pos_embed(h, 64, name="stage8_position")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage8_block0_attention")
+h = add(h, branch, name="stage8_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block0_norm2")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage8_block0_ffn")
+h = add(h, branch, name="stage8_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage8_block1_attention")
+h = add(h, branch, name="stage8_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block1_norm2")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage8_block1_ffn")
+h = add(h, branch, name="stage8_block1")
+
+# Bicubic enlargement preserves 1024 channels, 8px -> 16px.
+h = transpose(h, 1, 2)
+h = reshape(h, 1024, 8, 8)
+h = upsample(h, 2, mode="bicubic", align_corners=False, name="stage16_upsample")
+h = reshape(h, 1024, 256)
+h = transpose(h, 1, 2)
+h = pos_embed(h, 256, name="stage16_position")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage16_block0_attention")
+h = add(h, branch, name="stage16_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block0_norm2")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage16_block0_ffn")
+h = add(h, branch, name="stage16_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage16_block1_attention")
+h = add(h, branch, name="stage16_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block1_norm2")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage16_block1_ffn")
+h = add(h, branch, name="stage16_block1")
+
+# Pixel shuffle: 16px/1024 channels -> 32px/256 channels.
+h = transpose(h, 1, 2)
+h = reshape(h, 1024, 16, 16)
+h = pixel_shuffle(h, 2, name="stage32_upsample")
+h = reshape(h, 256, 1024)
+h = transpose(h, 1, 2)
+h = pos_embed(h, 1024, name="stage32_position")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage32_block0_attention")
+h = add(h, branch, name="stage32_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block0_norm2")
+branch = feed_forward(branch, 1024, activation="gelu", dropout=0.0, name="stage32_block0_ffn")
+h = add(h, branch, name="stage32_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage32_block1_attention")
+h = add(h, branch, name="stage32_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block1_norm2")
+branch = feed_forward(branch, 1024, activation="gelu", dropout=0.0, name="stage32_block1_ffn")
+h = add(h, branch, name="stage32_block1")
+
+h = transpose(h, 1, 2)
+h = reshape(h, 256, 32, 32)
+
+# Pixel shuffle: 32px/256 channels -> 64px/64 channels.
+h = pixel_shuffle(h, 2, name="stage64_upsample")
+h = reshape(h, 64, 4096)
+h = transpose(h, 1, 2)
+h = pos_embed(h, 4096, name="stage64_position")
+h = transpose(h, 1, 2)
+h = reshape(h, 64, 64, 64, name="stage64_grid")
+
+# BEGIN grid64
+# BEGIN stage64 window partition: [B,C,64,64] -> [16*B,C,16,16].
+row0, row1, row2, row3 = chunk(h, 4, dim=2, name="stage64_row_split")
+rows = concat(row0, row1, row2, row3, axis=0, name="stage64_rows")
+column0, column1, column2, column3 = chunk(rows, 4, dim=3, name="stage64_column_split")
+h = concat(column0, column1, column2, column3, axis=0, name="stage64_windows")
+# END stage64 window partition.
+
+h = reshape(h, 64, 256)
+h = transpose(h, 1, 2)
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage64_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage64_block0_attention")
+h = add(h, branch, name="stage64_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage64_block0_norm2")
+branch = feed_forward(branch, 256, activation="gelu", dropout=0.0, name="stage64_block0_ffn")
+h = add(h, branch, name="stage64_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage64_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage64_block1_attention")
+h = add(h, branch, name="stage64_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage64_block1_norm2")
+branch = feed_forward(branch, 256, activation="gelu", dropout=0.0, name="stage64_block1_ffn")
+h = add(h, branch, name="stage64_block1")
+h = transpose(h, 1, 2)
+h = reshape(h, 64, 16, 16, name="stage64_processed_windows")
+
+# BEGIN stage64 window inverse: [16*B,C,16,16] -> [B,C,64,64].
+column0, column1, column2, column3 = chunk(h, 4, dim=0, name="stage64_column_unstack")
+rows = concat(column0, column1, column2, column3, axis=3, name="stage64_columns_restored")
+row0, row1, row2, row3 = chunk(rows, 4, dim=0, name="stage64_row_unstack")
+h = concat(row0, row1, row2, row3, axis=2, name="stage64_unwindows")
+# END stage64 window inverse.
+# END grid64
+
+# Pixel shuffle: 64px/64 channels -> 128px/16 channels.
+h = pixel_shuffle(h, 2, name="stage128_upsample")
+h = reshape(h, 16, 16384)
+h = transpose(h, 1, 2)
+h = pos_embed(h, 16384, name="stage128_position")
+h = transpose(h, 1, 2)
+h = reshape(h, 16, 128, 128, name="stage128_grid")
+
+# BEGIN grid128
+# BEGIN stage128 window partition: [B,C,128,128] -> [64*B,C,16,16].
+row0, row1, row2, row3, row4, row5, row6, row7 = chunk(h, 8, dim=2, name="stage128_row_split")
+rows = concat(row0, row1, row2, row3, row4, row5, row6, row7, axis=0, name="stage128_rows")
+column0, column1, column2, column3, column4, column5, column6, column7 = chunk(rows, 8, dim=3, name="stage128_column_split")
+h = concat(column0, column1, column2, column3, column4, column5, column6, column7, axis=0, name="stage128_windows")
+# END stage128 window partition.
+
+h = reshape(h, 16, 256)
+h = transpose(h, 1, 2)
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage128_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage128_block0_attention")
+h = add(h, branch, name="stage128_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage128_block0_norm2")
+branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage128_block0_ffn")
+h = add(h, branch, name="stage128_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage128_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, name="stage128_block1_attention")
+h = add(h, branch, name="stage128_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage128_block1_norm2")
+branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage128_block1_ffn")
+h = add(h, branch, name="stage128_block1")
+h = transpose(h, 1, 2)
+h = reshape(h, 16, 16, 16, name="stage128_processed_windows")
+
+# BEGIN stage128 window inverse: [64*B,C,16,16] -> [B,C,128,128].
+column0, column1, column2, column3, column4, column5, column6, column7 = chunk(h, 8, dim=0, name="stage128_column_unstack")
+rows = concat(column0, column1, column2, column3, column4, column5, column6, column7, axis=3, name="stage128_columns_restored")
+row0, row1, row2, row3, row4, row5, row6, row7 = chunk(rows, 8, dim=0, name="stage128_row_unstack")
+h = concat(row0, row1, row2, row3, row4, row5, row6, row7, axis=2, name="stage128_unwindows")
+# END stage128 window inverse.
+# END grid128
+
+# Shared tokenwise RGB projection; permute explicitly declares the sequence rank.
+h = reshape(h, 16, 16384)
+h = permute(h, 2, 1)
+h = linear(h, 3, name="output_projection")
+h = permute(h, 2, 1)
+h = reshape(h, 3, 128, 128)
+out = tanh(h)

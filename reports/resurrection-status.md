@@ -2,6 +2,38 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Resume on the other identical GPU, and the heavy-test gate (2026-09-20): the
+owner restarted `training-runs/start.sh` and resume failed with the bare
+`Resume runtime/topology differs from checkpoint`. Diagnosis: two identical RTX
+A6000s enumerate in an unstable order with `CUDA_DEVICE_ORDER` unset, so
+`CUDA_VISIBLE_DEVICES=0` landed on the other card and only `cuda.uuid` /
+`cuda.visible_devices` differed from the step-6359 checkpoint. The owner asked for
+a warning that names what differs. Two owner-authorized Opus subagents worked in
+Agent worktrees. Item 18 (`e8ada8b0`, merged `9c4985dc`): `validate_runtime`
+flattens both runtime dicts to dotted paths, rejects with every differing field
+and both values, and warns-and-continues when the difference is confined to
+`DEVICE_IDENTITY_KEYS`; the warning goes to stderr, the run manifest and the
+`resume` event. Replaying the owner's checkpoint against the current card warns
+and returns. Item 20 (`f236af15`, merged `f3b21832`; 19 was taken by the
+throughput work in flight): the owner asked that heavy tests be gated and run
+intentionally. A measured `heavy` marker (>= 1 s, which is exactly the set that
+spawns subprocesses or multi-rank jobs; 185 of 1000 tests) is deselected by
+`addopts`, run with `-m heavy`, registered with `--strict-markers`, never skipped;
+CI gained `heavy-lightweight` and `heavy-reference` jobs required by the
+foundation gate, and AGENTS.md states the rule. Fast suite on merged develop:
+814 passed, 1 failed (`test_distribution_contains_only_supported_package`,
+wheel-only, known) in 25 s; the heavy suite on the merged tree was started and
+its result is recorded below when it lands. Both subagents reported that the
+Agent tool created their worktree off `291ddccd` (pre-resurrection history) and
+fast-forwarded to `develop` before working; coordinators should verify the base.
+Also: tests that re-invoke `python -I -m hypergan` cannot see this machine's
+user-site editable install, so a plain `python3 -m pytest` fails 17 CLI tests
+spuriously; run the suite from a venv (`--system-site-packages` plus an editable
+install of the checkout). Neither branch was pushed; `develop` stays local. The
+owner's run can restart; `CUDA_DEVICE_ORDER=PCI_BUS_ID` in `start.sh` pins the
+card. Blockers: none. Next: record the heavy-suite result, then continue the
+plan's CUDA save/resume and two-GPU qualification.
+
 Training throughput (2026-09-20): the owner reported the CIFAR run on one A6000
 at 10-12 steps/s against 14-15 for the ParticleGAN source and asked for the GPU
 to be utilized as fully as possible, with less host blocking if needed. Two

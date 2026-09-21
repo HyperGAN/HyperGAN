@@ -20,6 +20,16 @@ def resolve(value):
     return resolve_execution_profile(value, resolve_config({}))
 
 
+def test_replicated_recipe_rejects_extra_adversarial_terms():
+    from hypergan.execution_profiles import validate_replicated_recipe
+    legacy = resolve_config({})
+    validate_replicated_recipe(legacy)
+    extra = resolve_config({"adversarial_terms": [{
+        "id": "extra", "component": "discriminator", "real": "batch.real", "fake": "generated"}]})
+    with pytest.raises(ValueError, match="adversarial_terms"):
+        validate_replicated_recipe(extra)
+
+
 def test_single_defaults_and_replicated_effective_batch():
     single = resolve(raw())
     assert single == {'schema_version': 1, 'execution': {

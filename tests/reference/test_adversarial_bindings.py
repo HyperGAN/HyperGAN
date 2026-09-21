@@ -154,32 +154,42 @@ def _marker(trainer, like):
     return trainer.graph.models["marker"].value.view(1, -1).expand_as(like)
 
 
+def _term(trainer):
+    return trainer.program.adversarial_terms[0]
+
+
+def _replace_term(trainer, term):
+    terms = list(trainer.program.adversarial_terms)
+    terms[0] = term
+    trainer.program = replace(trainer.program, adversarial_terms=tuple(terms))
+
+
 def _install_penalty(trainer):
-    recorder = _RecordingPenalty(trainer.program.penalty)
-    trainer.program = replace(trainer.program, penalty=recorder)
+    term = _term(trainer)
+    recorder = _RecordingPenalty(term.penalty_fn)
+    _replace_term(trainer, replace(term, penalty_fn=recorder))
     return recorder
 
 
 def _retarget_critic_fake(trainer, path):
-    term = trainer.program.adversarial
+    term = _term(trainer)
     phase = replace(term.critic_phase, fake=replace(term.critic_phase.fake, path=path))
-    trainer.program = replace(trainer.program, adversarial=replace(term, critic_phase=phase))
+    _replace_term(trainer, replace(term, critic_phase=phase))
 
 
 def _attach_condition(trainer):
-    term = trainer.program.adversarial
+    term = _term(trainer)
     routes = tuple(replace(route, detach_critic=False) if route.argument == "condition" else route for route in term.routes)
-    trainer.program = replace(trainer.program, adversarial=replace(term, routes=routes))
+    _replace_term(trainer, replace(term, routes=routes))
 
 
 def _generator_real_policy(trainer, *, detach_score, detach_route):
-    term = trainer.program.adversarial
+    term = _term(trainer)
     real = replace(term.generator_phase.real, path="components.encoder", detach_sample=False, detach_score=detach_score)
     routes = tuple(
         replace(route, detach_generator=detach_route) if route.path == "candidate" else route
         for route in term.routes)
-    trainer.program = replace(
-        trainer.program, adversarial=replace(term, generator_phase=replace(term.generator_phase, real=real), routes=routes))
+    _replace_term(trainer, replace(term, generator_phase=replace(term.generator_phase, real=real), routes=routes))
 
 
 def _snapshot(optimizer, parameters):
@@ -221,9 +231,9 @@ def _some_gradient(grads):
 def test_sample_binding_selects_the_tensor_the_critic_and_penalty_score():
     legacy = ReferenceTrainer(_binding_config())
     moved = ReferenceTrainer(_binding_config())
-    assert legacy.program.adversarial.critic_phase.fake.path == "generated"
-    assert legacy.program.adversarial.critic_phase.fake.detach_sample
-    assert not legacy.program.adversarial.critic_phase.fake.detach_score
+    assert legacy.program.adversarial_terms[0].critic_phase.fake.path == "generated"
+    assert legacy.program.adversarial_terms[0].critic_phase.fake.detach_sample
+    assert not legacy.program.adversarial_terms[0].critic_phase.fake.detach_score
     legacy_penalty = _install_penalty(legacy)
     moved_penalty = _install_penalty(moved)
     _retarget_critic_fake(moved, "components.marker")
@@ -241,7 +251,7 @@ def test_sample_binding_selects_the_tensor_the_critic_and_penalty_score():
 def test_critic_phase_route_detachment_is_executable():
     detached = ReferenceTrainer(_condition_config())
     attached = ReferenceTrainer(_condition_config())
-    condition = next(route for route in detached.program.adversarial.routes if route.argument == "condition")
+    condition = next(route for route in detached.program.adversarial_terms[0].routes if route.argument == "condition")
     assert condition.path == "components.conditioner"
     assert condition.detach_critic and condition.detach_generator
     _attach_condition(attached)
@@ -273,9 +283,9 @@ def test_generator_phase_real_score_detachment_is_executable():
     legacy = ReferenceTrainer(_encoder_config())
     route_detached = ReferenceTrainer(_encoder_config())
     attached = ReferenceTrainer(_encoder_config())
-    real = legacy.program.adversarial.generator_phase.real
+    real = legacy.program.adversarial_terms[0].generator_phase.real
     assert real.path == "batch.real" and real.detach_score and not real.detach_sample
-    candidate = next(route for route in legacy.program.adversarial.routes if route.path == "candidate")
+    candidate = next(route for route in legacy.program.adversarial_terms[0].routes if route.path == "candidate")
     assert not candidate.detach_generator
     _generator_real_policy(legacy, detach_score=True, detach_route=False)
     _generator_real_policy(route_detached, detach_score=False, detach_route=True)

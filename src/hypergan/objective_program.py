@@ -7,7 +7,7 @@ sequences from that program.
 from dataclasses import dataclass
 
 import torch
-from particlegan import learning_rate_scale
+from particlegan import GANLoss, GradientPenalty, learning_rate_scale
 
 from .recipes import detach
 
@@ -46,8 +46,11 @@ class AdversarialTerm:
     routes: tuple
     weight: float
     penalty: bool
+    penalty_fn: object
+    gan: object
     critic_phase: PhaseSamples
     generator_phase: PhaseSamples
+    id: str
 
 
 @dataclass(frozen=True)
@@ -65,7 +68,7 @@ class ObjectiveProgram:
     generator_parameters: tuple
     prior_parameters: tuple
     prior_checked: tuple
-    adversarial: AdversarialTerm
+    adversarial_terms: tuple
     objectives: tuple
     prior_rows: str
     gan: object
@@ -86,27 +89,81 @@ def _ordered_unique(parameters):
     return tuple(ordered)
 
 
-def _legacy_phases():
+def _phases(real, fake):
     # Critic step detaches the fake sample before the forward. Generator step
     # detaches the real score after the forward. Those cuts are not the same.
     critic = PhaseSamples(
-        SampleBinding("batch.real", detach_sample=False, detach_score=False),
-        SampleBinding("generated", detach_sample=True, detach_score=False))
+        SampleBinding(real, detach_sample=False, detach_score=False),
+        SampleBinding(fake, detach_sample=True, detach_score=False))
     generator = PhaseSamples(
-        SampleBinding("batch.real", detach_sample=False, detach_score=True),
-        SampleBinding("generated", detach_sample=False, detach_score=False))
+        SampleBinding(real, detach_sample=False, detach_score=True),
+        SampleBinding(fake, detach_sample=False, detach_score=False))
     return critic, generator
 
 
-def compile_legacy_program(graph, prior, config, objectives, gan, penalty, spread):
-    """Compile today's one-critic recipe.
+def _legacy_phases():
+    return _phases("batch.real", "generated")
 
-    This is the only place that reads the discriminator module and its input
-    spec. The records below are today's detach policy, not an ALI recipe.
+
+def _routes(inputs):
+    routes = tuple(
+        InputRoute(argument, path, path != "candidate", path != "candidate")
+        for argument, path in inputs.items())
+    if sum(route.path == "candidate" for route in routes) != 1:
+        raise ValueError("The adversarial term requires exactly one candidate input")
+    return routes
+
+
+def _penalty_for_term(config, spec):
+    """A new penalty object. The legacy penalty passed into the compiler is not mutated."""
+    if not spec["penalty"]:
+        return None
+    options = dict(config["gradient_penalty"])
+    options["coeff"] = spec["penalty_coeff"]
+    return GradientPenalty(**options)
+
+
+def compile_legacy_program(graph, prior, config, objectives, gan, penalty, spread):
+    """Compile today's recipe into ``d-then-g-v1``.
+
+    The implicit first term reads the discriminator and its inputs. Optional
+    ``adversarial_terms`` append further terms with that same detach policy.
+    These records are not another training method.
     """
     discriminator = graph.models["discriminator"]
-    critic_parameters = _ordered_unique(parameter for parameter in discriminator.parameters() if parameter.requires_grad)
-    generator_parameters = _ordered_unique(graph.generator_parameters())
+    critic_phase, generator_phase = _legacy_phases()
+    terms = [AdversarialTerm(
+        discriminator, _routes(graph.specs["discriminator"]["inputs"]), config["adversarial"]["weight"],
+        True, penalty, gan, critic_phase, generator_phase, "adversarial")]
+    for spec in config.get("adversarial_terms") or ():
+        module = graph.models[spec["component"]]
+        extra_critic, extra_generator = _phases(spec["real"], spec["fake"])
+        terms.append(AdversarialTerm(
+            module, _routes(spec["inputs"]), spec["weight"], bool(spec["penalty"]),
+            _penalty_for_term(config, spec), GANLoss(spec["loss_type"], spec["mode"]),
+            extra_critic, extra_generator, spec["id"]))
+    terms = tuple(terms)
+    if len(terms) == 1:
+        # Same objects and order as the single-term compiler. Do not filter here:
+        # a discriminator parameter that appears in the generator sequence is an overlap.
+        critic_parameters = _ordered_unique(parameter for parameter in discriminator.parameters() if parameter.requires_grad)
+        generator_parameters = _ordered_unique(graph.generator_parameters())
+    else:
+        critic_parameters = _ordered_unique(
+            parameter
+            for term in terms
+            for parameter in term.module.parameters()
+            if parameter.requires_grad)
+        # generator_parameters() already excludes the discriminator by name.
+        # Extra critic modules still appear there; drop them so they belong only to the critic group.
+        owned = set()
+        for term in terms[1:]:
+            if term.module is discriminator:
+                continue
+            for parameter in term.module.parameters():
+                owned.add(id(parameter))
+        generator_parameters = _ordered_unique(
+            parameter for parameter in graph.generator_parameters() if id(parameter) not in owned)
     prior_checked = tuple(prior.parameters())
     prior_parameters = _ordered_unique(parameter for parameter in prior_checked if parameter.requires_grad)
     seen = {}
@@ -118,20 +175,12 @@ def compile_legacy_program(graph, prior, config, objectives, gan, penalty, sprea
             seen[id(parameter)] = name
     if not generator_parameters or not critic_parameters:
         raise ValueError("The reference adversarial loop requires trainable generator and discriminator parameters")
-    routes = tuple(
-        InputRoute(argument, path, path != "candidate", path != "candidate")
-        for argument, path in graph.specs["discriminator"]["inputs"].items())
-    if sum(route.path == "candidate" for route in routes) != 1:
-        raise ValueError("The adversarial term requires exactly one candidate input")
-    critic_phase, generator_phase = _legacy_phases()
-    adversarial = AdversarialTerm(
-        discriminator, routes, config["adversarial"]["weight"], True, critic_phase, generator_phase)
     compiled = tuple(
         ObjectiveTerm(function, tuple(term["inputs"].items()), tuple(term["detach"]), term["weight"])
         for term, function in zip(config["objectives"], objectives))
     return ObjectiveProgram(
         "d-then-g-v1", critic_parameters, generator_parameters, prior_parameters, prior_checked,
-        adversarial, compiled, config["prior_regularizer"]["rows"], gan, penalty, spread)
+        terms, compiled, config["prior_regularizer"]["rows"], gan, penalty, spread)
 
 
 def _phase_detaches(route, phase):
@@ -173,10 +222,26 @@ def _sample_tensor(graph, context, binding):
     return detach(value) if binding.detach_sample else value
 
 
+def _sample_context(context, phase_name):
+    """Critic-phase component samples must not occupy the generator-step cache.
+
+    An attached real sample can be a component output. Backward through that
+    score frees the forward. The generator step resolves the same component
+    again, so the critic read uses a private component and prior cache.
+    """
+    if phase_name != "critic":
+        return context
+    scratch = dict(context)
+    scratch["components"] = {}
+    scratch["prior"] = {}
+    return scratch
+
+
 def _bound_scores(term, context, graph, phase_name, phase, *, first):
     """Resolve both samples, then score them in the phase's historical order."""
-    real = _sample_tensor(graph, context, phase.real)
-    fake = _sample_tensor(graph, context, phase.fake)
+    sample_context = _sample_context(context, phase_name)
+    real = _sample_tensor(graph, sample_context, phase.real)
+    fake = _sample_tensor(graph, sample_context, phase.fake)
 
     def score(sample, binding):
         value = score_candidate(term, sample, context, graph, phase_name)
@@ -191,6 +256,32 @@ def _bound_scores(term, context, graph, phase_name, phase, *, first):
     else:
         raise ValueError(f"Unsupported score order {first}")
     return real, fake, real_score, fake_score
+
+
+def _sum_tensors(values):
+    """Add tensors without starting from integer 0. A single value is returned as-is."""
+    total = values[0]
+    for value in values[1:]:
+        total = total + value
+    return total
+
+
+def _generator_tail(trainer, program, context, ids, fake):
+    if ids is None:
+        prior_loss = fake.new_zeros(())
+    else:
+        rows = trainer.prior.z if program.prior_rows == "full" else trainer.prior.z[ids.unique()]
+        prior_loss = program.spread(rows)
+    objective_losses = []
+    for objective in program.objectives:
+        inputs = {arg: trainer.graph.resolve(path, context) for arg, path in objective.bindings}
+        for arg in objective.detach:
+            inputs[arg] = detach(inputs[arg])
+        value = objective.function(**inputs)
+        if not isinstance(value, torch.Tensor) or value.numel() != 1:
+            raise ValueError("Each objective must return one scalar tensor")
+        objective_losses.append(objective.weight * value)
+    return prior_loss, objective_losses
 
 
 def run_native_program(trainer, batch, latent_draw, generator_batch, generator_latent_draw):
@@ -213,47 +304,88 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             batch, ids, context = trainer._draw(batch, latent_draw)
     else:
         batch, ids, context = trainer._draw(batch, latent_draw)
-    term = program.adversarial
+    terms = program.adversarial_terms
     trainer.opt_d.zero_grad(set_to_none=True)
-    real, fake, real_score, fake_score = _bound_scores(
-        term, context, trainer.graph, "critic", term.critic_phase, first="real")
-    d_adversarial = program.gan.d_loss(real_score, fake_score)
-    if term.penalty:
-        d_penalty = program.penalty(
-            lambda value: score_candidate(term, value, context, trainer.graph, "critic"),
-            real, fake, step=step, generator=trainer.streams["penalty"])
+    if len(terms) == 1:
+        term = terms[0]
+        real, fake, real_score, fake_score = _bound_scores(
+            term, context, trainer.graph, "critic", term.critic_phase, first="real")
+        d_adversarial = term.gan.d_loss(real_score, fake_score)
+        if term.penalty:
+            d_penalty = term.penalty_fn(
+                lambda value: score_candidate(term, value, context, trainer.graph, "critic"),
+                real, fake, step=step, generator=trainer.streams["penalty"])
+        else:
+            d_penalty = fake.new_zeros(())
+        d_adversarial_weighted = term.weight * d_adversarial
+        d_loss = d_adversarial_weighted + d_penalty
     else:
-        d_penalty = fake.new_zeros(())
-    d_adversarial_weighted = term.weight * d_adversarial
-    d_loss = d_adversarial_weighted + d_penalty
+        unweighted = []
+        weighted = []
+        penalties = []
+        fake = None
+        for term in terms:
+            real, fake, real_score, fake_score = _bound_scores(
+                term, context, trainer.graph, "critic", term.critic_phase, first="real")
+            loss = term.gan.d_loss(real_score, fake_score)
+            unweighted.append(loss)
+            weighted.append(term.weight * loss)
+            if term.penalty_fn is not None:
+                penalties.append(term.penalty_fn(
+                    lambda value, term=term: score_candidate(term, value, context, trainer.graph, "critic"),
+                    real, fake, step=step, generator=trainer.streams["penalty"]))
+        d_adversarial = _sum_tensors(unweighted)
+        d_adversarial_weighted = _sum_tensors(weighted)
+        d_penalty = _sum_tensors(penalties) if penalties else fake.new_zeros(())
+        d_loss = d_adversarial_weighted + d_penalty
     d_loss.backward()
+    if len(terms) == 1:
+        critic_checked = terms[0].module.parameters()
+    else:
+        critic_checked = []
+        seen_parameters = set()
+        for term in terms:
+            for parameter in term.module.parameters():
+                if id(parameter) in seen_parameters:
+                    continue
+                seen_parameters.add(id(parameter))
+                critic_checked.append(parameter)
     trainer._refuse_nonfinite(d_loss, "Nonfinite discriminator loss; run stopped",
-                              [("Nonfinite discriminator gradient; run stopped", term.module.parameters())])
+                              [("Nonfinite discriminator gradient; run stopped", critic_checked)])
     trainer.opt_d.step()
-    flags = [parameter.requires_grad for parameter in term.module.parameters()]
-    term.module.requires_grad_(False)
+    saved_flags = []
+    seen_modules = set()
+    for term in terms:
+        if id(term.module) in seen_modules:
+            continue
+        seen_modules.add(id(term.module))
+        flags = [parameter.requires_grad for parameter in term.module.parameters()]
+        term.module.requires_grad_(False)
+        saved_flags.append((term.module, flags))
     try:
         if independent:
             batch, ids, context = trainer._draw(generator_batch, generator_latent_draw)
         trainer.opt_g.zero_grad(set_to_none=True)
-        real, fake, real_score, fake_score = _bound_scores(
-            term, context, trainer.graph, "generator", term.generator_phase, first="fake")
-        g_adversarial = program.gan.g_loss(fake_score, real_score)
-        if ids is None:
-            prior_loss = fake.new_zeros(())
+        if len(terms) == 1:
+            term = terms[0]
+            real, fake, real_score, fake_score = _bound_scores(
+                term, context, trainer.graph, "generator", term.generator_phase, first="fake")
+            g_adversarial = term.gan.g_loss(fake_score, real_score)
+            prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
+            g_adversarial_weighted = term.weight * g_adversarial
         else:
-            rows = trainer.prior.z if program.prior_rows == "full" else trainer.prior.z[ids.unique()]
-            prior_loss = program.spread(rows)
-        objective_losses = []
-        for objective in program.objectives:
-            inputs = {arg: trainer.graph.resolve(path, context) for arg, path in objective.bindings}
-            for arg in objective.detach:
-                inputs[arg] = detach(inputs[arg])
-            value = objective.function(**inputs)
-            if not isinstance(value, torch.Tensor) or value.numel() != 1:
-                raise ValueError("Each objective must return one scalar tensor")
-            objective_losses.append(objective.weight * value)
-        g_adversarial_weighted = term.weight * g_adversarial
+            unweighted = []
+            weighted = []
+            fake = None
+            for term in terms:
+                real, fake, real_score, fake_score = _bound_scores(
+                    term, context, trainer.graph, "generator", term.generator_phase, first="fake")
+                loss = term.gan.g_loss(fake_score, real_score)
+                unweighted.append(loss)
+                weighted.append(term.weight * loss)
+            g_adversarial = _sum_tensors(unweighted)
+            prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
+            g_adversarial_weighted = _sum_tensors(weighted)
         g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
         g_loss.backward()
         trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
@@ -261,8 +393,9 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
                                    ("Nonfinite prior gradient; run stopped", program.prior_checked)])
         trainer.opt_g.step()
     finally:
-        for parameter, flag in zip(term.module.parameters(), flags):
-            parameter.requires_grad_(flag)
+        for module, flags in saved_flags:
+            for parameter, flag in zip(module.parameters(), flags):
+                parameter.requires_grad_(flag)
     update_ema(trainer.ema_graph, trainer.graph, settings["ema"])
     update_ema(trainer.ema_prior, trainer.prior, settings["ema"])
     trainer.step = step

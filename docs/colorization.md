@@ -73,7 +73,7 @@ when changing architecture):
   spectrally normalized nonlinear convolutions. Its optional `pixel_width=32`
   adds a learned RGB stem, concatenated with projected DINO features before the
   shared attention/head. The example uses this configuration: it avoided the
-  earlier near-constant failure through 1,000 controlled updates while retaining
+  earlier near-constant failure through 1,500 controlled updates while retaining
   the original b-cap settings. This is bounded collapse evidence, not a guarantee
   of long-run stability or colorization quality.
 - `DINOv3MultiScaleDiscriminator` reads transformer blocks 2, 5, 8, and 11 in

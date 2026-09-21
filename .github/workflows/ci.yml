@@ -68,7 +68,7 @@ jobs:
           python -m pip install "build>=1,<2"
           python -m pip install "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
           python -m build
-          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,test]'])"
+          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,test]'])"
       - name: Test numerical reference outside checkout
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest "${{ github.workspace }}/tests/reference" --import-mode=importlib
@@ -120,7 +120,7 @@ jobs:
           python -m pip install "build>=1,<2"
           python -m pip install "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
           python -m build
-          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,test]'])"
+          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,test]'])"
       - name: Run the gated heavy reference tests
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest "${{ github.workspace }}/tests/reference" --import-mode=importlib -m heavy

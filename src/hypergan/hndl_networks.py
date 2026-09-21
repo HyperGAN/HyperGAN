@@ -8,8 +8,11 @@ from .network_config import packaged_source, render_source
 def build_network(source=None, *, file=None, input_shape, output_shape,
                   parameters=None, registry=None):
     """Construct an unmodified native HNDL tensor/named-port network."""
+    from hndl import Registry
     from hndl.torch import network
+    from .pretrained_providers import register_providers
     source = render_source(source if source is not None else packaged_source(file), parameters)
+    registry = register_providers(Registry.builtins() if registry is None else registry)
     return network(source, input_shape=input_shape, output_shape=output_shape,
                    device='cpu', registry=registry)
 

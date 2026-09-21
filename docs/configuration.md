@@ -59,6 +59,27 @@ For conditional generation, bind a generator keyword to `batch.condition` or an 
 
 Trainable auxiliary components belong to the generator optimizer. The discriminator has its own optimizer; discriminator conditioning is detached. Frozen components stay in evaluation mode. Separate encoder optimizers or arbitrary alternating schedules are outside this initial runtime and must not be implied by an encoder's presence.
 
+## Frozen pretrained discriminator
+
+The [128px ResNet variant](../examples/dcgan-resnet-128.toml) keeps the DCGAN generator and uses a frozen ImageNet ResNet18 plus a trainable discriminator head. The [complete discriminator source](../examples/networks/resnet18-discriminator.hndl) includes RGB normalization and declares freezing on the pretrained node:
+
+```python
+pretrained(${weights_path}, provider="torchvision_resnet18",
+           sha256=${weights_sha256}, layer="layer3",
+           trainable=False, name="resnet")
+conv(64, kernel_size=1, name="projection")
+leaky_relu(0.2)
+adaptive_avg_pool(4)
+flatten()
+linear(1, name="score")
+```
+
+`trainable=False` freezes the backbone parameters and keeps its BatchNorm layers in evaluation mode. Autograd still differentiates its output with respect to the input, so the discriminator trains the generator through the frozen features. The head's parameters remain trainable. Keep `components.discriminator.trainable` at its default `true`; freezing the entire component would also freeze the head.
+
+The provider registration uses torchvision's external ResNet18 checkpoint architecture; no ResNet layers are authored in HyperGAN Python. It is registered lazily through HNDL's native provider API and requires the `cifar` extra (torchvision). The local weights path and its SHA256 are in `args.parameters`. HNDL verifies the checkpoint before loading it; this recipe downloads nothing.
+
+Edit the head in `.hndl` to change its width or pooling, or select `layer2`, `layer3`, or `layer4` for features at different depths. HNDL infers the connecting channels. Use a new run directory for an architecture change. The variant preserves the generator, dataset, batch size, and seed of the DCGAN recipe to isolate the discriminator change.
+
 ## Numerical recipe
 
 The configuration separates `prior`, `adversarial`, `gradient_penalty`, `prior_regularizer`, `objectives`, `optimizer`, `training` and `sampling`. The generated default uses a particle prior, paired relativistic logistic loss, b-cap and VICReg. The exact resolved parameters are saved with each run.

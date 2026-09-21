@@ -21,6 +21,12 @@ Supersedes the keep-everything default shipped for item 8. Item 8 Follow-up 2 (t
 - [ ] Tests: thinning keeps the first and latest samples and halves spacing; repeated publications never exceed N; an old manifest with `preview_keep: 20` and no explicitness marker resumes into the new default; an explicit bound still resumes as explicit.
 - [ ] Docs (`docs/image-previews.md`, README, `docs/recovery.md` if it mentions retention) describe the thinning policy and the default in plain words.
 
+Owner addendum (2026-09-20): "it should be smooth and not interrupt the main workflow, happening in the background with the ui updating after."
+
+- [ ] Pruning never stalls training: the index is rewritten first (readers only ever see retained generations), then the expired directories are deleted by a background worker owned by the run and drained at shutdown. The next publication does not wait on an in-flight prune and never re-indexes a directory pending deletion; a directory left behind by a crash mid-prune is dropped again by the same deterministic policy on the next publication.
+- [ ] The viewer picks up the new retained set after the prune: `preview_count` and the index reflect the post-prune count.
+- [ ] Test: the trainer-side publish call returns without waiting on directory removal, the directories are gone once the worker drains, and the index never references a directory the worker deletes.
+
 ### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
 
 Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."

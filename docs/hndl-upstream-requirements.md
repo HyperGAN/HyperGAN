@@ -1,7 +1,7 @@
-# Native HNDL 0.3.0 integration
+# Native HNDL 0.4.0 integration
 
 HyperGAN's image architecture is defined in `src/hypergan/networks/*.hndl`
-and recorded in resolved run configurations. HNDL 0.3.0 supplies the native
+and recorded in resolved run configurations. HNDL 0.4.0 supplies the native
 operators, dtype tracking, and pretrained readouts required by this migration. The image integration uses
 the released PyPI wheel directly; `image_hndl_ops.py` has been removed. There
 are no local implementations of matrix multiplication, constants, channel-bias
@@ -57,7 +57,7 @@ custom HNDL operators or runtime patches are needed.
 
 ## Runtime and plan compatibility
 
-Current validation uses the released HNDL 0.3.0 PyPI wheel. Native HNDL owns network
+Current validation uses the released HNDL 0.4.0 PyPI wheel. Native HNDL owns network
 construction, execution, copying, and dtype checks. `.double()` and `.to(dtype=...)`
 now retarget floating runtime checks; integer embedding inputs keep their dtype.
 Casting a deep copy does not change the original network.
@@ -66,7 +66,8 @@ HyperGAN stores HNDL source in resolved recipes and resolves it at construction.
 It does not load serialized HNDL plans. An independently saved 0.2.x plan with a
 pretrained node must be re-resolved from source with 0.3.0 because pretrained
 arguments participate in the semantic digest. Plans without pretrained nodes
-are unaffected. Training state predating the HNDL migration
+are unaffected. HNDL 0.4.0 also loads 0.3.0 plans without re-resolving.
+Training state predating the HNDL migration
 is rejected by checkpoint contract version 2: parameter names and initialization
 order changed, so optimizer state cannot be silently reused.
 
@@ -144,13 +145,13 @@ must be bound explicitly before chaining the next operator. A submodule invoked
 more than once before the forward stops is rejected; select its enclosing block.
 The three-independent-ResNet workaround is unnecessary and is not used.
 
-## Requested: batch-axis concatenation and equal splitting
+## Native batch-axis concatenation and equal splitting
 
 The exact CIFAR-style feature heads concatenate candidate maps with the frozen
-features of a fixed zero-image context. Preserve this operation in HNDL instead
-of omitting it from a new recipe or assembling it in Python.
+features of a fixed zero-image context. HNDL 0.4.0 expresses this in one graph
+with one frozen backbone, including normalization and head connections.
 
-Required semantics (the `chunk` name below is proposed):
+The full [128px discriminator](../examples/networks/resnet18-multiscale-discriminator-128.hndl) uses:
 
 ```hndl
 context = constant(x, 3, 128, 128)
@@ -165,11 +166,16 @@ a3, c3 = chunk(f3, 2, dim=0)
 head1_input = concat(a1, c1)  # channel concatenation; batch B restored
 ```
 
-Each intermediate contract must track symbolic `2*B` separately from `B` and
-return two equal `[B,...]` outputs, preserving input gradients and second
-derivatives. Validate dynamic batch sizes 1, 3 and 64, and reject uneven splits
-rather than truncating or returning unequal chunks. One shared frozen model
-must run once, with BatchNorm statistics unchanged. The zero-context branch
-remains constant with respect to the candidate. This request completes the
-remaining missing operation for the full configuration-owned critic; the
-candidate-only draft is not adopted as a substitute.
+Intermediate contracts track symbolic `2*B` separately from `B`; `chunk` returns
+two equal `[B,...]` outputs with input gradients and second derivatives intact.
+Its count is a required positional integer; `dim` is keyword-only and defaults
+to 1. Indivisible symbolic shapes fail resolution. A bare `B` cannot be split
+because the graph cannot prove it is even; concatenating the two batches first
+establishes that proof. External input/output contracts retain batch `B`.
+
+The context is zero in the original `[-1,1]` RGB space (midgray). Concatenate
+before ImageNet normalization, so its feature maps represent midgray rather
+than a zero tensor in normalized space. Frozen BatchNorm prevents candidate and
+context samples from affecting each other's statistics. Context features are
+recomputed in the shared forward; no Python cache or network implementation is
+needed. There are no outstanding HNDL feature requests for this discriminator.

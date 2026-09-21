@@ -336,7 +336,11 @@ def test_snapshot_scalar_histogram_failure_discovery_and_export(real_viewer, mon
     quality.filter(has_text='0.25 distance').wait_for()
     # One scalar result is a chart with a visible point, not a text card.
     assert quality.locator('.chart-canvas canvas').count() == 1
-    assert 'Snapshot quality · Evaluation' in page.locator('#metric-list').inner_text()
+    # Snapshot metrics live here alone: Learning curves never lists or charts one.
+    assert 'Snapshot quality' not in page.locator('#metric-list').inner_text()
+    assert page.locator('#charts').get_by_text('Snapshot quality', exact=True).count() == 0
+    # The metric id is not repeated under a label that already differs from it.
+    assert quality.locator('h3').inner_text() == 'Snapshot quality'
     page.get_by_role('button', name='Clear', exact=True).click()
     page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
     monkeypatch.setattr(Reducer, 'add', lambda *a, **k: pytest.fail('Evaluation ran a server reduction'))
@@ -488,35 +492,30 @@ def test_evaluation_metrics_sort_snapshots_preserve_repeats_and_protocols(real_v
     card.locator('details.evaluation-results tbody tr').first.wait_for()
     assert card.locator('details.evaluation-results tbody tr').evaluate_all(
         'rows => rows.map(r => Number(r.dataset.step))') == [10000, 20000, 20000, 20000, 20000, 30000, 40000]
-    assert page.locator('#metric-count').inner_text() == '3'
-    assert page.get_by_role('checkbox', name='Snapshot quality · Evaluation', exact=True).count() == 2
-    cards = page.locator('.chart-card').filter(has_text='Snapshot quality · Evaluation')
-    assert cards.count() == 2
-    assert cards.locator('canvas').count() == 2
+    # Learning curves counts, lists and charts the training stream only; every
+    # protocol of a snapshot metric stays inside this one tile.
+    assert page.locator('#metric-count').inner_text() == '1'
+    assert page.get_by_role('checkbox', name='Snapshot quality', exact=False).count() == 0
+    assert page.locator('.chart-card').filter(has_text='Snapshot quality').count() == 0
+    assert card.locator('.chart-canvas canvas').count() == 1
     page.locator('.data-table summary').click()
-    rows = page.locator('#values-table tr').filter(has_text='quality')
-    assert rows.count() == 7
-    assert rows.evaluate_all('rows => rows.filter(r => r.dataset.metric.endsWith("c".repeat(64))).map(r => Number(r.dataset.step))') == [10000, 20000, 20000, 20000, 30000, 40000]
+    assert page.locator('#values-table tr').filter(has_text='quality').count() == 0
     # The same-step repeated measurements remain individual exact observations.
+    rows = card.locator('details.evaluation-results tbody tr')
     assert rows.filter(has_text='00000000000000000000000000000004').count() == 1
     assert rows.filter(has_text='00000000000000000000000000000005').count() == 1
     assert rows.filter(has_text='recovered-attempt').count() == 1
     page.locator('#smoothing').select_option('0.5')
-    assert cards.filter(has_text='EMA uses').count() == 0
-    assert cards.filter(has_text='discrete snapshot measurements').count() == 2
-    # Evaluation-only selection works without a training bootstrap request.
+    assert page.locator('.chart-card').filter(has_text='discrete snapshot measurements').count() == 0
+    # Clearing the training selection leaves the snapshot panel untouched.
     page.get_by_role('checkbox', name='Generator total', exact=True).uncheck()
-    page.locator('#coverage').filter(has_text='Evaluation snapshots').wait_for()
-    page.locator('#step-from').fill('20000'); page.locator('#step-to').fill('20000')
-    page.get_by_role('button', name='Apply range').click()
-    assert page.locator('#values-table tr').count() == 4
+    page.locator('#coverage').filter(has_text='No metrics selected').wait_for()
+    assert card.locator('.chart-canvas canvas').count() == 1
     # A new result arrives after the charts were first displayed.
     publish_evaluation(experiment, '8'*32, 'scalar', 7.0, step=20000)
-    page.locator('#values-table tr').filter(has_text='88888888888888888888888888888888').wait_for(timeout=10000)
-    assert page.locator('#values-table tr').count() == 5
     # The late result joins the same card, and duration stays in its details.
-    page.locator('#evaluation-items li[data-metric="quality"][data-steps$="40000"]').wait_for(timeout=10000)
-    assert card.get_attribute('data-steps') == '10000,20000,20000,20000,20000,20000,30000,40000'
+    page.locator('#evaluation-items li[data-metric="quality"]'
+                 '[data-steps="10000,20000,20000,20000,20000,20000,30000,40000"]').wait_for(timeout=10000)
     assert card.locator('details.evaluation-results tbody tr').count() == 8
     assert card.locator('details.evaluation-results tbody tr').first.inner_text().count('12.5') == 1
     assert not errors
@@ -528,7 +527,7 @@ def test_evaluation_rejects_missing_protocol_identity(real_viewer):
     publish_evaluation(experiment, '9'*32, 'scalar', 1.0, protocol=None)
     sign_in(page, session, token)
     page.locator('#evaluation-items').filter(has_text='Invalid evaluation definition or protocol identity').wait_for()
-    assert page.get_by_role('checkbox', name='Snapshot quality · Evaluation', exact=True).count() == 0
+    assert page.get_by_role('checkbox', name='Snapshot quality').count() == 0
     assert not errors
 
 
@@ -548,40 +547,54 @@ def test_configured_snapshot_metrics_visible_before_results_and_live_schedule(re
     atomic_json(experiment.root / 'metrics' / f'catalog-{experiment.catalog_revision}.json', catalog)
     experiment.publish()
     sign_in(page, session, token)
-    schedules = page.locator('#evaluation-schedules')
-    interval = schedules.locator('li[data-metric="fid50k_train"]')
-    manual = schedules.locator('li[data-metric="fid_manual"]')
-    interval.filter(has_text='Not evaluated · every 10000 steps').wait_for()
+    # One tile per metric, whether or not it has published anything yet.
+    items = page.locator('#evaluation-items')
+    interval = items.locator('li[data-metric="fid50k_train"]')
+    manual = items.locator('li[data-metric="fid_manual"]')
+    interval.locator('.evaluation-schedule-status').filter(has_text='Every 10000 steps').wait_for()
+    assert items.locator('> li').count() == 2
     # One scheduled metric is enough; the unscheduled notice stays out of the way.
     assert page.locator('#evaluation-unscheduled').is_hidden()
-    assert 'Next evaluation at step 10000' in interval.inner_text()
-    assert 'Evaluation device: cuda:1' in interval.inner_text()
-    assert 'Not evaluated · manual' in manual.inner_text()
+    # The empty state is one quiet line where the chart will be, not a wall of text.
+    assert interval.locator('.evaluation-empty').inner_text() == 'No evaluations yet · first at step 10000'
+    assert manual.locator('.evaluation-schedule-status').inner_text() == 'Manual'
+    assert manual.locator('.evaluation-empty').inner_text() == 'No evaluations yet · run hypergan evaluate'
+    # The label already is the metric id, so the id is not repeated under it.
+    assert interval.locator('p.quiet').count() == 0
+    assert interval.locator('.chart-canvas').count() == 0
+    # Device and busy policy are one expansion away, not in the tile body.
+    assert 'cuda:1' not in interval.inner_text()
+    interval.locator('details.evaluation-results > summary').click()
+    interval.locator('details p.quiet').filter(has_text='Device cuda:1').wait_for()
+    assert 'On busy · skip' in interval.inner_text()
     assert page.locator('#evaluations').is_visible()
-    assert page.locator('#evaluation-items li').count() == 0
     experiment.manifest['evaluation_schedule'] = {'fid50k_train': {
         'status': 'running', 'source_step': 10000, 'next_step': 30000,
         'skipped_busy': 1, 'last_skipped_step': 20000, 'reason': 'worker_busy',
     }}
     experiment.publish()
-    interval.filter(has_text='Running · every 10000 steps').wait_for()
-    assert 'Source step 10000' in interval.inner_text()
-    assert 'Next evaluation at step 30000' in interval.inner_text()
-    assert 'last skipped step 20000' in interval.inner_text()
+    interval.locator('.evaluation-schedule-status').filter(
+        has_text='Every 10000 steps · running since step 10000').wait_for()
+    assert interval.locator('.evaluation-empty').inner_text() == 'No evaluations yet · next at step 30000'
+    assert '1 skipped while busy · last at step 20000' in interval.inner_text()
+    assert 'An evaluator was busy' in interval.inner_text()
     experiment.manifest['evaluation_schedule']['fid50k_train'].update(status='failed', reason='Evaluator exceeded its deadline')
     experiment.publish()
-    interval.filter(has_text='Failed · every 10000 steps').wait_for()
+    interval.locator('.evaluation-schedule-status').filter(
+        has_text='Every 10000 steps · failed at step 10000').wait_for()
     assert 'Evaluator exceeded its deadline' in interval.inner_text()
     experiment.manifest['status'] = 'stopped'
     experiment.publish()
-    interval.filter(has_text='when training continues').wait_for()
+    interval.locator('.evaluation-empty').filter(has_text='when training resumes').wait_for()
     page.reload()
-    interval.filter(has_text='Failed · every 10000 steps').wait_for()
+    interval.locator('.evaluation-schedule-status').filter(
+        has_text='Every 10000 steps · failed at step 10000').wait_for()
     experiment.manifest['evaluation_schedule']['fid50k_train'].update(status='disabled', reason='Interval evaluations are disabled')
     experiment.publish()
-    interval.filter(has_text='Disabled · every 10000 steps').wait_for()
-    assert interval.locator('.evaluation-next-step').count() == 0
-    assert 'Not evaluated · manual' in manual.inner_text()
+    interval.locator('.evaluation-schedule-status').filter(
+        has_text='Every 10000 steps · disabled').wait_for()
+    assert interval.locator('.evaluation-empty').inner_text() == 'No evaluations yet'
+    assert manual.locator('.evaluation-schedule-status').inner_text() == 'Manual'
     assert not errors
 
 
@@ -613,11 +626,14 @@ def test_all_manual_snapshot_metrics_show_a_persistent_unscheduled_notice(real_v
     experiment.project()
     page.locator('#step').filter(has_text='6').wait_for()
     assert notice.is_visible()
-    assert page.locator('#evaluation-schedules li[data-metric="fid_smoke"]').count() == 1
+    # Each manual metric is one tile, never a schedule tile beside a result tile.
+    assert page.locator('#evaluation-items li[data-metric="fid_smoke"]').count() == 1
+    assert page.locator('#evaluation-items > li').count() == 2
     # A run that does have a schedule never sees it.
     experiment.manifest['evaluation_schedule'] = {'fid50k_train': {'status': 'complete', 'source_step': 6}}
     experiment.publish()
-    page.locator('#evaluation-schedules li[data-metric="fid50k_train"]').filter(has_text='Complete').wait_for()
+    page.locator('#evaluation-items li[data-metric="fid50k_train"] .evaluation-schedule-status').filter(
+        has_text='Manual · last at step 6').wait_for()
     assert notice.is_hidden()
     assert not errors
 

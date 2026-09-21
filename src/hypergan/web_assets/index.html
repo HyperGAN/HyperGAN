@@ -157,12 +157,12 @@
           </div>
           <details class="data-table">
             <summary>
-              Accessible data table <span>Training latest · all evaluation values</span>
+              Accessible data table <span>Latest training values</span>
             </summary>
             <div class="table-scroll" tabindex="0">
               <table>
                 <caption class="sr-only">
-                  Latest training values and all evaluations by definition and attempt
+                  Latest training values by metric and attempt
                 </caption>
                 <thead>
                   <tr>
@@ -180,8 +180,7 @@
             <h2>Snapshot evaluations</h2>
             <p>Independent measurements of a saved model. Each result retains its source step and protocol.</p>
             <p id="evaluation-unscheduled" class="evaluation-unscheduled" role="status" hidden></p>
-            <ul id="evaluation-schedules" aria-label="Configured evaluation schedules"></ul>
-            <ul id="evaluation-items"></ul>
+            <ul id="evaluation-items" aria-label="Snapshot metrics"></ul>
           </section>
           <section id="artifacts" class="artifact-list" hidden>
             <h2>Samples & artifacts</h2>

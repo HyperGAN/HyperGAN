@@ -62,19 +62,22 @@ indices refer to `CUDA_VISIBLE_DEVICES`.
 
 When every configured snapshot metric sets `trigger = "manual"`, the run records
 an empty `evaluation_schedule` and no FID is ever published. That is reported as
-a startup warning on stderr, and the viewer labels each such metric `manual` with
-no next evaluation step.
+a startup warning on stderr, and the viewer's status line for each such metric
+reads `Manual`, with no next evaluation step.
 
 Normal completion and step/time budget stops drain accepted evaluations within
 their timeout. Signals and training failures cancel and reap the evaluator;
 cancellation is distinct from metric failure. Resume starts cadence after the
 restored step and retains earlier results under their original attempt identity.
-The viewer shows the configured schedule, next step, busy skips and result state
-even before the first FID value. Published FID values are plotted as a chart per
-metric in **Snapshot evaluations**, with the evaluated source step on the
+FID is shown only in **Snapshot evaluations**, never in Learning curves. Each
+snapshot metric is one tile there, whose status line carries the cadence and the
+schedule state even before the first FID value; a metric with no result yet shows
+`No evaluations yet · first at step 10000` where its chart will be. Published FID
+values are plotted as one chart per metric, with the evaluated source step on the
 horizontal axis and one point per evaluation, so a single 50k result is a chart
 with one point and later intervals extend the same chart; duration, evaluation
-device, sample count and protocol stay in that metric's collapsed results list.
+device, busy skips, sample count and protocol stay behind that tile's collapsed
+**Details**.
 See [local web viewer](local-web.md). Manual `evaluate` remains available for an
 interval-configured metric while training is stopped.
 

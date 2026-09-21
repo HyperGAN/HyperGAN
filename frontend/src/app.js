@@ -226,8 +226,9 @@ async function refreshArtifacts() {
   renderArtifacts(artifacts);
 }
 const MAX_SAMPLE_GROUPS = 20;
-// Preview retention keeps the whole run by default, so a name's history spans
-// every published sample. This matches the service's bound on the index.
+// Preview retention spans the whole run: it keeps the first sample and thins the
+// older ones rather than dropping them, and --preview-keep all keeps every
+// published sample. This matches the service's bound on the index.
 const MAX_SAMPLE_VERSIONS = 4096;
 const provenanceStep = (artifact) => {
   const step = artifact.provenance?.step;

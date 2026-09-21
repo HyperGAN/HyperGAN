@@ -22,7 +22,8 @@ from .background_poll import BackgroundPoll
 from .run_signals import GracefulStop
 
 # How many published preview records the run manifest repeats. Preview
-# retention itself is unbounded by default; the manifest stays small.
+# retention holds far more than this (DEFAULT_KEEP, thinned); the manifest
+# carries only a recent tail plus `preview_count` and stays small.
 MANIFEST_PREVIEWS = 16
 
 
@@ -89,6 +90,30 @@ class Execution(Protocol):
     def inference(self, bundle_dir, identity) -> ArtifactResult: ...
     def observe(self, callback, event) -> None: ...
     def shutdown(self) -> None: ...
+
+
+PREVIEW_KEEP_EXPLICIT = 'explicit'
+PREVIEW_KEEP_DEFAULT = 'default'
+
+
+def resolve_preview_keep(manifest, preview_keep=None, preview_keep_source=None):
+    """Resolve an attempt's preview bound and record how it was chosen.
+
+    A bound the caller passed is explicit. Otherwise a bound an earlier attempt
+    stored is inherited only when that attempt marked it explicit: a manifest
+    written before this marker existed recorded whatever the default was at the
+    time, so it resumes into the current `DEFAULT_KEEP` instead of pinning the
+    run to a stale default forever. `hypergan train` on an existing run
+    directory and `hypergan resume` both go through this one helper.
+    """
+    if preview_keep is not None:
+        source = (preview_keep_source if preview_keep_source == PREVIEW_KEEP_DEFAULT
+                  else PREVIEW_KEEP_EXPLICIT)
+        return preview_keep, source
+    stored = manifest.get('preview_keep')
+    if type(stored) is int and manifest.get('preview_keep_source') == PREVIEW_KEEP_EXPLICIT:
+        return stored, PREVIEW_KEEP_EXPLICIT
+    return DEFAULT_KEEP, PREVIEW_KEEP_DEFAULT
 
 
 def _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every=0,
@@ -199,11 +224,12 @@ def _cleanup_validation_failure(execution):
 
 
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
-          stop_after_steps=None, on_event=None, preview_every=0, preview_keep=DEFAULT_KEEP,
-          preview_name=DEFAULT_NAME, execution_factory=None):
+          stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
+          preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
     if execution_factory is None:
         raise TypeError('run_train requires an execution_factory')
+    preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     config = load_config(config_path)
     if steps is not None:
@@ -233,6 +259,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
                 'global_batch_size': config['training']['batch_size'], 'resume_supported': False,
                 'last_durable_step': None, 'checkpoint_path': None, 'next_sample_sequence': 1,
                 'preview_every': preview_every, 'preview_keep': preview_keep,
+                'preview_keep_source': preview_keep_source,
                 'preview_name': sample_name(preview_name), 'previews': [], 'observation_errors': [],
                 'rng_streams': {name: config['training']['seed'] + offset for name, offset in [
                     ('data', config['training']['data_seed_offset']),
@@ -251,8 +278,8 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
 
 def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
                max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None,
-               preview_keep=None, preview_name=None, execution_factory=None, steps=None,
-               require_same_config=False):
+               preview_keep=None, preview_keep_source=None, preview_name=None,
+               execution_factory=None, steps=None, require_same_config=False):
     """Bind an in-memory candidate, then restore before publishing that attempt."""
     if execution_factory is None:
         raise TypeError('run_resume requires an execution_factory')
@@ -268,7 +295,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             raise ValueError('Run manifest execution identity must be a dictionary')
         checkpoint_every = manifest.get('checkpoint_every', 100) if checkpoint_every is None else checkpoint_every
         preview_every = manifest.get('preview_every', 0) if preview_every is None else preview_every
-        preview_keep = manifest.get('preview_keep', DEFAULT_KEEP) if preview_keep is None else preview_keep
+        preview_keep, preview_keep_source = resolve_preview_keep(manifest, preview_keep, preview_keep_source)
         preview_name = manifest.get('preview_name') if preview_name is None else preview_name
         preview_name = sample_name(preview_name)
         _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
@@ -305,7 +332,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             manifest['config'] = config_values(config)
             _preserve_initial_source(run_dir, manifest)
             manifest.update(preview_every=preview_every, preview_keep=preview_keep,
-                            preview_name=preview_name,
+                            preview_keep_source=preview_keep_source, preview_name=preview_name,
                             durable_event_boundary=checkpoint_info.get('event_boundary'),
                             checkpoint_path=str(restored.checkpoint_path), last_durable_step=restored.step,
                             resumed_from=str(restored.checkpoint_path), steps=restored.step)

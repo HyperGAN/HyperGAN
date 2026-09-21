@@ -201,8 +201,8 @@ raise SystemExit(main(["sample", {str(tmp_path / 'viewed')!r}, "--count", "3", "
 
 def test_named_samples_publish_real_grid_and_bounded_retention(tmp_path):
     """Samples carry a short stable name; the real batch publishes beside them."""
-    from hypergan.previews import DEFAULT_KEEP, KEEP_ALL, sample_name
-    assert DEFAULT_KEEP == KEEP_ALL == 0
+    from hypergan.previews import DEFAULT_KEEP, KEEP_ALL, drain_pruning, sample_name
+    assert DEFAULT_KEEP == 128 and KEEP_ALL == 0
     trainer = ReferenceTrainer(recipe())
     _, batch = trainer.update()
     identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1, 'name': 'g'}
@@ -229,9 +229,11 @@ def test_named_samples_publish_real_grid_and_bounded_retention(tmp_path):
         record, index, errors = publish_preview_payload(
             tmp_path, render_preview(trainer, batch, moment), moment, trainer.step, keep=2)
         assert not errors
+    assert drain_pruning(30)
     generations = [entry for entry in (tmp_path / 'previews').iterdir() if entry.is_dir()]
+    # A bound of two keeps the beginning of the run and its latest sample.
     assert len(index['previews']) == len(generations) == 2
-    assert [item['identity']['sample_sequence'] for item in index['previews']] == [5, 6]
+    assert [item['identity']['sample_sequence'] for item in index['previews']] == [1, 6]
 
     renamed = dict(identity, sample_sequence=7, name='ema:g')
     payload = render_preview(trainer, batch, renamed)
@@ -252,9 +254,9 @@ def test_named_samples_publish_real_grid_and_bounded_retention(tmp_path):
             publish_preview_payload(tmp_path, payload, renamed, trainer.step, keep=keep)
 
 
-def test_retention_keeps_every_generation_until_a_bound_is_requested(tmp_path):
-    """The default history spans the whole run; a bound is an explicit opt-in."""
-    from hypergan.previews import DEFAULT_KEEP
+def test_retention_thins_the_history_instead_of_dropping_its_beginning(tmp_path):
+    """A bounded run still reaches back to its first sample; 'all' keeps every one."""
+    from hypergan.previews import DEFAULT_KEEP, drain_pruning
     trainer = ReferenceTrainer(recipe())
     _, batch = trainer.update()
     identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1, 'name': 'g'}
@@ -267,9 +269,9 @@ def test_retention_keeps_every_generation_until_a_bound_is_requested(tmp_path):
     kept = tmp_path / 'kept'
     kept.mkdir()
     for sequence in range(1, 9):
-        record, index, errors = publish(kept, sequence)
+        record, index, errors = publish(kept, sequence, keep=0)
         assert not errors
-    assert index['keep'] == DEFAULT_KEEP and index['retention'] == 'all'
+    assert index['keep'] == 0 and index['retention'] == 'all'
     assert [item['identity']['sample_sequence'] for item in index['previews']] == list(range(1, 9))
     generations = [entry for entry in (kept / 'previews').iterdir() if entry.is_dir()]
     assert len(generations) == 8
@@ -281,17 +283,114 @@ def test_retention_keeps_every_generation_until_a_bound_is_requested(tmp_path):
 
     bounded = tmp_path / 'bounded'
     bounded.mkdir()
-    for sequence in range(1, 9):
-        record, index, errors = publish(bounded, sequence, keep=3)
-        assert not errors
-    assert index['keep'] == 3 and index['retention'] == 'bounded'
-    assert [item['identity']['sample_sequence'] for item in index['previews']] == [6, 7, 8]
+    counts = []
+    for sequence in range(1, 25):
+        record, index, errors = publish(bounded, sequence, keep=8)
+        assert not errors and len(index['previews']) <= 8
+        counts.append(len(index['previews']))
+    assert index['keep'] == 8 and index['retention'] == 'thinned'
+    # The first sample and the latest survive, the middle is thinned to every
+    # second sample, and the newest window stays dense.
+    sequences = [item['identity']['sample_sequence'] for item in index['previews']]
+    assert sequences == [1, 15, 17, 19, 21, 22, 23, 24]
+    # Pruning happens in chunks, not one generation per publication.
+    assert max(before + 1 - after for before, after in zip(counts, counts[1:])) > 1
+    assert drain_pruning(30)
     generations = [entry for entry in (bounded / 'previews').iterdir() if entry.is_dir()]
-    assert len(generations) == 3
-    # A run that pruned under an earlier bound keeps publishing once it is lifted.
-    record, index, errors = publish(bounded, 9)
+    assert len(generations) == len(sequences)
+    for item in index['previews']:
+        assert Path(item['image_grid']['path']).is_file()
+
+    # A run that thinned under a bound keeps publishing once the bound is lifted.
+    record, index, errors = publish(bounded, 25, keep=0)
     assert not errors and index['retention'] == 'all'
-    assert [item['identity']['sample_sequence'] for item in index['previews']] == [6, 7, 8, 9]
+    assert [item['identity']['sample_sequence'] for item in index['previews']] == [*sequences, 25]
+    assert DEFAULT_KEEP == 128
+
+
+def test_thinning_halves_spacing_and_holds_any_bound(tmp_path):
+    """The retained set is nested, bounded and dense at the end of the run."""
+    from hypergan.previews import DENSE_WINDOW, KEEP_ALL, thin
+    assert thin([], KEEP_ALL) == set() and thin([4, 1], KEEP_ALL) == {1, 4}
+    assert thin([1, 2, 3], 5) == {1, 2, 3}
+    for keep in (1, 2, 3, 4, 8, 16, 20, DENSE_WINDOW * 8, 128):
+        history, previous = set(), set()
+        chunk = 0
+        for sequence in range(1, 400):
+            history.add(sequence)
+            retained = thin(history, keep)
+            assert len(retained) <= keep
+            assert sequence in retained and (keep == 1 or 1 in retained)
+            # Nested: a later prune only ever removes, so nothing is re-admitted.
+            assert retained <= previous | {sequence}
+            chunk = max(chunk, len(previous) + 1 - len(retained))
+            history, previous = set(retained), retained
+        # Beyond the smallest bounds there is room to prune in chunks.
+        assert chunk > 1 or keep <= 3
+    # Spacing doubles: a run publishing every sample is thinned to every second,
+    # then every fourth, as it outgrows the bound.
+    assert sorted(thin(range(1, 10), 5)) == [1, 3, 5, 7, 9]
+    assert sorted(thin(range(1, 19), 8))[:4] == [1, 5, 9, 13]
+    # A history an older release already thinned is bounded from what is left.
+    assert sorted(thin(range(31, 51), 4)) == [31, 47, 49, 50]
+
+
+def test_pruning_runs_in_the_background_and_never_indexes_what_it_deletes(tmp_path, monkeypatch):
+    """A prune rewrites the index at once and deletes off the publishing path."""
+    import shutil
+    import threading
+    from hypergan import previews as module
+    trainer = ReferenceTrainer(recipe())
+    _, batch = trainer.update()
+    identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1, 'name': 'g'}
+    root = tmp_path / 'previews'
+
+    def publish(sequence):
+        moment = dict(identity, sample_sequence=sequence)
+        return publish_preview_payload(tmp_path, render_preview(trainer, batch, moment),
+                                       moment, trainer.step, keep=8)
+
+    for sequence in range(1, 9):
+        _, index, errors = publish(sequence)
+        assert not errors
+    assert module.drain_pruning(30)
+
+    released, removals = threading.Event(), []
+    original = shutil.rmtree
+
+    def slow(path, *args, **kwargs):
+        removals.append(Path(path))
+        assert released.wait(30)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(module.shutil, 'rmtree', slow)
+    try:
+        # The publication that trips the bound returns without waiting on rmtree.
+        _, index, errors = publish(9)
+        assert not errors and len(index['previews']) < 9
+        assert not module.drain_pruning(0.2)
+        expired = sorted(entry for entry in root.iterdir() if entry.name.startswith('.expired-'))
+        assert expired, 'a prune should retire directories before deleting them'
+        indexed = {Path(item['path']).parent.name for item in index['previews']}
+        # The index never names a directory the worker is about to delete.
+        assert all(entry.name.removeprefix('.expired-') not in indexed for entry in expired)
+        # A publication is not blocked by a prune still in flight, and the scan
+        # does not re-admit a retired directory.
+        _, later, errors = publish(10)
+        assert not errors and 10 in {item['identity']['sample_sequence'] for item in later['previews']}
+        assert all(Path(item['path']).parent.name not in
+                   {entry.name.removeprefix('.expired-') for entry in expired}
+                   for item in later['previews'])
+    finally:
+        released.set()
+    assert module.drain_pruning(30)
+    monkeypatch.undo()
+    assert removals and not [entry for entry in root.iterdir() if entry.name.startswith('.expired-')]
+    # Whatever survives the prune is still readable, back to the first sample.
+    _, final, errors = publish(11)
+    assert not errors and final['previews'][0]['identity']['sample_sequence'] == 1
+    for item in final['previews']:
+        assert Path(item['path']).is_file() and Path(item['image_grid']['path']).is_file()
 
 
 def test_index_reuses_published_records_instead_of_rereading_manifests(tmp_path):

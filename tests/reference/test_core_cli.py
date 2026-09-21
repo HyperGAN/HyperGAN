@@ -22,15 +22,15 @@ def cli(tmp_path, *args):
 
 
 def test_preview_keep_accepts_a_count_or_the_whole_run():
-    """Retention is opt-in: the flag takes a positive count, or 'all'."""
+    """The flag takes a positive count, or 'all'; 128 is the default bound."""
     from hypergan.cli import _parser
     from hypergan.previews import DEFAULT_KEEP, KEEP_ALL
 
     def parsed(*extra):
         return _parser().parse_args(['resume', 'run', *extra]).preview_keep
 
-    assert DEFAULT_KEEP == KEEP_ALL
-    # Omitted inherits whatever the run recorded; the run default keeps everything.
+    assert DEFAULT_KEEP == 128 and KEEP_ALL == 0
+    # Omitted is not an explicit bound: the run inherits only what it asked for.
     assert parsed() is None
     assert parsed('--preview-keep', '5') == 5
     assert parsed('--preview-keep', 'all') == KEEP_ALL
@@ -84,7 +84,9 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     skipped = after.get("skipped_previews_busy", 0) - before.get("skipped_previews_busy", 0)
     assert len(resumed_steps) + skipped == 3
     assert not after["observation_errors"]
-    assert [record["step"] for record in previews["previews"]] == (first_steps + resumed_steps)[-2:]
+    # A bound of two thins to the beginning of the run and its latest sample.
+    published = first_steps + resumed_steps
+    assert [record["step"] for record in previews["previews"]] == sorted({published[0], published[-1]})
     for record in previews["previews"]:
         payload = json.loads(Path(record["path"]).read_text())
         assert payload["step"] == record["step"]

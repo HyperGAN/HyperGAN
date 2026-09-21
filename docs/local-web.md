@@ -205,8 +205,9 @@ server exposes these sample descriptors without rereading every sample payload.
 Each descriptor adds a short stable `name` (`g` generated, `x` real, or an
 explicit index entry's own name) beside its unchanged digest artifact ID, and
 the browser groups a name's retained versions behind one history slider showing
-the newest by default. Previews are retained for the whole run unless a run opts
-into `--preview-keep`, so that slider spans the run; while it shows the newest
+the newest by default. The retained history spans the whole run - `--preview-keep`
+thins the older samples rather than dropping the beginning - so that slider
+reaches the first sample of the run; while it shows the newest
 sample it follows new publications, and an earlier pick is held by its step. The
 listing stays bounded: at most 4,096 indexed previews (read under a 16 MiB index
 budget) and 256 explicit artifact entries.

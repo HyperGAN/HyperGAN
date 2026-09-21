@@ -325,27 +325,29 @@ def _recovery_contract(trainer):
 
 
 def train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
-          stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None, preview_name=None):
+          stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
+          preview_keep_source=None, preview_name=None):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
     from .run_controller import run_train
     from .single_execution import SingleProcessExecution
-    from .previews import DEFAULT_KEEP, sample_name
+    from .previews import sample_name
     return run_train(config_path, run_dir, steps, checkpoint_every=checkpoint_every,
                      max_seconds=max_seconds, stop_after_steps=stop_after_steps, on_event=on_event,
-                     preview_every=preview_every,
-                     preview_keep=DEFAULT_KEEP if preview_keep is None else preview_keep,
+                     preview_every=preview_every, preview_keep=preview_keep,
+                     preview_keep_source=preview_keep_source,
                      preview_name=sample_name(preview_name),
                      execution_factory=SingleProcessExecution)
 
 
 def resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
            max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None, preview_keep=None,
-           preview_name=None, steps=None, require_same_config=False):
+           preview_keep_source=None, preview_name=None, steps=None, require_same_config=False):
     """Resume a full checkpoint from this run, retaining the original schedule."""
     from .run_controller import run_resume
     from .single_execution import SingleProcessExecution
     return run_resume(run_dir, checkpoint, config_path, checkpoint_every=checkpoint_every,
                       max_seconds=max_seconds, stop_after_steps=stop_after_steps, on_event=on_event,
-                      preview_every=preview_every, preview_keep=preview_keep, preview_name=preview_name,
+                      preview_every=preview_every, preview_keep=preview_keep,
+                      preview_keep_source=preview_keep_source, preview_name=preview_name,
                       steps=steps, require_same_config=require_same_config,
                       execution_factory=SingleProcessExecution)

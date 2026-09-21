@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from .config import config_values, fingerprint, load_config, resolve_config
-from .previews import DEFAULT_KEEP, sample_name
+from .previews import sample_name
 from .execution_profiles import load_execution_profile, resolve_execution_profile
 
 PROFILE_NAMES = ('cpu-single', 'cpu-replicated-gloo', 'cuda-replicated-nccl')
@@ -179,18 +179,20 @@ class PreparedExecution:
 
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
                   checkpoint_every=None, max_seconds=None, stop_after_steps=None,
-                  preview_every=None, preview_keep=None, preview_name=None):
+                  preview_every=None, preview_keep=None, preview_keep_source=None,
+                  preview_name=None):
     """Create a run or resume its latest full checkpoint with the same configuration."""
-    from .run_controller import _controls
+    from .run_controller import _controls, resolve_preview_keep
     run_dir = Path(run_dir).resolve()
     if run_dir.exists():
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
             profile=profile, service_policy=service_policy, checkpoint_every=checkpoint_every,
             max_seconds=max_seconds, stop_after_steps=stop_after_steps,
-            preview_every=preview_every, preview_keep=preview_keep, preview_name=preview_name)
+            preview_every=preview_every, preview_keep=preview_keep,
+            preview_keep_source=preview_keep_source, preview_name=preview_name)
     checkpoint_every = 100 if checkpoint_every is None else checkpoint_every
     preview_every = 0 if preview_every is None else preview_every
-    preview_keep = DEFAULT_KEEP if preview_keep is None else preview_keep
+    preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     preview_name = sample_name(preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     config = _training_config(config_path, steps)
@@ -202,16 +204,18 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
             raise ValueError(f'Replicated final inference sample count exceeds {MAX_SAMPLE_COUNT}')
     controls = dict(checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                     stop_after_steps=stop_after_steps, preview_every=preview_every,
-                    preview_keep=preview_keep, preview_name=preview_name)
+                    preview_keep=preview_keep, preview_keep_source=preview_keep_source,
+                    preview_name=preview_name)
     return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls)
 
 
 def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _repeat_train=False,
                    profile=None, service_policy=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
-                   preview_every=None, preview_keep=None, preview_name=None):
+                   preview_every=None, preview_keep=None, preview_keep_source=None,
+                   preview_name=None):
     """Infer persisted numerical routing and pin an earlier/latest complete snapshot."""
-    from .run_controller import _controls
+    from .run_controller import _controls, resolve_preview_keep
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
         raise ValueError(f'Run directory does not exist or is not a directory: {run_dir}')
@@ -248,13 +252,14 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     policy = _policy(profile, service_policy)
     checkpoint_every = manifest.get('checkpoint_every', 100) if checkpoint_every is None else checkpoint_every
     preview_every = manifest.get('preview_every', 0) if preview_every is None else preview_every
-    preview_keep = manifest.get('preview_keep', DEFAULT_KEEP) if preview_keep is None else preview_keep
+    preview_keep, preview_keep_source = resolve_preview_keep(manifest, preview_keep, preview_keep_source)
     preview_name = sample_name(manifest.get('preview_name') if preview_name is None else preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     checkpoint = _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'])
     controls = dict(checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                     stop_after_steps=stop_after_steps, preview_every=preview_every,
-                    preview_keep=preview_keep, preview_name=preview_name)
+                    preview_keep=preview_keep, preview_keep_source=preview_keep_source,
+                    preview_name=preview_name)
     return PreparedExecution('resume', config, run_dir, config_path, checkpoint, steps, profile, policy, controls, _repeat_train)
 
 

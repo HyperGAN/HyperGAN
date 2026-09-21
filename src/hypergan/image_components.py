@@ -114,21 +114,22 @@ class CIFARGenerator(nn.Module):
 
 
 class _PixelDiscriminator(nn.Module):
-    def __init__(self, width):
+    def __init__(self, width, image_size=32):
         super().__init__()
         self.emb_dim = 4 * width
         self.input = nn.Conv2d(6, width, 3, padding=1)
+        channels = [width, 2 * width] + [4 * width] * (int(math.log2(image_size)) - 3)
         self.blocks = nn.ModuleList([
             _ResBlock(a, b, self.emb_dim, affine_condition=False)
-            for a, b in [(width, 2 * width), (2 * width, 4 * width), (4 * width, 4 * width)]])
+            for a, b in zip(channels, channels[1:])])
         self.output = nn.Linear(width * 4 * 4 * 4, 1)
 
     def forward(self, x, xt):
         e = x.new_zeros(len(x), self.emb_dim)
         h = self.input(torch.cat([x, xt], 1))
-        for index, block in enumerate(self.blocks):
+        for block in self.blocks:
             h = F.avg_pool2d(block(h, e), 2)
-            if index == 0:
+            if h.shape[-1] == 16:
                 h = self.attention(h)
         return self.output(F.leaky_relu(h, .2).flatten(1))
 
@@ -155,9 +156,11 @@ class _DeterministicPool2d(nn.Module):
 
 
 class _FeatureCritic(nn.Module):
-    def __init__(self, weights_path, weights_sha256, width, feature_state_sha256, deterministic_features):
+    def __init__(self, weights_path, weights_sha256, width, feature_state_sha256, deterministic_features,
+                 image_size=32, feature_size=64):
         super().__init__()
         self.deterministic_features = deterministic_features
+        self.feature_size = feature_size
         path = _verified_file(weights_path, weights_sha256)
         try:
             from torchvision.models import resnet18
@@ -171,7 +174,7 @@ class _FeatureCritic(nn.Module):
         for module in self.features.modules():
             if isinstance(module, nn.ReLU):
                 module.inplace = False
-        self.pixel = _PixelDiscriminator(width)
+        self.pixel = _PixelDiscriminator(width, image_size)
         self.project = nn.ModuleList([nn.Sequential(
             nn.Conv2d(2 * ch, 64, 1), nn.GroupNorm(8, 64), nn.LeakyReLU(.2),
             nn.Conv2d(64, 64, 3, padding=1), nn.LeakyReLU(.2),
@@ -189,7 +192,7 @@ class _FeatureCritic(nn.Module):
             raise ValueError('Pretrained feature state SHA256 does not match the declared recipe')
         self.pretrained_metadata = {'weights': 'ResNet18_Weights.IMAGENET1K_V1',
             'weights_sha256': weights_sha256, 'feature_state_sha256': digest.hexdigest(),
-            'input_size': 64, 'stages': ['layer1', 'layer2', 'layer3']}
+            'input_size': feature_size, 'stages': ['layer1', 'layer2', 'layer3']}
 
     def train(self, mode=True):
         super().train(mode)
@@ -203,7 +206,7 @@ class _FeatureCritic(nn.Module):
 
     @torch.no_grad()
     def condition_features(self, xt):
-        h = (F.interpolate(xt, size=64, mode='bilinear', align_corners=False) * .5 + .5 - self.mean) / self.std
+        h = (F.interpolate(xt, size=self.feature_size, mode='bilinear', align_corners=False) * .5 + .5 - self.mean) / self.std
         result = []
         for block in self.features:
             h = block(h)
@@ -212,7 +215,7 @@ class _FeatureCritic(nn.Module):
 
     def forward(self, x, xt, condition_features):
         logits = self.pixel(x, xt)
-        h = (F.interpolate(x, size=64, mode='bilinear', align_corners=False) * .5 + .5 - self.mean) / self.std
+        h = (F.interpolate(x, size=self.feature_size, mode='bilinear', align_corners=False) * .5 + .5 - self.mean) / self.std
         feature_logits = []
         for i, (block, head) in enumerate(zip(self.features, self.project)):
             h = block(h)
@@ -224,19 +227,32 @@ class _FeatureCritic(nn.Module):
 
 
 class CIFARDiscriminator(nn.Module):
-    """Pixel/feature critic with immutable pretrained ResNet18 features."""
+    """Pixel/feature critic with immutable pretrained ResNet18 features.
+
+    Defaults preserve the 32px CIFAR recipe and its checkpoint layout. Larger
+    images add pixel residual stages, keeping attention at 16px and the scalar
+    readout at 4px. ``feature_size`` sets the backbone input resolution; 256
+    retains native 64/32/16px maps for 256px colorization. The context is always
+    a fixed zero image, never another sample or a grayscale condition.
+    """
     def __init__(self, weights_path, weights_sha256=RESNET18_SHA256, width=32,
-                 feature_state_sha256=FEATURE_SHA256, attention_seed=124003, deterministic_features=True):
+                 feature_state_sha256=FEATURE_SHA256, attention_seed=124003, deterministic_features=True,
+                 image_size=32, feature_size=64):
         super().__init__()
         if type(deterministic_features) is not bool:
             raise ValueError('deterministic_features must be a boolean')
-        self.critic = _FeatureCritic(weights_path, weights_sha256, width, feature_state_sha256, deterministic_features)
-        self.register_buffer('context', torch.zeros(1, 3, 32, 32))
+        for name, size, minimum in [('image_size', image_size, 32), ('feature_size', feature_size, 64)]:
+            if type(size) is not int or size < minimum or size & (size - 1):
+                raise ValueError(f'{name} must be a power of two >= {minimum}')
+        self.image_size = image_size
+        self.critic = _FeatureCritic(weights_path, weights_sha256, width, feature_state_sha256,
+                                     deterministic_features, image_size, feature_size)
+        self.register_buffer('context', torch.zeros(1, 3, image_size, image_size))
         self._context_features = None
         with torch.random.fork_rng(devices=[]):
             torch.random.default_generator.manual_seed(attention_seed)
             SAGANAttention(64)  # Source constructs G attention before D attention.
-            self.critic.pixel.attention = SAGANAttention(2 * width)
+            self.critic.pixel.attention = SAGANAttention((2 if image_size == 32 else 4) * width)
 
     def requires_grad_(self, requires_grad=True):
         self.critic.requires_grad_(requires_grad)
@@ -251,6 +267,8 @@ class CIFARDiscriminator(nn.Module):
         return super()._load_from_state_dict(*args, **kwargs)
 
     def forward(self, x):
+        if x.ndim != 4 or tuple(x.shape[1:]) != (3, self.image_size, self.image_size):
+            raise ValueError(f'Discriminator requires x [batch,3,{self.image_size},{self.image_size}]')
         if self._context_features is None:
             self._context_features = self.critic.condition_features(self.context)
         features = [v.expand(len(x), -1, -1, -1) for v in self._context_features]

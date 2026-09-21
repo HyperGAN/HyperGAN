@@ -39,32 +39,36 @@ and its target to `batch.real`, and remove the unused `reconstruction_gray`
 component. Neither form constrains aggregate encoder particle
 usage. Hard routing and a moving decoder can still make the encoder collapse.
 
-The discriminator receives only RGB through the same single path for real and fake:
+The discriminator receives a single RGB candidate, using the pretrained ResNet18
+critic from the CIFAR recipe extended to 256×256:
 
 ```text
-RGB -> [frozen DINOv3 + frozen projection, learned RGB stem]
-    -> concatenate at 16x16 -> shared attention -> convolutional head -> D(RGB)
+RGB -> frozen ResNet18 layer1/layer2/layer3 -> three learned feature heads
+RGB -> learned residual pixel branch with attention at 16x16
+D(RGB) = (pixel_score + sum(feature_scores) / sqrt(3)) / sqrt(2)
 ```
 
-The projection mixes DINOv3's final 16×16 patch features with fixed random 1×1
-channel and 3×3 spatial convolutions. A learned four-stage RGB stem supplies
-local pixel features at the same resolution. Their concatenated features pass
-through one SAGAN attention module and one spectrally normalized convolutional
-head. The RGB stem, attention, and output head learn.
-This is a minimal single-map adaptation of the frozen feature/projection idea in
-[Projected GAN](https://github.com/autonomousvision/projected-gan/blob/main/pg_modules/projector.py).
-The 3×3 layer mixes local spatial features; it does not reproduce the paper's
-multiscale feature fusion or multiple discriminator heads. There is one backbone
-call per candidate batch, with no grayscale input or separate pixel critic.
-Normal training still evaluates real and fake candidates and the configured
-b-cap regularizer; “one path” does not mean only one D evaluation per update.
+`CIFARDiscriminator(image_size=256, feature_size=256)` keeps the CIFAR feature
+heads and score combination. Six pixel residual blocks reduce 256×256 to 4×4;
+SAGAN attention remains at 16×16. The native pretrained feature maps are
+64×64, 32×32 and 16×16, each projected and pooled to 4×4 by a learned head.
+The existing fixed zero context and its cached pretrained features are retained
+for recipe continuity; they contain no grayscale input or other training sample.
+After this constant cache is populated, each candidate batch traverses the
+backbone once. The pixel branch and three feature heads form one discriminator
+with one scalar output and the same adversarial objective.
 
-The frozen DINOv3 ViT-S/16 LVD-1689M backbone and random projection stay in
-evaluation mode while retaining derivatives with respect to candidate pixels,
-including the second derivatives required by b-cap. The recipe pins the local
-weight file by SHA256 and the external source checkout by commit; it does not
-download during training. The upstream code and weights retain their
-[DINOv3 terms](https://github.com/facebookresearch/dinov3).
+ResNet parameters and batch-normalization statistics stay frozen, but input
+derivatives pass through the backbone, including the second derivatives needed
+by b-cap. Inputs are mapped from [-1,1] to [0,1] and ImageNet-normalized.
+Training requires the `cifar` extra and a local, SHA256-pinned
+`resnet18-f37072fd.pth` file; it does not download weights. The 32×32 CIFAR
+architecture, initialization order and checkpoint layout retain their defaults.
+
+This is the next discriminator experiment after the DINO + RGB owner run
+collapsed by step 3,428. Its earlier 1,500-step diversity result did not establish
+lasting stability or useful samples. ResNet is not yet a demonstrated cure.
+Generator, encoder, particles, losses, b-cap and learning rates are unchanged.
 
 The discriminator comparisons also expose these alternatives (use a fresh run
 when changing architecture):
@@ -72,10 +76,8 @@ when changing architecture):
 - `DINOv3ProjectedDiscriminator(head="conv")` replaces the linear head with
   spectrally normalized nonlinear convolutions. Its optional `pixel_width=32`
   adds a learned RGB stem, concatenated with projected DINO features before the
-  shared attention/head. The example uses this configuration: it avoided the
-  earlier near-constant failure through 1,500 controlled updates while retaining
-  the original b-cap settings. This is bounded collapse evidence, not a guarantee
-  of long-run stability or colorization quality.
+  shared attention/head. The previous example used this configuration. It retained spread
+  through 1,500 controlled updates, but the subsequent owner run collapsed.
 - `DINOv3MultiScaleDiscriminator` reads transformer blocks 2, 5, 8, and 11 in
   one backbone pass. Frozen random projections build and fuse a synthetic
   32/16/8/4 pyramid, followed by four attention/convolution heads whose scalar
@@ -163,7 +165,7 @@ environment live under `~/dev/hypergan/training-runs/`. Run:
 bash ~/dev/hypergan/training-runs/start-color.sh
 ```
 
-The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-critic` run.
+The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-resnet` run.
 Interrupt it with Ctrl-C to save a recoverable boundary. Repeating the same
 command resumes the latest complete checkpoint. It does not touch the CIFAR run.
 The default total schedule is 200,000 updates; batch size starts at 16. The fast
@@ -172,9 +174,13 @@ state without promising bitwise-identical future learning trajectories.
 
 Configuration and dataset/component dependency checks remain enforced on resume;
 HyperGAN release hashes remain provenance, not compatibility rejection keys.
-The validation run is separate from `train-color-critic`, leaving it fresh.
+The validation run is separate from `train-color-resnet`, leaving it fresh.
 The collapsed projected run and its launcher `start-color-projected.sh` remain
-available. The updated launcher uses `colorization-critic-env` and
-`logos-colorization-critic-256/colorization.toml`. The earlier random-prior run
+available. The updated launcher uses `colorization-resnet-env` and
+`logos-colorization-resnet-256/colorization.toml`. The earlier random-prior run
 and its `start-color-random.sh` launcher are preserved, along with
 `start-color-original.sh`.
+
+The previous DINO + RGB run is preserved under `train-color-critic`, with its
+configuration, environment, and `start-color-critic.sh` launcher. Use a fresh run
+when changing discriminator architecture; old checkpoints are not compatible.

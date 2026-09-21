@@ -1,0 +1,110 @@
+# Unconditional 128px SAGAN-style generator with latent-conditioned AdaIN.
+# Adapted from the residual/SN and pooled nonlocal design in:
+# https://github.com/brain-research/self-attention-gan/blob/master/generator.py
+# https://github.com/brain-research/self-attention-gan/blob/master/non_local.py
+# Widths 512/512/256/128/64/32 and attention at 32px target this 128px recipe.
+# AdaIN replaces conditional BatchNorm; this is not a paper reproduction.
+# Latent x [B,128] splits into content_z [B,64] and style_z [B,64].
+# Every style affine reads style_z; no extra noise is drawn. adaptive_norm applies
+# (1 + delta_gamma) * instance_normalize(features) + beta with population HW variance.
+# Spectral normalization requires nonzero weight initialization, including styles.
+content_z, style_z = split(x, 64, dim=1, name="latent_split")
+h = linear(content_z, 8192, spectral_norm=True, name="input_projection")
+h = reshape(h, 512, 4, 4)
+
+# Residual upsampling block 1: 512 -> 512 channels, 4 -> 8px.
+style = linear(style_z, 1024, spectral_norm=True, init={"bias": 0}, name="block0_style1")
+branch = adaptive_norm(h, style, eps=1e-5, name="block0_norm1")
+branch = relu(branch)
+branch = upsample(branch, 2, mode="nearest")
+branch = conv(branch, 512, kernel_size=3, padding=1, spectral_norm=True, name="block0_conv1")
+style = linear(style_z, 1024, spectral_norm=True, init={"bias": 0}, name="block0_style2")
+branch = adaptive_norm(branch, style, eps=1e-5, name="block0_norm2")
+branch = relu(branch)
+branch = conv(branch, 512, kernel_size=3, padding=1, spectral_norm=True, name="block0_conv2")
+shortcut = upsample(h, 2, mode="nearest")
+shortcut = conv(shortcut, 512, kernel_size=1, spectral_norm=True, name="block0_shortcut")
+h = add(shortcut, branch, name="block0_out")
+
+# Residual upsampling block 2: 512 -> 256 channels, 8 -> 16px.
+style = linear(style_z, 1024, spectral_norm=True, init={"bias": 0}, name="block1_style1")
+branch = adaptive_norm(h, style, eps=1e-5, name="block1_norm1")
+branch = relu(branch)
+branch = upsample(branch, 2, mode="nearest")
+branch = conv(branch, 256, kernel_size=3, padding=1, spectral_norm=True, name="block1_conv1")
+style = linear(style_z, 512, spectral_norm=True, init={"bias": 0}, name="block1_style2")
+branch = adaptive_norm(branch, style, eps=1e-5, name="block1_norm2")
+branch = relu(branch)
+branch = conv(branch, 256, kernel_size=3, padding=1, spectral_norm=True, name="block1_conv2")
+shortcut = upsample(h, 2, mode="nearest")
+shortcut = conv(shortcut, 256, kernel_size=1, spectral_norm=True, name="block1_shortcut")
+h = add(shortcut, branch, name="block1_out")
+
+# Residual upsampling block 3: 256 -> 128 channels, 16 -> 32px.
+style = linear(style_z, 512, spectral_norm=True, init={"bias": 0}, name="block2_style1")
+branch = adaptive_norm(h, style, eps=1e-5, name="block2_norm1")
+branch = relu(branch)
+branch = upsample(branch, 2, mode="nearest")
+branch = conv(branch, 128, kernel_size=3, padding=1, spectral_norm=True, name="block2_conv1")
+style = linear(style_z, 256, spectral_norm=True, init={"bias": 0}, name="block2_style2")
+branch = adaptive_norm(branch, style, eps=1e-5, name="block2_norm2")
+branch = relu(branch)
+branch = conv(branch, 128, kernel_size=3, padding=1, spectral_norm=True, name="block2_conv2")
+shortcut = upsample(h, 2, mode="nearest")
+shortcut = conv(shortcut, 128, kernel_size=1, spectral_norm=True, name="block2_shortcut")
+h = add(shortcut, branch, name="block2_out")
+
+# SAGAN nonlocal attention at 32px; pooled keys/values use 16px positions.
+# No sqrt(channel) scaling. The zero-initialized learned gate starts as identity.
+query = conv(h, 16, kernel_size=1, bias=False, spectral_norm=True, name="attention_query")
+query = reshape(query, 16, 1024)
+query = transpose(query, 1, 2)
+key = conv(h, 16, kernel_size=1, bias=False, spectral_norm=True, name="attention_key")
+key = max_pool(key, 2, name="attention_key_pool")
+key = reshape(key, 16, 256)
+probabilities = matmul(query, key)
+probabilities = softmax(probabilities, dim=2, name="attention_probabilities")
+value = conv(h, 64, kernel_size=1, bias=False, spectral_norm=True, name="attention_value")
+value = max_pool(value, 2, name="attention_value_pool")
+value = reshape(value, 64, 256)
+probabilities = transpose(probabilities, 1, 2)
+attended = matmul(value, probabilities)
+attended = reshape(attended, 64, 32, 32)
+attended = conv(attended, 128, kernel_size=1, bias=False, spectral_norm=True, name="attention_project")
+attended = learned_scale(attended, init_value=0.0, name="attention_gain")
+h = add(h, attended, name="attention_out")
+
+# Residual upsampling block 4: 128 -> 64 channels, 32 -> 64px.
+style = linear(style_z, 256, spectral_norm=True, init={"bias": 0}, name="block3_style1")
+branch = adaptive_norm(h, style, eps=1e-5, name="block3_norm1")
+branch = relu(branch)
+branch = upsample(branch, 2, mode="nearest")
+branch = conv(branch, 64, kernel_size=3, padding=1, spectral_norm=True, name="block3_conv1")
+style = linear(style_z, 128, spectral_norm=True, init={"bias": 0}, name="block3_style2")
+branch = adaptive_norm(branch, style, eps=1e-5, name="block3_norm2")
+branch = relu(branch)
+branch = conv(branch, 64, kernel_size=3, padding=1, spectral_norm=True, name="block3_conv2")
+shortcut = upsample(h, 2, mode="nearest")
+shortcut = conv(shortcut, 64, kernel_size=1, spectral_norm=True, name="block3_shortcut")
+h = add(shortcut, branch, name="block3_out")
+
+# Residual upsampling block 5: 64 -> 32 channels, 64 -> 128px.
+style = linear(style_z, 128, spectral_norm=True, init={"bias": 0}, name="block4_style1")
+branch = adaptive_norm(h, style, eps=1e-5, name="block4_norm1")
+branch = relu(branch)
+branch = upsample(branch, 2, mode="nearest")
+branch = conv(branch, 32, kernel_size=3, padding=1, spectral_norm=True, name="block4_conv1")
+style = linear(style_z, 64, spectral_norm=True, init={"bias": 0}, name="block4_style2")
+branch = adaptive_norm(branch, style, eps=1e-5, name="block4_norm2")
+branch = relu(branch)
+branch = conv(branch, 32, kernel_size=3, padding=1, spectral_norm=True, name="block4_conv2")
+shortcut = upsample(h, 2, mode="nearest")
+shortcut = conv(shortcut, 32, kernel_size=1, spectral_norm=True, name="block4_shortcut")
+h = add(shortcut, branch, name="block4_out")
+
+# Latent-conditioned output normalization and RGB readout.
+style = linear(style_z, 64, spectral_norm=True, init={"bias": 0}, name="output_style")
+h = adaptive_norm(h, style, eps=1e-5, name="output_norm")
+h = relu(h)
+h = conv(h, 3, kernel_size=3, padding=1, spectral_norm=True, name="output_conv")
+out = tanh(h)

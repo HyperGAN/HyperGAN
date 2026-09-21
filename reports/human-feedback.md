@@ -9,6 +9,18 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 17. Preview retention: default 128 with thinning instead of keep-all, and fix inherited `preview_keep` (raised 2026-09-20)
+
+Owner: "ok lets fix the preview_keep bug. i think it should be set to idk, 128(?) by default. i also think we'll want to prune the middle when we prune, like go from once every 500 to once every 1000. stuff like that. so it's at most N but prunes when it gets too big in chunks."
+
+Supersedes the keep-everything default shipped for item 8. Item 8 Follow-up 2 (the manifest that inherits the old default of 20) is fixed here as well.
+
+- [ ] Default `--preview-keep` becomes 128. `--preview-keep all` stays available for keep-everything; `--preview-keep N` stays an explicit bound.
+- [ ] Pruning thins the middle instead of dropping the oldest: when a run holds more than N generations, older samples are thinned by halving their density (a run publishing every 500 steps ends up with every 1,000, then every 2,000, ...), in a chunk, so the next prune only happens after many more publications. The first sample of the run is never pruned, and the most recent samples stay dense. Thinning is monotonic: a later prune only ever removes generations, never reorders or "un-thins", and the result is deterministic from the index.
+- [ ] A manifest that recorded `preview_keep` only because it was the default at the time must not pin a resumed run to that stale value. Record whether the bound was explicit; `hypergan train` on an existing run directory and `hypergan resume` behave the same way; an explicit `--preview-keep N` still carries across resume.
+- [ ] Tests: thinning keeps the first and latest samples and halves spacing; repeated publications never exceed N; an old manifest with `preview_keep: 20` and no explicitness marker resumes into the new default; an explicit bound still resumes as explicit.
+- [ ] Docs (`docs/image-previews.md`, README, `docs/recovery.md` if it mentions retention) describe the thinning policy and the default in plain words.
+
 ### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
 
 Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."
@@ -377,9 +389,11 @@ deliberate change to the viewer's cache posture and nobody has asked for it.
 
 Follow-up 2 (2026-09-20 18:41): the owner restarted training at 18:39 on the new code (manifest `source.hypergan_commit` = aeabd95f) using `start.sh`, i.e. `hypergan train ... --run-dir train-develop` on the existing run directory, and the `g` slider still reads "Version 1 of 20 · step 26,000". Read from the run: `manifest.preview_keep = 20`, `preview_count = 20`, index `keep = 20` with 20 entries (steps 26500–36000), 20 generation directories on disk. So the new code inherits the `20` that the old default wrote into the manifest, and keeps pruning. Owner: "item 0 is supposed to be the beginning of time."
 
-- [ ] A run that recorded the old default (20) without the owner ever asking for it must pick up the new keep-everything default on restart. Record whether `preview_keep` was explicit (for example `preview_keep_source: "explicit" | "default"` in the manifest, treating a manifest without it as default) and only inherit explicit values; `--preview-keep N` stays an explicit opt-in.
-- [ ] Make sure `hypergan train` on an existing run directory and `hypergan resume` behave the same way here.
-- [ ] Test: a manifest written by the old code with `preview_keep: 20` and no source marker resumes into keep-all; an explicit `--preview-keep 20` still prunes after resume.
+Owner decision (2026-09-20, after compaction): the default is no longer keep-everything but 128 with thinning; the inheritance fix moved into item 17 with that change. The three boxes below are tracked there.
+
+- [ ] Superseded by item 17: only inherit an explicit `preview_keep`; treat a manifest without an explicitness marker as default.
+- [ ] Superseded by item 17: `hypergan train` on an existing run directory and `hypergan resume` behave the same way.
+- [ ] Superseded by item 17: tests for old-manifest resume and explicit-bound resume.
 
 ### 9. FID (snapshot evaluations) should be a chart, not a wall of text (raised 2026-09-20)
 

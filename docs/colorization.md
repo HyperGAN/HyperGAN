@@ -35,7 +35,8 @@ Grayscale reconstruction asks the encoder to recover structure without requiring
 the original colors. It does not force each colorization to have plausible colors;
 the unconditional GAN learns the overall RGB distribution. RGB reconstruction is
 an available comparison: bind the objective's input to `components.reconstruction`
-and its target to `batch.real`. Neither form constrains aggregate encoder particle
+and its target to `batch.real`, and remove the unused `reconstruction_gray`
+component. Neither form constrains aggregate encoder particle
 usage. Hard routing and a moving decoder can still make the encoder collapse.
 
 The discriminator receives only RGB through the same single path for real and fake:

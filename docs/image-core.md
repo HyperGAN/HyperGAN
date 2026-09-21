@@ -79,7 +79,9 @@ Source/image CUDA parity and quality remain separate acceptance gates.
 
 An empty `training.backend` preserves the caller's current runtime settings.
 An explicit table applies process-wide numerical settings before construction,
-runtime identity reporting and resume comparison:
+runtime identity reporting and resume comparison. The CIFAR example ships the
+source's accelerated policy (`deterministic_algorithms = false`,
+`cudnn_benchmark = true`, TF32 on); the strict variant is:
 
 ```toml
 [training.backend]
@@ -102,7 +104,9 @@ any explicit evaluator context. Changed flags between batches fail evaluation.
 Fresh CPU sampling remains independent of CUDA initialization and preserves the
 caller's existing backend settings.
 
-The historical source enabled TF32 and cuDNN benchmarking. Changing those flags
-or replacing nondeterministic image operations is an explicit numerical
-adaptation, requiring measured source comparisons and exact within-run recovery;
-it does not retrospectively reproduce the historical trajectory.
+The historical source enabled TF32 and cuDNN benchmarking, and the shipped
+example matches it. Switching a recipe to the strict policy, or replacing
+nondeterministic image operations, is an explicit numerical adaptation that
+requires measured source comparisons and exact within-run recovery; it does not
+retrospectively reproduce the historical trajectory. Resume does not depend on
+the policy: it restores the complete state under either.

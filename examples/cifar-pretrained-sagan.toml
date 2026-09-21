@@ -1,4 +1,4 @@
-# Source recipe: ParticleGAN 9e9ce96, sagan_gd_16k_200k; explicit deterministic variant.
+# Source recipe: ParticleGAN 9e9ce96, sagan_gd_16k_200k; source backend (TF32, cuDNN benchmark).
 # Requires local CIFAR bytes and hash-pinned ResNet18 weights; never downloads.
 schema_version = 1
 name = "images/cifar-pretrained-sagan"
@@ -27,7 +27,7 @@ inputs = { x = "candidate" }
 width = 32
 weights_path = "~/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
 weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
-deterministic_features = true
+deterministic_features = false
 feature_state_sha256 = "5de287ab28d569dfc53a5bca4a646d4416621da29e71e80859e6117c7f90b0ac"
 attention_seed = 124003
 
@@ -99,14 +99,16 @@ data_rng_device = "execution"
 data_seed_offset = 2
 prior_seed_offset = 3
 
-# Explicit current-run recovery policy. Historical source enabled TF32/benchmark.
+# Backend matched to the source: TF32 and cuDNN autotuning on, nondeterministic
+# kernels allowed. Measured 2026-09-20 on an RTX A6000: 61 -> 41 ms/step against the
+# strict deterministic policy in docs/cifar-recipe.md. Resume still restores the
+# complete state; only bit-exact replay of a run is given up.
 [training.backend]
-deterministic_algorithms = true
-cudnn_deterministic = true
-cudnn_benchmark = false
-matmul_allow_tf32 = false
-cudnn_allow_tf32 = false
-cublas_workspace_config = ":4096:8"
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
 
 [sampling]
 count = 64

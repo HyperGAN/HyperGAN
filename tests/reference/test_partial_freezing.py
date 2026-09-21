@@ -7,6 +7,10 @@ import sys
 
 import pytest
 import torch
+# Direct worker entry points need the repository fixture package.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests.hndl_fixtures import fixture_linear, fixture_network
 import torch.distributed as dist
 
 from hypergan.checkpoints import restore_trainer, trainer_state
@@ -17,9 +21,9 @@ from hypergan.training import ReferenceTrainer
 class FeatureCritic(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.features = torch.nn.Sequential(torch.nn.Linear(2, 4), torch.nn.BatchNorm1d(4), torch.nn.Tanh())
+        self.features = fixture_network('features', (2,), (4,))
         self.features.eval().requires_grad_(False)
-        self.head = torch.nn.Linear(4, 1)
+        self.head = fixture_linear(4, 1)
 
     def forward(self, x):
         return self.head(self.features(x))
@@ -52,7 +56,7 @@ def equal(left, right):
 def check(trainer, frozen):
     d = trainer.graph.models['discriminator']
     equal(d.features.state_dict(), frozen)
-    assert not d.features.training and not d.features[1].training
+    assert not d.features.training and not d.features.nodes.n_normalization.training
     assert all(not p.requires_grad and p.grad is None for p in d.features.parameters())
     assert all(p.requires_grad for p in d.head.parameters())
     owned = {id(p) for group in trainer.opt_d.param_groups for p in group['params']}

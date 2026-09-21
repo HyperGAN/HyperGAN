@@ -1,0 +1,2 @@
+conv(${feature_width}, kernel_size=1, trainable=False)
+conv(${feature_width}, kernel_size=3, padding=1, trainable=False)

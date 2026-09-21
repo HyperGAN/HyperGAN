@@ -8,7 +8,41 @@ New projects use native CUDA execution by default (`hypergan new demo --device c
 
 `components.generator` and `components.discriminator` are required. Other named components can represent an encoder, feature extractor or auxiliary transform. Each component has a `factory`, constructor `args`, explicit forward keyword `inputs`, and a `trainable` flag.
 
-Factories are built-in identifiers such as `mlp`, `linear` and `identity`, or explicit `module:object` paths available in the Python environment. Custom model factories must construct a `torch.nn.Module`. Unknown constructor arguments fail instead of being silently discarded.
+Network components use `factory = "hndl"`. The source, input shapes, and output shapes belong in the recipe. HNDL constructs the network when training starts; editing the configuration needs no package rebuild. Data sources, objectives, and particle-routing adapters retain their explicit `module:object` factories. Unknown constructor arguments fail instead of being silently discarded.
+
+```toml
+[components.generator]
+factory = "hndl"
+inputs = { z = "latent" }
+[components.generator.args]
+input_shape = { z = ["B", 128] }
+output_shape = ["B", 3, 128, 128]
+source = """
+linear(8192)
+reshape(512, 4, 4)
+relu()
+deconv(256, kernel_size=4, stride=2, padding=1)
+relu()
+deconv(128, kernel_size=4, stride=2, padding=1)
+relu()
+deconv(64, kernel_size=4, stride=2, padding=1)
+relu()
+deconv(32, kernel_size=4, stride=2, padding=1)
+relu()
+deconv(3, kernel_size=4, stride=2, padding=1)
+tanh()
+"""
+```
+
+Use `file = "generator.hndl"` instead of `source` to load a standalone architecture relative to the recipe. File contents are copied into the resolved configuration and participate in the numerical fingerprint. Checkpoints and inference artifacts retain that source; moving or editing the original file does not change a saved run. Training from an edited file starts a different recipe and cannot silently resume an older architecture.
+
+For conditional graphs, declare named `input_shape` contracts and use HNDL `concat`, branches, and joins in the source. Named `output_shape` contracts expose several outputs to component bindings. Concatenation belongs in HNDL source. Set `input_dtype = "int64"` for embedding inputs, or use a table keyed by input port for mixed float and integer inputs.
+
+The image and particle-routing adapters load their architectures from [`src/hypergan/networks`](../src/hypergan/networks). Their recipes expose each template through `[components.<name>.args.network_files]`; paths are relative to the recipe. `[components.<name>.args.networks]` accepts inline source overrides instead. The resolved configuration records all selected template text. `${name}` template parameters substitute Python literals only; applications provide any trusted reusable source fragments before HNDL parses the resulting declarative graph.
+
+Legacy `mlp` and `linear` factory arguments remain readable through HNDL adapters. They no longer construct handwritten PyTorch networks. New examples and generated projects use explicit HNDL source.
+
+HNDL 0.2.1 is part of the `train` extra. Configuration loading and ordinary CLI validation stay Torch-free. HNDL parses and resolves the architecture at model construction; invalid operators and shape constraints fail before training updates. Custom factories execute trusted Python and must construct a `torch.nn.Module`.
 
 Bindings refer to `latent`, `batch.<field>`, `components.<name>` and their nested outputs. Generator output is available as `generated`; discriminator candidate input is `candidate`. Auxiliary components execute when an input or objective requires them. Cyclic or missing bindings fail. Dictionary/list outputs can be selected through dotted keys/indices.
 
@@ -24,6 +58,27 @@ CLI sampling reuses saved example conditions and records that provenance in the 
 For conditional generation, bind a generator keyword to `batch.condition` or an encoder output and bind the discriminator to the corresponding condition. The data factory supplies both the condition and real target. This can express paired tasks, but an image architecture, preprocessing and task evaluation still need their own implementation and qualification.
 
 Trainable auxiliary components belong to the generator optimizer. The discriminator has its own optimizer; discriminator conditioning is detached. Frozen components stay in evaluation mode. Separate encoder optimizers or arbitrary alternating schedules are outside this initial runtime and must not be implied by an encoder's presence.
+
+## Frozen pretrained discriminator
+
+The [128px ResNet variant](../examples/dcgan-resnet-128.toml) keeps the DCGAN generator and uses a frozen ImageNet ResNet18 plus a trainable discriminator head. The [complete discriminator source](../examples/networks/resnet18-discriminator.hndl) includes RGB normalization and declares freezing on the pretrained node:
+
+```python
+pretrained(${weights_path}, provider="torchvision_resnet18",
+           sha256=${weights_sha256}, layer="layer3",
+           trainable=False, name="resnet")
+conv(64, kernel_size=1, name="projection")
+leaky_relu(0.2)
+adaptive_avg_pool(4)
+flatten()
+linear(1, name="score")
+```
+
+`trainable=False` freezes the backbone parameters and keeps its BatchNorm layers in evaluation mode. Autograd still differentiates its output with respect to the input, so the discriminator trains the generator through the frozen features. The head's parameters remain trainable. Keep `components.discriminator.trainable` at its default `true`; freezing the entire component would also freeze the head.
+
+The provider registration uses torchvision's external ResNet18 checkpoint architecture; no ResNet layers are authored in HyperGAN Python. It is registered lazily through HNDL's native provider API and requires the `cifar` extra (torchvision). The local weights path and its SHA256 are in `args.parameters`. HNDL verifies the checkpoint before loading it; this recipe downloads nothing.
+
+Edit the head in `.hndl` to change its width or pooling, or select `layer2`, `layer3`, or `layer4` for features at different depths. HNDL infers the connecting channels. Use a new run directory for an architecture change. The variant preserves the generator, dataset, batch size, and seed of the DCGAN recipe to isolate the discriminator change.
 
 ## Numerical recipe
 

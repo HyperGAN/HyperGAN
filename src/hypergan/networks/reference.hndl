@@ -1,0 +1,6 @@
+# Two-dimensional Gaussian-grid numerical reference.
+linear(64)
+leaky_relu(0.2)
+linear(64)
+leaky_relu(0.2)
+linear()

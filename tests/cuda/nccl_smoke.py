@@ -32,6 +32,10 @@ def _rank(rank, devices, rendezvous, directory, collective_timeout, fault):
         os.dup2(log.fileno(), 2)
         try:
             import torch
+            # Direct worker entry points need the repository fixture package.
+            if __package__ in (None, ""):
+                sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+            from tests.hndl_fixtures import fixture_linear
             import torch.distributed as dist
             from torch.distributed.nn.functional import all_gather
             if not torch.cuda.is_available() or not dist.is_nccl_available():
@@ -74,7 +78,7 @@ def _rank(rank, devices, rendezvous, directory, collective_timeout, fault):
             torch.testing.assert_close(first, torch.tensor([[3.0]], device=device), rtol=0, atol=0)
             torch.testing.assert_close(second, torch.tensor([[2.0]], device=device), rtol=0, atol=0)
 
-            model = torch.nn.Linear(2, 1, bias=False, device=device)
+            model = fixture_linear(2, 1, bias=False, device=device)
             with torch.no_grad():
                 model.weight.copy_(torch.tensor([[.5, -.25]], device=device))
             optimizer = torch.optim.Adam(model.parameters(), lr=.001)
@@ -82,7 +86,7 @@ def _rank(rank, devices, rendezvous, directory, collective_timeout, fault):
             model(full[rank * 2:(rank + 1) * 2]).square().mean().backward()
             dist.all_reduce(model.weight.grad)
             model.weight.grad.div_(2)
-            baseline = torch.nn.Linear(2, 1, bias=False, device=device)
+            baseline = fixture_linear(2, 1, bias=False, device=device)
             with torch.no_grad():
                 baseline.weight.copy_(model.weight)
             baseline_optimizer = torch.optim.Adam(baseline.parameters(), lr=.001)

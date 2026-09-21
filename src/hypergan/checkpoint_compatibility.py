@@ -10,7 +10,7 @@ import json
 import warnings
 
 
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 
 # Which physical card a run sits on is recorded so an attempt can be traced back
 # to hardware, but it does not change what the saved state means. Two identical

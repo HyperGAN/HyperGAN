@@ -1,0 +1,8 @@
+conv(${pixel_width}, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(${p2}, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(${p2}, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(${feature_width}, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)

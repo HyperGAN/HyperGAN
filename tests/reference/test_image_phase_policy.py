@@ -12,6 +12,7 @@ import sys
 
 import pytest
 import torch
+from tests.hndl_fixtures import fixture_network
 
 from hypergan.checkpoints import restore_trainer, trainer_state
 from hypergan.config import config_values, resolve_config
@@ -22,19 +23,27 @@ from hypergan.training import DeviceAdam, ReferenceTrainer, update_ema
 class Encoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = torch.nn.Linear(2, 4)
+        self.network = fixture_network('prior_projection',
+            {'x': (2,), 'prior_mean': (4,), 'sigma': (4,)}, (4,))
+
+    @property
+    def linear(self):
+        return self.network['projection']
 
     def forward(self, x, means, sigma):
-        return self.linear(x) + sigma * means.detach()[0]
+        return self.network(x=x, prior_mean=means.detach()[0].expand(len(x), 4),
+                            sigma=sigma.expand(len(x), 4))
 
 
 class PriorGenerator(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = torch.nn.Linear(4, 2)
+        self.network = fixture_network('prior_projection',
+            {'x': (4,), 'prior_mean': (2,), 'sigma': (2,)}, (2,))
 
     def forward(self, z, means, sigma):
-        return self.linear(z) + sigma * means[0, :2]
+        return self.network(x=z, prior_mean=means[0, :2].expand(len(z), 2),
+                            sigma=sigma.expand(len(z), 2))
 
 
 def config():

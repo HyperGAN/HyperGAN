@@ -1,0 +1,94 @@
+# Tiny networks used by numerical, recovery and distributed test adapters.
+[linear]
+source = 'linear(bias=$bias, name="layer")'
+
+[batch_norm]
+source = 'batch_norm(name="layer")'
+
+[dropout]
+source = 'dropout($probability, name="layer")'
+
+[features]
+source = '''
+linear(4)
+batch_norm(name="normalization")
+tanh()
+'''
+
+[mlp]
+input = 'linear($width)\nleaky_relu(0.2)'
+hidden = 'linear($width)\nleaky_relu(0.2)'
+output = 'linear()'
+
+[cubic]
+source = '''
+h = linear(1, bias=False, name="projection")
+squared = mul(h, h)
+mul(squared, h)
+'''
+
+[image_generator]
+source = '''
+linear(12)
+tanh()
+reshape(3, 2, 2)
+'''
+
+[image_discriminator]
+source = '''
+flatten()
+linear(1)
+'''
+
+[pooled_discriminator]
+source = '''
+global_avg_pool()
+linear()
+'''
+
+[stochastic_features]
+source = '''
+linear($width)
+batch_norm()
+dropout($probability)
+'''
+
+[colorization_backbone]
+source = '''
+conv(8, kernel_size=16, stride=16, name="patch")
+reshape(8, 256)
+transpose(1, 2)
+attention(1)
+linear(384)
+'''
+
+[image_output]
+source = '''
+tanh()
+reshape($channels, $height, $width)
+'''
+
+[color_generator]
+source = '''
+z, gray = split(2)
+color = linear(z, 3)
+color = reshape(color, 3, 1, 1)
+color = upsample(color, $size)
+gray = reshape(gray, 1, $size, $size)
+gray = concat(gray, gray, gray, axis=1)
+add(color, gray)
+tanh()
+'''
+
+[prior_projection]
+source = '''
+projected = linear(x, name="projection")
+offset = mul(prior_mean, sigma)
+add(projected, offset)
+'''
+
+[condition_projection]
+source = '''
+projected = linear(x, name="projection")
+add(projected, condition)
+'''

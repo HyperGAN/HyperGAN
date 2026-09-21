@@ -87,3 +87,15 @@ The manifest and event stream are versioned for future observers. A run has one 
 ## Internal distributed recovery
 
 The same public commands select native or fixed-topology replicated execution through [execution profiles](execution.md). Resume infers the saved profile; world size and accumulation must match, while operational deadlines can change. The [distributed checkpoint API](distributed-recovery.md) documents the complete rank-state format and parent-owned publication protocol.
+
+## HNDL migration
+
+The HNDL network migration uses HyperGAN checkpoint compatibility version 2.
+Version-1 and unversioned training checkpoints require the earlier HyperGAN
+implementation; they are rejected before model construction. HNDL changes
+parameter keys, initialization order, and some floating-point evaluation order.
+No automatic conversion of existing optimizer or EMA state is implied.
+
+Resolved HNDL source and shape contracts are stored in the configuration.
+Architecture edits change its numerical fingerprint; the HNDL version is also
+recorded in runtime provenance and participates in strict recovery checks.

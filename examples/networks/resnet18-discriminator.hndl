@@ -1,0 +1,29 @@
+# Generator images are RGB in [-1, 1]. Apply ImageNet normalization.
+r, gb = split(1)
+g, b = split(gb, 1)
+r = scale(r, 0.5)
+r_bias = constant(r, 1, 1, 1, value=0.015)
+r = broadcast_add(r, r_bias)
+r = scale(r, 4.3668122270742355)
+g = scale(g, 0.5)
+g_bias = constant(g, 1, 1, 1, value=0.044)
+g = broadcast_add(g, g_bias)
+g = scale(g, 4.464285714285714)
+b = scale(b, 0.5)
+b_bias = constant(b, 1, 1, 1, value=0.094)
+b = broadcast_add(b, b_bias)
+b = scale(b, 4.444444444444445)
+concat(r, g, b)
+
+# Frozen ImageNet ResNet18 through layer3: [B, 256, 8, 8].
+# Candidate gradients pass through the frozen backbone to train G.
+pretrained(${weights_path}, provider="torchvision_resnet18",
+           sha256=${weights_sha256}, layer="layer3",
+           trainable=False, name="resnet")
+
+# Trainable discriminator head. Edit this without changing Python code.
+conv(64, kernel_size=1, name="projection")
+leaky_relu(0.2)
+adaptive_avg_pool(4)
+flatten()
+linear(1, name="score")

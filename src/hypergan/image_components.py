@@ -1,17 +1,21 @@
-"""Ordinary CIFAR components ported from Martyn Garcia's ParticleGAN.
+"""CIFAR models whose trainable and pretrained architecture lives in HNDL files.
 
-Source: feat/cifar-ae-gan-pretrained-encoder, commit
-9e9ce96c96948197e21e1171c8394e3819bb0013. See docs/cifar-recipe.md.
-These factories never download weights or data.
+Python adapts training inputs, validates local artifacts, and routes mixture
+components. Network layers and connectivity are resolved from configuration.
 """
 import hashlib
 import math
+from importlib.resources import files
 from pathlib import Path
+from string import Template
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 from particlegan import ucd_scores
+
+from .hndl_networks import build_network
+from .network_config import SourceFragment
 
 RESNET18_SHA256 = 'f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec'
 FEATURE_SHA256 = '5de287ab28d569dfc53a5bca4a646d4416621da29e71e80859e6117c7f90b0ac'
@@ -33,165 +37,182 @@ def _verified_file(path, expected):
     return path
 
 
-class _ResBlock(nn.Module):
-    def __init__(self, cin, cout, emb, affine_condition=True):
-        super().__init__()
-        self.n1 = nn.GroupNorm(min(8, cin), cin)
-        self.n2 = nn.GroupNorm(min(8, cout), cout)
-        self.c1 = nn.Conv2d(cin, cout, 3, padding=1)
-        self.c2 = nn.Conv2d(cout, cout, 3, padding=1)
-        self.affine = affine_condition
-        self.cond = nn.Linear(emb, 2 * cout if self.affine else cout)
-        self.skip = nn.Conv2d(cin, cout, 1) if cin != cout else nn.Identity()
-
-    def forward(self, x, e):
-        h = self.c1(F.leaky_relu(self.n1(x), .2))
-        q = self.cond(F.leaky_relu(e, .2))[:, :, None, None]
-        h = self.n2(h)
-        if self.affine:
-            scale, shift = q.chunk(2, 1)
-            h = h * (1 + scale) + shift
-        else:
-            h = h + q
-        h = self.c2(F.leaky_relu(h, .2))
-        return (self.skip(x) + h) / math.sqrt(2)
+def _source(stem, networks=None, **parameters):
+    source = (networks or {}).get(stem)
+    if source is None:
+        source = files('hypergan').joinpath('networks', stem + '.hndl').read_text()
+    return Template(source).substitute(parameters)
 
 
-def _source_generator_rng(z_dim, width):
-    # The source first constructs a residual generator and replaces it inside a
-    # fork_rng scope. Retain those draws to reproduce D/E initialization too.
-    nn.Linear(z_dim, 4 * width * 4 * 4)
-    nn.Linear(z_dim, 4 * width)
-    for a, b in [(4 * width, 4 * width), (4 * width, 2 * width), (2 * width, width)]:
-        _ResBlock(a, b, 4 * width)
-    nn.Conv2d(width, 3, 3, padding=1)
+def attention_source(channels, size, prefix='attention', input='x', source=None):
+    """Render the reusable HNDL attention fragment, ending at ``prefix_out``."""
+    networks = {'image_attention': source} if source is not None else None
+    return SourceFragment(_source('image_attention', networks, prefix=prefix, channels=channels,
+                   query_channels=max(1, channels // 8), value_channels=max(1, channels // 2),
+                   size=size, positions=size * size, input=input))
 
 
 class SAGANAttention(nn.Module):
-    """Unscaled single-head spatial attention with active unit residual."""
-    def __init__(self, channels):
+    """HNDL's explicit unscaled single-head spatial attention."""
+    def __init__(self, channels, image_size=4, networks=None):
         super().__init__()
-        self.query = nn.Conv2d(channels, max(1, channels // 8), 1, bias=False)
-        self.key = nn.Conv2d(channels, max(1, channels // 8), 1, bias=False)
-        self.value = nn.Conv2d(channels, max(1, channels // 2), 1, bias=False)
-        self.project = nn.Conv2d(max(1, channels // 2), channels, 1, bias=False)
+        self.network = build_network(attention_source(channels, image_size,
+            source=(networks or {}).get('image_attention')),
+            input_shape=('B', channels, image_size, image_size),
+            output_shape=('B', channels, image_size, image_size))
+
+    @property
+    def query(self):
+        return self.network['attention_query']
 
     def forward(self, x):
-        b, _, h, w = x.shape
-        query = self.query(x).flatten(2).transpose(1, 2)
-        key = self.key(x).flatten(2)
-        probabilities = torch.bmm(query, key).softmax(dim=-1)
-        value = self.value(x).flatten(2)
-        attended = torch.bmm(value, probabilities.transpose(1, 2)).reshape(b, -1, h, w)
-        return x + self.project(attended)
+        return self.network(x)
 
 
 class CIFARGenerator(nn.Module):
     """Source deconvolutional G with 16x16 SAGAN attention."""
-    def __init__(self, z_dim=64, width=32, attention_seed=124003):
+    def __init__(self, z_dim=64, width=32, attention_seed=124003, networks=None):
         super().__init__()
-        _source_generator_rng(z_dim, width)
-        with torch.random.fork_rng(devices=[]):
-            self.input = nn.Linear(z_dim, 256 * 4 * 4)
-            self.input_norm = nn.GroupNorm(8, 256)
-            self.output = nn.Sequential(
-                nn.ConvTranspose2d(256, 128, 4, stride=2, padding=1),
-                nn.GroupNorm(8, 128), nn.ReLU(),
-                nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1),
-                nn.GroupNorm(8, 64), nn.ReLU(),
-                nn.ConvTranspose2d(64, 3, 4, stride=2, padding=1), nn.Tanh())
+        source = _source('image_generator', networks, attention=attention_source(64, 16, input='h',
+                         source=(networks or {}).get('image_attention')))
+        self.network = build_network(source, input_shape=('B', z_dim),
+            output_shape=('B', 3, 32, 32))
+        # Preserve the independent attention initialization stream. The graph
+        # owns its parameters; only initialization policy is applied here.
         with torch.random.fork_rng(devices=[]):
             torch.random.default_generator.manual_seed(attention_seed)
-            self.attention = SAGANAttention(64)
+            for node in self.network.plan.nodes:
+                if node.id.startswith('attention_'):
+                    module = self.network[node.id]
+                    if hasattr(module, 'reset_parameters'):
+                        module.reset_parameters()
 
     def forward(self, z):
-        h = self.input_norm(self.input(z).reshape(-1, 256, 4, 4)).relu()
-        for index, layer in enumerate(self.output):
-            h = layer(h)
-            if index == 5:
-                h = self.attention(h)
-        return h
+        return self.network(z)
 
 
 class _PixelDiscriminator(nn.Module):
-    def __init__(self, width, image_size=32):
+    def __init__(self, width, image_size=32, attention_seed=124003, networks=None):
         super().__init__()
-        self.emb_dim = 4 * width
-        self.input = nn.Conv2d(6, width, 3, padding=1)
         channels = [width, 2 * width] + [4 * width] * (int(math.log2(image_size)) - 3)
-        self.blocks = nn.ModuleList([
-            _ResBlock(a, b, self.emb_dim, affine_condition=False)
-            for a, b in zip(channels, channels[1:])])
-        self.output = nn.Linear(width * 4 * 4 * 4, 1)
+        blocks = []
+        size = image_size
+        for index, (cin, cout) in enumerate(zip(channels, channels[1:])):
+            prefix = f'block{index}'
+            size //= 2
+            attention = ''
+            if size == 16:
+                attention = attention_source(cout, size, input='h',
+                    source=(networks or {}).get('image_attention')) + '\nh = attention_out\n'
+            skip = ('h' if cin == cout else
+                    f'conv(h, {cout}, kernel_size=1, name="{prefix}_skip")')
+            blocks.append(_source('image_pixel_block', networks, prefix=prefix,
+                groups_in=min(8, cin), groups_out=min(8, cout), channels=cout,
+                skip=skip, attention=attention))
+        source = _source('image_pixel', networks, embedding=4 * width,
+                         width=width, blocks='\n'.join(blocks))
+        self.network = build_network(source,
+            input_shape={name: ('B', 3, image_size, image_size) for name in ('image', 'context')},
+            output_shape=('B', 1))
+        self.block_count = len(blocks)
+        with torch.random.fork_rng(devices=[]):
+            torch.random.default_generator.manual_seed(attention_seed)
+            SAGANAttention(64, 16)  # G's attention precedes D's attention in the source.
+            for node in self.network.plan.nodes:
+                if node.id.startswith('attention_'):
+                    module = self.network[node.id]
+                    if hasattr(module, 'reset_parameters'):
+                        module.reset_parameters()
+
+    @property
+    def input(self):
+        return self.network['input']
+
+    @property
+    def attention(self):
+        # The first attention projection receives exactly the attention input.
+        return self.network['attention_query']
 
     def forward(self, x, xt):
-        e = x.new_zeros(len(x), self.emb_dim)
-        h = self.input(torch.cat([x, xt], 1))
-        for block in self.blocks:
-            h = F.avg_pool2d(block(h, e), 2)
-            if h.shape[-1] == 16:
-                h = self.attention(h)
-        return self.output(F.leaky_relu(h, .2).flatten(1))
+        return self.network(image=x, context=xt)
 
 
-class _DeterministicAdaptivePool(torch.autograd.Function):
-    """Source forward with a nonoverlapping, atomic-free analytical adjoint."""
-    @staticmethod
-    def forward(ctx, x):
-        height, width = x.shape[-2:]
-        if height % 4 or width % 4:
-            raise ValueError('Deterministic feature pooling requires dimensions divisible by four')
-        ctx.factors = height // 4, width // 4
-        return F.adaptive_avg_pool2d(x, 4)
-
-    @staticmethod
-    def backward(ctx, gradient):
-        height, width = ctx.factors
-        return (gradient / (height * width)).repeat_interleave(height, -2).repeat_interleave(width, -1)
+def _legacy_feature_name(name):
+    """State-digest names of the historical three-stage feature container."""
+    if name.startswith('conv1.'):
+        return '0.0.' + name[len('conv1.'):]
+    if name.startswith('bn1.'):
+        return '0.1.' + name[len('bn1.'):]
+    for stage, prefix in ((1, '0.4.'), (2, '1.'), (3, '2.')):
+        if name.startswith(f'layer{stage}.'):
+            return prefix + name[len(f'layer{stage}.'):]
+    return None
 
 
-class _DeterministicPool2d(nn.Module):
-    def forward(self, x):
-        return _DeterministicAdaptivePool.apply(x)
+def _load_resnet_features(path, feature_state_sha256, feature_size, networks):
+    state = torch.load(path, map_location='cpu', weights_only=True)
+    digest = hashlib.sha256()
+    stages = []
+    cin, size = 3, feature_size
+    for stage, cout in ((1, 64), (2, 128), (3, 256)):
+        next_size = size // (4 if stage == 1 else 2)
+        stem = f'image_resnet_stage{stage}'
+        network = build_network(_source(stem, networks), input_shape=('B', cin, size, size),
+                                output_shape=('B', cout, next_size, next_size))
+        for node in network.plan.nodes:
+            module = network[node.id]
+            if not module.state_dict():
+                continue
+            prefix = node.id.replace('_', '.')
+            values = {}
+            for key in module.state_dict():
+                original = key.replace('norm1.', 'bn1.').replace('norm2.', 'bn2.').replace('shortcut.', 'downsample.')
+                checkpoint_key = prefix + '.' + original
+                if checkpoint_key not in state:
+                    # Published ImageNet V1 predates this BN counter; PyTorch's
+                    # own loader supplies zero for the same historical format.
+                    if key.endswith('num_batches_tracked'):
+                        values[key] = module.state_dict()[key]
+                    else:
+                        raise ValueError(f'Pretrained configuration requires missing checkpoint key {checkpoint_key}')
+                else:
+                    values[key] = state[checkpoint_key]
+            module.load_state_dict(values, strict=True)
+            for key, value in module.state_dict().items():
+                original = key.replace('norm1.', 'bn1.').replace('norm2.', 'bn2.').replace('shortcut.', 'downsample.')
+                legacy = _legacy_feature_name(prefix + '.' + original)
+                digest.update(legacy.encode())
+                digest.update(value.detach().cpu().contiguous().numpy().tobytes())
+        stages.append(network)
+        cin, size = cout, next_size
+    if digest.hexdigest() != feature_state_sha256:
+        raise ValueError('Pretrained feature state SHA256 does not match the declared recipe')
+    return nn.ModuleList(stages), digest.hexdigest()
 
 
 class _FeatureCritic(nn.Module):
     def __init__(self, weights_path, weights_sha256, width, feature_state_sha256, deterministic_features,
-                 image_size=32, feature_size=64):
+                 image_size=32, feature_size=64, attention_seed=124003, networks=None):
         super().__init__()
         self.deterministic_features = deterministic_features
         self.feature_size = feature_size
         path = _verified_file(weights_path, weights_sha256)
-        try:
-            from torchvision.models import resnet18
-        except ImportError as exc:
-            raise ImportError('CIFAR pretrained critic requires the hypergan[cifar] extra') from exc
-        net = resnet18(weights=None)
-        net.load_state_dict(torch.load(path, map_location='cpu', weights_only=True), strict=True)
-        self.features = nn.ModuleList([
-            nn.Sequential(net.conv1, net.bn1, net.relu, net.maxpool, net.layer1),
-            net.layer2, net.layer3])
-        for module in self.features.modules():
-            if isinstance(module, nn.ReLU):
-                module.inplace = False
-        self.pixel = _PixelDiscriminator(width, image_size)
-        self.project = nn.ModuleList([nn.Sequential(
-            nn.Conv2d(2 * ch, 64, 1), nn.GroupNorm(8, 64), nn.LeakyReLU(.2),
-            nn.Conv2d(64, 64, 3, padding=1), nn.LeakyReLU(.2),
-            (_DeterministicPool2d() if deterministic_features else nn.AdaptiveAvgPool2d(4)),
-            nn.Flatten(), nn.Linear(64 * 16, 1))
-            for ch in (64, 128, 256)])
+        self.features, feature_digest = _load_resnet_features(path, feature_state_sha256, feature_size, networks)
+        self.pixel = _PixelDiscriminator(width, image_size, attention_seed, networks)
+        self.project = nn.ModuleList([
+            build_network(_source('image_feature_head', networks),
+                input_shape={name: ('B', ch, feature_size // divisor, feature_size // divisor)
+                             for name in ('candidate', 'condition')},
+                output_shape=('B', 1))
+            for ch, divisor in ((64, 4), (128, 8), (256, 16))])
+        self.combine = build_network(_source('image_critic_score', networks),
+            input_shape={name: ('B', 1) for name in ('pixel', 'feature1', 'feature2', 'feature3')},
+            output_shape=('B', 1))
         self.register_buffer('mean', torch.tensor([.485, .456, .406])[None, :, None, None])
         self.register_buffer('std', torch.tensor([.229, .224, .225])[None, :, None, None])
         self.features.eval().requires_grad_(False)
-        digest = hashlib.sha256()
-        for name, value in self.features.state_dict().items():
-            digest.update(name.encode())
-            digest.update(value.detach().cpu().contiguous().numpy().tobytes())
-        if digest.hexdigest() != feature_state_sha256:
-            raise ValueError('Pretrained feature state SHA256 does not match the declared recipe')
         self.pretrained_metadata = {'weights': 'ResNet18_Weights.IMAGENET1K_V1',
-            'weights_sha256': weights_sha256, 'feature_state_sha256': digest.hexdigest(),
+            'weights_sha256': weights_sha256, 'feature_state_sha256': feature_digest,
             'input_size': feature_size, 'stages': ['layer1', 'layer2', 'layer3']}
 
     def train(self, mode=True):
@@ -219,8 +240,9 @@ class _FeatureCritic(nn.Module):
         feature_logits = []
         for i, (block, head) in enumerate(zip(self.features, self.project)):
             h = block(h)
-            feature_logits.append(head(torch.cat([h, condition_features[i]], 1)))
-        logits = (logits + sum(feature_logits) / math.sqrt(3)) / math.sqrt(2)
+            feature_logits.append(head(candidate=h, condition=condition_features[i]))
+        logits = self.combine(pixel=logits, **{f'feature{i + 1}': score
+                                             for i, score in enumerate(feature_logits)})
         labels = torch.zeros(len(x), device=x.device, dtype=torch.long)
         return ucd_scores(logits, labels, torch.ones_like(labels), num_classes=1,
                           target='time_class', num_steps=1, validate_args=False)
@@ -229,7 +251,7 @@ class _FeatureCritic(nn.Module):
 class CIFARDiscriminator(nn.Module):
     """Pixel/feature critic with immutable pretrained ResNet18 features.
 
-    Defaults preserve the 32px CIFAR recipe and its checkpoint layout. Larger
+    Defaults preserve the 32px CIFAR architecture. Larger
     images add pixel residual stages, keeping attention at 16px and the scalar
     readout at 4px. ``feature_size`` sets the backbone input resolution; 256
     retains native 64/32/16px maps for 256px colorization. The context is always
@@ -237,7 +259,7 @@ class CIFARDiscriminator(nn.Module):
     """
     def __init__(self, weights_path, weights_sha256=RESNET18_SHA256, width=32,
                  feature_state_sha256=FEATURE_SHA256, attention_seed=124003, deterministic_features=True,
-                 image_size=32, feature_size=64):
+                 image_size=32, feature_size=64, networks=None):
         super().__init__()
         if type(deterministic_features) is not bool:
             raise ValueError('deterministic_features must be a boolean')
@@ -246,13 +268,9 @@ class CIFARDiscriminator(nn.Module):
                 raise ValueError(f'{name} must be a power of two >= {minimum}')
         self.image_size = image_size
         self.critic = _FeatureCritic(weights_path, weights_sha256, width, feature_state_sha256,
-                                     deterministic_features, image_size, feature_size)
+                                     deterministic_features, image_size, feature_size, attention_seed, networks)
         self.register_buffer('context', torch.zeros(1, 3, image_size, image_size))
         self._context_features = None
-        with torch.random.fork_rng(devices=[]):
-            torch.random.default_generator.manual_seed(attention_seed)
-            SAGANAttention(64)  # Source constructs G attention before D attention.
-            self.critic.pixel.attention = SAGANAttention((2 if image_size == 32 else 4) * width)
 
     def requires_grad_(self, requires_grad=True):
         self.critic.requires_grad_(requires_grad)
@@ -276,26 +294,27 @@ class CIFARDiscriminator(nn.Module):
 
 
 class CIFARRoutingEncoder(nn.Module):
-    """Scratch encoder; reconstruction trains E through frozen G, never means."""
-    def __init__(self, z_dim=64, width=32, temperature=.125):
+    """HNDL encoder with a detached mixture and straight-through routing."""
+    def __init__(self, z_dim=64, width=32, temperature=.125, networks=None):
         super().__init__()
         if not math.isfinite(temperature) or temperature <= 0:
             raise ValueError('Routing temperature must be positive and finite')
         self.temperature = temperature
-        layers = []
-        for a, b in [(3, width), (width, 2 * width), (2 * width, 4 * width)]:
-            layers += [nn.Conv2d(a, b, 4, stride=2, padding=1),
-                       nn.GroupNorm(8, b), nn.LeakyReLU(.2)]
-        self.features = nn.Sequential(*layers, nn.Flatten())
-        self.query = nn.Linear(4 * width * 4 * 4, z_dim)
-        self.offset = nn.Linear(4 * width * 4 * 4, z_dim)
-        nn.init.zeros_(self.offset.weight)
-        nn.init.zeros_(self.offset.bias)
+        self.z_dim = z_dim
+        self.network = build_network(_source('image_encoder', networks,
+            width=width, width2=2 * width, width4=4 * width, z_dim=z_dim),
+            input_shape=('B', 3, 32, 32), output_shape=('B', 2 * z_dim))
+
+    @property
+    def query(self):
+        return self.network['query']
+
+    @property
+    def offset(self):
+        return self.network['offset']
 
     def forward(self, x, means, sigma):
-        h = self.features(x)
-        query = self.query(h)
-        query = F.layer_norm(query, (query.shape[1],))
+        query, offset = self.network(x).split(self.z_dim, 1)
         fixed = means.detach()
         distances = (query.square().sum(1, keepdim=True) + fixed.square().sum(1)[None]
                      - 2 * query @ fixed.T) / query.shape[1]
@@ -303,5 +322,5 @@ class CIFARRoutingEncoder(nn.Module):
         soft = (-distances / self.temperature).softmax(1)
         proxy = soft @ fixed
         center = fixed[ids] + (proxy - proxy.detach())
-        bounded = 3 * torch.tanh(self.offset(h) / 3)
+        bounded = offset
         return {'latent': center + sigma * bounded, 'ids': ids, 'offset': bounded, 'soft': soft}

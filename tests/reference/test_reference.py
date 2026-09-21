@@ -98,7 +98,7 @@ def test_run_and_fresh_process_inference(tmp_path):
 def test_paired_encoder_custom_factory_and_objective_have_effect(tmp_path):
     example = Path(__file__).parents[2] / "examples" / "paired-linear.toml"
     config = load_config(example)
-    config["components"]["encoder"]["factory"] = "torch.nn:Linear"
+    config["components"]["encoder"]["factory"] = "hypergan.hndl_networks:HNDLNetwork"
     config["objectives"][0]["factory"] = "torch.nn:MSELoss"
     trainer = ReferenceTrainer(config)
     old = [p.detach().clone() for p in trainer.graph.models["encoder"].parameters()]
@@ -119,7 +119,7 @@ def test_paired_encoder_custom_factory_and_objective_have_effect(tmp_path):
 def test_invalid_custom_constructor_argument_fails_instead_of_being_ignored():
     raw = copy.deepcopy(DEFAULT)
     raw["components"]["generator"]["args"]["typo"] = 1
-    with pytest.raises(ValueError, match="Invalid constructor"):
+    with pytest.raises(ValueError, match="unknown HNDL arguments"):
         ReferenceTrainer(resolve_config(raw))
 
 
@@ -141,17 +141,18 @@ def test_tampered_bundle_rejected(tmp_path):
 
 def test_integer_conditioning_survives_native_bundle(tmp_path):
     raw = copy.deepcopy(DEFAULT)
-    raw["components"]["encoder"] = {"factory": "torch.nn:Embedding", "args": {"num_embeddings": 4, "embedding_dim": 2}, "inputs": {"input": "batch.condition"}}
-    raw["components"]["generator"]["args"]["input_dim"] = 6
+    raw["components"]["encoder"] = {"factory": "hndl", "args": {"source": "embedding(4, 2)\nflatten()", "input_shape": ["B", 1], "output_shape": ["B", 2], "input_dtype": "int64"}, "inputs": {"input": "batch.condition"}}
+    raw["components"]["generator"]["args"]["input_shape"] = {"x": ["B", 4], "condition": ["B", 2]}
+    raw["components"]["generator"]["args"]["source"] = "concat(x, condition)\n" + raw["components"]["generator"]["args"]["source"]
     raw["components"]["generator"]["inputs"]["condition"] = "components.encoder"
     trainer = ReferenceTrainer(resolve_config(raw))
-    batch = {"real": torch.zeros(16, 2), "condition": torch.arange(16) % 4}
+    batch = {"real": torch.zeros(16, 2), "condition": (torch.arange(16) % 4).reshape(16, 1)}
     trainer.update(batch)
     save_bundle(tmp_path, trainer, batch)
     path = sample(tmp_path, count=8)
     result = json.loads(path.read_text())
     assert result["shape"] == [8, 2]
-    assert result["inputs"]["condition"] == [0, 1, 2, 3, 0, 1, 2, 3]
+    assert result["inputs"]["condition"] == [[0], [1], [2], [3], [0], [1], [2], [3]]
 
 
 def test_interrupted_manifest_is_terminal(tmp_path, monkeypatch):

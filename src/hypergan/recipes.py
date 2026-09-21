@@ -6,18 +6,31 @@ from .data import ImageFolder
 
 
 class MLP(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden=(64, 64), negative_slope=0.2):
+    """Legacy argument adapter; every layer is compiled by HNDL."""
+    def __init__(self, input_dim=None, output_dim=None, hidden=(64, 64), negative_slope=0.2,
+                 source=None, input_shape=None, output_shape=None, **kwargs):
         super().__init__()
-        widths = [input_dim, *hidden, output_dim]
-        layers = []
-        for i, (a, b) in enumerate(zip(widths, widths[1:])):
-            layers.append(nn.Linear(a, b))
-            if i < len(widths) - 2:
-                layers.append(nn.LeakyReLU(negative_slope))
-        self.network = nn.Sequential(*layers)
+        from .hndl_networks import build_network
+        if source is None:
+            source = '\n'.join(f'linear({width})\nleaky_relu({negative_slope!r})' for width in hidden)
+            source += '\nlinear()'
+        self.network = build_network(source, input_shape=input_shape or ('B', input_dim),
+                                     output_shape=output_shape or ('B', output_dim), **kwargs)
 
-    def forward(self, x, condition=None):
-        return self.network(torch.cat((x, condition), dim=-1) if condition is not None else x)
+    def forward(self, x, **inputs):
+        return self.network(x=x, **inputs) if inputs else self.network(x)
+
+
+def linear(in_features, out_features, bias=True):
+    from .hndl_networks import HNDLNetwork
+    return HNDLNetwork(f'linear(bias={bias!r})', ('B', in_features), ('B', out_features))
+
+
+class Identity(nn.Module):
+    """Shape-polymorphic binding adapter for legacy identity components."""
+    def forward(self, input):
+        # Identity carries no architecture or parameters.
+        return input
 
 
 class GaussianGrid:
@@ -42,7 +55,7 @@ class PairedLinear:
         return {"condition": condition, "real": condition * self.scale + self.offset}
 
 
-BUILTINS = {"mlp": MLP, "linear": nn.Linear, "identity": nn.Identity, "mse": nn.MSELoss, "l1": nn.L1Loss, "gaussian_grid": GaussianGrid, "paired_linear": PairedLinear, "image_folder": ImageFolder}
+BUILTINS = {"mlp": MLP, "linear": linear, "identity": Identity, "mse": nn.MSELoss, "l1": nn.L1Loss, "gaussian_grid": GaussianGrid, "paired_linear": PairedLinear, "image_folder": ImageFolder}
 
 
 def execution_device(value):
@@ -88,6 +101,9 @@ def make_prior(spec, *, device=None):
 
 def construct(spec):
     name = spec["factory"]
+    if name == "hndl":
+        from .hndl_networks import HNDLNetwork
+        return HNDLNetwork(**spec["args"])
     if name in BUILTINS:
         constructor = BUILTINS[name]
     else:

@@ -1,0 +1,3 @@
+conv(${feature_width}, kernel_size=1)
+group_norm(${groups})
+leaky_relu(0.2)

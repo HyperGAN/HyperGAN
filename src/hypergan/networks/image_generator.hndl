@@ -1,0 +1,13 @@
+linear(4096, name="input")
+reshape(256, 4, 4)
+group_norm(8, name="input_norm")
+relu()
+deconv(128, kernel_size=4, stride=2, padding=1, name="up1")
+group_norm(8, name="norm1")
+relu()
+deconv(64, kernel_size=4, stride=2, padding=1, name="up2")
+group_norm(8, name="norm2")
+h = relu()
+${attention}
+deconv(attention_out, 3, kernel_size=4, stride=2, padding=1, name="up3")
+tanh()

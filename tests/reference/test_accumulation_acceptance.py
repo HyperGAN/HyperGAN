@@ -13,6 +13,10 @@ import time
 import numpy as np
 import pytest
 import torch
+# Direct worker entry points need the repository fixture package.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests.hndl_fixtures import fixture_linear, fixture_network
 from torch import nn
 import torch.distributed as dist
 
@@ -42,9 +46,7 @@ def _observe(value):
 class Generator(nn.Module):
     def __init__(self, width=12, depth=2):
         super().__init__()
-        self.layers = nn.Sequential(nn.Linear(6, width), nn.LeakyReLU(.2),
-            *[layer for _ in range(depth - 1) for layer in (nn.Linear(width, width), nn.LeakyReLU(.2))],
-            nn.Linear(width, 2))
+        self.layers = fixture_network('mlp', (6,), (2,), width=width, depth=depth)
 
     def forward(self, x, condition):
         _observe(x)
@@ -53,24 +55,27 @@ class Generator(nn.Module):
         return value if torch.is_grad_enabled() else value + .125
 
 
-class Encoder(nn.Linear):
+class Encoder(nn.Module):
     def __init__(self):
-        super().__init__(2, 2)
+        super().__init__()
+        self.project = fixture_linear(2, 2)
 
     def forward(self, input):
         _observe(input)
-        return super().forward(input)
+        return self.project(input)
 
 
 class CubicCritic(nn.Module):
     """No additive relativistic bias null direction; genuine nonlinear b-cap."""
     def __init__(self):
         super().__init__()
-        self.weight = nn.Parameter(torch.tensor([.8, -.6]))
+        self.network = fixture_network('cubic', (2,), (1,))
+        with torch.no_grad():
+            self.network.nodes.n_projection.weight.copy_(torch.tensor([[0.8, -0.6]]))
 
     def forward(self, x):
         _observe(x)
-        return (x @ self.weight).pow(3).unsqueeze(1)
+        return self.network(x)
 
 
 class MeanObjective(nn.Module):

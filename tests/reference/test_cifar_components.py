@@ -63,22 +63,43 @@ def test_invalid_temperature_rejected(temperature):
 
 @pytest.mark.parametrize('size', [4, 8, 16])
 def test_deterministic_feature_pool_source_forward_and_two_derivatives(size):
-    from hypergan.image_components import _DeterministicPool2d
+    from hypergan.hndl_networks import build_network
     torch.manual_seed(218)
     x = torch.randn(2, 64, size, size, dtype=torch.float64, requires_grad=True)
     other = x.detach().clone().requires_grad_()
-    actual = _DeterministicPool2d()(x)
+    pool = build_network('adaptive_avg_pool(4)', input_shape=('B', 64, size, size),
+                         output_shape=('B', 64, 4, 4)).double()
+    actual = pool(x)
     expected = torch.nn.functional.adaptive_avg_pool2d(other, 4)
-    assert torch.equal(actual, expected)
+    torch.testing.assert_close(actual, expected, atol=1e-14, rtol=1e-14)
     first, = torch.autograd.grad(actual.sin().square().sum(), x, create_graph=True)
     reference, = torch.autograd.grad(expected.sin().square().sum(), other, create_graph=True)
-    torch.testing.assert_close(first, reference, atol=0, rtol=0)
+    torch.testing.assert_close(first, reference, atol=1e-14, rtol=1e-14)
     second, = torch.autograd.grad(first.square().sum(), x)
     second_reference, = torch.autograd.grad(reference.square().sum(), other)
     torch.testing.assert_close(second, second_reference, atol=1e-14, rtol=1e-14)
 
 
-def test_deterministic_features_reject_unsupported_shapes():
-    from hypergan.image_components import _DeterministicPool2d
-    with pytest.raises(ValueError, match='divisible by four'):
-        _DeterministicPool2d()(torch.zeros(1, 1, 7, 7))
+def test_native_deterministic_pool_supports_ragged_shapes():
+    from hypergan.hndl_networks import build_network
+    pool = build_network('adaptive_avg_pool(4)', input_shape=('B', 1, 7, 7),
+                         output_shape=('B', 1, 4, 4)).double()
+    x = torch.randn(1, 1, 7, 7, dtype=torch.float64, requires_grad=True)
+    actual = pool(x)
+    expected = torch.nn.functional.adaptive_avg_pool2d(x, 4)
+    torch.testing.assert_close(actual, expected, atol=1e-14, rtol=1e-14)
+    gradient, = torch.autograd.grad(actual.square().sum(), x, create_graph=True)
+    second, = torch.autograd.grad(gradient.square().sum(), x)
+    assert torch.isfinite(second).all()
+
+
+def test_generator_architecture_can_be_replaced_by_configuration():
+    from hndl.torch import Network
+    generator = CIFARGenerator(z_dim=8, networks={
+        'image_generator': 'linear(3072)\nreshape(3, 32, 32)\nsigmoid()'})
+    assert isinstance(generator.network, Network)
+    image = generator(torch.randn(2, 8))
+    assert image.shape == (2, 3, 32, 32)
+    assert image.min() >= 0 and image.max() <= 1
+    assert [node.op.split('@')[0] for node in generator.network.plan.nodes] == [
+        'linear', 'reshape', 'sigmoid']

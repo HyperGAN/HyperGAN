@@ -1,0 +1,2 @@
+linear(${z_dim}, name="query")
+layer_norm(affine=False)

@@ -1,0 +1,4 @@
+attention_input = identity()
+${attention}
+conv(1, kernel_size=4, name="output", spectral_norm=True)
+flatten()

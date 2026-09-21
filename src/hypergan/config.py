@@ -9,6 +9,8 @@ import math
 import re
 from pathlib import Path
 
+from .network_config import packaged_source, read_source, validate_network_args, materialize_networks
+
 from .metrics import DEFAULT_METRICS, evaluation_warnings, objective_id, validate_metrics
 
 try:
@@ -23,8 +25,8 @@ DEFAULT = {
     "name": "reference/100gaussians",
     "data": {"factory": "gaussian_grid", "args": {"side": 10, "noise": 0.015}},
     "components": {
-        "generator": {"factory": "mlp", "args": {"input_dim": 4, "output_dim": 2, "hidden": [64, 64]}, "inputs": {"x": "latent"}, "trainable": True},
-        "discriminator": {"factory": "mlp", "args": {"input_dim": 2, "output_dim": 1, "hidden": [64, 64]}, "inputs": {"x": "candidate"}, "trainable": True},
+        "generator": {"factory": "hndl", "args": {"source": packaged_source("reference.hndl"), "input_shape": ["B", 4], "output_shape": ["B", 2]}, "inputs": {"x": "latent"}, "trainable": True},
+        "discriminator": {"factory": "hndl", "args": {"source": packaged_source("reference.hndl"), "input_shape": ["B", 2], "output_shape": ["B", 1]}, "inputs": {"x": "candidate"}, "trainable": True},
     },
     "prior": {"kind": "particles", "args": {"num_particles": 20000, "z_dim": 4}, "initialization_device": "execution", "initialization_seed": None, "fixed_sigma": None},
     "adversarial": {"loss_type": "logistic", "mode": "rp", "weight": 1.0},
@@ -48,20 +50,34 @@ side = 10
 noise = 0.015
 
 [components.generator]
-factory = "mlp"
+factory = "hndl"
 inputs = { x = "latent" }
 [components.generator.args]
-input_dim = 4
-output_dim = 2
-hidden = [64, 64]
+input_shape = ["B", 4]
+output_shape = ["B", 2]
+source = """
+# Two-dimensional Gaussian-grid numerical reference.
+linear(64)
+leaky_relu(0.2)
+linear(64)
+leaky_relu(0.2)
+linear()
+"""
 
 [components.discriminator]
-factory = "mlp"
+factory = "hndl"
 inputs = { x = "candidate" }
 [components.discriminator.args]
-input_dim = 2
-output_dim = 1
-hidden = [64, 64]
+input_shape = ["B", 2]
+output_shape = ["B", 1]
+source = """
+# Two-dimensional Gaussian-grid numerical reference.
+linear(64)
+leaky_relu(0.2)
+linear(64)
+leaky_relu(0.2)
+linear()
+"""
 
 [prior]
 kind = "particles"
@@ -133,10 +149,14 @@ def _spec(value, location, objectives=False):
         if value['factory'] != 'reuse' or value.get('args') or not isinstance(value['reuse'], str):
             raise ValueError(f'{location}: reuse requires a component name and no factory/args')
     else:
-        _factory(value.get("factory"), {"mse", "l1"} if objectives else {"mlp", "linear", "identity"}, location)
+        _factory(value.get("factory"), {"mse", "l1"} if objectives else {"hndl", "mlp", "linear", "identity"}, location)
     value.setdefault("args", {})
     if not isinstance(value["args"], dict):
         raise ValueError(f"{location}.args must be a table")
+    if not objectives and value.get("factory") == "hndl":
+        validate_network_args(value["args"], f"{location}.args")
+        if "file" in value["args"]:
+            value["args"]["source"] = read_source(value["args"].pop("file"))
     if not isinstance(value.get("inputs"), dict) or not value["inputs"] or not all(isinstance(k, str) and isinstance(v, str) and v for k, v in value["inputs"].items()):
         raise ValueError(f"{location}.inputs must bind argument names to context paths")
     if objectives:
@@ -180,6 +200,7 @@ def resolve_config(raw):
         if not name.isidentifier():
             raise ValueError("Component names must be Python identifiers")
         _spec(spec, f"components.{name}")
+        materialize_networks(spec)
     for name, spec in components.items():
         if 'reuse' in spec and (name in ('generator', 'discriminator') or spec['reuse'] not in components
                                or spec['reuse'] == 'discriminator' or 'reuse' in components[spec['reuse']]):
@@ -420,7 +441,25 @@ def load_config(path):
     if path.is_dir():
         path = path / "config.toml"
     with path.open("rb") as stream:
-        return resolve_config(tomllib.load(stream))
+        raw = tomllib.load(stream)
+    for spec in raw.get("components", {}).values():
+        args = spec.get("args", {})
+        network_files = args.pop('network_files', {})
+        if not isinstance(network_files, dict):
+            raise ValueError('args.network_files must map template names to .hndl file paths')
+        if network_files:
+            sources = args.setdefault('networks', {})
+            if not isinstance(sources, dict) or set(sources) & set(network_files):
+                raise ValueError('Specify each network template once, as source or file')
+            for name, file in network_files.items():
+                if not isinstance(file, str):
+                    raise ValueError('args.network_files paths must be strings')
+                sources[name] = read_source(path.parent / file)
+        if spec.get("factory") == "hndl" and "file" in args:
+            if "source" in args:
+                raise ValueError("HNDL component must specify exactly one of source or file")
+            args["source"] = read_source(path.parent / args.pop("file"))
+    return resolve_config(raw)
 
 
 def validate_device(device):

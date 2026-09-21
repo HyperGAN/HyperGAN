@@ -14,6 +14,10 @@ import time
 
 import pytest
 import torch
+# Direct worker entry points need the repository fixture package.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests.hndl_fixtures import fixture_linear
 from torch import nn
 import torch.distributed as dist
 
@@ -31,8 +35,8 @@ class ConditionalExperts(nn.Module):
     """Each rank uses one expert; the global oracle uses both parameters."""
     def __init__(self):
         super().__init__()
-        self.positive = nn.Linear(4, 2)
-        self.negative = nn.Linear(4, 2)
+        self.positive = fixture_linear(4, 2)
+        self.negative = fixture_linear(4, 2)
 
     def forward(self, x, condition):
         result = x.new_zeros((len(x), 2))
@@ -57,7 +61,7 @@ class _RankNanGradient(torch.autograd.Function):
 class PoisonedGenerator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.project = nn.Linear(4, 2)
+        self.project = fixture_linear(4, 2)
 
     def forward(self, x):
         return _RankNanGradient.apply(self.project(x))
@@ -66,7 +70,7 @@ class PoisonedGenerator(nn.Module):
 class DivergentBufferGenerator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.project = nn.Linear(4, 2)
+        self.project = fixture_linear(4, 2)
         self.register_buffer('counter', torch.zeros(()), persistent=False)
 
     def forward(self, x, condition):
@@ -79,7 +83,7 @@ class DivergentExtraStateGenerator(nn.Module):
     """Portable module extra state is part of replica/checkpoint identity."""
     def __init__(self):
         super().__init__()
-        self.project = nn.Linear(4, 2)
+        self.project = fixture_linear(4, 2)
         self.counter = 0.0
 
     def get_extra_state(self):
@@ -102,7 +106,9 @@ def _config(case='ra'):
     raw['components'] = {
         'encoder': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 2},
                     'inputs': {'input': 'batch.condition'}},
-        'generator': {'factory': 'mlp', 'args': {'input_dim': 6, 'output_dim': 2, 'hidden': [8]},
+        'generator': {'factory': 'hndl', 'args': {'source': 'concat(x, condition)\nlinear(8)\nleaky_relu(0.2)\nlinear()',
+                                               'input_shape': {'x': ['B', 4], 'condition': ['B', 2]},
+                                               'output_shape': ['B', 2]},
                       'inputs': {'x': 'latent', 'condition': 'components.encoder'}},
         # RA is invariant to additive critic bias. Adam amplifies near-zero
         # reduction-order residuals in that null direction; omit it in this oracle.

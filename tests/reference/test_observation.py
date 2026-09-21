@@ -7,6 +7,7 @@ import random
 import numpy as np
 import pytest
 import torch
+from tests.hndl_fixtures import fixture_network
 from torch import nn
 
 from hypergan.checkpoints import read_checkpoint, trainer_state
@@ -24,14 +25,12 @@ def importable_preview_factories(monkeypatch):
 class StochasticGenerator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = nn.Linear(4, 2)
-        self.bn = nn.BatchNorm1d(2)
-        self.drop = nn.Dropout(0.3)
+        self.network = fixture_network('stochastic_features', (4,), (2,), width=2, probability=0.3)
         self.register_buffer('counter', torch.zeros(()), persistent=False)
 
     def forward(self, x):
         self.counter.add_(1)
-        value = self.drop(self.bn(self.linear(x)))
+        value = self.network(x)
         noise = torch.rand_like(value) + random.random() + float(np.random.random())
         return value + 0.001 * noise + self.counter * 0.001
 
@@ -200,11 +199,12 @@ def test_manual_request_is_never_serviced_after_partial_update(tmp_path, monkeyp
 class MutatingConditionGenerator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = nn.Linear(4, 2)
+        self.network = fixture_network('condition_projection',
+            {'x': (4,), 'condition': (2,)}, (2,))
 
     def forward(self, x, condition):
         condition.add_(2)
-        return self.linear(x) + condition
+        return self.network(x=x, condition=condition)
 
 
 def test_preview_clones_real_conditioning_before_custom_forward(tmp_path):

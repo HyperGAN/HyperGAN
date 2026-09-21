@@ -9,6 +9,10 @@ import time
 
 import pytest
 import torch
+# Direct worker entry points need the repository fixture package.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests.hndl_fixtures import fixture_network
 import torch.distributed as dist
 from torch import nn
 
@@ -25,10 +29,12 @@ pytestmark = pytest.mark.heavy
 class CubicCritic(nn.Module):
     def __init__(self):
         super().__init__()
-        self.weight = nn.Parameter(torch.tensor([[1.4], [1.1]]))
+        self.network = fixture_network('cubic', (2,), (1,))
+        with torch.no_grad():
+            self.network.nodes.n_projection.weight.copy_(torch.tensor([[1.4, 1.1]]))
 
     def forward(self, x):
-        return (x @ self.weight).pow(3)
+        return self.network(x)
 
 
 def _config(mode='rp', kernel='logistic', nonlinear=False):

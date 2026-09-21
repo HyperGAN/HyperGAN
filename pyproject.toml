@@ -7,13 +7,13 @@ name = "hypergan"
 dynamic = ["version"]
 description = "Train and deploy proven GAN recipes with reproducible workflows."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.15"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = ["tomli>=2,<3; python_version < '3.11'"]
+dependencies = []
 
 [project.optional-dependencies]
-train = ["particlegan==0.5.0", "torch>=2.6,<3", "numpy>=1.26,<3"]
+train = ["hndl>=0.2.1", "particlegan==0.5.0", "torch>=2.6,<3", "numpy>=1.26,<3"]
 image = ["Pillow>=11,<13"]
 cifar = ["torchvision>=0.21,<1"]
 fid = ["torch-fidelity==0.3.0", "torchvision>=0.21,<1", "scipy>=1.10,<1.18"]
@@ -34,7 +34,7 @@ include-package-data = false
 
 [tool.setuptools.package-data]
 "hypergan.metrics_reducer" = ["assets/*.wasm", "assets/*.json", "assets/*.js", "assets/*.html", "assets/*.txt"]
-"hypergan" = ["_build_provenance.json", "web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/*.json"]
+"hypergan" = ["networks/*.hndl","_build_provenance.json", "web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

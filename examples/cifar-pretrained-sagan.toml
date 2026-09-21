@@ -171,3 +171,23 @@ root = "./data"
 split = "train"
 sampling = "sequential"
 horizontal_flip = false
+
+# Editable HNDL architecture sources, resolved relative to this recipe.
+[components.generator.args.network_files]
+image_generator = "../src/hypergan/networks/image_generator.hndl"
+image_attention = "../src/hypergan/networks/image_attention.hndl"
+
+# Editable HNDL architecture sources, resolved relative to this recipe.
+[components.discriminator.args.network_files]
+image_pixel = "../src/hypergan/networks/image_pixel.hndl"
+image_pixel_block = "../src/hypergan/networks/image_pixel_block.hndl"
+image_attention = "../src/hypergan/networks/image_attention.hndl"
+image_feature_head = "../src/hypergan/networks/image_feature_head.hndl"
+image_resnet_stage1 = "../src/hypergan/networks/image_resnet_stage1.hndl"
+image_resnet_stage2 = "../src/hypergan/networks/image_resnet_stage2.hndl"
+image_resnet_stage3 = "../src/hypergan/networks/image_resnet_stage3.hndl"
+image_critic_score = "../src/hypergan/networks/image_critic_score.hndl"
+
+# Editable HNDL architecture sources, resolved relative to this recipe.
+[components.encoder.args.network_files]
+image_encoder = "../src/hypergan/networks/image_encoder.hndl"

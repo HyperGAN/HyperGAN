@@ -229,3 +229,25 @@ manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 1
+
+# Editable HNDL architecture sources, resolved relative to this recipe.
+[components.generator.args.network_files]
+colorization_generator16 = "../src/hypergan/networks/colorization_generator16.hndl"
+colorization_generator32 = "../src/hypergan/networks/colorization_generator32.hndl"
+image_attention = "../src/hypergan/networks/image_attention.hndl"
+
+# Editable HNDL architecture sources, resolved relative to this recipe.
+[components.discriminator.args.network_files]
+colorization_dinov3_patch_tokens = "../src/hypergan/networks/colorization_dinov3_patch_tokens.hndl"
+colorization_feature_concat = "../src/hypergan/networks/colorization_feature_concat.hndl"
+colorization_random_project = "../src/hypergan/networks/colorization_random_project.hndl"
+colorization_linear_head = "../src/hypergan/networks/colorization_linear_head.hndl"
+colorization_conv_head = "../src/hypergan/networks/colorization_conv_head.hndl"
+colorization_pixel_features = "../src/hypergan/networks/colorization_pixel_features.hndl"
+image_attention = "../src/hypergan/networks/image_attention.hndl"
+
+# Editable HNDL architecture sources, resolved relative to this recipe.
+[components.encoder.args.network_files]
+colorization_encoder_features = "../src/hypergan/networks/colorization_encoder_features.hndl"
+colorization_query = "../src/hypergan/networks/colorization_query.hndl"
+autoencoder_offset = "../src/hypergan/networks/autoencoder_offset.hndl"

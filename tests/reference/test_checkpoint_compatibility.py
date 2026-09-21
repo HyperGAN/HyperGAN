@@ -26,7 +26,7 @@ def old_hypergan_provenance(metadata):
             metadata['implementation'][name] = '0' * 64
 
 
-@pytest.mark.parametrize('explicit', [False, True], ids=['existing-unversioned', 'current-version'])
+@pytest.mark.parametrize('explicit', [True], ids=['current-version'])
 def test_native_previous_hypergan_build_restores_exact_state_and_earlier_snapshot(tmp_path, explicit):
     config = write_default(tmp_path / 'config', device='cpu')
     baseline, run = tmp_path / 'baseline', tmp_path / 'run'
@@ -35,7 +35,7 @@ def test_native_previous_hypergan_build_restores_exact_state_and_earlier_snapsho
     checkpoint = Path(stopped['checkpoint_path'])
     metadata_path = checkpoint / 'manifest.json'
     metadata = json.loads(metadata_path.read_text())
-    assert metadata['hypergan_checkpoint_version'] == 1
+    assert metadata['hypergan_checkpoint_version'] == 2
     old_hypergan_provenance(metadata)
     if not explicit:
         metadata.pop('hypergan_checkpoint_version')
@@ -97,7 +97,7 @@ def test_changed_external_factory_source_still_rejects_resume(tmp_path, monkeypa
     monkeypatch.setitem(sys.modules, module_name, module)
     spec.loader.exec_module(module)
     config = write_default(tmp_path / 'config', device='cpu')
-    config.write_text(config.read_text().replace('factory = "mlp"', f'factory = "{module_name}:make"', 1))
+    config.write_text(config.read_text().replace('factory = "hndl"', f'factory = "{module_name}:make"', 1))
     run = tmp_path / 'run'
     train(config, run, stop_after_steps=1)
     source.write_text(source.read_text() + '\n# external factory source changed\n')
@@ -180,7 +180,7 @@ def test_resume_on_a_different_card_model_names_the_rejected_fields(tmp_path, mo
     assert files(run) == before
 
 
-@pytest.mark.parametrize('version', [2, True])
+@pytest.mark.parametrize('version', [1, 3, True])
 def test_checkpoint_compatibility_rechecked_under_lock_before_numerical_loading(tmp_path, monkeypatch, version):
     import hypergan.run_controller as controller
     import hypergan.single_execution as single

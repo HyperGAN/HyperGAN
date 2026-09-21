@@ -1,0 +1,2 @@
+resblock(128, stride=2, name="layer2_0")
+resblock(128, name="layer2_1")

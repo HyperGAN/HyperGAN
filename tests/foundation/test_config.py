@@ -84,3 +84,24 @@ def test_invalid_device_does_not_create_project(tmp_path, device):
     with pytest.raises(ValueError, match="training.device"):
         write_default(path, device=device)
     assert not path.exists()
+
+
+@pytest.mark.parametrize('sampling', [
+    {'generated': 'components.discriminator'}, {'generated': 'batch.real'},
+    {'views': {'random': 'components.missing'}}, {'views': {'g': 'generated'}},
+    {'comparison': [{'label': 'X', 'binding': 'batch.real'}]},
+    {'comparison': [{'label': 'X\n', 'binding': 'batch.real'}, {'label': 'G', 'binding': 'generated'}]},
+    {'particle_ids': 2},
+])
+def test_invalid_sampling_output_views_and_columns_are_rejected(sampling):
+    with pytest.raises(ValueError):
+        resolve_config({'sampling': sampling})
+
+
+def test_sampling_view_does_not_make_a_dormant_trainable_component_reachable():
+    import copy
+    raw = copy.deepcopy(DEFAULT)
+    raw['components']['unused'] = copy.deepcopy(raw['components']['generator'])
+    raw['sampling']['views'] = {'random': 'components.unused'}
+    with pytest.raises(ValueError, match='Disconnected'):
+        resolve_config(raw)

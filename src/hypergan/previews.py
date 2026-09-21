@@ -21,6 +21,7 @@ MAX_BYTES = 2 * 1024 * 1024
 MAX_IMAGE_ELEMENTS = 4_194_304
 MAX_RENDER_BYTES = 24 * 1024 * 1024
 MAX_INPUT_GRIDS = 4
+MAX_EXTRA_GRIDS = 4
 # Image history is what a reader scrubs through, so a run keeps a bounded but
 # whole-run history rather than only its newest samples. When a run outgrows
 # `keep`, the spacing between the older samples doubles (a run publishing every
@@ -72,7 +73,24 @@ def _inputs(trainer, batch):
             elif binding.startswith('batch.'):
                 needed.add(binding.split('.')[1])
     include('generator')
+    from .config import sampling_bindings
+    for binding in sampling_bindings(trainer.config['sampling'], preview=True):
+        if binding.startswith('components.'):
+            include(binding.split('.')[1])
+        elif binding.startswith('batch.'):
+            needed.add(binding.split('.')[1])
     return {key: batch[key] for key in needed}
+
+
+def _conditioned(binding, specs):
+    """Whether a particular output depends on batch input, independent of other views."""
+    if binding == 'generated':
+        binding = 'components.generator'
+    if binding.startswith('batch.'):
+        return True
+    if binding.startswith('components.'):
+        return any(_conditioned(path, specs) for path in specs[binding.split('.')[1]]['inputs'].values())
+    return False
 
 
 def _image(value):
@@ -90,6 +108,13 @@ def preview_budget(trainer, batch, inputs):
     image_only = _image(real) and per_sample * min(trainer.config['sampling']['count'], MAX_COUNT) > MAX_ELEMENTS
     budget = MAX_IMAGE_ELEMENTS if image_only else MAX_ELEMENTS
     count = min(trainer.config['sampling']['count'], MAX_COUNT, budget // max(1, per_sample))
+    comparison = trainer.config['sampling'].get('comparison', [])
+    if comparison and _image(real):
+        from .image_grids import MAX_SIDE, MAX_PIXELS
+        height, width = real.shape[2:]
+        columns = len(comparison)
+        count = min(count, (MAX_SIDE - 24) // height,
+                    (MAX_PIXELS // (width * columns) - 24) // height)
     if count < 1:
         raise ValueError(f'One preview sample exceeds the {budget}-element output/input budget')
     if image_only and sum(count * value[0].numel() for value in inputs.values() if not _image(value)) > MAX_ELEMENTS:
@@ -104,7 +129,7 @@ def render_preview(trainer, batch, identity):
     import numpy as np
     import torch
     from .checkpoints import capture_rng, restore_rng
-    from .recipes import generation_particle_ids
+    from .recipes import generation_output, generation_particle_ids
     rng = capture_rng()
     try:
         seed = trainer.config['sampling']['seed']
@@ -123,8 +148,12 @@ def render_preview(trainer, batch, identity):
         with torch.inference_mode():
             latent, ids = prior.sample(count, generator=torch.Generator().manual_seed(seed))
             context = graph.generate(latent, normalized, prior=prior)
-            values = context['generated']
+            values = generation_output(graph, context, trainer.config['sampling'])
             ids = generation_particle_ids(graph, context, ids, trainer.config['sampling'])
+            views = {name: graph.resolve(binding, context) for name, binding
+                     in trainer.config['sampling'].get('views', {}).items()}
+            comparison = [(column['label'], graph.resolve(column['binding'], context))
+                          for column in trainer.config['sampling'].get('comparison', [])]
         if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
             raise ValueError('Preview generator must return a tensor with the requested batch size')
         if values.numel() + sum(value.numel() for value in recorded_inputs.values()) > budget:
@@ -144,8 +173,17 @@ def render_preview(trainer, batch, identity):
                 'inputs': {key: {'shape': list(value.shape), 'representation': 'png'}
                            if image_only and _image(value) else value.tolist()
                            for key, value in recorded_inputs.items()},
-                'conditioning': 'last-completed-batch-cycled' if normalized else 'unconditional',
+                'conditioning': ('last-completed-batch-cycled' if _conditioned(
+                    trainer.config['sampling'].get('generated', 'generated'), trainer.config['components']) else 'unconditional'),
                 'resume_supported': False}
+        if ids is not None:
+            _, frequencies = ids.unique(return_counts=True)
+            payload['routing'] = {'unique_particles': len(frequencies),
+                                  'top_particle_share': float(frequencies.max().item() / len(ids))}
+        if (views or comparison) and not _image(values):
+            raise ValueError('Additional preview views and comparisons require image output')
+        if payload['name'] in views or (comparison and payload['name'] == 'comparison'):
+            raise ValueError('Preview name collides with an additional view or comparison')
         if values.ndim == 4 and values.shape[1] in (1, 3):
             from .image_grids import tensor_grid
             provenance = {key: payload[key] for key in (
@@ -168,7 +206,7 @@ def render_preview(trainer, batch, identity):
                 raise ValueError(f'Preview supports at most {MAX_INPUT_GRIDS} conditioning image grids')
             # Input names may equal the generator/real shelf names. Preserve the
             # original batch source, but give every image a distinct shelf name.
-            occupied = {payload['name'], REAL_NAME}
+            occupied = {payload['name'], REAL_NAME, 'comparison', *views}
             reserved = occupied | {key for key, _ in image_inputs}
             for index, (key, value) in enumerate(image_inputs):
                 name = key
@@ -184,6 +222,26 @@ def render_preview(trainer, batch, identity):
                     shape=list(value.shape), source='batch.' + key))
                 payload[f'input_image_grid_{index}'] = dict(grid, name=name, source='batch.' + key,
                     shape=list(value.shape), png_base64=base64.b64encode(encoded).decode('ascii'))
+            for index, (name, value) in enumerate(views.items()):
+                if (not isinstance(value, torch.Tensor) or not _image(value)
+                        or len(value) != count or value.numel() > MAX_IMAGE_ELEMENTS):
+                    raise ValueError('Additional preview views must be bounded image batches')
+                encoded, grid = tensor_grid(value, dict(provenance, name=name,
+                    particle_ids=None, source=trainer.config['sampling']['views'][name],
+                    conditioning=('last-completed-batch-cycled' if _conditioned(
+                        trainer.config['sampling']['views'][name], trainer.config['components']) else 'unconditional')))
+                payload[f'extra_image_grid_{index}'] = dict(grid, name=name,
+                    source=trainer.config['sampling']['views'][name],
+                    png_base64=base64.b64encode(encoded).decode('ascii'))
+            if comparison:
+                if any(not isinstance(value, torch.Tensor) or value.ndim < 1 or len(value) != count
+                       for _, value in comparison):
+                    raise ValueError('Comparison columns must match the requested preview count')
+                from .image_grids import comparison_grid
+                encoded, grid = comparison_grid(comparison, dict(provenance, name='comparison'))
+                payload['comparison_image_grid'] = dict(grid, name='comparison',
+                    sources=trainer.config['sampling']['comparison'],
+                    png_base64=base64.b64encode(encoded).decode('ascii'))
         return payload
     finally:
         restore_rng(rng)
@@ -228,7 +286,9 @@ def publish_preview_payload(run_dir, payload, identity, step, keep=DEFAULT_KEEP)
 
 
 GRIDS = (('image_grid', 'grid.png'), ('real_image_grid', 'real.png')) + tuple(
-    (f'input_image_grid_{index}', f'input-{index}.png') for index in range(MAX_INPUT_GRIDS))
+    (f'input_image_grid_{index}', f'input-{index}.png') for index in range(MAX_INPUT_GRIDS)) + tuple(
+    (f'extra_image_grid_{index}', f'extra-{index}.png') for index in range(MAX_EXTRA_GRIDS)) + (
+    ('comparison_image_grid', 'comparison.png'),)
 
 
 def _publish_grids(temporary, target, payload):

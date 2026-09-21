@@ -255,9 +255,11 @@ class ObservationService:
                                 shape=preview['shape'])
                             if not isinstance(records[key]['sha256'], str):
                                 records[key].update(status='unavailable', reason='Preview predates indexed content digests')
-                        from .previews import MAX_INPUT_GRIDS
+                        from .previews import MAX_INPUT_GRIDS, MAX_EXTRA_GRIDS
                         grid_fields = (('image_grid', '-grid'), ('real_image_grid', '-real-grid')) + tuple(
-                            (f'input_image_grid_{n}', f'-input-{n}') for n in range(MAX_INPUT_GRIDS))
+                            (f'input_image_grid_{n}', f'-input-{n}') for n in range(MAX_INPUT_GRIDS)) + tuple(
+                            (f'extra_image_grid_{n}', f'-extra-{n}') for n in range(MAX_EXTRA_GRIDS)) + (
+                            ('comparison_image_grid', '-comparison'),)
                         for field, suffix in grid_fields:
                             grid = preview.get(field)
                             if grid is None:

@@ -27,6 +27,74 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 
 ## Done
 
+### 18. Resume rejected because CUDA enumerated the other identical GPU; say what differs and warn instead of failing (raised 2026-09-20)
+
+Owner: "I think that should probably be a warning, and more specific on what is failing to load."
+
+Context: restarting a single-GPU run (`hypergan train ... --run-dir train-develop` with
+`CUDA_VISIBLE_DEVICES=0`) failed with the bare `ValueError: Resume runtime/topology
+differs from checkpoint`. The machine holds two identical NVIDIA RTX A6000s. The
+checkpoint was written on `548116b7-9dbe-de58-b3d9-a6e27b0f74ce`; after the restart CUDA
+device 0 enumerated as `ed080e41-3193-3755-6756-f3d46c433331` (`CUDA_DEVICE_ORDER` is
+unset, so the order is not stable). Only `cuda.uuid` and `cuda.visible_devices` differed
+— the model, capability, CUDA/cuDNN/torch versions, dtype and every determinism and TF32
+setting matched. `validate_runtime` compared the whole `runtime` dict as one JSON blob,
+so it could neither report which field differed nor tell a physical card swap apart from
+a real incompatibility.
+
+**Status:** Implemented on branch `worktree-agent-a71d0612e78de539e` (not merged; the
+coordinator merges). `src/hypergan/checkpoint_compatibility.py` now flattens both runtime
+dicts to dotted key paths and classifies the differences against one explicit set,
+`DEVICE_IDENTITY_KEYS = {'cuda.uuid', 'cuda.visible_devices'}`. A difference confined to
+that set is which card ran, not what it computes, so it warns and resumes; because any
+difference outside the set still rejects, an accepted swap has already proved the model,
+the capability and every numerical setting still match. Both call sites
+(`single_execution.restore` and `distributed_checkpoints._validate_restore_identity`)
+share the behavior. No checkpoint compatibility version bump: the metadata shape is
+unchanged and old checkpoints resume as before. Verified with the CPU suite
+(`pytest tests/foundation tests/reference`): 980 passed, 2 failed in 18:55, both
+environment-only and pre-existing — `test_console_entrypoint` (the known one) and
+`test_distribution_contains_only_supported_package`, which both require the installed
+wheel that CI builds rather than this machine's editable checkout. Not run: `tests/cuda/`.
+
+Where this lives today:
+- `src/hypergan/checkpoint_compatibility.py`: `_flatten`, `_differences`, `_describe`,
+  `DEVICE_IDENTITY_KEYS` and `validate_runtime(saved, current, *, warn=None)`, which
+  returns the warning messages and sends each to `warn` or to `warnings.warn(...,
+  RuntimeWarning)`.
+- `src/hypergan/single_execution.py` `restore` returns them on `Restored.warnings`.
+- `src/hypergan/run_controller.py`: `Restored` gained a `warnings` field; `run_resume`
+  appends them to `manifest['warnings']` (the existing durable channel, already used for
+  `recovery_reasons`), records `manifest['resume_warnings']`, and the `resume` event in
+  `events.jsonl` carries them as `warnings`. The console path is the existing
+  `warnings.warn(..., RuntimeWarning)` on stderr, raised at the moment of detection;
+  there is no separate console warning channel in the CLI for run-time (as opposed to
+  config-time) warnings.
+
+- [x] A rejection names every differing key path with the saved and the current value,
+  e.g. `cuda.name: saved "NVIDIA RTX A6000", current "NVIDIA GeForce RTX 4090"`. Nested
+  metadata is flattened to dotted paths, an absent key reads `absent`, and a long value
+  is truncated so one field cannot flood the message. The message ends with the action:
+  resume with the runtime that wrote the checkpoint, or start a new run directory.
+- [x] A different physical GPU of the same model and capability warns and continues. The
+  warning names the model, both UUIDs and the remedy (`CUDA_DEVICE_ORDER=PCI_BUS_ID` plus
+  `CUDA_VISIBLE_DEVICES`) for pinning one card across restarts.
+- [x] Everything else stays a hard failure: device type, dtype, world size,
+  torch/CUDA/cuDNN versions, the determinism, TF32 and matmul settings, the GPU model and
+  capability, python/numpy and platform/machine.
+- [x] The warning reaches the owner in three places: stderr at resume time, the run
+  manifest (`warnings` and `resume_warnings`) and the `resume` event in `events.jsonl`.
+- [x] Tests: `tests/foundation/test_runtime_compatibility.py` (36 torch-free unit tests:
+  identical dicts pass silently, a UUID-only swap warns and names both UUIDs, the warning
+  sink replaces `warnings.warn`, each runtime setting and each top-level field rejects
+  with its key path and both values, absent keys are named, long values truncate) and two
+  end-to-end cases in `tests/reference/test_checkpoint_compatibility.py` (a resume onto
+  the other identical card warns, completes, matches the baseline numerics and is
+  recorded on the run; a different card model rejects naming `cuda.name` and
+  `cuda.capability` and leaves the run untouched).
+- [x] [docs/recovery.md](../docs/recovery.md) describes the specific rejection message and
+  the one qualified difference, with the `CUDA_DEVICE_ORDER` remedy.
+
 ### 17. Preview retention: default 128 with thinning instead of keep-all, and fix inherited `preview_keep` (raised 2026-09-20)
 
 Owner: "ok lets fix the preview_keep bug. i think it should be set to idk, 128(?) by default. i also think we'll want to prune the middle when we prune, like go from once every 500 to once every 1000. stuff like that. so it's at most N but prunes when it gets too big in chunks."

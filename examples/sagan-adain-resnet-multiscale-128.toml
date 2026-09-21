@@ -1,0 +1,96 @@
+# SAGAN-style residual generator with split-latent AdaIN, paired with the
+# fixed-context multiscale ResNet discriminator. Both networks live in .hndl.
+# One latent128: content64 + style64, with no extra noise input or noise nodes.
+# Set the pinned dataset manifest and local pretrained checkpoint below.
+schema_version = 1
+name = "images/logos-sagan-adain-resnet-multiscale-128"
+
+[data]
+factory = "hypergan.colorization_data:ColorizationData"
+[data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest-128.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "train"
+shuffle = true
+
+[components.generator]
+factory = "hndl"
+inputs = { z = "latent" }
+[components.generator.args]
+input_shape = ["B", 128]
+output_shape = ["B", 3, 128, 128]
+file = "networks/sagan-adain-generator-128.hndl"
+
+[components.discriminator]
+factory = "hndl"
+inputs = { x = "candidate" }
+[components.discriminator.args]
+input_shape = ["B", 3, 128, 128]
+output_shape = ["B", 1]
+file = "networks/resnet18-multiscale-discriminator-128.hndl"
+[components.discriminator.args.parameters]
+weights_path = "/path/to/resnet18-f37072fd.pth"
+weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 25003
+[prior.args]
+num_particles = 4096
+z_dim = 128
+sigma_rel = 0.025
+
+[adversarial]
+loss_type = "logistic"
+mode = "rp"
+weight = 1.0
+
+[gradient_penalty]
+arm = "b_cap"
+coeff = 1.0
+kappa = 1.0
+lazy_k = 8
+
+[prior_regularizer]
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001
+
+[optimizer]
+implementation = "torch_fused_adam"
+lr = 0.0002
+d_lr_mult = 1.0
+prior_lr_mult = 10.0
+betas = [0.5, 0.999]
+prior_betas = [0.5, 0.999]
+
+[training]
+steps = 200000
+batch_size = 64
+seed = 25002
+device = "cuda"
+ema = 0.995
+lr_anneal_start = 0.6
+lr_floor = 1.0
+phase_draws = "independent"
+data_rng_device = "cpu"
+data_seed_offset = 2
+prior_seed_offset = 3
+
+[training.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[sampling]
+count = 16
+seed = 35002
+
+[metrics]
+preset = "standard"
+every_steps = 10

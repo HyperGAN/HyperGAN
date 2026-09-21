@@ -86,6 +86,40 @@ The fixed context is a zero RGB image in the input range `[-1, 1]`. HNDL concate
 
 Unlike the historical CIFAR adapter's cached context, the standalone graph recomputes context features in its shared `2*B` pass. It uses native 128px backbone input and 32/16/8px feature maps. Set the dataset manifest path/hash and local checkpoint path/hash in the TOML before training, and choose a new run directory. This is a configurable architecture experiment; no image-quality result is claimed for the 128px variant.
 
+### SAGAN with split-latent AdaIN
+
+The [SAGAN/AdaIN variant](../examples/sagan-adain-resnet-multiscale-128.toml)
+keeps that fixed-context discriminator and the batch-64 training settings, and
+replaces the generator with [one editable HNDL file](../examples/networks/sagan-adain-generator-128.hndl).
+A single 128-dimensional prior sample splits into 64 content dimensions and 64
+style dimensions. Content projects into a 512-channel 4×4 feature map; every
+AdaIN layer has its own affine projection of the same style half. No additional
+noise inputs, random noise nodes, or random draws occur inside the generator.
+
+Five residual nearest-neighbor upsampling blocks produce 8/16/32/64/128px maps
+with 512/256/128/64/32 channels. Linear and convolution weights use native
+spectral normalization. Self-attention at 32px uses pooled 16px keys/values and
+a learned residual gain initialized to zero. The gain learns first; attention
+projection weights receive gradients once it opens. These choices adapt the
+[SAGAN residual and attention design](https://github.com/brain-research/self-attention-gan)
+to this unconditional recipe; this is not a reproduction of the paper's
+class-conditioned ImageNet experiment.
+
+Native HNDL `adaptive_norm(features, params)` implements AdaIN as
+`(1 + delta_gamma) * instance_normalize(features) + beta`, where each style
+projection supplies `[delta_gamma, beta]`. Normalization uses per-example,
+per-channel spatial statistics and no running batch statistics. Spectral
+normalization still updates its power-iteration buffers in training mode;
+inference uses frozen buffers. All of this is specified in HNDL 0.4.0 without
+custom operators. The style-based conditioning is inspired by
+[StyleGAN](https://arxiv.org/abs/1812.04948); there is no additional noise injection
+or mapping network here.
+
+This comparison changes the generator architecture and its initialization,
+while preserving the latent distribution and seed settings. It does not
+isolate attention from AdaIN or promise better quality. Track FID where
+configured alongside `diversity/ratio` and `diversity/pooled4_ratio`.
+
 ## Numerical recipe
 
 The configuration separates `prior`, `adversarial`, `gradient_penalty`, `prior_regularizer`, `objectives`, `optimizer`, `training` and `sampling`. The generated default uses a particle prior, paired relativistic logistic loss, b-cap and VICReg. The exact resolved parameters are saved with each run.

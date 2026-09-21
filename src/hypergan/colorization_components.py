@@ -241,6 +241,9 @@ class DINOv3ProjectedDiscriminator(nn.Module):
     ``head='conv'`` adds a nonlinear, spectral-normalized discriminator over
     the projected patches (16 -> 8 -> 4 -> 1). The default linear head retains
     the original parameter layout so existing checkpoints remain loadable.
+    With the convolutional head, ``pixel_width > 0`` concatenates a learned RGB
+    stem with projected DINO features before the shared attention and head.
+    This preserves one image input, one backbone call and one scalar critic.
 
     Projection initialization uses Torch's checkpointed global RNG, and all
     frozen weights are included in the module state. Image derivatives remain
@@ -248,19 +251,32 @@ class DINOv3ProjectedDiscriminator(nn.Module):
     The original two-path DINOv3Discriminator remains available for prior runs.
     """
     def __init__(self, source_path, source_commit, weights_path, weights_sha256,
-                 feature_width=64, head='linear'):
+                 feature_width=64, head='linear', pixel_width=0):
         super().__init__()
         _positive_integer(feature_width, 'feature_width')
         if head not in ('linear', 'conv'):
             raise ValueError("Projected discriminator head must be 'linear' or 'conv'")
+        if type(pixel_width) is not int or pixel_width < 0:
+            raise ValueError('pixel_width must be a nonnegative integer')
+        if pixel_width and head != 'conv':
+            raise ValueError("pixel_width > 0 requires head='conv'")
         self.head = head
+        self.pixel_width = pixel_width
         self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256)
         self.backbone.eval().requires_grad_(False)
         self.feature_project = nn.Sequential(
             nn.Conv2d(384, feature_width, 1),
             nn.Conv2d(feature_width, feature_width, 3, padding=1))
         self.feature_project.eval().requires_grad_(False)
-        self.attention = SAGANAttention(feature_width)
+        feature_channels = feature_width
+        if pixel_width:
+            widths = (3, pixel_width, 2 * pixel_width, 2 * pixel_width, feature_width)
+            layers = []
+            for cin, cout in zip(widths, widths[1:]):
+                layers.extend([nn.Conv2d(cin, cout, 4, stride=2, padding=1), nn.LeakyReLU(.2)])
+            self.pixel_features = nn.Sequential(*layers)
+            feature_channels += feature_width
+        self.attention = SAGANAttention(feature_channels)
         if head == 'linear':
             self.feature_output = nn.Linear(feature_width * 16, 1)
         else:
@@ -269,7 +285,7 @@ class DINOv3ProjectedDiscriminator(nn.Module):
             def spectral_conv(*args, **kwargs):
                 return nn.utils.spectral_norm(nn.Conv2d(*args, **kwargs))
             self.feature_output = nn.Sequential(
-                spectral_conv(feature_width, 2 * feature_width, 4, stride=2, padding=1),
+                spectral_conv(feature_channels, 2 * feature_width, 4, stride=2, padding=1),
                 nn.LeakyReLU(.2),
                 spectral_conv(2 * feature_width, 4 * feature_width, 4, stride=2, padding=1),
                 nn.LeakyReLU(.2),
@@ -280,7 +296,7 @@ class DINOv3ProjectedDiscriminator(nn.Module):
                                     'source_commit': source_commit, 'weights_sha256': weights_sha256,
                                     'input_size': 256, 'sdpa_backend': 'math',
                                     'projection': 'frozen_random_1x1_channel_3x3_spatial',
-                                    'feature_scales': 1, 'head': head}
+                                    'feature_scales': 1, 'head': head, 'pixel_width': pixel_width}
 
     def train(self, mode=True):
         super().train(mode)
@@ -303,7 +319,10 @@ class DINOv3ProjectedDiscriminator(nn.Module):
         if tokens.shape != (len(x), 256, 384):
             raise ValueError('DINOv3 ViT-S/16 must return 256 patch tokens of width 384')
         features = tokens.transpose(1, 2).reshape(len(x), 384, 16, 16)
-        features = self.attention(self.feature_project(features))
+        features = self.feature_project(features)
+        if self.pixel_width:
+            features = torch.cat((features, self.pixel_features(x)), dim=1)
+        features = self.attention(features)
         if self.head == 'conv':
             return self.feature_output(features).flatten(1)
         # Nonoverlapping reduction avoids adaptive-pool CUDA backward atomics.

@@ -123,8 +123,8 @@ These findings support retaining b-cap for the selected hybrid architecture.
 
 Both first-seed runs completed normally and saved full checkpoints. The second
 seeds were interrupted on request (last evaluations at 400 capped / 100 uncapped)
-and are not presented as replication evidence. No second-seed qualification is
-required by the user. All bounded training jobs are now stopped.
+and are not presented as replication evidence. All bounded training jobs are
+now stopped.
 
 ## Gradient-penalty audit
 
@@ -147,6 +147,18 @@ with the existing penalty, so no penalty change is included in the owner recipe.
 Evidence scripts and receipts: `summarize-bcap-intervention.py`,
 `bcap-intervention-summary.json`, `input-gradient-probe.py`, and
 `input-gradients-*.json` under the machine evidence directory above.
+
+## Trained feature-path check
+
+A checkpoint probe at step 1,500 detached each feature branch in turn while
+preserving identical forward scores. On 16 held-out and 16 fixed prior samples,
+both branches retained nonzero input derivatives. Mean fake-image gradient norm
+was 0.1594 through DINO and 0.00666 through the RGB stem (full gradient 0.1596).
+The summed branch derivatives matched the full derivative to relative error
+below 1e-7, and logits were unchanged exactly. The trained critic therefore still
+uses DINO's differentiable feature path; the new RGB path has not simply replaced
+it. These are local sensitivity measurements, not additive semantic-importance
+scores. Receipt: `feature-branch-gradients-conv_pixel-25002-1500-raw-sn0.json`.
 
 ## Validation and owner state
 
